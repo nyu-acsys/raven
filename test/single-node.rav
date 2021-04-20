@@ -35,7 +35,7 @@ interface Keyspace {
   val KS: Set[K]
 }
 
-module IntKeyspace : Keyspace {
+module IntKeyspace : Keyspace where type K = Int {
   type K = Int
 
   val KS = {| k: Int :: true |}
@@ -49,8 +49,8 @@ module SearchStructureSpec(module Keys: Keyspace) {
   pred opSpec(op: Op, C: Set[K], C': Set[K], res: Bool) {
     match(op) {
      | searchOp -> C' == C && res == (k in C)
-     | insertOp -> C' == C ++ {k} && res == (k !in C)
-     | insertOp -> C' == C -- {k} && res == (k in C)
+     | insertOp -> C' == C ++ {|k|} && res == (k !in C)
+     | insertOp -> C' == C -- {|k|} && res == (k in C)
     }
   }
 }
@@ -83,7 +83,7 @@ interface SearchStructure(module Keys: Keyspace) {
 
   atom create()
     returns (r: Ref)
-    ensures cssInv(r) && cssR(r, {||})   
+    ensures cssInv(r) && cssR(r, {||})
 
   atom decisiveOp(dop: Op, r: Ref, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
