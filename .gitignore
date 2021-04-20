@@ -1,14 +1,3 @@
+_build/
+*.smt2
 *~
-*.aux
-*.glob
-*.vo
-*.vos
-*.vok
-.lia.cache
-.coqdeps.d
-*.v.d
-*.zip
-Makefile
-Makefile.conf
-.Makefile.d
-CoqMakefile.conf
