@@ -16,8 +16,13 @@ module Lock {
     require lockR(l, b)
     ensures lockR(l, true)
   {
-    val b := l.bit
-    if (!cas(b, false, true)) acquire(l)
+    ghost val phi = openAtom()
+
+    val res := cas(l.bit, false, true)
+
+    if (res) commit(phi)
+    
+    if (!res) acquire(l)
   }
 
   atom release(l: Ref)
@@ -30,20 +35,19 @@ module Lock {
 
 
 interface Keyspace {
-  type K
+  rep type T
 
-  val KS: Set[K]
+  val KS: Set[T]
 }
 
-module IntKeyspace : Keyspace where type K = Int {
-  type K = Int
+module IntKeyspace : Keyspace where type T = Int {
+  rep type T = Int
 
   val KS = {| k: Int :: true |}
 }
 
-module SearchStructureSpec(module Keys: Keyspace) {
-  import Keyspace
-  
+module SearchStructureSpec[module K: Keyspace] {
+
   data Op = searchOp | insertOp | deleteOp
 
   pred opSpec(op: Op, C: Set[K], C': Set[K], res: Bool) {
@@ -55,15 +59,13 @@ module SearchStructureSpec(module Keys: Keyspace) {
   }
 }
 
-interface NodeImpl(module Keys: Keyspace) {
-  import Keyspace
-  import SearchStructureSpec(Keys)
+interface NodeImpl[module K: Keyspace] {
+  import K::KS
+  import SearchStructureSpec[K]
 
   pred nodeR(n: Ref, C: Set[K])
 
-  pred decisiveOpSpec(dop: Op, k: K, C, C1, res)
-
-  pred create()
+  proc create()
     returns (n: Ref)
     ensures nodeR(n, {||})
 
@@ -73,9 +75,9 @@ interface NodeImpl(module Keys: Keyspace) {
     ensures nodeR(n, C') && opSpec(dop, k, C, C', res)
 }
 
-interface SearchStructure(module Keys: Keyspace) {
-  import Keys
-  import SearchStructureSpec(Keys)
+interface SearchStructure[module K: Keyspace] {
+  import K::KS
+  import SearchStructureSpec[K]
 
   pred cssR(r: Ref, C: Set[K])
 
@@ -92,9 +94,9 @@ interface SearchStructure(module Keys: Keyspace) {
     ensures cssR(r, C') && opSpec(dop, k, C, C', res)
 }
 
-module SingleNodeTemplate(module Keys: Keyspace, module NI: NodeImpl) : SearchStructure(Keys) {
-  import Keyspace
-  import NI(Keyspace)
+module SingleNodeTemplate[module K: Keyspace, module NI: NodeImpl] : SearchStructure[K] {
+  import K::KS
+  import NI[K]
 
   field lock: Ref
   field node: Ref
@@ -143,6 +145,7 @@ module SingleNodeTemplate(module Keys: Keyspace, module NI: NodeImpl) : SearchSt
       use(inv(cssInv(r)))
       use(cssAuth(r, C))
       use(nodePred(r))
+      // TODO: What about ghost updates?
     }
   }
 }
