@@ -40,7 +40,7 @@ interface Keyspace {
   val KS: Set[T]
 }
 
-module IntKeyspace : Keyspace where type T = Int {
+module IntKeyspace : Keyspace {
   rep type T = Int
 
   val KS = {| k: Int :: true |}
@@ -138,7 +138,7 @@ module SingleNodeTemplate[module K: Keyspace, module NI: NodeImpl] : SearchStruc
   {
     ghost val phi := openAtom()
     acquire(r.lock) using inv(cssInv(r))
-    res := decisiveOp(dop, r, k) using inv(cssInv(r))
+    res := decisiveOp(dop, r, k)
     release(r.lock) with {
       commit(phi)
       use(css(r, C))

@@ -1,0 +1,3 @@
+(executable
+  (name raven)
+  (libraries base config util ast))
