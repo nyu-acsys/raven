@@ -1,5 +1,5 @@
 module Lock {
-  rep type t = struct {
+  rep type T = struct {
     var bit: Bool
   }
   
@@ -67,15 +67,15 @@ interface NodeImpl[module K: Keyspace] {
   module Spec = SearchStructureSpec[K]
   import Spec
 
-  rep type t
+  rep type T
 
-  pred nodeR(n: t, C: Set[K])
+  pred nodeR(n: T, C: Set[K])
 
   proc create()
-    returns (n: t)
+    returns (n: T)
     ensures nodeR(n, {||})
 
-  proc decisiveOp(dop: Op, n: t, k: K, implicit ghost C: Set[K])
+  proc decisiveOp(dop: Op, n: T, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
     requires k in KS && node(n, C)
     ensures nodeR(n, C') && opSpec(dop, k, C, C', res)
