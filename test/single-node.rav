@@ -1,20 +1,22 @@
 module Lock {
-  field bit: Bool
-
-  pred lockR(l: Ref, b: Bool) {
+  rep type t = struct {
+    var bit: Bool
+  }
+  
+  pred lockR(l: Lock, b: Bool) {
     own(l.bit, b)
   }
 
-  atom create()
-    returns (l: Ref)
+  proc create()
+    returns (l: Lock)
     ensures lockR(l, false)
   {
     l := new(bit(false))
   }
 
-  atom acquire(l: Ref, implicit ghost b)
-    require lockR(l, b)
-    ensures lockR(l, true)
+  proc acquire(l: Lock, implicit ghost b)
+    atomic require lockR(l, b)
+    atomic ensures lockR(l, true)
   {
     ghost val phi = openAtom()
 
@@ -25,9 +27,9 @@ module Lock {
     if (!res) acquire(l)
   }
 
-  atom release(l: Ref)
-    require lockR(l, true)
-    ensures lockR(l, false)
+  proc release(l: Lock)
+    atomic require lockR(l, true)
+    atomic ensures lockR(l, false)
   {
     l.bit := false
   }
@@ -48,7 +50,7 @@ module IntKeyspace : Keyspace {
 
 module SearchStructureSpec[module K: Keyspace] {
 
-  data Op = searchOp | insertOp | deleteOp
+  type Op = searchOp | insertOp | deleteOp
 
   pred opSpec(op: Op, C: Set[K], C': Set[K], res: Bool) {
     match(op) {
@@ -60,70 +62,82 @@ module SearchStructureSpec[module K: Keyspace] {
 }
 
 interface NodeImpl[module K: Keyspace] {
-  import K::KS
-  import SearchStructureSpec[K]
 
-  pred nodeR(n: Ref, C: Set[K])
+  import K.KS
+  module Spec = SearchStructureSpec[K]
+  import Spec
+
+  rep type t
+
+  pred nodeR(n: t, C: Set[K])
 
   proc create()
-    returns (n: Ref)
+    returns (n: t)
     ensures nodeR(n, {||})
 
-  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost C: Set[K])
+  proc decisiveOp(dop: Op, n: t, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
     requires k in KS && node(n, C)
     ensures nodeR(n, C') && opSpec(dop, k, C, C', res)
 }
 
 interface SearchStructure[module K: Keyspace] {
-  import K::KS
-  import SearchStructureSpec[K]
+  import K.KS
+  module Spec = SearchStructureSpec[K]
+  import Spec
 
-  pred cssR(r: Ref, C: Set[K])
+  type CSS
 
-  pred cssInv(r: Ref)
+  pred cssR(r: CSS, C: Set[K])
 
-  atom create()
-    returns (r: Ref)
+  pred cssInv(r: CSS)
+
+  proc create()
+    returns (r: CSS)
     ensures cssInv(r) && cssR(r, {||})
 
-  atom decisiveOp(dop: Op, r: Ref, k: K, implicit ghost C: Set[K])
+  proc decisiveOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
-    requires k in KS
-    requires inv(cssInv(r)) && cssR(r, C)
-    ensures cssR(r, C') && opSpec(dop, k, C, C', res)
+    atomic requires k in KS
+    atomic requires inv(cssInv(r)) && cssR(r, C)
+    atomic ensures cssR(r, C') && opSpec(dop, k, C, C', res)
 }
 
-module SingleNodeTemplate[module K: Keyspace, module NI: NodeImpl] : SearchStructure[K] {
-  import K::KS
-  import NI[K]
+module SingleNodeTemplate[module K: Keyspace, module Node: NodeImpl[K]] : SearchStructure[K] {
+  import K.KS
+  import Node
 
-  field lock: Ref
-  field node: Ref
-  ghost field cont_lock: Frac[Set[K]]
-  ghost field cont_spec: Auth[Excl[Set[K]]]
+  module FracSK = Frac[Set[K]]
+  module AuthSK = Auth[Excl[Set[K]]]
+
+  type CSS = struct {
+    var lock: Lock
+    var node: Node
+    ghost cont_lock: FracSK
+    ghost cont_spec: AuthSK
+  }
   
-  pred nodePred(r: Ref) {
+  pred nodePred(r: CSS) {
     exists C: Set[K] :: nodeR(r.node, C) && own(r.cont_lock, frac(1/2, C))
   }
 
-  pred cssAuth(r: Ref, C: Set[K]) {
+  pred cssAuth(r: CSS, C: Set[K]) {
     own(r.cont_spec, authAuth(excl(C)))
   }
 
-  pred cssR(r: Ref, C: Set[K]) {
+  pred cssR(r: CSS, C: Set[K]) {
     own(r.cont_spec, authFrag(excl(C)))
   }
 
-  pred cssInv(r: Ref) {
+  pred cssInv(r: CSS) {
     exists b: Bool, C: Set[K] ::
       cssAuth(r, C)
       && own(r.cont_lock, frac(1/2, C))
       && Lock::lockR(r.lock, b) && (b ? true : nodePred(r))
   }
 
-  atom create()
-    returns (r: Ref)
+  proc create()
+    returns (r: CSS)
   {
     val l := Lock::create()
     val n := NI::create()
@@ -133,7 +147,7 @@ module SingleNodeTemplate[module K: Keyspace, module NI: NodeImpl] : SearchStruc
     fold(cssInv(r))
   }
 
-  atom decisiveOp(dop: Op, r: Ref, k: K, implicit ghost C: Set[K])
+  proc decisiveOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
   {
     ghost val phi := openAtom()

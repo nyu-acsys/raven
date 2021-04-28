@@ -14,6 +14,8 @@ Link to the Google Doc: https://docs.google.com/document/d/1AvU88AoWAMsv9lBCK980
 
 - base, version >= 0.14
 
+- stdio, version >= 0.14
+
 - ppx_custom_printf >= 0.14.1
 
 - ppx_compare >= 0.14.0

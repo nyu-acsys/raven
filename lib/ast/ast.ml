@@ -1,25 +1,8 @@
 (** Abstract syntax tree of a Raven program *)
 
 open Base
-
-(** Source code locations *)
-
-module Loc = struct
+open Util
   
-  type position =
-      { pos_lnum: int;
-        pos_cnum: int;
-      }
-      [@@deriving compare, hash]
-        
-  type t =
-      { loc_file: string;
-        loc_start: position;
-        loc_end: position;
-      }
-      [@@deriving compare, hash]
-end
-
 type location = Loc.t
     
 (** Identifiers *)
@@ -28,18 +11,20 @@ module Ident = struct
   
   type t =
       { ident_name: string;
-        ident_id: int;
+        ident_num: int;
       }
       [@@deriving compare, hash]
 
   let to_string id =
-    match id.ident_id with
+    match id.ident_num with
     | 0 -> id.ident_name
-    | _ -> Printf.sprintf !"%{String}#%{Int}" id.ident_name id.ident_id
+    | _ -> Printf.sprintf !"%{String}#%{Int}" id.ident_name id.ident_num
           
   let pr ppf id = Stdlib.Format.fprintf ppf "%s" (to_string id)
     
-  let pr_list ppf ids = Util.pr_list_comma pr ppf ids
+  let pr_list ppf ids = Print.pr_list_comma pr ppf ids
+
+  let mk_ident name num = { ident_name = name; ident_num = num }
 end
 
 type ident = Ident.t
@@ -56,10 +41,12 @@ module QualIdent = struct
       [@@deriving compare, hash]
 
   let pr ppf qid =
-    Util.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base])
+    Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base])
 
-  let to_string qid = Util.string_of_format pr qid
+  let to_string qid = Print.string_of_format pr qid
 
+  let from_ident id = { qual_path = []; qual_base = id }
+      
 end
 
 type qual_ident = QualIdent.t
@@ -69,23 +56,23 @@ type qual_ident = QualIdent.t
 module Type = struct
   
   type type_attr =
-      { type_loc: Loc.t;
-      }
+      { type_loc: Loc.t [@hash.ignore]; }
 
   and t =
-    | Int of type_attr
-    | Bool of type_attr
-    | Unit of type_attr
-    | AnyRef of type_attr
-    | Ref of QualIdent.t * type_attr
-    | Perm of type_attr
-    | Any of type_attr
-    | Var of QualIdent.t * type_attr
-    | Set of type_attr
-    | Map of type_attr
+    | Int
+    | Bool
+    | Unit
+    | AnyRef
+    | Ref of QualIdent.t
+    | Perm
+    | Bot
+    | Any
+    | Var of QualIdent.t
+    | Set
+    | Map
     | App of t * t list * type_attr
     | Alias of QualIdent.t * t * type_attr
-          (*| TypeData of qual_ident * type_attr*)
+  (*| TypeData of qual_ident * type_attr*)
     | Dot of t * Ident.t * type_attr
     [@@deriving compare, hash]
 
@@ -98,42 +85,79 @@ module Type = struct
   let int_type_string = "Int"
   let unit_type_string = "Unit"
   let perm_type_string = "Perm"
+  let bot_type_string = "Bot"
   let any_type_string = "Any"
   let anyref_type_string = "AnyRef"
 
   let to_name = function
-  | Int _ -> int_type_string
-  | Bool _ -> bool_type_string
-  | Unit _ -> unit_type_string
-  | Any _ -> any_type_string
-  | AnyRef _ -> anyref_type_string
-  | Set _ -> set_type_string
-  | Map _ -> map_type_string
-  | Perm _ -> perm_type_string
-  | Ref (id, _)
-  | Var (id, _)
+  | Int -> int_type_string
+  | Bool -> bool_type_string
+  | Unit -> unit_type_string
+  | Bot -> bot_type_string
+  | Any -> any_type_string
+  | AnyRef -> anyref_type_string
+  | Set -> set_type_string
+  | Map -> map_type_string
+  | Perm -> perm_type_string
+  | Ref id
+  | Var id
   | Alias (id, _, _) -> QualIdent.to_string id
   | App _ -> "App"
   | Dot _ -> "Dot"
       
   let rec pr ppf t = match t with
-  | Int _
-  | Bool _
-  | Unit _
-  | Any _
-  | AnyRef _
-  | Perm _
+  | Int
+  | Bool
+  | Unit
+  | Any
+  | Bot
+  | AnyRef
+  | Perm
   | Var _
-  | Set _
-  | Map _
+  | Set
+  | Map
   | Alias _
   | Ref _ ->
       Stdlib.Format.fprintf ppf "%s" (to_name t)
+  | App (t1, [], _) -> pr ppf t1
   | App (t1, ts, _) ->
-      Stdlib.Format.fprintf ppf "%a[@[%a]]" pr t1 (Util.pr_list_comma pr) ts
+      Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr t1 (Print.pr_list_comma pr) ts
   | Dot (t1, id, _) ->
       Stdlib.Format.fprintf ppf "%a.%a" pr t1 Ident.pr id
-    
+
+  (** Constructors *)
+
+  let dummy_attr = { type_loc = Loc.dummy }
+        
+  let mk_attr loc =
+    if Loc.(loc = dummy)
+    then dummy_attr
+    else { type_loc = loc }
+
+  let mk_app ?(loc=Loc.dummy) t ts = App (t, ts, mk_attr loc)
+  let mk_dot ?(loc=Loc.dummy) t id = Dot (t, id, mk_attr loc)
+        
+  let mk_int loc = App (Int, [], mk_attr loc)
+  let mk_bool loc = App (Bool, [], mk_attr loc)
+  let mk_unit loc = App (Unit, [], mk_attr loc)
+  let mk_any loc = App (Any, [], mk_attr loc)
+  let mk_anyref loc = App (AnyRef, [], mk_attr loc)
+  let mk_set loc = App (Set, [], mk_attr loc)
+  let mk_map loc = App (Map, [], mk_attr loc)
+  let mk_perm loc = App (Perm, [], mk_attr loc)
+  let mk_ref loc qid = App (Ref qid, [], mk_attr loc)
+  let mk_var loc qid = App (Var qid, [], mk_attr loc)
+
+  (** Subtyping *)
+      
+  let rec join t1 t2 =
+    match t1, t2 with
+    | Bot, t | t, Bot -> t
+    | Bool, Perm | Perm, Bool -> Perm
+    | AnyRef, Ref _ | Ref _, AnyRef -> AnyRef
+    | App (t1, [], a1), App (t2, [], _) ->
+        App (join t1 t2, [], a1)
+    | _ -> Any
 end
 
 type type_expr = Type.t
@@ -183,13 +207,16 @@ module Expr = struct
     (* Variable binder expressions *)
     | Binder of binder * var_decl list * t * expr_attr
 
+  let mk_attr loc t =
+    { expr_loc = loc; expr_type = t; }
+          
   let attr_of = function
     | App (_, _, attr)
     | Binder (_, _, _, attr) -> attr
           
-  let to_loc t = t |> attr_of |> (fun attr -> attr.expr_loc) 
+  let loc t = t |> attr_of |> (fun attr -> attr.expr_loc)
           
-  let to_type t = t |> attr_of |> (fun attr -> attr.expr_type) 
+  let to_type t = t |> attr_of |> (fun attr -> attr.expr_type)
           
   (** Pretty printing expressions *)
 
@@ -229,14 +256,13 @@ module Expr = struct
   | Var id -> QualIdent.to_string id
   (* ownership predicates *)
   | Own -> "own"      
-        
-    
+            
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
   
   let constr_to_prio = function
     | Null | Unit | Empty | Int _ | Bool _ -> 0
     | Dot | Setenum | Read | Write | Own | Var _ -> 1
-    | Uminus | Not -> 2 
+    | Uminus | Not -> 2
     | Mult | Div | Mod -> 3
     | Minus | Plus -> 4
     | Diff | Union | Inter -> 6
@@ -259,12 +285,14 @@ module Expr = struct
   let rec pr ppf e =
     let open Stdlib.Format in
     match e with
+    | App (And, [], a) -> pr ppf (App (Bool false, [], a))
+    | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
     | App ((Union | Setenum), [], a) -> pr ppf (App(Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "%a" pr_constr c
     | App (Dot, [e2; e1], _) | App (Read, [e1; e2], _) ->
         (match e1, to_type e2 with
-        | App (Var _, _, _), (Ref _ | AnyRef _) ->
+        | App (Var _, _, _), (Ref _ | AnyRef) ->
             fprintf ppf "%a.%a" pr e2 pr e1
         | _ ->
             fprintf ppf "%a(%a)" pr e1 pr e2)
@@ -288,18 +316,49 @@ module Expr = struct
   | App (c, es, _) -> fprintf ppf "%a(@[%a@])" pr_constr c pr_list es
   | Binder (b, vs, e1, _) ->
       fprintf ppf "@[%a@]" pr_binder (b, vs, e1, to_type e)
-  and pr_list ppf = Util.pr_list_comma pr ppf 
+  and pr_list ppf = Print.pr_list_comma pr ppf 
   and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
   and pr_binder ppf = function
     | ((Forall | Exists as b), vs, e, _) ->
         Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a" (binder_to_string b) pr_var_decl_list vs pr e
-    | (Compr, vs, e, App (Set _, _, _)) ->
+    | (Compr, vs, e, App (Set, _, _)) ->
         Stdlib.Format.fprintf ppf "{|@ %a@ ::@ %a@ |}" pr_var_decl_list vs pr e
     | (Compr, vs, e, _) ->
         Stdlib.Format.fprintf ppf "[|@ %a@ ::@ %a@ |]" pr_var_decl_list vs pr e
   and pr_var_decl ppf vdecl =
     Stdlib.Format.fprintf ppf "%a:@ %a" Ident.pr vdecl.var_name Type.pr vdecl.var_type
-  and pr_var_decl_list ppf = Util.pr_list_comma pr_var_decl ppf 
+  and pr_var_decl_list ppf = Print.pr_list_comma pr_var_decl ppf 
+      
+  (** Constructors *)
+
+  let mk_app ?(loc=Loc.dummy) ?(typ=Type.Any) c es =
+    App (c, es, mk_attr loc typ)
+
+  let mk_binder ?(loc=Loc.dummy) ?(typ=Type.Any) b vs e =
+    Binder (b, vs, e, mk_attr loc typ)
+
+  let mk_bool ?(loc=Loc.dummy) b =
+    mk_app ~loc ~typ:Type.Bool (Bool b) []
+      
+  (** Constructor for conjunction.*)
+  let mk_and ?(loc=Loc.dummy) =
+    function
+      | [] -> mk_bool ~loc false
+      | [e] -> e
+      | es ->
+          let t = List.fold_left es ~init:Type.Bool ~f:(fun t e -> Type.join t (to_type e)) in
+          mk_app ~loc ~typ:t And es
+
+  (** Constructor for disjunction.*)
+  let mk_or ?(loc=Loc.dummy) =
+    function
+      | [] -> mk_bool ~loc true
+      | [e] -> e
+      | es ->
+          let t = List.fold_left es ~init:Type.Bool ~f:(fun t e -> Type.join t (to_type e)) in
+          mk_app ~loc ~typ:t Or es
+
+      
 end
 
 type expr = Expr.t
@@ -310,6 +369,7 @@ type var_decl = Expr.var_decl
 
 type spec =
     { spec_form: expr;
+      spec_atomic: bool;
       spec_name: string;
       spec_error: (qual_ident -> (string * string)) option;
     }
@@ -382,7 +442,7 @@ type contract =
     }
 
 type proc_kind =
-  | Proc | Lemma | Atom
+  | Proc | Lemma
 
 type proc_decl =
     { proc_kind: proc_kind;
@@ -448,7 +508,7 @@ type module_member_def =
 and module_def =
     { mod_decl: module_decl;
       mod_def: module_member_def list;
-      mod_is_interface: bool;
+      mod_interface: bool;
     }
       
 

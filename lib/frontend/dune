@@ -1,3 +1,7 @@
 (library
   (name frontend)
   (libraries base ast))
+
+(ocamllex
+  (modules lexer))
+(menhir (modules parser))
