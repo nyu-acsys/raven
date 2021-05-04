@@ -125,7 +125,7 @@ rule token = parse
     { try
       Hashtbl.find keyword_table kw
     with Not_found ->
-      IDENT (kw, 0)
+      IDENT (Ident.mk_ident kw 0)
     }
 | digits as num { CONSTVAL (Expr.Int (Int64.of_string num)) }
 | eof { EOF }

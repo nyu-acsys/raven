@@ -22,3 +22,4 @@ let string_of_format pr t = pr str_formatter t; flush_str_formatter ()
 
 let print_list out_ch pr xs = print_of_format (pr_list_comma pr) xs out_ch
 
+let _ = pp_set_margin str_formatter 80

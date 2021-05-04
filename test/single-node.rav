@@ -1,20 +1,20 @@
 module Lock {
-  rep type T = struct {
+  rep type Rep = struct {
     var bit: Bool
   }
   
-  pred lockR(l: Lock, b: Bool) {
+  pred lockR(l: Rep, b: Bool) {
     own(l.bit, b)
   }
 
   proc create()
-    returns (l: Lock)
+    returns (l: Rep)
     ensures lockR(l, false)
   {
     l := new(bit(false))
   }
 
-  proc acquire(l: Lock, implicit ghost b)
+  proc acquire(l: Rep, implicit ghost b)
     atomic require lockR(l, b)
     atomic ensures lockR(l, true)
   {
@@ -48,7 +48,7 @@ module IntKeyspace : Keyspace {
   val KS = {| k: Int :: true |}
 }
 
-module SearchStructureSpec[module K: Keyspace] {
+module SearchStructureSpec[K: Keyspace] {
 
   type Op = searchOp | insertOp | deleteOp
 
@@ -61,7 +61,7 @@ module SearchStructureSpec[module K: Keyspace] {
   }
 }
 
-interface NodeImpl[module K: Keyspace] {
+interface NodeImpl[K: Keyspace] {
 
   import K.KS
   module Spec = SearchStructureSpec[K]
@@ -81,7 +81,7 @@ interface NodeImpl[module K: Keyspace] {
     ensures nodeR(n, C') && opSpec(dop, k, C, C', res)
 }
 
-interface SearchStructure[module K: Keyspace] {
+interface SearchStructure[K: Keyspace] {
   import K.KS
   module Spec = SearchStructureSpec[K]
   import Spec
@@ -103,7 +103,7 @@ interface SearchStructure[module K: Keyspace] {
     atomic ensures cssR(r, C') && opSpec(dop, k, C, C', res)
 }
 
-module SingleNodeTemplate[module K: Keyspace, module Node: NodeImpl[K]] : SearchStructure[K] {
+module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   import K.KS
   import Node
 
@@ -133,14 +133,14 @@ module SingleNodeTemplate[module K: Keyspace, module Node: NodeImpl[K]] : Search
     exists b: Bool, C: Set[K] ::
       cssAuth(r, C)
       && own(r.cont_lock, frac(1/2, C))
-      && Lock::lockR(r.lock, b) && (b ? true : nodePred(r))
+      && Lock.lockR(r.lock, b) && (b ? true : nodePred(r))
   }
 
   proc create()
     returns (r: CSS)
   {
-    val l := Lock::create()
-    val n := NI::create()
+    val l := Lock.create()
+    val n := Node.create()
     r := new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(authAuth(excl({||}))))
     fold(cssR(r, {||}))
     fold(cssAuth(r, {||}))

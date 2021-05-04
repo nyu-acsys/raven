@@ -21,7 +21,7 @@ let to_string (loc: Loc.t) msg =
   else
     (*if !Config.flycheck_mode 
     then Printf.sprintf "%s:%s" (flycheck_string_of_src_pos pos) msg*)
-    msg (*Printf.sprintf !"%{Loc}:\n%{String}" loc msg*)
+    Printf.sprintf !"%{Loc}:\n%{String}" loc msg
 
 let to_string = function
   | Msg (loc, msg) -> to_string loc msg      

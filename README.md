@@ -21,3 +21,5 @@ Link to the Google Doc: https://docs.google.com/document/d/1AvU88AoWAMsv9lBCK980
 - ppx_compare >= 0.14.0
 
 - ppx_hash >= 0.14.0
+
+- ppx_sexp_conv >= 0.14.3

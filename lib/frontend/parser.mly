@@ -2,7 +2,7 @@
 
 open Util
 open Ast
-open Base
+(*open Base*)
 (*open Lexing*)
 
 (*
@@ -45,10 +45,10 @@ type rhs_string_maybe =
 %token EQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
-%token ASSUME ASSERT HAVOC NEW RETURN
+%token ATOMIC ASSUME ASSERT HAVOC NEW RETURN
 %token IF ELSE WHILE
-%token <Ast.func_kind> FUNC
-%token <Ast.proc_kind> PROC
+%token <Ast.Module.contr_kind> FUNC
+%token <Ast.Module.contr_kind> PROC
 %token DATA GHOST IMPLICIT VAR VAL STRUCT TYPE
 %token INTERFACE MODULE  
 %token RETURNS REQUIRES ENSURES INVARIANT
@@ -72,21 +72,18 @@ type rhs_string_maybe =
 %nonassoc LPAREN
 
 %start main
-%type <unit> main
+%type <Ast.Expr.t> main
 %%
 
 main:
-| e = expr { e }
+| e = expr; EOF { e }
 ;
 
 primary:
 | c = CONSTVAL { Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) c []) }
 | LPAREN; e = expr; RPAREN { e }
 | e = set_expr { e }
-| e = proc_call { e }
-| e = field_access { e }
-| e = field_write { e }
-| e = set_expr { e }
+| e = qual_ident_expr { e }
 ;
 
 set_expr:
@@ -98,43 +95,42 @@ set_expr:
   }
 ;
   
-/*
+(*
 alloc:
 | NEW var_type { New ($2, [], Loc.mk_loc 1 2) }
 | NEW var_type LPAREN expr_list_opt RPAREN { New ($2, $4, Loc.mk_loc 1 5) }
-;*/
+;*)
 
-proc_call:
-/*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*/
-| p = IDENT; LPAREN; es = expr_list_opt; RPAREN {
-  Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) (Var p) es) }
+qual_ident_expr:
+(*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
+| p = qual_ident; co = call_opt {
+  Base.Option.map co ~f:(fun (c, es) ->
+    Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) c (p :: es)))
+  |> Base.Option.value ~default:p
+}
 ;
-                                                             
+
+call_opt:
+| LPAREN; es = expr_list_opt; RPAREN { Some (Expr.Call, es) }
+| LBRACKETPIPE; e2 = expr; COLONEQ; e3 = expr; RBRACKETPIPE {
+  Some (Write, [e2; e3])
+}
+| (* empty *) { None }
+  
+qual_ident:
+| x = ident { x }
+| p = primary DOT x = ident {
+  Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) Dot [p; x])
+}
+                                                              
 ident: 
 | x = IDENT {
-  Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) (Var (QuantIdent.from_ident x)) []) }
-;
-
-field_access:
-| id = ident; DOT; m = ident {
-    Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) Dot [id; m])
-  }
-| e = primary; DOT; m = ident {
-    Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) Dot [e; m]) }
-;
-
-field_write:
-| e1 = ident; LBRACKETPIPE; e2 = expr; COLONEQ; e3 = expr; RBRACKETPIPE {
-  Expr.mk_app ~loc:(Loc.mk_loc $startpos $endpos) Write [e1; e2; e3]
-}
-| e1 = primary; LBRACKETPIPE; e2 = expr; COLONEQ; e3 = expr; RBRACKETPIPE {
-  Expr.mk_app ~loc:(Loc.mk_loc $startpos $endpos) Write [e1; e2; e3]
-}
+  Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
   
 unary_expr:
 | e = primary { e }
-| e = ident { e }
+(*| e = ident { e }*)
 | MINUS; e = unary_expr {
   Expr.(mk_app ~loc:(Loc.mk_loc $startpos $endpos) Uminus [e]) }
 | e = unary_expr_not_plus_minus { e }
@@ -184,10 +180,10 @@ rel_expr:
 ;
 
 comp_op:
-| LT { OpLt }
-| GT { OpGt }
-| LEQ { OpLeq }
-| GEQ { OpGeq }
+| LT { Lt }
+| GT { Gt }
+| LEQ { Leq }
+| GEQ { Geq }
 | SUBSETEQ { Subseteq }
 ;
 
@@ -252,12 +248,15 @@ quant_var:
   
 bound_var:
 | x = IDENT; COLON; t = type_expr {
-    let decl = { v_name = x;
-                 v_type = t;
-                 v_ghost = false;
-                 v_implicit = false;
-                 v_pos = Loc.mk_loc $startpos $endpos;
-                 v_scope = GrassUtil.global_scope; (* scope is fixed later *) } in
+    let decl =
+      Expr.{ var_name = x;
+             var_type = t;
+             var_loc = Loc.mk_loc $startpos $endpos;
+             var_const = true;
+             var_ghost = false;
+             var_implicit = false;
+           }
+    in
     decl
   }
 ;
