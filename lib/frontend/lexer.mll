@@ -47,8 +47,8 @@ let _ =
       ("Set", SET);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
-      ("val", VAL);
-      ("var", VAR);
+      ("val", VAR true);
+      ("var", VAR false);
       ("while", WHILE);
     ])
 
@@ -87,12 +87,12 @@ let _ =
     
 let lexical_error lexbuf msg =
   let pos = lexeme_start_p lexbuf in
-  let loc = Loc.mk_loc pos pos in
+  let loc = Loc.make pos pos in
   Error.syntax_error loc msg
 
 }
 
-let operator_char = ['+''-''*''/''%''.'':'',''?''>''<''=''&''|''!']
+let operator_char = ['+''-''*''/''%''.'':'',''?''>''<''=''&''|''!'';']
 let operator = operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']

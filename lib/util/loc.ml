@@ -26,7 +26,7 @@ type t =
     }
     [@@deriving compare, equal]
 
-let mk_loc p1 p2 = { loc_start = p1; loc_end = p2 }
+let make p1 p2 = { loc_start = p1; loc_end = p2 }
       
 let dummy =
   { loc_start = Lexing.dummy_pos;
@@ -57,7 +57,7 @@ let merge l1 l2 =
     let c = compare_position l1.loc_end l2.loc_end in
     if c >= 0 then l1.loc_end else l2.loc_end
   in
-  mk_loc spos epos
+  make spos epos
     
 let to_string loc =
   if loc.loc_start.pos_lnum = loc.loc_end.pos_lnum 

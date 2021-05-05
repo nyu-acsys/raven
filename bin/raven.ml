@@ -15,8 +15,10 @@ let cmd_line_error msg =
   failwith ("Command line option error: " ^ msg)
     
 let parse_and_print lexbuf =
-  let e = Parser.main Lexer.token lexbuf in
-  Stdio.printf !"%{Ast.Expr}\n" e
+  let s = Parser.main Lexer.token lexbuf in
+  (*Stdio.printf !"%{Ast.Stmt}\n" s*)
+  Ast.Stmt.print Stdio.stdout s;
+  Stdio.print_endline ""
 
 let parse_program filename =
   let inx = Stdio.In_channel.create filename in
@@ -29,7 +31,7 @@ let parse_program filename =
     | Parser.Error ->
         Stdio.In_channel.close inx;
         let err_pos = lexbuf.lex_curr_p in
-        Error.syntax_error (Loc.mk_loc err_pos err_pos) None
+        Error.syntax_error (Loc.make err_pos err_pos) None
   in
   Stdio.In_channel.close inx
 

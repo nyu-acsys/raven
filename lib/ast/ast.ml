@@ -408,8 +408,8 @@ module Stmt = struct
       }
 
   type var_def =
-      { var_def_decl : var_decl;
-        var_def_init : expr option;
+      { var_decl : var_decl;
+        var_init : expr option;
       }
 
   type new_desc =
@@ -466,13 +466,13 @@ module Stmt = struct
   let pr_var_def ppf vdef =
     let open Stdlib.Format in
     fprintf ppf "%s%s @[<2>%a@ :@ %a%a@]"
-      (if Expr.is_ghost_var vdef.var_def_decl then "ghost " else "")
-      (if Expr.is_const_var vdef.var_def_decl then "val" else "var")
-      Ident.pr vdef.var_def_decl.var_name
-      Type.pr vdef.var_def_decl.var_type
+      (if Expr.is_ghost_var vdef.var_decl then "ghost " else "")
+      (if Expr.is_const_var vdef.var_decl then "val" else "var")
+      Ident.pr vdef.var_decl.var_name
+      Type.pr vdef.var_decl.var_type
       (fun ppf -> function
         | Some e -> fprintf ppf "@ :=@ %a" Expr.pr e
-        | None -> ()) vdef.var_def_init
+        | None -> ()) vdef.var_init
           
   let pr_basic_stmt ppf =
     let open Stdlib.Format in
@@ -525,7 +525,7 @@ module Stmt = struct
     function
       | [] -> ()
       | [sf] -> 
-          fprintf ppf "%s%s[<2>@ %a@]"
+          fprintf ppf "%s%s@[<2>@ %a@]"
             (if sf.spec_atomic then "atomic " else "")
             stype
             Expr.pr sf.spec_form
@@ -541,61 +541,124 @@ module Stmt = struct
     match stmt.stmt_desc with
     | Loop ldesc ->
         fprintf ppf "%awhile (%a)@ @,@[<2>@ @ %a@]@\n%a" 
-          pr ldesc.loop_prebody 
+          (fun ppf -> function
+            | { stmt_desc = Block []; _} -> ()
+            | s -> pr ppf s) ldesc.loop_prebody
           Expr.pr ldesc.loop_test 
           (pr_spec_list "invariant") ldesc.loop_contract
           pr ldesc.loop_postbody
     | Cond cdesc ->
         (match cdesc.cond_else.stmt_desc with
         | Block [] ->
-            fprintf ppf "if (@[%a@])@ %a"
+            fprintf ppf "if (@[%a@]) %a"
               Expr.pr cdesc.cond_test
               pr cdesc.cond_then
         | _ ->
-            fprintf ppf "if (@[%a@])@ %a@ else@ %a"
+            fprintf ppf "if (@[%a@]) %a@ else@ %a"
               Expr.pr cdesc.cond_test
               pr cdesc.cond_then
               pr cdesc.cond_else)
     | Block stmts ->
-        fprintf ppf "{@[<1>@\n%a@]@\n}" pr_block stmts
+        (match stmts with
+        | [] -> fprintf ppf "{ }"
+        | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts)
     | Basic bs ->
         pr_basic_stmt ppf bs
 
   and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts
-          
-end
-        
-(** Modules *)
-    
-module Module = struct
-    
-  (** Functions and Procedures *)
 
-  type contr_kind =
+  let to_string s = Print.string_of_format pr s
+
+  let print chan s = Print.print_of_format pr s chan
+      
+  (** Constructors *)
+
+  let mk_skip loc =
+    { stmt_desc = Block [];
+      stmt_loc = loc;
+    }
+      
+end
+            
+(** Callable units (functions and procedures) *)
+    
+module Callable = struct
+
+  type call_kind =
     | Proc | Lemma | Func | Pred
         
-  type contract =
-      { contr_kind: contr_kind; (** kind of declaration *)
-        contr_name: ident; (** name of associated declaration *)
-        contr_formals: ident list;  (** formal parameter list *)
-        contr_returns: ident list; (** return parameter list *)
-        contr_locals: var_decl ident_map; (** all local variables *)    
-        contr_precond: Stmt.spec list; (** precondition *)
-        contr_postcond: Stmt.spec list; (** postcondition *)
-    }
+  type call_decl =
+      { call_decl_kind: call_kind; (** kind of declaration *)
+        call_decl_name: ident; (** name of associated declaration *)
+        call_decl_formals: ident list;  (** formal parameter list *)
+        call_decl_returns: ident list; (** return parameter list *)
+        call_decl_locals: var_decl ident_map; (** all local variables *)    
+        call_decl_precond: Stmt.spec list; (** precondition *)
+        call_decl_postcond: Stmt.spec list; (** postcondition *)
+      }
 
   type proc_def =
-      { proc_contr: contract;
+      { proc_decl: call_decl;
         proc_body: Stmt.t option;
       }
 
   type func_def =
-      { func_contr: contract;
+      { func_decl: call_decl;
         func_body: expr option;
       }
 
-  (* Modules *)
-      
+  type t =
+    | FuncDef of func_def
+    | ProcDef of proc_def
+        
+  let pr_call_declact_specs ppf call_decl =
+    let open Stdlib.Format in
+    fprintf ppf "%a%a"
+      (Stmt.pr_spec_list "requires") call_decl.call_decl_precond
+      (Stmt.pr_spec_list "ensures") call_decl.call_decl_postcond
+
+  let pr_call_decl ppf call_decl =
+    let open Stdlib.Format in
+    let lookup = List.map ~f:(Map.find_exn call_decl.call_decl_locals) in
+    let kind =
+      match call_decl.call_decl_kind with
+      | Pred -> "pred"
+      | Func -> "func"
+      | Proc -> "proc"
+      | Lemma -> "lemma"
+    in
+    let pr_returns ppf = function
+      | [] -> ()
+      | rs ->
+          fprintf ppf "@\nreturns (@[<0>%a@])@\n"
+            Expr.pr_var_decl_list (lookup rs)
+    in
+    fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a@]"
+      kind
+      Ident.pr call_decl.call_decl_name
+      Expr.pr_var_decl_list (lookup call_decl.call_decl_formals)
+      pr_returns call_decl.call_decl_returns
+      pr_call_declact_specs call_decl
+
+  let pr ppf def =
+    let open Stdlib.Format in
+    let pr_body pr_body ppf = function
+      | Some e ->
+          fprintf ppf "{@[<1>@\n%a@]@\n}@\n" pr_body e
+      | None -> fprintf ppf "@\n"
+    in
+    match def with
+    | FuncDef fdef ->
+        fprintf ppf "%a%a" pr_call_decl fdef.func_decl (pr_body Expr.pr) fdef.func_body
+    | ProcDef pdef ->
+        fprintf ppf "%a%a" pr_call_decl pdef.proc_decl (pr_body Stmt.pr) pdef.proc_body
+    
+end
+  
+(** Modules *)
+
+module Module = struct
+    
   type type_alias =
       { type_alias_name: ident;
         type_alias_def: type_expr option;
@@ -617,7 +680,7 @@ module Module = struct
         mod_decl_mod_defs: module_decl ident_map;
         mod_decl_mod_aliases: module_alias ident_map;
         mod_decl_types: type_alias ident_map;
-        mod_decl_contracts: contract ident_map;
+        mod_decl_callables: Callable.call_decl ident_map;
         mod_decl_vars: var_decl ident_map;
         mod_decl_loc: location;
       }
@@ -632,52 +695,13 @@ module Module = struct
     | ModDef of module_def
     | ModAlias of module_alias
     | VarDef of Stmt.var_def
-    | FuncDef of func_def
-    | ProcDef of proc_def
+    | CallDef of Callable.t
           
   and module_def =
       { mod_decl: module_decl;
         mod_def: module_member_def list;
         mod_interface: bool;
       }
-
-  let pr_contract_specs ppf contr =
-    let open Stdlib.Format in
-    fprintf ppf "%a%a"
-      (Stmt.pr_spec_list "requires") contr.contr_precond
-      (Stmt.pr_spec_list "ensures") contr.contr_postcond
-
-  let pr_contract ppf contr =
-    let open Stdlib.Format in
-    let lookup = List.map ~f:(Map.find_exn contr.contr_locals) in
-    let kind =
-      match contr.contr_kind with
-      | Pred -> "pred"
-      | Func -> "func"
-      | Proc -> "proc"
-      | Lemma -> "lemma"
-    in
-    let pr_returns ppf = function
-      | [] -> ()
-      | rs ->
-          fprintf ppf "@\nreturns (@[<0>%a@])@\n"
-            Expr.pr_var_decl_list (lookup rs)
-    in
-    fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a@]"
-      kind
-      Ident.pr contr.contr_name
-      Expr.pr_var_decl_list (lookup contr.contr_formals)
-      pr_returns contr.contr_returns
-      pr_contract_specs contr
-
-  let pr_fun_proc_def ppf contr pr_body body =
-    let open Stdlib.Format in
-    let pr_body ppf = function
-      | Some e ->
-          fprintf ppf "{@[<1>@\n%a@]@\n}@\n" pr_body e
-      | None -> fprintf ppf "@\n"
-    in
-    fprintf ppf "%a%a" pr_contract contr pr_body body
 
   let rec pr ppf md =
     let open Stdlib.Format in
@@ -724,8 +748,7 @@ module Module = struct
             | Some t -> fprintf ppf "=@ %a" Type.pr t) ma.mod_alias_def 
     | VarDef vdef ->
         Stmt.pr_var_def ppf vdef
-    | FuncDef fdef -> pr_fun_proc_def ppf fdef.func_contr Expr.pr fdef.func_body
-    | ProcDef pdef -> pr_fun_proc_def ppf pdef.proc_contr Stmt.pr pdef.proc_body
+    | CallDef cdef -> Callable.pr ppf cdef
   and pr_member_list ppf ms =
     Print.pr_list_sep "@\n@\n" pr_member ppf ms
 end
