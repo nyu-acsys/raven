@@ -3,71 +3,365 @@
 open Util
 open Ast
 (*open Base*)
-(*open Lexing*)
-
-(*
-let fix_scopes stmnt =
-  let rec fs scope = function
-    | LocalVars (decls, es_opt, pos) ->
-        let decls1 = 
-          List.map (fun decl -> { decl with v_scope = scope }) decls
-        in 
-        LocalVars (decls1, es_opt, pos)
-    | Block (stmnts, pos) ->
-        Block (List.map (fs pos) stmnts, pos)
-    | If (cond, t, e, pos) ->
-        If (cond, fs scope t, fs scope e, pos)
-    | Choice (stmnts, pos) ->
-        Choice (List.map (fs scope) stmnts, pos)
-    | Loop (inv, preb, cond, postb, pos) ->
-        Loop (inv, fs scope preb, cond, fs scope postb, pos)
-    | stmnt -> stmnt
-  in fs GrassUtil.global_scope stmnt
-
-let fst3 (v, _, _) = v
-let snd3 (_, v, _) = v
-let trd3 (_, _, v) = v
 
 
-type rhs_string_maybe =
-  | StringRHS of string
-  | NormalRHS of exprs
-*)
 %}
 
 %token <Ast.Ident.t> IDENT
 %token <Ast.Expr.constr> CONSTVAL
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE
-%token COLON COLONEQ COLONCOLON SEMICOLON DOT PIPE QMARK
+%token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token DIFF MINUS
-%token EQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
+%token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
-%token ATOMIC ASSUME ASSERT HAVOC NEW RETURN
+%token ASSUME ASSERT HAVOC NEW RETURN
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
-%token DATA GHOST IMPLICIT STRUCT TYPE
+%token CASE DATA STRUCT INT BOOL SET MAP
+%token ATOMIC GHOST IMPLICIT REP  
 %token <bool> VAR  
-%token INTERFACE MODULE  
+%token INTERFACE MODULE TYPE IMPORT
 %token RETURNS REQUIRES ENSURES INVARIANT
-%token REF INT BOOL SET MAP
 %token EOF
 
 
 %nonassoc IFF
-%nonassoc EQ NEQ 
+%nonassoc EQEQ NEQ 
 
 %start main
-%type <Ast.Stmt.t> main
+%type <Ast.Module.t> main
 %%
 
 main:
-| s = stmt; EOF { s }
+| ms = member_def_list_opt; EOF {
+  let open Module in
+  let decl =
+    { empty_decl with
+      mod_decl_name = Ident.fresh "$Program";
+    }
+  in
+  { mod_decl = decl;
+    mod_def = ms;
+    mod_interface = false;
+  }
+}
 ;
 
+
+
+(** Member Definitions *)
+
+module_def:
+| MODULE; decl = module_header; def = module_alias_or_impl {
+  let open Module in
+  match def with
+  | ModImpl impl ->
+      ModImpl { impl with mod_decl = decl; }
+  | ModAlias ma ->
+      if decl.mod_decl_formals <> [] then
+        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) (Some "Expected {")
+      else
+        ModAlias { ma with
+                   mod_alias_name = decl.mod_decl_name;
+                   mod_alias_loc = decl.mod_decl_loc }
+}
+  
+module_alias_or_impl:
+| LBRACE; ms = member_def_list_opt; RBRACE {
+  Module.( ModImpl { mod_decl = empty_decl;
+                     mod_def = ms;
+                     mod_interface = false;
+                   } )
+}
+| EQ; t = type_expr {
+  Module.( ModAlias { mod_alias_name = Ident.make "" 0;
+                      mod_alias_type = Any;
+                      mod_alias_def = Some t;
+                      mod_alias_loc = Loc.dummy;
+                    } )
+}
+
+member_def_list_opt:
+| m = member_def; ms = member_def_list_opt { m :: ms }
+| (* empty *) { [] }
+
+member_def:
+| def = module_def { Module.ModDef def }
+| def = interface_def { Module.ModDef def }
+| def = type_def { Module.TypeAlias def }
+| def = var_def { Module.ValDef def }
+| def = proc_def 
+| def = func_def { Module.CallDef def }
+| imp = import_dir { Module.Import imp }
+  
+type_def:
+| def = type_decl; EQ; t = type_def_expr {
+  let open Module in
+  { def with type_alias_def = Some t }
+}
+
+type_def_expr:
+| t = type_expr { t }
+| STRUCT; LBRACE; defs = list(var_decl); RBRACE {
+  let decls = List.map (fun def -> def.Stmt.var_decl) defs in
+  Type.mk_struct decls
+}
+| DATA; LBRACE; decls = list(variant_decl); RBRACE {
+  Type.mk_data decls
+}
+
+variant_decl:
+| CASE; id = IDENT args = option(variant_args) {
+  let args = Option.value args ~default:[] in
+  Type.{ variant_name = id;
+         variant_loc = Loc.make $startpos(id) $endpos(id);
+         variant_args = args;
+       }
+}
+
+variant_args:
+| LPAREN; args = separated_list(COMMA, bound_var); RPAREN { args }
+
+    
+proc_def:
+| def = proc_decl; s = block {
+  let open Callable in
+  let body =
+    Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) }
+  in 
+  match def with
+  | ProcDef def ->
+      ProcDef { def with proc_body = Some body }
+  | _ -> assert false
+}
+
+func_def:
+| def = func_decl; LBRACE body = expr RBRACE {
+  let open Callable in
+  match def with
+  | FuncDef def ->
+      FuncDef { def with func_body = Some body }
+  | _ -> assert false
+}
+
+    
+
+(** Member Declarations *)
+
+interface_def:
+| INTERFACE; decl = module_header; LBRACE ms = list(member_decl) RBRACE {
+  Module.( ModImpl { mod_decl = { decl with mod_decl_loc = Loc.make $startpos $endpos };
+                     mod_def = ms;
+                     mod_interface = true;
+                   } )
+}
+    
+module_header:
+| id = IDENT; pdecls = module_param_list_opt; rts = return_type_list_opt {
+  let open Module in
+  let add m id ma =
+    match Base.Map.add m ~key:id ~data:ma with
+    | `Ok m1 -> m1
+    | `Duplicate -> Error.redeclaration_error ma.mod_alias_loc (Ident.name id)
+  in
+  let formals, mod_aliases =
+    List.fold_left (fun (formals, mod_aliases) ma ->
+      ma.mod_alias_name :: formals, add mod_aliases ma.mod_alias_name ma)
+      ([], Base.Map.empty (module Ident)) pdecls 
+  in
+  let decl =
+    { empty_decl with
+      mod_decl_name = id;
+      mod_decl_formals = formals;
+      mod_decl_returns = rts;
+      mod_decl_mod_aliases = mod_aliases;
+      mod_decl_loc = Loc.make $startpos(id) $endpos(id);
+    }
+  in
+  decl
+}
+
+module_decl:
+| MODULE; id = IDENT; COLON; t = type_expr; tdef = module_alias_def_opt {
+  Module.( ModAlias { mod_alias_name = id;
+                      mod_alias_type = t;
+                      mod_alias_def = tdef;
+                      mod_alias_loc = Loc.make $startpos(id) $endpos(id);
+                    } )
+}
+| MODULE; id = IDENT; tdef = module_alias_def {
+  Module.( ModAlias { mod_alias_name = id;
+                      mod_alias_type = Any;
+                      mod_alias_def = tdef;
+                      mod_alias_loc = Loc.make $startpos(id) $endpos(id);
+                    } )
+}
+
+module_alias_def_opt:
+| t = module_alias_def { t }
+| (* empty *) { None }
+
+module_alias_def:
+| EQ; t = type_expr { Some t }
+    
+return_type_list_opt:
+| COLON; ts = separated_nonempty_list(COMMA, type_expr) { ts }
+| (* empty *) { [] }
+
+    
+module_param_list_opt:
+| LBRACKET ps = separated_list(COMMA, module_param) RBRACKET { ps }
+| (* empty *) { [] }
+  
+module_param:
+| id = IDENT; COLON; t = type_expr {
+  let decl =
+    Module.{ mod_alias_name = id;
+             mod_alias_type = t;
+             mod_alias_def = None;
+             mod_alias_loc = Loc.make $startpos $endpos;
+           }
+  in
+  decl
+}
+    
+member_decl:
+| def = type_decl { Module.TypeAlias def }
+| def = interface_def { Module.ModDef def }
+| def = module_decl { Module.ModDef def }
+| def = var_decl { Module.ValDef def }
+| def = proc_decl 
+| def = func_decl { Module.CallDef def }
+| imp = import_dir { Module.Import imp }
+    
+    
+import_dir:
+| IMPORT; t = type_expr { Module.ModImport t }
+    
+type_decl:
+| m = type_mod; TYPE; id = IDENT {
+  let ta =
+    Module.{ type_alias_name = id;
+             type_alias_def = None;
+             type_alias_rep = m;
+             type_alias_loc = Loc.make $startpos $endpos }
+  in
+  ta
+}
+
+
+    
+type_mod:
+| REP { true }
+| (* empty *) { false }
+;
+
+
+proc_decl:
+| k = PROC; decl = callable_decl {
+  Callable.( ProcDef { proc_decl = { decl with call_decl_kind = k }; proc_body = None } )
+}
+
+func_decl:
+| k = FUNC; decl = callable_decl {
+  Callable.( FuncDef { func_decl = { decl with call_decl_kind = k }; func_body = None } )
+}
+
+callable_decl:
+  id = IDENT; LPAREN; pdecls = var_decls_with_modifiers; RPAREN; rdecls = return_params; cs = contracts {
+  let add m id decl =
+    match Base.Map.add m ~key:id ~data:decl with
+    | `Ok m1 -> m1
+    | `Duplicate -> Error.redeclaration_error decl.Type.var_loc (Ident.name id)
+  in
+  let formals, locals =
+    List.fold_left (fun (formals, locals) decl ->
+      Type.(decl.var_name :: formals, add locals decl.var_name decl))
+      ([], Base.Map.empty (module Ident)) pdecls 
+  in
+  let returns, locals =
+    List.fold_left (fun (outputs, locals) decl ->
+      Type.(decl.var_name :: outputs, add locals decl.var_name decl))
+      ([], locals) rdecls
+  in
+  let precond, postcond = cs in
+  let decl =
+    Callable.{ call_decl_kind = Func;
+               call_decl_name = id;
+               call_decl_formals = List.rev formals;
+               call_decl_returns = List.rev returns;
+               call_decl_locals = locals;
+               call_decl_precond = precond;
+               call_decl_postcond = postcond;
+               call_decl_loc = Loc.make $startpos(id) $endpos(id);
+             }
+  in decl
+}
+   
+return_params:
+| RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }
+| (* empty *) { [] }
+   
+var_decls_with_modifiers:
+| var_decl_with_modifiers var_decl_with_modifiers_list { $1 :: $2 }
+| /* empty */ { [] }
+;
+
+var_decl_with_modifiers_list:
+| COMMA var_decl_with_modifiers var_decl_with_modifiers_list { $2 :: $3 }
+| /* empty */ { [] }
+;
+
+var_decl_with_modifiers:
+| m = var_modifier; decl = bound_var {
+  let ghost, implicit = m in
+  let decl =
+    Type.{ decl with
+           var_ghost = ghost;
+           var_implicit = implicit;
+         }
+  in
+  decl
+}
+;
+
+contracts:
+| c = contract; cs = contracts { (fst c @ fst cs, snd c @ snd cs) }
+| /* empty */ { [], [] }
+;
+
+contract:
+| m = contract_mods; REQUIRES; e = expr {
+  let spec =
+    Stmt.{ spec_form = e;
+           spec_atomic = m;
+           spec_name = "requires";
+           spec_error = None;
+         }
+  in
+  ([spec], [])
+}
+| m = contract_mods; ENSURES; e = expr {
+  let spec =
+    Stmt.{ spec_form = e;
+           spec_atomic = m;
+           spec_name = "ensures";
+           spec_error = None;
+         }
+  in
+  ([], [spec])
+}
+;
+
+contract_mods:
+| ATOMIC { true }
+| (* empty *) { false }
+;
+  
 (** Statements *)
 
 stmt:
@@ -91,73 +385,58 @@ stmt_no_short_if_desc:
 
 stmt_wo_trailing_substmt:
 (* variable definition *)
-| g = ghost_modifier; v = VAR; decl = bound_var; SEMICOLON {
-    let open Stmt in
-    let decl =
-      Expr.{ decl with
-             var_ghost = g;
-             var_const = v;
-           }
-    in
-    Basic (VarDef { var_decl = decl; var_init = None; })
+| def = var_decl; SEMICOLON {
+    Basic (VarDef def)
 }
-| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr; SEMICOLON {
-    let open Stmt in
-    let decl =
-      Expr.{ decl with
-             var_ghost = g;
-             var_const = v;
-           }
-    in
-    Basic (VarDef { var_decl = decl; var_init = Some e; })
+| def = var_def; SEMICOLON {
+    Basic (VarDef def)
 }
 (* nested block *)
 | s = block { s }
-(*
 (* procedure call *)
-| SEMICOLON {
-  
-  Assign ([], [$1], mk_position 1 1)
+| e = call_expr; SEMICOLON {
+  let assign =
+    Stmt.{ assign_lhs = [];
+           assign_rhs = e;
+         }
+  in
+  Stmt.(Basic (Assign assign))
+}
+(* assignment *)
+| es = expr_list; COLONEQ; e = expr; SEMICOLON {
+  let assign =
+    Stmt.{ assign_lhs = es;
+           assign_rhs = e;
+         }
+  in
+  Stmt.(Basic (Assign assign))
   }
-/* assignment */
-| assign_lhs_list COLONEQ expr_list_string SEMICOLON {
-  let lhs = $1 in
-  match $3 with
-  | NormalRHS es -> Assign (lhs, es, mk_position 1 4)
-  | StringRHS str ->
-    assert (List.length lhs = 1);
-    let lhs = List.hd lhs in
-    let pos1 = mk_position 1 4 in
-    let pos2 = mk_position 3 3 in
-    let pos3 = mk_position 1 1 in
-    let char_to_byte c =
-      UnaryOp (OpToByte, IntVal(Int64.of_int (int_of_char c), pos2), pos2)
-    in
-    let mk_assign idx value =
-      let lhs_read = Read (lhs, IntVal(Int64.of_int idx, pos3), pos3) in
-      Assign([lhs_read], [value], pos1)
-    in
-    let rec to_list n = 
-      if n >= (String.length str) then 
-        let v = UnaryOp (OpToByte, IntVal(Int64.zero, pos2), pos2) in
-        [mk_assign n v]
-      else
-        let v = char_to_byte (String.get str n) in
-        let a = mk_assign n v in
-        a :: (to_list (n+1))
-    in
-    Block (to_list 0, pos1)
+(* havoc *)
+| HAVOC; es = expr_list; SEMICOLON { 
+  Stmt.(Basic (Havoc es))
 }
-/* havoc */
-| HAVOC expr_list_opt SEMICOLON { 
-  Havoc ($2, mk_position 1 3)
+
+(* assume *)
+| ASSUME; e = expr; SEMICOLON {
+  let open Stmt in
+  let spec = { spec_form = e;
+               spec_atomic = false;
+               spec_name = "assume";
+               spec_error = None; }
+  in
+  Basic (Assume spec)
 }
-/* assume */
-| contract_mods ASSUME expr SEMICOLON {
-  Assume ($3, fst $1, mk_position (if $1 <> (false, false) then 1 else 2) 4)
+(* assert *)
+| ASSERT; e = expr; SEMICOLON {
+  let open Stmt in
+  let spec = { spec_form = e;
+               spec_atomic = false;
+               spec_name = "assert";
+               spec_error = None; }
+  in
+  Basic (Assert spec)
 }
-/* assert */
-| contract_mods ASSERT expr with_clause {
+(*| contract_mods ASSERT expr with_clause {
   $4 (fst $1) $3 (mk_position (if $1 <> (false, false) then 1 else 2) 4) None
 }
 | contract_mods ASSERT STRINGVAL expr with_clause {
@@ -171,11 +450,37 @@ stmt_wo_trailing_substmt:
 }
 ;
 
+var_decl:
+| g = ghost_modifier; v = VAR; decl = bound_var {
+  let decl =
+    Type.{ decl with
+           var_ghost = g;
+           var_const = v;
+         }
+  in
+  Stmt.{ var_decl = decl; var_init = None }
+}
+
+var_def:
+| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; EQ; e = expr {
+  let decl =
+    Type.{ decl with
+           var_ghost = g;
+           var_const = v;
+         }
+  in
+  Stmt.{ var_decl = decl; var_init = Some e }
+}
+    
 ghost_modifier:
 | GHOST { true }
 | (* empty *) { false }
 ;
 
+var_modifier:
+| IMPLICIT; GHOST { true, true }
+| g = ghost_modifier { false, g }
+; 
 
   
 block:
@@ -297,6 +602,7 @@ primary:
 | c = CONSTVAL { Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c []) }
 | LPAREN; e = expr; RPAREN { e }
 | e = set_expr { e }
+| e = new_expr { e }
 | e = dot_expr { e }
 ;
 
@@ -309,11 +615,15 @@ set_expr:
   }
 ;
   
-(*
-alloc:
-| NEW var_type { New ($2, [], Loc.make 1 2) }
-| NEW var_type LPAREN expr_list_opt RPAREN { New ($2, $4, Loc.make 1 5) }
-;*)
+
+new_expr:
+| NEW; t = type_expr {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) [])
+}
+| NEW; t = type_expr; LPAREN; es = expr_list_opt; RPAREN {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
+}
+
 
 dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
@@ -324,8 +634,17 @@ dot_expr:
 }
 ;
 
+call_expr:
+| p = qual_ident_expr; ces = call {
+  let c, es = ces in
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c (p :: es))
+}
+  
+call:
+| LPAREN; es = expr_list_opt; RPAREN { (Expr.Call, es) }
+  
 call_opt:
-| LPAREN; es = expr_list_opt; RPAREN { Some (Expr.Call, es) }
+| c = call { Some c }
 | LBRACKETPIPE; e2 = expr; COLONEQ; e3 = expr; RBRACKETPIPE {
   Some (Write, [e2; e3])
 }
@@ -413,7 +732,7 @@ comp_seq:
   
 eq_expr:
 | e = rel_expr { e }
-| e1 = eq_expr; EQ; e2 = eq_expr {
+| e1 = eq_expr; EQEQ; e2 = eq_expr {
     Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
   }
 | e1 = eq_expr; NEQ; e2 = eq_expr {
@@ -463,7 +782,7 @@ quant_var:
 bound_var:
 | x = IDENT; COLON; t = type_expr {
     let decl =
-      Expr.{ var_name = x;
+      Type.{ var_name = x;
              var_type = t;
              var_loc = Loc.make $startpos $endpos;
              var_const = true;
@@ -478,7 +797,7 @@ bound_var:
 bound_var_opt_type:
 | x = IDENT { 
   let decl =
-    Expr.{ var_name = x;
+    Type.{ var_name = x;
            var_type = Type.Any;
            var_loc = Loc.make $startpos $endpos;
            var_const = true;
@@ -489,8 +808,7 @@ bound_var_opt_type:
   decl
 } 
 ;
-
-   
+      
 type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
@@ -498,8 +816,8 @@ type_expr:
 | SET { Type.mk_set (Loc.make $startpos $endpos) }
 | MAP { Type.mk_map (Loc.make $startpos $endpos) }
 | t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts }
-;
-
+    
+  
 type_expr_list:
 | t = type_expr; COMMA; ts = type_expr_list { t :: ts }
 | t = type_expr { [t] }

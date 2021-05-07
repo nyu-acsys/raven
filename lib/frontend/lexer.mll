@@ -17,6 +17,7 @@ let _ =
       ("assume", ASSUME);
       ("atomic", ATOMIC);
       ("Bool", BOOL);
+      ("case", CASE);
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
@@ -30,15 +31,16 @@ let _ =
       ("Int", INT);
       ("interface", INTERFACE);
       ("invariant", INVARIANT);
+      ("import", IMPORT);
       ("implicit", IMPLICIT);
       ("lemma", PROC(Lemma));
-      ("Ref", REF);
+      ("rep", REP);
       ("Map", MAP);
       ("module", MODULE);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
       ("pred", FUNC (Func));
-      ("procedure", PROC (Proc));
+      ("proc", PROC (Proc));
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);
@@ -57,7 +59,8 @@ let _ =
   List.iter (fun (op, tok) -> Hashtbl.add operator_table op tok)
     ["==>", IMPLIES;
      "<=>", IFF;
-     "==", EQ;
+     "=", EQ;
+     "==", EQEQ;
      "!=", NEQ;
      "<=", LEQ;
      ">=", GEQ;
@@ -120,12 +123,12 @@ rule token = parse
     with Not_found ->
       lexical_error lexbuf (Some("Unknown operator: " ^ op))
     }
-| ident as name '#' (digit_char+ as num) { IDENT(Ident.mk_ident name (int_of_string num)) }
+| ident as name '#' (digit_char+ as num) { IDENT(Ident.make name (int_of_string num)) }
 | ident as kw
     { try
       Hashtbl.find keyword_table kw
     with Not_found ->
-      IDENT (Ident.mk_ident kw 0)
+      IDENT (Ident.make kw 0)
     }
 | digits as num { CONSTVAL (Expr.Int (Int64.of_string num)) }
 | eof { EOF }

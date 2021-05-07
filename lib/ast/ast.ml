@@ -28,7 +28,20 @@ module Ident = struct
     
   let pr_list ppf ids = Print.pr_list_comma pr ppf ids
 
-  let mk_ident name num = { ident_name = name; ident_num = num }
+  let make name num = { ident_name = name; ident_num = num }
+
+  let name id = id.ident_name
+
+  let fresh =
+    let used_names = Hashtbl.create (module String) in
+    fun  ?(id=0) (name : string) ->
+    let last_index = 
+      Hashtbl.find used_names name |>
+      Option.value ~default:(-1)
+    in
+    let new_max = Int.max (last_index + 1) id in
+    Hashtbl.set used_names ~key:name ~data:new_max;
+    make name new_max
 
 end
 
@@ -66,25 +79,41 @@ module Type = struct
   
   type type_attr =
       { type_loc: Loc.t [@hash.ignore]; }
+ 
+  and var_decl =
+    { var_name : ident;
+      var_loc : location;
+      var_type : t;
+      var_const : bool;
+      var_ghost : bool;
+      var_implicit : bool;
+    } (*[@@deriving compare, hash]*)
 
+  and variant_decl =
+      { variant_name : ident;
+        variant_loc : location;
+        variant_args : var_decl list;
+      }
+        
   and t =
     | Int
     | Bool
     | Unit
     | AnyRef
-    | Ref of QualIdent.t
     | Perm
     | Bot
     | Any
     | Var of QualIdent.t
     | Set
     | Map
+    | Struct of var_decl list
+    | Data of variant_decl list
     | App of t * t list * type_attr
-    | Alias of QualIdent.t * t * type_attr
   (*| TypeData of qual_ident * type_attr*)
     | Dot of t * Ident.t * type_attr
-    [@@deriving compare, hash]
+    (*[@@deriving compare, hash]*)
 
+          
   (** Pretty printing types *)        
           
   let ref_type_string = "Ref"
@@ -97,7 +126,9 @@ module Type = struct
   let bot_type_string = "Bot"
   let any_type_string = "Any"
   let anyref_type_string = "AnyRef"
-
+  let struct_type_string = "struct"
+  let data_type_string = "struct"
+      
   let to_name = function
   | Int -> int_type_string
   | Bool -> bool_type_string
@@ -108,9 +139,9 @@ module Type = struct
   | Set -> set_type_string
   | Map -> map_type_string
   | Perm -> perm_type_string
-  | Ref id
-  | Var id
-  | Alias (id, _, _) -> QualIdent.to_string id
+  | Struct _ -> struct_type_string
+  | Data _ -> data_type_string
+  | Var id -> QualIdent.to_string id
   | App _ -> "App"
   | Dot _ -> "Dot"
       
@@ -124,22 +155,46 @@ module Type = struct
   | Perm
   | Var _
   | Set
-  | Map
-  | Alias _
-  | Ref _ ->
-      Stdlib.Format.fprintf ppf "%s" (to_name t)
+  | Map ->  Stdlib.Format.fprintf ppf "%s" (to_name t)
+  | Struct decls ->
+      Stdlib.Format.fprintf ppf "struct {@\n  @[%a@]@\n}"
+        pr_var_decl_list decls
+  | Data decls ->
+      Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}"
+        pr_variant_decl_list decls
   | App (t1, [], _) -> pr ppf t1
   | App (t1, ts, _) ->
       Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr t1 (Print.pr_list_comma pr) ts
   | Dot (t1, id, _) ->
       Stdlib.Format.fprintf ppf "%a.%a" pr t1 Ident.pr id
+  and pr_var_decl ppf decl =
+    let open Stdlib.Format in
+    fprintf ppf "%s%s @[<2>%a@ :@ %a@]"
+      (if decl.var_ghost then "ghost " else "")
+      (if decl.var_const then "val" else "var")
+      Ident.pr decl.var_name
+      pr decl.var_type
+  and pr_var_decl_list ppf =
+    Print.pr_list_nl pr_var_decl ppf
+  and pr_variant_decl ppf decl =
+    let open Stdlib.Format in
+    fprintf ppf "case %a(@[%a@])"
+      Ident.pr decl.variant_name
+      pr_arg_list decl.variant_args
+  and pr_variant_decl_list ppf =
+    Print.pr_list_nl pr_variant_decl ppf
+  and pr_ident ppf (id, t) =
+    Stdlib.Format.fprintf ppf "%a:@ %a" Ident.pr id pr t
+  and pr_arg_list ppf =
+    Print.pr_list_comma (fun ppf decl -> pr_ident ppf (decl.var_name, decl.var_type)) ppf 
 
+      
   let pr_list ppf ts =
     Print.pr_list_comma pr ppf ts
         
-  let rec pr_ident ppf (id, t) =
-    Stdlib.Format.fprintf ppf "%a:@ %a" Ident.pr id pr t
-        
+
+  let to_string t = Print.string_of_format pr t
+      
   (** Constructors *)
 
   let dummy_attr = { type_loc = Loc.dummy }
@@ -160,7 +215,8 @@ module Type = struct
   let mk_set loc = App (Set, [], mk_attr loc)
   let mk_map loc = App (Map, [], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
-  let mk_ref loc qid = App (Ref qid, [], mk_attr loc)
+  let mk_struct decls = Struct decls
+  let mk_data decls = Data decls
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
 
   (** Subtyping *)
@@ -169,14 +225,23 @@ module Type = struct
     match t1, t2 with
     | Bot, t | t, Bot -> t
     | Bool, Perm | Perm, Bool -> Perm
-    | AnyRef, Ref _ | Ref _, AnyRef -> AnyRef
+    | AnyRef, Struct _ | Struct _, AnyRef -> AnyRef
     | App (t1, [], a1), App (t2, [], _) ->
         App (join t1 t2, [], a1)
     | _ -> Any
+
+   (** Auxiliary utility functions *)
+
+   let is_ghost_var vdecl = vdecl.var_ghost         
+   let is_const_var vdecl = vdecl.var_const
+   let is_implicit_var vdecl = vdecl.var_implicit
+
 end
 
 type type_expr = Type.t
-          
+
+type var_decl = Type.var_decl
+      
 (** Expressions *)
           
 module Expr = struct
@@ -201,18 +266,12 @@ module Expr = struct
     (* Variable arity operators *)
     | Setenum
     | Var of qual_ident
+    | New of type_expr
       
   type binder =
     | Forall | Exists | Compr
 
-  type var_decl =
-      { var_name : ident;
-        var_loc : location;
-        var_type : type_expr;
-        var_const : bool;
-        var_ghost : bool;
-        var_implicit : bool;
-      }
+  
       
   type expr_attr =
       { expr_loc: location;
@@ -260,6 +319,7 @@ module Expr = struct
   | Inter -> "**"
   | Diff -> "--"
   | Ite -> "ite"
+  | New t -> Printf.sprintf !"new %{Type}" t
   (* predicate symbols *)
   | Eq -> "=="
   | Leq -> "<="
@@ -283,7 +343,7 @@ module Expr = struct
     | Null | Unit | Empty | Int _ | Bool _ -> 0
     | Dot | Setenum | Read | Write | Own | Var _ -> 1
     | Uminus | Not -> 2
-    | Call -> 3
+    | Call | New _ -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Diff | Union | Inter -> 6
@@ -343,14 +403,16 @@ module Expr = struct
     | (Compr, vs, e, App (Set, _, _)) ->
         Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs pr e
     | (Compr, vs, e, _) ->
-        Stdlib.Format.fprintf ppf "[|@ @[%a@ ::@ %a@]@ |]" pr_var_decl_list vs pr e
+        Stdlib.Format.fprintf ppf "[|@ @[%a@ ::@ %a@]@ |]" pr_var_decl_list vs pr e 
   and pr_var_decl ppf vdecl =
+    let open Type in
     Stdlib.Format.fprintf ppf "%s%s%a"
       (if vdecl.var_implicit then "implicit" else "")
       (if vdecl.var_ghost then "ghost" else "")
       Type.pr_ident (vdecl.var_name, vdecl.var_type)
-  and pr_var_decl_list ppf = Print.pr_list_comma pr_var_decl ppf 
-      
+  and pr_var_decl_list ppf =
+    Print.pr_list_comma pr_var_decl ppf
+
   let to_string e = Print.string_of_format pr e
 
   (** Constructors *)
@@ -382,19 +444,10 @@ module Expr = struct
           let t = List.fold_left es ~init:Type.Bool ~f:(fun t e -> Type.join t (to_type e)) in
           mk_app ~loc ~typ:t Or es
 
-
-   (** Auxiliary utility functions *)
-
-   let is_ghost_var vdecl = vdecl.var_ghost         
-   let is_const_var vdecl = vdecl.var_const
-   let is_implicit_var vdecl = vdecl.var_implicit
-   let is_atomic_spec vdecl = vdecl.var_ghost         
-            
 end
 
 type expr = Expr.t
 
-type var_decl = Expr.var_decl
       
 (** Statements *)
 
@@ -413,13 +466,13 @@ module Stmt = struct
       }
 
   type new_desc =
-      { new_lhs: qual_ident;
+      { new_lhs: ident;
         new_type: type_expr;
         new_args: expr list;
       }
 
   type assign_desc =
-      { assign_lhs: qual_ident;
+      { assign_lhs: expr list;
         assign_rhs: expr;
       }
         
@@ -430,10 +483,12 @@ module Stmt = struct
       }
 
   type basic_stmt_desc =
-    | VarDef of var_def 
+    | VarDef of var_def
+    | Assume of spec
+    | Assert of spec
     | New of new_desc
     | Assign of assign_desc
-    | Havoc of qual_ident list
+    | Havoc of expr list
     | Call of call_desc
     | Return of expr list
         
@@ -466,60 +521,14 @@ module Stmt = struct
   let pr_var_def ppf vdef =
     let open Stdlib.Format in
     fprintf ppf "%s%s @[<2>%a@ :@ %a%a@]"
-      (if Expr.is_ghost_var vdef.var_decl then "ghost " else "")
-      (if Expr.is_const_var vdef.var_decl then "val" else "var")
+      (if Type.is_ghost_var vdef.var_decl then "ghost " else "")
+      (if Type.is_const_var vdef.var_decl then "val" else "var")
       Ident.pr vdef.var_decl.var_name
       Type.pr vdef.var_decl.var_type
       (fun ppf -> function
-        | Some e -> fprintf ppf "@ :=@ %a" Expr.pr e
+        | Some e -> fprintf ppf "@ =@ %a" Expr.pr e
         | None -> ()) vdef.var_init
           
-  let pr_basic_stmt ppf =
-    let open Stdlib.Format in
-    function
-      | VarDef vdef ->
-          pr_var_def ppf vdef
-      | Assign astm -> 
-          fprintf ppf "@[<2>%a@ :=@ %a@]" 
-            QualIdent.pr astm.assign_lhs 
-            Expr.pr astm.assign_rhs
-      | Havoc qids -> 
-          fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr_list qids
-      | New nstm ->
-          (match nstm.new_args with
-          | [] ->
-              fprintf ppf "@[<2>%a@ :=@ new@ %a@]" 
-                QualIdent.pr nstm.new_lhs 
-                Type.pr nstm.new_type
-          | args ->
-              fprintf ppf "@[<2>%a@ :=@ new@ %a(%a)@]" 
-                QualIdent.pr nstm.new_lhs 
-                Type.pr nstm.new_type
-                Expr.pr_list args)
-      (*| Assume sf ->
-          fprintf ppf "%a@[<2>%sassume@ %a@]"
-            pr_comment sf.spec_name
-            (fold_spec_form (fun _ -> "pure ") (fun _ -> "") sf)
-            pr_spec_form sf
-      | Assert sf ->
-          fprintf ppf "%a@[<2>%sassert@ %a@]" 
-            pr_comment sf.spec_name
-            (fold_spec_form (fun _ -> "pure ") (fun _ -> "") sf)
-            pr_spec_form sf*)
-      | Return es -> 
-          fprintf ppf "@[<2>return@ %a@]" Expr.pr_list es
-      | Call cstm -> 
-          match cstm.call_lhs with
-          | [] ->
-              fprintf ppf "@[%a(@[%a@])@]" 
-                QualIdent.pr cstm.call_name 
-                Expr.pr_list cstm.call_args
-          | _ ->
-              fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" 
-                QualIdent.pr_list cstm.call_lhs 
-                QualIdent.pr cstm.call_name 
-                Expr.pr_list cstm.call_args
-                
   let rec pr_spec_list stype ppf =
     let open Stdlib.Format in
     function
@@ -535,6 +544,50 @@ module Stmt = struct
             stype
             Expr.pr sf.spec_form
             (pr_spec_list stype) sfs
+            
+  let pr_basic_stmt ppf =
+    let open Stdlib.Format in
+    function
+      | VarDef vdef ->
+          pr_var_def ppf vdef
+      | Assign astm ->
+          (match astm.assign_lhs with
+          | [] -> Expr.pr ppf astm.assign_rhs
+          | es ->
+              fprintf ppf "@[<2>%a@ :=@ %a@]" 
+                Expr.pr_list es
+                Expr.pr astm.assign_rhs)
+      | Havoc es -> 
+          fprintf ppf "@[<2>havoc@ %a@]" Expr.pr_list es
+      | New nstm ->
+          (match nstm.new_args with
+          | [] ->
+              fprintf ppf "@[<2>%a@ :=@ new@ %a@]" 
+                Ident.pr nstm.new_lhs 
+                Type.pr nstm.new_type
+          | args ->
+              fprintf ppf "@[<2>%a@ :=@ new@ %a(%a)@]" 
+                Ident.pr nstm.new_lhs 
+                Type.pr nstm.new_type
+                Expr.pr_list args)
+      | Assume sf ->
+          pr_spec_list "assume" ppf [sf]
+      | Assert sf ->
+          pr_spec_list "assert" ppf [sf]
+      | Return es -> 
+          fprintf ppf "@[<2>return@ %a@]" Expr.pr_list es
+      | Call cstm -> 
+          match cstm.call_lhs with
+          | [] ->
+              fprintf ppf "@[%a(@[%a@])@]" 
+                QualIdent.pr cstm.call_name 
+                Expr.pr_list cstm.call_args
+          | _ ->
+              fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" 
+                QualIdent.pr_list cstm.call_lhs 
+                QualIdent.pr cstm.call_name 
+                Expr.pr_list cstm.call_args
+                
 
   let rec pr ppf stmt =
     let open Stdlib.Format in
@@ -580,7 +633,7 @@ module Stmt = struct
       
 end
             
-(** Callable units (functions and procedures) *)
+(** Callable units (functions, procedures, ...) *)
     
 module Callable = struct
 
@@ -595,6 +648,7 @@ module Callable = struct
         call_decl_locals: var_decl ident_map; (** all local variables *)    
         call_decl_precond: Stmt.spec list; (** precondition *)
         call_decl_postcond: Stmt.spec list; (** postcondition *)
+        call_decl_loc: location; (** source location of declaration *)
       }
 
   type proc_def =
@@ -611,11 +665,15 @@ module Callable = struct
     | FuncDef of func_def
     | ProcDef of proc_def
         
-  let pr_call_declact_specs ppf call_decl =
+  let pr_call_decl_specs ppf call_decl =
     let open Stdlib.Format in
+    let pr_specs stype ppf = function
+      | [] -> ()
+      | specs -> fprintf ppf "@\n%a" (Stmt.pr_spec_list stype) specs
+    in
     fprintf ppf "%a%a"
-      (Stmt.pr_spec_list "requires") call_decl.call_decl_precond
-      (Stmt.pr_spec_list "ensures") call_decl.call_decl_postcond
+      (pr_specs "requires") call_decl.call_decl_precond
+      (pr_specs "ensures") call_decl.call_decl_postcond
 
   let pr_call_decl ppf call_decl =
     let open Stdlib.Format in
@@ -630,7 +688,7 @@ module Callable = struct
     let pr_returns ppf = function
       | [] -> ()
       | rs ->
-          fprintf ppf "@\nreturns (@[<0>%a@])@\n"
+          fprintf ppf "@\nreturns (@[<0>%a@])"
             Expr.pr_var_decl_list (lookup rs)
     in
     fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a@]"
@@ -638,13 +696,13 @@ module Callable = struct
       Ident.pr call_decl.call_decl_name
       Expr.pr_var_decl_list (lookup call_decl.call_decl_formals)
       pr_returns call_decl.call_decl_returns
-      pr_call_declact_specs call_decl
+      pr_call_decl_specs call_decl
 
   let pr ppf def =
     let open Stdlib.Format in
     let pr_body pr_body ppf = function
       | Some e ->
-          fprintf ppf "{@[<1>@\n%a@]@\n}@\n" pr_body e
+          fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body e
       | None -> fprintf ppf "@\n"
     in
     match def with
@@ -662,6 +720,7 @@ module Module = struct
   type type_alias =
       { type_alias_name: ident;
         type_alias_def: type_expr option;
+        type_alias_rep: bool;
         type_alias_loc: location;
       }
         
@@ -684,22 +743,25 @@ module Module = struct
         mod_decl_vars: var_decl ident_map;
         mod_decl_loc: location;
       }
-        
+       
   type import_directive =
     | ModImport of type_expr
     | MemImport of qual_ident
           
-  type module_member_def =
+  type member_def =
     | TypeAlias of type_alias
     | Import of import_directive
     | ModDef of module_def
-    | ModAlias of module_alias
-    | VarDef of Stmt.var_def
+    | ValDef of Stmt.var_def
     | CallDef of Callable.t
-          
+
   and module_def =
+    | ModImpl of t
+    | ModAlias of module_alias
+          
+  and t =
       { mod_decl: module_decl;
-        mod_def: module_member_def list;
+        mod_def: member_def list;
         mod_interface: bool;
       }
 
@@ -709,7 +771,7 @@ module Module = struct
       List.map md.mod_decl.mod_decl_formals
         ~f:(fun v -> v, (Map.find_exn md.mod_decl.mod_decl_mod_aliases v).mod_alias_type)
     in
-    fprintf ppf "%s@ %a%a%a@ {@[<1>@\n%a@]@\n}"
+    fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
       (if md.mod_interface then "interface" else "module")
       Ident.pr md.mod_decl.mod_decl_name
       (* formal parameters *)
@@ -720,7 +782,7 @@ module Module = struct
       (* return types *)
       (fun ppf -> function
         | [] -> ()
-        | vs -> fprintf ppf "@ :@ %a" Type.pr_list vs
+        | vs -> fprintf ppf "@ : %a" Type.pr_list vs
       ) md.mod_decl.mod_decl_returns
       (* body *)
       pr_member_list md.mod_def
@@ -728,27 +790,49 @@ module Module = struct
     let open Stdlib.Format in
     function
     | TypeAlias ta ->
-        fprintf ppf "[@<2>type@ %a%a@]"
+        fprintf ppf "%stype %a%a"
+          (if ta.type_alias_rep then "rep " else "")
           Ident.pr ta.type_alias_name
           (fun ppf -> function
             | None -> ()
-            | Some t -> fprintf ppf "=@ %a" Type.pr t) ta.type_alias_def 
+            | Some t -> fprintf ppf " = %a" Type.pr t) ta.type_alias_def 
     | Import (ModImport t) ->
-        fprintf ppf "[@<2>import@ %a@]" Type.pr t
+        fprintf ppf "@[<2>import@ %a@]" Type.pr t
     | Import (MemImport t) ->
-        fprintf ppf "[@<2>import@ %a@]" QualIdent.pr t
-    | ModDef md ->
-        pr ppf md
-    | ModAlias ma ->
-        fprintf ppf "[@<2>module@ %a : %a%a@]"
+        fprintf ppf "@[<2>import@ %a@]" QualIdent.pr t
+    | ModDef (ModImpl md) -> pr ppf md
+    | ModDef (ModAlias ma) -> 
+        fprintf ppf "@[<2>module@ %a : %a%a@]"
           Ident.pr ma.mod_alias_name
           Type.pr ma.mod_alias_type
           (fun ppf -> function
             | None -> ()
-            | Some t -> fprintf ppf "=@ %a" Type.pr t) ma.mod_alias_def 
-    | VarDef vdef ->
+            | Some t -> fprintf ppf " =@ %a" Type.pr t) ma.mod_alias_def 
+    | ValDef vdef ->
         Stmt.pr_var_def ppf vdef
     | CallDef cdef -> Callable.pr ppf cdef
   and pr_member_list ppf ms =
     Print.pr_list_sep "@\n@\n" pr_member ppf ms
+
+  let to_string m = Print.string_of_format pr m 
+
+  let print chan m = Print.print_of_format pr m chan
+      
+  let print_member_list chan ms = Print.print_of_format pr_member_list ms chan
+
+
+  (** Constructors *)
+
+  let empty_decl =
+    { mod_decl_name = Ident.make "" 0;
+      mod_decl_formals = [];
+      mod_decl_returns = [];
+      mod_decl_rep = None;
+      mod_decl_mod_defs = Base.Map.empty (module Ident);
+      mod_decl_mod_aliases = Base.Map.empty (module Ident);
+      mod_decl_types = Base.Map.empty (module Ident);
+      mod_decl_callables = Base.Map.empty (module Ident);
+      mod_decl_vars = Base.Map.empty (module Ident);
+      mod_decl_loc = Loc.dummy;
+    }
 end

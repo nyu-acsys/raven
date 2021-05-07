@@ -17,7 +17,7 @@ let cmd_line_error msg =
 let parse_and_print lexbuf =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
-  Ast.Stmt.print Stdio.stdout s;
+  Ast.Module.print Stdio.stdout s;
   Stdio.print_endline ""
 
 let parse_program filename =

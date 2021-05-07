@@ -50,13 +50,13 @@ module IntKeyspace : Keyspace {
 
 module SearchStructureSpec[K: Keyspace] {
 
-  type Op = searchOp | insertOp | deleteOp
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
   pred opSpec(op: Op, C: Set[K], C': Set[K], res: Bool) {
     match(op) {
-     | searchOp -> C' == C && res == (k in C)
-     | insertOp -> C' == C ++ {|k|} && res == (k !in C)
-     | insertOp -> C' == C -- {|k|} && res == (k in C)
+     case searchOp => C' == C && res == (k in C)
+     case insertOp => C' == C ++ {|k|} && res == (k !in C)
+     case insertOp => C' == C -- {|k|} && res == (k in C)
     }
   }
 }
