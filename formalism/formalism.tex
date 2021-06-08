@@ -1,0 +1,74 @@
+\documentclass{article}
+
+\usepackage[margin=0.5in]{geometry} 
+\usepackage{amsmath,amsthm,amssymb}
+\usepackage{enumitem} 
+
+\usepackage{listings}
+
+%\lstset{
+%	basicstyle=,
+%	columns=flexible
+%	xleftmargin=3em,
+%	literate={->}{$::=$}{2}
+%	{α}{$\alpha$}{1}
+%	{δ}{$\delta$}{1}
+%}
+\usepackage{syntax}
+
+
+\setlist[itemize]{noitemsep,nolistsep} %makes lists compact
+
+\begin{document}
+	\title{Formal specification for RAVEN}
+	\date{}
+	
+	\maketitle
+
+
+	\begin{grammar}
+	\let\syntleft\relax
+	\let\syntright\relax
+
+		
+	<\textit{prog}> ::= $\overline{decl}$
+	
+	<\textit{decl}> ::= \textit{proc\_decl} | \textit{at\_proc\_decl} | \textit{func\_decl} | \textit{intf\_decl} | \textit{module\_decl} | \textit{module\_inst} | \textit{pred\_decl} | \textit{import}
+	
+	<\textit{proc\_decl}> ::=  proc \textit{proc}($\overline{x : T}$) \\
+		requires \textit{a} \\
+		ensures \textit{a} \\
+		\{\textit{stmt}\}
+		
+	<\textit{at\_proc\_decl}> ::= atomic proc \textit{proc}($\overline{x : T}$) \\
+	requires \textit{a} \\
+	ensures \textit{a} \\
+	\{\textit{stmt}\}
+	
+	<\textit{func\_decl}> ::= function \textit{func}($\overline{x : T}$) : T\\
+	requires \textit{a} \\
+	ensures \textit{a} \\
+	\{\textit{stmt}\}
+	
+	<\textit{intf\_decl}> ::= interface \textit{intf}[$\overline{z : I}$] 
+	
+	<\textit{module\_decl}> ::= module \textit{mod}[$\overline{z : I}$] : \textit{intf} \{e\}
+	
+	<\textit{module\_inst}> ::= module \textit{mod} = \textit{mod}[$\overline{z : I}$]
+	
+	<\textit{pred\_decl}> ::= predicate \textit{pred}($\overline{x : T}$) \{a\}
+	
+	<\textit{import}> ::= import \textit{intf}
+	
+	<\textit{stmt}> ::= \textit{stmt}; \textit{stmt} | var x:T | x := e | x := new($\overline{f}$) | $\overline{x}$ := proc($\overline{e}$) | x.f := e | assert \textit{a} | if (\textit{e}) \{\textit{stmt}\} else \{\textit{stmt}\} | while (\textit{e}) invariant \textit{a} \{\textit{stmt}\} | inhale/exhale/label/goto/fold/unfold
+		
+\end{grammar}
+
+\iffalse
+- Grammar needs to be styled properly, specially wrt multi line declarations for procs/funcs/etc.
+- How to represent optional parameters, for example the arguments for interfaces and modules.
+- monospace font for the keywords
+\fi
+
+
+\end{document} 

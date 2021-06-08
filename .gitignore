@@ -2,3 +2,6 @@ _build/
 dune-project
 *.smt2
 *~
+formalism/formalism.aux
+formalism/formalism.log
+formalism/formalism.synctex.gz
