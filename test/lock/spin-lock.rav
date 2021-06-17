@@ -1,0 +1,34 @@
+module Lock {
+  rep type Rep = struct {
+    var bit: Bool
+  }
+  
+  pred lockR(l: Rep, b: Bool) {
+    own(l.bit, b)
+  }
+
+  proc create()
+    returns (l: Rep)
+    ensures lockR(l, false)
+  {
+    l := new Rep(bit(false));
+  }
+
+  proc acquire(l: Rep, implicit ghost b: Bool)
+    atomic requires lockR(l, b)
+    atomic ensures lockR(l, true)
+  {
+    val res = cas(l.bit, false, true);
+    
+    if (!res) acquire(l);
+  }
+
+  proc release(l: Lock)
+    atomic requires lockR(l, true)
+    atomic ensures lockR(l, false)
+  {
+    l.bit := false;
+  }
+}
+
+
