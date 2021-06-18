@@ -404,7 +404,7 @@ stmt_wo_trailing_substmt:
   Stmt.(Basic (Assign assign))
 }
 (* assignment *)
-| es = expr_list; COLONEQ; e = expr; SEMICOLON {
+| es = separated_nonempty_list(COMMA, expr); COLONEQ; e = expr; SEMICOLON {
   let assign =
     Stmt.{ assign_lhs = es;
            assign_rhs = e;
@@ -413,7 +413,7 @@ stmt_wo_trailing_substmt:
   Stmt.(Basic (Assign assign))
   }
 (* havoc *)
-| HAVOC; es = expr_list; SEMICOLON { 
+| HAVOC; es = separated_nonempty_list(COMMA, expr); SEMICOLON { 
   Stmt.(Basic (Havoc es))
 }
 
@@ -446,7 +446,7 @@ stmt_wo_trailing_substmt:
 }
 *)
 (* return *)
-| RETURN; es = expr_list_opt; SEMICOLON { 
+| RETURN; es = separated_list(COMMA, expr); SEMICOLON { 
   Stmt.(Basic (Return es))
 }
 (* fold *)
@@ -622,7 +622,7 @@ primary:
 ;
 
 set_expr:
-| LBRACEPIPE; es = expr_list_opt; RBRACEPIPE {
+| LBRACEPIPE; es = separated_list(COMMA, expr); RBRACEPIPE {
     Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Setenum es)
   }
 | LBRACEPIPE; v = bound_var; COLONCOLON; e = expr; RBRACEPIPE {
@@ -635,7 +635,7 @@ new_expr:
 | NEW; t = type_expr {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) [])
 }
-| NEW; t = type_expr; LPAREN; es = expr_list_opt; RPAREN {
+| NEW; t = type_expr; LPAREN; es = separated_list(COMMA,expr); RPAREN {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
 }
 ;
@@ -661,7 +661,7 @@ call_expr:
 }
   
 call:
-| LPAREN; es = expr_list_opt; RPAREN { (Expr.Call, es) }
+| LPAREN; es = separated_list(COMMA, expr); RPAREN { (Expr.Call, es) }
   
 call_opt:
 | c = call { Some c }
@@ -868,14 +868,4 @@ quant_expr:
 
 expr:
 | e = quant_expr { e } 
-;
-
-expr_list_opt:
-| es = expr_list { es }
-| /* empty */ { [] }
-;
-
-expr_list:
-| e = expr; COMMA; es = expr_list { e :: es }
-| e = expr { [e] }
 ;
