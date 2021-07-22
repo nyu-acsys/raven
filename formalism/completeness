@@ -1,0 +1,171 @@
+Raven:
+------
+
+stmt := var x: T | x := e | x := new(f...) | x.f := e | stmt; stmt
+				inhale a | exhale a | assert a | 
+				if (bex) { stmt }  else { stmt }
+				
+a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | a → a | ∃x.a
+
+e := x | null | n (base_values)
+
+bex := e = e | bool_op(e...)
+
+==> Concrete execution
+----------------------
+
+Program state σ (∈ Σ) either:
+- ERROR
+- (H, γ, κ), where:
+		1) H: Obj_id x Field_id → Val x Perm
+		2) γ: Var → Val 
+		3) κ is continuation: either DONE or EXEC(stmt, κ) 
+
+
+==> Operational rules for execution (relation CE ⊆ Σₛ x Prog x Σₛ)
+-----------------------------------
+
+Execution of statements :
+
+1) (H, γ, EXEC(var x: T; stmt, κ)) → (H, γ[x ↦ _], EXEC(stmt, κ))
+
+2)				   									H, γ, e ↑ c               
+	 ------------------------------------------------------------------						
+	 (H, γ, EXEC(x := e; stmt, κ)) → (H, γ[x ↦ c], EXEC(stmt, κ)) 
+
+
+4)						             i ∉ first_proj(dom(H))
+	 ------------------------------------------------------------------						
+	 (H, γ, EXEC(x := new(f...); stmt, κ)) → (H[(i,f) ↦ _,...] , γ[x ↦ i], EXEC(stmt, κ)) 
+
+5)			(γ(x), f) ∈ dom(H)                  H, γ, e ↑ c   
+	 ------------------------------------------------------------------						
+	 (H, γ, EXEC(x.f := e; stmt, κ)) → (H[(γ(x),f) ↦ c], γ, EXEC(stmt, κ)) 
+
+7)												(γ(x), f) ∉ dom(H)
+	 ------------------------------------------------------------------						
+	 						(H, γ, EXEC(x.f := e; stmt, κ)) → ERROR 
+
+
+8)						  					H, γ, bex ↑ true
+	 ------------------------------------------------------------------						
+	 (H, γ, EXEC(if (bex) { stmt1 }  else { stmt2 }; stmt, κ)) → (H, γ, EXEC(stmt1; stmt, κ)) 
+
+9)						  						H, γ, bex ↑ false
+	 ------------------------------------------------------------------						
+	 (H, γ, EXEC(if (bex) { stmt1 }  else { stmt2 }; stmt, κ)) → (H, γ, EXEC(stmt2; stmt, κ)) 
+
+
+Evaluation of expressions:
+
+1) 				γ(x) = c
+			---------------
+				H, γ, e ↑ c
+
+2) H, γ, null ↑ null         H, γ, n ↑ n
+
+3) 		 H, γ, e1 ↑ c1      H, γ, e2 ↑ c2      c1 = c2
+			-----------------------------------------------
+		                  H, γ, e1 = e2 ↑ true
+
+4) 		 H, γ, e1 ↑ c1      H, γ, e2 ↑ c2      c1 ≠ c2
+			-----------------------------------------------
+		                  H, γ, e1 = e2 ↑ false
+		   
+5) 		H, γ, e ↑ c  ...   bool_op(c,...) = b
+			--------------------------------------
+		          H, γ, bool_op(e...) ↑ b
+
+
+Interpretation of assertions over concrete states (⊨)
+
+(H, γ, κ) ⊨ e1 = e2                  iff [e1]γ = [e2]γ.
+(H, γ, κ) ⊨ bool_op(e...)            iff bool_op([e]γ...) holds.
+(H, γ, κ) ⊨ e1.f ↦[p] e2             iff p ≤ H([e1]γ, f).2 and H([e1]γ, f).1 = [e2]γ.  
+(H, γ, κ) ⊨ a0 ∗ a1           			 iff exists H0, H1. H = H0 ∗ H1 and (H0, γ, κ) ⊨ a0 and (H1, γ, κ) ⊨ a1.
+(H, γ, κ) ⊨ a0 ∧ a1                  iff (H, γ, κ) ⊨ a0 and (H, γ, κ) ⊨ a1.
+(H, γ, κ) ⊨ a0 ∨ a1                  iff (H, γ, κ) ⊨ a0 or (H, γ, κ) ⊨ a1.
+(H, γ, κ) ⊨ a0 → a1                  iff forall H', H' ⊥ H and (H' ∗ H, γ, κ) ⊨ a0 implies (H' ∗ H, γ, κ) ⊨ a1.
+(H, γ, κ) ⊨ ∃x. a										 iff there exists c s.t. (H, γ[x ↦ c], κ) ⊨ a.  
+
+Validity of Hoare triples:
+
+(H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and 
+																		CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
+																		
+⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
+
+
+Symbolic Execution
+
+Symbolic state σₛ of the form (γ, π, h, D) where:
+	1) h: multiset of heap chunks - f(r,v,p); f - field, r - symbolic location, v - symbolic value, p - permission 
+	2) γ: Var → (Val)
+	3) π: path condition stack - collection of formulas from many-sorted first-order logic.
+	4) D = {D1, D2, ...}: partition of symoblic locations, r1, r2 ∈ Di => π ⊢ r1 = r2
+	
+(h, γ, π, D) ~ (h', γ', π', D') iff γ = γ', π = π', D = D', and
+	∀ f ∈ Fields, Di ∈ D.  + { p | f(r, v, p) ∈ h ∧ r ∈ Di } = + { p | f(r, v, p) ∈ h' ∧ r ∈ Di }    
+
+Interpretation of assertions over symbolic states (⊨ₛ)
+
+(h, γ, π, D) ⊨ e1 = e2                  iff [e1]γ = [e2]γ.
+(h, γ, π, D) ⊨ bool_op(e...)            iff bool_op([e]γ...) holds.
+(h, γ, π, D) ⊨ e1.f ↦[p] e2             iff p ≤ + { p' | f(r, v, p') ∈ h ∧ [r]γ ~ [e1]γ } 
+																						and exists r, v, p'. [r]γ = [e1]γ ∧ v = [e2]γ ∧ f(r,v,p') ∈ h.  
+(h, γ, π, D) ⊨ a0 ∗ a1           			  iff exists h0, h1. h = h0 ∗ h1 (disjoint union) and (h0, γ, π, D) ⊨ a0 and (h1, γ, π, D) ⊨ a1.
+(h, γ, π, D) ⊨ a0 ∧ a1                  iff (h, γ, π, D) ⊨ a0 and (h, γ, π, D) ⊨ a1.
+(h, γ, π, D) ⊨ a0 ∨ a1                  iff (h, γ, π, D) ⊨ a0 or (h, γ, π, D) ⊨ a1.
+(h, γ, π, D) ⊨ a0 → a1                  iff forall h', h' ⊥ h and (h' ∗ h, γ, π, D) ⊨ a0 implies (h' ∗ h, γ, π, D) ⊨ a1.
+(h, γ, π, D) ⊨ ∃x. a								    iff there exists c s.t. (h' ∗ h, γ[x ↦ c], π, D) ⊨ a.  
+
+
+Symoblic execution, denoted by relation SE ⊆ Σₛ x Prog x Σₛ     
+
+-- Viper's 
+
+
+Validity of Hoare triples:
+
+(H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and 
+																		CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
+																		
+⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
+
+Completeness
+
+⊨ { P } C { Q } → ⊢ { P } C { Q }
+	
+
+
+
+
+
+
+
+
+Scratch:
+
+
+h = { acc(x, 0.5) && acc(y, 0.5) }
+π = { x == y }
+
+h = { acc(x, 1) } 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
