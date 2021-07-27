@@ -1,7 +1,7 @@
 Raven:
 ------
 
-stmt := var x: T | x := e | x := new(f...) | x.f := e | stmt; stmt
+stmt := var x: T | x := e | x := new (f...) | x.f := e | stmt; stmt
 				inhale a | exhale a | assert a | 
 				if (bex) { stmt }  else { stmt }
 				
@@ -22,36 +22,36 @@ Program state σ (∈ Σ) either:
 		3) κ is continuation: either DONE or EXEC(stmt, κ) 
 
 
-==> Operational rules for execution (relation CE ⊆ Σₛ x Prog x Σₛ)
------------------------------------
+==> Operational rules for concrete execution (relation CE ⊆ Σₛ x Prog x Σₛ)
+-------------------------------------------
 
 Execution of statements :
 
 1) (H, γ, EXEC(var x: T; stmt, κ)) → (H, γ[x ↦ _], EXEC(stmt, κ))
 
 2)				   									H, γ, e ↑ c               
-	 ------------------------------------------------------------------						
+	 ------------------------------------------------------------------
 	 (H, γ, EXEC(x := e; stmt, κ)) → (H, γ[x ↦ c], EXEC(stmt, κ)) 
 
 
-4)						             i ∉ first_proj(dom(H))
+3)						             i ∉ first_proj(dom(H))
 	 ------------------------------------------------------------------						
 	 (H, γ, EXEC(x := new(f...); stmt, κ)) → (H[(i,f) ↦ _,...] , γ[x ↦ i], EXEC(stmt, κ)) 
 
-5)			(γ(x), f) ∈ dom(H)                  H, γ, e ↑ c   
+4)			(γ(x), f) ∈ dom(H)     H(γ(x), f) = (_, 1)      H, γ, e ↑ c   
 	 ------------------------------------------------------------------						
-	 (H, γ, EXEC(x.f := e; stmt, κ)) → (H[(γ(x),f) ↦ c], γ, EXEC(stmt, κ)) 
+	 (H, γ, EXEC(x.f := e; stmt, κ)) → (H[(γ(x),f) ↦ (c,1)], γ, EXEC(stmt, κ)) 
 
-7)												(γ(x), f) ∉ dom(H)
+5)												(γ(x), f) ∉ dom(H)
 	 ------------------------------------------------------------------						
 	 						(H, γ, EXEC(x.f := e; stmt, κ)) → ERROR 
 
 
-8)						  					H, γ, bex ↑ true
+6)						  					H, γ, bex ↑ true
 	 ------------------------------------------------------------------						
 	 (H, γ, EXEC(if (bex) { stmt1 }  else { stmt2 }; stmt, κ)) → (H, γ, EXEC(stmt1; stmt, κ)) 
 
-9)						  						H, γ, bex ↑ false
+7)						  						H, γ, bex ↑ false
 	 ------------------------------------------------------------------						
 	 (H, γ, EXEC(if (bex) { stmt1 }  else { stmt2 }; stmt, κ)) → (H, γ, EXEC(stmt2; stmt, κ)) 
 
@@ -60,7 +60,7 @@ Evaluation of expressions:
 
 1) 				γ(x) = c
 			---------------
-				H, γ, e ↑ c
+				H, γ, x ↑ c
 
 2) H, γ, null ↑ null         H, γ, n ↑ n
 
@@ -90,8 +90,8 @@ Interpretation of assertions over concrete states (⊨)
 
 Validity of Hoare triples:
 
-(H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and 
-																		CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
+(H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and CE((H, A, γ, κ), C, (H', A', γ', DONE)) 
+																																					implies (H', A', γ', DONE) ⊨ Q.
 																		
 ⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
 
@@ -99,14 +99,12 @@ Validity of Hoare triples:
 Symbolic Execution
 
 Symbolic state σₛ of the form (γ, π, h, D) where:
-	1) h: multiset of heap chunks - f(r,v,p); f - field, r - symbolic location, v - symbolic value, p - permission 
-	2) γ: Var → (Val)
-	3) π: path condition stack - collection of formulas from many-sorted first-order logic.
-	4) D = {D1, D2, ...}: partition of symoblic locations, r1, r2 ∈ Di => π ⊢ r1 = r2
-	
-(h, γ, π, D) ~ (h', γ', π', D') iff γ = γ', π = π', D = D', and
-	∀ f ∈ Fields, Di ∈ D.  + { p | f(r, v, p) ∈ h ∧ r ∈ Di } = + { p | f(r, v, p) ∈ h' ∧ r ∈ Di }    
+	1) h: multiset of heap chunks - f(r,v,p); f - field, r - symbolic objects, v - symbolic value, p - symbolic permission value 
+	2) π: path condition stack - collection of formulas from many-sorted first-order logic.
+	3) γ: Var → SymbVal
 
+
+	
 Interpretation of assertions over symbolic states (⊨ₛ)
 
 (h, γ, π, D) ⊨ e1 = e2                  iff [e1]γ = [e2]γ.
@@ -130,7 +128,7 @@ Validity of Hoare triples:
 (H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and 
 																		CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
 																		
-⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
+⊢ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
 
 Completeness
 
