@@ -36,7 +36,7 @@ Execution of statements :
 
 3)						             i ∉ first_proj(dom(H))
 	 ------------------------------------------------------------------						
-	 (H, γ, EXEC(x := new(f...); stmt, κ)) → (H[(i,f) ↦ _,...] , γ[x ↦ i], EXEC(stmt, κ)) 
+	 (H, γ, EXEC(x := new(f...); stmt, κ)) → (H[(i,f) ↦ (_, 1), ...] , γ[x ↦ i], EXEC(stmt, κ)) 
 
 4)			(γ(x), f) ∈ dom(H)     H(γ(x), f) = (_, 1)      H, γ, e ↑ c   
 	 ------------------------------------------------------------------						
@@ -91,36 +91,69 @@ Interpretation of assertions over concrete states (⊨)
 Validity of Hoare triples:
 
 (H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and CE((H, A, γ, κ), C, (H', A', γ', DONE)) 
-																																					implies (H', A', γ', DONE) ⊨ Q.
+																	implies (H', A', γ', DONE) ⊨ Q.
 																		
 ⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
 
 
 Symbolic Execution
 
-Symbolic state σₛ of the form (γ, π, h, D) where:
+Symbolic state σₛ of the form (h, π, γ) where:
 	1) h: multiset of heap chunks - f(r,v,p); f - field, r - symbolic objects, v - symbolic value, p - symbolic permission value 
 	2) π: path condition stack - collection of formulas from many-sorted first-order logic.
 	3) γ: Var → SymbVal
 
-
 	
-Interpretation of assertions over symbolic states (⊨ₛ)
+Interpretation of assertions over symbolic states (⊢)
 
-(h, γ, π, D) ⊨ e1 = e2                  iff [e1]γ = [e2]γ.
-(h, γ, π, D) ⊨ bool_op(e...)            iff bool_op([e]γ...) holds.
-(h, γ, π, D) ⊨ e1.f ↦[p] e2             iff p ≤ + { p' | f(r, v, p') ∈ h ∧ [r]γ ~ [e1]γ } 
-																						and exists r, v, p'. [r]γ = [e1]γ ∧ v = [e2]γ ∧ f(r,v,p') ∈ h.  
-(h, γ, π, D) ⊨ a0 ∗ a1           			  iff exists h0, h1. h = h0 ∗ h1 (disjoint union) and (h0, γ, π, D) ⊨ a0 and (h1, γ, π, D) ⊨ a1.
-(h, γ, π, D) ⊨ a0 ∧ a1                  iff (h, γ, π, D) ⊨ a0 and (h, γ, π, D) ⊨ a1.
-(h, γ, π, D) ⊨ a0 ∨ a1                  iff (h, γ, π, D) ⊨ a0 or (h, γ, π, D) ⊨ a1.
-(h, γ, π, D) ⊨ a0 → a1                  iff forall h', h' ⊥ h and (h' ∗ h, γ, π, D) ⊨ a0 implies (h' ∗ h, γ, π, D) ⊨ a1.
-(h, γ, π, D) ⊨ ∃x. a								    iff there exists c s.t. (h' ∗ h, γ[x ↦ c], π, D) ⊨ a.  
+(h, γ, π) ⊢ e1 = e2                  iff [e1]γ = [e2]γ.
+(h, γ, π) ⊢ bool_op(e...)            iff bool_op([e]γ...) holds.
+(h, γ, π) ⊢ e1.f ↦[p] e2             iff p ≤ + { p' | f(r, v, p') ∈ h ∧ [r]γ ~ [e1]γ ∧ v = [e2]γ } 
+(h, γ, π) ⊢ a0 ∗ a1           			  iff exists h0, h1. h = h0 ∗ h1 (disjoint union) and 
+													(h0, γ, π) ⊢ a0 and (h1, γ, π) ⊢ a1.
+(h, γ, π) ⊢ a0 ∧ a1                  iff (h, γ, π) ⊢ a0 and (h, γ, π) ⊢ a1.
+(h, γ, π) ⊢ a0 ∨ a1                  iff (h, γ, π) ⊢ a0 or (h, γ, π) ⊢ a1.
+(h, γ, π) ⊢ a0 → a1                  iff forall h', h' ⊥ h and (h' ∗ h, γ, π) ⊢ a0 implies (h' ∗ h, γ, π) ⊢ a1.
+(h, γ, π) ⊢ ∃x. a								    iff there exists c s.t. (h' ∗ h, γ[x ↦ c], π) ⊢ a.  
 
 
-Symoblic execution, denoted by relation SE ⊆ Σₛ x Prog x Σₛ     
+Symbolic execution, denoted by relation SE ⊆ Σₛ x Prog x Σₛ     
 
--- Viper's 
+Execution of statements :
+
+1) (h, γ, π, EXEC(var x: T; stmt, κ)) → (h, γ[x ↦ v_x], EXEC(stmt, κ)) where v_x is a fresh symbolic variable.
+
+2)				   									h, γ, π, e ↑ c               
+	 ------------------------------------------------------------------
+	 (h, γ, π, EXEC(x := e; stmt, κ)) → (h, γ, π ++ (v_x = c) EXEC(stmt, κ)) 
+
+
+3)						         r_x fresh var   
+	------------------------------------------------------------------						
+	 (h, γ, π, EXEC(x := new(f...); stmt, κ)) → (h ++ f(r_x, _, 1) ...] , γ[x ↦ r_x], EXEC(stmt, κ)) 
+
+4)			(γ(x) = r_x)     ∧     + { p | f(r_x, v, p) ∈ h} = 1   ∧   h, γ, π, e ↑ c   
+	------------------------------------------------------------------	  
+	 (h, γ, π, EXEC(x.f := e; stmt, κ)) → (h, γ, π ++ (v = c),  EXEC(stmt, κ)) 
+
+	//TODO different chunks can (will) have different symbolic values!
+
+
+5)		(γ(x) = r_x)     ∧     + { p | f(r_x, v, p) ∈ h} < 1
+	 ------------------------------------------------------------------
+	 						(H, γ, EXEC(x.f := e; stmt, κ)) → ERROR 
+
+	 //TODO for sure aliasing will cause problems here.
+
+
+6)						  					h, γ, π, bex ↑ true
+	 ------------------------------------------------------------------						
+	 (h, γ, π, EXEC(if (bex) { stmt1 }  else { stmt2 }; stmt, κ)) → (h, γ, π, EXEC(stmt1; stmt, κ)) 
+
+7)						  						h, γ, π, bex ↑ false
+	 ------------------------------------------------------------------						
+	 (h, γ, π, EXEC(if (bex) { stmt1 }  else { stmt2 }; stmt, κ)) → (H, γ, π, EXEC(stmt2; stmt, κ)) 
+
 
 
 Validity of Hoare triples:
