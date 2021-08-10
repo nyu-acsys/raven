@@ -5,7 +5,7 @@ stmt := var x: T | x := e | x := new (f...) | x.f := e | stmt; stmt
 				inhale a | exhale a | assert a |
 				{ stmt } □ { stmt } // non-deterministic choice.
 				
-a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | a → a | ∃x.a
+a := bex | e.f ↦[p] e | a ∗ a | a ∧ a |		# What to do about these: a ∨ a | a → a | ∃x.a
 
 e := x | null | n (base_values)
 
@@ -57,11 +57,21 @@ Execution of statements :
 
 6b)			(H, γ, EXEC({stmt2}, κ)) → (H', γ', κ)
 	 ------------------------------------------------------------------						
-	 (H, γ, EXEC({ stmt1 } □ { stmt2 }, κ)) → (H', γ', κ)	 
+	 (H, γ, EXEC({ stmt1 } □ { stmt2 }, κ)) → (H', γ', κ)
 
+7) 							H, γ ⊨ a
+	-------------------------------------------------------------------	
+		(H, γ, EXEC(inhale a, κ)) → (H, γ, κ)
 
-	//TODO: inhale, exhale, assert
+8)								H, γ ⊨ a
+	-------------------------------------------------------------------
+		(H, γ, EXEC(assert a, κ)) → (H, γ, κ)
 
+9)								H, γ ⊭ a
+	-------------------------------------------------------------------
+		(H, γ, EXEC(assert a, κ)) → ERROR
+
+	//TODO: exhale
 
 Evaluation of expressions:
 
@@ -139,7 +149,7 @@ Execution of statements :
 	------------------------------------------------------------------						
 	 (h, γ, π, EXEC(x := new(f...), κ)) → (h ++ f(r_x, _, 1) ...] , γ[x ↦ r_x], κ) 
 
-4)	(γ(x) = r_x)	∧	v_x' fresh SVar	∧	+ { p | f(r_x, v, p) ∈ h} = 1	∧	h, γ, π, e ↑ c   
+4)	 γ(x) = r_x		∧	v_x' fresh SVar	∧	+ { p | f(r_x, v, p) ∈ h} = 1	∧	h, γ, π, e ↑ c   
 	-----------------------------------------------------------	[Update all chunks with fresh SVar]
 		(h, γ, π, EXEC(x.f := e, κ)) → (h[f(r_x,v_x',p) \ f(r_x,v,p)], γ, π ++ (v_x' = c), κ) 
 
@@ -158,6 +168,42 @@ Execution of statements :
 6b)				(h, γ, π, EXEC({stmt2}, κ)) → (H', γ', κ)
 	 ------------------------------------------------------------------						
 	 		(h, γ, π, EXEC({ stmt1 } □ { stmt2 }, κ)) → (h, γ, π, κ) 
+
+7a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x, v_x fresh SVar
+	 ------------------------------------------------------------------
+	 		(h, γ, π, EXEC(exhale a, k)) → (h ++ f(r_x, v_x, p), γ ++ (v_x = c), π, k)
+
+7b)			a == a1 * a2 	∨	a == a1 ∧ a2
+	-------------------------------------------------------------------
+			(h, γ, π, EXEC(inhale a, κ)) → (h, γ, π, EXEC(inhale a1, EXEC(inhale a2, k)))
+
+7c) 		a == bool_op(e1, e2, ...)
+	--------------------------------------------------------------------
+		(h, γ, π, EXEC(inhale a, κ)) → (h, γ, π ++ bool_op(e1', e2', ...), k)
+		where e1' = e1[x \ γ(x) ] etc
+
+8a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x, v_x fresh SVar
+	 ------------------------------------------------------------------
+	 		(h, γ, π, EXEC(exhale a, k)) → (h ++ f(r_x, v_x, p), γ ++ (v_x = c, π, k)
+	 		[What does e2 mean in exhale?]
+
+8b)			a == a1 * a2 	∨	a == a1 ∧ a2
+	-------------------------------------------------------------------
+			(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, EXEC(exhale a1, EXEC(exhale a2, k)))
+
+8c) 		a == bool_op(e1, e2, ...)	∧	h, γ, π ⊢ a
+	--------------------------------------------------------------------
+		(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, k)
+		[Should we have an error state for the alternative?]
+
+
+
+
+
+a := bex | a ∨ a | a → a | ∃x.a
+
+
+//TODO: inhale, exhale, assert
  
 
 
@@ -171,7 +217,7 @@ Validity of Hoare triples:
 
 Completeness
 
-⊨ { P } C { Q } → ⊢ { P } C { Q }
+⊨ { P } C { Q } 	→	 ⊢ { P } C { Q }
 	
 
 
@@ -188,21 +234,3 @@ h = { acc(x, 0.5) && acc(y, 0.5) }
 π = { x == y }
 
 h = { acc(x, 1) } 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
