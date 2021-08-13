@@ -5,7 +5,8 @@ stmt := var x: T | x := e | x := new (f...) | x.f := e | stmt; stmt
 				inhale a | exhale a | assert a |
 				{ stmt } □ { stmt } // non-deterministic choice.
 				
-a := bex | e.f ↦[p] e | a ∗ a | a ∧ a |		# What to do about these: a ∨ a | a → a | ∃x.a
+a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | ∃x : e.f ↦[p] x
+# What to do about these: | a → a 
 
 e := x | null | n (base_values)
 
@@ -59,9 +60,9 @@ Execution of statements :
 	 ------------------------------------------------------------------						
 	 (H, γ, EXEC({ stmt1 } □ { stmt2 }, κ)) → (H', γ', κ)
 
-7) 							H, γ ⊨ a
-	-------------------------------------------------------------------	
-		(H, γ, EXEC(inhale a, κ)) → (H, γ, κ)
+7) 				H_1, γ ⊨ a 		∧		H' = H ∘ H_1
+	-------------------------------------------------------------------
+				(H, γ, EXEC(inhale a, κ)) → (H', γ, κ)
 
 8)								H, γ ⊨ a
 	-------------------------------------------------------------------
@@ -71,7 +72,10 @@ Execution of statements :
 	-------------------------------------------------------------------
 		(H, γ, EXEC(assert a, κ)) → ERROR
 
-	//TODO: exhale
+10)		H_1, γ ⊨ a	∧	∀ H" ⊂ H_1 : H", γ ⊭ a	∧	H = H' ∘ H_1
+	-------------------------------------------------------------------
+			(H, γ, EXEC(exhale a, κ)) → (H', γ, κ)
+
 
 Evaluation of expressions:
 
@@ -177,11 +181,20 @@ Execution of statements :
 	-------------------------------------------------------------------
 			(h, γ, π, EXEC(inhale a, κ)) → (h, γ, π, EXEC(inhale a1, EXEC(inhale a2, k)))
 
-7c) 		a == bool_op(e1, e2, ...)
+7c)			a == a1 ∨ a2			∨			a == a2 ∨ a1
+	-------------------------------------------------------------------
+			(h, γ, π, EXEC(inhale a1 ∨ a2)) → (h, γ, π, EXEC(inhale a1))
+
+7d) 		a == bool_op(e1, e2, ...)
 	--------------------------------------------------------------------
 		(h, γ, π, EXEC(inhale a, κ)) → (h, γ, π ++ bool_op(e1', e2', ...), k)
 		where e1' = e1[x \ γ(x) ] etc
 
+7e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	v_z fresh SVar
+	---------------------------------------------------------------------
+		(h, γ, π, EXEC(inhale a, κ)) → (h ++ f(r_z, v_z, p), γ, π ++ (v_z = x), κ)
+
+//TODO
 8a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x, v_x fresh SVar
 	 ------------------------------------------------------------------
 	 		(h, γ, π, EXEC(exhale a, k)) → (h ++ f(r_x, v_x, p), γ ++ (v_x = c, π, k)
@@ -191,16 +204,23 @@ Execution of statements :
 	-------------------------------------------------------------------
 			(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, EXEC(exhale a1, EXEC(exhale a2, k)))
 
-8c) 		a == bool_op(e1, e2, ...)	∧	h, γ, π ⊢ a
+8c)			a == a1 ∨ a2			∨			a == a2 ∨ a1
+	-------------------------------------------------------------------
+			(h, γ, π, EXEC(exhale a1 ∨ a2)) → (h, γ, π, EXEC(exhale a1))
+
+8d) 		a == bool_op(e1, e2, ...)	∧	h, γ, π ⊢ a
 	--------------------------------------------------------------------
 		(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, k)
 		[Should we have an error state for the alternative?]
 
+//TODO
+8e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	v_z fresh SVar	∧	
+	---------------------------------------------------------------------
+		(h, γ, π, EXEC(exhale a, κ)) → (h ++ f(r_z, v_z, p), γ, π ++ (v_z = x), κ)
 
 
+[Ambiguity in assertions between existentially quantified variables and variables in the code.]
 
-
-a := bex | a ∨ a | a → a | ∃x.a
 
 
 //TODO: inhale, exhale, assert
