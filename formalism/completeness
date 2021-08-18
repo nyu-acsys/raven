@@ -112,7 +112,7 @@ Interpretation of assertions over concrete states (⊨)
 Validity of Hoare triples:
 
 (H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and CE((H, A, γ, κ), C, (H', A', γ', DONE)) 
-																	implies (H', A', γ', DONE) ⊨ Q.
+											implies (H', A', γ', DONE) ⊨ Q.
 																		
 ⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
 
@@ -144,7 +144,7 @@ Execution of statements :
 
 1) (h, γ, π, EXEC(var x: T, κ)) → (h, γ[x ↦ v_x], κ) where v_x is a fresh symbolic variable.
 
-2)				v_x' fresh SVar		∧		h, γ, π, e ↑ c               
+2)				v_x': fresh SVar		∧		h, γ, π, e ↑ c               
 	 ------------------------------------------------------------------  	[Assign new SVar to x]
 	 (h, γ, π, EXEC(x := e, κ)) → (h, γ[x → v_x'], π ++ (v_x' = c) κ) 
 
@@ -194,11 +194,9 @@ Execution of statements :
 	---------------------------------------------------------------------
 		(h, γ, π, EXEC(inhale a, κ)) → (h ++ f(r_z, v_z, p), γ, π ++ (v_z = x), κ)
 
-//TODO
-8a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x, v_x fresh SVar
+8a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x	∧	f(r_x, v_x, p') ∈ h, p' >= p
 	 ------------------------------------------------------------------
-	 		(h, γ, π, EXEC(exhale a, k)) → (h ++ f(r_x, v_x, p), γ ++ (v_x = c, π, k)
-	 		[What does e2 mean in exhale?]
+		(h, γ, π, EXEC(exhale a, k)) → (h \ f(r_x, v_x, p') ++ f(r_x, v_x, p), γ ++ (v_x = c), π, k)
 
 8b)			a == a1 * a2 	∨	a == a1 ∧ a2
 	-------------------------------------------------------------------
@@ -213,27 +211,49 @@ Execution of statements :
 		(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, k)
 		[Should we have an error state for the alternative?]
 
-//TODO
-8e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	v_z fresh SVar	∧	
+8e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	f(r_z, v_z, p') ∈ h, p' >= p
 	---------------------------------------------------------------------
-		(h, γ, π, EXEC(exhale a, κ)) → (h ++ f(r_z, v_z, p), γ, π ++ (v_z = x), κ)
+		(h, γ, π, EXEC(exhale a, κ)) → (h \ f(r_z, v_z, p') ++ f(r_z, v_z, p'-p), γ, π ++ (v_z = x), κ)
 
+9a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x	∧	f(r_x, v_x, p') ∈ h, p' >= p	∧	h, γ, π ⊢ c = v_x
+	 ------------------------------------------------------------------
+		(h, γ, π, EXEC(assert a, k)) → (h, γ, π, k)
 
-[Ambiguity in assertions between existentially quantified variables and variables in the code.]
+9b)			a == a1 * a2 	∨	a == a1 ∧ a2
+	-------------------------------------------------------------------
+			(h, γ, π, EXEC(assert a, κ)) → (h, γ, π, EXEC(assert a1, EXEC(assert a2, k)))
 
+9c)			a == a1 ∨ a2			∨			a == a2 ∨ a1
+	-------------------------------------------------------------------
+			(h, γ, π, EXEC(assert a1 ∨ a2)) → (h, γ, π, EXEC(assert a1))
 
+9d) 		a == bool_op(e1, e2, ...)	∧	h, γ, π ⊢ a
+	--------------------------------------------------------------------
+		(h, γ, π, EXEC(assert a, κ)) → (h, γ, π, k)
+		[Should we have an error state for the alternative?]
 
-//TODO: inhale, exhale, assert
- 
+9e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	f(r_z, v_z, p') ∈ h, p' >= p
+	---------------------------------------------------------------------
+		(h, γ, π, EXEC(assert a, κ)) → (h, γ, π ++ (v_z == x), κ)
+
+[ Syntactic ambiguity in assertions between existentially quantified variables and variables in the code.]
 
 
 
 Validity of Hoare triples:
 
 (H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and 
-																		CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
+								CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
 																		
 ⊢ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
+// Pedantic concern: Continuation shouldn't come in the precedent for the hoare triple. Instead κ should be constructed from C.
+
+
+State Consolidation:
+(H, γ, π) →
+
+
+
 
 Completeness
 
