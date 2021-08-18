@@ -250,9 +250,11 @@ Validity of Hoare triples:
 
 
 State Consolidation:
-(H, γ, π) →
+Between every step, we run a state consolidation step, described as follows:
 
+For (h, γ, π), consider the equivalence relation on h defined by f1(r1,v1,p1) ~ f2(r2,v2,p2) iff f1 == f2.
 
+Non-deterministically pick an equivalence relation which refines ~. Merge all equivalence classes in the heap to get a new state (h', γ, π'). If (h', γ, π') ⊢ false, then discard. Else proceed.
 
 
 Completeness
