@@ -5,7 +5,7 @@ stmt := var x: T | x := e | x := new (f...) | x.f := e | stmt; stmt
 				inhale a | exhale a | assert a |
 				{ stmt } □ { stmt } // non-deterministic choice.
 				
-a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | ∃x : e.f ↦[p] x
+a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | ∃ x': e.f ↦[p] x' (binds value of e.f to a fresh variable x')
 # What to do about these: | a → a 
 
 e := x | null | n (base_values)
@@ -17,16 +17,18 @@ bex := e = e | bool_op(e...)
 
 Program state σ (∈ Σ) either:
 - ERROR
-- (H, γ, κ), where:
+- (H, γ), where:
 		1) H: Obj_id x Field_id → Val x Perm
-		2) γ: Var → Val 
-		3) κ is continuation: either DONE or EXEC(stmt, κ) 
-
+		2) γ: Var → Val
 
 ==> Operational rules for concrete execution (relation CE ⊆ Σₛ x Prog x Σₛ)
 -------------------------------------------
 
 Execution of statements :
+
+We define the semantics in a continuous passing style as a relation between tuples of program state and continuation (σ, κ) where:
+	
+	κ is continuation: either DONE or EXEC(stmt, κ) 
 
 1) (H, γ, EXEC(var x: T, κ)) → (H, γ[x ↦ _], κ)
 
@@ -100,21 +102,24 @@ Evaluation of expressions:
 
 Interpretation of assertions over concrete states (⊨)
 
-(H, γ, κ) ⊨ e1 = e2                  iff [e1]γ = [e2]γ.
-(H, γ, κ) ⊨ bool_op(e...)            iff bool_op([e]γ...) holds.
-(H, γ, κ) ⊨ e1.f ↦[p] e2             iff p ≤ H([e1]γ, f).2 and H([e1]γ, f).1 = [e2]γ.  
-(H, γ, κ) ⊨ a0 ∗ a1           			 iff exists H0, H1. H = H0 ∗ H1 and (H0, γ, κ) ⊨ a0 and (H1, γ, κ) ⊨ a1.
-(H, γ, κ) ⊨ a0 ∧ a1                  iff (H, γ, κ) ⊨ a0 and (H, γ, κ) ⊨ a1.
-(H, γ, κ) ⊨ a0 ∨ a1                  iff (H, γ, κ) ⊨ a0 or (H, γ, κ) ⊨ a1.
-(H, γ, κ) ⊨ a0 → a1                  iff forall H', H' ⊥ H and (H' ∗ H, γ, κ) ⊨ a0 implies (H' ∗ H, γ, κ) ⊨ a1.
-(H, γ, κ) ⊨ ∃x. a										 iff there exists c s.t. (H, γ[x ↦ c], κ) ⊨ a.  
+(H, γ) ⊨ e1 = e2				iff [e1]γ = [e2]γ.
+(H, γ) ⊨ bool_op(e...)			iff bool_op([e]γ...) holds.
+(H, γ) ⊨ e1.f ↦[p] e2			iff p ≤ H([e1]γ, f).2 and H([e1]γ, f).1 = [e2]γ.  
+(H, γ) ⊨ a0 ∗ a1				iff exists H0, H1. H = H0 ∗ H1 and (H0, γ, κ) ⊨ a0 and (H1, γ, κ) ⊨ a1.
+(H, γ) ⊨ a0 ∧ a1				iff (H, γ, κ) ⊨ a0 and (H, γ, κ) ⊨ a1.
+(H, γ) ⊨ a0 ∨ a1				iff (H, γ, κ) ⊨ a0 or (H, γ, κ) ⊨ a1.
+(H, γ) ⊨ a0 → a1				iff forall H', H' ⊥ H and (H' ∗ H, γ, κ) ⊨ a0 implies (H' ∗ H, γ, κ) ⊨ a1.
+(H, γ) ⊨ ∃x': e.f ↦[p] x'		iff there exists c s.t. (H, γ[x ↦ c], κ) ⊨ a.  
+
+//TODO: Have to find a way to make the existential stick with the rest of the assertion.
 
 Validity of Hoare triples:
 
-(H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and CE((H, A, γ, κ), C, (H', A', γ', DONE)) 
-											implies (H', A', γ', DONE) ⊨ Q.
-																		
-⊨ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
+(H, γ) ⊨ { P } C { Q } iff (H, γ) ⊨ P and CE((H, γ), C, (H', γ')) 
+											implies (H', γ') ⊨ Q.
+
+⊨ { P } C { Q } iff ∀ H, γ. (H, γ) ⊨ { P } C { Q }
+
 
 
 Symbolic Execution
@@ -127,24 +132,24 @@ Symbolic state σₛ of the form (h, π, γ) where:
 	
 Interpretation of assertions over symbolic states (⊢)
 
-(h, γ, π) ⊢ e1 = e2                  iff [e1]γ = [e2]γ.
-(h, γ, π) ⊢ bool_op(e...)            iff bool_op([e]γ...) holds.
-(h, γ, π) ⊢ e1.f ↦[p] e2            iff p ≤ + { p' | f(r, v, p') ∈ h ∧ [r]γ ~ [e1]γ ∧ v = [e2]γ } 
-(h, γ, π) ⊢ a0 ∗ a1           		 iff exists h0, h1. h = h0 ∗ h1 (disjoint union) and 
+(h, γ, π) ⊢ e1 = e2					iff [e1]γ = [e2]γ.
+(h, γ, π) ⊢ bool_op(e...)			iff bool_op([e]γ...) holds.
+(h, γ, π) ⊢ e1.f ↦[p] e2			iff p ≤ + { p' | f(r, v, p') ∈ h ∧ [r]γ ~ [e1]γ ∧ v = [e2]γ } 
+(h, γ, π) ⊢ a0 ∗ a1					iff exists h0, h1. h = h0 ∗ h1 (disjoint union) and 
 													(h0, γ, π) ⊢ a0 and (h1, γ, π) ⊢ a1.
-(h, γ, π) ⊢ a0 ∧ a1                  iff (h, γ, π) ⊢ a0 and (h, γ, π) ⊢ a1.
-(h, γ, π) ⊢ a0 ∨ a1                  iff (h, γ, π) ⊢ a0 or (h, γ, π) ⊢ a1.
-(h, γ, π) ⊢ a0 → a1                  iff forall h', h' ⊥ h and (h' ∗ h, γ, π) ⊢ a0 implies (h' ∗ h, γ, π) ⊢ a1.
-(h, γ, π) ⊢ ∃x. a					 iff there exists c s.t. (h' ∗ h, γ[x ↦ c], π) ⊢ a.  
+(h, γ, π) ⊢ a0 ∧ a1					iff (h, γ, π) ⊢ a0 and (h, γ, π) ⊢ a1.
+(h, γ, π) ⊢ a0 ∨ a1					iff (h, γ, π) ⊢ a0 or (h, γ, π) ⊢ a1.
+(h, γ, π) ⊢ a0 → a1					iff forall h', h' ⊥ h and (h' ∗ h, γ, π) ⊢ a0 implies (h' ∗ h, γ, π) ⊢ a1.
+(h, γ, π) ⊢ ∃x': e.f ↦[p] x'		iff there exists c s.t. (h' ∗ h, γ[x ↦ c], π) ⊢ a.  
 
 
 Symbolic execution, denoted by relation SE ⊆ Σₛ x Prog x Σₛ     
 
 Execution of statements :
 
-1) (h, γ, π, EXEC(var x: T, κ)) → (h, γ[x ↦ v_x], κ) where v_x is a fresh symbolic variable.
+1) (h, γ, π, EXEC(var x: T, κ)) → (h, γ[x ↦ v_x], κ) where v_x is a fresh SVar.
 
-2)				v_x': fresh SVar		∧		h, γ, π, e ↑ c               
+2)				v_x': fresh SVar		∧		h, γ, π, e ↑ c
 	 ------------------------------------------------------------------  	[Assign new SVar to x]
 	 (h, γ, π, EXEC(x := e, κ)) → (h, γ[x → v_x'], π ++ (v_x' = c) κ) 
 
@@ -153,17 +158,13 @@ Execution of statements :
 	------------------------------------------------------------------						
 	 (h, γ, π, EXEC(x := new(f...), κ)) → (h ++ f(r_x, _, 1) ...] , γ[x ↦ r_x], κ) 
 
-4)	 γ(x) = r_x		∧	v_x' fresh SVar	∧	+ { p | f(r_x, v, p) ∈ h} = 1	∧	h, γ, π, e ↑ c   
-	-----------------------------------------------------------	[Update all chunks with fresh SVar]
-		(h, γ, π, EXEC(x.f := e, κ)) → (h[f(r_x,v_x',p) \ f(r_x,v,p)], γ, π ++ (v_x' = c), κ) 
+4)	 γ(x) = r_x		∧	v_x' fresh SVar	∧	f(r_x, v, 1) ∈ h	∧	h, γ, π, e ↑ c   
+	-----------------------------------------------------------		[Update chunk with fresh SVar]
+		(h, γ, π, EXEC(x.f := e, κ)) → (h \ f(r_x,v,1) ++ f(r_x,v_x',1), γ, π ++ (v_x' = c), κ) 
 
-
-5)		(γ(x) = r_x)     ∧     + { p | f(r_x, v, p) ∈ h} < 1
+5)		γ(x) = r_x     ∧     f(r_x, v, p) ∈ h; p < 1
 	 ------------------------------------------------------------------
-	 						(h, γ, π, EXEC(x.f := e, κ)) → ERROR 
-
-	 //TODO for sure aliasing will cause problems here.
-
+	 					(h, γ, π, EXEC(x.f := e, κ)) → ERROR 
 
 6a)				(h, γ, π, EXEC({stmt1}, κ)) → (H', γ', κ)
 	 ------------------------------------------------------------------						
@@ -173,9 +174,11 @@ Execution of statements :
 	 ------------------------------------------------------------------						
 	 		(h, γ, π, EXEC({ stmt1 } □ { stmt2 }, κ)) → (h, γ, π, κ) 
 
-7a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x, v_x fresh SVar
-	 ------------------------------------------------------------------
-	 		(h, γ, π, EXEC(exhale a, k)) → (h ++ f(r_x, v_x, p), γ ++ (v_x = c), π, k)
+7a)   		a == e1.f ↦[p] e2	∧	(h, γ, π) ⊢ e1 = r_x 	∧	(h, γ, π) ⊢ e2 = c
+	 ------------------------------------------------------------------		[v_x fresh SVar]
+	 		(h, γ, π, EXEC(inhale a, k)) → (h ++ f(r_x, v_x, p), γ ++ (v_x = c), π, k)
+
+//TODO: Here what if no such r_x exists in the the heap? Is that even allowed?
 
 7b)			a == a1 * a2 	∨	a == a1 ∧ a2
 	-------------------------------------------------------------------
@@ -190,13 +193,13 @@ Execution of statements :
 		(h, γ, π, EXEC(inhale a, κ)) → (h, γ, π ++ bool_op(e1', e2', ...), k)
 		where e1' = e1[x \ γ(x) ] etc
 
-7e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	v_z fresh SVar
-	---------------------------------------------------------------------
+7e)			a == ∃x' : e.f ↦[p] x'	∧	(h, γ, π) ⊢ e = r_z
+	---------------------------------------------------------------------	[v_z fresh SVar]
 		(h, γ, π, EXEC(inhale a, κ)) → (h ++ f(r_z, v_z, p), γ, π ++ (v_z = x), κ)
 
-8a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x	∧	f(r_x, v_x, p') ∈ h, p' >= p
+8a)   		a == e1.f ↦[p] e2	∧	(h, γ, π) ⊢ e1 = r_x	∧	f(r_x, v_x, p') ∈ h, p' >= p	∧	(h, γ, π) ⊢ v_x = e2
 	 ------------------------------------------------------------------
-		(h, γ, π, EXEC(exhale a, k)) → (h \ f(r_x, v_x, p') ++ f(r_x, v_x, p), γ ++ (v_x = c), π, k)
+		(h, γ, π, EXEC(exhale a, k)) → (h \ f(r_x, v_x, p') ++ f(r_x, v_x, p'-p), γ, π, k)
 
 8b)			a == a1 * a2 	∨	a == a1 ∧ a2
 	-------------------------------------------------------------------
@@ -211,42 +214,21 @@ Execution of statements :
 		(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, k)
 		[Should we have an error state for the alternative?]
 
-8e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	f(r_z, v_z, p') ∈ h, p' >= p
+8e)			a == ∃x' : e.f ↦[p] x'	∧	(h, γ, π) ⊢ e = r_z	∧	f(r_z, v_z, p') ∈ h, p' >= p
 	---------------------------------------------------------------------
-		(h, γ, π, EXEC(exhale a, κ)) → (h \ f(r_z, v_z, p') ++ f(r_z, v_z, p'-p), γ, π ++ (v_z = x), κ)
+		(h, γ, π, EXEC(exhale a, κ)) → (h \ f(r_z, v_z, p') ++ f(r_z, v_z, p'-p), γ, π ++ (v_z = x), κ); x fresh SVar
 
-9a)   		a == e1.f ↦[p] e2	∧	e1 ↑ x 	∧	e2 ↑ c	∧	γ(x) = r_x	∧	f(r_x, v_x, p') ∈ h, p' >= p	∧	h, γ, π ⊢ c = v_x
-	 ------------------------------------------------------------------
-		(h, γ, π, EXEC(assert a, k)) → (h, γ, π, k)
-
-9b)			a == a1 * a2 	∨	a == a1 ∧ a2
-	-------------------------------------------------------------------
-			(h, γ, π, EXEC(assert a, κ)) → (h, γ, π, EXEC(assert a1, EXEC(assert a2, k)))
-
-9c)			a == a1 ∨ a2			∨			a == a2 ∨ a1
-	-------------------------------------------------------------------
-			(h, γ, π, EXEC(assert a1 ∨ a2)) → (h, γ, π, EXEC(assert a1))
-
-9d) 		a == bool_op(e1, e2, ...)	∧	h, γ, π ⊢ a
+9)			(h, γ, π, EXEC(exhale a, DONE)) → (h', γ', π', DONE)
 	--------------------------------------------------------------------
-		(h, γ, π, EXEC(assert a, κ)) → (h, γ, π, k)
-		[Should we have an error state for the alternative?]
-
-9e)			a == ∃x : e.f ↦[p] x	∧	e ↑ z	∧	γ(z) = r_z	∧	f(r_z, v_z, p') ∈ h, p' >= p
-	---------------------------------------------------------------------
-		(h, γ, π, EXEC(assert a, κ)) → (h, γ, π ++ (v_z == x), κ)
-
-[ Syntactic ambiguity in assertions between existentially quantified variables and variables in the code.]
-
+			(h, γ, π, EXEC(assert a, k)) → (h, γ, π', k)	
 
 
 Validity of Hoare triples:
 
-(H, A, γ, κ) ⊨ { P } C { Q } iff (H, A, γ, κ) ⊨ P and 
-								CE((H, A, γ, κ), C, (H', A', γ', DONE)) implies (H', A', γ', DONE) ⊨ Q.
-																		
-⊢ { P } C { Q } iff ∀ H, A, γ, κ. (H, A, γ, κ) ⊨ { P } C { Q } 																		    
-// Pedantic concern: Continuation shouldn't come in the precedent for the hoare triple. Instead κ should be constructed from C.
+(H, γ, π) ⊢ { P } C { Q } iff (H, γ, π) ⊢ P and 
+								CE((H, γ, π), C, (H', γ', π')) implies (H', γ', π') ⊢ Q.
+
+⊢ { P } C { Q } iff ∀ H, γ, π. (H, γ, π) ⊢ { P } C { Q }
 
 
 State Consolidation:
