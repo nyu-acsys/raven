@@ -5,8 +5,9 @@ stmt := var x: T | x := e | x := new (f...) | x.f := e | stmt; stmt
 				inhale a | exhale a | assert a |
 				{ stmt } □ { stmt } // non-deterministic choice.
 				
-a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | ∃ x': e.f ↦[p] x' (binds value of e.f to a fresh variable x')
-# What to do about these: | a → a 
+a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | ∃ x': e.f ↦[p] x'
+
+# TODO: What to do about: | a → a 
 
 e := x | null | n (base_values)
 
@@ -232,17 +233,47 @@ Validity of Hoare triples:
 
 
 State Consolidation:
+
 Between every step, we run a state consolidation step, described as follows:
 
-For (h, γ, π), consider the equivalence relation on h defined by f1(r1,v1,p1) ~ f2(r2,v2,p2) iff f1 == f2.
+Given a state (h, γ, π),
+For every pair of heap chunks f(r1,v1,p1) and f(r2,v2,p2) ∈ h, non deterministically either:
+1. (h, γ, π) → (h, γ, π ++ (r1 ≠ r2)); or
+2. (h, γ, π) → (h ++ f(r1,v1,p1+p2)) \ (f(r1,v1,p1), f(r2,v2,p2)), γ[r2 <- r1], π ++ (r1 == r2, v1 == v2, p1 + p2 ≤ 1))
 
-Non-deterministically pick an equivalence relation which refines ~. Merge all equivalence classes in the heap to get a new state (h', γ, π'). If (h', γ, π') ⊢ false, then discard. Else proceed.
+Suppose after state consolidation gets completed, we get (h, γ, π) → (h', γ', π'). If (h', γ', π') ⊢ false, then discard.
+
 
 
 Completeness
 
-⊨ { P } C { Q } 	→	 ⊢ { P } C { Q }
+To prove: ⊨ { P } C { Q }	→	⊢ { P } C { Q }
+
+
+Outline:
 	
+First we define a relation ■ ∈ (concrete states x symbolic states ) as follows:
+σ ■ σₛ if		∀ P: σ ⊨ P iff σₛ ⊢ P.
+
+We define another relation ▷ ∈ (concrete states x symbolic states ) as follows:
+σ ▷ σₛ if		∀ P: σₛ ⊢ P → σ ⊨ P.
+
+We use σₛ -SC→ σₛ' to denote that σₛ' is a state that can be obtained by doing state-consolidation on σₛ.
+
+Lemma 1: For a symbolic state σₛ, if σₛ -SC→ σₛ', there there exists a unique concrete state σ' such that σ' ■ σₛ'. Moreover, σ' ▷ σₛ.
+
+Lemma 2: If σₛ -SC→ σₛ' -s→ σₛ" -SC→ σₛ"', and σ"' ■ σₛ"' and σ' ■ σₛ', then σ' -s→ σ"'
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -258,3 +289,21 @@ h = { acc(x, 0.5) && acc(y, 0.5) }
 π = { x == y }
 
 h = { acc(x, 1) } 
+
+
+
+
+
+-----------------------------------------------------
+If σ' ▷ σₛ', and for a stmt C, if SE(σₛ, C, σₛ'), then there exists a concrete state σ such that CE(σ, C, σ')
+
+Lemma 3: If σₛ -SC→ σₛ', and 
+
+
+Lemma 1: If σ ■ σₛ, then there exists some symbolic state σₛ' such that σₛ -SC→ σₛ' such that σ ■ σₛ'.
+
+Lemma 2: For a symbolic state σₛ, if there exists some symbolic state σₛ' such that σₛ -SC→ σₛ', then there exists some concrete state σ' such that σ' ■ σₛ' and σ' ■ σₛ.
+
+Lemma 3: If σ ■ σₛ, then for any stmt C, if SE(σₛ, C, σₛ'), then there exists a concrete state σ' such that CE(σ, C, σ').
+-----------------------------------------------------
+
