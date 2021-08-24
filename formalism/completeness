@@ -215,6 +215,8 @@ Execution of statements :
 		(h, γ, π, EXEC(exhale a, κ)) → (h, γ, π, k)
 		[Should we have an error state for the alternative?]
 
+	//TODO: Are we sure we don't want to add 'a' to the path conditions here?
+
 8e)			a == ∃x' : e.f ↦[p] x'	∧	(h, γ, π) ⊢ e = r_z	∧	f(r_z, v_z, p') ∈ h, p' >= p
 	---------------------------------------------------------------------
 		(h, γ, π, EXEC(exhale a, κ)) → (h \ f(r_z, v_z, p') ++ f(r_z, v_z, p'-p), γ, π ++ (v_z = x), κ); x fresh SVar
@@ -241,13 +243,14 @@ For every pair of heap chunks f(r1,v1,p1) and f(r2,v2,p2) ∈ h, non determinist
 1. (h, γ, π) → (h, γ, π ++ (r1 ≠ r2)); or
 2. (h, γ, π) → (h ++ f(r1,v1,p1+p2)) \ (f(r1,v1,p1), f(r2,v2,p2)), γ[r2 <- r1], π ++ (r1 == r2, v1 == v2, p1 + p2 ≤ 1))
 
-Suppose after state consolidation gets completed, we get (h, γ, π) → (h', γ', π'). If (h', γ', π') ⊢ false, then discard.
+Suppose after state consolidation gets completed, we get (h, γ, π) → (h', γ', π'). If (h', γ', π') ⊢ UNSAT, then discard.
 
 
 
 Completeness
 
 To prove: ⊨ { P } C { Q }	→	⊢ { P } C { Q }
+
 
 
 Outline:
@@ -260,16 +263,61 @@ We define another relation ▷ ∈ (concrete states x symbolic states ) as follo
 
 We use σₛ -SC→ σₛ' to denote that σₛ' is a state that can be obtained by doing state-consolidation on σₛ.
 
-Lemma 1: For a symbolic state σₛ, if σₛ -SC→ σₛ', there there exists a unique concrete state σ' such that σ' ■ σₛ'. Moreover, σ' ▷ σₛ.
-
-Lemma 2: If σₛ -SC→ σₛ' -s→ σₛ" -SC→ σₛ"', and σ"' ■ σₛ"' and σ' ■ σₛ', then σ' -s→ σ"'
-
+Lemma 1: For a symbolic state σₛ, if σₛ -SC→ σₛ', there there exists a concrete state σ' such that σ' ■ σₛ'. Moreover, σ' ▷ σₛ.
+// Lemma 1 is essentially some kind of a statement of completeness for the state-consolidation algo.
 
 
-
+Lemma 2: If σₛ -SC→ σₛ' -s→ σₛ" -SC→ σₛ"', and σ"' ■ σₛ"' then there exists a concrete state σ' such that σ' ■ σₛ' and σ' -s→ σ"'.
 
 
 
+
+
+Proof of Lemma 1:
+Let σₛ = (h, γ, π), σₛ' = (h', γ', π'). Since (h', γ', π') ¬⊢ UNSAT, therefore the SMT solver must be able to return a valuation that satisfies the path conditions in π'. Define the concrete state by instantiating a pointer for every heap chunk in h' (all heap chunks in h' are already consolidated), and assigning the satisfying assignment from the SAT solver. Call it H. Same for γ', replace all symbolic variables with their satisfying assignment values.
+
+Therefore (H, γ) ■ σₛ'. (to be proved by induction on structure of assertions).
+
+We can prove another Lemma 1.1: If σₛ -SC→ σₛ', then for any assertion P, σₛ ⊢ P → σₛ' ⊢ P. (by induction on P)
+
+This will directly imply that (H, γ) ▷ σₛ.
+
+
+Proof of Lemma 2:
+Induction on s.
+
+
+
+-----------------------------------------------------
+
+Explanation:
+
+⊨ {P} C {Q}		→	⊢ {P} C {Q}
+∀ σ, σ' : σ ⊨ P ∧ CE(σ, C, σ') → σ' ⊨ Q		→	∀ σₛ, σₛ' : σₛ ⊢ P ∧ CE(σₛ, C, σₛ') → σₛ' ⊢ Q
+
+We are given: 
+
+1. ∀ σ, σ' : σ ⊨ P ∧ CE(σ, C, σ') → σ' ⊨ Q.		(⊨ {P} C {Q})
+2. σₛ, σₛ'.
+3. σₛ ⊢ P
+4. CE(σₛ, C, σₛ')
+
+To Prove: 		σₛ' ⊢ Q
+
+
+
+
+CE(σₛ, C, σₛ') :
+
+σₛ -SC→ σₛ' -C_1→ σₛ₁ -SC→ σₛ₁' -C_2→ σₛ₂ -SC→σₛ₂' → ... → σₛₙ -SC→ σₛₙ' = σ'
+																	^ 
+																	|
+																	|
+																	σₙ
+
+
+Use lemma 1 to get such a concrete state σₙ'.
+Use Lemma 2 to build backwards to create a concrete run which satisfies all the assumptions of given (1).
 
 
 
