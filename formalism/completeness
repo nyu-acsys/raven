@@ -252,6 +252,94 @@ Completeness
 To prove: ⊨ { P } C { Q }	→	⊢ { P } C { Q }
 
 
+Outline:
+
+For a symbolic state σ, we call it consolidated if ∃ σ' such that σ' -SC→ σ.
+
+We define a function on consolidated states which returns a set of concrete states as follows:
+Concrete(σ) = { ρ | ρ.H has a heap chunk for every fragment in σ.h, with the variables and heap locations designated a satisfying assisgnment returned by the SMT solver.}
+
+Lemma 0: For a consolidated state σ, assertion P, and concrete state ρ such that ρ ∈ Concrete(σ), σ ⊢ P	→	ρ ⊨ P.
+(proof by induction on P?)
+--------------------------------
+
+Lemma 1: For a consolidated state σ and an assertion P, if for all ρ ∈ Concrete(σ) ρ ⊨ P holds, then σ ⊢ P.
+(This is sort of the core of the proof. Not sure how to prove this, I suspect will have to reduce to classical first order logic or something and use first order completeness.)
+--------------------------------
+
+Lemma 2: If σ -SC→ σ', then:
+σ ⊢ P	→	σ' ⊢ P.
+(proof by induction on P)
+--------------------------------
+
+Lemma 3: If σ₀ is a a consolidated state, and σ₀ -SE(s)→ σ' -SC→ σ₁, then for any concrete state ρ₁ ∈ Concrete(σ₁), there exists a concrete state ρ₀ ∈ Concrete(σ₀) such that ρ₀ -CE(s)→ ρ₁
+(proof by induction on s)
+--------------------------------
+
+Explanation:
+
+⊨ {P} C {Q}		→	⊢ {P} C {Q}
+∀ ρ, ρ' : ρ ⊨ P ∧ CE(ρ, C, ρ') → ρ' ⊨ Q		→	∀ σ, σ' : σ ⊢ P ∧ SE(σ, C, σ') → σ' ⊢ Q
+
+We are given: 
+
+1. ∀ ρ, ρ' : σ ⊨ P ∧ CE(ρ, C, ρ') → ρ' ⊨ Q.		(⊨ {P} C {Q})
+2. σ, σ'.
+3. σ ⊢ P
+4. SE(σ, C, σ')
+
+
+To Prove: 		σ' ⊢ Q
+
+
+SE(σ, C, σ') :
+
+σ = σ₀ -SC→ σ₀' -SE(c₁)→ σ₁ -SC→ σ₁' -SE(c₂)→ σ₂ -SC→ σ₂' → ... → σₙ -SC→ σₙ' = σ'
+			^					 ^					  ^	  			  	  ^ 
+			|					 |					  |		  			  |
+			|					 |					  |		  			  |
+		Conc(σ₀')			 Conc(σ₁')			  Conc(σ₂')			  Conc(σₙ')
+
+Since σ₀ ⊢ P, by Lemma 2 we have that σ₀' ⊢ P. 
+Therefore we have by Lemma 0 that for any ρ₀ ∈ Conc(σ₀'), we have that ρ₀ ⊨ P.
+Now for any arbitrary ρₙ ∈ Conc(σₙ'), we can use Lemma 3 inductively to construct a run:
+	ρ₀ -CE(c₁)→ ρ₁ -CE(c₂)→ ρ₂ → ... → CE(cₙ)→ ρₙ such that each ρᵢ ∈ Conc(σᵢ').
+
+Therefore we can use assertion 1 (⊨ {P} C {Q}) to conclude that ρₙ ⊨ Q.
+Since for all ρₙ ∈ Conc(σₙ'), ρₙ ⊨ Q holds, therefor by Lemma 1, σ' ⊢ Q holds.
+
+Hence Proved.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------
+Scratch:
+-------------------------------------------------------
+
+
+
 
 Outline:
 	
@@ -336,7 +424,7 @@ Use Lemma 2 to build backwards to create a concrete run which satisfies all the 
 
 
 
-Scratch:
+
 
 
 h = { acc(x, 0.5) && acc(y, 0.5) }
