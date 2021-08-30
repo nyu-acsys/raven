@@ -338,9 +338,6 @@ Hence Proved.
 Scratch:
 -------------------------------------------------------
 
-
-
-
 Outline:
 	
 First we define a relation ■ ∈ ( concrete states x symbolic states ) as follows:
@@ -364,9 +361,6 @@ Lemma 1.1: If σ -SC→ σ', then for any assertion P, σ ⊢ P → σ' ⊢ P. (
 Lemma 2: If σ₀ -SC→ σ₁ -SE(s)→ σ₂ -SC→ σ₃, and ρ ■ σ₃ then there exists a concrete state ρ' such that ρ' ■ σ₁ and ρ -CE(s)→ ρ₃.
 
 
-
-
-
 Proof of Lemma 1:
 Let σₛ = (h, γ, π), σₛ' = (h', γ', π'). Since (h', γ', π') ¬⊢ UNSAT, therefore the SMT solver must be able to return a valuation that satisfies the path conditions in π'. Define the concrete state by instantiating a pointer for every heap chunk in h' (all heap chunks in h' are already consolidated), and assigning the satisfying assignment from the SAT solver. Call it H. Same for γ', replace all symbolic variables with their satisfying assignment values.
 
@@ -379,8 +373,6 @@ This will directly imply that (H, γ) ▷ σₛ.
 
 Proof of Lemma 2:
 Induction on s.
-
-
 
 -----------------------------------------------------
 
@@ -402,8 +394,6 @@ We are given:
 To Prove: 		σ' ⊢ Q
 
 
-
-
 SE(σ, C, σ') :
 
 σ -SC→ σ' -C_1→ σ₁ -SC→ σ₁' -C_2→ σ₂ -SC→ σ₂' → ... → σₙ -SC→ σₙ' = σ'
@@ -411,7 +401,6 @@ SE(σ, C, σ') :
 															  |
 															  |
 															  ρₙ
-
 
 Use lemma 1 to get such a concrete state ρₙ.
 Use Lemma 2 to build backwards to create a concrete run which satisfies all the assumptions of given (1).
