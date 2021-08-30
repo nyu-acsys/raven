@@ -264,7 +264,7 @@ Lemma 0: For a consolidated state σ, assertion P, and concrete state ρ such th
 --------------------------------
 
 Lemma 1: For a consolidated state σ and an assertion P, if for all ρ ∈ Concrete(σ) ρ ⊨ P holds, then σ ⊢ P.
-(This is sort of the core of the proof. Not sure how to prove this, I suspect will have to reduce to classical first order logic or something and use first order completeness.)
+(This is sort of the core of the proof. Not sure how to prove this, I suspect will have to reduce to classical first order logic or something. Or maybe simply inducting on P works??)
 --------------------------------
 
 Lemma 2: If σ -SC→ σ', then:
