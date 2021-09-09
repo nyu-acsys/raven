@@ -185,6 +185,8 @@ Execution of statements :
 	-------------------------------------------------------------------
 			(h, γ, π, EXEC(inhale a, κ)) → (h, γ, π, EXEC(inhale a1, EXEC(inhale a2, k)))
 
+//TODO: Handling separation star completely wrong. 
+
 7c)			a == a1 ∨ a2			∨			a == a2 ∨ a1
 	-------------------------------------------------------------------
 			(h, γ, π, EXEC(inhale a1 ∨ a2)) → (h, γ, π, EXEC(inhale a1))
@@ -313,6 +315,7 @@ Hence Proved.
 
 
 
+----------------------------------------------
 
 Proof of Lemma 1: For a consolidated state σ and an assertion P, if for all ρ ∈ Concrete(σ) ρ ⊨ P holds, then σ ⊢ P.
 
@@ -329,7 +332,7 @@ Let [e1]γ = r and let f(r,v,p') be the corresponding heap chunk in σ. If p' < 
 
 
 3. P = a1 ∗ a2
-Pick a ρ ∈ Concrete(σ). Since ρ ⊨ a1 * a2, there exists two sub-heaps H1, H2 such that ρ.H = H1 ∗ H2, and (H1, ρ.γ) ⊨ a1 and (H2, ρ.γ) ⊨ a2. Consider the corresponding sub-heaps h1 and h2 of σ.h such that σ.h = h1 ∗ h2.
+Pick a ρ ∈ Concrete(σ). Since ρ ⊨ a1 ∗ a2, there exists two sub-heaps H1, H2 such that ρ.H = H1 ∗ H2, and (H1, ρ.γ) ⊨ a1 and (H2, ρ.γ) ⊨ a2. Consider the corresponding sub-heaps h1 and h2 of σ.h such that σ.h = h1 ∗ h2.
 
 	Claim: Consider σ1 = (h1, σ.γ, σ.π). Then for all ρ1 ∈ Concrete(σ1), ρ1 ⊨ a1.
 
@@ -343,12 +346,65 @@ Now, we can use induction on the smaller assertion a1 to conclude that (h1, σ.�
 4. P = a1 ∧ a2
 If σ ¬⊢ a1 ∧ a2, then either σ ¬⊢ a1 or σ ¬⊢ a2. In either case, we have that for all ρ ∈ Concrete(σ), ρ ⊨ a1 and ρ ⊨ a2. By induction we can assume that the Lemma holds for a1 and a2. Hence contraction.
 
+
 5. P = a1 ∨ a2
-Suppose σ ¬⊢ a1 ∨ a2.
+Suppose σ ¬⊢ a1 ∨ a2. We have that for all ρ ∈ Conc(σ), ρ ⊨ a1 ∨ a2.
+Case 1: for all ρ ∈ Conc(σ), ρ ⊨ a1.
+In this case, we can use the inductive hypothesis on a1 to conclude that σ ⊢ a1, hence σ ⊢ a1 ∨ a2.
+
+Case 2: for all ρ ∈ Conc(σ), ρ ⊨ a2.
+In this case, we can use the inductive hypothesis on a2 to conclude that σ ⊢ a2, hence σ ⊢ a1 ∨ a2.
+
+Case 3: some ρ ∈ Conc(σ) satisfy ρ ⊨ a1, ρ ¬⊨ a2 and some ρ ∈ Conc(σ) satisfy ρ ¬⊨ a1, ρ ⊨ a2.
 
 
 6. P = ∃ x': e.f ↦[p] x'
 Since this is simply binding, this case is trivial.
+
+
+
+----------------------------------------------
+
+Proof of Lemma 3: If σ₀ is a consolidated state, and σ₀ -SE(s)→ σ' -SC→ σ₁, then for any concrete state ρ₁ ∈ Concrete(σ₁), there exists a concrete state ρ₀ ∈ Concrete(σ₀) such that ρ₀ -CE(s)→ ρ₁.
+
+	stmt := var x: T | x := e | x := new (f...) | x.f := e | stmt; stmt
+				inhale a | exhale a | assert a |
+				{ stmt } □ { stmt } // non-deterministic choice.
+				
+	a := bex | e.f ↦[p] e | a ∗ a | a ∧ a | a ∨ a | ∃ x': e.f ↦[p] x'
+
+	e := x | null | n (base_values)
+
+	bex := e = e | bool_op(e...)
+
+Induction on stmt s.
+
+1. var x: T
+
+
+2. x := e
+
+
+3. x := new (f...)
+
+
+4. x.f := e
+
+
+5. stmt; stmt
+
+
+6. inhale a
+
+
+7. exhale a
+
+
+8. assert a
+
+
+9. { stmt } □ { stmt } // non-deterministic choice.
+
 
 
 
