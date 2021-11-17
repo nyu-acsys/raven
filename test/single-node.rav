@@ -22,7 +22,11 @@ module Lock {
 
     val res := cas(l.bit, false, true)
 
-    if (res) commit(phi)
+    ## Case analysis should come as "ghost code", not in the normal code.
+    {! 
+      if (res) commit(phi);
+      else abort(phi);
+    !}
     
     if (!res) acquire(l)
   }
@@ -129,7 +133,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     own(r.cont_spec, authFrag(excl(C)))
   }
 
-  pred cssInv(r: CSS) {
+  pred cssInv(r: CSS) { ## Should we  existentially quantify over b and C or pass as arguments?
     exists b: Bool, C: Set[K] ::
       cssAuth(r, C)
       && own(r.cont_lock, frac(1/2, C))
@@ -139,9 +143,9 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   proc create()
     returns (r: CSS)
   {
-    val l := Lock.create()
-    val n := Node.create()
-    r := new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(authAuth(excl({||}))))
+    Lock l := Lock.create()
+    Node n := Node.create()
+    CSS r := new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(authAuth(excl({||}))))
     fold(cssR(r, {||}))
     fold(cssAuth(r, {||}))
     fold(cssInv(r))
@@ -149,17 +153,21 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
 
   proc decisiveOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
+
+    # What should the spec for decisiveOp be?
   {
     ghost val phi := openAtom()
     acquire(r.lock) using inv(cssInv(r))
+    ## What checks need to be done to declare cssInv as invariant?
+    ## How to satisfy atomic requires and use atomic ensures?
     res := decisiveOp(dop, r, k)
-    release(r.lock) with {
+    release(r.lock) with {!
       commit(phi)
       use(css(r, C))
       use(inv(cssInv(r)))
       use(cssAuth(r, C))
       use(nodePred(r))
-      // TODO: What about ghost updates?
-    }
+      ## TODO: What about ghost updates?
+    !}
   }
 }
