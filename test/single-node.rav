@@ -14,23 +14,32 @@ module Lock {
     l := new(bit(false))
   }
 
-  proc acquire(l: Rep, implicit ghost b)
+  proc acquire(l: Rep, implicit ghost b: Bool)
     atomic require lockR(l, b)
     atomic ensures lockR(l, true)
   {
-    ghost val phi = openAtom()
-
+    {# 
+    	val phi, b = openAU
+    	unfold lockR(l, b) 
+    #}
+    
     val res := cas(l.bit, false, true)
 
-    ## Case analysis should come as "ghost code", not in the normal code.
-    {! 
-      if (res) commit(phi);
-      else abort(phi);
-    !}
+    {#
+    	fold lockR(l, l.bit) 
+      if (res) {
+      	commitAU(phi);
+      } else { 
+      	abortAU(phi);
+      }	
+    #}
     
-    if (!res) acquire(l)
+    if (!res) {
+    	acquire(l)
+    }	
   }
 
+	(* automatic linearization for programs with a single physical step? *)
   proc release(l: Lock)
     atomic require lockR(l, true)
     atomic ensures lockR(l, false)
@@ -56,7 +65,7 @@ module SearchStructureSpec[K: Keyspace] {
 
   type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
-  pred opSpec(op: Op, C: Set[K], C': Set[K], res: Bool) {
+  pred opSpec(op: Op, k: K, C: Set[K], C': Set[K], res: Bool) {
     match(op) {
      case searchOp => C' == C && res == (k in C)
      case insertOp => C' == C ++ {|k|} && res == (k !in C)
@@ -81,8 +90,8 @@ interface NodeImpl[K: Keyspace] {
 
   proc decisiveOp(dop: Op, n: T, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
-    requires k in KS && node(n, C)
-    ensures nodeR(n, C') && opSpec(dop, k, C, C', res)
+    requires k in KS &*& node(n, C)
+    ensures nodeR(n, C') &*& opSpec(dop, k, C, C', res)
 }
 
 interface SearchStructure[K: Keyspace] {
@@ -98,12 +107,12 @@ interface SearchStructure[K: Keyspace] {
 
   proc create()
     returns (r: CSS)
-    ensures cssInv(r) && cssR(r, {||})
+    ensures inv(cssI, cssInv(r)) && cssR(r, {||})
 
-  proc decisiveOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
+  proc cssOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
-    atomic requires k in KS
-    atomic requires inv(cssInv(r)) && cssR(r, C)
+    requires k in KS &*& inv("ccsI", cssInv(r))
+    atomic requires cssR(r, C)
     atomic ensures cssR(r, C') && opSpec(dop, k, C, C', res)
 }
 
@@ -112,32 +121,32 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   import Node
 
   module FracSK = Frac[Set[K]]
-  module AuthSK = Auth[Excl[Set[K]]]
+  (* module AuthSK = Auth[Excl[Set[K]]] *)
 
   type CSS = struct {
     var lock: Lock
     var node: Node
     ghost cont_lock: FracSK
-    ghost cont_spec: AuthSK
+    ghost cont_spec: FracSK
   }
   
   pred nodePred(r: CSS) {
-    exists C: Set[K] :: nodeR(r.node, C) && own(r.cont_lock, frac(1/2, C))
+    exists C: Set[K] :: nodeR(r.node, C) &*& own(r.cont_lock, frac(1/2, C))
   }
 
   pred cssAuth(r: CSS, C: Set[K]) {
-    own(r.cont_spec, authAuth(excl(C)))
+    own(r.cont_spec, frac(1/2, C))
   }
 
   pred cssR(r: CSS, C: Set[K]) {
-    own(r.cont_spec, authFrag(excl(C)))
+    own(r.cont_spec, frac(1/2, C))
   }
 
-  pred cssInv(r: CSS) { ## Should we  existentially quantify over b and C or pass as arguments?
+  pred cssInv(r: CSS) {
     exists b: Bool, C: Set[K] ::
       cssAuth(r, C)
-      && own(r.cont_lock, frac(1/2, C))
-      && Lock.lockR(r.lock, b) && (b ? true : nodePred(r))
+      &*& own(r.cont_lock, frac(1/2, C))
+      &*& Lock.lockR(r.lock, b) &*& (b ? true : nodePred(r))
   }
 
   proc create()
@@ -145,21 +154,39 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   {
     Lock l := Lock.create()
     Node n := Node.create()
-    CSS r := new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(authAuth(excl({||}))))
-    fold(cssR(r, {||}))
-    fold(cssAuth(r, {||}))
-    fold(cssInv(r))
+    CSS r := new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(frac(1, {||}))
+    
+    {# 
+    	createInv cssI cssInv(r, false, {||}) with
+    	{ 
+    		(* check how dafny does it *)
+    		exists: false, {||}
+    	 	 
+    	 	updateRes cont_lock (frac(1, {||})) (frac(1/2, {||}) &*& frac(1/2, {||}))
+    	 	updateRes cont_spec (frac(1, {||})) (frac(1/2, {||}) &*& frac(1/2, {||}))
+    	 	 
+    		fold(cssAuth(r, {||}))
+    		fold(cssInv(r))
+    	}
+    	fold cssR(r, {||})	 
+    #} 
   }
 
-  proc decisiveOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
+  proc cssOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
-
-    # What should the spec for decisiveOp be?
   {
-    ghost val phi := openAtom()
-    acquire(r.lock) using inv(cssInv(r))
-    ## What checks need to be done to declare cssInv as invariant?
-    ## How to satisfy atomic requires and use atomic ensures?
+    {# 
+    	C0 = openAU
+    	openInv "cssI"
+    	unfold cssInv(r)
+    #}
+    
+    acquire(r.lock) 
+    
+    {#
+    	closeInv "cssI"
+    #} 
+    
     res := decisiveOp(dop, r, k)
     release(r.lock) with {!
       commit(phi)
