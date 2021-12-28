@@ -3,33 +3,38 @@ module Lock {
     var bit: Bool
   }
   
-  pred lockR(l: Rep, b: Bool) {
-    own(l.bit, b)
+  pred lock(l: Rep, b: Bool) {
+    own(l.bit, b) 
   }
 
   proc create()
     returns (l: Rep)
-    ensures lockR(l, false)
+    ensures lock(l, false)
   {
-    l := new(bit(false))
+    l := new(bit(false));
+    
+    {# 
+    	unfold lock(l, false) 
+    #}
   }
 
   proc acquire(l: Rep, implicit ghost b: Bool)
-    atomic require lockR(l, b)
-    atomic ensures lockR(l, true)
+    atomic require lock(l, b)
+    atomic ensures lock(l, true) &*& b = false
   {
     {# 
-    	val phi, b = openAU
-    	unfold lockR(l, b) 
+    	val phi, b = openAU;
+    	unfold lock(l, b); 
     #}
     
-    val res := cas(l.bit, false, true)
+    val res := cas(l.bit, false, true);
 
     {#
-    	fold lockR(l, l.bit) 
       if (res) {
+      	fold lock(l, true);
       	commitAU(phi);
-      } else { 
+      } else {
+      	fold lock(l, false); 
       	abortAU(phi);
       }	
     #}
@@ -39,12 +44,21 @@ module Lock {
     }	
   }
 
-	(* automatic linearization for programs with a single physical step? *)
   proc release(l: Lock)
-    atomic require lockR(l, true)
-    atomic ensures lockR(l, false)
+    atomic require lock(l, true)
+    atomic ensures lock(l, false)
   {
-    l.bit := false
+  	{# 
+  		val phi = openAU;
+  		unfold lock(l, true);
+  	#}
+ 
+    l.bit := false;
+    
+    {#
+    	fold lock(l, true);
+    	commitAU(phi);
+    #}
   }
 }
 
@@ -111,7 +125,7 @@ interface SearchStructure[K: Keyspace] {
 
   proc cssOp(dop: Op, r: CSS, k: K, implicit ghost C: Set[K])
     returns (res: Bool, implicit ghost C': Set[K])
-    requires k in KS &*& inv("ccsI", cssInv(r))
+    requires k in KS &*& inv(ccsI, cssInv(r))
     atomic requires cssR(r, C)
     atomic ensures cssR(r, C') && opSpec(dop, k, C, C', res)
 }
@@ -121,7 +135,6 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   import Node
 
   module FracSK = Frac[Set[K]]
-  (* module AuthSK = Auth[Excl[Set[K]]] *)
 
   type CSS = struct {
     var lock: Lock
@@ -146,7 +159,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     exists b: Bool, C: Set[K] ::
       cssAuth(r, C)
       &*& own(r.cont_lock, frac(1/2, C))
-      &*& Lock.lockR(r.lock, b) &*& (b ? true : nodePred(r))
+      &*& Lock.lock(r.lock, b) &*& (b ? true : nodePred(r))
   }
 
   proc create()
@@ -154,20 +167,24 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   {
     Lock l := Lock.create()
     Node n := Node.create()
+    
     CSS r := new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(frac(1, {||}))
     
     {# 
-    	createInv cssI cssInv(r, false, {||}) with
-    	{ 
-    		(* check how dafny does it *)
-    		exists: false, {||}
+    	(* check how dafny does it: uses assert *)
+    	(* exists: false, {||} *)
+
+			(* Not sure how symbolic eexecution is supposed to figure out where to apply this *)
+			assert frac(1, {||}) = frac(1/2, {||}) * frac(1/2, {||})    	 	 
     	 	 
-    	 	updateRes cont_lock (frac(1, {||})) (frac(1/2, {||}) &*& frac(1/2, {||}))
-    	 	updateRes cont_spec (frac(1, {||})) (frac(1/2, {||}) &*& frac(1/2, {||}))
-    	 	 
-    		fold(cssAuth(r, {||}))
-    		fold(cssInv(r))
-    	}
+    	fold(cssAuth(r, {||}))    	
+
+    	assert cssAuth(r, C)
+      				&*& own(r.cont_lock, frac(1/2, C))
+      				&*& Lock.lock(r.lock, b) &*& (b ? true : nodePred(r))
+    	fold(cssInv(r))
+      createInv cssI cssInv(r)
+
     	fold cssR(r, {||})	 
     #} 
   }
@@ -176,25 +193,62 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     returns (res: Bool, implicit ghost C': Set[K])
   {
     {# 
-    	C0 = openAU
-    	openInv "cssI"
-    	unfold cssInv(r)
+    	openInv cssI
+    	unfold (b0, C0)cssInv(r)
+    	fold Lock.lock(r.lock, b0)
     #}
     
-    acquire(r.lock) 
+    acquire(r.lock)
     
     {#
-    	closeInv "cssI"
+    	assert b0 = false
+    	assert nodePred(r)
+    	unfold Lock.lock(r.lock, true)
+    	fold (true, C0)cssInv(r)
+    	closeInv cssI
+    	unfold (C0')nodePred(r)
     #} 
     
-    res := decisiveOp(dop, r, k)
-    release(r.lock) with {!
-      commit(phi)
-      use(css(r, C))
-      use(inv(cssInv(r)))
-      use(cssAuth(r, C))
-      use(nodePred(r))
-      ## TODO: What about ghost updates?
-    !}
+    res, C1 := decisiveOp(dop, r, k)
+
+		{#
+			openInv cssI
+			unfold (b1, C1')cssInv(r)
+
+			(* lemma below asserts C0' = C1' *)
+			frac_eq	(r.cont_lock) 1/2 1/2 C0' C1'
+
+			(* lemma below sums up fractional resources *)
+			frac_sum (r.cont_lock) 1/2 1/2 C0'
+			
+			(* lemma frac_update l C C' : 
+						own(l, frac(1, C)) ~~> own(l, frac(1, C')) *)
+			frac_update (r.cont_lock) C0' C1
+
+			fold (C1)nodePred(r)
+			
+			val phi, C1'' = openAU
+			
+			unfold cssAuth(r, C0')
+			unfold cssR(r, C1'')
+			frac_eq	(r.cont_spec) 1/2 1/2 C0' C1''
+			frac_sum (r.cont_spec) 1/2 1/2 C0'
+			frac_update (r.cont_spec) C0' C1
+			
+			fold cssAuth(r, C1)
+			fold cssR(r, C1)
+			commit(phi)
+
+			assert b1 = true
+			fold Lock.lock(r, true)						
+		#}
+
+    release(r.lock)
+    
+    {#
+    	unfold Lock.lock(r, false)
+    	fold (false, C1)cssInv(r) 
+    	closeInv cssI
+    #}    
   }
 }
