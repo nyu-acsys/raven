@@ -215,7 +215,11 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
 			openInv cssI
 			unfold (b1, C1')cssInv(r)
 
-			(* lemma below asserts C0' = C1' *)
+			(* lemma below asserts C0' = C1' 
+
+      lemma frac_eq(l: loc, )
+
+      *)
 			frac_eq	(r.cont_lock) 1/2 1/2 C0' C1'
 
 			(* lemma below sums up fractional resources *)

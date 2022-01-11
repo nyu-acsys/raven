@@ -1,0 +1,34 @@
+ 
+interface resource_algebra {
+    rep type T
+
+    val Elts: Set[T]
+    val id: T
+    val mult: T → T → T
+    val valid: T → bool
+
+    alias: a ∘ b = mult(a,b)
+
+    lemma id_valid: id ∈ Elts
+    lemma comp_assoc: ∀ a:T, b:T, c:T ; (a ∈ Elts) ∧ (b ∈ Elts) ∧ (c ∈ Elts) → (a ∘ b) ∘ c = a ∘ (b ∘ c)
+    lemma comp_commute: ∀ a:T, b:T ; (a ∈ Elts) ∧ (b ∈ Elts) → a ∘ b = b ∘ a
+    lemma cancellative: ∀ a:T, b:T c:T ; (a ∈ Elts) ∧ (b ∈ Elts) ∧ (c ∈ Elts) → (a ∘ b) = (c ∘ b) → a = c
+
+    proc FPA(a:T, b:T)
+        requires a
+        requires a ∈ Elts ∧ b ∈ Elts
+        requires ∀ c:T ; c ∈ Elts ∧ valid(a ∘ c) → valid(b ∘ c)
+        ensures b
+    {
+        inhale a;
+        exhale b;
+
+        # How to actually make the state transition, while ensuring that the user does not have the power to inhale/exhale arbitrary asertions? Maybe have a special view_shift command that acts as a wrapper around inhale/exhale?
+
+    }
+
+    lemma FPA_helper(a:T, b:T): ∀ c:T ; c ∈ Elts ∧ valid(a ∘ c) → valid(b ∘ c)
+
+    # lemma with arguments, only want to define it, not add the obligation of proving all instantiations of it 
+}
+
