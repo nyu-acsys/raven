@@ -32,3 +32,33 @@ interface resource_algebra {
     # lemma with arguments, only want to define it, not add the obligation of proving all instantiations of it 
 }
 
+module Nat : resource_algebra {
+    rep type T = Nat
+
+    val Elts = {| n : Nat :: true |}
+    val id = 0
+
+    # which style for function?
+    val mult a b = a + b
+    func valid(n) = true
+
+
+    # which style for proving lemmas? Also have to develop assertion language?
+    lemma id_valid with {# auto; #}
+
+    proof comp_assoc: auto
+}
+
+module Frac : resource_algebra {
+    rep type T = Frac
+
+    val Elts = {| n : Frac :: 0 <= n && n <= 1 |}
+
+    val id = 0
+
+    a ∘ b = a + b
+}
+
+module Auth(T: Type, S: Set(T)) : resource_algebra {
+    rep type (Set(T) )
+}
