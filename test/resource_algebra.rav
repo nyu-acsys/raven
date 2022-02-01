@@ -4,32 +4,53 @@ interface resource_algebra {
 
     val Elts: Set[T]
     val id: T
-    val mult: T → T → T
-    val valid: T → bool
+    func mult(a:T, b:T) : T
+    func valid(a:T) : Bool
 
-    alias: a ∘ b = mult(a,b)
+    alias : a ∘ b = mult(a,b)
 
-    lemma id_valid: id ∈ Elts
-    lemma comp_assoc: ∀ a:T, b:T, c:T ; (a ∈ Elts) ∧ (b ∈ Elts) ∧ (c ∈ Elts) → (a ∘ b) ∘ c = a ∘ (b ∘ c)
-    lemma comp_commute: ∀ a:T, b:T ; (a ∈ Elts) ∧ (b ∈ Elts) → a ∘ b = b ∘ a
-    lemma cancellative: ∀ a:T, b:T c:T ; (a ∈ Elts) ∧ (b ∈ Elts) ∧ (c ∈ Elts) → (a ∘ b) = (c ∘ b) → a = c
+    # Write lemmas in requires/ensures.
 
-    proc FPA(a:T, b:T)
-        requires a
-        requires a ∈ Elts ∧ b ∈ Elts
-        requires ∀ c:T ; c ∈ Elts ∧ valid(a ∘ c) → valid(b ∘ c)
-        ensures b
+    lemma id_valid
+        ensures id ∈ Elts
+
+    # How to extend quantification from requires to ensures? Or just re-quantify?
+
+    lemma comp_assoc
+        requires ∀ a:T, b:T, c:T ; (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
+        ensures (a ∘ b) ∘ c = a ∘ (b ∘ c)
+
+    lemma comp_commute
+        requires ∀ a:T, b:T ; (a ∈ Elts) && (b ∈ Elts)
+        ensures a ∘ b = b ∘ a
+
+    lemma cancellative
+        requires ∀ a:T, b:T c:T ; (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
+        requires (a ∘ b) = (c ∘ b)
+        ensures (a = c)
+
+    func FPU_condition(a:T, b:T) : Bool {
+        # What to do with this implication?
+
+        ∀ c:T ; c ∈ Elts && valid(a ∘ c) → valid(b ∘ c)
+    } 
+
+    # revisit parametrizing in terms of l, f.
+    proc FPU(a:T, b:T, l, f)
+        requires own(l.f, a)
+        requires a ∈ Elts && b ∈ Elts
+
+        requires FPU_condition(a,b)
+        ------OR------
+        requires ∀ c:T ; c ∈ Elts && valid(a ∘ c) → valid(b ∘ c)
+            # explicit reference to FPU_condition makes it more natural to use it with actual resource algebras.
+
+        ensures own(l.f, b)
     {
-        inhale a;
-        exhale b;
-
-        # How to actually make the state transition, while ensuring that the user does not have the power to inhale/exhale arbitrary asertions? Maybe have a special view_shift command that acts as a wrapper around inhale/exhale?
-
+        exhale a;
+        inhale b;
     }
 
-    lemma FPA_helper(a:T, b:T): ∀ c:T ; c ∈ Elts ∧ valid(a ∘ c) → valid(b ∘ c)
-
-    # lemma with arguments, only want to define it, not add the obligation of proving all instantiations of it 
 }
 
 module Nat : resource_algebra {
@@ -38,15 +59,21 @@ module Nat : resource_algebra {
     val Elts = {| n : Nat :: true |}
     val id = 0
 
-    # which style for function?
-    val mult a b = a + b
-    func valid(n) = true
+    func mult(a, b) { a+b }
+    func valid(n) { true }
 
 
     # which style for proving lemmas? Also have to develop assertion language?
-    lemma id_valid with {# auto; #}
+    lemma id_valid
+        ensures id ∈ Elts
+    {
+        simpl 
+        # can use simpl or auto as a keyword to do state consolidation and resolve proof obligations automatically.
+    }
 
-    proof comp_assoc: auto
+    lemma comp_assoc
+        requires ∀ a:T, b:T, c:T ; (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
+        ensures (a ∘ b) ∘ c = a ∘ (b ∘ c)
 }
 
 module Frac : resource_algebra {
