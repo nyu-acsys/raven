@@ -14,13 +14,13 @@ module Lock {
     l := new Rep(bit(false));
   }
 
-  ## How to prove following spec? Lob induction?
+  /* How to prove following spec? Lob induction? */ 
   
   proc acquire(l: Rep, implicit ghost b: Bool)
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
-    ghost val phi = openAtom()
+    
     val res = cas(l.bit, false, true);
 
     {!
@@ -28,7 +28,7 @@ module Lock {
       else abort(phi);
     !}
 
-    ## Have to formalize the ghost code language.
+    /* Have to formalize the ghost code language. */
 
     if (!res) acquire(l);
   }
@@ -39,7 +39,7 @@ module Lock {
   {
     l.bit := false;
 
-    ## Presumably the atomic open etc can be automatically inferred for such a simple case?
+    /* Presumably the atomic open etc can be automatically inferred for such a simple case? */
   }
 }
 

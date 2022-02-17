@@ -11,28 +11,28 @@ interface resource_algebra {
 
     # Write lemmas in requires/ensures.
 
-    lemma id_valid
+    lemma id_valid()
         ensures id ∈ Elts
 
     # How to extend quantification from requires to ensures? Or just re-quantify?
 
-    lemma comp_assoc
-        requires ∀ a:T, b:T, c:T ; (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
+    lemma comp_assoc(a:T, b:T, c:T)
+        requires (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
         ensures (a ∘ b) ∘ c = a ∘ (b ∘ c)
 
-    lemma comp_commute
-        requires ∀ a:T, b:T ; (a ∈ Elts) && (b ∈ Elts)
+    lemma comp_commute(a:T, b:T)
+        requires (a ∈ Elts) && (b ∈ Elts)
         ensures a ∘ b = b ∘ a
 
-    lemma cancellative
-        requires ∀ a:T, b:T c:T ; (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
+    lemma cancellative(a:T, b:T, c:T)
+        requires (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
         requires (a ∘ b) = (c ∘ b)
         ensures (a = c)
 
     func FPU_condition(a:T, b:T) : Bool {
         # What to do with this implication?
 
-        ∀ c:T ; c ∈ Elts && valid(a ∘ c) → valid(b ∘ c)
+        ∀ c:T :: (c ∈ Elts && valid(a ∘ c)) → valid(b ∘ c)
     } 
 
     # revisit parametrizing in terms of l, f.
@@ -64,16 +64,17 @@ module Nat : resource_algebra {
 
 
     # which style for proving lemmas? Also have to develop assertion language?
-    lemma id_valid
+    lemma id_valid()
         ensures id ∈ Elts
     {
-        simpl 
-        # can use simpl or auto as a keyword to do state consolidation and resolve proof obligations automatically.
     }
 
-    lemma comp_assoc
-        requires ∀ a:T, b:T, c:T ; (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
+    lemma comp_assoc(a:T, b:T, c:T)
+        requires (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
         ensures (a ∘ b) ∘ c = a ∘ (b ∘ c)
+    {
+
+    }
 }
 
 module Frac : resource_algebra {

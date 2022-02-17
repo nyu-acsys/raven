@@ -481,6 +481,15 @@ module Stmt = struct
         call_name: qual_ident;
         call_args: expr list;
       }
+  
+  type fold_desc =
+      { fold_expr: expr;
+      }
+
+  type unfold_desc =
+      {
+        unfold_expr: expr;
+      }
 
   type basic_stmt_desc =
     | VarDef of var_def
@@ -491,6 +500,8 @@ module Stmt = struct
     | Havoc of expr list
     | Call of call_desc
     | Return of expr list
+    | Fold of fold_desc
+    | Unfold of unfold_desc
         
   type t =
       { stmt_desc: stmt_desc;
@@ -510,11 +521,17 @@ module Stmt = struct
         cond_else: t;
       }
 
+  and ghost_desc = 
+      {
+        ghost_body: t list;
+      }  
+      
   and stmt_desc =
     | Block of t list
     | Basic of basic_stmt_desc
     | Loop of loop_desc
     | Cond of cond_desc
+    | Ghost of ghost_desc
 
   (** Pretty printing statements *)
           
@@ -574,6 +591,12 @@ module Stmt = struct
           pr_spec_list "assume" ppf [sf]
       | Assert sf ->
           pr_spec_list "assert" ppf [sf]
+      | Fold fld ->
+          fprintf ppf "@[<2>fold %a@]" 
+            Expr.pr fld.fold_expr
+      | Unfold ufld ->
+          fprintf ppf "@[<2>unfold %a@]" 
+            Expr.pr ufld.unfold_expr
       | Return es -> 
           fprintf ppf "@[<2>return@ %a@]" Expr.pr_list es
       | Call cstm -> 
@@ -587,6 +610,7 @@ module Stmt = struct
                 QualIdent.pr_list cstm.call_lhs 
                 QualIdent.pr cstm.call_name 
                 Expr.pr_list cstm.call_args
+
                 
 
   let rec pr ppf stmt =
@@ -617,6 +641,9 @@ module Stmt = struct
         | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts)
     | Basic bs ->
         pr_basic_stmt ppf bs
+    | Ghost gdesc ->
+        fprintf ppf "{!@\n  @[%a@]@\n!}"
+          pr_block gdesc.ghost_body
 
   and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts
 

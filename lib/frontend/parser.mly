@@ -10,14 +10,14 @@ open Ast
 %token <Ast.Ident.t> IDENT
 %token <Ast.Expr.constr> CONSTVAL
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
-%token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE
+%token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token DIFF MINUS
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
-%token AND OR IMPLIES IFF NOT COMMA
+%token AND OR IMPLIES IFF NOT COMMA SEPSTAR
 %token <Ast.Expr.binder> QUANT
-%token ASSUME ASSERT HAVOC NEW RETURN
+%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -116,7 +116,7 @@ type_def_expr:
 
 variant_decl:
 | CASE; id = IDENT args = option(variant_args) {
-  let args = Option.value args ~default:[] in
+  let args = Base.Option.value args ~default:[] in
   Type.{ variant_name = id;
          variant_loc = Loc.make $startpos(id) $endpos(id);
          variant_args = args;
@@ -372,6 +372,7 @@ stmt_desc:
 | s = if_then_stmt { s }
 | s = if_then_else_stmt { s }
 | s = while_stmt { s }
+| s = ghost_block { s }
 ;
 
 stmt_no_short_if:
@@ -447,6 +448,14 @@ stmt_wo_trailing_substmt:
 (* return *)
 | RETURN; es = expr_list_opt; SEMICOLON { 
   Stmt.(Basic (Return es))
+}
+(* fold *)
+| FOLD; e = expr; {
+  Stmt.(Basic (Fold {fold_expr = e}))
+}
+(* unfold *)
+| UNFOLD; e = expr; {
+  Stmt.(Basic (Unfold {unfold_expr = e}))
 }
 ;
 
@@ -594,8 +603,13 @@ loop_contract:
 }
 ;
 
-
-
+ghost_block:
+| LGHOSTBRACE; stmts = stmt_list_opt; RGHOSTBRACE {
+    let ghost_block = 
+      Stmt.{ ghost_body = stmts }
+    in Ghost ghost_block
+}
+;
 (** Expressions *)
 
 primary:

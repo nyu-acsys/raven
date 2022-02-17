@@ -52,6 +52,8 @@ let _ =
       ("val", VAR true);
       ("var", VAR false);
       ("while", WHILE);
+      ("fold", FOLD);
+      ("unfold", UNFOLD);
     ])
 
 let operator_table = Hashtbl.create 64
@@ -86,6 +88,7 @@ let _ =
      ",", COMMA;
      ".", DOT;
      "?", QMARK;
+     "&*&", SEPSTAR
      ]
     
 let lexical_error lexbuf msg =
@@ -117,6 +120,8 @@ rule token = parse
 | '}' { RBRACE }
 | '[' { LBRACKET }
 | ']' { RBRACKET }
+| "{!" { LGHOSTBRACE }
+| "!}" { RGHOSTBRACE }
 | operator as op
     { try
       Hashtbl.find operator_table op

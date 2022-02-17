@@ -11,25 +11,25 @@ module Lock {
     returns (l: Rep)
     ensures lock(l, false)
   {
-    l := new(bit(false));
+    l := new bit(false);
     
-    {# 
+    {! 
     	unfold lock(l, false) 
-    #}
+    !}
   }
 
   proc acquire(l: Rep, implicit ghost b: Bool)
-    atomic require lock(l, b)
+    atomic requires lock(l, b)
     atomic ensures lock(l, true) &*& b = false
   {
-    {# 
+    {! 
     	val phi, b = openAU;
     	unfold lock(l, b); 
-    #}
+    !}
     
     val res := cas(l.bit, false, true);
 
-    {#
+    {!
       if (res) {
       	fold lock(l, true);
       	commitAU(phi);
@@ -37,7 +37,7 @@ module Lock {
       	fold lock(l, false); 
       	abortAU(phi);
       }	
-    #}
+    !}
     
     if (!res) {
     	acquire(l)
@@ -45,20 +45,20 @@ module Lock {
   }
 
   proc release(l: Lock)
-    atomic require lock(l, true)
+    atomic requires lock(l, true)
     atomic ensures lock(l, false)
   {
-  	{# 
+  	{! 
   		val phi = openAU;
   		unfold lock(l, true);
-  	#}
+  	!}
  
     l.bit := false;
     
-    {#
+    {!
     	fold lock(l, true);
     	commitAU(phi);
-    #}
+    !}
   }
 }
 
