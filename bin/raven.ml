@@ -17,8 +17,13 @@ let cmd_line_error msg =
 let parse_and_print lexbuf =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
-  Ast.Module.print Stdio.stdout s;
-  Stdio.print_endline ""
+  let disambiguated_ast, tbl = (Resolve_namespaces.start_disambiguate s) in
+  match tbl with
+    | [] -> Ast.Module.print Stdio.stdout disambiguated_ast;
+    Stdio.print_endline ""
+    | _ -> raise(Failure "SymbolTbl should be empty")
+  
+  
 
 let parse_program filename =
   let inx = Stdio.In_channel.create filename in

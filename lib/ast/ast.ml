@@ -46,8 +46,10 @@ module Ident = struct
 end
 
 type ident = Ident.t
-    
-type 'a ident_map = 'a Map.M(Ident).t
+
+module IdentMap = Map.M(Ident)
+
+type 'a ident_map = 'a IdentMap.t
 
 (** Qualified identifiers *)
 
@@ -727,9 +729,9 @@ module Callable = struct
 
   let pr ppf def =
     let open Stdlib.Format in
-    let pr_body pr_body ppf = function
+    let pr_body pr_body' ppf = function
       | Some e ->
-          fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body e
+          fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body' e
       | None -> fprintf ppf "@\n"
     in
     match def with
