@@ -17,7 +17,7 @@ open Ast
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token AND OR IMPLIES IFF NOT COMMA SEPSTAR
 %token <Ast.Expr.binder> QUANT
-%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD
+%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -450,11 +450,11 @@ stmt_wo_trailing_substmt:
   Stmt.(Basic (Return es))
 }
 (* fold *)
-| FOLD; e = expr; {
+| FOLD; e = expr; SEMICOLON {
   Stmt.(Basic (Fold {fold_expr = e}))
 }
 (* unfold *)
-| UNFOLD; e = expr; {
+| UNFOLD; e = expr; SEMICOLON {
   Stmt.(Basic (Unfold {unfold_expr = e}))
 }
 ;
@@ -618,6 +618,7 @@ primary:
 | e = set_expr { e }
 | e = new_expr { e }
 | e = dot_expr { e }
+| e = own_expr { e }
 ;
 
 set_expr:
@@ -637,7 +638,7 @@ new_expr:
 | NEW; t = type_expr; LPAREN; es = expr_list_opt; RPAREN {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
 }
-
+;
 
 dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
@@ -647,6 +648,11 @@ dot_expr:
   |> Base.Option.value ~default:p
 }
 ;
+
+own_expr:
+| OWN; LPAREN; es = expr_list; RPAREN {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Own es)
+}
 
 call_expr:
 | p = qual_ident_expr; ces = call {

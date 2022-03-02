@@ -6,20 +6,33 @@ open Ast
 module SymbolTbl = struct
   type t = (ident ident_map) list
 
+  let rec map_to_string t = match t with
+  | [] -> " "
+  | (k,v) :: ms -> (Ident.to_string k ^ " -> " ^ Ident.to_string v ^ "\n") ^ (map_to_string ms)
+
+  let rec to_string tbl = match tbl with
+    | [] -> "end\n\n"
+    | t :: ts -> "[ " ^ map_to_string (Map.to_alist t) ^ " ]\n" ^ (to_string ts)
+
+
+
   let push tbl = Map.empty (module Ident) :: tbl 
 
   let pop tbl = match tbl with
   | [] -> raise(Failure "Empty symbol table")
   | _ :: ts -> ts
 
-  let add tbl name id = match tbl with
+  let add tbl name id = Stdio.Out_channel.output_string Stdio.stdout ("ADDING " ^ Ident.to_string name ^ " -> " ^ Ident.to_string id ^ "\n" ^ to_string tbl);
+  match tbl with
     | [] -> raise(Failure "Empty symbol table")
     | t :: ts -> 
         try
           (Map.add_exn t ~key:name ~data:id) :: ts
-        with _ -> ts
+        with _ -> raise(Failure ("duplicate exists: " ^ Ident.to_string name ^ " to " ^ Ident.to_string id))
+        (* TODO: Figure this out by adding scopes wherever required *)
 
-  let remove tbl name = match tbl with
+  let remove tbl name = Stdio.Out_channel.output_string Stdio.stdout ("Removing " ^ Ident.to_string name ^ "\n" ^ to_string tbl);
+  match tbl with
     | [] -> raise(Failure "Empty symbol table")
     | t :: ts -> (Map.remove t name) :: ts
                                             
@@ -36,6 +49,9 @@ module SymbolTbl = struct
     | t :: ts -> match (Map.find t name) with
         | None -> find ts name
         | Some id -> Some id
+
+
+
 end
 
 let option_disambiguate fn arg tbl = match arg with
@@ -50,18 +66,20 @@ let rec list_disambiguate fn arg tbl = match arg with
         in ((l' :: ls'), tbl)
 
 module IdentDisambiguate = struct
-  let old_ident_disambiguate iden tbl = match (SymbolTbl.find tbl iden) with
-    | None -> raise(Failure "Variable Not Ref")
+  let old_ident_disambiguate iden tbl = Stdio.Out_channel.output_string Stdio.stdout ("Old_Ident: " ^ Ident.to_string iden ^ "\n");
+    match (SymbolTbl.find tbl iden) with
+    | None -> raise(Failure ("Variable Not Ref: " ^ Ident.to_string iden))
     | Some id -> id, tbl
   
-  let new_ident_disambiguate iden tbl = match (SymbolTbl.find tbl iden) with
+  let new_ident_disambiguate iden tbl = Stdio.Out_channel.output_string Stdio.stdout ("New_Ident: " ^ Ident.to_string iden ^ "\n");
+  match (SymbolTbl.find tbl iden) with
     | None -> let tbl = SymbolTbl.add tbl iden iden
         in iden, tbl
     | Some id' -> 
         let open Ident in
         let iden' =
         { ident_name = id'.ident_name;
-          ident_num = 1+id'.ident_num;
+          ident_num = 1 + id'.ident_num;
         }
         
         in let tbl = SymbolTbl.add tbl iden iden'
@@ -151,8 +169,9 @@ module TypeDisambiguate = struct
       in (Var qual_ident'), tbl
     | Set -> Set, tbl
     | Map -> Map, tbl
-    | Struct var_decl_list -> let var_decl_list', tbl = list_disambiguate var_decl_disambiguate var_decl_list tbl
-        in (Struct var_decl_list'), tbl
+    | Struct var_decl_list ->
+      let var_decl_list', tbl = list_disambiguate var_decl_disambiguate var_decl_list tbl in
+      (Struct var_decl_list'), tbl
     | Data variant_decl_list -> let variant_decl_list', tbl = list_disambiguate variant_decl_disambiguate variant_decl_list tbl
         in (Data variant_decl_list'), tbl
     | App (tp, tp_list, tp_attr) -> 
@@ -430,9 +449,11 @@ module CallableDisambiguate = struct
   let rec call_decl_disambiguate (call_decl: Callable.call_decl) tbl = 
     let call_decl_kind' = call_decl.call_decl_kind in
     let call_decl_name', tbl = new_ident_disambiguate call_decl.call_decl_name tbl in
+    let tbl = SymbolTbl.push tbl in
+    (* Corresponding SymbolTbl.pop made in proc_def_disambiguate and func_def_disambiguate *)
     let call_decl_formals', tbl = list_disambiguate new_ident_disambiguate call_decl.call_decl_formals tbl in
-    let call_decl_returns', tbl = list_disambiguate old_ident_disambiguate call_decl.call_decl_returns tbl in
-    let call_decl_locals', tbl = ident_map_new_disambiguate var_decl_disambiguate call_decl.call_decl_locals tbl in
+    let call_decl_returns', tbl = list_disambiguate new_ident_disambiguate call_decl.call_decl_returns tbl in
+    let call_decl_locals', tbl = call_decl.call_decl_locals, tbl in
     let call_decl_precond', tbl = list_disambiguate StmtDisambiguate.spec_disambiguate call_decl.call_decl_precond tbl in
     let call_decl_postcond', tbl = list_disambiguate StmtDisambiguate.spec_disambiguate call_decl.call_decl_postcond tbl in
     let call_decl_loc' = call_decl.call_decl_loc in
@@ -451,11 +472,10 @@ module CallableDisambiguate = struct
   in call_decl', tbl
   
   and proc_def_disambiguate (proc_def: Callable.proc_def) tbl =
-    let tbl = SymbolTbl.push tbl in
     let proc_decl', tbl = call_decl_disambiguate proc_def.proc_decl tbl in
     let proc_body', tbl = option_disambiguate stmt_disambiguate proc_def.proc_body tbl in
-    let tbl = SymbolTbl.pop tbl in
-
+    let tbl = SymbolTbl.pop tbl in 
+    (* Corresponding push made in call_decl_disambiguate *)
     let (proc_def': Callable.proc_def) =
     { proc_decl = proc_decl';
       proc_body = proc_body';
@@ -464,10 +484,10 @@ module CallableDisambiguate = struct
   in proc_def', tbl
 
   and func_def_disambiguate (func_def: Callable.func_def) tbl =
-    let tbl = SymbolTbl.push tbl in
     let func_decl', tbl = call_decl_disambiguate func_def.func_decl tbl in
     let func_body', tbl = option_disambiguate expr_disambiguate func_def.func_body tbl in
     let tbl = SymbolTbl.pop tbl in
+    (* Corresponding push made in call_decl_disambiguate *)
 
     let (func_def': Callable.func_def) =
     { func_decl = func_decl'; 
@@ -587,4 +607,4 @@ end
 let module_disambiguate = ModuleDisambiguate.module_disambiguate
 
 
-let start_disambiguate m = module_disambiguate m [ Map.empty (module Ident) ]
+let start_disambiguate m = module_disambiguate m [ ]

@@ -23,6 +23,8 @@ let parse_and_print lexbuf =
     Stdio.print_endline ""
     | _ -> raise(Failure "SymbolTbl should be empty")
   
+(*     Ast.Module.print Stdio.stdout s;
+    Stdio.print_endline "" *)
   
 
 let parse_program filename =

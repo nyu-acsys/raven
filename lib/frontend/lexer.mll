@@ -39,6 +39,7 @@ let _ =
       ("module", MODULE);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
+      ("own", OWN);
       ("pred", FUNC (Func));
       ("proc", PROC (Proc));
       ("requires", REQUIRES);
