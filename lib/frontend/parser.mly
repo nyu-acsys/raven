@@ -7,7 +7,7 @@ open Ast
 
 %}
 
-%token <Ast.Ident.t> IDENT
+%token <Ast.Ident.t> IDENT MODIDENT
 %token <Ast.Expr.constr> CONSTVAL
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
@@ -161,7 +161,7 @@ interface_def:
 }
     
 module_header:
-| id = IDENT; pdecls = module_param_list_opt; rts = return_type_list_opt {
+| id = MODIDENT; pdecls = module_param_list_opt; rts = return_type_list_opt {
   let open Module in
   let add m id ma =
     match Base.Map.add m ~key:id ~data:ma with
@@ -672,10 +672,16 @@ call_opt:
   
 qual_ident_expr:
 | x = ident { x }
+| m = mod_ident; DOT; x = IDENT {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) []) }
 | p = primary DOT x = ident {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Dot [p; x])
 }
-                                                              
+
+mod_ident:
+| x = MODIDENT { QualIdent.from_ident x}
+| x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
+
 ident: 
 | x = IDENT {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }

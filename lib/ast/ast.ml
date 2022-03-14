@@ -70,6 +70,8 @@ module QualIdent = struct
   let from_ident id = { qual_path = []; qual_base = id }
 
   let make p id = { qual_path = p; qual_base = id }
+
+  let append qi id = { qual_path = qi.qual_path @ [qi.qual_base]; qual_base = id }
       
 end
 

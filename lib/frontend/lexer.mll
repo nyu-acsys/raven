@@ -103,7 +103,10 @@ let operator_char = ['+''-''*''/''%''.'':'',''?''>''<''=''&''|''!'';']
 let operator = operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
-let ident = ident_char ('\'' | ident_char | digit_char)*
+let lowercase_char = ['a'-'z''_']
+let uppercase_char = ['A'-'Z']
+let ident = lowercase_char ('\'' | ident_char | digit_char)*
+let mod_ident = uppercase_char ('\'' | ident_char | digit_char)*
 let digits = digit_char+
 
 rule token = parse
@@ -130,6 +133,12 @@ rule token = parse
       lexical_error lexbuf (Some("Unknown operator: " ^ op))
     }
 | ident as name '#' (digit_char+ as num) { IDENT(Ident.make name (int_of_string num)) }
+| mod_ident as kw
+    { try
+      Hashtbl.find keyword_table kw
+    with Not_found ->
+      MODIDENT (Ident.make kw 0)
+    }
 | ident as kw
     { try
       Hashtbl.find keyword_table kw
