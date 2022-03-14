@@ -839,6 +839,7 @@ type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
 | x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
+| x = MODIDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | SET { Type.mk_set (Loc.make $startpos $endpos) }
 | MAP { Type.mk_map (Loc.make $startpos $endpos) }
 | t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts }

@@ -1,22 +1,22 @@
 module Lock {
-  rep type rep1 = struct {
+  rep type t = struct {
     var bit: Bool
   }
   
-  pred lockR(l: rep1, b: Bool) {
+  pred lockR(l: t, b: Bool) {
     own(l.bit, b)
   }
 
   proc create()
-    returns (l: rep1)
+    returns (l: t)
     ensures lockR(l, false)
   {
-    l := new rep1(bit(false));
+    l := new t(bit(false));
   }
 
   /* How to prove following spec? Lob induction? */ 
   
-  proc acquire(l: rep1, implicit ghost b: Bool)
+  proc acquire(l: t, implicit ghost b: Bool)
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
