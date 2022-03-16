@@ -72,7 +72,15 @@ module IdentDisambiguate = struct
     | Some id -> id, tbl
   
   let new_ident_disambiguate iden tbl = Stdio.Out_channel.output_string Stdio.stdout ("New_Ident: " ^ Ident.to_string iden ^ "\n");
+    let iden' = Ident.fresh iden.ident_name in
+    let tbl = SymbolTbl.add tbl iden iden' in
+    iden', tbl
+(* 
+
   match (SymbolTbl.find tbl iden) with
+
+
+
     | None -> let tbl = SymbolTbl.add tbl iden iden
         in iden, tbl
     | Some id' -> 
@@ -83,7 +91,7 @@ module IdentDisambiguate = struct
         }
         
         in let tbl = SymbolTbl.add tbl iden iden'
-      in iden', tbl
+      in iden', tbl *)
 end
 
 let old_ident_disambiguate = IdentDisambiguate.old_ident_disambiguate
@@ -93,6 +101,23 @@ let ident_map_new_disambiguate val_fun id_map tbl =
   let fn (id, value) tbl =
     let id', tbl = new_ident_disambiguate id tbl in
     let value', tbl = val_fun value tbl in
+    (id', value'), tbl
+
+  in
+  let rec fn_iter l tbl = match l with
+    | [] -> [], tbl
+    | (id, value) :: ls -> 
+        let (id', value'), tbl = fn (id, value) tbl in
+        let ls', tbl = fn_iter ls tbl in
+          ((id', value') :: ls'), tbl
+
+  in let l', tbl = fn_iter (Map.to_alist id_map) tbl
+in (Map.of_alist_exn (module Ident) l'), tbl
+
+let ident_map_old_disambiguate val_fun id_map tbl = 
+  let fn (id, value) tbl =
+    let value', tbl = val_fun value tbl in
+    let id', tbl = old_ident_disambiguate id tbl in
     (id', value'), tbl
 
   in
@@ -158,17 +183,17 @@ module TypeDisambiguate = struct
   in variant_decl', tbl
 
   and type_disambiguate exp tbl = match exp with
-    | Int -> Int, tbl
-    | Bool -> Bool, tbl
-    | Unit -> Unit, tbl
-    | AnyRef -> AnyRef, tbl
-    | Perm -> Perm, tbl
-    | Bot -> Bot, tbl
-    | Any -> Any, tbl
+    | Int
+    | Bool
+    | Unit
+    | AnyRef
+    | Perm
+    | Bot
+    | Any
+    | Set
+    | Map -> exp, tbl
     | Var qual_ident -> let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl
       in (Var qual_ident'), tbl
-    | Set -> Set, tbl
-    | Map -> Map, tbl
     | Struct var_decl_list ->
       let var_decl_list', tbl = list_disambiguate var_decl_disambiguate var_decl_list tbl in
       (Struct var_decl_list'), tbl
@@ -193,41 +218,41 @@ let type_expr_disambiguate = TypeDisambiguate.type_disambiguate
 let var_decl_disambiguate = TypeDisambiguate.var_decl_disambiguate
 
 module ExprDisambiguate = struct
-  let rec constr_disambiguate (const : Expr.constr) tbl : (Expr.constr * SymbolTbl.t)= match const with
-    | Null -> Null, tbl
-    | Unit -> Unit, tbl
-    | Bool b -> (Bool b), tbl
-    | Int i -> (Int i), tbl
-    | Empty -> Empty, tbl
-    | Not -> Not, tbl
-    | Uminus -> Uminus, tbl
-    | Eq  -> Eq, tbl
-    | Gt -> Gt, tbl
-    | Lt -> Lt, tbl
-    | Geq -> Geq, tbl
-    | Leq-> Leq, tbl
-    | Diff -> Diff, tbl
-    | Union -> Union, tbl
-    | Inter -> Inter, tbl
-    | Elem -> Elem, tbl
-    | Subseteq-> Subseteq, tbl
-    | And -> And, tbl
-    | Or -> Or, tbl
-    | Impl-> Impl, tbl
-    | Plus -> Plus, tbl
-    | Minus -> Minus, tbl
-    | Mult -> Mult, tbl
-    | Div -> Div, tbl
-    | Mod-> Mod, tbl
-    | Dot -> Dot, tbl
-    | Call -> Call, tbl
-    | Read-> Read, tbl
+  let rec constr_disambiguate (const : Expr.constr) tbl : (Expr.constr * SymbolTbl.t) = match const with
+    | Null
+    | Unit
+    | Bool _
+    | Int _
+    | Empty
+    | Not
+    | Uminus
+    | Eq
+    | Gt
+    | Lt
+    | Geq
+    | Leq
+    | Diff
+    | Union
+    | Inter
+    | Elem
+    | Subseteq
+    | And
+    | Or
+    | Impl
+    | Plus
+    | Minus
+    | Mult
+    | Div
+    | Mod
+    | Dot
+    | Call
+    | Read 
     (* Ternary operators *)
-    | Ite -> Ite, tbl
-    | Write -> Write, tbl
-    | Own -> Own, tbl
+    | Ite
+    | Write
+    | Own
     (* Variable arity operators *)
-    | Setenum -> Setenum, tbl
+    | Setenum -> const, tbl
     | Var qual_ident -> let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl
         in (Var qual_ident'), tbl
     | New tp_expr -> let tp_expr', tbl = type_expr_disambiguate tp_expr tbl
@@ -349,30 +374,30 @@ module StmtDisambiguate = struct
 
   in unfold_desc', tbl
 
-  and basic_stmt_desc_disambiguate (basic_stmt: Stmt.basic_stmt_desc) tbl : (Stmt.basic_stmt_desc * SymbolTbl.t)= match basic_stmt with
+  and basic_stmt_desc_disambiguate (basic_stmt: Stmt.basic_stmt_desc) tbl : (Stmt.basic_stmt_desc * (SymbolTbl.t * var_decl list)) = match basic_stmt with
     | VarDef var_def -> let var_def', tbl = var_def_disambiguate var_def tbl
-        in (VarDef var_def'), tbl
+        in (VarDef var_def'), (tbl, [var_def'.var_decl])
     | Assume spec -> let spec', tbl = spec_disambiguate spec tbl
-        in (Assume spec'), tbl
+        in (Assume spec'), (tbl, [])
     | Assert spec -> let spec', tbl = spec_disambiguate spec tbl
-        in (Assert spec'), tbl
+        in (Assert spec'), (tbl, [])
     | New new_desc -> let new_desc', tbl = new_desc_disambiguate new_desc tbl
-        in (New new_desc'), tbl
+        in (New new_desc'), (tbl, [])
     | Assign assign_desc -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-        in (Assign assign_desc'), tbl
+        in (Assign assign_desc'), (tbl, [])
     | Havoc expr_list -> let expr_list', tbl = list_disambiguate expr_disambiguate expr_list tbl
-        in (Havoc expr_list'), tbl
+        in (Havoc expr_list'), (tbl, [])
     | Call call_desc -> let call_desc', tbl = call_desc_disambiguate call_desc tbl
-        in (Call call_desc'), tbl
+        in (Call call_desc'), (tbl, [])
     | Return expr_list -> let expr_list', tbl = list_disambiguate expr_disambiguate expr_list tbl
-        in (Return expr_list'), tbl
+        in (Return expr_list'), (tbl, [])
     | Fold fold_desc -> let fold_desc', tbl = fold_desc_disambiguate fold_desc tbl
-        in (Fold fold_desc'), tbl
+        in (Fold fold_desc'), (tbl, [])
     | Unfold unfold_desc -> let unfold_desc', tbl = unfold_desc_disambiguate unfold_desc tbl
-        in (Unfold unfold_desc'), tbl
+        in (Unfold unfold_desc'), (tbl, [])
 
-  and stmt_disambiguate (stmt: Stmt.t) tbl =
-    let stmt_desc', tbl = stmt_desc_disambiguate stmt.stmt_desc tbl in (*  stmt_desc; *)
+  and stmt_disambiguate (stmt: Stmt.t) (tbl, locals) =
+    let stmt_desc', (tbl, locals) = stmt_desc_disambiguate stmt.stmt_desc (tbl, locals) in (*  stmt_desc; *)
     let stmt_loc' = stmt.stmt_loc in (*  location; *)
 
     let (stmt': Stmt.t) =
@@ -380,14 +405,14 @@ module StmtDisambiguate = struct
       stmt_loc = stmt_loc';
     }
 
-  in stmt', tbl
+  in stmt', (tbl, locals)
 
-  and loop_desc_disambiguate (loop_desc: Stmt.loop_desc) (tbl: SymbolTbl.t) =
+  and loop_desc_disambiguate (loop_desc: Stmt.loop_desc) (tbl, locals)(* : SymbolTbl.t * var_decl list *) =
     let tbl = SymbolTbl.push tbl in 
     let loop_contract', tbl = list_disambiguate spec_disambiguate loop_desc.loop_contract tbl in  (* : spec list; *)
-    let loop_prebody', tbl = stmt_disambiguate loop_desc.loop_prebody tbl in  (* : t; *)
+    let loop_prebody', (tbl, locals) = stmt_disambiguate loop_desc.loop_prebody (tbl, locals) in  (* : t; *)
     let loop_test', tbl = expr_disambiguate loop_desc.loop_test tbl in  (* : expr; *)
-    let loop_postbody', tbl = stmt_disambiguate loop_desc.loop_postbody tbl in  (* : t; *)
+    let loop_postbody', (tbl, locals) = stmt_disambiguate loop_desc.loop_postbody (tbl, locals) in  (* : t; *)
     let tbl = SymbolTbl.pop tbl in
 
     let (loop_desc': Stmt.loop_desc) = 
@@ -397,15 +422,15 @@ module StmtDisambiguate = struct
       loop_postbody = loop_postbody';
     }
 
-  in loop_desc', tbl
+  in loop_desc', (tbl, locals)
 
-  and cond_desc_disambiguate (cond_desc: Stmt.cond_desc) tbl =
+  and cond_desc_disambiguate (cond_desc: Stmt.cond_desc) (tbl, locals) =
     let cond_test', tbl = expr_disambiguate cond_desc.cond_test tbl in (* : expr; *)
     let tbl = SymbolTbl.push tbl in
-    let cond_then', tbl = stmt_disambiguate cond_desc.cond_then tbl in (* : t; *)
+    let cond_then', (tbl, locals) = stmt_disambiguate cond_desc.cond_then (tbl, locals) in (* : t; *)
     let tbl = SymbolTbl.pop tbl in
     let tbl = SymbolTbl.push tbl in
-    let cond_else', tbl = stmt_disambiguate cond_desc.cond_else tbl in (* : t; *)
+    let cond_else', (tbl, locals) = stmt_disambiguate cond_desc.cond_else (tbl, locals) in (* : t; *)
     let tbl = SymbolTbl.pop tbl in
 
     let (cond_desc': Stmt.cond_desc) = 
@@ -414,46 +439,51 @@ module StmtDisambiguate = struct
       cond_else = cond_else';
     }
 
-  in cond_desc', tbl
+  in cond_desc', (tbl, locals)
 
-  and ghost_desc_disambiguate (ghost_desc: Stmt.ghost_desc) tbl =
+  and ghost_desc_disambiguate (ghost_desc: Stmt.ghost_desc) (tbl, locals) =
     let tbl = SymbolTbl.push tbl in
-    let ghost_body', tbl = list_disambiguate stmt_disambiguate ghost_desc.ghost_body tbl in (* : t list; *)
+    let ghost_body', (tbl, locals) = list_disambiguate stmt_disambiguate ghost_desc.ghost_body (tbl, locals) in (* : t list; *)
     let tbl = SymbolTbl.pop tbl in
 
     let (ghost_desc': Stmt.ghost_desc) = 
     { ghost_body = ghost_body';
     }
 
-    in ghost_desc', tbl
+    in ghost_desc', (tbl, locals)
 
-  and stmt_desc_disambiguate stmt_desc tbl = match stmt_desc with
+  and stmt_desc_disambiguate stmt_desc (tbl, locals) = match stmt_desc with
     | Block stmt_list -> 
         let tbl = SymbolTbl.push tbl in  
-        let stmt_list', tbl = list_disambiguate stmt_disambiguate stmt_list tbl in
+        let stmt_list', (tbl, locals) = list_disambiguate stmt_disambiguate stmt_list (tbl, locals) in
         let tbl = SymbolTbl.pop tbl
-      in (Block stmt_list'), tbl
-    | Basic basic_stmt_desc -> let basic_stmt_desc', tbl = basic_stmt_desc_disambiguate basic_stmt_desc tbl
-      in (Basic basic_stmt_desc'), tbl
-    | Loop loop_desc -> let loop_desc', tbl = loop_desc_disambiguate loop_desc tbl
-      in (Loop loop_desc'), tbl
-    | Cond cond_desc -> let cond_desc', tbl = cond_desc_disambiguate cond_desc tbl
-      in (Cond cond_desc'), tbl
-    | Ghost ghost_desc -> let ghost_desc', tbl = ghost_desc_disambiguate ghost_desc tbl
-      in (Ghost ghost_desc'), tbl
+      in (Block stmt_list'), (tbl, locals)
+    | Basic basic_stmt_desc -> let basic_stmt_desc', (tbl, locals') = basic_stmt_desc_disambiguate basic_stmt_desc tbl
+      in (Basic basic_stmt_desc'), (tbl, List.append locals locals')
+    | Loop loop_desc -> let loop_desc', (tbl, locals) = loop_desc_disambiguate loop_desc (tbl, locals)
+      in (Loop loop_desc'), (tbl, locals)
+    | Cond cond_desc -> let cond_desc', (tbl, locals) = cond_desc_disambiguate cond_desc (tbl, locals)
+      in (Cond cond_desc'), (tbl, locals)
+    | Ghost ghost_desc -> let ghost_desc', (tbl, locals) = ghost_desc_disambiguate ghost_desc (tbl, locals)
+      in (Ghost ghost_desc'), (tbl, locals)
 end
 
 let stmt_disambiguate = StmtDisambiguate.stmt_disambiguate
 
 module CallableDisambiguate = struct
+  let rec locals_to_string (m: ((ident * Type.var_decl) list)) = match m with
+    | [] -> ""
+    | l::ls -> Ident.to_string (fst l) ^ " -> " ^ Ident.to_string (snd l).var_name ^ ",   " ^(locals_to_string ls)
+    
+
   let rec call_decl_disambiguate (call_decl: Callable.call_decl) tbl = 
     let call_decl_kind' = call_decl.call_decl_kind in
     let call_decl_name', tbl = new_ident_disambiguate call_decl.call_decl_name tbl in
     let tbl = SymbolTbl.push tbl in
     (* Corresponding SymbolTbl.pop made in proc_def_disambiguate and func_def_disambiguate *)
-    let call_decl_formals', tbl = list_disambiguate new_ident_disambiguate call_decl.call_decl_formals tbl in
-    let call_decl_returns', tbl = list_disambiguate new_ident_disambiguate call_decl.call_decl_returns tbl in
-    let call_decl_locals', tbl = call_decl.call_decl_locals, tbl in
+    let call_decl_locals', tbl = ident_map_old_disambiguate var_decl_disambiguate call_decl.call_decl_locals tbl in
+    let call_decl_formals', tbl = list_disambiguate old_ident_disambiguate call_decl.call_decl_formals tbl in
+    let call_decl_returns', tbl = list_disambiguate old_ident_disambiguate call_decl.call_decl_returns tbl in
     let call_decl_precond', tbl = list_disambiguate StmtDisambiguate.spec_disambiguate call_decl.call_decl_precond tbl in
     let call_decl_postcond', tbl = list_disambiguate StmtDisambiguate.spec_disambiguate call_decl.call_decl_postcond tbl in
     let call_decl_loc' = call_decl.call_decl_loc in
@@ -472,12 +502,23 @@ module CallableDisambiguate = struct
   in call_decl', tbl
   
   and proc_def_disambiguate (proc_def: Callable.proc_def) tbl =
+    let rec map_append m (l: var_decl list) = match l with 
+      | [] -> m
+      | v::vs -> map_append (Map.add_exn m ~key:v.var_name ~data:v) vs
+    
+    in
+
     let proc_decl', tbl = call_decl_disambiguate proc_def.proc_decl tbl in
-    let proc_body', tbl = option_disambiguate stmt_disambiguate proc_def.proc_body tbl in
+    let proc_body', (tbl, locals) = option_disambiguate stmt_disambiguate proc_def.proc_body (tbl, []) in
+    
     let tbl = SymbolTbl.pop tbl in 
+
+    let proc_decl'' = {proc_decl' with call_decl_locals = map_append proc_decl'.call_decl_locals locals;} in 
+
+    Stdio.Out_channel.output_string Stdio.stdout ("LOCALS OUTPUT::::::" ^ locals_to_string (Map.to_alist proc_decl''.call_decl_locals) ^ "\n\n");
     (* Corresponding push made in call_decl_disambiguate *)
     let (proc_def': Callable.proc_def) =
-    { proc_decl = proc_decl';
+    { proc_decl = proc_decl''; 
       proc_body = proc_body';
     }
 

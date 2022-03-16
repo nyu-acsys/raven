@@ -30,13 +30,21 @@ module Lock {
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
-    
-    val res = cas(l.bit, false, true);
+    val res = true;
 
+    if (l.bit) {
+        res := false;
+     }
+    
+    else {
+        res := true;
+    }
+    
+    /*
     {!
       if (res) commit(phi);
       else abort(phi);
-    !}
+    !} */
 
     /* Have to formalize the ghost code language. */
 
@@ -50,6 +58,10 @@ module Lock {
     l.bit := false;
 
     /* Presumably the atomic open etc can be automatically inferred for such a simple case? */
+  }
+
+  module Trial {
+    var l = true
   }
 }
 
