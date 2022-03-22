@@ -4,19 +4,28 @@ open Ast
 (* open Util *)
 
 module SymbolTbl = struct
-  type t = (ident ident_map) list
+  type t =
+  { scope_name: ident option;
+    members: t list;
+    vars: ident ident_map;
+    parent: t;
+  }
 
-  let rec map_to_string t = match t with
+  let make par : t = { scope_name = None; members = []; vars = Map.empty (module Ident); parent = par;} 
+  (* let rec map_to_string t = match t with
   | [] -> " "
   | (k,v) :: ms -> (Ident.to_string k ^ " -> " ^ Ident.to_string v ^ "\n") ^ (map_to_string ms)
 
   let rec to_string tbl = match tbl with
     | [] -> "end\n\n"
     | t :: ts -> "[ " ^ map_to_string (Map.to_alist t) ^ " ]\n" ^ (to_string ts)
+ *)
 
 
-
-  let push tbl = Map.empty (module Ident) :: tbl 
+  let push tbl = let new_node = make tbl in
+  
+    
+    { tbl with members = (make tbl) :: tbl.members}(*  Map.empty (module Ident) :: tbl  *)
 
   let pop tbl = match tbl with
   | [] -> raise(Failure "Empty symbol table")
