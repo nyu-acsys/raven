@@ -51,7 +51,7 @@ module Lock {
     if (!res) acquire(l);
   }
 
-  proc release(l: Lock)
+  proc release(l: t)
     atomic requires lockR(l, true)
     atomic ensures lockR(l, false)
   {

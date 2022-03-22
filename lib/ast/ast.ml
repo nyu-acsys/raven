@@ -48,7 +48,6 @@ end
 type ident = Ident.t
 
 module IdentMap = Map.M(Ident)
-
 type 'a ident_map = 'a IdentMap.t
 
 (** Qualified identifiers *)
@@ -77,11 +76,21 @@ module QualIdent = struct
   let make p id = { qual_path = p; qual_base = id }
 
   let append qi id = { qual_path = qi.qual_path @ [qi.qual_base]; qual_base = id }
+  (* append "M1.M2" "x" -> "M1.M2.x" *)
+
+  let left_append id qi = {qi with qual_path = id :: qi.qual_path}
+  (* left_append "M1" "M2.x" -> "M1.M2.x" *)
+
+  (* { qual_path = id :: qi.qual_path; qual_base = qi.qual_base} *)
+  
       
 end
 
 type qual_ident = QualIdent.t
-      
+
+module QualIdentMap = Map.M(QualIdent)
+type 'a qual_ident_map = 'a QualIdentMap.t
+
 (** Types *)
 
 module Type = struct
