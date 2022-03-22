@@ -53,12 +53,17 @@ type 'a ident_map = 'a IdentMap.t
 
 (** Qualified identifiers *)
 
-module QualIdent = struct      
-  type t =
+module QualIdent = struct
+  module T = struct    
+    type t =
       { qual_path: Ident.t list;
         qual_base: Ident.t;
       }
-      [@@deriving compare, hash]
+      [@@deriving compare, hash, sexp]
+  end
+
+  include T
+  include Comparable.Make(T)
 
   let pr ppf qid =
     Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base])

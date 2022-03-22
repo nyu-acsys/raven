@@ -4,7 +4,16 @@ open Ast
 (* open Util *)
 
 module SymbolTbl = struct
-  type t =
+(*   module IdentMap = Map.M(Ident)
+  type 'a ident_map = 'a IdentMap.t *)
+
+  type qual_ident_map = qual_ident Map.M(QualIdent).t
+
+  (* type t = (ident ident_map) list *)
+
+  type t = (ident option * qual_ident_map) list
+
+  type t = 
   { scope_name: ident option;
     members: t list;
     vars: ident ident_map;
