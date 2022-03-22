@@ -2,12 +2,12 @@ module Lock {
   rep type t = struct {
     var bit: Bool
   }
-  
-  var l = true
 
   pred lockR(l: t, b: Bool) {
     own(l.bit, b)
   }
+
+  var l = true
 
   proc create()
     returns (l: t)
@@ -61,7 +61,7 @@ module Lock {
   }
 
   module Trial {
-    var l = true
+    var l = Lock.l
   }
 }
 
