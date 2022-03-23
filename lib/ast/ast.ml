@@ -7,6 +7,8 @@ type location = Loc.t
     
 (** Identifiers *)
 
+let print_debug str = Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ str ^ "\027[0m");
+
 module Ident = struct
   module T = struct
     type t =
@@ -48,17 +50,21 @@ end
 type ident = Ident.t
 
 module IdentMap = Map.M(Ident)
-
 type 'a ident_map = 'a IdentMap.t
 
 (** Qualified identifiers *)
 
-module QualIdent = struct      
-  type t =
+module QualIdent = struct
+  module T = struct    
+    type t =
       { qual_path: Ident.t list;
         qual_base: Ident.t;
       }
-      [@@deriving compare, hash]
+      [@@deriving compare, hash, sexp]
+  end
+
+  include T
+  include Comparable.Make(T)
 
   let pr ppf qid =
     Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base])
@@ -72,11 +78,21 @@ module QualIdent = struct
   let make p id = { qual_path = p; qual_base = id }
 
   let append qi id = { qual_path = qi.qual_path @ [qi.qual_base]; qual_base = id }
+  (* append "M1.M2" "x" -> "M1.M2.x" *)
+
+  let left_append id qi = {qi with qual_path = id :: qi.qual_path}
+  (* left_append "M1" "M2.x" -> "M1.M2.x" *)
+
+  (* { qual_path = id :: qi.qual_path; qual_base = qi.qual_base} *)
+  
       
 end
 
 type qual_ident = QualIdent.t
-      
+
+module QualIdentMap = Map.M(QualIdent)
+type 'a qual_ident_map = 'a QualIdentMap.t
+
 (** Types *)
 
 module Type = struct

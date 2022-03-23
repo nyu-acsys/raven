@@ -51,7 +51,7 @@ module Lock {
     if (!res) acquire(l);
   }
 
-  proc release(l: Lock)
+  proc release(l: t)
     atomic requires lockR(l, true)
     atomic ensures lockR(l, false)
   {
@@ -59,10 +59,12 @@ module Lock {
 
     /* Presumably the atomic open etc can be automatically inferred for such a simple case? */
   }
-
-  module Trial {
-    var l = Lock.l
-  }
 }
 
+  module Trial {
+    proc trial(l: Lock) {
+      var l = Lock.l;
+    }
+    
+  }
 
