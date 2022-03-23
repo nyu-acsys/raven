@@ -7,6 +7,8 @@ type location = Loc.t
     
 (** Identifiers *)
 
+let print_debug str = Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ str ^ "\027[0m");
+
 module Ident = struct
   module T = struct
     type t =

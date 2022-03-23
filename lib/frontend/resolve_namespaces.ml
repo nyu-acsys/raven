@@ -59,13 +59,13 @@ module SymbolTbl = struct
           t' :: ts'
 
   let add tbl name id = 
-    Stdio.Out_channel.output_string Stdio.stdout ("ADDING " ^ QualIdent.to_string name ^ " -> " ^ QualIdent.to_string id ^ "\n" ^ to_string tbl);
+    print_debug ("ADDING " ^ QualIdent.to_string name ^ " -> " ^ QualIdent.to_string id ^ "\n" ^ to_string tbl);
     let fully_qual_id = fully_qualified id tbl in
   match tbl with
     | [] -> raise(Failure "Empty symbol table")
     | tbl -> add_helper tbl name fully_qual_id
 
- (*  let remove tbl name = Stdio.Out_channel.output_string Stdio.stdout ("Removing " ^ QualIdent.to_string name ^ "\n" ^ to_string tbl);
+ (*  let remove tbl name = print_debug ("Removing " ^ QualIdent.to_string name ^ "\n" ^ to_string tbl);
   match tbl with
     | [] -> raise(Failure "Empty symbol table")
     | t :: ts -> let (label, map) = t in
@@ -99,12 +99,12 @@ let rec list_disambiguate fn arg tbl = match arg with
         in ((l' :: ls'), tbl)
 
 module IdentDisambiguate = struct
-  let old_ident_disambiguate iden (tbl: SymbolTbl.t) = Stdio.Out_channel.output_string Stdio.stdout ("Old_Ident: " ^ Ident.to_string iden ^ "\n");
+  let old_ident_disambiguate iden (tbl: SymbolTbl.t) = print_debug ("Old_Ident: " ^ Ident.to_string iden ^ "\n");
     match (SymbolTbl.find tbl (QualIdent.from_ident iden)) with
     | None -> raise(Failure ("Variable Not Ref: " ^ Ident.to_string iden))
     | Some id -> id.qual_base, tbl
   
-  let new_ident_disambiguate iden (tbl: SymbolTbl.t) = Stdio.Out_channel.output_string Stdio.stdout ("New_Ident: " ^ Ident.to_string iden ^ "\n");
+  let new_ident_disambiguate iden (tbl: SymbolTbl.t) = print_debug ("New_Ident: " ^ Ident.to_string iden ^ "\n");
     let iden' = Ident.fresh iden.ident_name in
     let tbl = SymbolTbl.add tbl (QualIdent.from_ident iden) (QualIdent.from_ident iden') in
     iden', tbl
@@ -150,7 +150,7 @@ in (Map.of_alist_exn (module Ident) l'), tbl
 
 module QualIdentDisambiguate = struct
   let rec qual_ident_disambiguate (qual_iden : qual_ident) tbl =
-    Stdio.Out_channel.output_string Stdio.stdout ("Old_QualIdent: " ^ QualIdent.to_string qual_iden ^ "\n");
+    print_debug ("Old_QualIdent: " ^ QualIdent.to_string qual_iden ^ "\n");
     match (SymbolTbl.find tbl qual_iden) with
     | None -> raise(Failure ("Variable Not Ref: " ^ QualIdent.to_string qual_iden))
     | Some id -> id, tbl
@@ -526,7 +526,7 @@ module CallableDisambiguate = struct
 
     let proc_decl'' = {proc_decl' with call_decl_locals = map_append proc_decl'.call_decl_locals locals;} in 
 
-    Stdio.Out_channel.output_string Stdio.stdout ("LOCALS OUTPUT::::::" ^ locals_to_string (Map.to_alist proc_decl''.call_decl_locals) ^ "\n\n");
+    print_debug ("LOCALS OUTPUT: " ^ locals_to_string (Map.to_alist proc_decl''.call_decl_locals) ^ "\n\n");
     (* Corresponding push made in call_decl_disambiguate *)
     let (proc_def': Callable.proc_def) =
     { proc_decl = proc_decl''; 
@@ -594,7 +594,16 @@ module ModuleDisambiguate = struct
     (* Not new_ident-ing module names. Assuming module names are unique, probably want to revisit. *)
     let mod_decl_formals', tbl = list_disambiguate new_ident_disambiguate mod_decl.mod_decl_formals tbl in
     let mod_decl_returns', tbl = list_disambiguate type_expr_disambiguate mod_decl.mod_decl_returns tbl in
-    let mod_decl_rep', tbl = option_disambiguate new_ident_disambiguate mod_decl.mod_decl_rep tbl in
+    let mod_decl_rep', tbl = option_disambiguate old_ident_disambiguate mod_decl.mod_decl_rep tbl in
+    print_debug ("MODULE : " ^ Ident.to_string mod_decl_name' ^ " -> " ^ (match mod_decl_rep' with | None -> "None" | Some rep -> Ident.to_string rep) ^ "\n");
+    let tbl = match tbl with
+    | []
+    | _ :: [] -> tbl
+    | t :: ts -> match mod_decl_rep' with
+        | None -> (t :: ts)
+        | Some rep -> print_debug ("REP TYPE Adding: " ^ Ident.to_string mod_decl_name' ^ " -> " ^ Ident.to_string rep);
+          t :: (SymbolTbl.add ts (QualIdent.from_ident mod_decl_name') (QualIdent.make [mod_decl_name'] rep)) in
+
     let mod_decl_mod_defs', tbl = ident_map_new_disambiguate mod_decl_disambiguate mod_decl.mod_decl_mod_defs tbl in
     let mod_decl_mod_aliases', tbl = ident_map_new_disambiguate mod_alias_disambiguate mod_decl.mod_decl_mod_aliases tbl in
     let mod_decl_types', tbl = ident_map_new_disambiguate type_alias_disambiguate mod_decl.mod_decl_types tbl in
@@ -642,9 +651,20 @@ module ModuleDisambiguate = struct
         ((ModAlias mod_alias'), tbl)
     
   and module_disambiguate mod1 tbl =
+    let rec find_rep (defs: Module.member_def list) = match defs with
+      | [] -> None
+      | def :: ds -> match def with
+          | TypeAlias tp -> if (tp.type_alias_rep) then (Some tp.type_alias_name) else find_rep ds
+          | _ -> find_rep ds
+    
+    in
+
+    let rep_type = find_rep mod1.mod_def in
+    let mod_decl = { mod1.mod_decl with mod_decl_rep = rep_type;} in
+
     let tbl = SymbolTbl.push_name mod1.mod_decl.mod_decl_name tbl in
-    let mod_decl', tbl = mod_decl_disambiguate mod1.mod_decl tbl in
     let mod_def', tbl = list_disambiguate member_def_disambiguate mod1.mod_def tbl in
+    let mod_decl', tbl = mod_decl_disambiguate mod_decl tbl in
     let mod_interface' = mod1.mod_interface in
     let tbl = SymbolTbl.pop tbl in
 
