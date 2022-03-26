@@ -19,7 +19,7 @@ let parse_and_print lexbuf =
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
   let disambiguated_ast, tbl = (Resolve_namespaces.start_disambiguate s) in
   match tbl with
-    | [] -> Ast.Module.print Stdio.stdout disambiguated_ast;
+    | [_] -> Ast.Module.print Stdio.stdout disambiguated_ast;
     Stdio.print_endline ""
     | _ -> raise(Failure "SymbolTbl should be empty")
   

@@ -41,7 +41,7 @@ main:
   let open Module in
   let decl =
     { empty_decl with
-      mod_decl_name = Ident.fresh "$Program";
+      mod_decl_name = Ident.make "$Program" 0;
     }
   in
   { mod_decl = decl;

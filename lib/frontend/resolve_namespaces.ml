@@ -651,6 +651,45 @@ module ModuleDisambiguate = struct
         ((ModAlias mod_alias'), tbl)
     
   and module_disambiguate mod1 tbl =
+    let rec extract_members (mod_defs_list: Module.member_def list) (rep, mod_defs, mod_aliases, types, callables, vars) = 
+      match mod_defs_list with 
+      | [] -> (rep, mod_defs, mod_aliases, types, callables, vars)
+      | def :: defs -> match def with
+          | TypeAlias type_alias ->
+              let rep =  if (type_alias.type_alias_rep) then (Some type_alias.type_alias_name) else rep in
+              let types = (Map.add_exn types ~key:type_alias.type_alias_name ~data:type_alias) in
+              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+          | Import _ -> 
+              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+          | ModDef module_def -> (match module_def with 
+              | ModImpl mod_impl -> let mod_defs = Map.add_exn mod_defs ~key:mod_impl.mod_decl.mod_decl_name ~data:mod_impl.mod_decl in
+              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+              | ModAlias mod_alias -> let mod_aliases = Map.add_exn mod_aliases ~key:mod_alias.mod_alias_name ~data: mod_alias in
+              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars) )
+          | ValDef v -> let vars = Map.add_exn vars ~key:v.var_decl.var_name ~data:v.var_decl in
+              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+          | CallDef call -> let cl_decl = (match call with
+              | FuncDef fn -> fn.func_decl
+              | ProcDef proc -> proc.proc_decl) in
+              
+              let callables = Map.add_exn callables ~key:cl_decl.call_decl_name ~data:cl_decl in
+              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+
+      in
+
+          (* (Map.add_exn (map) ~key:name ~data:fq_id) *)
+
+(*           let tbl = match tbl with
+          | []
+          | _ :: [] -> tbl
+          | t :: ts -> match mod_decl_rep' with
+              | None -> (t :: ts)
+              | Some rep -> print_debug ("REP TYPE Adding: " ^ Ident.to_string mod_decl_name' ^ " -> " ^ Ident.to_string rep);
+                t :: (SymbolTbl.add ts (QualIdent.from_ident mod_decl_name') (QualIdent.make [mod_decl_name'] rep)) in
+ *)      
+    
+    (* ?(rep=[]) ?(mod_defs=[]) ?(mod_aliases=[]) ?(types=[]) ?(callables=[]) ?(vars=[])  =  *)
+    (* 
     let rec find_rep (defs: Module.member_def list) = match defs with
       | [] -> None
       | def :: ds -> match def with
@@ -659,12 +698,29 @@ module ModuleDisambiguate = struct
     
     in
 
-    let rep_type = find_rep mod1.mod_def in
-    let mod_decl = { mod1.mod_decl with mod_decl_rep = rep_type;} in
-
-    let tbl = SymbolTbl.push_name mod1.mod_decl.mod_decl_name tbl in
+    let rep_type = find_rep mod1.mod_def in *)
+    let mod_decl_name', tbl = new_ident_disambiguate mod1.mod_decl.mod_decl_name tbl in
+    (* let mod_decl = { mod1.mod_decl with mod_decl_rep = rep_type;} in *)
+    let tbl = SymbolTbl.push_name mod_decl_name' tbl in
     let mod_def', tbl = list_disambiguate member_def_disambiguate mod1.mod_def tbl in
-    let mod_decl', tbl = mod_decl_disambiguate mod_decl tbl in
+    let (rep, mod_defs, mod_aliases, types, callables, vars) = extract_members mod_def' (mod1.mod_decl.mod_decl_rep, mod1.mod_decl.mod_decl_mod_defs, mod1.mod_decl.mod_decl_mod_aliases, mod1.mod_decl.mod_decl_types, mod1.mod_decl.mod_decl_callables, mod1.mod_decl.mod_decl_vars) in
+
+    let (mod_decl': Module.module_decl) = 
+    { mod_decl_name = mod_decl_name';
+      mod_decl_formals = mod1.mod_decl.mod_decl_formals;
+      mod_decl_returns = mod1.mod_decl.mod_decl_returns;
+      mod_decl_rep = rep;
+      mod_decl_mod_defs = mod_defs;
+      mod_decl_mod_aliases = mod_aliases;
+      mod_decl_types = types;
+      mod_decl_callables = callables;
+      mod_decl_vars = vars;
+      mod_decl_loc = mod1.mod_decl.mod_decl_loc;
+    }
+
+    in
+    
+    (* , tbl = mod_decl_disambiguate mod_decl tbl in *)
     let mod_interface' = mod1.mod_interface in
     let tbl = SymbolTbl.pop tbl in
 
@@ -680,4 +736,4 @@ end
 let module_disambiguate = ModuleDisambiguate.module_disambiguate
 
 
-let start_disambiguate m = module_disambiguate m [ ]
+let start_disambiguate m = module_disambiguate m (SymbolTbl.push [])
