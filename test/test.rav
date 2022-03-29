@@ -14,7 +14,8 @@ module Lock {
     ensures lockR(l, false)
   {
     l := new t(bit(false));
-    val x = true;
+    var x = new Bool;
+    x := true;
     val y = false;
 
     if (x == true) {
