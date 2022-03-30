@@ -339,6 +339,7 @@ module ExprTypeCheck = struct
 end
 
 let expr_type_check = ExprTypeCheck.expr_type_check
+let type_of_expr = ExprTypeCheck.type_of_expr
 
 module StmtTypeCheck = struct
   let rec spec_type_check (spec: Stmt.spec) tbl = 
@@ -357,20 +358,29 @@ module StmtTypeCheck = struct
     in spec', tbl
 
   and var_def_type_check (var_def: Stmt.var_def) tbl =
-    let var_decl', tbl = var_decl_type_check var_def.var_decl tbl in (*  : var_decl; *)
     let var_init', tbl = option_type_check expr_type_check var_def.var_init tbl in (*  : expr option; *)
+    let tp = (match var_init' with 
+      | None -> var_def.var_decl.var_type
+      | Some e -> type_of_expr e) in
+    
+    let var_decl' = { var_def.var_decl with var_type = tp } in
+    let var_decl'', tbl = var_decl_type_check var_decl' tbl in (*  : var_decl; *)
+    
   
     let (var_def': Stmt.var_def) = 
-    { var_decl = var_decl';
+    { var_decl = var_decl'';
       var_init = var_init';
     }
 
   in var_def', tbl
 
   and new_desc_type_check (new_desc: Stmt.new_desc) tbl =
-    let new_lhs', tbl = new_ident_type_check new_desc.new_lhs tbl in (* : ident; *)
-    let new_type', tbl = type_expr_type_check new_desc.new_type tbl in (* : type_expr; *)
     let new_args', tbl = list_type_check expr_type_check new_desc.new_args tbl in (* : expr list; *)
+    let new_lhs' = new_desc.new_lhs in (* : ident; *)
+    let new_type' = new_desc.new_type in (* : type_expr; *)
+    (* Todo: Need to make sure new_type' is compatible with new_args' *)
+
+    let tbl = SymbolTbl.add tbl (QualIdent.from_ident new_lhs') new_type' in
     
     let (new_desc': Stmt.new_desc) =
     { new_lhs = new_lhs';
@@ -384,6 +394,8 @@ module StmtTypeCheck = struct
     let assign_lhs', tbl = list_type_check expr_type_check assign_desc.assign_lhs tbl in (*  : expr list; *)
     let assign_rhs', tbl = expr_type_check assign_desc.assign_rhs tbl in (*  : expr; *)
 
+    (* Todo: Figure out what to do with this, unify etc. *)
+
     let (assign_desc': Stmt.assign_desc) = 
     { assign_lhs = assign_lhs';
       assign_rhs = assign_rhs';
@@ -392,8 +404,9 @@ module StmtTypeCheck = struct
   in assign_desc', tbl
   
   and call_desc_type_check (call_desc: Stmt.call_desc) tbl = 
-    let call_lhs', tbl = list_type_check qual_ident_type_check call_desc.call_lhs tbl in (*  : qual_ident list; *)
-    let call_name', tbl = qual_ident_type_check call_desc.call_name tbl in (*  : qual_ident; *)
+    (* Todo: Figure out what to do here. *)
+    let call_lhs', tbl = (* list_type_check qual_ident_type_check *) call_desc.call_lhs, tbl in (*  : qual_ident list; *)
+    let call_name', tbl = (* qual_ident_type_check *) call_desc.call_name, tbl in (*  : qual_ident; *)
     let call_args', tbl = list_type_check expr_type_check call_desc.call_args tbl in (*  : expr list; *)
 
     let (call_desc': Stmt.call_desc) =
@@ -422,30 +435,30 @@ module StmtTypeCheck = struct
 
   in unfold_desc', tbl
 
-  and basic_stmt_desc_type_check (basic_stmt: Stmt.basic_stmt_desc) tbl : (Stmt.basic_stmt_desc * (SymbolTbl.t * var_decl list)) = match basic_stmt with
+  and basic_stmt_desc_type_check (basic_stmt: Stmt.basic_stmt_desc) tbl : (Stmt.basic_stmt_desc * SymbolTbl.t) = match basic_stmt with
     | VarDef var_def -> let var_def', tbl = var_def_type_check var_def tbl
-        in (VarDef var_def'), (tbl, [var_def'.var_decl])
+        in (VarDef var_def'), tbl
     | Assume spec -> let spec', tbl = spec_type_check spec tbl
-        in (Assume spec'), (tbl, [])
+        in (Assume spec'), tbl
     | Assert spec -> let spec', tbl = spec_type_check spec tbl
-        in (Assert spec'), (tbl, [])
+        in (Assert spec'), tbl
     | New new_desc -> let new_desc', tbl = new_desc_type_check new_desc tbl
-        in (New new_desc'), (tbl, [])
+        in (New new_desc'), tbl
     | Assign assign_desc -> let assign_desc', tbl = assign_desc_type_check assign_desc tbl
-        in (Assign assign_desc'), (tbl, [])
+        in (Assign assign_desc'), tbl
     | Havoc expr_list -> let expr_list', tbl = list_type_check expr_type_check expr_list tbl
-        in (Havoc expr_list'), (tbl, [])
+        in (Havoc expr_list'), tbl
     | Call call_desc -> let call_desc', tbl = call_desc_type_check call_desc tbl
-        in (Call call_desc'), (tbl, [])
+        in (Call call_desc'), tbl
     | Return expr_list -> let expr_list', tbl = list_type_check expr_type_check expr_list tbl
-        in (Return expr_list'), (tbl, [])
+        in (Return expr_list'), tbl
     | Fold fold_desc -> let fold_desc', tbl = fold_desc_type_check fold_desc tbl
-        in (Fold fold_desc'), (tbl, [])
+        in (Fold fold_desc'), tbl
     | Unfold unfold_desc -> let unfold_desc', tbl = unfold_desc_type_check unfold_desc tbl
-        in (Unfold unfold_desc'), (tbl, [])
+        in (Unfold unfold_desc'), tbl
 
-  and stmt_type_check (stmt: Stmt.t) (tbl, locals) =
-    let stmt_desc', (tbl, locals) = stmt_desc_type_check stmt.stmt_desc (tbl, locals) in (*  stmt_desc; *)
+  and stmt_type_check (stmt: Stmt.t) tbl =
+    let stmt_desc', tbl = stmt_desc_type_check stmt.stmt_desc tbl in (*  stmt_desc; *)
     let stmt_loc' = stmt.stmt_loc in (*  location; *)
 
     let (stmt': Stmt.t) =
@@ -453,14 +466,14 @@ module StmtTypeCheck = struct
       stmt_loc = stmt_loc';
     }
 
-  in stmt', (tbl, locals)
+  in stmt', tbl
 
-  and loop_desc_type_check (loop_desc: Stmt.loop_desc) (tbl, locals)(* : SymbolTbl.t * var_decl list *) =
+  and loop_desc_type_check (loop_desc: Stmt.loop_desc) tbl(* : SymbolTbl.t * var_decl list *) =
     let tbl = SymbolTbl.push tbl in 
     let loop_contract', tbl = list_type_check spec_type_check loop_desc.loop_contract tbl in  (* : spec list; *)
-    let loop_prebody', (tbl, locals) = stmt_type_check loop_desc.loop_prebody (tbl, locals) in  (* : t; *)
+    let loop_prebody', tbl = stmt_type_check loop_desc.loop_prebody tbl in  (* : t; *)
     let loop_test', tbl = expr_type_check loop_desc.loop_test tbl in  (* : expr; *)
-    let loop_postbody', (tbl, locals) = stmt_type_check loop_desc.loop_postbody (tbl, locals) in  (* : t; *)
+    let loop_postbody', tbl = stmt_type_check loop_desc.loop_postbody tbl in  (* : t; *)
     let tbl = SymbolTbl.pop tbl in
 
     let (loop_desc': Stmt.loop_desc) = 
@@ -470,15 +483,15 @@ module StmtTypeCheck = struct
       loop_postbody = loop_postbody';
     }
 
-  in loop_desc', (tbl, locals)
+  in loop_desc', tbl
 
-  and cond_desc_type_check (cond_desc: Stmt.cond_desc) (tbl, locals) =
+  and cond_desc_type_check (cond_desc: Stmt.cond_desc) tbl =
     let cond_test', tbl = expr_type_check cond_desc.cond_test tbl in (* : expr; *)
     let tbl = SymbolTbl.push tbl in
-    let cond_then', (tbl, locals) = stmt_type_check cond_desc.cond_then (tbl, locals) in (* : t; *)
+    let cond_then', tbl = stmt_type_check cond_desc.cond_then tbl in (* : t; *)
     let tbl = SymbolTbl.pop tbl in
     let tbl = SymbolTbl.push tbl in
-    let cond_else', (tbl, locals) = stmt_type_check cond_desc.cond_else (tbl, locals) in (* : t; *)
+    let cond_else', tbl = stmt_type_check cond_desc.cond_else tbl in (* : t; *)
     let tbl = SymbolTbl.pop tbl in
 
     let (cond_desc': Stmt.cond_desc) = 
@@ -487,33 +500,33 @@ module StmtTypeCheck = struct
       cond_else = cond_else';
     }
 
-  in cond_desc', (tbl, locals)
+  in cond_desc', tbl
 
-  and ghost_desc_type_check (ghost_desc: Stmt.ghost_desc) (tbl, locals) =
+  and ghost_desc_type_check (ghost_desc: Stmt.ghost_desc) tbl =
     let tbl = SymbolTbl.push tbl in
-    let ghost_body', (tbl, locals) = list_type_check stmt_type_check ghost_desc.ghost_body (tbl, locals) in (* : t list; *)
+    let ghost_body', tbl = list_type_check stmt_type_check ghost_desc.ghost_body tbl in (* : t list; *)
     let tbl = SymbolTbl.pop tbl in
 
     let (ghost_desc': Stmt.ghost_desc) = 
     { ghost_body = ghost_body';
     }
 
-    in ghost_desc', (tbl, locals)
+    in ghost_desc', tbl
 
-  and stmt_desc_type_check stmt_desc (tbl, locals) = match stmt_desc with
+  and stmt_desc_type_check stmt_desc tbl = match stmt_desc with
     | Block stmt_list -> 
         let tbl = SymbolTbl.push tbl in  
-        let stmt_list', (tbl, locals) = list_type_check stmt_type_check stmt_list (tbl, locals) in
+        let stmt_list', tbl = list_type_check stmt_type_check stmt_list tbl in
         let tbl = SymbolTbl.pop tbl
-      in (Block stmt_list'), (tbl, locals)
-    | Basic basic_stmt_desc -> let basic_stmt_desc', (tbl, locals') = basic_stmt_desc_type_check basic_stmt_desc tbl
-      in (Basic basic_stmt_desc'), (tbl, List.append locals locals')
-    | Loop loop_desc -> let loop_desc', (tbl, locals) = loop_desc_type_check loop_desc (tbl, locals)
-      in (Loop loop_desc'), (tbl, locals)
-    | Cond cond_desc -> let cond_desc', (tbl, locals) = cond_desc_type_check cond_desc (tbl, locals)
-      in (Cond cond_desc'), (tbl, locals)
-    | Ghost ghost_desc -> let ghost_desc', (tbl, locals) = ghost_desc_type_check ghost_desc (tbl, locals)
-      in (Ghost ghost_desc'), (tbl, locals)
+      in (Block stmt_list'), tbl
+    | Basic basic_stmt_desc -> let basic_stmt_desc', tbl = basic_stmt_desc_type_check basic_stmt_desc tbl
+      in (Basic basic_stmt_desc'), tbl
+    | Loop loop_desc -> let loop_desc', tbl = loop_desc_type_check loop_desc tbl
+      in (Loop loop_desc'), tbl
+    | Cond cond_desc -> let cond_desc', tbl = cond_desc_type_check cond_desc tbl
+      in (Cond cond_desc'), tbl
+    | Ghost ghost_desc -> let ghost_desc', tbl = ghost_desc_type_check ghost_desc tbl
+      in (Ghost ghost_desc'), tbl
 end
 
 let stmt_type_check = StmtTypeCheck.stmt_type_check
@@ -526,12 +539,13 @@ module CallableTypeCheck = struct
 
   let rec call_decl_type_check (call_decl: Callable.call_decl) tbl = 
     let call_decl_kind' = call_decl.call_decl_kind in
-    let call_decl_name', tbl = new_ident_type_check call_decl.call_decl_name tbl in
+    (* Todo: Figure out how to store callable types *)
+    let call_decl_name', tbl = call_decl.call_decl_name, tbl in
     let tbl = SymbolTbl.push tbl in
     (* Corresponding SymbolTbl.pop made in proc_def_type_check and func_def_type_check *)
     let call_decl_locals', tbl = ident_map_type_check var_decl_type_check call_decl.call_decl_locals tbl in
-    let call_decl_formals', tbl = list_type_check old_ident_type_check call_decl.call_decl_formals tbl in
-    let call_decl_returns', tbl = list_type_check old_ident_type_check call_decl.call_decl_returns tbl in
+    let call_decl_formals', tbl = call_decl.call_decl_formals, tbl in
+    let call_decl_returns', tbl = call_decl.call_decl_returns, tbl in
     let call_decl_precond', tbl = list_type_check StmtTypeCheck.spec_type_check call_decl.call_decl_precond tbl in
     let call_decl_postcond', tbl = list_type_check StmtTypeCheck.spec_type_check call_decl.call_decl_postcond tbl in
     let call_decl_loc' = call_decl.call_decl_loc in
@@ -550,23 +564,14 @@ module CallableTypeCheck = struct
   in call_decl', tbl
   
   and proc_def_type_check (proc_def: Callable.proc_def) tbl =
-    let rec map_append m (l: var_decl list) = match l with 
-      | [] -> m
-      | v::vs -> map_append (Map.add_exn m ~key:v.var_name ~data:v) vs
-    
-    in
-
     let proc_decl', tbl = call_decl_type_check proc_def.proc_decl tbl in
-    let proc_body', (tbl, locals) = option_type_check stmt_type_check proc_def.proc_body (tbl, []) in
+    let proc_body', tbl = option_type_check stmt_type_check proc_def.proc_body tbl in
     
     let tbl = SymbolTbl.pop tbl in 
 
-    let proc_decl'' = {proc_decl' with call_decl_locals = map_append proc_decl'.call_decl_locals locals;} in 
-
-    print_debug ("LOCALS OUTPUT: " ^ locals_to_string (Map.to_alist proc_decl''.call_decl_locals) ^ "\n\n");
     (* Corresponding push made in call_decl_type_check *)
     let (proc_def': Callable.proc_def) =
-    { proc_decl = proc_decl''; 
+    { proc_decl = proc_decl'; 
       proc_body = proc_body';
     }
 
@@ -597,8 +602,11 @@ let callable_type_check = CallableTypeCheck.callable_type_check
 
 module ModuleTypeCheck = struct
   let rec type_alias_type_check (type_alias: Module.type_alias) tbl = 
-    let type_alias_name', tbl = new_ident_type_check type_alias.type_alias_name tbl in
-    let type_alias_def', tbl = option_type_check type_expr_type_check type_alias.type_alias_def tbl in
+    let type_alias_name', tbl = type_alias.type_alias_name, tbl in
+    let type_alias_def', tbl = type_alias.type_alias_def, tbl in
+    let tbl = (match type_alias_def' with
+      | None -> tbl
+      | Some tp -> SymbolTbl.add tbl (QualIdent.from_ident type_alias_name') tp ) in
     let type_alias_rep' = type_alias.type_alias_rep in
     let type_alias_loc' = type_alias.type_alias_loc in
   
@@ -612,12 +620,12 @@ module ModuleTypeCheck = struct
   in type_alias', tbl
 
   and mod_alias_type_check (mod_alias: Module.module_alias) tbl = 
-    let mod_alias_name', tbl = new_ident_type_check mod_alias.mod_alias_name tbl in
-    let mod_alias_type', tbl = type_expr_type_check mod_alias.mod_alias_type tbl in
-    let mod_alias_def', tbl = option_type_check type_expr_type_check mod_alias.mod_alias_def tbl in
+    let mod_alias_name', tbl = mod_alias.mod_alias_name, tbl in
+    let mod_alias_type', tbl = mod_alias.mod_alias_type, tbl in
+    let mod_alias_def', tbl = mod_alias.mod_alias_def, tbl in
     let mod_alias_loc' = mod_alias.mod_alias_loc in
     
-    let (mod_alias': Module.module_alias) = 
+    let (mod_alias': Module.module_alias) =
     { mod_alias_name = mod_alias_name';
       mod_alias_type = mod_alias_type';
       mod_alias_def = mod_alias_def';
@@ -626,22 +634,12 @@ module ModuleTypeCheck = struct
 
   in mod_alias', tbl
 
-(* 
-and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
-    let mod_decl_name', tbl = (* new_ident_type_check *) mod_decl.mod_decl_name, tbl in
-    (* Not new_ident-ing module names. Assuming module names are unique, probably want to revisit. *)
-    let mod_decl_formals', tbl = list_type_check new_ident_type_check mod_decl.mod_decl_formals tbl in
-    let mod_decl_returns', tbl = list_type_check type_expr_type_check mod_decl.mod_decl_returns tbl in
-    let mod_decl_rep', tbl = option_type_check old_ident_type_check mod_decl.mod_decl_rep tbl in
-    print_debug ("MODULE : " ^ Ident.to_string mod_decl_name' ^ " -> " ^ (match mod_decl_rep' with | None -> "None" | Some rep -> Ident.to_string rep) ^ "\n");
-    let tbl = match tbl with
-    | []
-    | _ :: [] -> tbl
-    | t :: ts -> match mod_decl_rep' with
-        | None -> (t :: ts)
-        | Some rep -> print_debug ("REP TYPE Adding: " ^ Ident.to_string mod_decl_name' ^ " -> " ^ Ident.to_string rep);
-          t :: (SymbolTbl.add ts (QualIdent.from_ident mod_decl_name') (QualIdent.make [mod_decl_name'] rep)) in
 
+and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
+    let mod_decl_name', tbl = mod_decl.mod_decl_name, tbl in
+    let mod_decl_formals', tbl = mod_decl.mod_decl_formals, tbl in
+    let mod_decl_returns', tbl = mod_decl.mod_decl_returns, tbl in
+    let mod_decl_rep', tbl = mod_decl.mod_decl_rep, tbl in
     let mod_decl_mod_defs', tbl = ident_map_type_check mod_decl_type_check mod_decl.mod_decl_mod_defs tbl in
     let mod_decl_mod_aliases', tbl = ident_map_type_check mod_alias_type_check mod_decl.mod_decl_mod_aliases tbl in
     let mod_decl_types', tbl = ident_map_type_check type_alias_type_check mod_decl.mod_decl_types tbl in
@@ -662,12 +660,12 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
       mod_decl_loc = mod_decl_loc';
     }
 
-  in mod_decl', tbl *)
+  in mod_decl', tbl
   
   and import_directive_type_check (imp_dir: Module.import_directive) tbl : (Module.import_directive * SymbolTbl.t) = match imp_dir with
-    | ModImport tp_exp -> let tp_exp', tbl = type_expr_type_check tp_exp tbl in
+    | ModImport tp_exp -> let tp_exp', tbl = tp_exp, tbl in
         (ModImport tp_exp'), tbl
-    | MemImport qual_id -> let qual_id', tbl = qual_ident_type_check qual_id tbl in
+    | MemImport qual_id -> let qual_id', tbl = qual_id, tbl in
         (MemImport qual_id'), tbl
   
   and member_def_type_check (mem_def: Module.member_def) tbl : (Module.member_def * SymbolTbl.t) = match mem_def with
@@ -689,54 +687,12 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
         ((ModAlias mod_alias'), tbl)
     
   and module_type_check mod1 tbl =
-    let rec extract_members (mod_defs_list: Module.member_def list) (rep, mod_defs, mod_aliases, types, callables, vars) = 
-      match mod_defs_list with 
-      | [] -> (rep, mod_defs, mod_aliases, types, callables, vars)
-      | def :: defs -> match def with
-          | TypeAlias type_alias ->
-              let rep =  if (type_alias.type_alias_rep) then (Some type_alias.type_alias_name) else rep in
-              let types = (Map.add_exn types ~key:type_alias.type_alias_name ~data:type_alias) in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
-          | Import _ -> 
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
-          | ModDef module_def -> (match module_def with 
-              | ModImpl mod_impl -> let mod_defs = Map.add_exn mod_defs ~key:mod_impl.mod_decl.mod_decl_name ~data:mod_impl.mod_decl in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
-              | ModAlias mod_alias -> let mod_aliases = Map.add_exn mod_aliases ~key:mod_alias.mod_alias_name ~data: mod_alias in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars) )
-          | ValDef v -> let vars = Map.add_exn vars ~key:v.var_decl.var_name ~data:v.var_decl in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
-          | CallDef call -> let cl_decl = (match call with
-              | FuncDef fn -> fn.func_decl
-              | ProcDef proc -> proc.proc_decl) in
-              
-              let callables = Map.add_exn callables ~key:cl_decl.call_decl_name ~data:cl_decl in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+    let tbl = SymbolTbl.push_name mod1.mod_decl.mod_decl_name tbl in
 
-      in
-
-    let mod_decl_name', tbl = new_ident_type_check mod1.mod_decl.mod_decl_name tbl in
-
-    let tbl = SymbolTbl.push_name mod_decl_name' tbl in
     let mod_def', tbl = list_type_check member_def_type_check mod1.mod_def tbl in
-    let (rep, mod_defs, mod_aliases, types, callables, vars) = extract_members mod_def' (mod1.mod_decl.mod_decl_rep, mod1.mod_decl.mod_decl_mod_defs, mod1.mod_decl.mod_decl_mod_aliases, mod1.mod_decl.mod_decl_types, mod1.mod_decl.mod_decl_callables, mod1.mod_decl.mod_decl_vars) in
-
-    let (mod_decl': Module.module_decl) = 
-    { mod_decl_name = mod_decl_name';
-      mod_decl_formals = mod1.mod_decl.mod_decl_formals;
-      mod_decl_returns = mod1.mod_decl.mod_decl_returns;
-      mod_decl_rep = rep;
-      mod_decl_mod_defs = mod_defs;
-      mod_decl_mod_aliases = mod_aliases;
-      mod_decl_types = types;
-      mod_decl_callables = callables;
-      mod_decl_vars = vars;
-      mod_decl_loc = mod1.mod_decl.mod_decl_loc;
-    }
-
-    in
-
+    let mod_decl', tbl = mod_decl_type_check mod1.mod_decl tbl in
     let mod_interface' = mod1.mod_interface in
+    
     let tbl = SymbolTbl.pop tbl in
 
     let (mod': Module.t) = 
