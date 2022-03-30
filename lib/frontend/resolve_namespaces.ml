@@ -678,11 +678,21 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
 
       in
 
-    let mod_decl_name', tbl = new_ident_disambiguate mod1.mod_decl.mod_decl_name tbl in
+    let mod_decl_name' = mod1.mod_decl.mod_decl_name in
 
     let tbl = SymbolTbl.push_name mod_decl_name' tbl in
     let mod_def', tbl = list_disambiguate member_def_disambiguate mod1.mod_def tbl in
     let (rep, mod_defs, mod_aliases, types, callables, vars) = extract_members mod_def' (mod1.mod_decl.mod_decl_rep, mod1.mod_decl.mod_decl_mod_defs, mod1.mod_decl.mod_decl_mod_aliases, mod1.mod_decl.mod_decl_types, mod1.mod_decl.mod_decl_callables, mod1.mod_decl.mod_decl_vars) in
+    
+    let tbl = match tbl with
+    | []
+    | _ :: [] -> tbl
+    | t :: ts -> match rep with
+        | None -> (t :: ts)
+        | Some r -> print_debug ("REP TYPE Adding: " ^ Ident.to_string mod_decl_name' ^ " -> " ^ Ident.to_string r);
+          t :: (SymbolTbl.add ts (QualIdent.from_ident mod_decl_name') (QualIdent.make [mod_decl_name'] r)) 
+        
+    in
 
     let (mod_decl': Module.module_decl) = 
     { mod_decl_name = mod_decl_name';

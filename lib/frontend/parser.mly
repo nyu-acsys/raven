@@ -675,7 +675,7 @@ qual_ident_expr:
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) []) }
 | p = primary DOT x = ident {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Dot [p; x])
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 
 mod_ident:

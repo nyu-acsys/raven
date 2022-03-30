@@ -20,7 +20,7 @@ let parse_and_print lexbuf =
   let disambiguated_ast, tbl = (Resolve_namespaces.start_disambiguate s) in
   Ast.print_debug ("\027[32m" ^ "STARTING TYPE-CHECK\n" ^ "\027[0m");
   match tbl with
-    | [_] -> let type_checked_ast, tbl = ((* Type_checker.start_type_check *) disambiguated_ast), tbl in
+    | [_] -> let type_checked_ast, tbl = (Type_checker.start_type_check disambiguated_ast) in
       (match tbl with
         | [_] ->  Ast.Module.print Stdio.stdout type_checked_ast; Stdio.print_endline ""
         | _ -> raise(Failure "SymbolTbl should be empty: 2") )
