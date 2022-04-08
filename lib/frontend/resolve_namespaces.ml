@@ -180,6 +180,25 @@ module TypeDisambiguate = struct
 
   in var_decl', tbl
 
+  and struct_var_decl_disambiguate (var_decl : Type.var_decl) tbl =
+  let var_name', tbl = var_decl.var_name, tbl in
+  let var_loc' = var_decl.var_loc in
+  let var_type', tbl = type_disambiguate var_decl.var_type tbl in
+  let var_const' = var_decl.var_const in
+  let var_ghost' = var_decl.var_ghost in
+  let var_implicit' = var_decl.var_implicit in
+
+  let (var_decl' : Type.var_decl) = 
+  { var_name = var_name';
+    var_loc = var_loc';
+    var_type = var_type';
+    var_const = var_const';
+    var_ghost = var_ghost';
+    var_implicit = var_implicit';
+  } 
+
+  in var_decl', tbl
+
   and variant_decl_disambiguate (variant_decl : Type.variant_decl) tbl =
     let variant_name', tbl = new_ident_disambiguate variant_decl.variant_name tbl in (*  : ident; *)
     let variant_loc' = variant_decl.variant_loc in (*  : location; *)
@@ -206,7 +225,7 @@ module TypeDisambiguate = struct
     | Var qual_ident -> let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl
       in (Var qual_ident'), tbl
     | Struct var_decl_list ->
-      let var_decl_list', tbl = list_disambiguate var_decl_disambiguate var_decl_list tbl in
+      let var_decl_list', tbl = list_disambiguate struct_var_decl_disambiguate var_decl_list tbl in
       (Struct var_decl_list'), tbl
     | Data variant_decl_list -> let variant_decl_list', tbl = list_disambiguate variant_decl_disambiguate variant_decl_list tbl
         in (Data variant_decl_list'), tbl
@@ -283,6 +302,15 @@ module ExprDisambiguate = struct
   in expr_att', tbl
 
   and expr_disambiguate (exp: expr) tbl : (expr * SymbolTbl.t) = match exp with
+    | App (Read, exp_list, exp_attr) ->
+        let exp_list', tbl = (match exp_list with
+          | [h; t] -> let t', tbl = expr_disambiguate t tbl in [h; t'], tbl
+          | _ -> raise (Failure "Read expression has an invalid number of arguments") )
+        
+        in
+
+        let exp_attr', tbl = expr_attr_disambiguate exp_attr tbl in
+        (App (Read, exp_list', exp_attr')), tbl
     | App (con, exp_list, exp_attr) ->
         let con', tbl = constr_disambiguate con tbl in
         let exp_list', tbl = list_disambiguate expr_disambiguate exp_list tbl in

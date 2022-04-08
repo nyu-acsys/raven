@@ -832,6 +832,18 @@ bound_var_opt_type:
          }
   in
   decl
+}
+| x = IDENT; COLON; t = type_expr {
+  let decl =
+    Type.{ var_name = x;
+           var_type = t;
+           var_loc = Loc.make $startpos $endpos;
+           var_const = true;
+           var_ghost = false;
+           var_implicit = false;
+         }
+  in
+  decl
 } 
 ;
       

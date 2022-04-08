@@ -13,17 +13,24 @@ let usage_message =
 let cmd_line_error msg =
   Stdlib.Arg.usage (Stdlib.Arg.align Config.cmd_options_spec) usage_message;
   failwith ("Command line option error: " ^ msg)
-    
+
+let type_checking_enabled = true  
+
 let parse_and_print lexbuf =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
   let disambiguated_ast, tbl = (Resolve_namespaces.start_disambiguate s) in
-  Ast.print_debug ("\027[32m" ^ "STARTING TYPE-CHECK\n" ^ "\027[0m");
   match tbl with
-    | [_] -> let type_checked_ast, tbl = (Type_checker.start_type_check disambiguated_ast) in
-      (match tbl with
-        | [_] ->  Ast.Module.print Stdio.stdout type_checked_ast; Stdio.print_endline ""
-        | _ -> raise(Failure "SymbolTbl should be empty: 2") )
+    | [_] -> 
+      
+      if type_checking_enabled then (
+        Ast.print_debug ("\027[32m" ^ "STARTING TYPE-CHECK\n" ^ "\027[0m");
+        let type_checked_ast, tbl = (Type_checker.start_type_check disambiguated_ast) in
+        (match tbl with
+          | [_] ->  Ast.Module.print Stdio.stdout type_checked_ast; Stdio.print_endline ""
+          | _ -> raise(Failure "SymbolTbl should be empty: 2") ))
+        
+      else Ast.Module.print Stdio.stdout disambiguated_ast; Stdio.print_endline ""
     | _ -> raise(Failure "SymbolTbl should be empty: 1")
   
 (*     Ast.Module.print Stdio.stdout s;

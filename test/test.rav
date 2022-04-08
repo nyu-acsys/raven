@@ -3,6 +3,10 @@ module Lock {
     var bit: Bool
   }
 
+  module Key {
+    var l = true
+  }
+
   pred lockR(l: t, b: Bool) {
     own(l.bit, b)
   }
@@ -11,17 +15,18 @@ module Lock {
 
   proc create()
     returns (l: t)
+    requires lockR(l, false)
     ensures lockR(l, false)
   {
-    l := new t(bit(false));
-    var x = new Bool;
+    l := new t;
+    l.bit := false;
+    var x : Bool = true;
     x := true;
     val y = false;
 
     if (x == true) {
       var y = true;
     }
-
 
   }
 
@@ -64,7 +69,7 @@ module Lock {
 
   module Trial {
     proc trial(l: Lock) {
-      var l = Lock.l;
+      l.bit := true;
     }
     
   }
