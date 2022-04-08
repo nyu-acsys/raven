@@ -689,6 +689,7 @@ module ModuleTypeCheck = struct
 
 
 and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
+(* Might try pushing and popping in table here instead of in module_type_check *)
     let mod_decl_name', tbl = mod_decl.mod_decl_name, tbl in
     let mod_decl_formals', tbl = mod_decl.mod_decl_formals, tbl in
     let mod_decl_returns', tbl = mod_decl.mod_decl_returns, tbl in
