@@ -53,18 +53,21 @@ module SymbolTbl = struct
         | Some iden -> fully_qualified (QualIdent.left_append iden id) ts
 
  *)
-  let rec add_helper tbl name tp =
+  let rec add_helper tbl name tp_mem =
     match tbl with
     | [] -> []
     | t :: ts -> let (label, map) = t in
-          let t' =
-            try
-              (label, (Map.add_exn (map) ~key:name ~data:tp))
-            with _ -> raise(Failure ("duplicate exists: " ^ QualIdent.to_string name ^ " to " ^ typing_env_to_string tp))
+          let t' = 
+            match (Map.find map name) with
+            | None -> (label, (Map.add_exn (map) ~key:name ~data:tp_mem))
+            | Some _ -> print_debug ("Overriding " ^ QualIdent.to_string name); 
+              let map' = Map.remove map name in
+                (label, (Map.add_exn map' ~key:name ~data:tp_mem))
+
           in
           let ts' = match label with
               | None -> ts
-              | Some iden -> add_helper ts (QualIdent.left_append iden name) tp
+              | Some iden -> add_helper ts (QualIdent.left_append iden name) tp_mem
 
           in
           t' :: ts'
@@ -97,6 +100,18 @@ module SymbolTbl = struct
         | Some id -> Some id
 end
 
+let add_var_decl (var_decl: Type.var_decl) tbl = SymbolTbl.add tbl (QualIdent.from_ident var_decl.var_name) (TypeExpr var_decl.var_type)
+
+let add_tp_alias (tp_alias: Module.type_alias) tbl = match tp_alias.type_alias_def with
+  | None -> tbl
+  | Some tp -> SymbolTbl.add tbl (QualIdent.from_ident tp_alias.type_alias_name) (TypeExpr tp)
+
+let add_callable (callable: Callable.call_decl) tbl = SymbolTbl.add tbl (QualIdent.from_ident callable.call_decl_name) (Callable callable)
+
+let add_mod_alias (mod_alias: Module.module_alias) tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (ModAlias mod_alias)
+
+let add_mod_decl (mod_decl: Module.module_decl) tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_decl.mod_decl_name) (ModDecl mod_decl)
+
 let option_type_check fn arg tbl = match arg with
   | None -> None, tbl
   | Some s -> let s', tbl = fn s tbl in
@@ -124,33 +139,17 @@ end
 let old_ident_type_check = IdentTypeCheck.old_ident_type_check
 let new_ident_type_check = IdentTypeCheck.new_ident_type_check *)
 
-let ident_map_type_check val_fun id_map tbl =
+let ident_map_type_check_add_to_tbl val_fun id_map add_fn tbl =
   let rec fn_iter l tbl = match l with
     | [] -> [], tbl
     | (id, value) :: ls ->
         let value', tbl = val_fun value tbl in
+        let tbl = add_fn value' tbl in
         let ls', tbl = fn_iter ls tbl in
           ((id, value') :: ls'), tbl
 
   in let l', tbl = fn_iter (Map.to_alist id_map) tbl
 in (Map.of_alist_exn (module Ident) l'), tbl
-
-(* let ident_map_type_check val_fun id_map tbl =
-  let fn (id, value) tbl =
-    let value', tbl = val_fun value tbl in
-    let id', tbl = old_ident_type_check id tbl in
-    (id', value'), tbl
-
-  in
-  let rec fn_iter l tbl = match l with
-    | [] -> [], tbl
-    | (id, value) :: ls ->
-        let (id', value'), tbl = fn (id, value) tbl in
-        let ls', tbl = fn_iter ls tbl in
-          ((id', value') :: ls'), tbl
-
-  in let l', tbl = fn_iter (Map.to_alist id_map) tbl
-in (Map.of_alist_exn (module Ident) l'), tbl *)
 
 (* module QualIdentTypeCheck = struct
   let rec qual_ident_type_check (qual_iden : qual_ident) tbl =
@@ -166,7 +165,7 @@ module TypeTypeCheck = struct
   let rec type_attr_type_check tp_attr tbl = tp_attr, tbl
 
   and var_decl_type_check (var_decl : Type.var_decl) (tbl: SymbolTbl.t) =
-    let var_tp, tbl = type_type_check var_decl.var_type tbl in
+    let var_tp = type_expand var_decl.var_type tbl in
     let tp, tbl = (match SymbolTbl.find tbl (QualIdent.from_ident var_decl.var_name) with
       | None -> let tbl = SymbolTbl.add tbl (QualIdent.from_ident var_decl.var_name) (TypeExpr var_tp) in
               var_tp, tbl
@@ -206,11 +205,11 @@ module TypeTypeCheck = struct
 
   in variant_decl', tbl
 
-  and type_type_check (exp: type_expr) tbl = print_debug ("Type checking: " ^ Type.to_string exp ^ "\n");match exp with
+  and type_expand (exp: type_expr) tbl = print_debug ("Type checking: " ^ Type.to_string exp ^ "\n");match exp with
     | Var qual_ident -> (match SymbolTbl.find tbl qual_ident with
-        | None -> exp, tbl
+        | None -> exp
         | Some t -> (match t with
-        | TypeExpr tp -> tp, tbl
+        | TypeExpr tp -> tp
         | _ -> raise (Failure "Variable should have TypeExpr.")))        
     | Int
     | Bool
@@ -224,16 +223,16 @@ module TypeTypeCheck = struct
     | Struct _ (* var_decl_list ->
       let var_decl_list', tbl = list_type_check var_decl_type_check var_decl_list tbl in
       (Struct var_decl_list'), tbl *)
-    | Data _ -> exp, tbl(* variant_decl_list -> let variant_decl_list', tbl = list_type_check variant_decl_type_check variant_decl_list tbl
+    | Data _ -> exp (* variant_decl_list -> let variant_decl_list', tbl = list_type_check variant_decl_type_check variant_decl_list tbl
         in (Data variant_decl_list'), tbl *)
     | App (tp, tp_list, tp_attr) ->
-        let tp', tbl = type_type_check tp tbl in
-        let tp_list', tbl = list_type_check type_type_check tp_list tbl in
-        let tp_attr', tbl = type_attr_type_check tp_attr tbl
+        let tp' = type_expand tp tbl in
+        let tp_list' = List.map tp_list ~f:(fun x -> type_expand x tbl)  in
+        let tp_attr' = tp_attr
 
-      in (App (tp', tp_list', tp_attr')), tbl
+      in (App (tp', tp_list', tp_attr'))
   (*| TypeData of qual_ident * type_attr*)
-    | Dot _ -> exp, tbl (* (tp, iden, tp_attr) ->
+    | Dot _ -> exp (* (tp, iden, tp_attr) ->
         let tp', tbl = type_type_check tp tbl in
         let iden', tbl = old_ident_type_check iden tbl in
         let tp_attr', tbl = type_attr_type_check tp_attr tbl
@@ -254,7 +253,7 @@ let rec struct_lookup (var_decl_list: var_decl list) (e: expr) =
     else (struct_lookup var_decl_ls e)
 end
 
-let type_expr_type_check = TypeTypeCheck.type_type_check
+let type_expr_expand = TypeTypeCheck.type_expand
 let var_decl_type_check = TypeTypeCheck.var_decl_type_check
 
 module ExprTypeCheck = struct
@@ -307,7 +306,7 @@ module ExprTypeCheck = struct
 
   let rec expr_attr_type_check (expr_att: Expr.expr_attr) tbl =
     let expr_loc' = expr_att.expr_loc in (* : location; *)
-    let expr_type', tbl =  type_expr_type_check expr_att.expr_type tbl in (* : type_expr; *)
+    let expr_type', tbl =  expr_att.expr_type, tbl in (* : type_expr; *)
 
     let (expr_att': Expr.expr_attr) =
     { expr_loc = expr_loc';
@@ -322,7 +321,7 @@ module ExprTypeCheck = struct
 
       (match exp_list with
         | [h; t] -> let t', tbl = expr_type_check t tbl in
-        (match (type_of_expr t') with
+        (match (type_expr_expand (type_of_expr t') tbl) with
             | App (Struct var_decl_list, [], _) -> let tp = TypeTypeCheck.struct_lookup var_decl_list h in
               (match tp with
                 | None -> raise (Failure "Field dereference failed. Field not found.")
@@ -597,7 +596,7 @@ module CallableTypeCheck = struct
     let call_decl_name', tbl = call_decl.call_decl_name, tbl in
     let tbl = SymbolTbl.push tbl in
     (* Corresponding SymbolTbl.pop made in proc_def_type_check and func_def_type_check *)
-    let call_decl_locals', tbl = ident_map_type_check var_decl_type_check call_decl.call_decl_locals tbl in
+    let call_decl_locals', tbl = ident_map_type_check_add_to_tbl var_decl_type_check call_decl.call_decl_locals add_var_decl tbl in
     let call_decl_formals', tbl = call_decl.call_decl_formals, tbl in
     let call_decl_returns', tbl = call_decl.call_decl_returns, tbl in
     let call_decl_precond', tbl = list_type_check StmtTypeCheck.spec_type_check call_decl.call_decl_precond tbl in
@@ -694,11 +693,11 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
     let mod_decl_formals', tbl = mod_decl.mod_decl_formals, tbl in
     let mod_decl_returns', tbl = mod_decl.mod_decl_returns, tbl in
     let mod_decl_rep', tbl = mod_decl.mod_decl_rep, tbl in
-    let mod_decl_mod_defs', tbl = ident_map_type_check mod_decl_type_check mod_decl.mod_decl_mod_defs tbl in
-    let mod_decl_mod_aliases', tbl = ident_map_type_check mod_alias_type_check mod_decl.mod_decl_mod_aliases tbl in
-    let mod_decl_types', tbl = ident_map_type_check type_alias_type_check mod_decl.mod_decl_types tbl in
-    let mod_decl_callables', tbl = ident_map_type_check CallableTypeCheck.call_decl_type_check mod_decl.mod_decl_callables tbl in
-    let mod_decl_vars', tbl =  ident_map_type_check var_decl_type_check mod_decl.mod_decl_vars tbl in
+    let mod_decl_mod_defs', tbl = ident_map_type_check_add_to_tbl mod_decl_type_check mod_decl.mod_decl_mod_defs add_mod_decl tbl in
+    let mod_decl_mod_aliases', tbl = ident_map_type_check_add_to_tbl mod_alias_type_check mod_decl.mod_decl_mod_aliases add_mod_alias tbl in
+    let mod_decl_types', tbl = ident_map_type_check_add_to_tbl type_alias_type_check mod_decl.mod_decl_types add_tp_alias tbl in
+    let mod_decl_callables', tbl = ident_map_type_check_add_to_tbl CallableTypeCheck.call_decl_type_check mod_decl.mod_decl_callables add_callable tbl in
+    let mod_decl_vars', tbl =  ident_map_type_check_add_to_tbl var_decl_type_check mod_decl.mod_decl_vars add_var_decl tbl in
     let mod_decl_loc' = mod_decl.mod_decl_loc in
 
     let (mod_decl': Module.module_decl) =
@@ -744,6 +743,7 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
     let tbl = SymbolTbl.push_name mod1.mod_decl.mod_decl_name tbl in
 
     let mod_decl', tbl = mod_decl_type_check mod1.mod_decl tbl in
+    print_debug ("\027[32mHERE: " ^ Ident.to_string mod_decl'.mod_decl_name ^ "\027[0m");
     let mod_def', tbl = list_type_check member_def_type_check mod1.mod_def tbl in
     
     let mod_interface' = mod1.mod_interface in
