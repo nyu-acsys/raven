@@ -29,13 +29,16 @@ module SymbolTbl = struct
   | None -> "__"
   | Some iden -> Ident.to_string iden
 
-  let rec map_to_string t = match t with
-  | [] -> " "
-  | (k,v) :: ms -> (QualIdent.to_string k ^ " -> " ^ typing_env_to_string v ^ "\n") ^ (map_to_string ms)
+  let rec to_string tbl = 
+    let rec list_to_string t = match t with
+    | [] -> " "
+    | (k,v) :: ms -> (QualIdent.to_string k ^ " -> " ^ typing_env_to_string v ^ "\n") ^ (list_to_string ms)
+    
+    in
 
-  let rec to_string tbl = match tbl with
+    match tbl with
     | [] -> "end\n\n"
-    | t :: ts -> label_to_string (fst t) ^ " :: [ " ^ map_to_string (Map.to_alist (snd t)) ^ " ]\n" ^ (to_string ts)
+    | t :: ts -> label_to_string (fst t) ^ " :: [ " ^ list_to_string (Map.to_alist (snd t)) ^ " ]\n" ^ (to_string ts)
 
   let push ?(name = None) tbl : t = (name, Map.empty (module QualIdent)) :: tbl
 
@@ -53,30 +56,33 @@ module SymbolTbl = struct
         | Some iden -> fully_qualified (QualIdent.left_append iden id) ts
 
  *)
-  let rec add_helper tbl name tp_mem =
-    match tbl with
-    | [] -> []
-    | t :: ts -> let (label, map) = t in
-          let t' = 
-            match (Map.find map name) with
-            | None -> (label, (Map.add_exn (map) ~key:name ~data:tp_mem))
-            | Some _ -> print_debug ("Overriding " ^ QualIdent.to_string name); 
-              let map' = Map.remove map name in
-                (label, (Map.add_exn map' ~key:name ~data:tp_mem))
-
-          in
-          let ts' = match label with
-              | None -> ts
-              | Some iden -> add_helper ts (QualIdent.left_append iden name) tp_mem
-
-          in
-          t' :: ts'
 
   let add (tbl: t) name tp =
+    let rec add_helper tbl name tp_mem =
+      match tbl with
+      | [] -> []
+      | t :: ts -> let (label, map) = t in
+            let t' = 
+              match (Map.find map name) with
+              | None -> (label, (Map.add_exn (map) ~key:name ~data:tp_mem))
+              | Some _ -> print_debug ("Overriding " ^ QualIdent.to_string name); 
+                let map' = Map.remove map name in
+                  (label, (Map.add_exn map' ~key:name ~data:tp_mem))
+  
+            in
+            let ts' = match label with
+                | None -> ts
+                | Some iden -> add_helper ts (QualIdent.left_append iden name) tp_mem
+  
+            in
+            t' :: ts'
+    
+    in
+
     print_debug ("ADDING " ^ QualIdent.to_string name ^ " -> " ^ typing_env_to_string tp ^ "\n" ^ to_string tbl);
-  match tbl with
-    | [] -> raise(Failure "Empty symbol table")
-    | tbl -> add_helper tbl name tp
+    match tbl with
+      | [] -> raise(Failure "Empty symbol table")
+      | tbl -> add_helper tbl name tp
 
  (*  let remove tbl name = print_debug ("Removing " ^ QualIdent.to_string name ^ "\n" ^ to_string tbl);
   match tbl with
@@ -319,15 +325,16 @@ module ExprTypeCheck = struct
 
   let callable_args_check (call_decl: Callable.call_decl) args : type_expr =
     let check_call_arg_type (call_decl: Callable.call_decl) formal arg = 
-      let tp1 = (match (Map.find call_decl.call_decl_locals formal) with
+      let var_decl1 = (match (Map.find call_decl.call_decl_locals formal) with
       | None -> raise (Failure ("Internal error."))
-      | Some var_decl -> var_decl.var_type) in
+      | Some var_decl -> var_decl) in
     
+      let tp1 = var_decl1.var_type in
       let tp2 = type_of_expr arg in
     
       if Type.compare tp1 tp2 = 0 then ()
-      else raise (Failure ("Argument type mismatch"))
-    
+      else raise (Failure ("Argument " ^ Ident.to_string var_decl1.var_name ^ " has type " ^ Type.to_string tp1 ^ "; and " ^ Expr.to_string arg ^ " has type " ^ Type.to_string tp2 ^ ": type mismatch"))
+
     in
   
     (match (List.iter2 ~f:(check_call_arg_type call_decl) call_decl.call_decl_formals args) with
@@ -369,11 +376,12 @@ module ExprTypeCheck = struct
       let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
 
       (match exp_list with
-        | head :: args  -> (match head with
+        | head :: args  -> let args', tbl = list_type_check expr_type_check args tbl in 
+        (match head with
           | App (Var callable_name, [], _) -> let callable_tp = SymbolTbl.find tbl callable_name in 
             (match (callable_tp: SymbolTbl.typing_env option) with
               | Some (Callable call_decl) -> 
-                let tp = callable_args_check call_decl args in
+                let tp = callable_args_check call_decl args' in
                 App (Call, exp_list, {exp_attr with expr_type = tp}), tbl
 
               | _ -> raise (Failure ("Type Error." ^ QualIdent.to_string callable_name ^ " should be a callable."))) 
@@ -386,11 +394,11 @@ module ExprTypeCheck = struct
         let exp_attr' = { exp_attr with expr_type = (match con with
           | Null
           | Unit -> Any
-          | Bool _ -> Bool
-          | Int _ -> Int
-          | Empty -> Set
-          | Not -> Bool
-          | Uminus -> Int
+          | Bool _ -> Type.mk_bool exp_attr.expr_loc
+          | Int _ -> Type.mk_int exp_attr.expr_loc
+          | Empty -> Type.mk_set exp_attr.expr_loc
+          | Not -> Type.mk_bool exp_attr.expr_loc
+          | Uminus -> Type.mk_int exp_attr.expr_loc
           | Eq -> (match exp_list' with
             | [h; _] -> (type_of_expr h) (* if (Type.compare (type_of_expr h) (type_of_expr t) = 0) then (type_of_expr h) else 
               raise (Failure("Equality expression has mismatching types.")) *)
@@ -398,22 +406,22 @@ module ExprTypeCheck = struct
           | Gt
           | Lt
           | Geq
-          | Leq -> Bool
+          | Leq -> Type.mk_bool exp_attr.expr_loc
           | Diff
           | Union
           | Inter
           | Elem
-          | Subseteq -> Set
+          | Subseteq -> Type.mk_set exp_attr.expr_loc
           | And
           | Or
-          | Impl -> Bool
+          | Impl -> Type.mk_bool exp_attr.expr_loc
           | Plus
           | Minus
           | Mult
           | Div
-          | Mod -> Int
+          | Mod -> Type.mk_int exp_attr.expr_loc
           (* Variable arity operators *)
-          | Setenum -> Set
+          | Setenum -> Type.mk_set exp_attr.expr_loc
           | Var qual_iden -> (match SymbolTbl.find tbl qual_iden with
               | None -> raise(Failure ("Type of `" ^ QualIdent.to_string qual_iden ^ "` not found."))
               | Some t -> (match t with
@@ -638,7 +646,7 @@ let stmt_type_check = StmtTypeCheck.stmt_type_check
 module CallableTypeCheck = struct
   let rec locals_to_string (m: ((ident * Type.var_decl) list)) = match m with
     | [] -> ""
-    | l::ls -> Ident.to_string (fst l) ^ " -> " ^ Ident.to_string (snd l).var_name ^ ",   " ^(locals_to_string ls)
+    | l::ls -> Ident.to_string (fst l) ^ " -> " ^ Type.to_string (snd l).var_type ^ ",   " ^(locals_to_string ls)
 
 
   let rec call_decl_type_check (call_decl: Callable.call_decl) tbl =
@@ -648,6 +656,8 @@ module CallableTypeCheck = struct
     let tbl = SymbolTbl.push tbl in
     (* Corresponding SymbolTbl.pop made in proc_def_type_check and func_def_type_check *)
     let call_decl_locals', tbl = ident_map_type_check_add_to_tbl var_decl_type_check call_decl.call_decl_locals add_var_decl tbl in
+    (* print_debug ("LOCALS: " ^ (locals_to_string (Map.to_alist call_decl_locals')) ^ "\n"); *)
+
     let call_decl_formals', tbl = call_decl.call_decl_formals, tbl in
     let call_decl_returns', tbl = call_decl.call_decl_returns, tbl in
     let call_decl_precond', tbl = list_type_check StmtTypeCheck.spec_type_check call_decl.call_decl_precond tbl in
@@ -664,6 +674,16 @@ module CallableTypeCheck = struct
       call_decl_postcond = call_decl_postcond';
       call_decl_loc = call_decl_loc';
     }
+
+    in
+    
+    let tbl = match tbl with
+    | [] -> []
+    | h::t -> h :: (match call_decl_kind' with
+      | Proc -> add_callable call_decl' t
+      | Pred
+      | Func
+      | Lemma -> add_callable call_decl' t)
 
   in call_decl', tbl
 
@@ -787,11 +807,13 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
     | ValDef var_defn -> let var_defn', tbl = StmtTypeCheck.var_def_type_check var_defn tbl in
         (ValDef var_defn'), tbl
     | CallDef call -> let call', tbl = callable_type_check call tbl in
-    let tbl = (match call' with
+    (* let tbl = (match call' with
       | FuncDef fn -> add_callable fn.func_decl tbl
       | ProcDef pc -> add_callable pc.proc_decl tbl)
   
-      in (CallDef call'), tbl
+      in *)
+      (* Adding callables to the tbl is done in CallableTypeCheck.call_decl_type_check *)
+      (CallDef call'), tbl
 
   and mod_def_type_check mod_def tbl = match mod_def with
     | ModImpl mod1 -> let mod', tbl = module_type_check mod1 tbl in

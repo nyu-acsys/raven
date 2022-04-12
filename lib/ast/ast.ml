@@ -747,16 +747,23 @@ module Callable = struct
 
   let pr ppf def =
     let open Stdlib.Format in
-    let pr_body pr_body' ppf = function
+    let pr_proc_body pr_body' ppf = function
+      | Some e ->
+          fprintf ppf "@\n@[<1> %a@]" pr_body' e 
+          (* Todo: make this work properly by removing the extra space.  *)
+      | None -> fprintf ppf "@\n"
+    in
+    let pr_fn_body pr_body' ppf = function
       | Some e ->
           fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body' e
       | None -> fprintf ppf "@\n"
     in
+
     match def with
     | FuncDef fdef ->
-        fprintf ppf "%a%a" pr_call_decl fdef.func_decl (pr_body Expr.pr) fdef.func_body
+        fprintf ppf "%a%a" pr_call_decl fdef.func_decl (pr_fn_body Expr.pr) fdef.func_body
     | ProcDef pdef ->
-        fprintf ppf "%a%a" pr_call_decl pdef.proc_decl (pr_body Stmt.pr) pdef.proc_body
+        fprintf ppf "%a%a" pr_call_decl pdef.proc_decl (pr_proc_body Stmt.pr) pdef.proc_body
     
 end
   

@@ -13,7 +13,8 @@ module Lock {
     returns (l: t)
     ensures lockR(l, false)
   {
-    l := new t(bit(false));
+    l := new t;
+    l.bit := false;
     val x = true;
     val y = false;
 
@@ -30,8 +31,15 @@ module Lock {
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
+    val res = true;
+
+    if (l.bit) {
+        res := false;
+     }
     
-    val res = cas(l.bit, false, true);
+    else {
+        res := true;
+    }
 
     {!
       if (res) commit(phi);

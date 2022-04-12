@@ -54,7 +54,7 @@ module Lock {
 
     /* Have to formalize the ghost code language. */
 
-    if (!res) acquire(l);
+    if (!res) acquire(l, true);
   }
 
   proc release(l: t)
