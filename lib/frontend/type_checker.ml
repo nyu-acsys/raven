@@ -325,7 +325,7 @@ module ExprTypeCheck = struct
     
       let tp2 = type_of_expr arg in
     
-      if compare tp1 tp2 = 0 then ()
+      if Type.compare tp1 tp2 = 0 then ()
       else raise (Failure ("Argument type mismatch"))
     
     in
