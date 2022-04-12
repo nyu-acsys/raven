@@ -722,7 +722,7 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
         
     in
 
-    let (mod_decl': Module.module_decl) = 
+    let (_mod_decl': Module.module_decl) = 
     { mod_decl_name = mod_decl_name';
       mod_decl_formals = mod1.mod_decl.mod_decl_formals;
       mod_decl_returns = mod1.mod_decl.mod_decl_returns;
@@ -741,7 +741,7 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
     let tbl = SymbolTbl.pop tbl in
 
     let (mod': Module.t) = 
-    { mod_decl = mod_decl';
+    { mod_decl = mod1.mod_decl;
       mod_def = mod_def';
       mod_interface = mod_interface';
     }

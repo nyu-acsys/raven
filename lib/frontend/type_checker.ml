@@ -151,6 +151,17 @@ let ident_map_type_check_add_to_tbl val_fun id_map add_fn tbl =
   in let l', tbl = fn_iter (Map.to_alist id_map) tbl
 in (Map.of_alist_exn (module Ident) l'), tbl
 
+let ident_map_add_to_tbl id_map add_fn tbl =
+  let rec fn_iter l tbl = match l with
+    | [] -> tbl
+    | (_, value) :: ls ->
+        let tbl = add_fn value tbl in
+        let tbl = fn_iter ls tbl in
+          tbl
+
+  in fn_iter (Map.to_alist id_map) tbl
+
+
 (* module QualIdentTypeCheck = struct
   let rec qual_ident_type_check (qual_iden : qual_ident) tbl =
     print_debug ("Old_QualIdent: " ^ QualIdent.to_string qual_iden ^ "\n");
@@ -171,7 +182,7 @@ module TypeTypeCheck = struct
               var_tp, tbl
       | Some t -> (match t with
         | TypeExpr tp -> tp, tbl
-        | _ -> raise (Failure "Variable should have TypeExpr.")))
+        | _ -> raise (Failure ("Variable" ^ Ident.to_string var_decl.var_name ^ "should have TypeExpr."))))
 
 
     (* let var_name' = var_decl.var_name in
@@ -210,7 +221,7 @@ module TypeTypeCheck = struct
         | None -> exp
         | Some t -> (match t with
         | TypeExpr tp -> tp
-        | _ -> raise (Failure "Variable should have TypeExpr.")))        
+        | _ -> raise (Failure ("Variable " ^ QualIdent.to_string qual_ident ^ " should have TypeExpr."))))        
     | Int
     | Bool
     | Unit
@@ -255,6 +266,8 @@ end
 
 let type_expr_expand = TypeTypeCheck.type_expand
 let var_decl_type_check = TypeTypeCheck.var_decl_type_check
+
+
 
 module ExprTypeCheck = struct
 (*   let rec constr_type_check (const : Expr.constr) tbl : (Expr.constr * SymbolTbl.t) = match const with
@@ -304,6 +317,29 @@ module ExprTypeCheck = struct
     | Binder (_, _, _, exp_attr) -> exp_attr.expr_type
 
 
+  let callable_args_check (call_decl: Callable.call_decl) args : type_expr =
+    let check_call_arg_type (call_decl: Callable.call_decl) formal arg = 
+      let tp1 = (match (Map.find call_decl.call_decl_locals formal) with
+      | None -> raise (Failure ("Internal error."))
+      | Some var_decl -> var_decl.var_type) in
+    
+      let tp2 = type_of_expr arg in
+    
+      if compare tp1 tp2 = 0 then ()
+      else raise (Failure ("Argument type mismatch"))
+    
+    in
+  
+    (match (List.iter2 ~f:(check_call_arg_type call_decl) call_decl.call_decl_formals args) with
+    | Ok () -> ()
+    | Unequal_lengths -> raise (Failure ("CallDecl " ^ Ident.to_string call_decl.call_decl_name ^ " called with incorrect number of arguments.")));
+  
+    match call_decl.call_decl_returns with
+    | [] -> Any
+    | h :: _ -> (match (Map.find call_decl.call_decl_locals h) with
+      | None -> raise (Failure ("Internal AST error."))
+      | Some var -> var.var_type)  
+
   let rec expr_attr_type_check (expr_att: Expr.expr_attr) tbl =
     let expr_loc' = expr_att.expr_loc in (* : location; *)
     let expr_type', tbl =  expr_att.expr_type, tbl in (* : type_expr; *)
@@ -326,9 +362,24 @@ module ExprTypeCheck = struct
               (match tp with
                 | None -> raise (Failure "Field dereference failed. Field not found.")
                 | Some tp -> App (Read, [h; t'], {exp_attr with expr_type = tp}), tbl)
-            | _ -> raise (Failure ("Cannot reference the datatype " ^ (Type.to_string (type_of_expr t')) ^ " which is not a struct"))
+            | _ -> raise (Failure ("Cannot reference the datatype " ^ (Type.to_string (type_of_expr t')) ^ "; expected a struct"))
                         )
         | _ -> raise (Failure "Read expression has incorrect number of arguments."))
+    | App (Call, exp_list, exp_attr) ->
+      let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
+
+      (match exp_list with
+        | head :: args  -> (match head with
+          | App (Var callable_name, [], _) -> let callable_tp = SymbolTbl.find tbl callable_name in 
+            (match (callable_tp: SymbolTbl.typing_env option) with
+              | Some (Callable call_decl) -> 
+                let tp = callable_args_check call_decl args in
+                App (Call, exp_list, {exp_attr with expr_type = tp}), tbl
+
+              | _ -> raise (Failure ("Type Error." ^ QualIdent.to_string callable_name ^ " should be a callable."))) 
+          | _ -> raise (Failure ("Invalid AST state; Callable expected.")))
+        | _ -> raise (Failure ("Invalid AST state; Call with no caller."))
+      )
     | App (con, exp_list, exp_attr) ->
         let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
         let exp_list', tbl = list_type_check expr_type_check exp_list tbl in
@@ -361,21 +412,21 @@ module ExprTypeCheck = struct
           | Mult
           | Div
           | Mod -> Int
-          | Dot
-          | Call
-          | Read
-          (* Ternary operators *)
-          | Ite
-          | Write -> Any
-          | Own -> Any
           (* Variable arity operators *)
           | Setenum -> Set
           | Var qual_iden -> (match SymbolTbl.find tbl qual_iden with
               | None -> raise(Failure ("Type of `" ^ QualIdent.to_string qual_iden ^ "` not found."))
               | Some t -> (match t with
               | TypeExpr tp -> tp
-              | _ -> raise (Failure "Variable should have TypeExpr.")))
+              | _ -> raise (Failure ("Variable " ^ QualIdent.to_string qual_iden ^ " should have TypeExpr."))))
           | New t -> t
+          | Call
+          | Read -> raise (Failure "If this happens then Ocaml is broken.")
+          | Dot -> raise (Failure "Is there a Dot expr here? I thought they were dead.")
+          (* Ternary operators *)
+          | Ite
+          | Write -> Any
+          | Own -> Any
             ) }
 
         in (App (con, exp_list', exp_attr')), tbl
@@ -648,7 +699,6 @@ module CallableTypeCheck = struct
         in (FuncDef func_def'), tbl
     | ProcDef proc_def -> let proc_def', tbl = proc_def_type_check proc_def tbl
         in (ProcDef proc_def'), tbl
-
 end
 
 let callable_type_check = CallableTypeCheck.callable_type_check
@@ -724,15 +774,24 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
 
   and member_def_type_check (mem_def: Module.member_def) tbl : (Module.member_def * SymbolTbl.t) = match mem_def with
     | TypeAlias tp_alias -> let tp_alias', tbl = type_alias_type_check tp_alias tbl in
+    let tbl = add_tp_alias tp_alias' tbl in
         (TypeAlias tp_alias'), tbl
     | Import imp_dir -> let imp_dir', tbl = import_directive_type_check imp_dir tbl in
         (Import imp_dir'), tbl
     | ModDef mod_def -> let mod_def', tbl = mod_def_type_check mod_def tbl in
-        (ModDef mod_def'), tbl
+    let tbl = (match (mod_def': Module.module_def) with
+      | ModImpl m -> add_mod_decl m.mod_decl tbl
+      | ModAlias m_a -> add_mod_alias m_a tbl)
+      
+      in (ModDef mod_def'), tbl
     | ValDef var_defn -> let var_defn', tbl = StmtTypeCheck.var_def_type_check var_defn tbl in
         (ValDef var_defn'), tbl
     | CallDef call -> let call', tbl = callable_type_check call tbl in
-        (CallDef call'), tbl
+    let tbl = (match call' with
+      | FuncDef fn -> add_callable fn.func_decl tbl
+      | ProcDef pc -> add_callable pc.proc_decl tbl)
+  
+      in (CallDef call'), tbl
 
   and mod_def_type_check mod_def tbl = match mod_def with
     | ModImpl mod1 -> let mod', tbl = module_type_check mod1 tbl in
@@ -741,7 +800,69 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
         ((ModAlias mod_alias'), tbl)
 
   and module_type_check mod1 tbl =
-    let tbl = SymbolTbl.push_name mod1.mod_decl.mod_decl_name tbl in
+  let rec extract_members (mod_defs_list: Module.member_def list) (rep, mod_defs, mod_aliases, types, callables, vars) = 
+    match mod_defs_list with 
+    | [] -> (rep, mod_defs, mod_aliases, types, callables, vars)
+    | def :: defs -> match def with
+        | TypeAlias type_alias ->
+            let rep =  if (type_alias.type_alias_rep) then (Some type_alias.type_alias_name) else rep in
+            let types = (Map.add_exn types ~key:type_alias.type_alias_name ~data:type_alias) in
+            extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+        | Import _ -> 
+            extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+        | ModDef module_def -> (match module_def with 
+            | ModImpl mod_impl -> let mod_defs = Map.add_exn mod_defs ~key:mod_impl.mod_decl.mod_decl_name ~data:mod_impl.mod_decl in
+            extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+            | ModAlias mod_alias -> let mod_aliases = Map.add_exn mod_aliases ~key:mod_alias.mod_alias_name ~data: mod_alias in
+            extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars) )
+        | ValDef v -> let vars = Map.add_exn vars ~key:v.var_decl.var_name ~data:v.var_decl in
+            extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+        | CallDef call -> let cl_decl = (match call with
+            | FuncDef fn -> fn.func_decl
+            | ProcDef proc -> proc.proc_decl) in
+            
+            let callables = Map.add_exn callables ~key:cl_decl.call_decl_name ~data:cl_decl in
+            extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+
+    in
+
+  let mod_decl_name' = mod1.mod_decl.mod_decl_name in
+
+  let tbl = SymbolTbl.push_name mod_decl_name' tbl in
+  let mod_def', tbl = list_type_check member_def_type_check mod1.mod_def tbl in
+  let (rep, mod_defs, mod_aliases, types, callables, vars) = extract_members mod_def' (mod1.mod_decl.mod_decl_rep, mod1.mod_decl.mod_decl_mod_defs, mod1.mod_decl.mod_decl_mod_aliases, mod1.mod_decl.mod_decl_types, mod1.mod_decl.mod_decl_callables, mod1.mod_decl.mod_decl_vars) in
+
+  let (mod_decl': Module.module_decl) = 
+  { mod_decl_name = mod_decl_name';
+    mod_decl_formals = mod1.mod_decl.mod_decl_formals;
+    mod_decl_returns = mod1.mod_decl.mod_decl_returns;
+    mod_decl_rep = rep;
+    mod_decl_mod_defs = mod_defs;
+    mod_decl_mod_aliases = mod_aliases;
+    mod_decl_types = types;
+    mod_decl_callables = callables;
+    mod_decl_vars = vars;
+    mod_decl_loc = mod1.mod_decl.mod_decl_loc;
+  }
+
+  in
+(* 
+  let tbl = ident_map_add_to_tbl mod_defs add_mod_decl tbl in
+  let tbl = ident_map_add_to_tbl mod_aliases add_mod_alias tbl in
+  let tbl = ident_map_add_to_tbl types add_tp_alias tbl in
+  let tbl = ident_map_add_to_tbl callables add_callable tbl in
+ *)
+  let mod_interface' = mod1.mod_interface in
+  let tbl = SymbolTbl.pop tbl in
+
+  let (mod': Module.t) = 
+  { mod_decl = mod_decl';
+    mod_def = mod_def';
+    mod_interface = mod_interface';
+  }
+
+in mod', tbl
+    (* let tbl = SymbolTbl.push_name mod1.mod_decl.mod_decl_name tbl in
 
     let mod_decl', tbl = mod_decl_type_check mod1.mod_decl tbl in
     print_debug ("\027[32mHERE: " ^ Ident.to_string mod_decl'.mod_decl_name ^ "\027[0m");
@@ -757,7 +878,7 @@ and mod_decl_type_check (mod_decl: Module.module_decl) tbl =
       mod_interface = mod_interface';
     }
 
-  in mod', tbl
+  in mod', tbl *)
 end
 
 let module_type_check = ModuleTypeCheck.module_type_check
