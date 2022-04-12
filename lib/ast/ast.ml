@@ -98,20 +98,20 @@ type 'a qual_ident_map = 'a QualIdentMap.t
 module Type = struct
   
   type type_attr =
-      { type_loc: Loc.t [@hash.ignore]; }
+      { type_loc: Loc.t [@hash.ignore] [@compare.ignore]; }
  
   and var_decl =
-    { var_name : ident;
-      var_loc : location;
+    { var_name : Ident.t;
+      var_loc : location [@hash.ignore] [@compare.ignore];
       var_type : t;
       var_const : bool;
       var_ghost : bool;
       var_implicit : bool;
-    } (*[@@deriving compare, hash]*)
+    } [@@deriving compare, hash]
 
   and variant_decl =
-      { variant_name : ident;
-        variant_loc : location;
+      { variant_name : Ident.t;
+        variant_loc : location [@hash.ignore] [@compare.ignore];
         variant_args : var_decl list;
       }
         
@@ -131,7 +131,7 @@ module Type = struct
     | App of t * t list * type_attr
   (*| TypeData of qual_ident * type_attr*)
     | Dot of t * Ident.t * type_attr
-    (*[@@deriving compare, hash]*)
+    [@@deriving compare, hash]
 
           
   (** Pretty printing types *)        
