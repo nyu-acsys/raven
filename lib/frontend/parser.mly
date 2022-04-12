@@ -881,3 +881,8 @@ quant_expr:
 expr:
 | e = quant_expr { e } 
 ;
+
+expr_list:
+| e = expr; COMMA; es = expr_list { e :: es }
+| e = expr { [e] }
+;
