@@ -254,12 +254,11 @@ type_decl:
 }
 
 
-    
+ 
 type_mod:
 | REP { true }
 | (* empty *) { false }
 ;
-
 
 proc_decl:
 | k = PROC; decl = callable_decl {
@@ -301,7 +300,7 @@ callable_decl:
              }
   in decl
 }
-   
+
 return_params:
 | RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }
 | (* empty *) { [] }

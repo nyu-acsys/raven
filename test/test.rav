@@ -15,7 +15,6 @@ module Lock {
 
   proc create()
     returns (l: t)
-    requires lockR(l, false)
     ensures lockR(l, false)
   {
     l := new t;

@@ -1,92 +1,91 @@
- 
-interface resource_algebra {
-    rep type T
+interface Resource_algebra {
+    rep type t
 
-    val Elts: Set[T]
-    val id: T
-    func mult(a:T, b:T) : T
-    func valid(a:T) : Bool
+    val elts: Set[t]
+    val id: t
+    func mult(a:t, b:t) returns (ret:t)
+    func valid(a:t) returns (ret: Bool)
 
-    alias : a ∘ b = mult(a,b)
+    /* alias : a ∘ b = mult(a,b) */
 
-    # Write lemmas in requires/ensures.
+    /* Write lemmas in requires/ensures. */
 
     lemma id_valid()
-        ensures id ∈ Elts
+        ensures (id in elts)
 
-    # How to extend quantification from requires to ensures? Or just re-quantify?
+    /* How to extend quantification from requires to ensures? Or just re-quantify? */
 
-    lemma comp_assoc(a:T, b:T, c:T)
-        requires (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
-        ensures (a ∘ b) ∘ c = a ∘ (b ∘ c)
+    lemma comp_assoc(a:t, b:t, c:t)
+        requires ((a in elts) && (b in elts) && (c in elts))
+        ensures (mult(mult(a, b), c) == mult(a, mult(b, c)))
 
-    lemma comp_commute(a:T, b:T)
-        requires (a ∈ Elts) && (b ∈ Elts)
-        ensures a ∘ b = b ∘ a
+    lemma comp_commute(a:t, b:t)
+        requires (a in elts) && (b in elts)
+        ensures mult(a, b) == mult(b, a)
 
-    lemma cancellative(a:T, b:T, c:T)
-        requires (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
-        requires (a ∘ b) = (c ∘ b)
-        ensures (a = c)
+    lemma cancellative(a:t, b:t, c:t)
+        requires (a in elts) && (b in elts) && (c in elts)
+        requires mult(a, b) == mult(c, b)
+        ensures (a == c)
 
-    func FPU_condition(a:T, b:T) : Bool {
-        # What to do with this implication?
+    func fpu_condition(a:t, b:t)
+        requires (forall c:t :: (c in elts && valid(mult(a, c)) ==> valid(mult(b, c))))
+        /* What to do with this implication? */
 
-        ∀ c:T :: (c ∈ Elts && valid(a ∘ c)) → valid(b ∘ c)
-    } 
-
-    # revisit parametrizing in terms of l, f.
-    proc FPU(a:T, b:T, l, f)
+    /* revisit parametrizing in terms of l, f */
+    proc fpu(a:t, b:t, l:ref, f:t)
         requires own(l.f, a)
-        requires a ∈ Elts && b ∈ Elts
+        requires (a in elts) && (b in elts)
 
-        requires FPU_condition(a,b)
+        requires fpu_condition(a, b)
+        /*
         ------OR------
         requires ∀ c:T ; c ∈ Elts && valid(a ∘ c) → valid(b ∘ c)
             # explicit reference to FPU_condition makes it more natural to use it with actual resource algebras.
+        */
 
         ensures own(l.f, b)
-    {
+    /*{
         exhale a;
         inhale b;
-    }
+    }*/
 
 }
 
 module Nat : resource_algebra {
-    rep type T = Nat
+    rep type t = Int
 
-    val Elts = {| n : Nat :: true |}
+    val elts = {| n : Int :: n >= 0 |}
     val id = 0
 
-    func mult(a, b) { a+b }
-    func valid(n) { true }
+    func mult(a:t, b:t) returns (c:t) { a+b }
+    func valid(n:t) returns (c:Bool) { true }
 
 
-    # which style for proving lemmas? Also have to develop assertion language?
+    /* which style for proving lemmas? Also have to develop assertion language? */
     lemma id_valid()
-        ensures id ∈ Elts
-    {
-    }
+        ensures (id in elts)
+    {}
 
-    lemma comp_assoc(a:T, b:T, c:T)
-        requires (a ∈ Elts) && (b ∈ Elts) && (c ∈ Elts)
-        ensures (a ∘ b) ∘ c = a ∘ (b ∘ c)
-    {
-
-    }
+    lemma comp_assoc(a:t, b:t, c:t)
+        requires (a in elts) && (b in elts) && (c in elts)
+        ensures mult(mult(a, b), c) == mult(a, mult(b, c))
+    {}
 }
 
+/*
 module Frac : resource_algebra {
-    rep type T = Frac
+    rep type t = Frac
 
-    val Elts = {| n : Frac :: 0 <= n && n <= 1 |}
+    val elts = {| n : Frac :: 0 <= n && n <= 1 |}
 
     val id = 0
 
-    a ∘ b = a + b
+    mult(a, b) = a + b
 }
+
+
 
 module Auth(T: Type, S: Set(T)) : resource_algebra {
     rep type (Set(T) )
-}
+} */

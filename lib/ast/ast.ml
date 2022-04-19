@@ -788,7 +788,7 @@ module Module = struct
   type module_decl =
       { mod_decl_name: ident;
         mod_decl_formals: ident list;
-        mod_decl_returns: type_expr list;
+        mod_decl_returns: type_expr list; (* make this qualIdent *)
         mod_decl_rep: ident option;
         mod_decl_mod_defs: module_decl ident_map;
         mod_decl_mod_aliases: module_alias ident_map;
