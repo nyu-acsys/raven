@@ -181,21 +181,21 @@ module TypeDisambiguate = struct
   in var_decl', tbl
 
   and struct_var_decl_disambiguate (var_decl : Type.var_decl) tbl =
-  let var_name', tbl = var_decl.var_name, tbl in
-  let var_loc' = var_decl.var_loc in
-  let var_type', tbl = type_disambiguate var_decl.var_type tbl in
-  let var_const' = var_decl.var_const in
-  let var_ghost' = var_decl.var_ghost in
-  let var_implicit' = var_decl.var_implicit in
+    let var_name', tbl = var_decl.var_name, tbl in
+    let var_loc' = var_decl.var_loc in
+    let var_type', tbl = type_disambiguate var_decl.var_type tbl in
+    let var_const' = var_decl.var_const in
+    let var_ghost' = var_decl.var_ghost in
+    let var_implicit' = var_decl.var_implicit in
 
-  let (var_decl' : Type.var_decl) = 
-  { var_name = var_name';
-    var_loc = var_loc';
-    var_type = var_type';
-    var_const = var_const';
-    var_ghost = var_ghost';
-    var_implicit = var_implicit';
-  } 
+    let (var_decl' : Type.var_decl) = 
+    { var_name = var_name';
+      var_loc = var_loc';
+      var_type = var_type';
+      var_const = var_const';
+      var_ghost = var_ghost';
+      var_implicit = var_implicit';
+    } 
 
   in var_decl', tbl
 
@@ -212,7 +212,7 @@ module TypeDisambiguate = struct
 
   in variant_decl', tbl
 
-  and type_disambiguate exp tbl = match exp with
+  and constr_disambiguate (tc: Type.constr) tbl = match tc with
     | Int
     | Bool
     | Unit
@@ -221,7 +221,7 @@ module TypeDisambiguate = struct
     | Bot
     | Any
     | Set
-    | Map -> exp, tbl
+    | Map -> tc, tbl
     | Var qual_ident -> let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl
       in (Var qual_ident'), tbl
     | Struct var_decl_list ->
@@ -229,19 +229,21 @@ module TypeDisambiguate = struct
       (Struct var_decl_list'), tbl
     | Data variant_decl_list -> let variant_decl_list', tbl = list_disambiguate variant_decl_disambiguate variant_decl_list tbl
         in (Data variant_decl_list'), tbl
-    | App (tp, tp_list, tp_attr) -> 
-        let tp', tbl = type_disambiguate tp tbl in
+
+  and type_disambiguate exp tbl = match exp with
+    | App (tc, tp_list, tp_attr) -> 
+        let tc', tbl = constr_disambiguate tc tbl in
         let tp_list', tbl = list_disambiguate type_disambiguate tp_list tbl in
         let tp_attr', tbl = type_attr_disambiguate tp_attr tbl
 
-      in (App (tp', tp_list', tp_attr')), tbl
-  (*| TypeData of qual_ident * type_attr*)
+      in (App (tc', tp_list', tp_attr')), tbl
+    (* | TypeData of qual_ident * type_attr
     | Dot (tp, iden, tp_attr) ->
         let tp', tbl = type_disambiguate tp tbl in
         let iden', tbl = old_ident_disambiguate iden tbl in
         let tp_attr', tbl = type_attr_disambiguate tp_attr tbl
 
-      in (Dot (tp', iden', tp_attr')), tbl
+      in (Dot (tp', iden', tp_attr')), tbl *)
 end
 
 let type_expr_disambiguate = TypeDisambiguate.type_disambiguate

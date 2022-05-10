@@ -110,12 +110,20 @@ module Type = struct
     } [@@deriving compare, hash]
 
   and variant_decl =
-      { variant_name : Ident.t;
-        variant_loc : location [@hash.ignore] [@compare.ignore];
-        variant_args : var_decl list;
-      }
-        
-  and t =
+    { variant_name : Ident.t;
+      variant_loc : location [@hash.ignore] [@compare.ignore];
+      variant_args : var_decl list;
+    }
+  
+(*   and au_token = 
+    {
+      proc : qual_ident [@compare.ignore];
+      opened : bool;
+      committed : bool;
+      vars : Stmt.var_def list;
+    } *)
+
+  and constr =
     | Int
     | Bool
     | Unit
@@ -128,9 +136,12 @@ module Type = struct
     | Map
     | Struct of var_decl list
     | Data of variant_decl list
-    | App of t * t list * type_attr
-  (*| TypeData of qual_ident * type_attr*)
-    | Dot of t * Ident.t * type_attr
+(*     | AUToken of au_token *)
+  
+  and t =
+    | App of constr * t list * type_attr
+    (* | TypeData of qual_ident * type_attr *)
+    (* | Dot of t * Ident.t * type_attr *)
     [@@deriving compare, hash]
 
           
@@ -162,10 +173,10 @@ module Type = struct
   | Struct _ -> struct_type_string
   | Data _ -> data_type_string
   | Var id -> QualIdent.to_string id
-  | App _ -> "App"
-  | Dot _ -> "Dot"
-      
-  let rec pr ppf t = match t with
+(*   | App _ -> "App"
+  | Dot _ -> "Dot" *)
+  
+  let rec pr_constr ppf t = match t with
   | Int
   | Bool
   | Unit
@@ -182,11 +193,31 @@ module Type = struct
   | Data decls ->
       Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}"
         pr_variant_decl_list decls
-  | App (t1, [], _) -> pr ppf t1
+
+  and
+
+  pr ppf t = match t with
+(*   | Int
+  | Bool
+  | Unit
+  | Any
+  | Bot
+  | AnyRef
+  | Perm
+  | Var _
+  | Set
+  | Map ->  Stdlib.Format.fprintf ppf "%s" (to_name t)
+  | Struct decls ->
+      Stdlib.Format.fprintf ppf "struct {@\n  @[%a@]@\n}"
+        pr_var_decl_list decls
+  | Data decls ->
+      Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}"
+        pr_variant_decl_list decls *)
+  | App (t1, [], _) -> pr_constr ppf t1
   | App (t1, ts, _) ->
-      Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr t1 (Print.pr_list_comma pr) ts
-  | Dot (t1, id, _) ->
-      Stdlib.Format.fprintf ppf "%a.%a" pr t1 Ident.pr id
+      Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr_constr t1 (Print.pr_list_comma pr) ts
+(*   | Dot (t1, id, _) ->
+      Stdlib.Format.fprintf ppf "%a.%a" pr t1 Ident.pr id *)
   and pr_var_decl ppf decl =
     let open Stdlib.Format in
     fprintf ppf "%s%s @[<2>%a@ :@ %a@]"
@@ -225,7 +256,7 @@ module Type = struct
     else { type_loc = loc }
 
   let mk_app ?(loc=Loc.dummy) t ts = App (t, ts, mk_attr loc)
-  let mk_dot ?(loc=Loc.dummy) t id = Dot (t, id, mk_attr loc)
+  (* let mk_dot ?(loc=Loc.dummy) t id = Dot (t, id, mk_attr loc) *)
         
   let mk_int loc = App (Int, [], mk_attr loc)
   let mk_bool loc = App (Bool, [], mk_attr loc)
@@ -235,24 +266,34 @@ module Type = struct
   let mk_set loc = App (Set, [], mk_attr loc)
   let mk_map loc = App (Map, [], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
-  let mk_struct decls = Struct decls
-  let mk_data decls = Data decls
+  let mk_struct decls = App (Struct decls, [], mk_attr Loc.dummy)
+  let mk_data decls = App (Data decls, [], mk_attr Loc.dummy)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
 
   (** Subtyping *)
-      
-  let rec join t1 t2 =
+  
+  let rec join_constr t1 t2 =
     match t1, t2 with
-    | Bot, t | t, Bot -> t
-    | Bool, Perm | Perm, Bool -> Perm
-    | AnyRef, Struct _ | Struct _, AnyRef -> AnyRef
-    | App (t1, [], a1), App (t2, [], _) ->
-        App (join t1 t2, [], a1)
+    | Bot, t 
+    | t, Bot -> t
+    | Bool, Perm 
+    | Perm, Bool -> Perm
+    | AnyRef, Struct _ 
+    | Struct _, AnyRef -> AnyRef
     | _ -> Any
+
+  let rec join t1 t2 =
+     match t1, t2 with
+(*    | Bot, t | t, Bot -> t
+    | Bool, Perm | Perm, Bool -> Perm
+    | AnyRef, Struct _ | Struct _, AnyRef -> AnyRef *)
+    | App (t1, [], a1), App (t2, [], _) ->
+        App (join_constr t1 t2, [], a1)
+    | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
 
    (** Auxiliary utility functions *)
 
-   let is_ghost_var vdecl = vdecl.var_ghost         
+   let is_ghost_var vdecl = vdecl.var_ghost
    let is_const_var vdecl = vdecl.var_const
    let is_implicit_var vdecl = vdecl.var_implicit
 
@@ -427,8 +468,8 @@ module Expr = struct
   and pr_var_decl ppf vdecl =
     let open Type in
     Stdlib.Format.fprintf ppf "%s%s%a"
-      (if vdecl.var_implicit then "implicit" else "")
-      (if vdecl.var_ghost then "ghost" else "")
+      (if vdecl.var_implicit then "implicit " else "")
+      (if vdecl.var_ghost then "ghost " else "")
       Type.pr_ident (vdecl.var_name, vdecl.var_type)
   and pr_var_decl_list ppf =
     Print.pr_list_comma pr_var_decl ppf
@@ -438,10 +479,10 @@ module Expr = struct
   (** Constructors *)
 
   let mk_app ?(loc=Loc.dummy) ?(typ=Type.Any) c es =
-    App (c, es, mk_attr loc typ)
+    App (c, es, mk_attr loc (App(typ, [], Type.mk_attr loc)))
 
   let mk_binder ?(loc=Loc.dummy) ?(typ=Type.Any) b vs e =
-    Binder (b, vs, e, mk_attr loc typ)
+    Binder (b, vs, e, mk_attr loc (App(typ, [], Type.mk_attr loc)))
 
   let mk_bool ?(loc=Loc.dummy) b =
     mk_app ~loc ~typ:Type.Bool (Bool b) []
@@ -452,8 +493,8 @@ module Expr = struct
       | [] -> mk_bool ~loc false
       | [e] -> e
       | es ->
-          let t = List.fold_left es ~init:Type.Bool ~f:(fun t e -> Type.join t (to_type e)) in
-          mk_app ~loc ~typ:t And es
+          let t = List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e -> Type.join t (to_type e)) in
+          App(And, es, mk_attr loc t)
 
   (** Constructor for disjunction.*)
   let mk_or ?(loc=Loc.dummy) =
@@ -461,8 +502,8 @@ module Expr = struct
       | [] -> mk_bool ~loc true
       | [e] -> e
       | es ->
-          let t = List.fold_left es ~init:Type.Bool ~f:(fun t e -> Type.join t (to_type e)) in
-          mk_app ~loc ~typ:t Or es
+          let t = List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e -> Type.join t (to_type e)) in
+          App(And, es, mk_attr loc t)
 
 end
 
@@ -685,7 +726,7 @@ end
 module Callable = struct
 
   type call_kind =
-    | Proc | Lemma | Func | Pred
+    | Proc | Lemma | Func | Pred | Invariant
         
   type call_decl =
       { call_decl_kind: call_kind; (** kind of declaration *)
@@ -731,6 +772,7 @@ module Callable = struct
       | Func -> "func"
       | Proc -> "proc"
       | Lemma -> "lemma"
+      | Invariant -> "inv"
     in
     let pr_returns ppf = function
       | [] -> ()

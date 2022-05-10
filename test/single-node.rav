@@ -23,7 +23,9 @@ module Lock {
     atomic ensures lock(l, true) &*& b = false
   {
     {! 
-    	val phi, b = openAU;
+      val phi: Perm = bindAU();
+    	val b: Bool = openAU(phi);
+
     	unfold lock(l, b); 
     !}
     

@@ -34,6 +34,8 @@ open Ast
 
 %start main
 %type <Ast.Module.t> main
+/* %type <Ast.Type.t> type_def_expr
+%type <Ast.Type.t> type_expr */
 %%
 
 main:
@@ -79,7 +81,7 @@ module_alias_or_impl:
 }
 | EQ; t = type_expr {
   Module.( ModAlias { mod_alias_name = Ident.make "" 0;
-                      mod_alias_type = Any;
+                      mod_alias_type = Type.mk_any Loc.dummy;
                       mod_alias_def = Some t;
                       mod_alias_loc = Loc.dummy;
                     } )
@@ -195,7 +197,7 @@ module_decl:
 }
 | MODULE; id = IDENT; tdef = module_alias_def {
   Module.( ModAlias { mod_alias_name = id;
-                      mod_alias_type = Any;
+                      mod_alias_type = Type.mk_any Loc.dummy;
                       mod_alias_def = tdef;
                       mod_alias_loc = Loc.make $startpos(id) $endpos(id);
                     } )
@@ -823,7 +825,7 @@ bound_var_opt_type:
 | x = IDENT { 
   let decl =
     Type.{ var_name = x;
-           var_type = Type.Any;
+           var_type = Type.mk_any Loc.dummy;
            var_loc = Loc.make $startpos $endpos;
            var_const = true;
            var_ghost = false;
@@ -853,14 +855,14 @@ type_expr:
 | x = MODIDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | SET { Type.mk_set (Loc.make $startpos $endpos) }
 | MAP { Type.mk_map (Loc.make $startpos $endpos) }
-| t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts }
+| t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { match t with | Type.App(x, _, _) -> App(x, ts, Type.mk_attr (Loc.make $startpos $endpos)) (* Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts *) }
     
   
 type_expr_list:
 | t = type_expr; COMMA; ts = type_expr_list { t :: ts }
 | t = type_expr { [t] }
 ;
-    
+
 quant_var_list:
 | COMMA; v = quant_var; vs = quant_var_list { v :: vs }
 | /* empty */ { [] }

@@ -40,7 +40,7 @@ let _ =
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
       ("own", OWN);
-      ("pred", FUNC (Func));
+      ("pred", FUNC (Pred));
       ("proc", PROC (Proc));
       ("requires", REQUIRES);
       ("return", RETURN);
