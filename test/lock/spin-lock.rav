@@ -15,14 +15,6 @@ module Lock {
   {
     l := new t;
     l.bit := false;
-    val x = true;
-    val y = false;
-
-    if (x == true) {
-      var y = true;
-    }
-
-
   }
 
   /* How to prove following spec? Lob induction? */ 
@@ -31,6 +23,7 @@ module Lock {
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
+    /* val phi = openAtom() */
     val res = true;
 
     if (l.bit) {
