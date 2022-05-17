@@ -561,6 +561,7 @@ module StmtTypeCheck = struct
         in (Fold fold_desc'), tbl
     | Unfold unfold_desc -> let unfold_desc', tbl = unfold_desc_type_check unfold_desc tbl
         in (Unfold unfold_desc'), tbl
+    | x -> x, tbl
 
   and stmt_type_check (stmt: Stmt.t) tbl =
     let stmt_desc', tbl = stmt_desc_type_check stmt.stmt_desc tbl in (*  stmt_desc; *)

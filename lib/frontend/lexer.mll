@@ -16,6 +16,7 @@ let _ =
     ([("assert", ASSERT);
       ("assume", ASSUME);
       ("atomic", ATOMIC);
+      ("AtomicToken", ATOMICTOKEN);
       ("Bool", BOOL);
       ("case", CASE);
       ("data", DATA);
@@ -30,6 +31,7 @@ let _ =
       ("if", IF);
       ("Int", INT);
       ("interface", INTERFACE);
+      ("inv", FUNC (Invariant));
       ("invariant", INVARIANT);
       ("import", IMPORT);
       ("implicit", IMPLICIT);

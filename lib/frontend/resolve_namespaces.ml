@@ -221,6 +221,7 @@ module TypeDisambiguate = struct
     | Bot
     | Any
     | Set
+    | AtomicToken
     | Map -> tc, tbl
     | Var qual_ident -> let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl
       in (Var qual_ident'), tbl
@@ -373,6 +374,59 @@ module StmtDisambiguate = struct
 
   in new_desc', tbl
 
+  and assign_basic_stmt_disambiguate (assign_desc: Stmt.assign_desc) tbl =
+  let var_name (proc: expr) = match proc with
+  | App ((Var (qual_ident)), [], _) -> if List.length qual_ident.qual_path = 0 then qual_ident.qual_base else raise (Failure "invalid arg to var_name; qual_path not empty")
+  | _ -> raise (Failure "invalid arg to var_name")
+
+  in
+  let open_au_call = (Ident.make "openAU" 0) in
+  let commit_au_call = (Ident.make "commitAU" 0) in
+  let bind_au_call = (Ident.make "bindAU" 0) in
+  let abort_au_call = (Ident.make "abortAU" 0) in
+
+  match assign_desc.assign_rhs with
+  | App (Call, proc::args, _) -> ( 
+    if Ident.compare (var_name proc) open_au_call = 0 then 
+      match args with
+        | token::[] -> (match assign_desc.assign_lhs with
+          | vars -> (Stmt.CommitAU {au_token = var_name token; return_vars = vars }), (tbl, []))
+        (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
+        | _ -> raise (Failure "openAU() called with incorrect number of arguments")
+    
+    else if Ident.compare (var_name proc) commit_au_call = 0 then 
+      (match args with
+        | token::vars -> (match assign_desc.assign_lhs with
+          | [] -> (Stmt.CommitAU {au_token = var_name token; return_vars = vars }), (tbl, [])
+          | _ -> raise (Failure "incorrect number of bound_args to commitAU()"))
+        | _ -> raise (Failure "commitAU() called with incorrect number of arguments") )
+    else if Ident.compare (var_name proc) bind_au_call = 0 then
+      (match args with
+      | [] -> (match assign_desc.assign_lhs with
+        | token::[] -> (Stmt.BindAU (var_name token)), (tbl, [])
+        | _ -> raise (Failure "incorrect number of bound_args to bindAU()"))
+      | _ -> raise (Failure "bindAU() called with incorrect number of arguments") )
+    else if Ident.compare (var_name proc) abort_au_call = 0 then
+      (match args with
+      | token::[] -> (match assign_desc.assign_lhs with
+        | [] -> (Stmt.AbortAU (var_name token), (tbl, []))
+        | _ -> raise (Failure "incorrect number of bound_args to abortAU()"))
+      (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
+      | _ -> raise (Failure "abortAU() called without token") )
+    else
+      let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+      in (Stmt.Assign assign_desc'), (tbl, [])
+  (* 
+    match proc with
+    | App ((Var proc_name), _, _) -> 
+      if proc_name = open_au_call then (Stmt.OpenAU )  let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+      in (Stmt.Assign assign_desc'), (tbl, [])
+    | _ -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+      in (Stmt.Assign assign_desc'), (tbl, []) *)
+  )
+  | _ -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+      in (Stmt.Assign assign_desc'), (tbl, [])
+
   and assign_desc_disambiguate (assign_desc: Stmt.assign_desc) tbl =
     let assign_lhs', tbl = list_disambiguate expr_disambiguate assign_desc.assign_lhs tbl in (*  : expr list; *)
     let assign_rhs', tbl = expr_disambiguate assign_desc.assign_rhs tbl in (*  : expr; *)
@@ -383,7 +437,7 @@ module StmtDisambiguate = struct
     }
 
   in assign_desc', tbl
-  
+      
   and call_desc_disambiguate (call_desc: Stmt.call_desc) tbl = 
     let call_lhs', tbl = list_disambiguate qual_ident_disambiguate call_desc.call_lhs tbl in (*  : qual_ident list; *)
     let call_name', tbl = qual_ident_disambiguate call_desc.call_name tbl in (*  : qual_ident; *)
@@ -415,7 +469,7 @@ module StmtDisambiguate = struct
 
   in unfold_desc', tbl
 
-  and basic_stmt_desc_disambiguate (basic_stmt: Stmt.basic_stmt_desc) tbl : (Stmt.basic_stmt_desc * (SymbolTbl.t * var_decl list)) = match basic_stmt with
+  and basic_stmt_desc_disambiguate (basic_stmt: Stmt.basic_stmt_desc) tbl : (Stmt.basic_stmt_desc * (SymbolTbl.t * var_decl list)) = ( match basic_stmt with
     | VarDef var_def -> let var_def', tbl = var_def_disambiguate var_def tbl
         in (VarDef var_def'), (tbl, [var_def'.var_decl])
     | Assume spec -> let spec', tbl = spec_disambiguate spec tbl
@@ -424,8 +478,6 @@ module StmtDisambiguate = struct
         in (Assert spec'), (tbl, [])
     | New new_desc -> let new_desc', tbl = new_desc_disambiguate new_desc tbl
         in (New new_desc'), (tbl, [])
-    | Assign assign_desc -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-        in (Assign assign_desc'), (tbl, [])
     | Havoc expr_list -> let expr_list', tbl = list_disambiguate expr_disambiguate expr_list tbl
         in (Havoc expr_list'), (tbl, [])
     | Call call_desc -> let call_desc', tbl = call_desc_disambiguate call_desc tbl
@@ -436,6 +488,8 @@ module StmtDisambiguate = struct
         in (Fold fold_desc'), (tbl, [])
     | Unfold unfold_desc -> let unfold_desc', tbl = unfold_desc_disambiguate unfold_desc tbl
         in (Unfold unfold_desc'), (tbl, [])
+    | Assign assign_desc -> assign_basic_stmt_disambiguate assign_desc tbl
+    | x -> x, (tbl, []) )
 
   and stmt_disambiguate (stmt: Stmt.t) (tbl, locals) =
     let stmt_desc', (tbl, locals) = stmt_desc_disambiguate stmt.stmt_desc (tbl, locals) in (*  stmt_desc; *)

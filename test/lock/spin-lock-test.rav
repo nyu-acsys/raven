@@ -3,15 +3,9 @@ module Lock {
     var bit: Bool
   }
 
-  module Key {
-    var l = true
-  }
-
   pred lockR(l: t, b: Bool) {
     own(l.bit, b)
   }
-
-  var l = true
 
   proc create()
     returns (l: t)
@@ -19,17 +13,6 @@ module Lock {
   {
     l := new t;
     l.bit := false;
-    var x : Bool = true;
-    x := true;
-    val phi: AtomicToken;
-    phi, x := openAU();
-    var x : Bool;
-    val y = false;
-
-    if (x == true) {
-      var y = true;
-    }
-
   }
 
   /* How to prove following spec? Lob induction? */ 
@@ -38,25 +21,28 @@ module Lock {
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
-    val res = true;
+    var phi: AtomicToken;
+    phi := bindAU();
+    var b: Bool; 
+    b := openAU(phi);
+    unfold lockR(l, b);
+    var res = true;
 
-    if (l.bit) {
+    if (l.bit) { /* can use l.bit OR b*/
         res := false;
      }
     
     else {
         res := true;
     }
-    
-    /*
+
     {!
-      if (res) commit(phi);
-      else abort(phi);
-    !} */
-
-    /* Have to formalize the ghost code language. */
-
-    if (!res) acquire(l, true);
+      if (res) commitAU(phi);
+      else abortAU(phi);
+    !}
+    
+    /* should we have to provide an implicit argument while calling?*/
+    if (!res) acquire(l, true); 
   }
 
   proc release(l: t)
@@ -69,10 +55,4 @@ module Lock {
   }
 }
 
-  module Trial {
-    proc trial(l: Lock) {
-      l.bit := true;
-    }
-    
-  }
 

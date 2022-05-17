@@ -7,7 +7,7 @@ type location = Loc.t
     
 (** Identifiers *)
 
-let print_debug str = Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ str ^ "\027[0m");
+let print_debug _str = (* Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m") ;*) ()
 
 module Ident = struct
   module T = struct
@@ -115,12 +115,11 @@ module Type = struct
       variant_args : var_decl list;
     }
   
-(*   and au_token = 
+  (* and atomic_token = 
     {
       proc : qual_ident [@compare.ignore];
-      opened : bool;
-      committed : bool;
-      vars : Stmt.var_def list;
+      params : Stmt.var_def list;
+      committed : (expr list) option;
     } *)
 
   and constr =
@@ -136,7 +135,7 @@ module Type = struct
     | Map
     | Struct of var_decl list
     | Data of variant_decl list
-(*     | AUToken of au_token *)
+    | AtomicToken
   
   and t =
     | App of constr * t list * type_attr
@@ -159,6 +158,8 @@ module Type = struct
   let anyref_type_string = "AnyRef"
   let struct_type_string = "struct"
   let data_type_string = "struct"
+
+  let atomic_token_type_string = "AtomicToken"
       
   let to_name = function
   | Int -> int_type_string
@@ -173,6 +174,7 @@ module Type = struct
   | Struct _ -> struct_type_string
   | Data _ -> data_type_string
   | Var id -> QualIdent.to_string id
+  | AtomicToken -> atomic_token_type_string
 (*   | App _ -> "App"
   | Dot _ -> "Dot" *)
   
@@ -186,6 +188,7 @@ module Type = struct
   | Perm
   | Var _
   | Set
+  | AtomicToken
   | Map ->  Stdlib.Format.fprintf ppf "%s" (to_name t)
   | Struct decls ->
       Stdlib.Format.fprintf ppf "struct {@\n  @[%a@]@\n}"
@@ -269,6 +272,7 @@ module Type = struct
   let mk_struct decls = App (Struct decls, [], mk_attr Loc.dummy)
   let mk_data decls = App (Data decls, [], mk_attr Loc.dummy)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
+  let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
 
   (** Subtyping *)
   
@@ -306,7 +310,15 @@ type var_decl = Type.var_decl
 (** Expressions *)
           
 module Expr = struct
-
+  (* Does not belong here -- needs to be in the symbolic checker. *)
+  (* type au_token = 
+    {
+      proc : qual_ident [@compare.ignore];
+      params : Stmt.var_def list;
+      committed : (expr list) option;
+    } *) 
+    
+    
   type constr =
     (* Constants *)
     | Null
@@ -328,6 +340,7 @@ module Expr = struct
     | Setenum
     | Var of qual_ident
     | New of type_expr
+    (* | AUToken of au_token *)
       
   type binder =
     | Forall | Exists | Compr
@@ -515,42 +528,55 @@ type expr = Expr.t
 module Stmt = struct
   
   type spec =
-      { spec_form: expr;
-        spec_atomic: bool;
-        spec_name: string;
-        spec_error: (qual_ident -> (string * string)) option;
-      }
+    { spec_form: expr;
+      spec_atomic: bool;
+      spec_name: string;
+      spec_error: (qual_ident -> (string * string)) option;
+    }
 
   type var_def =
-      { var_decl : var_decl;
-        var_init : expr option;
-      }
+    { var_decl : var_decl;
+      var_init : expr option;
+    }
 
   type new_desc =
-      { new_lhs: ident;
-        new_type: type_expr;
-        new_args: expr list;
-      }
+    { new_lhs: ident;
+      new_type: type_expr;
+      new_args: expr list;
+    }
 
   type assign_desc =
-      { assign_lhs: expr list;
-        assign_rhs: expr;
-      }
+    { assign_lhs: expr list;
+      assign_rhs: expr;
+    }
         
   type call_desc =
-      { call_lhs: qual_ident list;
-        call_name: qual_ident;
-        call_args: expr list;
-      }
+    { call_lhs: qual_ident list;
+      call_name: qual_ident;
+      call_args: expr list;
+    }
   
   type fold_desc =
-      { fold_expr: expr;
-      }
+    { 
+      fold_expr: expr;
+    }
 
   type unfold_desc =
-      {
-        unfold_expr: expr;
-      }
+    {
+      unfold_expr: expr;
+    }
+
+  type open_au = 
+    {
+      au_token : ident;
+      bound_vars : expr list;
+    }
+  
+  type commit_au =
+    {
+      au_token : ident;
+      return_vars : expr list;
+    }
 
   type basic_stmt_desc =
     | VarDef of var_def
@@ -563,6 +589,10 @@ module Stmt = struct
     | Return of expr list
     | Fold of fold_desc
     | Unfold of unfold_desc
+    | BindAU of ident
+    | OpenAU of open_au
+    | AbortAU of ident
+    | CommitAU of commit_au
         
   type t =
       { stmt_desc: stmt_desc;
@@ -661,7 +691,7 @@ module Stmt = struct
       | Return es -> 
           fprintf ppf "@[<2>return@ %a@]" Expr.pr_list es
       | Call cstm -> 
-          match cstm.call_lhs with
+          (match cstm.call_lhs with
           | [] ->
               fprintf ppf "@[%a(@[%a@])@]" 
                 QualIdent.pr cstm.call_name 
@@ -670,7 +700,11 @@ module Stmt = struct
               fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" 
                 QualIdent.pr_list cstm.call_lhs 
                 QualIdent.pr cstm.call_name 
-                Expr.pr_list cstm.call_args
+                Expr.pr_list cstm.call_args)
+      | BindAU iden -> fprintf ppf "@[<2>unfold %a@]" Ident.pr iden
+      | OpenAU open_au -> fprintf ppf "@[<2>unfold %a@]" Ident.pr open_au.au_token
+      | AbortAU iden -> fprintf ppf "@[<2>unfold %a@]" Ident.pr iden
+      | CommitAU commit_au -> fprintf ppf "@[<2>unfold %a@]" Ident.pr commit_au.au_token
 
                 
 

@@ -21,7 +21,7 @@ open Ast
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
-%token CASE DATA STRUCT INT BOOL SET MAP
+%token CASE DATA STRUCT INT BOOL SET MAP ATOMICTOKEN
 %token ATOMIC GHOST IMPLICIT REP  
 %token <bool> VAR  
 %token INTERFACE MODULE TYPE IMPORT
@@ -112,7 +112,7 @@ type_def_expr:
   let decls = List.map (fun def -> def.Stmt.var_decl) defs in
   Type.mk_struct decls
 }
-| DATA; LBRACE; decls = list(variant_decl); RBRACE {
+| DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl); RBRACE {
   Type.mk_data decls
 }
 
@@ -188,14 +188,14 @@ module_header:
 }
 
 module_decl:
-| MODULE; id = IDENT; COLON; t = type_expr; tdef = module_alias_def_opt {
+| MODULE; id = MODIDENT; COLON; t = type_expr; tdef = module_alias_def_opt {
   Module.( ModAlias { mod_alias_name = id;
                       mod_alias_type = t;
                       mod_alias_def = tdef;
                       mod_alias_loc = Loc.make $startpos(id) $endpos(id);
                     } )
 }
-| MODULE; id = IDENT; tdef = module_alias_def {
+| MODULE; id = MODIDENT; tdef = module_alias_def {
   Module.( ModAlias { mod_alias_name = id;
                       mod_alias_type = Type.mk_any Loc.dummy;
                       mod_alias_def = tdef;
@@ -220,7 +220,7 @@ module_param_list_opt:
 | (* empty *) { [] }
   
 module_param:
-| id = IDENT; COLON; t = type_expr {
+| id = MODIDENT; COLON; t = type_expr {
   let decl =
     Module.{ mod_alias_name = id;
              mod_alias_type = t;
@@ -851,6 +851,7 @@ bound_var_opt_type:
 type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
+| ATOMICTOKEN { Type.mk_atomic_token (Loc.make $startpos $endpos) }
 | x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | x = MODIDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | SET { Type.mk_set (Loc.make $startpos $endpos) }
