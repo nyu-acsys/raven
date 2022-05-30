@@ -569,7 +569,7 @@ module Stmt = struct
   type open_au = 
     {
       au_token : ident;
-      bound_vars : expr list;
+      bound_vars : ident list;
     }
   
   type commit_au =
@@ -965,4 +965,15 @@ module Module = struct
       mod_decl_vars = Base.Map.empty (module Ident);
       mod_decl_loc = Loc.dummy;
     }
+end
+
+module ASTUtil = struct
+  let expr_to_qual_ident (expr: expr) = match expr with
+  | App (Var (qual_ident), [], _) -> qual_ident
+  | App (Var (_), _, _) -> raise (Failure "Var expr should not have arguments.")
+  | _ -> raise (Failure ("Expected Var expression instead of " ^ Expr.to_string expr ^ " (" ^ Loc.to_string (Expr.loc expr) ^ ")"))
+
+  let qual_ident_to_ident (qual_ident: qual_ident) = if List.is_empty qual_ident.qual_path then qual_ident.qual_base else raise (Failure "Var expr should be unqualified var.") 
+
+  let expr_to_ident (expr: expr) = qual_ident_to_ident (expr_to_qual_ident expr)
 end

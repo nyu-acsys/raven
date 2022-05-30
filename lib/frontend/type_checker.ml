@@ -101,7 +101,7 @@ module SymbolTbl = struct
     | [] -> None
     | (_, map) :: _ -> Map.find name map
 
-  let rec find tbl name = match tbl with
+  let rec find (tbl: t) name = match tbl with
     | [] -> None
     | (_, map) :: ts -> match (Map.find map name) with
         | None -> find ts name
@@ -496,31 +496,74 @@ module StmtTypeCheck = struct
   in new_desc', tbl
 
   and assign_desc_type_check (assign_desc: Stmt.assign_desc) tbl =
-    let assign_lhs', tbl = list_type_check expr_type_check assign_desc.assign_lhs tbl in (*  : expr list; *)
-    let assign_rhs', tbl = expr_type_check assign_desc.assign_rhs tbl in (*  : expr; *)
+    match assign_desc.assign_lhs with 
+    | [assign_lhs'] -> (
+      match assign_lhs' with 
+        | App (Var (qual_ident), [], _ ) -> (
+            let typed_elem = SymbolTbl.find tbl (qual_ident) in 
+            match typed_elem with
+              | Some (VarDecl var_decl) ->
+                if var_decl.var_const then raise (Failure ("Const variable " ^ Ident.to_string var_decl.var_name ^ "(" ^ Loc.to_string var_decl.var_loc ^ ") cannot be assigned."))
+                else
+                  let assign_lhs', tbl = list_type_check expr_type_check assign_desc.assign_lhs tbl in (*  : expr list; *)
+                  let assign_rhs', tbl = expr_type_check assign_desc.assign_rhs tbl in (*  : expr; *)
 
-    (* Todo: Figure out what to do with this, unify etc. *)
+                  let (assign_desc': Stmt.assign_desc) =
+                  { assign_lhs = assign_lhs';
+                    assign_rhs = assign_rhs';
+                  }
+              
+                  in assign_desc', tbl
+                    
+              | Some (x) -> raise (Failure ("Expected " ^ SymbolTbl.typing_env_to_string x ^ " to be a callable."))
+              | _ -> raise (Failure ("Could not find " ^ Expr.to_string assign_lhs' )) )
+        
+        | App (Read, _var::_args, _) ->
+          let assign_lhs', tbl = list_type_check expr_type_check assign_desc.assign_lhs tbl in (*  : expr list; *)
+                  let assign_rhs', tbl = expr_type_check assign_desc.assign_rhs tbl in (*  : expr; *)
 
-    let (assign_desc': Stmt.assign_desc) =
-    { assign_lhs = assign_lhs';
-      assign_rhs = assign_rhs';
-    }
+                  let (assign_desc': Stmt.assign_desc) =
+                  { assign_lhs = assign_lhs';
+                    assign_rhs = assign_rhs';
+                  }
+              
+                  in assign_desc', tbl
 
-  in assign_desc', tbl
+        | _ -> raise (Failure "Error with assign stmt")
+  
+      (* Todo: Figure out what to do with this, unify etc. *)
+   )
 
-  and call_desc_type_check (call_desc: Stmt.call_desc) tbl =
-    (* Todo: Figure out what to do here. *)
-    let call_lhs', tbl = (* list_type_check qual_ident_type_check *) call_desc.call_lhs, tbl in (*  : qual_ident list; *)
-    let call_name', tbl = (* qual_ident_type_check *) call_desc.call_name, tbl in (*  : qual_ident; *)
-    let call_args', tbl = list_type_check expr_type_check call_desc.call_args tbl in (*  : expr list; *)
+    | _ ->  raise (Failure "Error, Assign has |lhs| != 1")
 
-    let (call_desc': Stmt.call_desc) =
-    { call_lhs = call_lhs';
-      call_name = call_name';
-      call_args = call_args';
-    }
+  and call_desc_type_check (call_desc: Stmt.call_desc) (tbl: SymbolTbl.t) =
+    let typed_elem = SymbolTbl.find tbl call_desc.call_name in 
+    match typed_elem with
+      | Some (Callable call_decl) -> 
+          (if 
+            (List.length call_desc.call_lhs = List.length call_decl.call_decl_returns) 
+          && (List.length call_desc.call_args = List.length call_decl.call_decl_formals)
+           then
+            
+            (* let call_lhs', tbl = (* list_type_check qual_ident_type_check *) call_desc.call_lhs, tbl in (*  : qual_ident list; *)
+            let call_name', tbl = (* qual_ident_type_check *) call_desc.call_name, tbl in (*  : qual_ident; *)
+            let call_args', tbl = list_type_check expr_type_check call_desc.call_args tbl in (*  : expr list; *)
+        
+            let (call_desc': Stmt.call_desc) =
+            { call_lhs = call_lhs';
+              call_name = call_name';
+              call_args = call_args';
+            }
 
-  in call_desc', tbl
+          in call_desc', tbl  *)
+            call_desc, tbl
+          
+        else raise (Failure "Error"))
+      | Some (x) -> raise (Failure ("Expected " ^ SymbolTbl.typing_env_to_string x ^ " to be a callable."))
+      | _ -> raise (Failure ("Could not find " ^ QualIdent.to_string call_desc.call_name ))
+    
+
+  
 
   and fold_desc_type_check (fold_desc: Stmt.fold_desc) tbl =
     let fold_expr', tbl = expr_type_check fold_desc.fold_expr tbl in (* : expr; *)

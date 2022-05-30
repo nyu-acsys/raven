@@ -812,7 +812,7 @@ bound_var:
       Type.{ var_name = x;
              var_type = t;
              var_loc = Loc.make $startpos $endpos;
-             var_const = true;
+             var_const = false;
              var_ghost = false;
              var_implicit = false;
            }

@@ -3,6 +3,7 @@ open Base
 open Ast
 (* open Util *)
 
+
 module SymbolTbl = struct
 (*   module IdentMap = Map.M(Ident)
   type 'a ident_map = 'a IdentMap.t *)
@@ -375,69 +376,101 @@ module StmtDisambiguate = struct
   in new_desc', tbl
 
   and assign_basic_stmt_disambiguate (assign_desc: Stmt.assign_desc) tbl =
-  let var_name (proc: expr) = match proc with
-  | App ((Var (qual_ident)), [], _) -> if List.length qual_ident.qual_path = 0 then qual_ident.qual_base else raise (Failure "invalid arg to var_name; qual_path not empty")
-  | _ -> raise (Failure "invalid arg to var_name")
+    let open_au_call = QualIdent.from_ident (Ident.make "openAU" 0) in
+    let commit_au_call = QualIdent.from_ident (Ident.make "commitAU" 0) in
+    let bind_au_call = QualIdent.from_ident (Ident.make "bindAU" 0) in
+    let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
 
-  in
-  let open_au_call = (Ident.make "openAU" 0) in
-  let commit_au_call = (Ident.make "commitAU" 0) in
-  let bind_au_call = (Ident.make "bindAU" 0) in
-  let abort_au_call = (Ident.make "abortAU" 0) in
-
-  match assign_desc.assign_rhs with
-  | App (Call, proc::args, _) -> ( 
-    if Ident.compare (var_name proc) open_au_call = 0 then 
-      match args with
+    match assign_desc.assign_rhs with
+    | App (Call, proc::args, _) -> (
+      print_debug ("AAA");
+      let proc_qual_ident = ASTUtil.expr_to_qual_ident proc in
+      
+      (* if List.is_empty proc_qual_ident.qual_path then ( *)
+      if QualIdent.compare (proc_qual_ident) open_au_call = 0 then 
+        match args with
+          | token::[] ->
+            let au_token', tbl = old_ident_disambiguate (ASTUtil.expr_to_ident token) tbl in
+            let bound_vars', tbl = list_disambiguate old_ident_disambiguate (List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_ident) tbl in
+            let (open_au: Stmt.open_au) = {
+            au_token =  au_token'; 
+            bound_vars = bound_vars';(* List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_ident *)
+            }
+            in (Stmt.OpenAU open_au), (tbl, [])
+          (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
+          | _ -> raise (Failure "openAU() called with incorrect number of arguments")
+      
+      else if QualIdent.compare (proc_qual_ident) commit_au_call = 0 then 
+        (match args with
+          | token::vars -> (match assign_desc.assign_lhs with
+            | [] -> 
+              let au_token', tbl = old_ident_disambiguate (ASTUtil.expr_to_ident token) tbl in
+              let vars', tbl = list_disambiguate expr_disambiguate vars tbl in
+              (Stmt.CommitAU {au_token = au_token'; return_vars = vars' }), (tbl, [])
+            | _ -> raise (Failure "incorrect number of bound_args to commitAU()"))
+          | _ -> raise (Failure "commitAU() called with incorrect number of arguments") )
+      else if QualIdent.compare (proc_qual_ident) bind_au_call = 0 then
+        (match args with
+        | [] -> (match assign_desc.assign_lhs with
+          | token::[] -> (Stmt.BindAU (ASTUtil.expr_to_ident token)), (tbl, [])
+          | _ -> raise (Failure "incorrect number of bound_args to bindAU()"))
+        | _ -> raise (Failure "bindAU() called with incorrect number of arguments") )
+      else if QualIdent.compare (proc_qual_ident) abort_au_call = 0 then
+        (match args with
         | token::[] -> (match assign_desc.assign_lhs with
-          | vars -> (Stmt.CommitAU {au_token = var_name token; return_vars = vars }), (tbl, []))
+          | [] -> (Stmt.AbortAU (ASTUtil.expr_to_ident token), (tbl, []))
+          | _ -> raise (Failure "incorrect number of bound_args to abortAU()"))
         (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
-        | _ -> raise (Failure "openAU() called with incorrect number of arguments")
-    
-    else if Ident.compare (var_name proc) commit_au_call = 0 then 
-      (match args with
-        | token::vars -> (match assign_desc.assign_lhs with
-          | [] -> (Stmt.CommitAU {au_token = var_name token; return_vars = vars }), (tbl, [])
-          | _ -> raise (Failure "incorrect number of bound_args to commitAU()"))
-        | _ -> raise (Failure "commitAU() called with incorrect number of arguments") )
-    else if Ident.compare (var_name proc) bind_au_call = 0 then
-      (match args with
-      | [] -> (match assign_desc.assign_lhs with
-        | token::[] -> (Stmt.BindAU (var_name token)), (tbl, [])
-        | _ -> raise (Failure "incorrect number of bound_args to bindAU()"))
-      | _ -> raise (Failure "bindAU() called with incorrect number of arguments") )
-    else if Ident.compare (var_name proc) abort_au_call = 0 then
-      (match args with
-      | token::[] -> (match assign_desc.assign_lhs with
-        | [] -> (Stmt.AbortAU (var_name token), (tbl, []))
-        | _ -> raise (Failure "incorrect number of bound_args to abortAU()"))
-      (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
-      | _ -> raise (Failure "abortAU() called without token") )
-    else
-      let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-      in (Stmt.Assign assign_desc'), (tbl, [])
-  (* 
-    match proc with
-    | App ((Var proc_name), _, _) -> 
-      if proc_name = open_au_call then (Stmt.OpenAU )  let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-      in (Stmt.Assign assign_desc'), (tbl, [])
+        | _ -> raise (Failure "abortAU() called without token") )
+      else
+        let (call_desc: Stmt.call_desc) = {
+          call_lhs = List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_qual_ident;
+          call_name = proc_qual_ident;
+          call_args = args;
+          }
+        
+        in 
+        
+        let call_desc', tbl = call_desc_disambiguate call_desc tbl
+        
+        in
+        Stmt.Call call_desc', (tbl, [])
+        (* 
+
+        { call_lhs: qual_ident list;
+        call_name: qual_ident;
+        call_args: expr list;
+      }
+
+        call_desc_disambiguate (App)
+
+        let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+        in (Stmt.Assign assign_desc'), (tbl, []) *)
+    (* 
+      match proc with
+      | App ((Var proc_name), _, _) -> 
+        if proc_name = open_au_call then (Stmt.OpenAU )  let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+        in (Stmt.Assign assign_desc'), (tbl, [])
+      | _ -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
+        in (Stmt.Assign assign_desc'), (tbl, []) *)
+    )
     | _ -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-      in (Stmt.Assign assign_desc'), (tbl, []) *)
-  )
-  | _ -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-      in (Stmt.Assign assign_desc'), (tbl, [])
+        in (Stmt.Assign assign_desc'), (tbl, [])
 
   and assign_desc_disambiguate (assign_desc: Stmt.assign_desc) tbl =
-    let assign_lhs', tbl = list_disambiguate expr_disambiguate assign_desc.assign_lhs tbl in (*  : expr list; *)
-    let assign_rhs', tbl = expr_disambiguate assign_desc.assign_rhs tbl in (*  : expr; *)
+    match assign_desc.assign_lhs with
+    | [assign_lhs'] ->
+      (* let _ = ASTUtil.expr_to_qual_ident (assign_lhs') in *)
+      let assign_lhs'', tbl = (expr_disambiguate assign_lhs' tbl) in (*  : expr list; *)
+      let assign_rhs', tbl = expr_disambiguate assign_desc.assign_rhs tbl in (*  : expr; *)
 
-    let (assign_desc': Stmt.assign_desc) = 
-    { assign_lhs = assign_lhs';
-      assign_rhs = assign_rhs';
-    }
+      let (assign_desc': Stmt.assign_desc) = 
+      { assign_lhs = assign_lhs'' :: [];
+        assign_rhs = assign_rhs';
+      }
 
-  in assign_desc', tbl
-      
+      in assign_desc', tbl
+    | _ -> raise (Failure "Assign desc should have one argument.")
   and call_desc_disambiguate (call_desc: Stmt.call_desc) tbl = 
     let call_lhs', tbl = list_disambiguate qual_ident_disambiguate call_desc.call_lhs tbl in (*  : qual_ident list; *)
     let call_name', tbl = qual_ident_disambiguate call_desc.call_name tbl in (*  : qual_ident; *)

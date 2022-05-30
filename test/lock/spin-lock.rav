@@ -1,5 +1,5 @@
 module Lock {
-  rep type t = struct {
+  rep type Rep = struct {
     var bit: Bool
   }
   

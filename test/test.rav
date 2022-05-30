@@ -21,9 +21,9 @@ module Lock {
     l.bit := false;
     var x : Bool = true;
     x := true;
-    val phi: AtomicToken;
-    phi, x := openAU();
-    var x : Bool;
+    var phi: AtomicToken;
+    phi := bindAU();
+    x := openAU(phi);
     val y = false;
 
     if (x == true) {
@@ -38,7 +38,7 @@ module Lock {
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
-    val res = true;
+    var res = true;
 
     if (l.bit) {
         res := false;
