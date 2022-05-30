@@ -541,6 +541,7 @@ module StmtTypeCheck = struct
     match typed_elem with
       | Some (Callable call_decl) -> 
           (if 
+            (* Todo: also check types of args and returns *)
             (List.length call_desc.call_lhs = List.length call_decl.call_decl_returns) 
           && (List.length call_desc.call_args = List.length call_decl.call_decl_formals)
            then
