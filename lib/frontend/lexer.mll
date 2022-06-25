@@ -26,6 +26,7 @@ let _ =
       ("forall", QUANT(Expr.Forall));
       ("exists", QUANT(Expr.Exists));
       ("func", FUNC (Func));
+      ("field", FIELD);
       ("ghost", GHOST);
       ("havoc", HAVOC);
       ("if", IF);
@@ -47,7 +48,6 @@ let _ =
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);
-      ("struct", STRUCT);
       ("subseteq", SUBSETEQ);
       ("Set", SET);
       ("true", CONSTVAL (Expr.Bool true));

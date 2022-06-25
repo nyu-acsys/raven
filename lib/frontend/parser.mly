@@ -21,7 +21,7 @@ open Ast
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
-%token CASE DATA STRUCT INT BOOL SET MAP ATOMICTOKEN
+%token CASE DATA INT BOOL SET MAP ATOMICTOKEN FIELD
 %token ATOMIC GHOST IMPLICIT REP  
 %token <bool> VAR  
 %token INTERFACE MODULE TYPE IMPORT
@@ -64,6 +64,7 @@ module_def:
   | ModImpl impl ->
       ModImpl { impl with mod_decl = decl; }
   | ModAlias ma ->
+  (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def)) (Some "Expected {")
       else
@@ -92,6 +93,7 @@ member_def_list_opt:
 | (* empty *) { [] }
 
 member_def:
+| def = field_def {Module.FieldDef def}
 | def = module_def { Module.ModDef def }
 | def = interface_def { Module.ModDef def }
 | def = type_def { Module.TypeAlias def }
@@ -100,6 +102,16 @@ member_def:
 | def = func_def { Module.CallDef def }
 | imp = import_dir { Module.Import imp }
   
+field_def:
+| FIELD x = IDENT; COLON; t = type_expr {
+    let decl =
+      Module.{ field_name = x;
+      field_type = t;
+           }
+    in
+    decl
+  }
+
 type_def:
 | def = type_decl; EQ; t = type_def_expr {
   let open Module in
@@ -108,10 +120,10 @@ type_def:
 
 type_def_expr:
 | t = type_expr { t }
-| STRUCT; LBRACE; defs = list(var_decl); RBRACE {
+/* | STRUCT; LBRACE; defs = list(var_decl); RBRACE {
   let decls = List.map (fun def -> def.Stmt.var_decl) defs in
   Type.mk_struct decls
-}
+} */
 | DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl); RBRACE {
   Type.mk_data decls
 }
@@ -676,6 +688,7 @@ qual_ident_expr:
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) []) }
 | p = primary DOT x = ident {
+  (* For Read expressions, x.f is stored as `App(Read, [f; x], ...)`, ie in reverse order *)
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [x; p])
 }
 

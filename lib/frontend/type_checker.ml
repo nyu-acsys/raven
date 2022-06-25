@@ -230,11 +230,9 @@ module TypeTypeCheck = struct
     | App (Var qual_ident, tp_list, tp_attr) -> (match SymbolTbl.find tbl qual_ident with
       | None -> raise (Failure ("TypeVariable " ^ QualIdent.to_string qual_ident ^ " not found."))
       | Some t -> (match t with
-        | TypeExpr (App (tc'', _tp_list'', _tp_attr'')) -> App (tc'', tp_list, tp_attr)
+        | TypeExpr (App (tc'', tp_list'', _tp_attr'')) -> App (tc'',  tp_list'' @ tp_list, tp_attr)
         | _ -> raise (Failure ("Variable " ^ QualIdent.to_string qual_ident ^ " should have TypeExpr."))))
 
-        (* Not sure what needs to be done to combine the tp_list received from the tbl, and the existing tp_list.
-        Just overwrite old with new or what? Right now disregarding the existing one. *)
     | App (tp, tp_list, tp_attr) ->
         let tp' = tp in
         let tp_list' = List.map tp_list ~f:(fun x -> type_expand x tbl)  in
@@ -354,11 +352,17 @@ module ExprTypeCheck = struct
   and expr_type_check (exp: expr) tbl : (expr * SymbolTbl.t) = match exp with
     | App (Read, exp_list, exp_attr) ->
       let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
-
+        (* x.f is stored as App(Read, [f; x], ...), ie in reverse order *)
       (match exp_list with
         | [h; t] -> let t', tbl = expr_type_check t tbl in
         (match (type_expr_expand (type_of_expr t') tbl) with
-            | App (Struct var_decl_list, [], _) -> let tp = TypeTypeCheck.struct_lookup var_decl_list h in
+            (* | App (Ref, [], _) -> (match SymbolTbl.find tbl (expr_to_qual_ident h) with
+            | None -> raise (Failure ("TypeVariable " ^ QualIdent.to_string qual_ident ^ " not found."))
+            | Some t -> (match t with
+              | TypeExpr (App (tc'', tp_list'', _tp_attr'')) -> App (tc'',  tp_list'' @ tp_list, tp_attr) *)
+            | App (Struct var_decl_list, [], _) ->           
+            
+            let tp = TypeTypeCheck.struct_lookup var_decl_list h in
               (match tp with
                 | None -> raise (Failure "Field dereference failed. Field not found.")
                 | Some tp -> App (Read, [h; t'], {exp_attr with expr_type = tp}), tbl)

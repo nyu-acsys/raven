@@ -217,7 +217,7 @@ module TypeDisambiguate = struct
     | Int
     | Bool
     | Unit
-    | AnyRef
+    | Ref
     | Perm
     | Bot
     | Any
@@ -226,9 +226,6 @@ module TypeDisambiguate = struct
     | Map -> tc, tbl
     | Var qual_ident -> let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl
       in (Var qual_ident'), tbl
-    | Struct var_decl_list ->
-      let var_decl_list', tbl = list_disambiguate struct_var_decl_disambiguate var_decl_list tbl in
-      (Struct var_decl_list'), tbl
     | Data variant_decl_list -> let variant_decl_list', tbl = list_disambiguate variant_decl_disambiguate variant_decl_list tbl
         in (Data variant_decl_list'), tbl
 
@@ -753,14 +750,28 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
   and member_def_disambiguate (mem_def: Module.member_def) tbl : (Module.member_def * SymbolTbl.t) = match mem_def with
     | TypeAlias tp_alias -> let tp_alias', tbl = type_alias_disambiguate tp_alias tbl in
         (TypeAlias tp_alias'), tbl
-    | Import imp_dir -> let imp_dir', tbl = import_directive_disambiguate imp_dir tbl in
+    | Import imp_dir -> (* TODO: Actually do something with import. *)
+      let imp_dir', tbl = import_directive_disambiguate imp_dir tbl in
         (Import imp_dir'), tbl
     | ModDef mod_def -> let mod_def', tbl = mod_def_disambiguate mod_def tbl in
         (ModDef mod_def'), tbl
+    | FieldDef field_def -> let field_def', tbl = field_def_disambiguate field_def tbl in
+        (FieldDef field_def'), tbl
     | ValDef var_defn -> let var_defn', tbl = StmtDisambiguate.var_def_disambiguate var_defn tbl in
         (ValDef var_defn'), tbl
     | CallDef call -> let call', tbl = callable_disambiguate call tbl in
         (CallDef call'), tbl
+
+  and field_def_disambiguate field_def tbl = 
+    let field_name', tbl = new_ident_disambiguate field_def.field_name tbl in
+    let field_type', tbl = type_expr_disambiguate field_def.field_type tbl in
+    
+    let (field_def' : Module.field_def) = 
+    { field_name = field_name';
+      field_type = field_type';
+    }
+
+  in field_def', tbl
 
   and mod_def_disambiguate mod_def tbl = match mod_def with
     | ModImpl mod1 -> let mod', tbl = module_disambiguate mod1 tbl in
@@ -769,29 +780,33 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
         ((ModAlias mod_alias'), tbl)
     
   and module_disambiguate mod1 tbl =
-    let rec extract_members (mod_defs_list: Module.member_def list) (rep, mod_defs, mod_aliases, types, callables, vars) = 
+    let rec extract_members (mod_defs_list: Module.member_def list) (rep, mod_defs, mod_aliases, fields, types, callables, vars) = 
       match mod_defs_list with 
-      | [] -> (rep, mod_defs, mod_aliases, types, callables, vars)
+      | [] -> (rep, mod_defs, mod_aliases, fields, types, callables, vars)
       | def :: defs -> match def with
           | TypeAlias type_alias ->
               let rep =  if (type_alias.type_alias_rep) then (Some type_alias.type_alias_name) else rep in
               let types = (Map.add_exn types ~key:type_alias.type_alias_name ~data:type_alias) in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
-          | Import _ -> 
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars)
+          | Import _ ->
+            (* TODO: Actually do something with import. 
+               Actually maybe the right place would be in member_def_disambiguate*)
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars)
           | ModDef module_def -> (match module_def with 
               | ModImpl mod_impl -> let mod_defs = Map.add_exn mod_defs ~key:mod_impl.mod_decl.mod_decl_name ~data:mod_impl.mod_decl in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars)
               | ModAlias mod_alias -> let mod_aliases = Map.add_exn mod_aliases ~key:mod_alias.mod_alias_name ~data: mod_alias in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars) )
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars) )
+          | FieldDef field_def -> let fields = Map.add_exn fields ~key: field_def.field_name ~data: field_def.field_type in
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars)
           | ValDef v -> let vars = Map.add_exn vars ~key:v.var_decl.var_name ~data:v.var_decl in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars)
           | CallDef call -> let cl_decl = (match call with
               | FuncDef fn -> fn.func_decl
               | ProcDef proc -> proc.proc_decl) in
               
               let callables = Map.add_exn callables ~key:cl_decl.call_decl_name ~data:cl_decl in
-              extract_members defs (rep, mod_defs, mod_aliases, types, callables, vars)
+              extract_members defs (rep, mod_defs, mod_aliases, fields, types, callables, vars)
 
       in
 
@@ -799,7 +814,26 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
 
     let tbl = SymbolTbl.push_name mod_decl_name' tbl in
     let mod_def', tbl = list_disambiguate member_def_disambiguate mod1.mod_def tbl in
-    let (rep, mod_defs, mod_aliases, types, callables, vars) = extract_members mod_def' (mod1.mod_decl.mod_decl_rep, mod1.mod_decl.mod_decl_mod_defs, mod1.mod_decl.mod_decl_mod_aliases, mod1.mod_decl.mod_decl_types, mod1.mod_decl.mod_decl_callables, mod1.mod_decl.mod_decl_vars) in
+    (* Actually probably have to move away from list_disambiguate for mod_def' 
+       in order to properly implement import. Maybe can implement a new list_disambiguate for this because I think it might be useful for unfolding nested expressions too.  *)
+
+    let 
+      (rep,
+      mod_defs,
+      mod_aliases, 
+      fields, 
+      types, 
+      callables, 
+      vars) = 
+      extract_members mod_def' (mod1.mod_decl.mod_decl_rep,
+                                mod1.mod_decl.mod_decl_mod_defs,
+                                mod1.mod_decl.mod_decl_mod_aliases,
+                                mod1.mod_decl.mod_decl_fields,
+                                mod1.mod_decl.mod_decl_types,
+                                mod1.mod_decl.mod_decl_callables,
+                                mod1.mod_decl.mod_decl_vars)
+
+    in
     
     let tbl = match tbl with
     | []
@@ -815,6 +849,7 @@ and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
     { mod_decl_name = mod_decl_name';
       mod_decl_formals = mod1.mod_decl.mod_decl_formals;
       mod_decl_returns = mod1.mod_decl.mod_decl_returns;
+      mod_decl_fields = fields;
       mod_decl_rep = rep;
       mod_decl_mod_defs = mod_defs;
       mod_decl_mod_aliases = mod_aliases;

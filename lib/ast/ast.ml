@@ -126,14 +126,13 @@ module Type = struct
     | Int
     | Bool
     | Unit
-    | AnyRef
+    | Ref
     | Perm
     | Bot
     | Any
     | Var of QualIdent.t
     | Set
     | Map
-    | Struct of var_decl list
     | Data of variant_decl list
     | AtomicToken
   
@@ -155,7 +154,6 @@ module Type = struct
   let perm_type_string = "Perm"
   let bot_type_string = "Bot"
   let any_type_string = "Any"
-  let anyref_type_string = "AnyRef"
   let struct_type_string = "struct"
   let data_type_string = "struct"
 
@@ -167,11 +165,10 @@ module Type = struct
   | Unit -> unit_type_string
   | Bot -> bot_type_string
   | Any -> any_type_string
-  | AnyRef -> anyref_type_string
+  | Ref -> ref_type_string
   | Set -> set_type_string
   | Map -> map_type_string
   | Perm -> perm_type_string
-  | Struct _ -> struct_type_string
   | Data _ -> data_type_string
   | Var id -> QualIdent.to_string id
   | AtomicToken -> atomic_token_type_string
@@ -184,15 +181,12 @@ module Type = struct
   | Unit
   | Any
   | Bot
-  | AnyRef
+  | Ref
   | Perm
   | Var _
   | Set
   | AtomicToken
   | Map ->  Stdlib.Format.fprintf ppf "%s" (to_name t)
-  | Struct decls ->
-      Stdlib.Format.fprintf ppf "struct {@\n  @[%a@]@\n}"
-        pr_var_decl_list decls
   | Data decls ->
       Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}"
         pr_variant_decl_list decls
@@ -265,32 +259,29 @@ module Type = struct
   let mk_bool loc = App (Bool, [], mk_attr loc)
   let mk_unit loc = App (Unit, [], mk_attr loc)
   let mk_any loc = App (Any, [], mk_attr loc)
-  let mk_anyref loc = App (AnyRef, [], mk_attr loc)
+  let mk_ref loc = App (Ref, [], mk_attr loc)
   let mk_set loc = App (Set, [], mk_attr loc)
   let mk_map loc = App (Map, [], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
-  let mk_struct decls = App (Struct decls, [], mk_attr Loc.dummy)
   let mk_data decls = App (Data decls, [], mk_attr Loc.dummy)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
   let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
 
   (** Subtyping *)
-  
+  (* TODO: Verify join_constr properly *)
   let rec join_constr t1 t2 =
     match t1, t2 with
     | Bot, t 
     | t, Bot -> t
     | Bool, Perm 
     | Perm, Bool -> Perm
-    | AnyRef, Struct _ 
-    | Struct _, AnyRef -> AnyRef
+(*     | Ref, _ 
+    | _, Ref -> Ref *)
     | _ -> Any
 
-  let rec join t1 t2 =
+  (* TODO: Handle edge-cases for join properly. And figure out where and how it can be used. *)
+    let rec join t1 t2 =
      match t1, t2 with
-(*    | Bot, t | t, Bot -> t
-    | Bool, Perm | Perm, Bool -> Perm
-    | AnyRef, Struct _ | Struct _, AnyRef -> AnyRef *)
     | App (t1, [], a1), App (t2, [], _) ->
         App (join_constr t1 t2, [], a1)
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
@@ -317,7 +308,6 @@ module Expr = struct
       params : Stmt.var_def list;
       committed : (expr list) option;
     } *) 
-    
     
   type constr =
     (* Constants *)
@@ -865,6 +855,7 @@ module Module = struct
       { mod_decl_name: ident;
         mod_decl_formals: ident list;
         mod_decl_returns: type_expr list; (* make this qualIdent *)
+        mod_decl_fields: type_expr ident_map;
         mod_decl_rep: ident option;
         mod_decl_mod_defs: module_decl ident_map;
         mod_decl_mod_aliases: module_alias ident_map;
@@ -877,11 +868,18 @@ module Module = struct
   type import_directive =
     | ModImport of type_expr
     | MemImport of qual_ident
+
+  type field_def =
+    {
+      field_name: ident;
+      field_type: type_expr;
+    }
           
   type member_def =
     | TypeAlias of type_alias
     | Import of import_directive
     | ModDef of module_def
+    | FieldDef of field_def
     | ValDef of Stmt.var_def
     | CallDef of Callable.t
 
@@ -938,6 +936,7 @@ module Module = struct
           (fun ppf -> function
             | None -> ()
             | Some t -> fprintf ppf " =@ %a" Type.pr t) ma.mod_alias_def 
+    | FieldDef field_def -> fprintf ppf "field %a: %a" Ident.pr field_def.field_name Type.pr field_def.field_type 
     | ValDef vdef ->
         Stmt.pr_var_def ppf vdef
     | CallDef cdef -> Callable.pr ppf cdef
@@ -957,6 +956,7 @@ module Module = struct
     { mod_decl_name = Ident.make "" 0;
       mod_decl_formals = [];
       mod_decl_returns = [];
+      mod_decl_fields = Base.Map.empty (module Ident);
       mod_decl_rep = None;
       mod_decl_mod_defs = Base.Map.empty (module Ident);
       mod_decl_mod_aliases = Base.Map.empty (module Ident);
