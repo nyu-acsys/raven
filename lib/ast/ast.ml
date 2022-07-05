@@ -7,7 +7,7 @@ type location = Loc.t
     
 (** Identifiers *)
 
-let print_debug _str = (* Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m") ;*) ()
+let print_debug _str = Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m") ; ()
 
 module Ident = struct
   module T = struct
@@ -855,8 +855,8 @@ module Module = struct
       { mod_decl_name: ident;
         mod_decl_formals: ident list;
         mod_decl_returns: type_expr list; (* make this qualIdent *)
-        mod_decl_fields: type_expr ident_map;
         mod_decl_rep: ident option;
+        mod_decl_fields: type_expr ident_map;
         mod_decl_mod_defs: module_decl ident_map;
         mod_decl_mod_aliases: module_alias ident_map;
         mod_decl_types: type_alias ident_map;

@@ -21,7 +21,7 @@ open Ast
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
-%token CASE DATA INT BOOL SET MAP ATOMICTOKEN FIELD
+%token CASE DATA INT BOOL SET MAP ATOMICTOKEN FIELD REF
 %token ATOMIC GHOST IMPLICIT REP  
 %token <bool> VAR  
 %token INTERFACE MODULE TYPE IMPORT
@@ -864,6 +864,7 @@ bound_var_opt_type:
 type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
+| REF { Type.mk_ref (Loc.make $startpos $endpos) }
 | ATOMICTOKEN { Type.mk_atomic_token (Loc.make $startpos $endpos) }
 | x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | x = MODIDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }

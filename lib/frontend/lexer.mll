@@ -45,6 +45,7 @@ let _ =
       ("own", OWN);
       ("pred", FUNC (Pred));
       ("proc", PROC (Proc));
+      ("Ref", REF);
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);

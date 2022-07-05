@@ -305,7 +305,9 @@ module ExprDisambiguate = struct
   and expr_disambiguate (exp: expr) tbl : (expr * SymbolTbl.t) = match exp with
     | App (Read, exp_list, exp_attr) ->
         let exp_list', tbl = (match exp_list with
-          | [h; t] -> let t', tbl = expr_disambiguate t tbl in [h; t'], tbl
+          | [h; t] -> let t', tbl = expr_disambiguate t tbl in 
+              let h', tbl = expr_disambiguate h tbl in
+            [h'; t'], tbl
           | _ -> raise (Failure "Read expression has an invalid number of arguments") )
         
         in

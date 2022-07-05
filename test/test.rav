@@ -1,23 +1,21 @@
 module Lock {
-  rep type t = struct {
-    var bit: Bool
-  }
+  field bit: Bool
 
   module Key {
     var l = true
   }
 
-  pred lockR(l: t, b: Bool) {
+  pred lockR(l: Ref, b: Bool) {
     own(l.bit, b)
   }
 
   var l = true
 
   proc create()
-    returns (l: t)
+    returns (l: Ref)
     ensures lockR(l, false)
   {
-    l := new t;
+    l := new Ref;
     l.bit := false;
     var x : Bool = true;
     x := true;
@@ -34,7 +32,7 @@ module Lock {
 
   /* How to prove following spec? Lob induction? */ 
   
-  proc acquire(l: t, implicit ghost b: Bool)
+  proc acquire(l: Ref, implicit ghost b: Bool)
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
@@ -59,7 +57,7 @@ module Lock {
     if (!res) acquire(l, true);
   }
 
-  proc release(l: t)
+  proc release(l: Ref)
     atomic requires lockR(l, true)
     atomic ensures lockR(l, false)
   {
@@ -70,7 +68,7 @@ module Lock {
 }
 
   module Trial {
-    proc trial(l: Lock) {
+    proc trial(l: Ref) {
       l.bit := true;
     }
     
