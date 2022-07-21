@@ -69,8 +69,7 @@ module Lock {
 
   module Trial {
     proc trial(l: Ref) {
-      l.bit := true;
+      l.(Lock.bit) := true;
     }
-    
   }
 

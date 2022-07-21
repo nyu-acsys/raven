@@ -691,6 +691,9 @@ qual_ident_expr:
   (* For Read expressions, x.f is stored as `App(Read, [f; x], ...)`, ie in reverse order *)
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [x; p])
 }
+| p = primary DOT LPAREN x = qual_ident_expr RPAREN {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [x; p])
+}
 
 mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
