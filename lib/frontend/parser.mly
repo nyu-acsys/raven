@@ -90,6 +90,7 @@ module_alias_or_impl:
 
 member_def_list_opt:
 | m = member_def; ms = member_def_list_opt { m :: ms }
+| m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
 member_def:

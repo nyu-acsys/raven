@@ -322,78 +322,12 @@ module TypeTypeCheck = struct
          let tp_attr', tbl = type_attr_type_check tp_attr tbl
 
        in (Dot (tp', iden', tp_attr')), tbl *) *)
-
-  let rec struct_lookup (var_decl_list : var_decl list) (e : expr) =
-    match var_decl_list with
-    | [] -> None
-    | var_decl :: var_decl_ls ->
-        let iden =
-          match e with
-          | App (Var qual, [], _) -> (
-              match qual.qual_path with
-              | [] -> qual.qual_base
-              | _ ->
-                  raise
-                    (Failure
-                       "Struct lookup failed. Expected Ident; found QualIdent.")
-              )
-          | x ->
-              raise
-                (Failure
-                   ("Struct lookup failed. Expected Iden; found "
-                  ^ Expr.to_string x))
-        in
-
-        if Ident.compare var_decl.var_name iden = 0 then Some var_decl.var_type
-        else struct_lookup var_decl_ls e
 end
 
 let type_expr_expand = TypeTypeCheck.type_expand
 let var_decl_type_check = TypeTypeCheck.var_decl_type_check
 
 module ExprTypeCheck = struct
-  (* let rec constr_type_check (const : Expr.constr) tbl : (Expr.constr * SymbolTbl.t) = match const with
-     | Null
-     | Unit
-     | Bool _
-     | Int _
-     | Empty
-     | Not
-     | Uminus
-     | Eq
-     | Gt
-     | Lt
-     | Geq
-     | Leq
-     | Diff
-     | Union
-     | Inter
-     | Elem
-     | Subseteq
-     | And
-     | Or
-     | Impl
-     | Plus
-     | Minus
-     | Mult
-     | Div
-     | Mod
-     | Dot
-     | Call
-     | Read
-     (* Ternary operators *)
-     | Ite
-     | Write
-     | Own
-     (* Variable arity operators *)
-     | Setenum
-     | Var _ (* qual_ident -> let qual_ident', tbl = qual_ident_type_check qual_ident tbl
-         in (Var qual_ident'), tbl *)
-     | New _ -> const, tbl(* tp_expr -> let tp_expr', tbl = type_expr_type_check tp_expr tbl
-         in (New tp_expr'), tbl *) *)
-
-  (* and binder_type_check bind tbl = bind, tbl *)
-
   let type_of_expr (exp : Expr.t) =
     match exp with
     | App (_, _, exp_attr) -> exp_attr.expr_type

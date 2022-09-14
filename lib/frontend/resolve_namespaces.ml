@@ -1,5 +1,5 @@
 open Base
-(** Resolve identifiers to make everything unique*)
+(** Resolve identifiers to make everything unique *)
 
 open Ast
 (* open Util *)
@@ -112,6 +112,8 @@ let rec list_disambiguate fn arg tbl =
       let ls', tbl = list_disambiguate fn ls tbl in
       (l' :: ls', tbl)
 
+
+
 module IdentDisambiguate = struct
   let old_ident_disambiguate iden (tbl : SymbolTbl.t) =
     print_debug ("Old_Ident: " ^ Ident.to_string iden ^ "\n");
@@ -131,6 +133,8 @@ end
 let old_ident_disambiguate = IdentDisambiguate.old_ident_disambiguate
 let new_ident_disambiguate = IdentDisambiguate.new_ident_disambiguate
 
+
+(* Takes a map from ident to 'a, calls new_ident_disambiguate on the idents and val_fun on the values. *)
 let ident_map_new_disambiguate val_fun id_map tbl =
   let fn (id, value) tbl =
     let id', tbl = new_ident_disambiguate id tbl in
@@ -150,6 +154,8 @@ let ident_map_new_disambiguate val_fun id_map tbl =
   let l', tbl = fn_iter (Map.to_alist id_map) tbl in
   (Map.of_alist_exn (module Ident) l', tbl)
 
+
+(* Takes a map from ident to 'a, calls old_ident_disambiguate on the idents and val_fun on the values. *)
 let ident_map_old_disambiguate val_fun id_map tbl =
   let fn (id, value) tbl =
     let value', tbl = val_fun value tbl in
@@ -169,6 +175,8 @@ let ident_map_old_disambiguate val_fun id_map tbl =
   let l', tbl = fn_iter (Map.to_alist id_map) tbl in
   (Map.of_alist_exn (module Ident) l', tbl)
 
+
+
 module QualIdentDisambiguate = struct
   let rec qual_ident_disambiguate (qual_iden : qual_ident) tbl =
     print_debug ("Old_QualIdent: " ^ QualIdent.to_string qual_iden ^ "\n");
@@ -179,6 +187,8 @@ module QualIdentDisambiguate = struct
 end
 
 let qual_ident_disambiguate = QualIdentDisambiguate.qual_ident_disambiguate
+
+
 
 module TypeDisambiguate = struct
   let rec type_attr_disambiguate tp_attr tbl = (tp_attr, tbl)
@@ -204,7 +214,7 @@ module TypeDisambiguate = struct
 
     (var_decl', tbl)
 
-  and struct_var_decl_disambiguate (var_decl : Type.var_decl) tbl =
+  (* and struct_var_decl_disambiguate (var_decl : Type.var_decl) tbl =
     let var_name', tbl = (var_decl.var_name, tbl) in
     let var_loc' = var_decl.var_loc in
     let var_type', tbl = type_disambiguate var_decl.var_type tbl in
@@ -223,7 +233,7 @@ module TypeDisambiguate = struct
       }
     in
 
-    (var_decl', tbl)
+    (var_decl', tbl) *)
 
   and variant_decl_disambiguate (variant_decl : Type.variant_decl) tbl =
     let variant_name', tbl =
@@ -255,6 +265,9 @@ module TypeDisambiguate = struct
         let qual_ident', tbl = qual_ident_disambiguate qual_ident tbl in
         (Var qual_ident', tbl)
     | Data variant_decl_list ->
+      (* TODO: Is this the right thing to do? 
+         We are assuming that this constructor will only appear in AST when defining the type for first time
+         and not when using the type. *)
         let variant_decl_list', tbl =
           list_disambiguate variant_decl_disambiguate variant_decl_list tbl
         in
@@ -280,6 +293,8 @@ end
 let type_expr_disambiguate = TypeDisambiguate.type_disambiguate
 let var_decl_disambiguate = TypeDisambiguate.var_decl_disambiguate
 
+
+
 module ExprDisambiguate = struct
   let rec constr_disambiguate (const : Expr.constr) tbl :
       Expr.constr * SymbolTbl.t =
@@ -303,10 +318,8 @@ module ExprDisambiguate = struct
 
   and expr_attr_disambiguate (expr_att : Expr.expr_attr) tbl =
     let expr_loc' = expr_att.expr_loc in
-    (* : location; *)
     let expr_type', tbl = type_expr_disambiguate expr_att.expr_type tbl in
 
-    (* : type_expr; *)
     let (expr_att' : Expr.expr_attr) =
       { expr_loc = expr_loc'; expr_type = expr_type' }
     in
@@ -325,6 +338,7 @@ module ExprDisambiguate = struct
           | _ ->
               raise
                 (Failure "Read expression has an invalid number of arguments")
+                 (* ^ Loc.(Expr.attr_of exp).expr_loc) *)
         in
 
         let exp_attr', tbl = expr_attr_disambiguate exp_attr tbl in
@@ -347,6 +361,8 @@ module ExprDisambiguate = struct
 end
 
 let expr_disambiguate = ExprDisambiguate.expr_disambiguate
+
+
 
 module StmtDisambiguate = struct
   let rec spec_disambiguate (spec : Stmt.spec) tbl =
@@ -373,12 +389,10 @@ module StmtDisambiguate = struct
 
   and var_def_disambiguate (var_def : Stmt.var_def) tbl =
     let var_decl', tbl = var_decl_disambiguate var_def.var_decl tbl in
-    (*  : var_decl; *)
     let var_init', tbl =
       option_disambiguate expr_disambiguate var_def.var_init tbl
     in
 
-    (*  : expr option; *)
     let (var_def' : Stmt.var_def) =
       { var_decl = var_decl'; var_init = var_init' }
     in
@@ -387,14 +401,11 @@ module StmtDisambiguate = struct
 
   and new_desc_disambiguate (new_desc : Stmt.new_desc) tbl =
     let new_lhs', tbl = new_ident_disambiguate new_desc.new_lhs tbl in
-    (* : ident; *)
     let new_type', tbl = type_expr_disambiguate new_desc.new_type tbl in
-    (* : type_expr; *)
     let new_args', tbl =
       list_disambiguate expr_disambiguate new_desc.new_args tbl
     in
 
-    (* : expr list; *)
     let (new_desc' : Stmt.new_desc) =
       { new_lhs = new_lhs'; new_type = new_type'; new_args = new_args' }
     in
@@ -409,103 +420,86 @@ module StmtDisambiguate = struct
 
     match assign_desc.assign_rhs with
     | App (Call, proc :: args, _) ->
-        print_debug "AAA";
-        let proc_qual_ident = ASTUtil.expr_to_qual_ident proc in
+      let proc_qual_ident = ASTUtil.expr_to_qual_ident proc in
 
-        (* if List.is_empty proc_qual_ident.qual_path then ( *)
-        if QualIdent.compare proc_qual_ident open_au_call = 0 then
-          match args with
-          | [ token ] ->
-              let au_token', tbl =
-                old_ident_disambiguate (ASTUtil.expr_to_ident token) tbl
-              in
-              let bound_vars', tbl =
-                list_disambiguate old_ident_disambiguate
-                  (List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_ident)
-                  tbl
-              in
-              let (open_au : Stmt.open_au) =
-                {
-                  au_token = au_token';
-                  bound_vars = bound_vars';
-                  (* List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_ident *)
-                }
-              in
-              (Stmt.OpenAU open_au, (tbl, []))
-          (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
-          | _ ->
-              raise
-                (Failure "openAU() called with incorrect number of arguments")
-        else if QualIdent.compare proc_qual_ident commit_au_call = 0 then
-          match args with
-          | token :: vars -> (
-              match assign_desc.assign_lhs with
-              | [] ->
-                  let au_token', tbl =
-                    old_ident_disambiguate (ASTUtil.expr_to_ident token) tbl
-                  in
-                  let vars', tbl =
-                    list_disambiguate expr_disambiguate vars tbl
-                  in
-                  ( Stmt.CommitAU { au_token = au_token'; return_vars = vars' },
-                    (tbl, []) )
-              | _ ->
-                  raise (Failure "incorrect number of bound_args to commitAU()")
-              )
-          | _ ->
-              raise
-                (Failure "commitAU() called with incorrect number of arguments")
-        else if QualIdent.compare proc_qual_ident bind_au_call = 0 then
-          match args with
-          | [] -> (
-              match assign_desc.assign_lhs with
-              | [ token ] ->
-                  (Stmt.BindAU (ASTUtil.expr_to_ident token), (tbl, []))
-              | _ ->
-                  raise (Failure "incorrect number of bound_args to bindAU()"))
-          | _ ->
-              raise
-                (Failure "bindAU() called with incorrect number of arguments")
-        else if QualIdent.compare proc_qual_ident abort_au_call = 0 then
-          match args with
-          | [ token ] -> (
-              match assign_desc.assign_lhs with
-              | [] -> (Stmt.AbortAU (ASTUtil.expr_to_ident token), (tbl, []))
-              | _ ->
-                  raise (Failure "incorrect number of bound_args to abortAU()"))
-          (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
-          | _ -> raise (Failure "abortAU() called without token")
-        else
-          let (call_desc : Stmt.call_desc) =
+      if QualIdent.compare proc_qual_ident open_au_call = 0 then
+        match args with
+        | [ token ] ->
+          let au_token', tbl = old_ident_disambiguate (ASTUtil.expr_to_ident token) tbl
+
+          in
+
+          let bound_vars', tbl =
+            list_disambiguate old_ident_disambiguate
+              (List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_ident) tbl
+
+          in
+
+          let (open_au : Stmt.open_au) =
             {
-              call_lhs =
-                List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_qual_ident;
-              call_name = proc_qual_ident;
-              call_args = args;
+              au_token = au_token';
+              bound_vars = bound_vars';
             }
           in
 
-          let call_desc', tbl = call_desc_disambiguate call_desc tbl in
+          (Stmt.OpenAU open_au, (tbl, []))
 
-          (Stmt.Call call_desc', (tbl, []))
-        (*
+        | _ ->
+            raise
+              (Failure "openAU() called with incorrect number of arguments")
+      else if QualIdent.compare proc_qual_ident commit_au_call = 0 then
+        match args with
+        | token :: vars -> (
+            match assign_desc.assign_lhs with
+            | [] ->
+                let au_token', tbl =
+                  old_ident_disambiguate (ASTUtil.expr_to_ident token) tbl
+                in
+                let vars', tbl =
+                  list_disambiguate expr_disambiguate vars tbl
+                in
+                ( Stmt.CommitAU { au_token = au_token'; return_vars = vars' },
+                  (tbl, []) )
+            | _ ->
+                raise (Failure "incorrect number of bound_args to commitAU()")
+            )
+        | _ ->
+            raise
+              (Failure "commitAU() called with incorrect number of arguments")
+      else if QualIdent.compare proc_qual_ident bind_au_call = 0 then
+        match args with
+        | [] -> (
+            match assign_desc.assign_lhs with
+            | [ token ] ->
+                (Stmt.BindAU (ASTUtil.expr_to_ident token), (tbl, []))
+            | _ ->
+                raise (Failure "incorrect number of bound_args to bindAU()"))
+        | _ ->
+            raise
+              (Failure "bindAU() called with incorrect number of arguments")
+      else if QualIdent.compare proc_qual_ident abort_au_call = 0 then
+        match args with
+        | [ token ] -> (
+            match assign_desc.assign_lhs with
+            | [] -> (Stmt.AbortAU (ASTUtil.expr_to_ident token), (tbl, []))
+            | _ ->
+                raise (Failure "incorrect number of bound_args to abortAU()"))
+        (* (Stmt.OpenAU {au_token = var_name token; bound_vars = vars }), (tbl, []) *)
+        | _ -> raise (Failure "abortAU() called without token")
+      else
+        let (call_desc : Stmt.call_desc) =
+          {
+            call_lhs =
+              List.map assign_desc.assign_lhs ~f:ASTUtil.expr_to_qual_ident;
+            call_name = proc_qual_ident;
+            call_args = args;
+          }
+        in
 
-             { call_lhs: qual_ident list;
-             call_name: qual_ident;
-             call_args: expr list;
-           }
+        let call_desc', tbl = call_desc_disambiguate call_desc tbl in
 
-             call_desc_disambiguate (App)
+        (Stmt.Call call_desc', (tbl, []))
 
-             let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-             in (Stmt.Assign assign_desc'), (tbl, []) *)
-        (*
-           match proc with
-           | App ((Var proc_name), _, _) ->
-             if proc_name = open_au_call then (Stmt.OpenAU )  let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-             in (Stmt.Assign assign_desc'), (tbl, [])
-           | _ -> let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl
-             in (Stmt.Assign assign_desc'), (tbl, []) *)
     | _ ->
         let assign_desc', tbl = assign_desc_disambiguate assign_desc tbl in
         (Stmt.Assign assign_desc', (tbl, []))
@@ -515,16 +509,14 @@ module StmtDisambiguate = struct
     | [ assign_lhs' ] ->
         (* let _ = ASTUtil.expr_to_qual_ident (assign_lhs') in *)
         let assign_lhs'', tbl = expr_disambiguate assign_lhs' tbl in
-        (*  : expr list; *)
         let assign_rhs', tbl = expr_disambiguate assign_desc.assign_rhs tbl in
 
-        (*  : expr; *)
         let (assign_desc' : Stmt.assign_desc) =
           { assign_lhs = [ assign_lhs'' ]; assign_rhs = assign_rhs' }
         in
 
         (assign_desc', tbl)
-    | _ -> raise (Failure "Assign desc should have one argument.")
+    | _ -> raise (Failure "Assign desc should have one lhs argument.")
 
   and call_desc_disambiguate (call_desc : Stmt.call_desc) tbl =
     let call_lhs', tbl =
@@ -705,6 +697,8 @@ end
 
 let stmt_disambiguate = StmtDisambiguate.stmt_disambiguate
 
+
+
 module CallableDisambiguate = struct
   let rec locals_to_string (m : (ident * Type.var_decl) list) =
     match m with
@@ -720,8 +714,10 @@ module CallableDisambiguate = struct
     let call_decl_name', tbl =
       new_ident_disambiguate call_decl.call_decl_name tbl
     in
+
     let tbl = SymbolTbl.push tbl in
     (* Corresponding SymbolTbl.pop made in proc_def_disambiguate and func_def_disambiguate *)
+
     let call_decl_locals', tbl =
       ident_map_old_disambiguate var_decl_disambiguate
         call_decl.call_decl_locals tbl
@@ -770,6 +766,7 @@ module CallableDisambiguate = struct
     in
 
     let tbl = SymbolTbl.pop tbl in
+    (* Corresponding push made in call_decl_disambiguate *)
 
     let proc_decl'' =
       {
@@ -782,7 +779,7 @@ module CallableDisambiguate = struct
       ("LOCALS OUTPUT: "
       ^ locals_to_string (Map.to_alist proc_decl''.call_decl_locals)
       ^ "\n\n");
-    (* Corresponding push made in call_decl_disambiguate *)
+    
     let (proc_def' : Callable.proc_def) =
       { proc_decl = proc_decl''; proc_body = proc_body' }
     in
@@ -794,9 +791,10 @@ module CallableDisambiguate = struct
     let func_body', tbl =
       option_disambiguate expr_disambiguate func_def.func_body tbl
     in
-    let tbl = SymbolTbl.pop tbl in
 
+    let tbl = SymbolTbl.pop tbl in
     (* Corresponding push made in call_decl_disambiguate *)
+
     let (func_def' : Callable.func_def) =
       { func_decl = func_decl'; func_body = func_body' }
     in
@@ -814,6 +812,8 @@ module CallableDisambiguate = struct
 end
 
 let callable_disambiguate = CallableDisambiguate.callable_disambiguate
+
+
 
 module ModuleDisambiguate = struct
   let rec type_alias_disambiguate (type_alias : Module.type_alias) tbl =
@@ -859,44 +859,6 @@ module ModuleDisambiguate = struct
     in
 
     (mod_alias', tbl)
-
-  (*
-     and mod_decl_disambiguate (mod_decl: Module.module_decl) tbl =
-         let mod_decl_name', tbl = (* new_ident_disambiguate *) mod_decl.mod_decl_name, tbl in
-         (* Not new_ident-ing module names. Assuming module names are unique, probably want to revisit. *)
-         let mod_decl_formals', tbl = list_disambiguate new_ident_disambiguate mod_decl.mod_decl_formals tbl in
-         let mod_decl_returns', tbl = list_disambiguate type_expr_disambiguate mod_decl.mod_decl_returns tbl in
-         let mod_decl_rep', tbl = option_disambiguate old_ident_disambiguate mod_decl.mod_decl_rep tbl in
-         print_debug ("MODULE : " ^ Ident.to_string mod_decl_name' ^ " -> " ^ (match mod_decl_rep' with | None -> "None" | Some rep -> Ident.to_string rep) ^ "\n");
-         let tbl = match tbl with
-         | []
-         | _ :: [] -> tbl
-         | t :: ts -> match mod_decl_rep' with
-             | None -> (t :: ts)
-             | Some rep -> print_debug ("REP TYPE Adding: " ^ Ident.to_string mod_decl_name' ^ " -> " ^ Ident.to_string rep);
-               t :: (SymbolTbl.add ts (QualIdent.from_ident mod_decl_name') (QualIdent.make [mod_decl_name'] rep)) in
-
-         let mod_decl_mod_defs', tbl = ident_map_new_disambiguate mod_decl_disambiguate mod_decl.mod_decl_mod_defs tbl in
-         let mod_decl_mod_aliases', tbl = ident_map_new_disambiguate mod_alias_disambiguate mod_decl.mod_decl_mod_aliases tbl in
-         let mod_decl_types', tbl = ident_map_new_disambiguate type_alias_disambiguate mod_decl.mod_decl_types tbl in
-         let mod_decl_callables', tbl = ident_map_new_disambiguate CallableDisambiguate.call_decl_disambiguate mod_decl.mod_decl_callables tbl in
-         let mod_decl_vars', tbl =  ident_map_new_disambiguate var_decl_disambiguate mod_decl.mod_decl_vars tbl in
-         let mod_decl_loc' = mod_decl.mod_decl_loc in
-
-         let (mod_decl': Module.module_decl) =
-         { mod_decl_name = mod_decl_name';
-           mod_decl_formals = mod_decl_formals';
-           mod_decl_returns = mod_decl_returns';
-           mod_decl_rep = mod_decl_rep';
-           mod_decl_mod_defs = mod_decl_mod_defs';
-           mod_decl_mod_aliases = mod_decl_mod_aliases';
-           mod_decl_types = mod_decl_types';
-           mod_decl_callables = mod_decl_callables';
-           mod_decl_vars = mod_decl_vars';
-           mod_decl_loc = mod_decl_loc';
-         }
-
-       in mod_decl', tbl *)
 
   and import_directive_disambiguate (imp_dir : Module.import_directive) tbl :
       Module.import_directive * SymbolTbl.t =

@@ -82,7 +82,10 @@ module QualIdentMap = Map.M (QualIdent)
 
 type 'a qual_ident_map = 'a QualIdentMap.t
 
-(** Types *)
+
+(** ----------------- *)
+(** TYPES             *)
+(** ----------------- *)
 
 module Type = struct
   type type_attr = { type_loc : Loc.t [@hash.ignore] [@compare.ignore] }
@@ -266,7 +269,10 @@ end
 type type_expr = Type.t
 type var_decl = Type.var_decl
 
-(** Expressions *)
+
+(** ----------------- *)
+(** EXPRESSIONS       *)
+(** ----------------- *)
 
 module Expr = struct
   (* Does not belong here -- needs to be in the symbolic checker. *)
@@ -489,7 +495,10 @@ end
 
 type expr = Expr.t
 
-(** Statements *)
+
+(** ----------------- *)
+(** STATEMENTS        *)
+(** ----------------- *)
 
 module Stmt = struct
   type spec = {
@@ -656,7 +665,10 @@ module Stmt = struct
   let mk_skip loc = { stmt_desc = Block []; stmt_loc = loc }
 end
 
-(** Callable units (functions, procedures, ...) *)
+
+(** ----------------- *)
+(** CALLABLES         *)
+(** ----------------- *)
 
 module Callable = struct
   type call_kind = Proc | Lemma | Func | Pred | Invariant
@@ -728,7 +740,10 @@ module Callable = struct
           pdef.proc_body
 end
 
-(** Modules *)
+
+(** ----------------- *)
+(** MODULES           *)
+(** ----------------- *)
 
 module Module = struct
   type type_alias = {

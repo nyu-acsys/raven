@@ -18,6 +18,7 @@ module Lock {
     l := new Ref;
     l.bit := false;
     var x : Bool = true;
+    var z : Bool = x;
     x := true;
     var phi: AtomicToken;
     phi := bindAU();
@@ -38,6 +39,8 @@ module Lock {
   {
     var res = true;
 
+    var ref = create();
+    
     if (l.bit) {
         res := false;
      }
@@ -70,6 +73,8 @@ module Lock {
   module Trial {
     proc trial(l: Ref) {
       l.(Lock.bit) := true;
+      var ref : Ref = Lock.create();
+      var myBool : Bool = Lock.l;
     }
   }
 
