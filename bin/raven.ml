@@ -1,6 +1,7 @@
 open Base
 open Util
 open Frontend
+open Error
 
 let greeting = "Raven version " ^ Config.version ^ "\n"
 
@@ -28,10 +29,10 @@ let parse_and_print lexbuf =
         in
         match tbl with
         | [ _ ] ->
-            Ast.Module.print Stdio.stdout type_checked_ast;
+            Ast.Module.print_verbose Stdio.stdout type_checked_ast;
             Stdio.print_endline ""
         | _ -> raise (Failure "SymbolTbl should be empty: 2"))
-      else Ast.Module.print Stdio.stdout disambiguated_ast;
+      else Ast.Module.print_verbose Stdio.stdout disambiguated_ast;
       Stdio.print_endline ""
   | _ -> raise (Failure "SymbolTbl should be empty: 1")
 
@@ -58,7 +59,7 @@ let () =
     Stdlib.Arg.parse Config.cmd_options_spec set_main_file usage_message;
     (*Debug.info (fun () -> greeting);*)
     if String.equal !main_file "" then cmd_line_error "input file missing"
-    else parse_program !main_file
+    else Error.set_main_file !main_file; parse_program !main_file
   with
   | Sys_error s | Failure s ->
       (*let bs = if Debug.is_debug 0 then Printexc.get_backtrace () else "" in*)

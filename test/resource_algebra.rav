@@ -33,7 +33,7 @@ interface Resource_algebra {
         /* What to do with this implication? */
 
     /* revisit parametrizing in terms of l, f */
-    proc fpu(a:t, b:t, l:ref, f:t)
+    proc fpu(a:t, b:t, l:Ref, f:t)
         requires own(l.f, a)
         requires (a in elts) && (b in elts)
 

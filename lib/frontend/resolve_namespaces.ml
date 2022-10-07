@@ -2,7 +2,7 @@ open Base
 (** Resolve identifiers to make everything unique *)
 
 open Ast
-(* open Util *)
+open Util
 
 module SymbolTbl = struct
   (* module IdentMap = Map.M(Ident)
@@ -336,8 +336,7 @@ module ExprDisambiguate = struct
               let h', tbl = expr_disambiguate h tbl in
               ([ h'; t' ], tbl)
           | _ ->
-              raise
-                (Failure "Read expression has an invalid number of arguments")
+              Error.error (Expr.loc exp) "Read expression has an invalid number of arguments"
                  (* ^ Loc.(Expr.attr_of exp).expr_loc) *)
         in
 
@@ -589,16 +588,21 @@ module StmtDisambiguate = struct
     | x -> (x, (tbl, []))
 
   and stmt_disambiguate (stmt : Stmt.t) (tbl, locals) =
-    let stmt_desc', (tbl, locals) =
-      stmt_desc_disambiguate stmt.stmt_desc (tbl, locals)
-    in
-    (*  stmt_desc; *)
-    let stmt_loc' = stmt.stmt_loc in
+    try
+      let stmt_desc', (tbl, locals) =
+        stmt_desc_disambiguate stmt.stmt_desc (tbl, locals)
+      in
+      (*  stmt_desc; *)
+      let stmt_loc' = stmt.stmt_loc in
 
-    (*  location; *)
-    let (stmt' : Stmt.t) = { stmt_desc = stmt_desc'; stmt_loc = stmt_loc' } in
+      (*  location; *)
+      let (stmt' : Stmt.t) = { stmt_desc = stmt_desc'; stmt_loc = stmt_loc' } in
 
-    (stmt', (tbl, locals))
+      (stmt', (tbl, locals))
+    with
+    | (Failure s) -> Error.error stmt.stmt_loc (s ^ ": stmt_type_check")
+    | (Error.Msg (loc, msg)) -> raise (Error.Msg (loc, msg))
+    | _ -> raise (Error.Msg (stmt.stmt_loc, "Unexected Error: stmt_disambiguate"))
 
   and loop_desc_disambiguate (loop_desc : Stmt.loop_desc)
       (tbl, locals) (* : SymbolTbl.t * var_decl list *) =

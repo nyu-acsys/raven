@@ -1,6 +1,8 @@
 module Lock {
   field bit: Bool
 
+  rep type t = Bool
+
   module Key {
     var l = true
   }
@@ -15,6 +17,7 @@ module Lock {
     returns (l: Ref)
     ensures lockR(l, false)
   {
+    var xx : Ref = create();
     l := new Ref;
     l.bit := false;
     var x : Bool = true;
@@ -71,6 +74,8 @@ module Lock {
 }
 
   module Trial {
+    import Lock
+
     proc trial(l: Ref) {
       l.(Lock.bit) := true;
       var ref : Ref = Lock.create();

@@ -234,12 +234,11 @@ module TypeTypeCheck = struct
           match t with
           | VarDecl var -> (var.var_type, tbl)
           | _ ->
-              raise
-                (Failure
+            Error.type_error var_decl.var_loc 
                    ("Variable "
                    ^ Ident.to_string var_decl.var_name
                    ^ " should have VarDecl; found: "
-                   ^ SymbolTbl.typing_env_to_string t)))
+                   ^ SymbolTbl.typing_env_to_string t))
       (* let var_name' = var_decl.var_name in
          let var_loc' = var_decl.var_loc in
          let var_type', tbl = var_decl.var_type, tbl in
@@ -294,21 +293,24 @@ module TypeTypeCheck = struct
     | App (Var qual_ident, tp_list, tp_attr) -> (
         match SymbolTbl.find tbl qual_ident with
         | None ->
-            raise
-              (Failure
+          (match exp with
+          | App (_, _, type_attr) -> Error.type_error type_attr.type_loc
                  ("TypeVariable "
                  ^ QualIdent.to_string qual_ident
-                 ^ " not found."))
+                 ^ " not found.") )
         | Some t -> (
             match t with
             | TypeExpr (App (tc'', tp_list'', _tp_attr'')) ->
                 App (tc'', tp_list'' @ tp_list, tp_attr)
             | _ ->
-                raise
-                  (Failure
-                     ("Variable "
-                     ^ QualIdent.to_string qual_ident
-                     ^ " should have TypeExpr."))))
+              (match exp with
+              | App (_, _, type_attr) -> Error.type_error type_attr.type_loc
+                ("Variable "
+                ^ QualIdent.to_string qual_ident
+                ^ " should have TypeExpr.") 
+              )
+          )
+      )
     | App (tp, tp_list, tp_attr) ->
         let tp' = tp in
         let tp_list' = List.map tp_list ~f:(fun x -> type_expand x tbl) in
@@ -329,15 +331,19 @@ let var_decl_type_check = TypeTypeCheck.var_decl_type_check
 
 module ExprTypeCheck = struct
   let type_of_expr (exp : Expr.t) =
-    match exp with
+    let tp = (match exp with
     | App (_, _, exp_attr) -> exp_attr.expr_type
-    | Binder (_, _, _, exp_attr) -> exp_attr.expr_type
+    | Binder (_, _, _, exp_attr) -> exp_attr.expr_type) in
+
+    print_debug ("\n\nTYPE OF EXPR: " ^ Expr.to_string exp ^ " ;;; " ^ Type.to_string tp);
+
+    tp
 
   let callable_args_check (call_decl : Callable.call_decl) args : type_expr =
     let check_call_arg_type (call_decl : Callable.call_decl) formal arg =
       let var_decl1 =
         match Map.find call_decl.call_decl_locals formal with
-        | None -> raise (Failure "Internal error.")
+        | None -> Error.type_error call_decl.call_decl_loc "Internal error."
         | Some var_decl -> var_decl
       in
 
@@ -346,12 +352,11 @@ module ExprTypeCheck = struct
 
       if Type.compare tp1 tp2 = 0 then ()
       else
-        raise
-          (Failure
-             ("Argument "
-             ^ Ident.to_string var_decl1.var_name
-             ^ " has type " ^ Type.to_string tp1 ^ "; and " ^ Expr.to_string arg
-             ^ " has type " ^ Type.to_string tp2 ^ ": type mismatch"))
+        Error.type_error call_decl.call_decl_loc
+          ("Argument "
+          ^ Ident.to_string var_decl1.var_name
+          ^ " has type " ^ Type.to_string tp1 ^ "; and " ^ Expr.to_string arg
+          ^ " has type " ^ Type.to_string tp2 ^ ": type mismatch")
     in
 
     (match
@@ -371,7 +376,7 @@ module ExprTypeCheck = struct
     | [] -> Type.mk_any Loc.dummy
     | h :: _ -> (
         match Map.find call_decl.call_decl_locals h with
-        | None -> raise (Failure "Internal AST error.")
+        | None -> Error.type_error call_decl.call_decl_loc "Internal AST error."
         | Some var -> var.var_type)
 
   let rec expr_attr_type_check (expr_att : Expr.expr_attr) tbl =
@@ -387,6 +392,8 @@ module ExprTypeCheck = struct
     (expr_att', tbl)
 
   and expr_type_check (exp : expr) tbl : expr * SymbolTbl.t =
+
+    print_debug ("EXPR_TYPE_CHECK: " ^ Expr.to_string exp);
     match exp with
     | App (Read, exp_list, exp_attr) -> (
         let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
@@ -400,11 +407,9 @@ module ExprTypeCheck = struct
                 match SymbolTbl.find tbl qual_ident with
                 | None ->
                     print_debug (SymbolTbl.to_string tbl);
-                    raise
-                      (Failure
-                         ("TypeVariable AAA "
-                         ^ QualIdent.to_string qual_ident
-                         ^ " not found."))
+                    Error.type_error exp_attr.expr_loc
+                    ("TypeVariable " ^ QualIdent.to_string qual_ident ^ " not found.")
+
                 | Some t -> (
                     match t with
                     | Field field ->
@@ -413,15 +418,17 @@ module ExprTypeCheck = struct
                               exp_list,
                               { exp_attr with expr_type = field.field_type } ),
                           tbl )
-                    | _ -> raise (Failure "Exprected type")))
+                    | _ -> Error.type_error exp_attr.expr_loc "Exprected type"))
             | _ ->
-                raise
-                  (Failure
-                     ("Cannot reference the datatype "
+              print_debug (SymbolTbl.to_string tbl);
+              Error.type_error exp_attr.expr_loc
+              ("Cannot reference the datatype "
                      ^ Type.to_string (type_of_expr t')
-                     ^ "; expected a struct")))
+                     ^ "; expected a struct"))
         | _ ->
-            raise (Failure "Read expression has incorrect number of arguments.")
+          print_debug (SymbolTbl.to_string tbl);
+          Error.type_error exp_attr.expr_loc
+                     "Read expression has incorrect number of arguments."
         )
     | App (Call, exp_list, exp_attr) -> (
         let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
@@ -436,13 +443,15 @@ module ExprTypeCheck = struct
                     let tp = callable_args_check call_decl args' in
                     (App (Call, exp_list, { exp_attr with expr_type = tp }), tbl)
                 | _ ->
-                    raise
-                      (Failure
-                         ("Type Error."
-                         ^ QualIdent.to_string callable_name
-                         ^ " should be a callable.")))
-            | _ -> raise (Failure "Invalid AST state; Callable expected."))
-        | _ -> raise (Failure "Invalid AST state; Call with no caller."))
+                  print_debug (SymbolTbl.to_string tbl);
+                  Error.type_error exp_attr.expr_loc
+                  (QualIdent.to_string callable_name
+                         ^ " should be a callable."))
+            | _ -> print_debug (SymbolTbl.to_string tbl);
+            Error.type_error exp_attr.expr_loc "Invalid AST state; Callable expected."
+            )
+        | _ -> print_debug (SymbolTbl.to_string tbl);
+        Error.type_error exp_attr.expr_loc "Invalid AST state; Call with no caller.")
     | App (con, exp_list, exp_attr) ->
         let exp_attr, tbl = expr_attr_type_check exp_attr tbl in
         let exp_list', tbl = list_type_check expr_type_check exp_list tbl in
@@ -464,9 +473,9 @@ module ExprTypeCheck = struct
                       (* if (Type.compare (type_of_expr h) (type_of_expr t) = 0) then (type_of_expr h) else
                          raise (Failure("Equality expression has mismatching types.")) *)
                   | _ ->
-                      raise
-                        (Failure
-                           "Equality expression has invalid number of arguments")
+                    print_debug (SymbolTbl.to_string tbl);
+                    Error.type_error exp_attr.expr_loc
+                           "Equality expression has invalid number of arguments"
                   )
               | Gt | Lt | Geq | Leq -> Type.mk_bool exp_attr.expr_loc
               | Diff | Union | Inter | Elem | Subseteq ->
@@ -478,27 +487,28 @@ module ExprTypeCheck = struct
               | Var qual_iden -> (
                   match SymbolTbl.find tbl qual_iden with
                   | None ->
-                      raise
-                        (Failure
+                    print_debug (SymbolTbl.to_string tbl);
+                    Error.type_error exp_attr.expr_loc
                            ("Type of `"
                            ^ QualIdent.to_string qual_iden
-                           ^ "` not found."))
+                           ^ "` not found.")
                   | Some t -> (
                       match t with
                       | VarDecl var -> var.var_type
                       | _ ->
-                          raise
-                            (Failure
+                        print_debug (SymbolTbl.to_string tbl);
+                        Error.type_error exp_attr.expr_loc
                                ("Variable "
                                ^ QualIdent.to_string qual_iden
-                               ^ " should have VarDecl."))))
+                               ^ " should have VarDecl.")))
               | New t -> t
               | Call | Read ->
-                  raise (Failure "If this happens then Ocaml is broken.")
+                print_debug (SymbolTbl.to_string tbl);
+                Error.type_error exp_attr.expr_loc "If this happens then Ocaml is broken."
               | Dot ->
-                  raise
-                    (Failure
-                       "Is there a Dot expr here? I thought they were dead.")
+                print_debug (SymbolTbl.to_string tbl);
+                Error.type_error exp_attr.expr_loc
+                       "Is there a Dot expr here? I thought they were dead."
               (* Ternary operators *)
               | Ite | Write -> Type.mk_any exp_attr.expr_loc
               | Own -> Type.mk_any exp_attr.expr_loc);
@@ -728,14 +738,22 @@ module StmtTypeCheck = struct
     | x -> (x, tbl)
 
   and stmt_type_check (stmt : Stmt.t) tbl =
-    let stmt_desc', tbl = stmt_desc_type_check stmt.stmt_desc tbl in
-    (*  stmt_desc; *)
-    let stmt_loc' = stmt.stmt_loc in
+    try 
+      let stmt_desc', tbl = stmt_desc_type_check stmt.stmt_desc tbl in
 
-    (*  location; *)
-    let (stmt' : Stmt.t) = { stmt_desc = stmt_desc'; stmt_loc = stmt_loc' } in
 
-    (stmt', tbl)
+      let stmt_loc' = stmt.stmt_loc in
+
+      (*  location; *)
+      let (stmt' : Stmt.t) = { stmt_desc = stmt_desc'; stmt_loc = stmt_loc' } in
+
+      (stmt', tbl)
+
+    with
+    | (Failure s) -> Error.type_error stmt.stmt_loc (s ^ ": stmt_type_check")
+    | (Error.Msg (loc, msg)) -> raise (Error.Msg (loc, msg))
+    | _ -> raise (Error.Msg (stmt.stmt_loc, "Unexected Error: stmt_type_check"))
+       (* Error.type_error stmt.stmt_loc "Unexpected Error: stmt_type_check"  *)
 
   and loop_desc_type_check (loop_desc : Stmt.loop_desc)
       tbl (* : SymbolTbl.t * var_decl list *) =

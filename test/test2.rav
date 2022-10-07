@@ -1,14 +1,18 @@
-module Lock {
-	  var x = true
+module Bint {
 
-	  proc create() 
-		  returns (x : Bool) 
-	  {
-		  var x : Bool = false;
-		  var y : Bool = x;
-	  }
+}
 
-	proc acquire() {
-		var x = create();
-	}
+modulse Lock {
+      var x = true
+
+      proc create() 
+          returns (x : Bool) 
+      {
+          var z : Int = 1;
+          var y : Bool = z.z;
+      }
+
+    proc acquire() {
+        var x = create();
+    }
   }
