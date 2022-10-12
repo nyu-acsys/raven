@@ -43,6 +43,7 @@ let _ =
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
       ("own", OWN);
+      ("Perm", PERM);
       ("pred", FUNC (Pred));
       ("proc", PROC (Proc));
       ("Ref", REF);

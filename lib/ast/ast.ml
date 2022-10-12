@@ -8,7 +8,7 @@ type location = Loc.t
 (** Identifiers *)
 
 let print_debug _str =
-  (* Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m"); *)
+  Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m");
   ()
 
 module Ident = struct
@@ -820,6 +820,15 @@ module Module = struct
   }
 
   and sorted_member_def_list = {
+    imports' : import_directive list;
+    types' : type_alias list;
+    fields' : field_def list;
+    vars' : Stmt.var_def list;
+    mod_defs' : t2 list;
+    call_defs' : Callable.t list; 
+  }
+
+  and processed_member_def_list = {
     imports : import_directive list;
     types : type_alias list;
     fields : field_def list;
@@ -828,10 +837,17 @@ module Module = struct
     call_defs : Callable.t list; 
   }
 
+  and t1 = {
+    decl' : module_decl;
+    members' : sorted_member_def_list;
+    interface' : bool;
+  }
+
   and t2 = {
     decl : module_decl;
-    members : sorted_member_def_list;
+    members : processed_member_def_list;
     interface : bool;
+    obligations : processed_member_def_list;
   }
 
   let rec pr ppf md =
