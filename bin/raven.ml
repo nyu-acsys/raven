@@ -53,6 +53,7 @@ let parse_program filename =
   Stdio.In_channel.close inx
 
 let () =
+  Backtrace.Exn.set_recording true;
   let main_file = ref "" in
   let set_main_file s = main_file := s in
   try
@@ -64,7 +65,15 @@ let () =
   | Sys_error s | Failure s ->
       (*let bs = if Debug.is_debug 0 then Printexc.get_backtrace () else "" in*)
       Stdio.prerr_endline ("Error: " ^ s);
+      Stdio.prerr_endline "";
+      Stdio.prerr_endline ("---------");
+      Stdio.prerr_endline "";
+      Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
       Stdlib.exit 1
   | Error.Msg _ as e ->
       Stdio.prerr_endline (Error.to_string e);
+      Stdio.prerr_endline "";
+      Stdio.prerr_endline ("---------");
+      Stdio.prerr_endline "";
+      Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
       Stdlib.exit 1
