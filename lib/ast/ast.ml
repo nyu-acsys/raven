@@ -811,9 +811,9 @@ module Module = struct
     | ValDef of Stmt.var_def
     | CallDef of Callable.t
 
-  and module_def = ModImpl of t | ModAlias of module_alias
+  and module_def = ModImpl of t0 | ModAlias of module_alias
 
-  and t = {
+  and t0 = {
     mod_decl : module_decl;
     mod_def : member_def list;
     mod_interface : bool;
@@ -824,8 +824,15 @@ module Module = struct
     types' : type_alias list;
     fields' : field_def list;
     vars' : Stmt.var_def list;
-    mod_defs' : t2 list;
+    mod_defs' : t1 list;
+    mod_aliases': module_alias list;
     call_defs' : Callable.t list; 
+  }
+
+  and t1 = {
+    module_decl' : module_decl;
+    members' : sorted_member_def_list;
+    interface' : bool;
   }
 
   and processed_member_def_list = {
@@ -833,18 +840,13 @@ module Module = struct
     types : type_alias list;
     fields : field_def list;
     vars : Stmt.var_def list;
-    mod_defs : t2 list;
+    mod_defs : t list;
+    mod_aliases: module_alias list;
     call_defs : Callable.t list; 
   }
-
-  and t1 = {
-    decl' : module_decl;
-    members' : sorted_member_def_list;
-    interface' : bool;
-  }
-
-  and t2 = {
-    decl : module_decl;
+  
+  and t = {
+    module_decl : module_decl;
     members : processed_member_def_list;
     interface : bool;
     obligations : processed_member_def_list;
@@ -994,6 +996,16 @@ fprintf ppf "[@<1> %s @[<1> %s%a \n %s%a \n %s%B \n %s @] \n}@]"
       mod_decl_vars = Base.Map.empty (module Ident);
       mod_decl_loc = Loc.dummy;
     }
+
+  let empty_sorted_member_def_list = {
+    imports' = [];
+    types' = [];
+    fields' = [];
+    vars' = [];
+    mod_defs' = [];
+    mod_aliases' = [];
+    call_defs' = [];
+  }
 end
 
 module ASTUtil = struct

@@ -1042,7 +1042,7 @@ module ModuleDisambiguate = struct
     let mod_interface' = mod1.mod_interface in
     let tbl = SymbolTbl.pop tbl in
 
-    let (mod' : Module.t) =
+    let (mod' : Module.t0) =
       {
         mod_decl = mod1.mod_decl;
         mod_def = mod_def';

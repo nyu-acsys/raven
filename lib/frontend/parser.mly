@@ -33,7 +33,7 @@ open Ast
 %nonassoc EQEQ NEQ 
 
 %start main
-%type <Ast.Module.t> main
+%type <Ast.Module.t0> main
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%

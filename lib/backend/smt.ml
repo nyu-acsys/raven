@@ -2,7 +2,7 @@ open Ast
 
 module ModuleVerify = struct
   let rec module_verify (m: Module.t) tp_env =
-    let mod_decl = m.mod_decl in ()
+    let mod_decl = m.module_decl in ()
 
     
 end
