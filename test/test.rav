@@ -25,7 +25,7 @@ module Lock {
     x := true;
     var phi: AtomicToken;
     phi := bindAU();
-    x := openAU(phi);
+    openAU(phi);
     val y = false;
 
     if (x == true) {
@@ -40,7 +40,9 @@ module Lock {
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true)
   {
-    var res = true;
+    var res: Bool = true;
+
+    create();
 
     var ref = create();
     
@@ -73,13 +75,15 @@ module Lock {
   }
 }
 
-  module Trial {
+  module Trial[K: Lock] {
     import Lock
 
     proc trial(l: Ref) {
       l.(Lock.bit) := true;
       var ref : Ref = Lock.create();
       var myBool : Bool = Lock.l;
+
+      acquire(l, true);
     }
   }
 

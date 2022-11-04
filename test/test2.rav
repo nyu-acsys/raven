@@ -1,8 +1,11 @@
 module Bint {
-
+    type t = Int
+    type t2 = Bool
 }
 
-modulse Lock {
+module Lock {
+    import Bint
+
       var x = true
 
       proc create() 

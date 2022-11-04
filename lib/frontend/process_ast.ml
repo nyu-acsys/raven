@@ -147,7 +147,7 @@ module SymbolTbl = struct
     | (_, map) :: ts -> (
         match Map.find map name with None -> find ts name | Some id -> Some id)
 
-  let equal (tp_env1: t) (tp_env2: t) : bool =
+  let equal (_tp_env1: t) (_tp_env2: t) : bool =
     true (* ToDo: Implement properly *)
 end
 
@@ -863,7 +863,7 @@ module ProcessCallables = struct
 
             (match (process_expr (App (Call, proc :: args, expr_attr)) tbl) with
 
-            | App (Call, proc :: args, expr_attr) ->
+            | App (Call, proc :: args, _expr_attr) ->
 
               let proc = disambiguate_expr proc disam_tbl in
               let proc_qual_ident = ASTUtil.expr_to_qual_ident proc in
@@ -958,29 +958,30 @@ module ProcessCallables = struct
         This function is not expected to go over these parts of the AST again. If the following constructs are
         discovered by this function, then something unexpected has happened. *)
       | Call _call_desc -> 
-        let open Stdlib.Format in
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect call stmts in AST at this stage."))
       | New _new_desc ->
-        let open Stdlib.Format in
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect new stmts in AST at this stage."))
       | BindAU _ident ->
-        let open Stdlib.Format in
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect bindAU stmts in AST at this stage."))
       | OpenAU _open_au ->
-        let open Stdlib.Format in
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect openAU stmts in AST at this stage."))
       | AbortAU _ident ->
-        let open Stdlib.Format in
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect abortAU stmts in AST at this stage."))
       | CommitAU _commit_au ->
-        let open Stdlib.Format in
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect commitAU stmts in AST at this stage."))
+      | Inhale _expr -> 
+        let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
+        raise (Generic_Error (str ^ ": InternalError: Did not expect inhale stmts in AST at this stage."))
+      | Exhale _expr -> 
+        let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
+        raise (Generic_Error (str ^ ": InternalError: Did not expect exhale stmts in AST at this stage."))
+      
       )
 
     | Loop loop_desc -> 
