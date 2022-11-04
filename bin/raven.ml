@@ -19,25 +19,12 @@ let type_checking_enabled = true
 let parse_and_print lexbuf =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
-  let disambiguated_ast, tbl = Resolve_namespaces.start_disambiguate s in
+  let processed_ast, tbl = Process_ast.start_processing s in
   match tbl with
-  | [ _ ] ->
-      if type_checking_enabled then (
-        Ast.print_debug ("\027[32m" ^ "STARTING TYPE-CHECK\n" ^ "\027[0m");
-        let type_checked_ast, tbl =
-          Type_checker.start_type_check disambiguated_ast
-        in
-        match tbl with
-        | [ _ ] ->
-            Ast.Module.print_verbose Stdio.stdout type_checked_ast;
-            Stdio.print_endline ""
-        | _ -> raise (Failure "SymbolTbl should be empty: 2"))
-      else Ast.Module.print_verbose Stdio.stdout disambiguated_ast;
-      Stdio.print_endline ""
-  | _ -> raise (Failure "SymbolTbl should be empty: 1")
-
-(* Ast.Module.print Stdio.stdout s;
-   Stdio.print_endline "" *)
+  | [ _ ] -> Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
+    Ast.Module.print_verbose Stdio.stdout processed_ast;
+    Stdio.print_endline ""
+  | _ -> raise (Generic_Error "SymbolTbl should be empty")
 
 let parse_program filename =
   let inx = Stdio.In_channel.create filename in

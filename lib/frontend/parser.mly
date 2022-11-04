@@ -108,6 +108,7 @@ field_def:
     let decl =
       Module.{ field_name = x;
       field_type = t;
+      field_loc = Loc.make $startpos $endpos
            }
     in
     decl
@@ -126,7 +127,7 @@ type_def_expr:
   Type.mk_struct decls
 } */
 | DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl); RBRACE {
-  Type.mk_data decls
+  Type.mk_data decls (Loc.make $startpos $endpos)
 }
 
 variant_decl:
@@ -628,8 +629,12 @@ loop_contract:
 
 ghost_block:
 | LGHOSTBRACE; stmts = stmt_list_opt; RGHOSTBRACE {
+    let ghost_body = Stmt.{
+      stmt_desc = Block stmts;
+      stmt_loc = Loc.make $startpos $endpos;
+    } in
     let ghost_block = 
-      Stmt.{ ghost_body = stmts }
+      Stmt.{ ghost_body = ghost_body; }
     in Ghost ghost_block
 }
 ;
@@ -698,11 +703,10 @@ qual_ident_expr:
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) []) }
 | p = primary DOT x = ident {
-  (* For Read expressions, x.f is stored as `App(Read, [f; x], ...)`, ie in reverse order *)
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [x; p])
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 | p = primary DOT LPAREN x = qual_ident_expr RPAREN {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [x; p])
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 
 mod_ident:

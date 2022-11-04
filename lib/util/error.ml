@@ -3,6 +3,7 @@
 open Base
 
 exception Msg of Loc.t * string
+exception Generic_Error of string
 
 let main_file = ref ""
 let set_main_file s = main_file := s
@@ -30,7 +31,8 @@ let print_error_loc (loc: Loc.t) =
   let line_num = (loc.loc_start.pos_lnum) in 
   print_file_line line_num loc;
 
-  Stdio.printf "%s%s\n" (String.make (String.length (Int.to_string line_num) + 2 + loc.loc_start.pos_cnum - loc.loc_start.pos_bol) ' ') (String.make (1 + loc.loc_end.pos_cnum - loc.loc_start.pos_cnum) '^')
+  Stdio.printf "%s%s\n" (String.make (String.length (Int.to_string line_num) + 2 + loc.loc_start.pos_cnum - loc.loc_start.pos_bol) ' ') (String.make (1 + loc.loc_end.pos_cnum - loc.loc_start.pos_cnum) '^');
+  Stdio.print_endline ""
 
 let to_string (loc: Loc.t) msg = 
   if Loc.(loc = Loc.dummy)
@@ -54,7 +56,9 @@ let mk_error_info msg = "Related Location: " ^ msg
 
 let error loc msg = print_error_loc loc; fail loc @@ "Error: " ^ msg
 
-let lexical_error loc msg = print_error_loc loc; fail loc "Lexical Error: " ^ msg
+let error_simple msg = fail Loc.dummy @@ "Lexical Error: " ^ msg
+
+let lexical_error loc msg = print_error_loc loc; fail loc @@ "Lexical Error: " ^ msg
 
 let type_error loc msg = print_error_loc loc; fail loc @@ "Type Error: " ^ msg
 
