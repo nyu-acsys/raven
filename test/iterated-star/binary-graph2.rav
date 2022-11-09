@@ -1,0 +1,54 @@
+field val : Ref
+
+(* pass *)
+proc difference(nodes1: Set[Ref], nodes2: Set[Ref])
+  requires forall n: Ref :: n in nodes1 ==> own(n.val, M(n))
+  requires nodes1 subsetof nodes2
+  ensures forall n: Ref :: n in nodes2 ==> own(n.val, M(n))
+  ensures forall n: Ref :: n in nodes1 -- nodes2 ==> own(n.val, M(n))
+{
+}
+
+(* pass *)
+proc inc1(nodes: Set[Ref], x: Ref) returns (new_nodes: Set[Ref])
+  requires forall n: Ref :: n in nodes ==> own(n.val, _) 
+  requires x !in nodes
+  requires own(x.val, _)
+  ensures new_nodes == nodes ++ { x }
+  ensures forall n: Ref :: n in new_nodes ==> own(n.val, _)
+{ 
+	new_nodes := nodes ++ { x }
+}
+
+(* fail *)
+proc inc2(nodes: Set[Ref], x: Ref) returns (new_nodes: Set[Ref])
+  requires forall n: Ref :: n in nodes ==> own(n.val, _) 
+  requires x !in nodes
+  ensures new_nodes == nodes ++ { x }
+  ensures forall n: Ref :: n in new_nodes ==> own(n.val, _)
+{
+	new_nodes := nodes ++ { x }
+}
+
+(* pass *)
+proc dec1(nodes: Set[Ref], x: Ref) returns (new_nodes: Set[Ref])
+  requires forall n: Ref :: n in nodes ==> own(n.val, _) 
+  requires x in nodes
+  ensures new_nodes == nodes -- { x }
+  ensures forall n: Ref :: n in new_nodes ==> own(n.val, _)
+  ensures own(x.val, _)
+{
+	new_nodes := nodes -- { x }
+}
+
+(* pass *)
+proc union(nodes1: Set[Ref], nodes2: Set[Ref]) returns (new_nodes: Set[Ref])
+  requires forall n: Ref :: n in nodes1 ==> own(n.val, _) 
+  requires forall n: Ref :: n in nodes2 ==> own(n.val, _)
+  ensures new_nodes == nodes1 ++ nodes2
+  ensures forall n: Ref :: n in new_nodes ==> own(n.val, M(n)) 
+{
+	new_nodes := nodes1 ++ nodes
+}
+
+

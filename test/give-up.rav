@@ -1,0 +1,263 @@
+module Lock {
+
+  field bit: Bool
+  
+  pred lock(l: Ref, b: Bool) {
+    own(l.bit, b) 
+  }
+
+  proc create()
+    returns (l: Ref)
+    ensures lock(l, false)
+  {
+    l := new bit(false);
+    
+    {! 
+      fold lock(l, false);
+    !}
+  }
+
+  proc acquire(l: Ref, implicit ghost b: Bool)
+    atomic requires lock(l, b)
+    atomic ensures lock(l, true) &*& b == false
+  {
+	
+    val phi: Perm;
+
+    {!
+
+			phi := bindAU();
+      val b: Bool;
+      b := openAU(phi);
+
+      unfold lock(l, b); 
+      
+    !}
+    
+   	val res = cas(l.bit, false, true); 
+				
+    {!
+      if (res) {
+      
+        fold lock(l, true);
+        commitAU(phi, ());
+        
+      } else {
+
+				fold lock(l, false); 
+        abortAU(phi);
+
+			}	
+    !}
+
+    if (!res) {
+      val b2: Bool;
+      b2 := openAU(phi);
+			
+			acquire(l);
+			
+			commit(phi)			
+    }	
+  }
+
+  proc release(l: Ref)
+    atomic requires lock(l, true)
+    atomic ensures lock(l, false)
+  {
+    val phi: Perm;
+    {! 
+      phi := bindAU();
+      openAU(phi);
+      unfold lock(l, true);
+    !}
+ 
+    l.(Lock.bit) := false;
+    
+    {!
+      fold lock(l, true);
+      commitAU(phi);
+    !}
+  }
+}
+
+(*----------------------------------------------------------------------*)
+
+interface Keyspace {
+  rep type t
+
+  val KS: Set[t]
+}
+
+module IntKeyspace : Keyspace {
+  rep type t = Int
+
+  val KS = {| k: Int :: true |}
+}
+
+module SearchStructureSpec[K: Keyspace] {
+
+  type op = data { case searchOp ; case insertOp ; case deleteOp }
+
+  /*pred opSpec(op: op, k: K, c: Set[K], c': Set[K], res: Bool) {
+    match(op) {
+     case searchOp => C' == C && res == (k in C)
+     case insertOp => C' == C ++ {|k|} && res == (k !in C)
+     case insertOp => C' == C -- {|k|} && res == (k in C)
+    }
+  }*/
+}
+
+interface Node[K: Keyspace] {
+
+  /*import K.KS*/
+  module Spec = SearchStructureSpec[K]
+  import Spec
+  module Flow = FlowRA[MS_KS]
+  import Flow
+
+  rep type T
+
+  pred nodeR(n: T, In: FlowInt, cn: Set[K])
+
+  proc allocRoot()
+    returns (r: T)
+    ensures nodeR(r, Ir, {||})
+    ensures inset(Ir, r) = KS &*& out(Ir) = {||}
+
+	proc inRange(n: T, In: FlowInt, cn: Set[K], k: K)
+		returns (res: Bool)
+		requires nodeR(n, In, cn)
+		ensures nodeR(n, In, cn)
+		ensures res ==> k in inset In n
+		
+	// Option types? Pairs?	
+	proc findNext(n: T, In: FlowInt, cn: Set[K], k: K)
+		returns (succ: Bool, nn: Node)
+		requires nodeR(n, In, cn)
+		ensures nodeR(n, In, cn)
+		ensures !succ ==> k !in out(In)
+		ensures succ ==> k in outset(In, nn) 
+
+  proc decisiveOp(dop: op, n: T, In: FlowInt, cn: Set[K], k: K, implicit ghost c: Set[K])
+    returns (succ: Bool, res: Bool, implicit ghost cn': Set[K])
+    requires k in KS &*& node(n, In, cn)
+    requires k in inset(In, n) &*& k !in out(In)
+    ensures nodeR(n, In, cn')
+    ensures succ ==> opSpec(dop, k, cn, cn', res)
+    ensures !succ ==> cn = cn'
+}
+
+interface SearchStructure[K: Keyspace] {
+  /* import K.KS */
+  module Spec = SearchStructureSpec[K]
+  import Spec
+
+	/* css or Ref? */
+  type css
+
+  proc create()
+    returns (r: css)
+    ensures cssInv(cssI, cssInv(r)) && cssR(r, {||})
+
+  proc cssOp(dop: Op, r: CSS, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c': Set[K])
+    requires k in ks
+    requires cssInv(r)
+    atomic requires cssR(r, c)
+    atomic ensures cssR(r, c') && opSpec(dop, k, c, c', res)
+}
+
+module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
+  /* import K.KS */
+  import Node
+
+	/* Auth_set over nodes */
+  module AuthSet_Node = Auth[SetRA[Node]]
+  module Flow = FlowRA[MS_KS]
+  import Flow
+
+  field node: Ref;
+  ghost field fp: AuthSet_Node;
+  ghost field intf: Flow;
+  
+  pred inFP(r: css, n: Node) {
+  	own(r.fp, Frag {| n |})
+  }
+  
+  pred nodePred(r:css, n: Node) {
+  	inFP(r, n) && 
+  	...
+  }
+  
+  pred lockN(n: Node, b: Bool) {
+  	exists l: Ref ::
+  		own(n.lock, l) && lock(l, b)
+  		&& ... /* extra stuff for ensuring agreement over l */  
+  }
+  
+  
+  
+  pred css(r: css, c: Set[K]) {
+    exists I: Flow, N: Set[Node] ::
+      own(r.fp, Auth N)  
+      &*& own(r.intf, Auth I)
+      &*& ...
+      &*& (forall n:Node :: n in N ==> exists b: Bool :: lockN(n, b) && (b ? true : nodePred(n)))
+  }
+
+	proc lockNode(r:css, n: Node, implicit ghost c: Set[K)
+		requires inFP n
+		atomic requires css(r, c)
+		atomic ensures css(r, c) &*& nodePred(r, n)
+	{
+		phi := bindAU();
+
+		{!
+			openAU(phi);
+			val N0: Set[Node] :| own(r.fp, Auth N0);
+			
+			...
+			
+			assert n in N0;
+			/* unfold "node_star"; */
+
+			val b0 :| lockN(n, b0);
+			unfold lockN(n, b0)
+		
+			val n_lock :| own(n.lock, n_lock);
+		!}
+	
+		val nl = n.lock;
+		
+		{!
+			fold lockN(n, b);
+			
+			abortAU(phi);
+		!}
+
+		{!
+			openAU(phi);
+			val N0: Set[Node] :| own(r.fp, Auth N0);
+			
+			...
+			
+			assert n in N0;
+			val b0 :| LockN(n, b);
+			unfold LockN(n, b)
+		
+		!}
+		
+		acquire(nl);
+	
+		{!
+			fold lockN(n, true);
+			
+			assert nodePred(n);
+			
+			commitAU(phi);
+			
+		!}
+	
+	
+	}
+	
