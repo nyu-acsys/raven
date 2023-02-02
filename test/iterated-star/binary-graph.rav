@@ -1,0 +1,59 @@
+field first : Ref
+field second : Ref
+
+proc inc(nodes: Set[Ref], x: Ref) returns (y: Ref)
+  requires forall n: Ref :: n in nodes ==> own(n.first, (1, Mf[n]))
+  requires forall n: Ref :: n in nodes ==> (Mf[n] != null ==> Mf[n] in nodes)
+  requires forall n: Ref :: n in nodes ==> own(n.second, (1, Ms[n]))
+  requires forall n: Ref :: n in nodes ==> (Ms[n] != null ==> Ms[n] in nodes)
+  requires x in nodes
+  ensures y != null ==> y in nodes
+{
+  if(x.second != null) {
+    y := x.second.first
+  }
+}
+
+(* fail *)
+proc inc2(nodes: Set[Ref], x: Ref) returns (y: Ref)
+  requires forall n: Ref :: n in nodes ==> own(n.first, (1, Mf[n]))
+  requires forall n: Ref :: n in nodes ==> (Mf[n] != null ==> Mf[n] in nodes)
+  requires forall n: Ref :: n in nodes ==> own(n.second, (1, Ms[n]))
+  requires x in nodes
+  ensures y != null ==> y in nodes
+{
+  if(x.second != null) {
+    y := x.second.first
+  }
+}
+
+(* pass *)
+proc inc3(nodes: Set[Ref], x: Ref) returns (y: Ref)
+  requires forall n: Ref :: n in nodes ==> own(n.first, (1, Mf[n]))
+  requires forall n: Ref :: n in nodes ==> (Mf[n] in nodes)
+  requires forall n: Ref :: n in nodes ==> own(n.second, (1, Ms[n]))
+  requires forall n: Ref :: n in nodes ==> (Ms[n] != null ==> Ms[n] in nodes)
+  requires x in nodes
+  ensures y != null ==> y in nodes
+{
+  if(x.second != null) {
+    y := x.second.first
+    assert y != null
+  }
+}
+
+(* fail *)
+proc inc4(nodes: Set[Ref], x: Ref) returns (y: Ref)
+  requires forall n: Ref :: n in nodes ==> own(n.first, (1, Mf[n]))
+  requires forall n: Ref :: n in nodes ==> (Mf[n] != null ==> Mf[n] in nodes)
+  requires forall n: Ref :: n in nodes ==> own(n.second, (1, Ms[n]))
+  requires forall n: Ref :: n in nodes ==> (Ms[n] != null ==> Ms[n] in nodes)
+  requires x in nodes
+  ensures y != null ==> y in nodes
+{
+  if(x.second != null) {
+    y := x.second.first
+    // this assert fails
+    assert y != null
+  }
+}
