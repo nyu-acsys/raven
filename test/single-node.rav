@@ -1,7 +1,4 @@
 module Lock {
-  /* rep type Rep = struct {
-    var bit: Bool
-  } */
 
   field bit: Bool
   
@@ -16,47 +13,134 @@ module Lock {
     l := new bit(false);
     
     {! 
-      unfold lock(l, false);
+      fold lock(l, false);
     !}
   }
 
   proc acquire(l: Ref, implicit ghost b: Bool)
     atomic requires lock(l, b)
-    atomic ensures lock(l, true) && b == false
+    atomic ensures lock(l, true) &*& b == false
   {
+		{{ AU(v_phi, "acquire", l, None, not_open) }}
+	
     val phi: Perm;
+
     {!
       phi := bindAU();
+
+			{{ AU(v_phi, "acquire", l, None, not_open) }} * {{ phi = v_phi }}
+
       val b: Bool;
       b := openAU(phi);
 
+			{{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, v_b) }} * 
+			{{ phi = v_phi, b = v_b }}
+
       unfold lock(l, b); 
+      
+			{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b) }} * 
+			{{ phi = v_phi, b = v_b }}
+      
     !}
     
-    /* val res = cas(l.bit, false, true); */
+    /* Need to add CAS  
+   	
+   	val res = cas(l.bit, false, true); 
 
-    val res: Bool;
+		CAS_SUCC : 
+		{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+		{{ phi = v_phi, b = v_b, b = false, b' = true, res = true }}   
+		
+		OR
+		
+		CAS_FAIL:
+		{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+		{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
 
-    if (l.bit) {
-      res := false;
-    } else {
-      l.bit := true;
-      res := true;
+		CAS_SUCC
+		--------
+		
+		{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+		{{ phi = v_phi, b = false, b' = true, res = true }}		
+		
+		*/
+		
+    {!
+      if (res) {
       
-    }
+				{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+				{{ phi = v_phi, b = false, b' = true, res = true }}		      	
+      
+        fold lock(l, true);
+        
+				{{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, true) }} * 
+				{{ phi = v_phi, b = false, b' = true, res = true }}		      	
+                
+        commitAU(phi, ());
+        
+        /* 
+        exhale post("acquire")
+        exhale (lock(l, true) &*& v_b == false)
+				*/
+				
+				{{ AU(v_phi, "acquire", l, Some(()), not_open) }} * 
+				{{ phi = v_phi, b = false, b' = true, res = true }}
+        
+      } else {
+        fold lock(l, false); 
+        abortAU(phi);
+      }	
+    !}
+
+		CAS_FAIL
+		--------
+
+		{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+		{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
 
     {!
       if (res) {
         fold lock(l, true);
-        commitAU(phi);
-      } else {
-        fold lock(l, true);
+        commitAU(phi, ());
+      } else {				
+			
+				fold lock(l, true);
+
+				{{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, true) }} * 
+				{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
+				
         abortAU(phi);
+        /* 
+        exhale pre("acquire") with current pseudo_quant variables (lock(l, v_b))
+        exhale (lock(l, v_b))
+				*/
+
+				{{ AU(v_phi, "acquire", l, None, not_open) }} * 
+				{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
       }	
     !}
-    
+
+    /* Check for unsoundness here */
     if (!res) {
-      acquire(l);
+				
+			{{ AU(v_phi, "acquire", l, None, not_open) }} * 
+			{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
+
+      val b2: Bool;
+      b2 := openAU(phi);
+
+			{{ AU(v_phi, "acquire", l, None, open(v_b2)), lock(l, v_b2) }} * 
+			{{ phi = v_phi, b = v_b2 }}
+			
+			acquire(l);
+			
+			/*
+			exhale pre("acquire") with existential (exists b' :: lock(l, b'))
+			inhale post("acquire") (lock(l, true) &*& b' = false)
+			*/
+			
+			commit(phi)
+			
     }	
   }
 
@@ -84,26 +168,28 @@ module Lock {
 interface Keyspace {
   rep type t
 
-  val ks: Set[t]
+  val KS: Set[t]
 }
 
 module IntKeyspace : Keyspace {
   rep type t = Int
 
-  val ks = {| k: Int :: true |}
+  val KS = {| k: Int :: true |}
 }
 
 module SearchStructureSpec[K: Keyspace] {
 
-  type op = data { case searchOp ; case insertOp ; case deleteOp }
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
-  /*pred opSpec(op: op, k: K, c: Set[K], c': Set[K], res: Bool) {
-    match(op) {
-     case searchOp => C' == C && res == (k in C)
-     case insertOp => C' == C ++ {|k|} && res == (k !in C)
-     case insertOp => C' == C -- {|k|} && res == (k in C)
-    }
-  }*/
+	pred opSpec(op: Op, k: K, c: Set[K], c': Set[K], res: Bool) {
+		if (op == searchOp) {
+    	C' == C && res == (k in C)
+		} else if (op == insertOp) {
+			C' == C ++ {|k|} && res == (k !in C)
+		} else {
+			C' == C -- {|k|} && res == (k in C)
+		}
+	}
 }
 
 interface NodeImpl[K: Keyspace] {
@@ -120,22 +206,23 @@ interface NodeImpl[K: Keyspace] {
     returns (n: T)
     ensures nodeR(n, {||})
 
-  proc decisiveOp(dop: op, n: T, k: K, implicit ghost c: Set[K])
+  proc decisiveOp(dop: Op, n: T, k: K, implicit ghost c: Set[K])
     returns (res: Bool, implicit ghost c': Set[K])
-    requires k in ks && node(n, c)
+    requires k in ks && nodeR(n, c)
     ensures nodeR(n, c') && opSpec(dop, k, c, c', res)
 }
 
 interface SearchStructure[K: Keyspace] {
-  /*import K.KS*/
+  /* import K.KS */
   module Spec = SearchStructureSpec[K]
   import Spec
 
+	/* css or Ref? */
   type css
 
   pred cssR(r: css, c: Set[K])
 
-  pred cssInv(r: css)
+  inv cssInv(r: css)
 
   proc create()
     returns (r: css)
@@ -143,28 +230,25 @@ interface SearchStructure[K: Keyspace] {
 
   proc cssOp(dop: Op, r: CSS, k: K, implicit ghost c: Set[K])
     returns (res: Bool, implicit ghost c': Set[K])
-    requires k in ks && cssInv(ccsI, cssInv(r))
+    requires k in ks
+    requires cssInv(r)
     atomic requires cssR(r, c)
     atomic ensures cssR(r, c') && opSpec(dop, k, c, c', res)
 }
 
 module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
-  /*import K.KS*/
+  /* import K.KS */
   import Node
 
-  module FracSK = Frac[Set[K]]
+  module FracSK = Frac[K.KS]
+	module AgreeAD = Agree[Addresses]; 
 
   field lock: Ref;
+  field lock_ag: AgreeAD; 
   field node: Ref;
+  field node_ag: AgreeAD;
   field cont_lock: FracSK;
   field cont_spec: FracSK;
-
-  /*type css = struct {
-    var lock: lock
-    var node: Node
-    ghost cont_lock: FracSK
-    ghost cont_spec: FracSK
-  }*/
   
   pred nodePred(r: css) {
     exists c: Set[K] :: nodeR(r.node, c) && own(r.cont_lock, frac(1/2, c))
@@ -178,72 +262,118 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     own(r.cont_spec, frac(1/2, c))
   }
 
-  pred cssInv(r: css) {
-    exists b: Bool, c: Set[K] ::
+  inv cssInv(r: css) {
+    exists b: Bool, c: Set[K], l: Ref ::
       cssAuth(r, c)
       && own(r.cont_lock, frac(1/2, c))
-      && Lock.lock(r.lock, b) && (b ? true : nodePred(r))
+      && own(r.lock, l)
+      && Lock.lock(l, b) && (b ? true : nodePred(r))
   }
 
   proc create()
     returns (r: css)
+    ensures cssR(r, {||}) &*& cssInv(r)
   {
     val l: Ref = Lock.create();
     val n: Node = Node.create();
     
-    val r: css; 
-   
-    /* = new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(frac(1, {||})) */
+    {{ Lock.lock(l, false), nodeR(n, {||} }}
+    
+    val r: css;
 
     r.lock := l;
     r.node := n;
     r.cont_lock := frac(1, {||});
     r.cont_spec := frac(1, {||});
 
+    {{ Lock.lock(l, false), nodeR(n, {||}, own(r.lock, l), own(r.node, n), 
+    		own(r.cont_lock, frac(1, {||})), own(r.cont_spec, frac(1, {||})) }}
     
-    {!
-      /* check how dafny does it: uses assert */
-      /* exists: false, {||} */
+    {!          
+      
+      /* symb_exec first checks if frac(1/2, {||}) <= frac(1, {||}) */
+      /* After, [ frame (frac(1, {||})) (frac(1/2, {||})) ] remains */
+      fold(cssAuth(r, {||}));
 
-      /* Not sure how symbolic execution is supposed to figure out where to apply this */
-      assert frac(1, {||}) == frac(1/2, {||}) && frac(1/2, {||}); 
-          
-      fold(cssAuth(r, {||}));   	
+    	{{ Lock.lock(l, false), nodeR(n, {||}, own(r.lock, l), own(r.node, n), 
+    			own(r.cont_lock, frac(1, {||})), own(r.cont_spec, frac(1/2, {||})),
+    			cssAuth(r, {||}) }}
 
-      assert cssAuth(r, c)
-              && own(r.cont_lock, frac(1/2, c))
-              && Lock.lock(r.lock, b) && (b ? true : nodePred(r));
-      fold(cssInv(r));
-      /* createInv cssI cssInv(r); */
+			assert nodeR(r.node, {||}) &*& own(r.cont_lock, frac(1/2, {||}))
+
+			fold nodePred(r)
+
+    	{{ Lock.lock(l, false), own(r.lock, l), own(r.node, n), 
+    			own(r.cont_lock, frac(1/2, {||})), own(r.cont_spec, frac(1/2, {||})),
+    			cssAuth(r, {||}), nodePred(r) }}
+			
+			
+      assert cssAuth(r, {||}) &*& own(r.cont_lock, frac(1/2, {||}))
+        			&*& Lock.lock(r.lock, false) &*& (false ? true : nodePred(r));
+      
+      fold cssInv(r);
+
+    	{{ cssInv(r), own(r.cont_spec, frac(1/2, {||})) }}
 
       fold cssR(r, {||});
+      
+     	{{ cssInv(r), cssR(r, {||}) }}
+      
     !} 
   }
 
   proc cssOp(dop: Op, r: CSS, k: K, implicit ghost c: Set[K])
     returns (res: Bool, implicit ghost c': Set[K])
+    requires k in ks
+    requires cssInv(r)							
+    atomic requires cssR(r, c)
+    atomic ensures cssR(r, c') &*& opSpec(dop, k, c, c', res)
   {
     {!
-      unfold cssI;
-      /* unfold (b0, c0) :| cssInv(r); */
-      unfold cssInv(r);
-      fold Lock.lock(r.lock, b0);
+    
+    	{{ cssInv(r) }}
+    	
+      openInv cssInv(r);
+
+    	{{ cssAuth(r, v_c), own(r.cont_lock, frac(1/2, v_c)), 
+    			own(r.lock, v_l), Lock.lock(v_l, v_b), (v_b ? true : nodePred(r)) }}
+      
+      var b0, c0, l :| cssAuth(r, c) &*& own(r.lock, l) &*& Lock.lock(l, b) 
+
+    	{{ cssAuth(r, v_c), own(r.cont_lock, frac(1/2, v_c)), 
+    			own(r.lock, v_l), Lock.lock(v_l, v_b), (v_b ? true : nodePred(r)) }} *
+    	{{ b0 = v_b, c0 = v_c, l = v_l }}
+                  
     !}
     
-    acquire(r.lock);
+    var l = r.lock; 
+    acquire(l);
+    
+  	{{ cssAuth(r, v_c), own(r.cont_lock, frac(1/2, v_c)), 
+  			own(r.lock, v_l), Lock.lock(v_l, true), nodePred(r) }} *
+  	{{ b0 = v_b, c0 = v_c, l = v_l }}
     
     {!
-      assert b0 == false;
-      assert nodePred(r);
-      unfold Lock.lock(r.lock, true);
-      /* fold (true, C0)cssInv(r); */
-      fold cssInv(r);
-      fold cssI;
-      /* unfold (c0')nodePred(r); */
+
+			assert cssAuth(r, c0) &*& own(r.lock, l) &*& Lock.lock(r.lock, true);
+			
+			closeInv cssInv(r);
+
+	  	{{ nodePred(r) }}
+
+			assert nodePred(r);
       unfold nodePred(r);
+      
+      {{ nodeR(r.node, v_c1), own(r.cont_lock, frac(1/2, v_c1)) }}
+      
     !} 
     
-    res, c1 := decisiveOp(dop, r, k);
+    res, c1 := decisiveOp(dop, r.node, k);
+    
+    {{ nodeR(n, c1), own(r.cont_lock, frac(1/2, v_c1) }} * 
+    {{ opSpec(dop, k, c1, v_c1, res) }}
+
+
 
     {!
       unfold cssI;
