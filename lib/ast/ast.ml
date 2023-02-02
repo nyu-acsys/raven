@@ -11,6 +11,10 @@ let print_debug _str =
   (* Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m"); *)
   ()
 
+  let print_debug2 _str =
+    Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m");
+    ()
+
 module Ident = struct
   module T = struct
     type t = { ident_name : string; ident_num : int }
@@ -100,7 +104,7 @@ module QualIdent = struct
   (* { qual_path = id :: qi.qual_path; qual_base = qi.qual_base} *)
 end
 
-type qual_ident = QualIdent.t
+type qual_ident = QualIdent.t [@@deriving compare]
 
 module QualIdentMap = Map.M (QualIdent)
 
@@ -329,8 +333,8 @@ module Type = struct
   let is_implicit_var vdecl = vdecl.var_implicit
 end
 
-type type_expr = Type.t
-type var_decl = Type.var_decl
+type type_expr = Type.t [@@deriving compare]
+type var_decl = Type.var_decl [@@deriving compare]
 
 
 (** ----------------- *)
@@ -385,18 +389,18 @@ module Expr = struct
     (* Variable arity operators *)
     | Setenum
     | Var of qual_ident
-    | New of type_expr
+    | New of type_expr [@@deriving compare]
   (* | AUToken of au_token *)
 
-  type binder = Forall | Exists | Compr
+  type binder = Forall | Exists | Compr [@@deriving compare]
 
-  type expr_attr = { expr_loc : location; expr_type : type_expr }
+  type expr_attr = { expr_loc : location [@compare.ignore]; expr_type : type_expr }
 
   and t =
     (* Application expressions *)
-    | App of constr * t list * expr_attr
+    | App of constr * t list * (expr_attr [@compare.ignore])
     (* Variable binder expressions *)
-    | Binder of binder * var_decl list * t * expr_attr
+    | Binder of binder * var_decl list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
 
   let mk_attr loc t = { expr_loc = loc; expr_type = t }
   let attr_of = function App (_, _, attr) | Binder (_, _, _, attr) -> attr
@@ -589,8 +593,6 @@ module Stmt = struct
 
   type fold_desc = { fold_expr : expr }
   type unfold_desc = { unfold_expr : expr }
-  type open_au = { au_token : ident; bound_vars : ident list }
-  type commit_au = { au_token : ident; return_vars : expr list }
 
   type basic_stmt_desc =
     | VarDef of var_def
@@ -604,10 +606,12 @@ module Stmt = struct
     | Fold of fold_desc
     | Unfold of unfold_desc
     | BindAU of ident
-    | OpenAU of open_au
+    | OpenAU of ident
     | AbortAU of ident
-    | CommitAU of commit_au
-    | Inhale of expr
+    | CommitAU of ident
+    | OpenInv of expr
+    | CloseInv of expr
+    | Inhale of expr  
     | Exhale of expr
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
@@ -690,12 +694,16 @@ module Stmt = struct
               cstm.call_lhs QualIdent.pr cstm.call_name Expr.pr_list
               cstm.call_args)
     | BindAU iden -> fprintf ppf "@[<2>BindAU %a@]" Ident.pr iden
-    | OpenAU open_au -> fprintf ppf "@[<2>OpenAU(%a)@]" Ident.pr open_au.au_token
+    | OpenAU open_au -> fprintf ppf "@[<2>OpenAU(%a)@]" Ident.pr open_au
     | AbortAU iden -> fprintf ppf "@[<2>AbortAU %a@]" Ident.pr iden
     | CommitAU commit_au ->
-        fprintf ppf "@[<2>CommitAU %a@]" Ident.pr commit_au.au_token
+        fprintf ppf "@[<2>CommitAU %a@]" Ident.pr commit_au
+    | OpenInv expr ->
+      fprintf ppf "@[<2>OpenInv %a@]" Expr.pr expr
+    | CloseInv expr ->
+      fprintf ppf "@[<2>CloseInv %a@]" Expr.pr expr
     | Inhale expr -> fprintf ppf "@[<2>inhale %a@]" Expr.pr expr
-    | Exhale expr -> fprintf ppf "@[<2>inhale %a@]" Expr.pr expr
+    | Exhale expr -> fprintf ppf "@[<2>exhale %a@]" Expr.pr expr
 
   let rec pr ppf stmt =
     let open Stdlib.Format in
@@ -1073,6 +1081,9 @@ module ASTUtil = struct
              ("Expected Var expression instead of " ^ Expr.to_string expr ^ " ("
              ^ Loc.to_string (Expr.loc expr)
              ^ ")"))
+
+  let qual_ident_to_expr (qual_ident: qual_ident) (expr_attr: Expr.expr_attr): expr = 
+    App (Var qual_ident, [], expr_attr)
 
   let qual_ident_to_ident (qual_ident : qual_ident) =
     if List.is_empty qual_ident.qual_path then qual_ident.qual_base

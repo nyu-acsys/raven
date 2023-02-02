@@ -17,7 +17,7 @@ open Ast
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token AND OR IMPLIES IFF NOT COMMA SEPSTAR
 %token <Ast.Expr.binder> QUANT
-%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN
+%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -471,6 +471,12 @@ stmt_wo_trailing_substmt:
 (* unfold *)
 | UNFOLD; e = expr; SEMICOLON {
   Stmt.(Basic (Unfold {unfold_expr = e}))
+}
+| OPENINV; e = expr; SEMICOLON {
+  Stmt.(Basic (OpenInv e))
+}
+| CLOSEINV; e = expr; SEMICOLON {
+  Stmt.(Basic (OpenInv e))
 }
 ;
 

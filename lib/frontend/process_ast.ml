@@ -13,6 +13,7 @@ module SymbolTbl = struct
     | ModDecl of Module.module_decl
     | VarDecl of var_decl
     | Field of Module.field_def
+    (* | SumTypeConstructor of //TODO: Sketch Sum Types properly *)
 
   let typing_env_to_string t =
     match t with
@@ -523,17 +524,25 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
         if args_type_check then
           (* what type to assign to callable expressions which return multiple things? *)
-          let tp = (match callable_decl.call_decl_returns with
-          | [] -> Type.unit
-          | [ident] -> (match Map.find callable_decl.call_decl_locals ident with
-            | Some var_decl -> var_decl.var_type
-            | None -> Error.lexical_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
-            )
-          | _ -> Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables which return multiple values not presently supported"))
-          ) in
+          let tp = 
+            ( match callable_decl.call_decl_kind with
+            | Proc | Func ->
+              (match callable_decl.call_decl_returns with
+              | [] -> Type.unit
+              | [ident] -> (match Map.find callable_decl.call_decl_locals ident with
+                | Some var_decl -> var_decl.var_type
+                | None -> Error.lexical_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
+                )
+              | _ -> Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables which return multiple values not presently supported"))
+              )
+
+            | Pred | Lemma | Invariant -> Type.perm
+            ) in
           let expr_attr = { expr_attr with
             expr_type = tp;
           } in
+
+          let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) in
 
           App (Call, callable_expr :: args_list, expr_attr)
         else
@@ -729,6 +738,83 @@ module ProcessCallables = struct
     spec_form = disambiguate_process_expr spec.spec_form tbl disam_tbl;
   }
 
+
+
+  (* let rec purify_expr (expr: expr) (tbl: SymbolTbl.t) : Stmt.var_def list * expr = 
+  (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
+  () *)
+
+  (* let rec pre_process_stmt (stmt: Stmt.t) (tbl: SymbolTbl.t): Stmt.t list * var_decl list =
+      (* Goes over the body of methods. Implements the following re-writes:
+        1. Replaces any `var x : Type = value` stmts into the following two stmts: `var x : Type; x = value`. 
+           This makes future processing simpler.
+        2. Introduces temp variables for any complex arguments passed to callables, eg `func(1 + x)` becomes `var _temp = 1 + x; func(_temp)`
+        3. It checks that inside ghost blocks, no callables or heap fields are referenced; ie only pure ghost stuff is allowed.
+      *)
+    
+    match stmt.stmt_desc with
+    | Block stmt_list ->
+      let locals, stmt_list_list = List.fold_map stmt_list ~init:[] ~f:(fun locals stmt ->
+        let stmt, locals' = pre_process_stmt stmt tbl in
+          locals @ locals', stmt
+      ) in
+      [{stmt with stmt_desc = Block (List.concat stmt_list_list);}], locals
+
+    | Basic basic_stmt -> 
+      (match basic_stmt with
+      | VarDef var_def ->
+        (match var_def.var_init with
+        | None -> [stmt], []
+        | Some expr ->
+          let stmt1: Stmt.t = { 
+            stmt_desc = Basic (VarDef { var_def with var_init = None;});
+            stmt_loc = stmt.stmt_loc
+          } in
+
+          let stmt2: Stmt.t = {
+            stmt_desc = Basic (Assign { 
+              assign_lhs = [
+                App (Var (QualIdent.from_ident var_def.var_decl.var_name), [],
+                (Expr.mk_attr stmt.stmt_loc var_def.var_decl.var_type))
+              ]; 
+              assign_rhs = expr});
+            stmt_loc = stmt.stmt_loc
+          } in
+
+          [stmt1; stmt2], []
+        )
+
+      | Assume spec | Assert | _ -> ()
+
+      )
+
+    | Loop loop_desc -> 
+      let loop_prebody_list, locals1 = pre_process_stmt loop_desc.loop_prebody tbl in
+      let (loop_prebody: Stmt.t) = (match loop_prebody_list with
+        | [ stmt ] -> stmt
+        | stmt_list -> { stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_prebody.stmt_loc}) 
+      in
+
+      let loop_postbody_list, locals2 = pre_process_stmt loop_desc.loop_postbody tbl in
+      let (loop_postbody: Stmt.t) = (match loop_postbody_list with
+        | [ stmt ] -> stmt
+        | stmt_list -> { stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_postbody.stmt_loc}
+      ) in
+      
+      let loop_desc = { loop_desc with
+      loop_prebody = loop_prebody;
+      loop_postbody = loop_postbody;
+      }
+      in
+
+      [{ stmt with stmt_desc = Loop loop_desc;}], locals1 @ locals2
+
+
+    | Cond cond_desc -> ()
+    | Ghost ghost_desc -> () *)
+    
+
+
   let rec process_stmt (stmt: Stmt.t) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : Stmt.t * var_decl list * SymbolTbl.t * DisambiguationTbl.t = try
     let stmt_desc, locals, tbl, disam_tbl =
     (match stmt.stmt_desc with
@@ -796,11 +882,7 @@ module ProcessCallables = struct
 
               (match assign_desc.assign_lhs with
               | [] -> 
-                let (open_au: Stmt.open_au) =
-                {
-                  au_token = au_token;
-                  bound_vars = [];
-                } in
+                let open_au = au_token in
 
                 Basic (OpenAU open_au), [], tbl, disam_tbl
               | _ -> raise (Generic_Error ("openAU() does not take args on LHS."))
@@ -811,19 +893,15 @@ module ProcessCallables = struct
 
           else if QualIdent.compare proc_qual_ident commit_au_call = 0 then
             match args with
-            | token :: args -> (
+            | token :: [] -> (
                 match assign_desc.assign_lhs with
                 | [] ->
                     let token_expr = disambiguate_expr token disam_tbl in
                     let au_token = ASTUtil.expr_to_ident token_expr
 
                     in
-                    let args = List.map args ~f:(fun expr -> 
-                      let expr = disambiguate_expr expr disam_tbl in
-                      let expr = process_expr expr tbl in
-                      expr) in
                       
-                    Basic (CommitAU { au_token = au_token; return_vars = args }), [], tbl, disam_tbl
+                    Basic (CommitAU au_token), [], tbl, disam_tbl
 
                 | _ ->
                     raise (Generic_Error "incorrect number of LHS args to commitAU()")
@@ -950,6 +1028,20 @@ module ProcessCallables = struct
         ) in
 
         Basic (Unfold {unfold_expr}), [], tbl, disam_tbl
+      
+      | OpenInv expr ->
+        let expr = disambiguate_expr expr disam_tbl in
+        let expr = process_expr expr tbl
+
+        in 
+        Basic (OpenInv expr), [], tbl, disam_tbl
+
+      | CloseInv expr ->
+        let expr = disambiguate_expr expr disam_tbl in
+        let expr = process_expr expr tbl
+
+        in 
+        Basic (CloseInv expr), [], tbl, disam_tbl
 
       (* The following constructs are not expected here because the parser stores these commands as Assign stmts. 
         The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform 

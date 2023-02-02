@@ -1,4 +1,4 @@
 (executable
   (name raven)
-  (libraries base config util ast frontend)
+  (libraries base config util ast frontend backend)
   (preprocess (pps ppx_custom_printf)))

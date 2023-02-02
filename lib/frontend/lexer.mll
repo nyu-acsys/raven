@@ -59,6 +59,8 @@ let _ =
       ("while", WHILE);
       ("fold", FOLD);
       ("unfold", UNFOLD);
+      ("openInv", OPENINV);
+      ("closeInv", CLOSEINV);
     ])
 
 let operator_table = Hashtbl.create 64

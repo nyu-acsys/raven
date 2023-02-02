@@ -40,7 +40,9 @@ module Lock {
     if (l.bit) {
       res := false;
     } else {
+      l.bit := true;
       res := true;
+      
     }
 
     {!
@@ -48,7 +50,7 @@ module Lock {
         fold lock(l, true);
         commitAU(phi);
       } else {
-        fold lock(l, false); 
+        fold lock(l, true);
         abortAU(phi);
       }	
     !}

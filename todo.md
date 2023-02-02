@@ -9,6 +9,7 @@
 9. Process implicit callable args appropriately.
 10. Add spawn/join functions. Add process identifier types, etc.
 11. Do obligations checks, in terms of type checking for now.
+12. Treat types and modules as the same (for instance Modules can accept types or modules as args)
 
 
 Questions:

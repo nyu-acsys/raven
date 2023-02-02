@@ -22,10 +22,10 @@ module Lock {
     l.bit := false;
     var x : Bool = true;
     var z : Bool = x;
-    x := true;
-    var phi: AtomicToken;
-    phi := bindAU();
-    openAU(phi);
+    x := 1;
+
+
+
     val y = false;
 
     if (x == true) {

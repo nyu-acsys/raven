@@ -25,13 +25,16 @@ let print_file_line line_num loc =
   in
 
   let ic = Stdio.In_channel.create !main_file in 
-    Stdio.printf "\n%d | %s\n" line_num (in_channel_line ic (line_num - 1))
+    Stdio.printf "%d | %s\n" line_num (in_channel_line ic (line_num - 1))
 
 let print_error_loc (loc: Loc.t) =
-  let line_num = (loc.loc_start.pos_lnum) in 
-  print_file_line line_num loc;
+  Stdio.printf "\n";
 
-  Stdio.printf "%s%s\n" (String.make (String.length (Int.to_string line_num) + 2 + loc.loc_start.pos_cnum - loc.loc_start.pos_bol) ' ') (String.make (1 + loc.loc_end.pos_cnum - loc.loc_start.pos_cnum) '^');
+  let line_num1 = (loc.loc_start.pos_lnum) in
+  let line_num2 = (loc.loc_end.pos_lnum) in
+  let _ = List.map (List.range line_num1 (1+line_num2)) ~f:(fun line_num -> print_file_line line_num loc) in
+
+  Stdio.printf "%s%s\n" (String.make (String.length (Int.to_string line_num1) + 2 + loc.loc_start.pos_cnum - loc.loc_start.pos_bol) ' ') (String.make (1 + loc.loc_end.pos_cnum - loc.loc_start.pos_cnum) '^');
   Stdio.print_endline ""
 
 let to_string (loc: Loc.t) msg = 

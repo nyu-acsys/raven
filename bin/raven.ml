@@ -2,6 +2,7 @@ open Base
 open Util
 open Frontend
 open Error
+open Backend
 
 let greeting = "Raven version " ^ Config.version ^ "\n"
 
@@ -23,7 +24,11 @@ let parse_and_print lexbuf =
   match tbl with
   | [ _ ] -> Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
     Ast.Module.print_verbose Stdio.stdout processed_ast;
-    Stdio.print_endline ""
+    Stdio.print_endline "";
+
+    Module_checker.check_module processed_ast tbl;
+
+
   | _ -> raise (Generic_Error "SymbolTbl should be empty")
 
 let parse_program filename =
