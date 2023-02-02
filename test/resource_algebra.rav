@@ -1,75 +1,61 @@
 interface Resource_algebra {
     rep type t
 
-    val elts: Set[t]
     val id: t
-    func mult(a:t, b:t) returns (ret:t)
+    func comp(a:t, b:t) returns (ret:t)
     func valid(a:t) returns (ret: Bool)
 
-    /* alias : a ∘ b = mult(a,b) */
-
-    /* Write lemmas in requires/ensures. */
+    /* alias : a ∘ b = comp(a,b) ? */
 
     lemma id_valid()
-        ensures (id in elts)
-
-    /* How to extend quantification from requires to ensures? Or just re-quantify? */
+        ensures valid(id)
 
     lemma comp_assoc(a:t, b:t, c:t)
-        requires ((a in elts) && (b in elts) && (c in elts))
-        ensures (mult(mult(a, b), c) == mult(a, mult(b, c)))
+        ensures (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
     lemma comp_commute(a:t, b:t)
+        ensures comp(a, b) == comp(b, a)
+		
+		/* Add these lemmas as axioms
+		lemma fpu_update(l:t, a:t, b:t)
+        requires own(l, a)
         requires (a in elts) && (b in elts)
-        ensures mult(a, b) == mult(b, a)
-
-    lemma cancellative(a:t, b:t, c:t)
-        requires (a in elts) && (b in elts) && (c in elts)
-        requires mult(a, b) == mult(c, b)
-        ensures (a == c)
-
-    func fpu_condition(a:t, b:t)
-        requires (forall c:t :: (c in elts && valid(mult(a, c)) ==> valid(mult(b, c))))
-        /* What to do with this implication? */
-
-    /* revisit parametrizing in terms of l, f */
-    proc fpu(a:t, b:t, l:Ref, f:t)
-        requires own(l.f, a)
-        requires (a in elts) && (b in elts)
-
-        requires fpu_condition(a, b)
-        /*
-        ------OR------
-        requires ∀ c:T ; c ∈ Elts && valid(a ∘ c) → valid(b ∘ c)
-            # explicit reference to FPU_condition makes it more natural to use it with actual resource algebras.
-        */
-
-        ensures own(l.f, b)
-    /*{
+        requires (forall c:t :: (valid(comp(a, c)) ==> valid(comp(b, c))))
+        ensures own(l, b)
+    {
         exhale a;
         inhale b;
-    }*/
+    }
+    
+    lemma own_sep(l:Ref, f:t, a:t, b:t)
+      requires own(l.f, comp(a, b))
+      ensures own(l.f, a) &*& own(l.f, b)
+		*/
 
+
+		/*
+    lemma cancellative(a:t, b:t, c:t)
+        requires (a in elts) && (b in elts) && (c in elts)
+        requires comp(a, b) == comp(c, b)
+        ensures (a == c)
+		*/
 }
 
 module Nat : resource_algebra {
     rep type t = Int
 
-    val elts = {| n : Int :: n >= 0 |}
     val id = 0
 
-    func mult(a:t, b:t) returns (c:t) { a+b }
-    func valid(n:t) returns (c:Bool) { true }
+    func comp(a:t, b:t) returns (ret:t) { ret := a+b }
+    func valid(n:t) returns (ret:Bool) { ret := n >= 0 ? true : false }
 
 
-    /* which style for proving lemmas? Also have to develop assertion language? */
     lemma id_valid()
-        ensures (id in elts)
+        ensures valid(id)
     {}
 
     lemma comp_assoc(a:t, b:t, c:t)
-        requires (a in elts) && (b in elts) && (c in elts)
-        ensures mult(mult(a, b), c) == mult(a, mult(b, c))
+        ensures comp(comp(a, b), c) == comp(a, comp(b, c))
     {}
 }
 
@@ -77,11 +63,8 @@ module Nat : resource_algebra {
 module Frac : resource_algebra {
     rep type t = Frac
 
-    val elts = {| n : Frac :: 0 <= n && n <= 1 |}
-
     val id = 0
-
-    mult(a, b) = a + b
+    func comp(a: Frac, b: Frac) returns { ret := a + b }
 }
 
 
