@@ -1,0 +1,16 @@
+module Lists[T1: Type] {
+    rep type T = data {
+        cons(head: Int, tail:T);
+        nil
+    }
+
+    proc max_elem(l: T) returns (r: Int) 
+    {
+        r := match(l) {
+            | nil -> 0
+            | cons(h, t) -> (h > max_elem(t))? h : max_elem(t)
+        }
+    }
+
+
+}

@@ -260,4 +260,5 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
 	
 	
 	}
+}
 	

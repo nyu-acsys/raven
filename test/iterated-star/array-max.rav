@@ -16,18 +16,18 @@ interface IArray {
 }
 
 module ArrayMax[Arr: IArray] {
-  field val: Int
+  field value: Int
 
-  define arr(a: Arr, m: Map<Int, Int>) {
-    forall j: Int :: 0 <= j < len(a) ==> own(loc(a, j).val, (1, m[i]))
+  pred arr(a: Arr, m: Map[Int, Int]) {
+    forall j: Int :: 0 <= j < len(a) ==> own(loc(a, j).value, (1, m[j]))
   }
   
   // old keyword?
   //define untouched(a: Arr) {
-  //  forall j: Int :: 0 <= j < len(a) ==> loc(a, j).val == old(loc(a, j).val)
+  //  forall j: Int :: 0 <= j < len(a) ==> loc(a, j).value == old(loc(a, j).value)
   //}
   
-  define is_max(i: Int, m: Map<Int, Int>, u: Int) {
+  pred is_max(i: Int, m: Map<Int, Int>, u: Int) {
     forall j: Int :: 0 <= j && j < u ==> m[j] <= m[i]
   }
   
@@ -55,11 +55,13 @@ module ArrayMax[Arr: IArray] {
                             ((0 <= i && i < x) || (y < i && i < len(a)))
                         ==> m[i] <= m[y])
       {
-        if (loc(a, x).val <= loc(a, y).val) {
+        unfold arr(a,m);
+        if (loc(a, x).value <= loc(a, y).value) {
           x := x + 1
         } else {
           y := y - 1
         }
+        fold arr(a,m);
       }
     }
   }
@@ -72,20 +74,21 @@ method client() {
   var a: IArray
   inhale len(a) == 3
   inhale access(a)
-  inhale forall i: Int :: 0 <= i && i < len(a) ==> loc(a, i).val == i
+  inhale forall i: Int :: 0 <= i && i < len(a) ==> loc(a, i).value == i
 
   var x: Int
   x := max(a)
 
-  assert loc(a, 0).val <= x
+  assert loc(a, 0).value <= x
 
-  assert x == loc(a, len(a) - 1).val
+  assert x == loc(a, len(a) - 1).value
     /* Necessary to prove the final assertion (due to triggering) */
 
   assert x == 2
 
-  assert loc(a, 1).val < x
+  assert loc(a, 1).value < x
 }
 *)
+}
 
 

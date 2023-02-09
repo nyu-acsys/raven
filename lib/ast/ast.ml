@@ -322,6 +322,7 @@ module Type = struct
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [meet t1 t2], a1)
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
   (** Auxiliary utility functions *)
+  (* TODO: Implement this properly. process_expr uses this *)
 
   let is_any tp_expr = (compare tp_expr (mk_any Loc.dummy)) = 0
 

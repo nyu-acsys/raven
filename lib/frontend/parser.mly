@@ -122,11 +122,7 @@ type_def:
 
 type_def_expr:
 | t = type_expr { t }
-/* | STRUCT; LBRACE; defs = list(var_decl); RBRACE {
-  let decls = List.map (fun def -> def.Stmt.var_decl) defs in
-  Type.mk_struct decls
-} */
-| DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl); RBRACE {
+| DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl) RBRACE {
   Type.mk_data decls (Loc.make $startpos $endpos)
 }
 
@@ -259,7 +255,7 @@ import_dir:
 | IMPORT; t = type_expr { Module.ModImport t }
     
 type_decl:
-| m = type_mod; TYPE; id = IDENT {
+| m = type_mod; TYPE; id = MODIDENT {
   let ta =
     Module.{ type_alias_name = id;
              type_alias_def = None;

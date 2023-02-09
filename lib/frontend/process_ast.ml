@@ -263,6 +263,7 @@ module ProcessTypeExpr = struct
       (match tp_list with
       | [] -> App ((Var (SymbolTbl.fully_quantified qual_ident tbl)), [], tp_attr)
       | _ -> raise (Generic_Error (QualIdent.to_string qual_ident ^ ": QualIdent types don't support arguments."))
+      (* TODO *)
       )
 
     | App (Set, tp_list, tp_attr) ->
@@ -287,11 +288,12 @@ module ProcessTypeExpr = struct
 
       | _ -> raise (Generic_Error "Data types don't take arguments")
       ) *)
+      (* TODO *)
       raise (Generic_Error "Data Types not presently supported")
 
     | App (constr, [], tp_attr) -> App (constr, [], tp_attr)
 
-    | App (constr, _tp_list, _tp_attr) -> raise (Generic_Error (Type.to_name constr ^ " types don't take zero"))
+    | App (constr, _tp_list, _tp_attr) -> raise (Generic_Error (Type.to_name constr ^ " types don't take arguments"))
 
 end
 
@@ -302,8 +304,9 @@ let process_var_decl (var_decl: var_decl) (tbl: SymbolTbl.t) : var_decl =
 
 let does_expr_implement_type (expr: expr) (tp_expr: type_expr) : bool = 
   let tp1 = Type.join (Expr.attr_of expr).expr_type tp_expr in
+  (* TODO: Generalize appropriately *)
   if Type.compare tp1 tp_expr = 0 then
-    true 
+    true
   else 
     false
 
@@ -312,6 +315,8 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
   | App (constr, expr_list, expr_attr) ->
     (* let expr_list = List.map expr_list ~f:(fun expr -> process_expr expr tbl) in *)
     let expr_type = expr_attr.expr_type in
+
+    (* The parser returns expressions with expr_type Any. That is why Type.meet is used in the below definitions. It works with the Any type annotations received from the parser, as well as with more precise type annotations. *)
 
     (match constr, expr_list with
     | Null, [] -> 
@@ -518,12 +523,13 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
         let callable_arg_var_decl_list = List.map callable_arg_ident_list ~f:(fun ident -> match Map.find callable_decl.call_decl_locals ident with | Some var -> var | None -> Error.lexical_error (Expr.loc expr) ("Formal arg variable not found in CallDecl")) in
         let callable_arg_types_list = List.map callable_arg_var_decl_list ~f:(fun var_decl -> var_decl.var_type) in
         let args_type_check_list = (match List.map2 args_list callable_arg_types_list ~f:does_expr_implement_type with
+        (* TODO: Extend for implicit ghost arguments *)
             | Ok list -> list
             | Unequal_lengths -> Error.lexical_error (Expr.loc expr) (("Callable " ^ Ident.to_string callable_decl.call_decl_name ^ " called with incorrect number of arguments" ))) in
         let args_type_check = List.fold args_type_check_list ~init:true ~f:(&&) in
 
         if args_type_check then
-          (* what type to assign to callable expressions which return multiple things? *)
+          (* TODO: what type to assign to callable expressions which return multiple things? *)
           let tp = 
             ( match callable_decl.call_decl_kind with
             | Proc | Func ->
@@ -595,7 +601,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
     (* | Write, [expr1; expr2] *)
     | Write, _expr_list -> Error.lexical_error (Expr.loc expr) ("Write expr not presently supported")
     
-    | Own, [_expr1; _expr2] -> (* Implement proper type-checking for Own expressions. Do they take two args or three? *)
+    | Own, [_expr1; _expr2] -> (* TODO: Implement proper type-checking for Own expressions. Do they take two args or three? *)
       expr
     | Own, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
     
@@ -1146,7 +1152,7 @@ module ProcessCallables = struct
     with
       Generic_Error msg -> Error.lexical_error stmt.stmt_loc msg
 
-  let process_callable ((mod_decl, tbl): Module.module_decl * SymbolTbl.t)(callable: Callable.t) : (Module.module_decl * SymbolTbl.t) * Callable.t =
+  let process_callable ((mod_decl, tbl): Module.module_decl * SymbolTbl.t) (callable: Callable.t) : (Module.module_decl * SymbolTbl.t) * Callable.t =
     match callable with
       | FuncDef func_def ->
         (try
@@ -1159,6 +1165,7 @@ module ProcessCallables = struct
             let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
             (disam_tbl, (var_decl'.var_name, var_decl'))
         ) in
+        (* FuncDefs should not have any new call_decl_locals in body because they are expressions. That is, all call_decl_locals are the arguments it takes. These are being disambiguated in the above.*)
         
         let func_decl = { func_def.func_decl with
           call_decl_formals = List.map func_def.func_decl.call_decl_formals ~f:(DisambiguationTbl.find_exn disam_tbl);
@@ -1208,6 +1215,7 @@ module ProcessCallables = struct
 
         let proc_decl = { proc_def.proc_decl with
           call_decl_formals = List.map proc_def.proc_decl.call_decl_formals ~f:(DisambiguationTbl.find_exn disam_tbl);
+          (* TODO: Add a check to make sure that all the implicit ghost variables are declared at the end. *)
           call_decl_returns = List.map proc_def.proc_decl.call_decl_returns ~f:(DisambiguationTbl.find_exn disam_tbl);
           call_decl_locals = Map.of_alist_exn (module Ident) call_decl_locals_list;
           call_decl_precond = List.map proc_def.proc_decl.call_decl_precond ~f:(process_stmt_spec tbl disam_tbl);
@@ -1220,7 +1228,6 @@ module ProcessCallables = struct
           let stmt, locals, tbl', _disam_tbl = process_stmt stmt tbl disam_tbl in
 
           if SymbolTbl.equal tbl' tbl then
-
             Some stmt, locals
           else
             Error.lexical_error proc_decl.call_decl_loc "process_stmt returned a changed Typing Env tbl. Examine violation."
@@ -1472,6 +1479,7 @@ module ProcessModule = struct
      
   and does_module_implement_module (_mod_decl: Module.module_decl) (_implemented_mod_decl: Module.module_decl) : bool = 
     true
+    (* TODO *)
 
 
   and type_expr_to_mod_decl (type_expr: type_expr) (tbl: SymbolTbl.t) : Module.module_decl =
@@ -1508,7 +1516,7 @@ module ProcessModule = struct
         let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (ModAlias mod_alias) in
 
         let (mod_aliases, mod_decl, tbl) = process_mod_aliases mod_aliases mod_decl tbl in
-
+        (* These mod_aliases are not added to the mod_decl because any aliases without definitions are parameter modules which are inserted into mod_decl during parsing itself. *)
         (mod_alias :: mod_aliases, mod_decl, tbl)
 
       | Some mod_alias_def ->
@@ -1521,7 +1529,8 @@ module ProcessModule = struct
         try
           let mod_decl_of_alias = type_expr_to_mod_decl mod_alias_def tbl in
 
-          if Type.is_any mod_alias.mod_alias_type || does_module_implement_module mod_decl_of_alias (type_expr_to_mod_decl mod_alias.mod_alias_type tbl)
+          if Type.is_any mod_alias.mod_alias_type || does_module_implement_module mod_decl_of_alias (type_expr_to_mod_decl mod_alias.mod_alias_type tbl) 
+            (* TODO: Above check is trivially true currently since does_module_implement_module has not been implemented and returns trivially true. *)
             
           then
 
