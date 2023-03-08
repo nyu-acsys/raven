@@ -60,7 +60,7 @@ module Frac : resource_algebra {
 module Auth [M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
         case frac(m:M); 
-        case auth_frac(m:M, n:M);
+        case auth_frac(n1:M, n2:M);
         case top
     }
     
@@ -72,9 +72,9 @@ module Auth [M: ResourceAlgebra] : ResourceAlgebra {
         /* I think at present the front-end won't be able to deal with the use of an undeclared variable like m in the following line for deconstruction. Probably best to just implement case-matching. */
         /* But if we have case-matching then the following code will look much worse. */
 
-        (a == frac(m) && b == frac(n))?
-            (frac(M.comp(m,n))) :
-        (((a == frac(m) && b == auth_frac(n1, n2)) || (a == auth_frac(n1, n2) && b == frac(m))))?
+        (a == frac(a.m) && b == frac(b.m))?
+            (frac(M.comp(a.m,b.m))) :
+        (((a == frac(a.m) && b == auth_frac(b.n1, b.n2)) || (a == auth_frac(a.n1, a.n2) && b == frac(b.m))))?
             auth_frac(n1, M.comp(m, n2)) :
             top
     }

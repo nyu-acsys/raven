@@ -2,7 +2,7 @@
 
 (set-option :produce-models true)
 (set-option :produce-unsat-cores true)
-(set-option :timeout 4000)
+(set-option :timeout 2000)
 
 ; A manual encoding of max() from array-max.rav
 
@@ -97,7 +97,6 @@
 
 (declare-datatype Predicate (
     (predNull)
-    (arr)
     (is_max (is_maxArg1 Int) (is_maxArg2 (Array Int Int)) (is_maxArg3 Int))
     (arr (arrArg1 IArray) (arrArg2 (Array Int Int)))
 ))
@@ -109,6 +108,7 @@
 (declare-const m (Array Int Int))
 (declare-const x Int)
 
+(declare-const PredHeap11 (Array Int Predicate))
 (declare-const PredHeap0 (Array Int Predicate))
 
 ; requires arr(a,m)
@@ -124,8 +124,8 @@
 
     (push)
         (assert (not
-            (exists ((ii Int)) (and (<= 0 ii) (<= ii 0) (= (arr a m) (select PredHeap0 ii))))
-        ))
+            (= (arr a m) (select PredHeap0 0))))
+        
         (check-sat)
     (pop)
 
@@ -138,10 +138,11 @@
 
     (push)
     ; fails -- manually unfolding and proving body of predicate in next request.
+        (echo "What")
         (assert (not
-            (exists ((ii Int)) (and (<= 0 ii) (<= ii 0) (= (is_max x m (len a)) (select PredHeap0 ii))))
+            (exists ((ii Int)) (and (<= 0 ii) (<= ii 0) (= (is_max x m (len a)) (select PredHeap0 0))))
         ))
-        ;(check-sat)
+        (check-sat)
         ; this request times out. Why might that be?
     (pop)
 
@@ -231,7 +232,9 @@
             (pop)
 
             (declare-const valHeap1 (FracOwnHeap Int))
-            (assert (forall ((j Int)) (=> (and (<= 0 j) (< j (len a))) (= valHeap1 (store valHeap (loc a j) (as FracHeapNull (FracHeapChunk Int)) )))))
+            (assert (forall ((j Int)) (=> (and (<= 0 j) (< j (len a))) (= (select valHeap1 (loc a j) ) (as FracHeapNull (FracHeapChunk Int)) ))))
+
+            (assert (forall ((j Int)) (=> (not (and (<= 0 j) (< j (len a)))) (= (select valHeap1 (loc a j)) (select valHeap (loc a j)) ))))
 
             ;(echo "Should be SAT/unknown:")
             ;(check-sat)
@@ -262,6 +265,7 @@
                         (forall ((i Int)) (=> (or (and (<= 0 i) (< i x_2)) (and (< y i) (< i (len a)))) (< (select m i) (select m y))))
                     )
                 ))
+                (echo "Why")
                 (check-sat)
             (pop)
         (pop)
