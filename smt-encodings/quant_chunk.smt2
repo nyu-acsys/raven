@@ -47,11 +47,11 @@
 
 (declare-const chunkArr2 (Array Loc (FracHeapChunk Int)))
 
-(assert (forall ((l Loc)) (= (select chunkArr1 l) (FracChunk 1 1))))
+(assert (forall ((l Loc)) (= (select chunkArr2 l) (FracChunk 1 1))))
 
 ; (declare-const quantHeap2 (Array Int QuantHeapChunk))
 (declare-const quantChunk2 (QuantHeapChunk))
-(assert (= quantChunk1 (QuantChunkConstr guard2 chunkArr2)))
+(assert (= quantChunk2 (QuantChunkConstr guard2 chunkArr2)))
 
 (push)
     (assert (not 

@@ -1,7 +1,7 @@
 (set-logic ALL)
 
 ; (set-option :produce-models true)
-; (set-option :smt.mbqi false)
+(set-option :smt.mbqi false)
 ; (set-option :produce-unsat-cores true)
 (set-option :timeout 2000)
 
@@ -186,8 +186,8 @@
 (assert (= (+ (select arrPredHeap_0 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_1 (arrPredConstr a_0 m_0))))
 (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_0 index) (select arrPredHeap_1 index)))))
 
-(echo "SAT/Unknown 1:")
-(check-sat)
+; (echo "SAT/Unknown 1:")
+; (check-sat)
 
 ; if (len(a) == 0)
 (push)
@@ -201,7 +201,6 @@
         (assert (not
             (<= 1 (select arrPredHeap_1 (arrPredConstr a_0 m_0)))
         ))
-
         (check-sat)
     (pop)
 
@@ -209,12 +208,11 @@
         (assert (not
             (ite (= (len a_0) 0) (= x_1 -1) (and (<= 0 x_1) (< x_1 (len a_0))))
         ))
-
         (check-sat)
     (pop)
 
-    (echo "SAT/Unknown 2:")
-    (check-sat)
+    ; (echo "SAT/Unknown 2:")
+    ; (check-sat)
 
     (push)
     ; fails -- manually unfolding and proving body of predicate in next request.
@@ -321,8 +319,8 @@
 
         ; exhaling from arrPredHeap
         (declare-const arrPredHeap_4 (PredHeap arrPred))
-        (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_3 index) (select arrPredHeap_4 index)))))
         (assert (= (- (select arrPredHeap_3 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_4 (arrPredConstr a_0 m_0))))
+        (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_3 index) (select arrPredHeap_4 index)))))
 
         ; need to detect that arrPred body talks about valueOwnHeap
 
@@ -337,7 +335,7 @@
         (pop)
 
 
-        ; Here the below chunks need to be added to existing chunks in valueOwnHeap_1. Need to define functions for adding chunks.
+        ; Here the below chunks need to be added to existing chunks in valueOwnHeap_1.
         (declare-const valueOwnHeap_2 (FracOwnHeap Int))
         (assert (IntHeapValid valueOwnHeap_2))
         (assert (forall 
@@ -360,8 +358,8 @@
             )
         ))
         
-        (echo "SAT/Unknown 3:")
-        (check-sat)
+        ; (echo "SAT/Unknown 3:")
+        ; (check-sat)
 
 
         ; if (loc(a, x).value <= loc(a, y).value)
@@ -427,12 +425,12 @@
             ))
 
             (declare-const arrPredHeap_5 (PredHeap arrPred))
-            (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_4 index) (select arrPredHeap_5 index)))))
             (assert (= (+ (select arrPredHeap_4 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_5 (arrPredConstr a_0 m_0))))
+            (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_4 index) (select arrPredHeap_5 index)))))
 
 
-            (echo "SAT/Unknown 4:")
-            (check-sat)
+            ; (echo "SAT/Unknown 4:")
+            ; (check-sat)
 
             ; re-establishing invariants
 
@@ -512,8 +510,8 @@
             (assert (= (+ (select arrPredHeap_4 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_5 (arrPredConstr a_0 m_0))))
 
 
-            (echo "SAT/Unknown 5:")
-            (check-sat)
+            ; (echo "SAT/Unknown 5:")
+            ; (check-sat)
 
             ; re-establishing invariants
 
@@ -577,8 +575,8 @@
         (check-sat)
     (pop)
 
-    (echo "SAT/Unknown 6:")
-    (check-sat)
+    ; (echo "SAT/Unknown 6:")
+    ; (check-sat)
 
     (push)
     ; fails -- manually unfolding and proving body of predicate in next request.

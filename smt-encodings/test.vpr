@@ -1,0 +1,23 @@
+field val: Int
+field next: Ref
+
+method main(x: Ref)
+    requires (acc(x.val) && acc(x.next))
+    ensures (acc(x.next) && acc(x.next.next))
+{
+    var y: Ref;
+    y := new(*);
+    x.val := 1;
+    y.val := 2;
+    y.next := x;
+
+    x.next := y;
+
+    y := new(val, next);
+
+    y.val := 1;
+
+    if (y.val == 5) {
+        assert(false);
+    }
+}

@@ -149,7 +149,7 @@ module SymbolTbl = struct
         match Map.find map name with None -> find ts name | Some id -> Some id)
 
   let equal (_tp_env1: t) (_tp_env2: t) : bool =
-    true (* ToDo: Implement properly *)
+    true (* TODO: Implement properly *)
 end
 
 let rec pre_process_module (m: Module.t0) : (Module.t1) = 
@@ -819,9 +819,101 @@ module ProcessCallables = struct
     | Cond cond_desc -> ()
     | Ghost ghost_desc -> () *)
     
+  
+  let rec pre_process_stmt (stmt: Stmt.t) : Stmt.t list = 
+    (* This function only takes stmts of type:
+        var x : Type = val;
+        
+        and unfolds them into:
+        var x : Type;
+        x := val;
+    *)
+    match stmt.stmt_desc with
+    | Block stmt_list ->
+      let stmt_list = List.concat (List.map ~f:pre_process_stmt stmt_list) in
+        [{stmt_desc = Block stmt_list; stmt_loc = stmt.stmt_loc;}]
+    | Basic basic_stmt ->
+      (match basic_stmt with
+        | VarDef var_def -> 
+          (match var_def.var_init with
+          | None -> [stmt]
+          | Some expr -> 
+            let (var_def': Stmt.var_def) = {var_decl = var_def.var_decl; var_init = None} in
+            let (stmt1: Stmt.t) = {stmt_desc = Basic (VarDef var_def'); stmt_loc = stmt.stmt_loc;} in
+            let (var_expr: Expr.t) = App (Var (QualIdent.from_ident var_def.var_decl.var_name), [], {expr_loc = stmt.stmt_loc; expr_type = var_def.var_decl.var_type}) in
+            let (assign_desc': Stmt.assign_desc) = {assign_lhs = [var_expr]; assign_rhs = expr} in
+            let (stmt2: Stmt.t) = {stmt_desc = Basic (Assign assign_desc'); stmt_loc = stmt.stmt_loc;} in
 
+            [stmt1; stmt2]
+            
+          )
+
+
+        | _ -> [stmt]
+      )
+    | Loop loop_desc -> (
+      let loop_prebody_list = pre_process_stmt loop_desc.loop_prebody in
+      let loop_prebody' = (match loop_prebody_list with
+        | [stmt'] -> stmt'
+        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_prebody.stmt_loc;}
+      ) in
+
+      let loop_postbody_list = pre_process_stmt loop_desc.loop_postbody in
+      let loop_postbody' = (match loop_postbody_list with
+        | [stmt'] -> stmt'
+        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_postbody.stmt_loc;}
+      ) in
+
+
+      let loop_desc' = { loop_desc with
+            loop_prebody = loop_prebody';
+            loop_postbody = loop_postbody';
+      } in
+
+      [{stmt with stmt_desc = Loop loop_desc';}]
+      )
+
+    | Cond cond_desc -> (
+      let cond_then_list = pre_process_stmt cond_desc.cond_then in
+      let cond_then' = (match cond_then_list with
+        | [stmt'] -> stmt'
+        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = cond_desc.cond_then.stmt_loc;}
+      ) in
+
+      let cond_else_list = pre_process_stmt cond_desc.cond_else in
+      let cond_else' = (match cond_else_list with
+        | [stmt'] -> stmt'
+        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = cond_desc.cond_else.stmt_loc;}
+      ) in
+
+      let cond_desc' = { cond_desc with
+            cond_then = cond_then';
+            cond_else = cond_else';
+      } in
+
+      [{stmt with stmt_desc = Cond cond_desc';}]
+    )
+
+    | Ghost ghost_desc -> (
+      let ghost_body_list = pre_process_stmt ghost_desc.ghost_body in
+      let ghost_body' = (match ghost_body_list with
+        | [stmt'] -> stmt'
+        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = ghost_desc.ghost_body.stmt_loc;}
+      ) in
+
+      let (ghost_desc': Stmt.ghost_desc) = { ghost_body = ghost_body';} in
+
+      [{stmt with stmt_desc = Ghost ghost_desc';}]
+    )
 
   let rec process_stmt (stmt: Stmt.t) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : Stmt.t * var_decl list * SymbolTbl.t * DisambiguationTbl.t = try
+
+    let _stmt_list = pre_process_stmt stmt in
+    let stmt = (match _stmt_list with
+      | [stmt'] -> stmt'
+      | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = stmt.stmt_loc;}
+    ) in
+
     let stmt_desc, locals, tbl, disam_tbl =
     (match stmt.stmt_desc with
     | Block stmt_list -> 
@@ -984,12 +1076,22 @@ module ProcessCallables = struct
             in expr
           ) in
 
-          let (assign_desc: Stmt.assign_desc) = { 
-            assign_lhs = assign_lhs;
-            assign_rhs = assign_rhs;
-          } in
+          (* TODO: Need to add support for product types for full functionality - eg match return types for callables which return multiple things *)
 
-          Basic (Assign assign_desc), [], tbl, disam_tbl
+          match assign_lhs with
+          | [expr1] ->
+
+            if Type.compare (Type.meet (Expr.to_type expr1) (Expr.to_type assign_rhs)) Type.bot = 0 then 
+              Error.type_error stmt.stmt_loc "Assignment type doesn't match"
+            else
+            let (assign_desc: Stmt.assign_desc) = { 
+              assign_lhs = assign_lhs;
+              assign_rhs = assign_rhs;
+            } in
+
+            Basic (Assign assign_desc), [], tbl, disam_tbl
+
+          | _ -> Error.unsupported_error stmt.stmt_loc "Assign stmts with multiple expr on LHS not currently supported"
           )
         )
       

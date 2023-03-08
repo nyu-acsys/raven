@@ -1,8 +1,9 @@
 (set-logic ALL)
 
 (set-option :produce-models true)
+(set-option :smt.mbqi false)
 (set-option :produce-unsat-cores true)
-(set-option :timeout 1000)
+;(set-option :timeout 2000)
 
 (declare-sort Loc 0)
 (declare-sort Field 1)

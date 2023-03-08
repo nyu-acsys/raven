@@ -63,6 +63,8 @@ let error_simple msg = fail Loc.dummy @@ "Lexical Error: " ^ msg
 
 let lexical_error loc msg = print_error_loc loc; fail loc @@ "Lexical Error: " ^ msg
 
+let unsupported_error loc msg = print_error_loc loc; fail loc @@ "Unsupported Feature Error: " ^ msg
+
 let type_error loc msg = print_error_loc loc; fail loc @@ "Type Error: " ^ msg
 
 let syntax_error loc msg_opt = 

@@ -20,6 +20,7 @@ let type_checking_enabled = true
 let parse_and_print lexbuf =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
+  let _ = Smt_solver.init () in
   let processed_ast, tbl = Process_ast.start_processing s in
   match tbl with
   | [ _ ] -> Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
