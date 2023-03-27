@@ -69,21 +69,24 @@ interface Node[K: Keyspace] {
   // difference between ghost vs implicit ghost?
   proc decisiveOp(n: T, ghost lk: Bool, ghost In: FlowInt, ghost Cn: Set[K], dop: op, k: K)
     returns (succ: Bool, res: Bool, implicit ghost Cn1: Set[K])
-    requires k in KS 
     requires nodeR(n, lk, In, Cn)
-    requires k in inset(In, n) && k !in out(In)
+    requires k in inset(In) && k !in out(In)
     ensures nodeR(n, lk, In, Cn1)
     ensures succ ==> opSpec(dop, k, Cn, Cn1, res)
     ensures !succ ==> Cn = Cn1
 }
+
+lemma keysetTheorem(dop: op, k: K, Cn: Set[K], Cn1: Set[K], res) 
+  requires opSpec(dop, k, Cn, Cn1, res)
+  ensures opSpec(dop, k, C, C1, res)
+{}
 
 interface SearchStructure[K: Keyspace] {
   /* import K.KS */
   module Spec = SearchStructureSpec[K]
   import Spec
 
-	/* css or Ref? */
-  type css
+  type css = Ref
 
   pred cssR(r: css, C: Set[K])
   inv cssI(r: css)
@@ -115,14 +118,19 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   import FracContentsRA
 
   field node: Ref;
-  field fp: AuthSetRA;
-  field fl: AuthFlowRA;
-  field ks: AuthKeysetRA;
-  fiel rp: FracContentsRA;
-  
+  field fp: AuthSetRA; (* footprint *)
+  field fl: AuthFlowRA; (* flow *)
+  field ks: AuthKeysetRA; (* keyset *)
+  field rp: FracContentsRA; (* representation *)
+
   pred inFP(r: css, n: Node) {
   	own(r.fp, Frag {| n |})
   }
+
+  lemma inFP_persistent(r,n) 
+    requires inFP(r,n)
+    ensures inFP(r,n) && inFP(r,n)
+  {}
   
   pred nodePred(r:css, n: Node, In: FlowInt, Cn: Set[K]) {
   	own(r.ks, Frag (KSPair (keyset(In), Cn)))
@@ -143,19 +151,26 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     && globalinv(r, I)
   }
 
-  inv cssI(r: css) {
-    exists I: FlowInt, C: Set[K] ::
+  inv cssI(r: css, implicit ghost m_lk: Map[Node, Bool], implicit ghost m_In: Map[Node, FlowInt], implicit ghost m_Cn: Map[Node, Set[K]], implicit ghost I: FlowInt, implicit ghost C: Set[K], implicit ghost n:Node) {
       own(r.rp, (1/2, C))
+      && own(r.node, n, 1/2)
+      && InFP(r, n)
       && globalRes(r, I, C)
       && (forall n:Node :: n in dom(I) ==> 
-              exists lk: Bool, In: FlowInt, Cn: Set[K] :: nodeR(n, lk, In, Cn) && (lk ? nodePred(r, n, In, Cn) : True))
+              nodeR(n, m_lk[n], m_In[n], m_Cn[n]))
+      && (forall n:Node :: n in dom(I) && m_lk[n] ==>
+        nodePred(r, n, In, Cn))
   }
 
-  proc traverse(r: css, n: Node, k: K)
-    returns (nn: Node, implicit ghost Inn: FlowInt, implicit ghost Cnn: Set[K])
+
+
+  proc traverse(r: css, n: Node, k: K, implicit ghost Inn: FlowInt, implicit ghost Cnn: Set[K])
+  (* existentials from returns as implicit ghosts in parameters? *)
+    returns (nn: Node) (* implicit ghost Inn: FlowInt, implicit ghost Cnn: Set[K]) *)
     requires cssI(r)
     requires inFP(r, n)
     atomic requires True
+    atomic ensures nodeR(nn, true, Inn, Cnn)
     atomic ensures nodePred(r, nn, Inn, Cnn)
     atomic ensures k in inset(Inn) && k !in out(Inn)
 
@@ -166,10 +181,40 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     atomic requires cssR(r, C)
     atomic ensures cssR(r, C1) && opSpec(dop, k, C, C1, res)
   {
-    var n := traverse(r, r.node, k)
+    var phi: AtomicToken;
+    phi = bindAU();
+    openInv cssI(r);
+    unfold cssI(r);
+
+    var v: Node = r.node;
+
+    inFP_persistent(r, v);
+
+    fold cssI(r);
+    closeInv cssI(r);
+
+    var n := traverse(r, v, k);
 
     var succ: Bool, Cn1: Set[K];
+
+    openInv cssI(r);
+    openAU(phi);
+
     succ, res, Cn1 := decisiveOp(n, dop, k);
+
+    {!
+      if (succ) {
+        keysetTheorem();
+        commitAU();
+        closeInv();
+      }
+
+      else {
+        abortAU();
+        closeInv();
+      }
+    !}
+    
     if (succ) {
       unlockNode(n);
       return res

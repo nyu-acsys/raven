@@ -27,7 +27,7 @@ let parse_and_print lexbuf =
     Ast.Module.print_verbose Stdio.stdout processed_ast;
     Stdio.print_endline "";
 
-    Module_checker.check_module processed_ast tbl;
+    (* Module_checker.check_module processed_ast tbl; *)
 
 
   | _ -> raise (Generic_Error "SymbolTbl should be empty")

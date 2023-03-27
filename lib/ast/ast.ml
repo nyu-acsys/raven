@@ -332,6 +332,11 @@ module Type = struct
   let is_ghost_var vdecl = vdecl.var_ghost
   let is_const_var vdecl = vdecl.var_const
   let is_implicit_var vdecl = vdecl.var_implicit
+
+  let to_loc t = match t with
+  | App (_, _, tp_attr) -> tp_attr.type_loc
+
+  let equal tp1 tp2 = ((compare tp1 tp2) = 0)
 end
 
 type type_expr = Type.t [@@deriving compare]
@@ -362,6 +367,7 @@ module Expr = struct
     | Not
     | Uminus
     (* Binary operators *)
+    | MapLookUp
     | Eq
     | Gt
     | Lt
@@ -421,6 +427,7 @@ module Expr = struct
     | Read -> "read"
     | Write -> "write"
     | Uminus -> "-"
+    | MapLookUp -> "map_lookup"
     | Plus -> "+"
     | Minus -> "-"
     | Mult -> "*"
@@ -454,7 +461,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Unit | Empty | Int _ | Bool _ -> 0
-    | Dot | Setenum | Read | Write | Own | Var _ -> 1
+    | Dot | Setenum | Read | Write | Own | Var _ | MapLookUp -> 1
     | Uminus | Not -> 2
     | Call | New _ -> 3
     | Mult | Div | Mod -> 4

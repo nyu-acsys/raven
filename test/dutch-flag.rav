@@ -13,61 +13,61 @@ interface IArray {
     ensures len(a) >= 0
 }
 
-module DutchFlag[Arr: IArray] {
+module DutchFlag/*[Arr: IArray]*/ {
     field value: Int;
     
     pred ordered(m: Map[Int, Int], i: Int, j: Int) {
         m[i] <= m[j]
     }
 
-    pred access(a: Arr, m: Map[Int, Int]) {
-        forall i: Int :: 0 <= i && i < len(a) ==> own(loc(a,i).val, m[i], 1)
+    pred access(a: IArray, m: Map[Int, Int]) {
+        forall i: Int :: 0 <= i && i < IArray.len(a) ==> own(IArray.loc(a,i), value, m[i], 1)
     }
 
-    method DutchFlag(a: Array, m: Map[Int, Int]) 
+    proc dutchFlag(a: IArray, m: Map[Int, Int]) 
         requires access(a,m)
-        requires forall i: Int :: 0 <= i && i < len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
+        requires forall i: Int :: 0 <= i && i < IArray.len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
         ensures access(a,m)
-        ensures forall i: Int, j: Int :: 0 <= i && i < j && j < len(a) ==> ordered(m,i,j)
+        ensures forall i: Int, j: Int :: 0 <= i && i < j && j < IArray.len(a) ==> ordered(m,i,j)
     {   
         var unsorted : Int := 0;
         var white : Int := 0;
-        var blue : Int := len(a);
+        var blue : Int := IArray.len(a);
 
         while (unsorted < blue)
             invariant access(a, m)
-            invariant 0 <= white && white <= unsorted && unsorted <= blue && blue <= len(a)
-            invariant forall i: Int :: 0 <= i && i < len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
+            invariant 0 <= white && white <= unsorted && unsorted <= blue && blue <= IArray.len(a)
+            invariant forall i: Int :: 0 <= i && i < IArray.len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
             invariant forall i : Int :: 0 <= i && i < white ==> m[i] == 0
             invariant forall i : Int :: white <= i && i < unsorted ==> m[i] == 1
-            invariant forall i : Int :: blue <= i && i < len(a) ==> m[i] == 2
+            invariant forall i : Int :: blue <= i && i < IArray.len(a) ==> m[i] == 2
         {
             unfold access(a, m);
 
-            var tmp : Int := loc(a,unsorted).value;
+            var tmp : Int := IArray.loc(a,unsorted).value;
             if (tmp == 1) {
                 unsorted := unsorted + 1;
             } else if (tmp == 0) {
 
-                loc(a,unsorted).value := loc(a,white).value;
-                m[unsorted] := loc(a,white).value;
+                IArray.loc(a,unsorted).value := IArray.loc(a,white).value;
+                m[unsorted] := IArray.loc(a,white).value;
 
-                loc(a,white).value := tmp;
+                IArray.loc(a,white).value := tmp;
                 m[white] := tmp;
 
                 white := white + 1;
                 unsorted := unsorted + 1;
             } else {
-                loc(a,unsorted).value := loc(a,blue - 1).value;
-                m[unsorted] := loc(a,blue - 1).value;
+                IArray.loc(a,unsorted).value := IArray.loc(a,blue - 1).value;
+                m[unsorted] := IArray.loc(a,blue - 1).value;
 
                 blue := blue - 1;
-                loc(a,blue).value := tmp;
-                m[blue] = tmp;
+                IArray.loc(a,blue).value := tmp;
+                m[blue] := tmp;
             }
 
             fold access(a, m);
-        };
+        }
 
     }
 }

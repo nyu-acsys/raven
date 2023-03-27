@@ -1,0 +1,13 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "dune",
+			"problemMatcher": [
+				"$ocamlc"
+			],
+			"group": "build",
+			"label": "dune: build /lib/util/dune"
+		}
+	]
+}

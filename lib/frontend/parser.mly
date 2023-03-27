@@ -649,6 +649,7 @@ primary:
 | e = new_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
+| e = maplookup_expr { e }
 ;
 
 set_expr:
@@ -682,6 +683,12 @@ dot_expr:
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Own es)
+}
+
+maplookup_expr:
+| e1 = qual_ident_expr; LBRACKET; e2 = expr; RBRACKET {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
+
 }
 
 call_expr:

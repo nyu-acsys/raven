@@ -261,7 +261,26 @@ module ProcessTypeExpr = struct
     match tp_expr with
     | App ((Var qual_ident), tp_list, tp_attr) ->
       (match tp_list with
-      | [] -> App ((Var (SymbolTbl.fully_quantified qual_ident tbl)), [], tp_attr)
+      | [] -> (
+        let fully_quantified_qual_ident = SymbolTbl.fully_quantified qual_ident tbl in
+        (match SymbolTbl.find tbl fully_quantified_qual_ident with
+        | Some (TypeAlias _tp_alias) -> App ((Var fully_quantified_qual_ident), [], tp_attr)
+        | Some (ModDecl mod_decl) -> (
+          match mod_decl.mod_decl_rep with
+          | None -> Error.type_error tp_attr.type_loc ("Expected Type Expr" ^ Type.to_string tp_expr ^ "; found Module in typing environment without a Rep Type")
+          | Some iden -> 
+            let new_fully_quantified_qual_ident = QualIdent.append fully_quantified_qual_ident iden in
+            (match SymbolTbl.find tbl new_fully_quantified_qual_ident with
+            | Some (TypeAlias _tp_alias) -> App ((Var new_fully_quantified_qual_ident), [], tp_attr)
+            | _ -> Error.type_error tp_attr.type_loc ("Internal Error: Expected Type Expr" ^ Type.to_string tp_expr ^ "; rep type in Module not actually a TpExpr")
+            )
+        )
+        | Some (ModAlias _mod_alias) -> Error.unsupported_error tp_attr.type_loc "Module Aliases typing not supported"
+        | _ -> Error.type_error tp_attr.type_loc ("Type " ^ Type.to_string tp_expr ^ "not found in typing environment")
+        )
+
+        
+      )
       | _ -> raise (Generic_Error (QualIdent.to_string qual_ident ^ ": QualIdent types don't support arguments."))
       (* TODO *)
       )
@@ -318,6 +337,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
     (* The parser returns expressions with expr_type Any. That is why Type.meet is used in the below definitions. It works with the Any type annotations received from the parser, as well as with more precise type annotations. *)
 
+    (* This function is called directly on expressions AST received from parser. That is why, this method must be called on each sub-expression recursively before using them.
+    
+    This function will also type-check each expression and populate the expr.expr_attr.expr_type with the appropriate type.
+    *)
+
     (match constr, expr_list with
     | Null, [] -> 
       let tp = Type.meet expr_type Type.ref in
@@ -352,7 +376,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
         App (constr, [], expr_attr)
 
-      | _ -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Set type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
+      | _ -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Set type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
         )
     | Empty, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
 
@@ -365,7 +389,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
         App (constr, [], expr_attr)
       else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Bool type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
+        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Bool type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
     | Bool _b, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
       
     | Int _num, [] ->
@@ -377,7 +401,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
         App (constr, [], expr_attr)
       else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Int type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
+        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Int type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
     | Int _num, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
 
     | Not, [expr_arg] ->
@@ -390,7 +414,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
         App (constr, [expr_arg], expr_attr)
       else
-        Error.lexical_error (Expr.loc expr) ((Expr.to_string expr_arg ^ " should have a Bool type instead of " ^ Type.to_string (Expr.to_type expr_arg)))
+        Error.type_error (Expr.loc expr) ((Expr.to_string expr_arg ^ " should have a Bool type instead of " ^ Type.to_string (Expr.to_type expr_arg)))
 
     | Not, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
     
@@ -406,6 +430,40 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       else
         Error.lexical_error (Expr.loc expr) ((Expr.to_string expr_arg ^ " should have Int type instead of " ^ Type.to_string (Expr.to_type expr_arg)))
     | Uminus, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
+
+    | MapLookUp, [expr1; expr2] ->
+      let expr1 = process_expr expr1 tbl in
+      let tp1 = (Expr.to_type expr1) in
+
+      let expr2 = process_expr expr2 tbl in
+      let tp2 = (Expr.to_type expr2) in
+
+      (match tp1 with
+      | App (Map, tp_list, _tp_attr) -> (
+        (match tp_list with
+        | [tp_index; tp_val] -> (
+          if (Type.compare tp_index tp2 = 0) then 
+            let tp = Type.meet expr_type tp_val in
+            if (Type.compare tp tp_val = 0) then
+              let expr_attr = { expr_attr with
+                expr_type = tp;
+              } in
+
+              App (MapLookUp, [expr1; expr2], expr_attr)
+            
+            else
+              Error.type_error (Expr.loc expr) ((Expr.to_string expr ^ " should have type " ^ Type.to_string tp_val ^ "; found: " ^ Type.to_string expr_type))
+          else
+            Error.type_error (Expr.loc expr) (("Index type mismatch for Map expr " ^ Expr.to_string expr1 ^ ". Expected " ^ Type.to_string tp_index ^ "; found " ^ Type.to_string tp2))
+        )
+        | _ -> Error.type_error (Expr.loc expr1) ((Expr.to_string expr1 ^ " has Map type but it should have 2 arguments. Instead of " ^ Type.to_string tp1))
+
+        )
+      )
+      | _ -> Error.type_error (Expr.loc expr1) ((Expr.to_string expr1 ^ " should have Map type instead of " ^ Type.to_string tp1))
+      )
+    
+    | MapLookUp, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     | Eq, [expr1; expr2] ->
       let expr1 = process_expr expr1 tbl in
@@ -516,7 +574,12 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
     | Call, callable_expr :: args_list ->
       let args_list = List.map args_list ~f:(fun expr -> process_expr expr tbl) in
-      let callable_qual_ident = SymbolTbl.fully_quantified (ASTUtil.expr_to_qual_ident callable_expr) tbl in
+
+      let callable_qual_ident = 
+        try
+          SymbolTbl.fully_quantified (ASTUtil.expr_to_qual_ident callable_expr) tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) msg
+        in
       (match (SymbolTbl.find tbl callable_qual_ident) with
       | Some Callable callable_decl -> 
         let callable_arg_ident_list = callable_decl.call_decl_formals in
@@ -551,8 +614,10 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
           let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) in
 
           App (Call, callable_expr :: args_list, expr_attr)
-        else
-          Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callable called with wrong arguments"))
+        else (
+          (* Stdio.print_endline (SymbolTbl.to_string tbl);  *)
+          Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callable called with wrong arguments. Expected: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) callable_arg_types_list ^ "; got: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) (List.map  ~f:Expr.to_type args_list)))
+        )
 
       | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a Callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
       | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
@@ -601,9 +666,34 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
     (* | Write, [expr1; expr2] *)
     | Write, _expr_list -> Error.lexical_error (Expr.loc expr) ("Write expr not presently supported")
     
-    | Own, [_expr1; _expr2] -> (* TODO: Implement proper type-checking for Own expressions. Do they take two args or three? *)
-      expr
-    | Own, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
+    | Own, [_expr1; _expr2; _expr3] -> Error.unsupported_error (Expr.loc expr) ("Custom RA ownership not supported presently")
+    | Own, [expr1; expr2; expr3; expr4] ->
+      let expr1 = process_expr expr1 tbl in
+      let expr2 = process_expr expr2 tbl in
+      let expr3 = process_expr expr3 tbl in
+      let expr4 = process_expr expr4 tbl in
+
+      (if (Type.compare Type.ref (Expr.to_type expr1) = 0 
+      && Type.compare Type.int (Expr.to_type expr4) = 0
+        ) then 
+          (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
+          | Some (Field field_def) -> (
+            if (Type.equal (Type.join field_def.field_type (Expr.to_type expr3)) field_def.field_type) then
+              let expr_attr = {expr_attr with
+                expr_type = Type.mk_perm (Expr.loc expr);
+              } in
+
+              App (Own, [expr1; expr2; expr3; expr4], expr_attr)
+            else 
+              Error.type_error (Expr.loc expr) ("Field type mismatch. Field " ^ (Ident.to_string field_def.field_name) ^ " has type " ^ (Type.to_string field_def.field_type ^ "; received " ^ Type.to_string (Expr.to_type expr3))))
+          | Some _tp -> Error.type_error (Expr.loc expr) ("Expected Field in typing env. Found" ^ SymbolTbl.typing_env_to_string _tp)
+          | None -> Error.type_error (Expr.loc expr) ("Field " ^ (Expr.to_string expr2) ^ "not found in typing env")
+          )
+      else
+          Error.type_error (Expr.loc expr) ("Own Predicate used incorrectly; called with args of types: " ^ (Print.string_of_format (Print.pr_list_comma Type.pr) (List.map ~f: (Expr.to_type) [expr1; expr2; expr3; expr4])))
+      ) 
+
+    | Own, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments"))
     
     | Setenum, member_expr_list -> 
       let member_expr_list = List.map member_expr_list ~f:(fun expr -> process_expr expr tbl) in
@@ -620,7 +710,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       App (Setenum, member_expr_list, expr_attr)
     
     | Var qual_ident, [] ->
-      let qual_ident = SymbolTbl.fully_quantified qual_ident tbl in
+      let qual_ident = 
+        try
+          SymbolTbl.fully_quantified qual_ident tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) msg
+        in
       (match SymbolTbl.find tbl qual_ident with
       | Some (VarDecl var_decl) ->
         let tp = var_decl.var_type in

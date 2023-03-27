@@ -272,7 +272,7 @@
     ; exhale invariants
     (declare-const arrPredHeap_2 (PredHeap arrPred))
     (assert (= (- (select arrPredHeap_1 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_2 (arrPredConstr a_0 m_0))))
-    (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_1 index) (select arrPredHeap_2 index)))))
+    ; (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_1 index) (select arrPredHeap_2 index)))))
 
     ; havoc loop variables
     (declare-const x_2 Int)
@@ -285,7 +285,7 @@
         ; inhaling invariant
         ; here _0 for every heap is treated as the completely empty heap
         (declare-const arrPredHeap_3 (PredHeap arrPred))
-        (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_2 index) (select arrPredHeap_3 index)))))
+        ; (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_2 index) (select arrPredHeap_3 index)))))
         (assert (= (+ (select arrPredHeap_2 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_3 (arrPredConstr a_0 m_0))))
 
         (declare-const isMaxPredHeap_1 (PredHeap isMaxPred))
@@ -320,7 +320,7 @@
         ; exhaling from arrPredHeap
         (declare-const arrPredHeap_4 (PredHeap arrPred))
         (assert (= (- (select arrPredHeap_3 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_4 (arrPredConstr a_0 m_0))))
-        (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_3 index) (select arrPredHeap_4 index)))))
+        ; (assert (forall ((index arrPred)) (=> (not (= index (arrPredConstr a_0 m_0))) (= (select arrPredHeap_3 index) (select arrPredHeap_4 index)))))
 
         ; need to detect that arrPred body talks about valueOwnHeap
 
@@ -347,16 +347,16 @@
         ))
 
         ; Frame the rest of the existing heap
-        (assert (forall 
-            ((l Loc)) 
-            (or 
-                ; l is quantified over by the separating star
-                (exists ((j Int)) (and (<= 0 j) (< j (len a_0)) (= l (loc a_0 j))))
+        ; (assert (forall 
+        ;     ((l Loc)) 
+        ;     (or 
+        ;         ; l is quantified over by the separating star
+        ;         (exists ((j Int)) (and (<= 0 j) (< j (len a_0)) (= l (loc a_0 j))))
 
-                ; or l preserves its value in valueOwnHeap
-                (= (select valueOwnHeap_1 l) (select valueOwnHeap_2 l))
-            )
-        ))
+        ;         ; or l preserves its value in valueOwnHeap
+        ;         (= (select valueOwnHeap_1 l) (select valueOwnHeap_2 l))
+        ;     )
+        ; ))
         
         ; (echo "SAT/Unknown 3:")
         ; (check-sat)
@@ -413,16 +413,16 @@
             ))
 
             ; Frame the rest of the existing heap
-            (assert (forall 
-                ((l Loc))
-                (or 
-                    ; l is quantified over by the separating star
-                    (exists ((j Int)) (and (<= 0 j) (< j (len a_0)) (= l (loc a_0 j))))
+            ; (assert (forall 
+            ;     ((l Loc))
+            ;     (or 
+            ;         ; l is quantified over by the separating star
+            ;         (exists ((j Int)) (and (<= 0 j) (< j (len a_0)) (= l (loc a_0 j))))
 
-                    ; or l preserves its value in valueOwnHeap
-                    (= (select valueOwnHeap_2 l) (select valueOwnHeap_3 l))
-                )
-            ))
+            ;         ; or l preserves its value in valueOwnHeap
+            ;         (= (select valueOwnHeap_2 l) (select valueOwnHeap_3 l))
+            ;     )
+            ; ))
 
             (declare-const arrPredHeap_5 (PredHeap arrPred))
             (assert (= (+ (select arrPredHeap_4 (arrPredConstr a_0 m_0)) 1) (select arrPredHeap_5 (arrPredConstr a_0 m_0))))
