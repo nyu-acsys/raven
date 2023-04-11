@@ -117,7 +117,7 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   import AuthKeysetRA
   import FracContentsRA
 
-  field node: Ref;
+  field node: Node;
   field fp: AuthSetRA; (* footprint *)
   field fl: AuthFlowRA; (* flow *)
   field ks: AuthKeysetRA; (* keyset *)
@@ -127,7 +127,7 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   	own(r.fp, Frag {| n |})
   }
 
-  lemma inFP_persistent(r,n) 
+  lemma inFP_persistent(r: Ref,n: Node) 
     requires inFP(r,n)
     ensures inFP(r,n) && inFP(r,n)
   {}
@@ -154,12 +154,12 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   inv cssI(r: css, implicit ghost m_lk: Map[Node, Bool], implicit ghost m_In: Map[Node, FlowInt], implicit ghost m_Cn: Map[Node, Set[K]], implicit ghost I: FlowInt, implicit ghost C: Set[K], implicit ghost n:Node) {
       own(r.rp, (1/2, C))
       && own(r.node, n, 1/2)
-      && InFP(r, n)
+      && inFP(r, n)
       && globalRes(r, I, C)
       && (forall n:Node :: n in dom(I) ==> 
               nodeR(n, m_lk[n], m_In[n], m_Cn[n]))
       && (forall n:Node :: n in dom(I) && m_lk[n] ==>
-        nodePred(r, n, In, Cn))
+        nodePred(r, n, m_In[n], m_Cn[n]))
   }
 
 
@@ -184,7 +184,14 @@ module GiveUpTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     var phi: AtomicToken;
     phi = bindAU();
     openInv cssI(r);
+
+    var m_lk: Map[Node, Bool], m_In: Map[Node, FlowInt], m_Cn: Map[Node, Set[K]], I: FlowInt, C: Set[K], n:Node :| cssI(r, m_lk, m_In, m_Cn, I, C, n);
+    (* unfold cssI(r, m_lk, m_In, m_Cn, I, C, n); *)
+
     unfold cssI(r);
+
+    var m_lk, m_In, m_Cn :|  (forall n:Node :: n in dom(I) ==> 
+    nodeR(n, m_lk[n], m_In[n], m_Cn[n]))
 
     var v: Node = r.node;
 

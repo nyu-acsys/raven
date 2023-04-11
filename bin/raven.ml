@@ -15,29 +15,53 @@ let cmd_line_error msg =
   Stdlib.Arg.usage (Stdlib.Arg.align Config.cmd_options_spec) usage_message;
   failwith ("Command line option error: " ^ msg)
 
-let type_checking_enabled = true
 
-let parse_and_print lexbuf =
+let parse_lib lexbuf =
+  let s = Parser.lib Lexer.token lexbuf in
+
+  let processed_lib_ast, tbl = Process_ast.start_processing s in
+
+  Stdio.print_endline "RESOURCE ALGEBRA FRONT_END PROCESSING SUCCESSFUL";
+
+  let smtEnv, session = Checker.start_backend_checking processed_lib_ast tbl in
+
+  tbl, smtEnv, session 
+
+let parse_and_print lexbuf tbl smtEnv session =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
-  let _ = Smt_solver.init () in
-  let processed_ast, tbl = Process_ast.start_processing s in
+
+  let processed_ast, tbl = Process_ast.start_processing ~tbl:tbl s in
   match tbl with
   | [ _ ] -> Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
     Ast.Module.print_verbose Stdio.stdout processed_ast;
     Stdio.print_endline "";
 
-    (* Module_checker.check_module processed_ast tbl; *)
+    let _ = Checker.check_module processed_ast tbl smtEnv session in
+
+    Stdio.print_endline "\nVerification successful.\n";
 
 
   | _ -> raise (Generic_Error "SymbolTbl should be empty")
 
 let parse_program filename =
+  let resource_algebra_file = "lib/library/resource_algebra.rav" in
+  let inx_ra = Stdio.In_channel.create resource_algebra_file in
+  let lexbuf_lib = Lexing.from_channel inx_ra in
+  Lexer.set_file_name lexbuf_lib resource_algebra_file;
+
+  (* let tbl, smtEnv, session = parse_lib lexbuf_lib in *)
+
+  let tbl = Process_ast.SymbolTbl.push [] in
+  let smtEnv = Smt_solver.SmtEnv.push ([], []) in
+  let session = Smt_solver.init () in
+
   let inx = Stdio.In_channel.create filename in
   let lexbuf = Lexing.from_channel inx in
   Lexer.set_file_name lexbuf filename;
+
   let _ =
-    try parse_and_print lexbuf
+    try parse_and_print lexbuf tbl smtEnv session
     with Parser.Error ->
       Stdio.In_channel.close inx;
       let err_pos = lexbuf.lex_curr_p in
@@ -46,7 +70,7 @@ let parse_program filename =
   Stdio.In_channel.close inx
 
 let () =
-  Backtrace.Exn.set_recording true;
+  (* Backtrace.Exn.set_recording true; *)
   let main_file = ref "" in
   let set_main_file s = main_file := s in
   try

@@ -79,6 +79,20 @@
 	)
 ))
 
+(declare-fun IntHeapChunkCompare ((x1 (FracHeapChunk Int)) (x2 (FracHeapChunk Int))) Bool 
+    (match x1 (
+        (FracHeapNull true)
+        ((FracChunkConstr v1 r1) (match x2 (
+            (FracHeapNull false)
+            ((FracChunkConstr v2 r2) (ite (= v1 v2)
+                (<= r1 r2) false
+            ))
+            (FracHeapTop false)
+        )))
+        (FracHeapTop false)
+    ))
+) 
+
 (define-fun BoolFracChunkAdd ((x1 (FracHeapChunk Bool)) (x2 (FracHeapChunk Bool))) (FracHeapChunk Bool) 
     (match x1 (
         (FracHeapNull x2)

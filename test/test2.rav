@@ -1,21 +1,35 @@
-module Bint {
-    type t = Int
-    type t2 = Bool
-}
+// module Bint {
+//     rep type T = Int
+//     type T2 = Bool
 
-module Lock {
-    import Bint
+//     proc test() returns (x:Int) {}
+// }
 
-      var x = true
+// module Lock {
+//     type T = Bint
 
-      proc create() 
-          returns (x : Bool) 
-      {
-          var z : Int = 1;
-          var y : Bool = z.z;
-      }
+//       var x : Bool = true
 
-    proc acquire() {
-        var x = create();
+//       proc create() 
+//           returns (x : Bool) 
+//       {
+//             Bint.test();
+//           var z : Int = 1;
+//           //var y : Bool = z.z;
+//       }
+
+//     proc acquire() {
+//         var x = create();
+//     }
+// }
+
+module Trial {
+    proc t1() {
+        var x: Bool = true;
+        t2();
     }
-  }
+
+    proc t2() {
+        t1();
+    }
+}

@@ -1,3 +1,3 @@
 (library
   (name backend)
-  (libraries base ast frontend util unix))
+  (libraries base ast frontend util unix str))

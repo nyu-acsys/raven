@@ -3,9 +3,22 @@ open Ast
 open Util
 open Error
 
-(* Generic_Error is thrown by functions which don't have any Loc information. These exceptions are then meant to be caught by a caller function which can then generate the appropriate Error.erros with appropriate Loc information attached  *)
+(* Generic_Error is thrown by functions which don't have any Loc information. These exceptions are then meant to be caught by a caller function which can then generate the appropriate Error.errors with appropriate Loc information attached  *)
 
 module SymbolTbl = struct
+  type data_type_constr = {
+    constr_name : Ident.t;
+    constr_return_type : type_expr;
+    constr_args : var_decl list;
+  }
+
+  type data_type_destr = {
+    destr_name : Ident.t;
+    destr_arg : type_expr;
+    destr_return_type : type_expr;
+
+  }
+
   type typing_env =
     | TypeAlias of Module.type_alias
     | Callable of Callable.call_decl
@@ -13,7 +26,8 @@ module SymbolTbl = struct
     | ModDecl of Module.module_decl
     | VarDecl of var_decl
     | Field of Module.field_def
-    (* | SumTypeConstructor of //TODO: Sketch Sum Types properly *)
+    | DataTypeConstr of data_type_constr
+    | DataTypeDestr of data_type_destr
 
   let typing_env_to_string t =
     match t with
@@ -31,6 +45,11 @@ module SymbolTbl = struct
         ^ " : "
         ^ Type.to_string field_decl.field_type
         ^ ")"
+    | DataTypeConstr data_type_constr ->
+      Printf.sprintf "DataTypeConstr(%s (%s) : %s)" (Ident.to_string data_type_constr.constr_name) (Print.string_of_format Type.pr_var_decl_list data_type_constr.constr_args) (Type.to_string data_type_constr.constr_return_type)
+    | DataTypeDestr data_type_destr ->
+      Printf.sprintf "DataTypeDestr(%s (%s) : %s)" (Ident.to_string data_type_destr.destr_name) (Type.to_string data_type_destr.destr_arg) (Type.to_string data_type_destr.destr_return_type)
+
 
   type type_qual_ident_map = typing_env qual_ident_map
 
@@ -303,23 +322,86 @@ module ProcessTypeExpr = struct
     | App (Data _variant_decl_list, _tp_list, _tp_attr) ->
       (* (match tp_list with
       | [] -> 
-        let variant_decl_list = List.map variant_decl_list ~f:(fun variant_decl -> )
+
+        (* constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
+        let constr_map = List.fold variant_decl_list ~init:(Map.empty (module Ident))  ~f:(fun mp variant_decl -> 
+          List.fold variant_decl.variant_args ~init:mp ~f:(fun mp var_arg ->
+            match
+              (Map.add mp ~key:var_arg.var_name ~data:var_arg)
+            with
+            | `Ok mp -> mp
+            | `Duplicate -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Duplicate constructor found in data type %s" (Type.to_string tp_expr)
+            )
+        ) in
+
+        
+        let variant_decl_list = List.map variant_decl_list ~f:(fun variant_decl -> 
+          let args = List.map variant_decl.variant_args ~f:(fun var_decl -> process_var_decl var_decl tbl) in
+
+          { variant_decl with
+            variant_args = args
+          }
+        ) in 
+
+        let tbl = List.fold variant_decl_list ~init:tbl ~f:(fun tbl variant_decl -> 
+          let tbl = List.fold variant_decl.variant_args ~init:tbl ~f:(fun tbl var_arg ->
+            let data_type_destr = {
+              destr_name = var_arg.var_name;
+              destr_arg = ;
+              destr_return_type = var_arg.var_type;
+            }
+            SymbolTbl.add tbl (QualIdent.from_ident var_arg.var_name) (DataTypeDestr )
+          ) in  
+          
+        ) in
+          
+          
+          
+        ()
 
       | _ -> raise (Generic_Error "Data types don't take arguments")
       ) *)
-      (* TODO *)
-      raise (Generic_Error "Data Types not presently supported")
+      raise (Generic_Error "Data Types can only be defined as new types. Not used indirectly.")
 
     | App (constr, [], tp_attr) -> App (constr, [], tp_attr)
 
     | App (constr, _tp_list, _tp_attr) -> raise (Generic_Error (Type.to_name constr ^ " types don't take arguments"))
 
-end
 
-let process_var_decl (var_decl: var_decl) (tbl: SymbolTbl.t) : var_decl = 
-  { var_decl with
-    var_type = ProcessTypeExpr.process_type_expr var_decl.var_type tbl;
-  }
+  and expand_type_expr (tp_expr: type_expr) (tbl: SymbolTbl.t) : type_expr = 
+    match tp_expr with
+    | App (constr, tp_expr_list, tp_attr) ->
+
+      let expanded_tp_expr_list = List.map tp_expr_list ~f:(fun tp_expr -> expand_type_expr tp_expr tbl) in
+
+      match constr with
+      | Var qual_iden ->
+        (* Var types with args not supported. Polymorphic types need to be instantiated as separate modules before using. *)
+        (
+        (match SymbolTbl.find tbl qual_iden with
+        | Some (TypeAlias tp_alias) ->
+          (match tp_alias.type_alias_def with
+          | None -> tp_expr
+          | Some tp_expr -> expand_type_expr tp_expr tbl)
+        
+        | Some _ -> Error.error (Type.to_loc tp_expr) "Expected type_alias in env here."
+        | None -> Error.error (Type.to_loc tp_expr) "Expected type_alias in env here."
+        ))
+
+      | _ -> App(constr, expanded_tp_expr_list, tp_attr)
+    
+
+
+  and process_var_decl (var_decl: var_decl) (tbl: SymbolTbl.t) : var_decl = 
+    if (not (Type.equal var_decl.var_type (Type.any)))
+      then
+        { var_decl with
+          var_type = process_type_expr var_decl.var_type tbl;
+        }
+    else
+      Error.error (var_decl.var_loc) @@ Printf.sprintf "Type annotation missing for variable '%s'" (Ident.to_string var_decl.var_name)
+
+end
 
 let does_expr_implement_type (expr: expr) (tp_expr: type_expr) : bool = 
   let tp1 = Type.join (Expr.attr_of expr).expr_type tp_expr in
@@ -356,7 +438,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
     | Null, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
     
     | Unit, [] -> 
-      if Type.compare (Type.meet expr_type (Type.unit)) ((Type.unit)) = 0 then
+      if Type.equal (Type.meet expr_type (Type.unit)) ((Type.unit)) then
         let expr_attr = { expr_attr with
           expr_type = (Type.unit);
         } in
@@ -484,15 +566,18 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       let expr1 = process_expr expr1 tbl in
       let expr2 = process_expr expr2 tbl in
 
-      let tp = Type.meet (Expr.to_type expr1) (Expr.to_type expr2) in
-      if Type.compare tp Type.int = 0 then
+      let tp1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) tbl in
+      let tp2 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr2) tbl in
+
+      let tp = Type.meet tp1 tp2 in
+      if Type.equal (ProcessTypeExpr.expand_type_expr tp tbl) Type.int then
         let expr_attr = { expr_attr with
           expr_type = Type.bool;
         } in
 
         App (constr, [expr1; expr2], expr_attr)
       else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " args should be of Int type, instead of " ^ Type.to_string (Expr.to_type expr1) ^ " and " ^ Type.to_string (Expr.to_type expr2))) 
+        Error.lexical_error (Expr.loc expr) (Printf.sprintf "%s args should be of Int type, instead of %s and %s; %s" (Expr.constr_to_string constr) (Type.to_string (Expr.to_type expr1))  (Type.to_string (Expr.to_type expr2)) (Type.to_string tp)) 
     | Gt, _expr_list | Lt, _expr_list | Geq, _expr_list | Leq, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     | Diff, [expr1; expr2] | Union, [expr1; expr2] | Inter, [expr1; expr2] ->
@@ -545,7 +630,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       let expr2 = process_expr expr2 tbl in
 
       let tp = Type.meet (Expr.to_type expr1) (Expr.to_type expr2) in
-      if Type.compare tp Type.perm = 0 || Type.compare tp Type.bool = 0  then
+      if Type.equal tp Type.perm || Type.equal tp Type.bool  then
         let expr_attr = { expr_attr with
           expr_type = tp;
         } in
@@ -560,9 +645,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       let expr2 = process_expr expr2 tbl in
 
       let tp = Type.meet (Expr.to_type expr1) (Expr.to_type expr2) in
-      if Type.compare tp Type.int = 0 then
+      if Type.equal (ProcessTypeExpr.expand_type_expr tp tbl) Type.int 
+        (* TODO: Apply expand_type_expr more consistently in codebase. *)
+        then
         let expr_attr = { expr_attr with
-          expr_type = Type.int;
+          expr_type = tp;
         } in
 
         App (constr, [expr1; expr2], expr_attr)
@@ -628,7 +715,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       let expr1 = process_expr expr1 tbl in
       let expr2 = process_expr expr2 tbl in
 
-      if Type.compare (Expr.to_type expr1) (Type.ref) = 0 then
+      if Type.equal (Expr.to_type expr1) (Type.ref) then
         (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
         | Some (Field field_def) -> 
           let tp = field_def.field_type in
@@ -652,7 +739,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       let if_expr = process_expr if_expr tbl in
       let else_expr = process_expr else_expr tbl in
 
-      if Type.compare (Expr.to_type cond_expr) Type.bool = 0 then
+      if Type.equal (Expr.to_type cond_expr) Type.bool then
         let tp = Type.join (Expr.to_type if_expr) (Expr.to_type else_expr) in
         let expr_attr = { expr_attr with
           expr_type = tp;
@@ -750,7 +837,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
   | Binder (binder, var_decl_list, inner_expr, expr_attr) ->
 
-    let var_decl_list = List.map var_decl_list ~f:(fun var_decl -> process_var_decl var_decl tbl) in
+    let var_decl_list = List.map var_decl_list ~f:(fun var_decl -> ProcessTypeExpr.process_var_decl var_decl tbl) in
 
     let tbl = SymbolTbl.push tbl in
     let tbl = List.fold var_decl_list ~init:tbl ~f:(fun tbl' var_decl -> SymbolTbl.add tbl' (QualIdent.from_ident var_decl.var_name) (VarDecl var_decl)) in
@@ -1029,7 +1116,7 @@ module ProcessCallables = struct
 
     | Basic basic_stmt -> (match basic_stmt with
       | VarDef var_def -> 
-        let var_decl = process_var_decl var_def.var_decl tbl in
+        let var_decl = ProcessTypeExpr.process_var_decl var_def.var_decl tbl in
         let var_decl, disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
         let (var_def: Stmt.var_def) = (match var_def.var_init with
         | None -> 
@@ -1357,7 +1444,7 @@ module ProcessCallables = struct
 
         let disam_tbl, call_decl_locals_list = List.fold_map (Map.to_alist func_def.func_decl.call_decl_locals) ~init:disam_tbl ~f:(
           fun disam_tbl (_ident, var_decl) -> 
-            let var_decl = process_var_decl var_decl tbl in
+            let var_decl = ProcessTypeExpr.process_var_decl var_decl tbl in
             let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
             (disam_tbl, (var_decl'.var_name, var_decl'))
         ) in
@@ -1402,7 +1489,7 @@ module ProcessCallables = struct
         
         let disam_tbl, call_decl_locals_list = List.fold_map (Map.to_alist proc_def.proc_decl.call_decl_locals) ~init:disam_tbl ~f:(
           fun disam_tbl (_ident, var_decl) ->
-            let var_decl = process_var_decl var_decl tbl in
+            let var_decl = ProcessTypeExpr.process_var_decl var_decl tbl in
             let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
             (disam_tbl, (var_decl'.var_name, var_decl'))
         ) in
@@ -1560,6 +1647,8 @@ module ProcessModule = struct
           let tbl = SymbolTbl.add tbl (QualIdent.from_ident field_def.field_name) (Field field_def) in
 
           process_imports import_directives mod_decl tbl
+
+        | _ -> Error.error_simple @@ Printf.sprintf "MemImport of unsupported element '%s' found. Error." (QualIdent.to_string qual_ident)
     )
 
   let rec process_types (type_aliases: Module.type_alias list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.type_alias list * Module.module_decl * SymbolTbl.t = match type_aliases with 
@@ -1572,25 +1661,83 @@ module ProcessModule = struct
 
       tp_alias :: type_alias_list, mod_decl, tbl
 
-    | Some tp_expr -> 
-      let tp_expr = try 
-        ProcessTypeExpr.process_type_expr tp_expr tbl 
-      with (Generic_Error msg) -> Error.lexical_error tp_alias.type_alias_loc msg
-      in
+    | Some tp_expr ->
 
-      let tp_alias = { tp_alias with
-        type_alias_def = Some tp_expr;
-      } in
+      let tp_expr, tbl = 
+        (match tp_expr with
+        | App (Data variant_decl_list, [], _tp_attr) ->
+          (* _constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
+          let _constr_map = List.fold variant_decl_list ~init:(Map.empty (module Ident))  ~f:(fun mp variant_decl -> 
+            List.fold variant_decl.variant_args ~init:mp ~f:(fun mp var_arg ->
+              match
+                (Map.add mp ~key:var_arg.var_name ~data:var_arg)
+              with
+              | `Ok mp -> mp
+              | `Duplicate -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Duplicate constructor found in data type %s" (Type.to_string tp_expr)
+              )
+          ) in
 
-      let mod_decl = { mod_decl with
-        mod_decl_types = Map.set mod_decl.mod_decl_types ~key:tp_alias.type_alias_name ~data: tp_alias;
-      } in
+          let variant_decl_list = List.map variant_decl_list ~f:(fun variant_decl -> 
+            let args = List.map variant_decl.variant_args ~f:(fun var_decl -> ProcessTypeExpr.process_var_decl var_decl tbl) in
 
-      let tbl = SymbolTbl.add tbl (QualIdent.from_ident tp_alias.type_alias_name) (TypeAlias tp_alias) in
+            { variant_decl with
+              variant_args = args
+            }
+          ) in
 
-      let (type_alias_list, mod_decl, tbl) = process_types type_aliases mod_decl tbl in
+          let fully_qualified_tp_name = SymbolTbl.fully_quantified (QualIdent.from_ident tp_alias.type_alias_name) tbl in
 
-      tp_alias :: type_alias_list, mod_decl, tbl
+          let tbl = List.fold variant_decl_list ~init:tbl ~f:(fun tbl variant_decl -> 
+            let tbl = List.fold variant_decl.variant_args ~init:tbl ~f:(fun tbl var_arg ->
+              let (data_type_destr: SymbolTbl.data_type_destr) = {
+                destr_name = var_arg.var_name;
+                destr_arg = App (Var fully_qualified_tp_name, [], _tp_attr);
+                destr_return_type = var_arg.var_type;
+              }  in
+
+              SymbolTbl.add tbl (QualIdent.from_ident var_arg.var_name) (DataTypeDestr data_type_destr)
+            ) in
+
+            let (data_type_constr: SymbolTbl.data_type_constr) = {
+              constr_name = variant_decl.variant_name;
+              constr_return_type = App (Var fully_qualified_tp_name, [], _tp_attr);
+              constr_args = variant_decl.variant_args;
+            }
+
+            in
+
+            SymbolTbl.add tbl (QualIdent.from_ident variant_decl.variant_name) (DataTypeConstr data_type_constr)          
+          ) in
+
+          Type.App (Data variant_decl_list, [], _tp_attr), tbl
+
+          
+        | App (Data _variant_decl_list, _, _tp_attr) ->
+          Error.error (Type.to_loc tp_expr) ("Data types don't take arguments")
+
+        | _ ->
+          let tp_expr = try 
+            ProcessTypeExpr.process_type_expr tp_expr tbl 
+          with (Generic_Error msg) -> Error.lexical_error tp_alias.type_alias_loc msg
+          in
+
+          tp_expr, tbl
+
+        ) in
+
+        let tp_alias = { tp_alias with
+          type_alias_def = Some tp_expr;
+        } in
+
+        let mod_decl = { mod_decl with
+          mod_decl_types = Map.set mod_decl.mod_decl_types ~key:tp_alias.type_alias_name ~data: tp_alias;
+        } in
+
+        let tbl = SymbolTbl.add tbl (QualIdent.from_ident tp_alias.type_alias_name) (TypeAlias tp_alias) in
+
+        let (type_alias_list, mod_decl, tbl) = process_types type_aliases mod_decl tbl in
+
+        tp_alias :: type_alias_list, mod_decl, tbl
 
   let rec process_fields (fields: Module.field_def list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.field_def list * Module.module_decl * SymbolTbl.t = 
     match fields with
@@ -1620,7 +1767,7 @@ module ProcessModule = struct
     | [] -> [], mod_decl, tbl
     | var :: vars ->
       let var_decl = try
-        process_var_decl var.var_decl tbl
+        ProcessTypeExpr.process_var_decl var.var_decl tbl
       with (Generic_Error msg) -> Error.lexical_error var.var_decl.var_loc msg
       in
 
@@ -1761,6 +1908,7 @@ module ProcessModule = struct
 
     let tbl = SymbolTbl.push_name m.module_decl'.mod_decl_name tbl in
 
+    (* The following add_imports_to_tbl call is present to allow mutual recursion inside a module. *)
     let tbl = add_imports_to_tbl m.module_decl' tbl in
 
     let mod_decl, tbl = process_imports m.members'.imports' m.module_decl' tbl in
@@ -1813,7 +1961,7 @@ module ProcessModule = struct
     }, tbl
 end
 
-let start_processing (m: Module.t0) = 
+let start_processing ?(tbl = SymbolTbl.push []) (m: Module.t0) = 
   let pre_processed_module = pre_process_module m in
   
-  ProcessModule.process_module pre_processed_module (SymbolTbl.push [])
+  ProcessModule.process_module pre_processed_module tbl

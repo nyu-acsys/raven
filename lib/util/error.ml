@@ -13,14 +13,19 @@ let fail loc msg = raise (Msg (loc, msg))
 let print_file_line line_num loc = 
   let rec in_channel_line ic (line_num: int) =
     let next_line = (match (Stdio.In_channel.input_line ic) with 
-    | None -> raise (Failure ("Cannot print line " ^ (Int.to_string line_num) ^ ", location: " ^ Loc.to_string loc))
+    | None -> ("Cannot print line " ^ (Int.to_string line_num) ^ ", location: " ^ Loc.to_string loc)
     | Some s -> s)
 
     in
 
-    match line_num with
-    | 0 -> next_line
-    | _ -> in_channel_line ic (line_num-1)
+    if line_num = 0 then
+      next_line
+    else 
+      if line_num > 0 then
+        in_channel_line ic (line_num-1)
+      else
+        "Cannot print line " ^ (Int.to_string line_num) ^ "; negative line_num found."
+
 
   in
 

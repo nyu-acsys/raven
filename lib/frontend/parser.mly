@@ -33,7 +33,9 @@ open Ast
 %nonassoc EQEQ NEQ 
 
 %start main
+%start lib
 %type <Ast.Module.t0> main
+%type <Ast.Module.t0> lib
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
@@ -53,7 +55,19 @@ main:
 }
 ;
 
-
+lib:
+| ms = member_def_list_opt; EOF {
+  let open Module in
+  let decl =
+    { empty_decl with
+      mod_decl_name = Ident.make "Lib" 0;
+    }
+  in
+  { mod_decl = decl;
+    mod_def = ms;
+    mod_interface = false;
+  }
+}
 
 (** Member Definitions *)
 
@@ -240,7 +254,7 @@ module_param:
   in
   decl
 }
-    
+
 member_decl:
 | def = type_decl { Module.TypeAlias def }
 | def = interface_def { Module.ModDef def }
@@ -897,7 +911,8 @@ type_expr:
 | x = MODIDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | SET { Type.mk_set (Loc.make $startpos $endpos) }
 | MAP { Type.mk_map (Loc.make $startpos $endpos) }
-| t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { match t with | Type.App(x, _, _) -> App(x, ts, Type.mk_attr (Loc.make $startpos $endpos)) (* Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts *) }
+| t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { match t with 
+  | Type.App(x, _, _) -> App(x, ts, Type.mk_attr (Loc.make $startpos $endpos)) (* Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts *) }
     
   
 type_expr_list:

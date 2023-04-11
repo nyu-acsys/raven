@@ -8,11 +8,11 @@ type location = Loc.t
 (** Identifiers *)
 
 let print_debug _str =
-  (* Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m"); *)
+  Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m");
   ()
 
   let print_debug2 _str =
-    Stdio.Out_channel.output_string Stdio.stdout ("\027[31m" ^ _str ^ "\027[0m");
+    Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m");
     ()
 
 module Ident = struct
@@ -23,7 +23,7 @@ module Ident = struct
     let to_string id =
       match id.ident_num with
       | 0 -> id.ident_name
-      | _ -> Printf.sprintf !"%{String}#%{Int}" id.ident_name id.ident_num
+      | _ -> Printf.sprintf !"%{String}^%{Int}" id.ident_name id.ident_num
   end
 
   include T
@@ -493,7 +493,7 @@ module Expr = struct
     | App (c, [], _) -> fprintf ppf "%a" pr_constr c
     | App (Call, e :: es, _) -> fprintf ppf "%a(%a)" pr e pr_list es
     | App (Dot, [ e1; e2 ], _) | App (Read, [ e1; e2 ], _) ->
-        fprintf ppf "%a.%a" pr e1 pr e2
+        fprintf ppf "(%a).(%a)" pr e1 pr e2
     | App (Write, [ e1; e2; e3 ], _) ->
         fprintf ppf "%a[|%a@ :=@ %a|]" pr e1 pr e2 pr e3
     | App
@@ -1084,11 +1084,8 @@ module ASTUtil = struct
     | App (Var qual_ident, [], _) -> qual_ident
     | App (Var _, _, _) -> raise (Failure "Var expr should not have arguments.")
     | _ ->
-        raise
-          (Failure
-             ("Expected Var expression instead of " ^ Expr.to_string expr ^ " ("
-             ^ Loc.to_string (Expr.loc expr)
-             ^ ")"))
+        Error.error_simple (*(Expr.loc expr)*)
+             (Printf.sprintf "Expected Var expression instead of %s; Loc: %s" (Expr.to_string expr) (Loc.to_string (Expr.loc expr)))
 
   let qual_ident_to_expr (qual_ident: qual_ident) (expr_attr: Expr.expr_attr): expr = 
     App (Var qual_ident, [], expr_attr)
@@ -1105,5 +1102,5 @@ module ASTUtil = struct
     | App (constr, _tp_expr_list, type_attr) ->
       match constr with
       | Var qual_ident -> qual_ident
-      | _ -> Error.lexical_error type_attr.type_loc "Expected type_expr to be qualIdent"
+      | _ -> Error.error type_attr.type_loc "Expected type_expr to be qualIdent"
 end
