@@ -908,7 +908,7 @@ type_expr:
 | PERM { Type.mk_perm (Loc.make $startpos $endpos)}
 | ATOMICTOKEN { Type.mk_atomic_token (Loc.make $startpos $endpos) }
 | x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
-| x = MODIDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
+| x = mod_ident { Type.mk_var (Loc.make $startpos $endpos) x }
 | SET { Type.mk_set (Loc.make $startpos $endpos) }
 | MAP { Type.mk_map (Loc.make $startpos $endpos) }
 | t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { match t with 

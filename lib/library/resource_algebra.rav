@@ -1,13 +1,19 @@
+interface Type {
+    rep type T
+}
+
 interface ResourceAlgebra {
     rep type T
 
-    val id: T
+    var id: T
     func comp(a:T, b:T) returns (ret:T)
     func frame(a:T, b:T) returns (ret:T)
 
     func valid(a:T) returns (ret: Bool)
 
-    func fpu(a:T, b:T) returns (ret: Bool)
+    func fpuAllowed(a:T, b:T) returns (ret: Bool)
+        // ensures ret ==> forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
+    // { forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))}
 
     /* alias : a ∘ b = comp(a,b) ? */
 
@@ -26,104 +32,243 @@ interface ResourceAlgebra {
     //     ensures own(l, b)
     //     /* Should this be a lemma or something else? */
 
-    lemma fpu_valid(a:T, b:T)
-        requires fpu(a,b) && valid(a) && valid(b)
-        ensures (forall c:T :: (valid(comp(a, c)) ==> valid(comp(b, c))))
+    lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+
+    lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+
+    // lemma frameValid()
+    //     ensures forall a:T, b:T :: valid(b) && valid(frame(a,b)) ==> valid(a)
+
+    lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+
+    lemma frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+
+    lemma compFrameInv()
+        ensures forall a:T, b:T :: (valid(frame(a,b))) ==> comp(frame(a,b), b) == a
+
+    // lemma fpuValid(a:T, b:T)
+    //     requires fpu(a,b) && valid(a) && valid(b)
+    //     ensures (forall c:T :: (valid(comp(a, c)) ==> valid(comp(b, c))))
+
+    lemma fpuValid()
+        ensures (forall a:T, b:T, c:T :: fpuAllowed(a,b) && valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c)))
 }
 
-module Nat : resource_algebra {
+module Nat : ResourceAlgebra {
     rep type T = Int
 
-    val id: T = 0
+    var id: T = 0
 
-    func comp(a:T, b:T) returns (ret:T) { a+b }
-    func valid(n:T) returns (ret:Bool) { n >= 0 ? true : false }
+    func valid(n:T) returns (ret:Bool) { n >= 0 }
 
+    func comp(a:T, b:T) returns (ret:T) { 
+        (a == id ? 
+            b : 
+            (b == id ? 
+                a :
+                (valid(a) && valid(b) ? 
+                    a+b : 
+                    -1
+                )
+            ) 
+        )
+        // (valid(a) && valid(b)) ? a+b : -1
+    }
 
-    lemma idValid()
-        ensures valid(id)
-    {}
+    func frame(a:T, b:T) returns (ret:T) {
+        b == id ? 
+            a :
+        (valid(a) && valid(b) ?
+            a-b : -1)
 
-    lemma compAssoc(a:T, b:T, c:T)
-        ensures comp(comp(a, b), c) == comp(a, comp(b, c))
-    {}
+        // valid(a) && valid(b) ?
+        //     a-b : -1
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) 
+        // ensures forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
+    {
+        // true
+        forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
+    }
 }
-
-/*
-module Frac : resource_algebra {
-    rep type t = Frac
-
-    val id = 0
-    func comp(a: Frac, b: Frac) returns { ret := a + b }
-}
-
-*/
 
 module Auth [M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
-        case frac(m:M); 
-        case auth_frac(n1:M, n2:M);
+        case frag(f_proj1: M);
+        case auth_frag(af_proj1: M, af_proj2: M);
         case top
     }
     
-    val id = frac(M.id);
+    val id: T = frag(M.id);
+
+    func valid(n:T) 
+        returns (ret:Bool) 
+    {
+        (n == frag(n.f_proj1) ?
+            M.valid(n.f_proj1) :
+        (n == auth_frag(n.af_proj1, n.af_proj2) ? 
+            M.valid(n.af_proj1) && M.valid(n.af_proj2) && M.valid(M.frame(n.af_proj1, n.af_proj2)) :
+            false
+        )
+        )
+    }
 
     func comp(a:T, b:T)
         returns (ret:T)
     {
-        /* Probably best to just implement case-matching. */
-        /* But with case-matching the following code will look much worse. */
-
-        (a == frac(a.m) && b == frac(b.m)) ?
-            (frac(M.comp(a.m,b.m))) :
-        ((a == frac(a.m) && b == auth_frac(b.n1, b.n2)) ?
-            auth_frac(b.n1, M.comp(a.m, b.n2)) :
-        (a == auth_frac(a.n1, a.n2) && b == frac(b.m)) ? 
-            auth_frac(a.n1, M.comp(b.m, a.n2)) :
-            top)
+        (a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+            (frag(M.comp(a.f_proj1, b.f_proj1))) :
+        ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
+            auth_frag(b.af_proj1, M.comp(a.f_proj1, b.af_proj2)) :
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
+            auth_frag(a.af_proj1, M.comp(b.f_proj1, a.af_proj2)) :
+            top()))
     }
 
-    func valid(n:T) {
-        !(n == top)
+    func frame(a:T, b:T) returns (ret:T) {
+        (a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+            (frag(M.frame(a.f_proj1, b.f_proj1))) :
+        ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
+            top() :
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
+            auth_frag(a.af_proj1, M.frame(a.af_proj2, b.f_proj1)) :
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) ? 
+            (a.af_proj1 == b.af_proj1 ? frag(M.frame(a.af_proj2, b.af_proj2)) : top()) :
+            top()
+        ))))
     }
 
-    lemma idValid()
-        ensures valid(id)
-    { }
-
-    lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
-    { }
-
-    lemma compCommute(a:T, b:T)
-        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
-    { }
-		
-    lemma fpu_(l:T, a:T, b:T)
-        requires own(l, a)
-        requires valid(a) && valid(b)
-        requires (forall c:T :: (valid(comp(a, c)) ==> valid(comp(b, c))))
-        ensures own(l, b)
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) 
+        // ensures forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))    
     {
+        // forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
 
-    }
-    
-    lemma own_sep(l:Ref, f:T, a:T, b:T)
-        requires own(l.f, comp(a, b))
-        ensures own(l.f, a) && own(l.f, b)
-    {
+        a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) ?
+            (M.valid(M.frame(b.af_proj1, a.af_proj1)) && 
+            M.valid(M.frame(b.af_proj2, a.af_proj2)) && 
+            M.valid(M.frame(M.frame(b.af_proj1, a.af_proj1), M.frame(b.af_proj2, a.af_proj2)))) :
+
+            false
         
     }
-
 }
 
-interface LatticeResourceAlgebra : ResourceAlgebra {
+// Agree(X)
+// Frac
+// Frac-Agree(X)
+// Map(X,M)
+// SetRA
 
+
+module Frac[X: Type] : ResourceAlgebra {
+    rep type T = data {
+        case frac_null;
+        case frac_chunk(frac_proj1: X, frac_proj2: Int);
+        case frac_top
+    }
+
+    val id: T = frac_null()
+
+    func valid(n:T) 
+        returns (ret:Bool) 
+    {
+        (n == frac_chunk(n.frac_proj1, n.frac_proj2) ?
+            (n.frac_proj2 > 0 && n.frac_proj2 <= 1) : 
+            (n == frac_null() ? true : 
+                false
+            )
+        )
+    }
+
+    func comp(a:T, b:T)
+        returns (ret:T)
+    {
+        a == frac_null() ? b :
+        (b == frac_null() ? a :
+        (valid(a) && valid(b) ? 
+            (a.frac_proj1 == b.frac_proj1 ? frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) : frac_top()) : 
+            frac_top()
+        )
+        )
+
+        // valid(a) && valid(b) ?
+        //     (a == frac_null() ? b :
+        //     (b == frac_null() ? a :
+        //     (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) ? 
+        //         (a.frac_proj1 == b.frac_proj1 ? frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) : frac_top()) :
+        //         frac_top()
+        //     )
+        //     )
+        //     ) :
+        //     frac_top()
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        b == frac_null() ? a :
+
+        (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) && valid(a) && valid(b) ? 
+            (a.frac_proj1 == b.frac_proj1 ? 
+                (a.frac_proj2 == b.frac_proj2 ? frac_null() : frac_chunk(a.frac_proj1, a.frac_proj2 - b.frac_proj2)) : 
+                frac_top()
+            ) : 
+            frac_top()
+        )
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) 
+        // ensures forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))    
+    {
+        forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))       
+    }
 }
 
-interface CancellativeResourceAlgebra : Resource_algebra {
-    lemma cancellative()
-        ensures (forall a:T, b:T, c:T :: (valid(comp(a, b) && comp(a,b) == comp(c,b))) ==> (a == c))
+// module KeySetRA[X] : ResourceAlgebra {
+//     type T1 = Set[X]
+//     rep type = data {
+//         case ksBot;
+//         case ksPair(ks_proj1: T1, ks_proj2: T2);
+//         case ksTop
+//     }
+
+//     var id: T = ksBot
+
+//     func comp(a:T, b:T) returns (ret:T) {
+//         a == ksBot() ? b :
+//         (b == ksBot() ? a :
+//         (a == ksPair(a.ks_proj1, a.ks_proj2) && b == ksPair(b.ks_proj1, b.ks_proj2) ?
+//             (valid(a) && valid(b) && (a.ks_proj1 ** b.ks_pro1 == {||}) ?
+//                 ksPair(a.ks_proj1 ++ b.ks_proj1, a.ks_proj2 ++ b.ks_proj2) : 
+//                 ksTop()
+//             ) :
+//             ksTop()
+//         )
+//         )
+//     }
+
+//     func frame(a:T, b:T) returns (ret:T) {
+
+//     }
+
+//     func valid(a:T) returns (ret: Bool)
+
+//     func fpu(a:T, b:T) returns (ret: Bool)
+
+//     /* alias : a ∘ b = comp(a,b) ? */
+// }
+
+
+// interface LatticeResourceAlgebra : ResourceAlgebra {
+
+// }
+
+// interface CancellativeResourceAlgebra : Resource_algebra {
+//     lemma cancellative()
+//         ensures (forall a:T, b:T, c:T :: (valid(comp(a, b) && comp(a,b) == comp(c,b))) ==> (a == c))
 
     
-}
+// }

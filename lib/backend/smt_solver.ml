@@ -11,7 +11,8 @@ module SmtEnv = struct
     field_heap_valid: smt_ident;
     field_heap_add_chunk: smt_ident;
     field_heap_subtract_chunk: smt_ident;
-    heapchunk_compare : smt_ident; 
+    heapchunk_compare : smt_ident;
+    field_fpu : smt_ident option;
     (* heapchunk_compare chunk1 chunk2 should return true if chunk1 <= chunk2 *)
   }
 
@@ -35,12 +36,22 @@ module SmtEnv = struct
     func_return : sort;
   }
 
+  type data_constr = {
+    constr : smt_ident
+  }
+
+  type data_destr = {
+    destr : smt_ident
+  }
+
   type smt_trnsl =
   | Field of field_trnsl
   | Type of sort
   | Var of var_trnsl
   | Pred of pred_trnsl
   | Func of func_trnsl
+  | DataConstr of data_constr 
+  | DataDestr of data_destr
 
   type t = (smt_trnsl qual_ident_map) list * (Ident.t list)
 
@@ -83,6 +94,12 @@ module SmtEnv = struct
   let stack_name (_tbl, stk) : string = 
     List.fold stk ~init:"" ~f:(fun str ident -> (Ident.to_string ident) ^ "." ^ str)
 
+  let mk_qual_ident (_tbl, stk) iden : qual_ident =
+    QualIdent.make (List.rev stk) iden
+
+  let mk_qual_ident_qi (_tbl, stk) qual_iden : qual_ident =
+    QualIdent.(make (List.rev stk @ qual_iden.qual_path) qual_iden.qual_base)
+
   let flatten_env (tbl, _) : (smt_trnsl qual_ident_map) =
     (* Used to compress all the lists in the tbl into one list. This function is only used to find all heaps to reset them for while loops. In particular the output of this function should not be propagated forward. *)
 
@@ -113,6 +130,8 @@ module SmtEnv = struct
     | Var var_trnsl -> (Printf.sprintf "Var: %s; sort: %s" (Util.Print.string_of_format pr_term var_trnsl.var_symbol) (Util.Print.string_of_format pr_sort var_trnsl.var_sort))
     | Pred pred_trnsl -> "Pred: " ^ (Util.Print.string_of_format pr_term pred_trnsl.pred_heap)
     | Func func_trnsl -> "Func: " ^ (Util.Print.string_of_format pr_ident func_trnsl.func_symbol)
+    | DataConstr data_constr -> "DataConstr: " ^ (Util.Print.string_of_format pr_ident data_constr.constr)
+    | DataDestr data_destr -> "DataDestr: " ^ (Util.Print.string_of_format pr_ident data_destr.destr)
 
   let rec to_string (tbl, stk : t) =
     let rec list_to_string t =
@@ -135,9 +154,6 @@ module SmtEnv = struct
         ^ list_to_string (Map.to_alist t)
         ^ " ]\n" ^ to_string (ts, []))
 
-  
-  let mk_qual_ident (_tbl, stk) iden : qual_ident =
-    QualIdent.make (List.rev stk) iden
 end
 
 type smt_env = SmtEnv.t
@@ -314,7 +330,7 @@ let assert_not session expr =
   if is_unsat session then 
     let session = pop session in
     session
-  else smt_error @@ (Printf.sprintf "Exhaling expression '%s' failed. NOT UNSAT." (Util.Print.string_of_format pr_term expr))
+  else smt_error @@ (Printf.sprintf "Exhaling following expression failed:\n'%s'" (Util.Print.string_of_format pr_term expr))
 
 (* --- *)
 
@@ -337,7 +353,7 @@ module PreambleConsts = struct
   let heap_chunk_constr_ident = SMTIdent.make "$ChunkConstr" *)
 
 
-  let frac_heap_sort_ident = SMTIdent.make "$FracHeap"
+  let heap_sort_ident = SMTIdent.make "$OwnHeap"
   (* let heap_sort_ident = SMTIdent.make "$OwnHeap" *)
 
   let pred_heap_sort_ident = SMTIdent.make "$PredHeap"
@@ -362,14 +378,16 @@ end
 
 let mk_frac_heapchunk_sort field_sort : sort = FreeSort (PreambleConsts.frac_heapchunk_sort_ident, [field_sort])
 
-let mk_frac_own_heap_sort field_sort : sort = FreeSort (PreambleConsts.frac_heap_sort_ident, [field_sort])
+let mk_own_heap_sort field_sort : sort = FreeSort (PreambleConsts.heap_sort_ident, [field_sort])
+
+let mk_frac_own_heap_sort field_sort : sort = mk_own_heap_sort (mk_frac_heapchunk_sort field_sort)
 
 let mk_pred_heap_sort pred_sort : sort = FreeSort (PreambleConsts.pred_heap_sort_ident , [pred_sort])
 
 let frac_chunk_constr v_term r_term : term = mk_app (Ident PreambleConsts.frac_chunk_constr_ident) [v_term; r_term]
 
 let declare_new_fieldheap (field_trnsl: SmtEnv.field_trnsl) (new_heap_name: smt_ident) (session: session) : unit =
-  write session (mk_declare_const new_heap_name (mk_frac_own_heap_sort field_trnsl.field_sort));
+  write session (mk_declare_const new_heap_name (mk_own_heap_sort field_trnsl.field_sort));
   write session (mk_assert (mk_app (Ident field_trnsl.field_heap_valid) [mk_const (Ident new_heap_name)]));
   ()
 
@@ -413,7 +431,7 @@ let add_frac_field_heap_functions field_sort field_heap_valid field_heap_add_chu
     (l_ident, PreambleConsts.loc_sort)] 
     
     (mk_impl 
-          (mk_app (Ident field_heap_valid) [heap_term])
+        (mk_app (Ident field_heap_valid) [heap_term])
 
         (mk_match (mk_select heap_term l_term)
           [(frac_heap_null, mk_const (BoolConst true));
@@ -521,6 +539,32 @@ let add_frac_field_heap_functions field_sort field_heap_valid field_heap_add_chu
 
   ()
 
+let add_ra_field_heap_functions field_sort field_heap_valid field_valid heapchunk_compare field_heap_subtract_chunk session : unit = 
+  let field_heap_sort = mk_own_heap_sort field_sort in
+
+  let heap_ident = SMTIdent.make "heap" in
+  let l_ident = SMTIdent.make "l" in
+
+  let heap_term = mk_app (Ident heap_ident) [] in
+  let l_term = mk_app (Ident l_ident) [] in
+
+  write session
+  (mk_define_fun field_heap_valid [(heap_ident, field_heap_sort)] BoolSort
+    (mk_binder Forall [l_ident, PreambleConsts.loc_sort]
+      (mk_app (Ident field_valid) [(mk_select heap_term l_term)])
+    )
+  );
+
+  let x1_arg = SMTIdent.make "x1" in
+  let x2_arg = SMTIdent.make "x2" in
+
+  write session
+  (mk_define_fun heapchunk_compare [(x1_arg, field_sort); (x2_arg, field_sort)] BoolSort
+    (mk_app (Ident field_valid) [(mk_app (Ident field_heap_subtract_chunk) [mk_const (Ident x1_arg); mk_const (Ident x2_arg)])]
+    )
+  );
+  ()
+
 
 let init () : session =
   let session = start_solver () in
@@ -542,7 +586,7 @@ let init () : session =
 
     (* ownHeap *)
 
-    mk_define_sort frac_heap_sort_ident [t_param_ident] (ArraySort (loc_sort, (mk_frac_heapchunk_sort t_param_sort)));
+    mk_define_sort heap_sort_ident [t_param_ident] (ArraySort (loc_sort, t_param_sort));
 
     mk_define_sort pred_heap_sort_ident [t_param_ident] (ArraySort (t_param_sort, IntSort))
 
@@ -555,5 +599,9 @@ let init () : session =
   add_frac_field_heap_functions IntSort int_frac_heap_valid_ident int_frac_chunk_add_ident int_frac_chunk_subtract_ident int_heapchunk_compare_ident session;
   add_frac_field_heap_functions BoolSort bool_frac_heap_valid_ident bool_frac_chunk_add_ident bool_frac_chunk_subtract_ident bool_heapchunk_compare_ident session;
   add_frac_field_heap_functions loc_sort loc_frac_heap_valid_ident loc_frac_chunk_add_ident loc_frac_chunk_subtract_ident loc_heapchunk_compare_ident session;
+
+  write_comment session "End of Preamble";
+  write_comment session "";
+  write_comment session "";
 
   session

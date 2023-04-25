@@ -32,17 +32,18 @@ let parse_and_print lexbuf tbl smtEnv session =
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
 
   let processed_ast, tbl = Process_ast.start_processing ~tbl:tbl s in
-  match tbl with
-  | [ _ ] -> Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
+  (* match tbl with *)
+  (*| [ _ ] ->*) 
+    Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
     Ast.Module.print_verbose Stdio.stdout processed_ast;
     Stdio.print_endline "";
 
     let _ = Checker.check_module processed_ast tbl smtEnv session in
 
-    Stdio.print_endline "\nVerification successful.\n";
+    Stdio.print_endline "\nVerification successful.\n"
 
 
-  | _ -> raise (Generic_Error "SymbolTbl should be empty")
+  (* | _ -> raise (Generic_Error "SymbolTbl should be empty") *)
 
 let parse_program filename =
   let resource_algebra_file = "lib/library/resource_algebra.rav" in
@@ -50,11 +51,21 @@ let parse_program filename =
   let lexbuf_lib = Lexing.from_channel inx_ra in
   Lexer.set_file_name lexbuf_lib resource_algebra_file;
 
-  (* let tbl, smtEnv, session = parse_lib lexbuf_lib in *)
+  (* --- *)
+  let tbl, smtEnv, session = parse_lib lexbuf_lib in
+  Smt_solver.write_comment session "End of Library";
+  Smt_solver.write_comment session "";
+  Smt_solver.write_comment session "";
 
-  let tbl = Process_ast.SymbolTbl.push [] in
+  (* Keep above section to process Library file; keep below section to not process Library file. *)
+
+
+  (* let tbl = Process_ast.SymbolTbl.push [] in
   let smtEnv = Smt_solver.SmtEnv.push ([], []) in
-  let session = Smt_solver.init () in
+  let session = Smt_solver.init () in *)
+  (* --- *)
+
+  Smt_solver.write_comment session "---- Starting Program ----";
 
   let inx = Stdio.In_channel.create filename in
   let lexbuf = Lexing.from_channel inx in

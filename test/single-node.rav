@@ -19,7 +19,7 @@ module Lock {
 
   proc acquire(l: Ref, implicit ghost b: Bool)
     atomic requires lock(l, b)
-    atomic ensures lock(l, true) &*& b == false
+    atomic ensures lock(l, true) && b == false
   {
 		{{ AU(v_phi, "acquire", l, None, not_open) }}
 	

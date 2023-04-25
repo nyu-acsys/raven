@@ -64,7 +64,7 @@ let mk_error_info msg = "Related Location: " ^ msg
 
 let error loc msg = print_error_loc loc; fail loc @@ "Error: " ^ msg
 
-let error_simple msg = fail Loc.dummy @@ "Lexical Error: " ^ msg
+let error_simple msg = fail Loc.dummy @@ "Error: " ^ msg
 
 let lexical_error loc msg = print_error_loc loc; fail loc @@ "Lexical Error: " ^ msg
 

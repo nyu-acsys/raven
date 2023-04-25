@@ -8,7 +8,7 @@ type location = Loc.t
 (** Identifiers *)
 
 let print_debug _str =
-  Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m");
+  (* Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m"); *)
   ()
 
   let print_debug2 _str =
@@ -388,6 +388,8 @@ module Expr = struct
     | Mod
     | Dot
     | Call
+    | DataConstr
+    | DataDestr
     | Read
     (* Ternary operators *)
     | Ite
@@ -423,6 +425,8 @@ module Expr = struct
     | Null -> "null"
     | Unit -> "()"
     | Dot -> "."
+    | DataConstr -> "data_constr"
+    | DataDestr -> "data_destr"
     | Call -> "call"
     | Read -> "read"
     | Write -> "write"
@@ -463,7 +467,7 @@ module Expr = struct
     | Null | Unit | Empty | Int _ | Bool _ -> 0
     | Dot | Setenum | Read | Write | Own | Var _ | MapLookUp -> 1
     | Uminus | Not -> 2
-    | Call | New _ -> 3
+    | DataConstr | DataDestr | Call | New _ -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Diff | Union | Inter -> 6
@@ -483,6 +487,34 @@ module Expr = struct
     | Forall -> "forall"
     | Compr -> "%compr%"
 
+  (* The first pr is a more verbose print which prints types of each expression. This is useful for debugging. The second pr is the normal pr which is prettier. *)
+  (* let rec pr ppf e =
+    let open Stdlib.Format in
+    match e with
+    | App (And, [], a) -> pr ppf (App (Bool false, [], a))
+    | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
+    | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
+    | App (Inter, [], _) -> fprintf ppf "Univ"
+    | App (c, [], _) -> fprintf ppf "(%a:%a)" pr_constr c Type.pr (to_type e)
+    | App (DataConstr, e0 :: es, _) | App (Call, e0 :: es, _) -> fprintf ppf "(%a(%a):%a)" pr e0 pr_list es Type.pr (to_type e)
+    | App (Dot, [ e1; e2 ], _) | App (Read, [ e1; e2 ], _) ->
+        fprintf ppf "((%a).(%a):%a)" pr e1 pr e2 Type.pr (to_type e)
+    | App (Write, [ e1; e2; e3 ], _) ->
+        fprintf ppf "(%a[|%a@ :=@ %a|]:%a)" pr e1 pr e2 pr e3 Type.pr (to_type e)
+    | App
+        ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
+           | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
+          [ e1; e2 ],
+          _ ) ->
+        let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
+        let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
+        fprintf ppf "@[<2>(%a %a@ %a:%a)@]" pr_e1 e1 pr_constr c pr_e2 e2 Type.pr (to_type e)
+    | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|}:%a)" pr_list es Type.pr (to_type e)
+    | App (c, es, _) -> fprintf ppf "(%a(@[%a@]):%a)" pr_constr c pr_list es Type.pr (to_type e)
+    | Binder (b, vs, e1, _) ->
+        fprintf ppf "@[(%a:%a)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e) *)
+
+
   let rec pr ppf e =
     let open Stdlib.Format in
     match e with
@@ -491,9 +523,9 @@ module Expr = struct
     | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "%a" pr_constr c
-    | App (Call, e :: es, _) -> fprintf ppf "%a(%a)" pr e pr_list es
+    (*| App (DataConstr, e0 :: es, _)*) | App (Call, e0 :: es, _) -> fprintf ppf "%a(%a)" pr e0 pr_list es
     | App (Dot, [ e1; e2 ], _) | App (Read, [ e1; e2 ], _) ->
-        fprintf ppf "(%a).(%a)" pr e1 pr e2
+        fprintf ppf "%a.%a" pr e1 pr e2
     | App (Write, [ e1; e2; e3 ], _) ->
         fprintf ppf "%a[|%a@ :=@ %a|]" pr e1 pr e2 pr e3
     | App
@@ -566,6 +598,28 @@ module Expr = struct
               Type.join t (to_type e))
         in
         App (And, es, mk_attr loc t)
+
+  let rec alpha_renaming (expr: t) (map: t qual_ident_map) : t =
+  match expr with
+  | App (constr, expr_list, expr_attr) ->
+    let expr_list = List.map expr_list ~f:(fun expr -> alpha_renaming expr map) in
+
+    (match constr with
+    | Var qual_ident ->
+      (match Map.find map qual_ident with
+      | None ->
+        App (Var qual_ident, expr_list, expr_attr)
+      | Some expr' ->
+        expr'
+      )
+    | _ -> App (constr, expr_list, expr_attr)
+
+    )
+
+  | Binder (binder, var_decl_list, expr, expr_attr) ->
+    (* TODO: Rename the var_decl to avoid clashing with variables in the map *)
+    let expr = alpha_renaming expr map in
+    Binder (binder, var_decl_list, expr, expr_attr)
 end
 
 type expr = Expr.t
@@ -602,6 +656,12 @@ module Stmt = struct
   type fold_desc = { fold_expr : expr }
   type unfold_desc = { unfold_expr : expr }
 
+  type fpu_desc = {
+    fpu_loc : qual_ident;
+    fpu_field : qual_ident;
+    fpu_val : expr
+  }
+
   type basic_stmt_desc =
     | VarDef of var_def
     | Assume of spec
@@ -621,6 +681,7 @@ module Stmt = struct
     | CloseInv of expr
     | Inhale of expr  
     | Exhale of expr
+    | Fpu of fpu_desc
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
 
@@ -664,7 +725,7 @@ module Stmt = struct
           (if sf.spec_atomic then "atomic " else "")
           stype Expr.pr sf.spec_form
     | sf :: sfs ->
-        fprintf ppf "@<0>%s%s %a\n%a"
+        fprintf ppf "@<0>%s%s %a@\n%a"
           (if sf.spec_atomic then "atomic " else "")
           stype Expr.pr sf.spec_form (pr_spec_list stype) sfs
 
@@ -712,6 +773,7 @@ module Stmt = struct
       fprintf ppf "@[<2>CloseInv %a@]" Expr.pr expr
     | Inhale expr -> fprintf ppf "@[<2>inhale %a@]" Expr.pr expr
     | Exhale expr -> fprintf ppf "@[<2>exhale %a@]" Expr.pr expr
+    | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a ~> %a@]" QualIdent.pr fpu_desc.fpu_loc QualIdent.pr fpu_desc.fpu_field Expr.pr fpu_desc.fpu_val
 
   let rec pr ppf stmt =
     let open Stdlib.Format in
@@ -754,7 +816,9 @@ end
 (** ----------------- *)
 
 module Callable = struct
-  type call_kind = Proc | Lemma | Func | Pred | Invariant
+  type call_kind = 
+    | Proc | Lemma (* proc *)
+    | Func | Pred | Invariant (* func *)
 
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
@@ -771,6 +835,8 @@ module Callable = struct
   type func_def = { func_decl : call_decl; func_body : expr option }
 
   type t = FuncDef of func_def | ProcDef of proc_def
+
+  let to_decl (call: t) = match call with | FuncDef func_def -> func_def.func_decl | ProcDef proc_def -> proc_def.proc_decl
 
   let pr_call_decl_specs ppf call_decl =
     let open Stdlib.Format in
@@ -849,12 +915,13 @@ module Module = struct
   type field_def = { 
     field_name : ident; 
     field_type : type_expr; 
-    field_loc : Loc.t }
+    field_loc : Loc.t 
+  }
 
   type module_decl = {
     mod_decl_name : ident;
     mod_decl_formals : ident list;
-    mod_decl_returns : type_expr list; (* make this qualIdent *)
+    mod_decl_returns : type_expr list;
     mod_decl_rep : ident option;
     mod_decl_fields : field_def ident_map;
     mod_decl_mod_defs : module_decl ident_map;
@@ -884,36 +951,20 @@ module Module = struct
   }
 
   and sorted_member_def_list = {
-    imports' : import_directive list;
-    types' : type_alias list;
-    fields' : field_def list;
-    vars' : Stmt.var_def list;
-    mod_defs' : t1 list;
-    mod_aliases' : module_alias list;
-    call_defs' : Callable.t list; 
-  }
-
-  and t1 = {
-    module_decl' : module_decl;
-    members' : sorted_member_def_list;
-    interface' : bool;
-  }
-
-  and processed_member_def_list = {
-    imports : import_directive list;
-    types : type_alias list;
-    fields : field_def list;
-    vars : Stmt.var_def list;
-    mod_defs : t list;
-    mod_aliases : module_alias list;
-    call_defs : Callable.t list; 
+  imports : import_directive list;
+  types : type_alias list;
+  fields : field_def list;
+  vars : Stmt.var_def list;
+  mod_defs : t list;
+  mod_aliases : module_alias list;
+  call_defs : Callable.t list; 
   }
   
   and t = {
     module_decl : module_decl;
-    members : processed_member_def_list;
+    members : sorted_member_def_list;
     interface : bool;
-    obligations : processed_member_def_list;
+    obligations : sorted_member_def_list;
   }
 
   let rec pr ppf md =
@@ -971,7 +1022,7 @@ module Module = struct
   | ModImport t -> fprintf ppf "@[<2>import@ %a@]" Type.pr t
   | MemImport t -> fprintf ppf "@[<2>import@ %a@]" QualIdent.pr t
 
-  and pr_processed_mem_list ppf (processed_mem_list: processed_member_def_list) = 
+  and pr_processed_mem_list ppf (processed_mem_list: sorted_member_def_list) = 
   (let open Stdlib.Format in
   fprintf ppf "@[<v> @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @]"
   "imports: " (Print.pr_list_comma pr_import_directive) processed_mem_list.imports
@@ -985,7 +1036,7 @@ module Module = struct
   and pr_verbose ppf (md: t) =
     let open Stdlib.Format in
 
-    fprintf ppf "@[%s%a@[@ \027[36m %a \027[0m @]@]@,{@[<1>%a@]@,}"
+    fprintf ppf "@[%s%a@;@[<2>\027[36m %a \027[0m @]@]@,{@[<1>%a@]@,}"
       (if md.interface then "interface " else "module ")
       (* module_decl *)
       Ident.pr md.module_decl.mod_decl_name
@@ -995,7 +1046,7 @@ module Module = struct
 
 and pr_mod_decl ppf md = 
 let open Stdlib.Format in
-fprintf ppf "@[%s@[<v>@,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s @]@]@, }"
+fprintf ppf "@[%s@;@[<v>%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s @]@]@, }"
 "module_decl = {"
 "mod_decl_name: " Ident.pr md.mod_decl_name
 "mod_decl_formals: " (Print.pr_list_comma Ident.pr) md.mod_decl_formals
@@ -1011,7 +1062,7 @@ fprintf ppf "@[%s@[<v>@,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,%s%a @,
 
 and pr_mod_alias ppf md_alias = 
 let open Stdlib.Format in
-fprintf ppf "@[%s @[<v> @,%s%a @,%s%a @,%s%a @,%s @] @,}@]"
+fprintf ppf "@[%s @;@[<v 2>  %s%a @,%s%a @,%s%a @,%s @] @,}@]"
 "module_alias = {"
 "mod_alias_name: " Ident.pr md_alias.mod_alias_name
 "mod_alias_type: " Type.pr md_alias.mod_alias_type
@@ -1029,7 +1080,7 @@ fprintf ppf "@[%s@[<v>@,%s%a @,%s%a @,%s%B @,%s@]@,}@]"
 
 and pr_field_decl ppf field_decl =
 let open Stdlib.Format in
-fprintf ppf "@[<1> %s @[<v> @,%s%a @,%s%a @,%s @] @,}@]"
+fprintf ppf "@[<1> %s@;@[<v 2>  %s%a @;%s%a @;%s@] @,}@]"
 "field_decl = {" 
 "field_name: " Ident.pr field_decl.field_name
 "field_type: " Type.pr field_decl.field_type
@@ -1057,7 +1108,7 @@ fprintf ppf "@[<1> %s @[<v> @,%s%a @,%s%a @,%s @] @,}@]"
       mod_decl_loc = Loc.dummy;
     }
 
-  let empty_sorted_member_def_list = {
+  (* let empty_sorted_member_def_list = {
     imports' = [];
     types' = [];
     fields' = [];
@@ -1065,9 +1116,9 @@ fprintf ppf "@[<1> %s @[<v> @,%s%a @,%s%a @,%s @] @,}@]"
     mod_defs' = [];
     mod_aliases' = [];
     call_defs' = [];
-  }
+  } *)
 
-  let empty_processed_member_def_list = {
+  let empty_sorted_member_def_list = { 
     imports = [];
     types = [];
     fields = [];
@@ -1076,6 +1127,33 @@ fprintf ppf "@[<1> %s @[<v> @,%s%a @,%s%a @,%s @] @,}@]"
     mod_aliases = [];
     call_defs = [];
   }
+
+  let rec find_mod (mod_defs: t list) (name: Ident.t) =
+    match mod_defs with
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module %s not found in list " (Ident.to_string name)
+    | mod_def :: mod_defs ->
+      if Ident.equal mod_def.module_decl.mod_decl_name name then
+        mod_def
+      else
+        find_mod mod_defs name
+  
+  let rec find_callable (call_defs: Callable.t list) (name: Ident.t) =
+    match call_defs with
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Callable %s not found in list " (Ident.to_string name)
+    | call_def :: call_defs ->
+      if Ident.equal (Callable.to_decl call_def).call_decl_name name then
+        call_def
+      else
+        find_callable call_defs name
+
+  let rec find_var (var_defs: Stmt.var_def list) (name: Ident.t) = 
+    match var_defs with
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Variable %s not found in list " (Ident.to_string name)
+    | var_def :: var_defs ->
+      if Ident.equal (var_def.var_decl.var_name) name then
+        var_def
+      else
+        find_var var_defs name
 end
 
 module ASTUtil = struct

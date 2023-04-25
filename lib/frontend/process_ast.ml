@@ -16,14 +16,15 @@ module SymbolTbl = struct
     destr_name : Ident.t;
     destr_arg : type_expr;
     destr_return_type : type_expr;
-
   }
 
   type typing_env =
     | TypeAlias of Module.type_alias
     | Callable of Callable.call_decl
     | ModAlias of Module.module_alias
-    | ModDecl of Module.module_decl
+    | ModDecl of (Module.t * Module.t) 
+    (* the first component stores the processed module and the second component is to store the original un-processed module definition. This is used to instantiate module aliases. *)
+    | RAModDecl of (Module.t * Module.t)
     | VarDecl of var_decl
     | Field of Module.field_def
     | DataTypeConstr of data_type_constr
@@ -33,12 +34,14 @@ module SymbolTbl = struct
     match t with
     | TypeAlias tp -> "TypeAlias(" ^ Ident.to_string tp.type_alias_name ^ " --> " ^ (match tp.type_alias_def with | None -> "None" | Some tp -> (Type.to_string tp)) ^ ")"
     | Callable call_decl ->
-        "CallDecl(" ^ Ident.to_string call_decl.call_decl_name ^ ")"
+        Printf.sprintf "CallDecl(%s())" (Ident.to_string call_decl.call_decl_name)
     | ModAlias mod_alias ->
         "ModAlias(" ^ Ident.to_string mod_alias.mod_alias_name ^ ")"
-    | ModDecl mod_decl ->
-        "ModDecl(" ^ Ident.to_string mod_decl.mod_decl_name ^ ")"
-    | VarDecl var_decl -> "VarDecl(" ^ Ident.to_string var_decl.var_name ^ ")"
+    | ModDecl (m, _orig_mod) ->
+        "ModDecl(" ^ Ident.to_string m.module_decl.mod_decl_name ^ ")"
+    | RAModDecl (m, _orig_mod) ->
+        "ResourceAlgebraModuleDecl(" ^ Ident.to_string m.module_decl.mod_decl_name ^ ")" 
+    | VarDecl var_decl -> "VarDecl(" ^ Ident.to_string var_decl.var_name ^ ": " ^ Type.to_string var_decl.var_type ^ ")"
     | Field field_decl ->
         "Field("
         ^ Ident.to_string field_decl.field_name
@@ -171,7 +174,7 @@ module SymbolTbl = struct
     true (* TODO: Implement properly *)
 end
 
-let rec pre_process_module (m: Module.t0) : (Module.t1) = 
+let rec pre_process_module (m: Module.t0) : (Module.t) = 
 
   let rec extract_members (mod_decl: Module.module_decl) (sorted_members: Module.sorted_member_def_list) (mod_defs_list: Module.member_def list) : (Module.module_decl * Module.sorted_member_def_list) =
 
@@ -188,14 +191,14 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
         } in
 
         let sorted_members = { sorted_members with
-          types' = type_alias :: sorted_members.types';
+          types = type_alias :: sorted_members.types;
         } in
 
         extract_members mod_decl sorted_members defs
 
       | Import import_dir ->
         let sorted_members = { sorted_members with
-          imports' = import_dir :: sorted_members.imports';
+          imports = import_dir :: sorted_members.imports;
         } in
         
         extract_members mod_decl sorted_members defs
@@ -208,7 +211,7 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
           } in
 
           let sorted_members = { sorted_members with
-            mod_defs' = (pre_process_module mod_impl) :: sorted_members.mod_defs';
+            mod_defs = (pre_process_module mod_impl) :: sorted_members.mod_defs;
           } in
 
           extract_members mod_decl sorted_members defs
@@ -219,7 +222,7 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
           } in
 
           let sorted_members = { sorted_members with
-            mod_aliases' = mod_alias :: sorted_members.mod_aliases';
+            mod_aliases = mod_alias :: sorted_members.mod_aliases;
           } in
 
           extract_members mod_decl sorted_members defs
@@ -231,7 +234,7 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
         } in
 
         let sorted_members = { sorted_members with
-          fields' = field_def :: sorted_members.fields';
+          fields = field_def :: sorted_members.fields;
         } in
         
         extract_members mod_decl sorted_members defs
@@ -242,7 +245,7 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
           } in
 
           let sorted_members = { sorted_members with
-            vars' = v :: sorted_members.vars';
+            vars = v :: sorted_members.vars;
           } in
 
           extract_members mod_decl sorted_members defs
@@ -259,7 +262,7 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
         } in
 
         let sorted_members = { sorted_members with
-          call_defs' = call :: sorted_members.call_defs';
+          call_defs = call :: sorted_members.call_defs;
         } in
 
         extract_members mod_decl sorted_members defs
@@ -267,11 +270,21 @@ let rec pre_process_module (m: Module.t0) : (Module.t1) =
 
   in
 
+  (* let mod_aliases = List.map (Map.to_alist m.mod_decl.mod_decl_mod_aliases) ~f:snd in *)
+
+
   let mod_decl, sorted_mems = extract_members m.mod_decl Module.empty_sorted_member_def_list (List.rev m.mod_def)  in
+
+  (* let sorted_mems = { sorted_mems with
+    mod_aliases = mod_aliases @ sorted_mems.mod_aliases;
+    (* This is taking all formal arguments to module which are stored in module_decl and adding them as mod_aliases to the members of the module. 
+      This is required because formal arguments are added to the module_decl by parser, but not to body of module. *)
+  } in *)
   {
-    module_decl' = mod_decl;
-    members' = sorted_mems;
-    interface' = m.mod_interface;
+    module_decl = mod_decl;
+    members = sorted_mems;
+    interface = m.mod_interface;
+    obligations = Module.empty_sorted_member_def_list;
   }
 
 module ProcessTypeExpr = struct
@@ -284,8 +297,8 @@ module ProcessTypeExpr = struct
         let fully_quantified_qual_ident = SymbolTbl.fully_quantified qual_ident tbl in
         (match SymbolTbl.find tbl fully_quantified_qual_ident with
         | Some (TypeAlias _tp_alias) -> App ((Var fully_quantified_qual_ident), [], tp_attr)
-        | Some (ModDecl mod_decl) -> (
-          match mod_decl.mod_decl_rep with
+        | Some (ModDecl (m, _orig_mod)) | Some RAModDecl (m, _orig_mod) -> (
+          match m.module_decl.mod_decl_rep with
           | None -> Error.type_error tp_attr.type_loc ("Expected Type Expr" ^ Type.to_string tp_expr ^ "; found Module in typing environment without a Rep Type")
           | Some iden -> 
             let new_fully_quantified_qual_ident = QualIdent.append fully_quantified_qual_ident iden in
@@ -294,7 +307,8 @@ module ProcessTypeExpr = struct
             | _ -> Error.type_error tp_attr.type_loc ("Internal Error: Expected Type Expr" ^ Type.to_string tp_expr ^ "; rep type in Module not actually a TpExpr")
             )
         )
-        | Some (ModAlias _mod_alias) -> Error.unsupported_error tp_attr.type_loc "Module Aliases typing not supported"
+        (* | Some (RAModDecl _) -> App (Var fully_quantified_qual_ident, [], tp_attr) *)
+        | Some (ModAlias _mod_alias) -> Error.unsupported_error tp_attr.type_loc @@ Printf.sprintf "Module Aliases typing not supported\n %s" (SymbolTbl.to_string tbl)
         | _ -> Error.type_error tp_attr.type_loc ("Type " ^ Type.to_string tp_expr ^ "not found in typing environment")
         )
 
@@ -659,6 +673,79 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
     | Dot, _expr_list -> Error.lexical_error (Expr.loc expr) ("Dot expressions should not appear in the AST. Unexpected error.")
 
+    | DataConstr, constr_expr :: args_list ->
+      let args_list = List.map args_list ~f:(fun expr -> process_expr expr tbl) in
+
+      let constr_qual_ident = 
+        try
+          SymbolTbl.fully_quantified (ASTUtil.expr_to_qual_ident constr_expr) tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) msg
+      in
+
+      (match SymbolTbl.find tbl constr_qual_ident with
+      | Some (DataTypeConstr constr) -> 
+        let constr_arg_types_list = List.map constr.constr_args ~f:(fun var_decl -> var_decl.var_type) in
+
+        let args_type_check_list = (match List.map2 args_list constr_arg_types_list ~f:does_expr_implement_type with
+        | Ok list -> list
+        | Unequal_lengths -> Error.lexical_error (Expr.loc expr) (("DataConstr " ^ Ident.to_string constr.constr_name ^ " called with incorrect number of arguments" ))) in
+
+        let args_type_check = List.fold args_type_check_list ~init:true ~f:(&&) in
+
+        if args_type_check then
+          let tp = constr.constr_return_type in
+          let expr_attr = { expr_attr with
+            expr_type = tp;
+          } in
+
+          let constr_expr = ASTUtil.qual_ident_to_expr constr_qual_ident (Expr.attr_of constr_expr) in
+
+          App (DataConstr, constr_expr :: args_list, expr_attr)
+        
+        else
+          Error.lexical_error (Expr.loc expr) ((Ident.to_string constr.constr_name ^ ": DataConstr called with wrong arguments. Expected: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) constr_arg_types_list ^ "; got: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) (List.map  ~f:Expr.to_type args_list)) ^ "\n\n" ^ (SymbolTbl.to_string tbl))
+
+      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": expected to be a DataConstr instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": not found in TypingEnv"))
+      )
+      
+    | DataConstr, [] -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
+
+
+    | DataDestr, [expr1; App (Var destr_qual_ident, [], expr_attr')]  -> 
+      let expr1 = process_expr expr1 tbl in
+
+      let destr_qual_ident =
+        try
+          SymbolTbl.fully_quantified destr_qual_ident tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) msg
+      in
+      
+      (match SymbolTbl.find tbl destr_qual_ident with    
+      | Some (DataTypeDestr data_type_destr) ->
+        let tp = data_type_destr.destr_return_type in
+
+        let expr_attr' = { expr_attr' with
+          expr_type = tp;
+        } in
+
+        let (expr2: expr) = App (Var destr_qual_ident, [], expr_attr') in
+
+        if Type.equal (Expr.to_type expr1) (data_type_destr.destr_arg) then
+          let expr_attr = { expr_attr with
+            expr_type = tp;
+          } in
+
+          App (DataDestr, [expr1; expr2], expr_attr)
+        
+        else
+          Error.lexical_error (Expr.loc expr) @@ Printf.sprintf "%s: type mismatch for DataTypeDestr expr. First arg should be of type %s, instead of %s" (Expr.to_string expr) (Type.to_string tp) (Type.to_string (Expr.to_type expr1))
+      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string destr_qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string destr_qual_ident ^ ": not found in TypingEnv"))
+      )
+
+    | DataDestr, _ -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
+
     | Call, callable_expr :: args_list ->
       let args_list = List.map args_list ~f:(fun expr -> process_expr expr tbl) in
 
@@ -706,32 +793,63 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
           Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callable called with wrong arguments. Expected: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) callable_arg_types_list ^ "; got: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) (List.map  ~f:Expr.to_type args_list)))
         )
 
-      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a Callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+      | Some (DataTypeConstr _constr) -> process_expr (App (DataConstr, callable_expr :: args_list, Expr.attr_of expr)) tbl
+
+      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
       | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
       )
     | Call, [] -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
 
-    | Read, [expr1; expr2] ->
+    | Read, [expr1; App (Var qual_ident, [], expr_attr')] ->
       let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
 
-      if Type.equal (Expr.to_type expr1) (Type.ref) then
-        (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
-        | Some (Field field_def) -> 
-          let tp = field_def.field_type in
-          let expr_attr = { expr_attr with
+      let qual_ident = 
+        try
+          SymbolTbl.fully_quantified qual_ident tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) msg
+      in
+      (match SymbolTbl.find tbl qual_ident with    
+      | Some (Field field_def) -> 
+        let tp = field_def.field_type in
+
+        let expr_attr' = { expr_attr' with
           expr_type = tp;
+        } in
+
+        let (expr2: expr) = App (Var qual_ident, [], expr_attr') in
+
+        if Type.equal (Expr.to_type expr1) (Type.ref) then
+            let expr_attr = { expr_attr with
+            expr_type = tp;
+            } in
+  
+            App (Read, [expr1; expr2], expr_attr)
+  
+        else
+          Error.lexical_error (Expr.loc expr) ((Expr.to_string expr ^ ": for Read expr, first arg should be a Ref type, instead of " ^ Type.to_string (Expr.to_type expr1)))
+      
+      | Some (DataTypeDestr data_type_destr) ->
+        let tp = data_type_destr.destr_return_type in
+
+        let expr_attr' = { expr_attr' with
+          expr_type = tp;
+        } in
+
+        let (expr2: expr) = App (Var qual_ident, [], expr_attr') in
+
+        if Type.equal (Expr.to_type expr1) (data_type_destr.destr_arg) then
+          let expr_attr = { expr_attr with
+            expr_type = tp;
           } in
 
-          App (Read, [expr1; expr2], expr_attr)
+          App (DataDestr, [expr1; expr2], expr_attr)
+        
+        else
+          Error.lexical_error (Expr.loc expr) @@ Printf.sprintf "%s: type mismatch for DataTypeDestr expr. First arg should be of type %s, instead of %s" (Expr.to_string expr) (Type.to_string tp) (Type.to_string (Expr.to_type expr1))
+      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
+      )
 
-        | Some tp_env -> Error.lexical_error (Expr.loc expr) ((Expr.to_string expr2 ^ ": expected to be a Field instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-        | None -> Error.lexical_error (Expr.loc expr) ((Expr.to_string expr2 ^ ": not found in TypingEnv"))
-         
-        )
-
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.to_string expr ^ ": for Read expr, first arg should be a Ref type, instead of " ^ Type.to_string (Expr.to_type expr1)))
     | Read, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     | Ite, [cond_expr; if_expr; else_expr] ->
@@ -753,15 +871,42 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
     (* | Write, [expr1; expr2] *)
     | Write, _expr_list -> Error.lexical_error (Expr.loc expr) ("Write expr not presently supported")
     
-    | Own, [_expr1; _expr2; _expr3] -> Error.unsupported_error (Expr.loc expr) ("Custom RA ownership not supported presently")
+    | Own, [expr1; expr2; expr3] -> 
+      let expr1 = process_expr expr1 tbl in
+      let expr2 = process_expr expr2 tbl in
+      let expr3 = process_expr expr3 tbl in
+      (if (Type.equal Type.ref (Expr.to_type expr1)) then
+        (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
+        | Some (Field field_def) -> (
+          (* The following additional call to process_type_expr is required because for fields with custom RAs, their types are stored as module names in typing env. The following call will convert it to appropriate rep type. *)
+          let field_type = ProcessTypeExpr.process_type_expr field_def.field_type tbl in
+
+          if (Type.equal (Type.join field_type (Expr.to_type expr3)) field_type) then
+            let expr_attr = { expr_attr with
+              expr_type = Type.mk_perm (Expr.loc expr);
+            } in
+
+            App (Own, [expr1; expr2; expr3], expr_attr)
+
+          else
+            Error.type_error (Expr.loc expr) ("Field type mismatch. Field " ^ (Ident.to_string field_def.field_name) ^ " has type " ^ (Type.to_string field_def.field_type ^ "; received " ^ Type.to_string (Expr.to_type expr3))))
+        | Some _tp -> Error.type_error (Expr.loc expr) ("Expected Field in typing env. Found" ^ SymbolTbl.typing_env_to_string _tp)
+        | None -> Error.type_error (Expr.loc expr) ("Field " ^ (Expr.to_string expr2) ^ "not found in typing env")
+        )
+        
+      else
+        Error.type_error (Expr.loc expr) ("Own Predicate used incorrectly; called with args of types: " ^ (Print.string_of_format (Print.pr_list_comma Type.pr) (List.map ~f: (Expr.to_type) [expr1; expr2; expr3])))
+      )
+
+
     | Own, [expr1; expr2; expr3; expr4] ->
       let expr1 = process_expr expr1 tbl in
       let expr2 = process_expr expr2 tbl in
       let expr3 = process_expr expr3 tbl in
       let expr4 = process_expr expr4 tbl in
 
-      (if (Type.compare Type.ref (Expr.to_type expr1) = 0 
-      && Type.compare Type.int (Expr.to_type expr4) = 0
+      (if (Type.equal Type.ref (Expr.to_type expr1)
+      && Type.equal Type.int (Expr.to_type expr4)
         ) then 
           (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
           | Some (Field field_def) -> (
@@ -800,7 +945,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       let qual_ident = 
         try
           SymbolTbl.fully_quantified qual_ident tbl 
-        with Generic_Error msg -> Error.error (Expr.loc expr) msg
+        with Generic_Error msg -> Error.error (Expr.loc expr) (Printf.sprintf "%s\nExpr: %s \nTbl:%s" msg (Expr.to_string expr) (SymbolTbl.to_string tbl))
         in
       (match SymbolTbl.find tbl qual_ident with
       | Some (VarDecl var_decl) ->
@@ -1146,6 +1291,7 @@ module ProcessCallables = struct
         let commit_au_call = QualIdent.from_ident (Ident.make "commitAU" 0) in
         let bind_au_call = QualIdent.from_ident (Ident.make "bindAU" 0) in
         let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
+        let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in
 
         (match assign_desc.assign_rhs with
         | App (Call, proc :: args, expr_attr) ->
@@ -1154,7 +1300,7 @@ module ProcessCallables = struct
           if QualIdent.compare proc_qual_ident open_au_call = 0 then
             match args with
             | [ token ] ->
-              let token_expr = disambiguate_expr token disam_tbl in
+              let token_expr = disambiguate_process_expr token tbl disam_tbl in
               let au_token = ASTUtil.expr_to_ident token_expr
               
               in
@@ -1175,7 +1321,7 @@ module ProcessCallables = struct
             | token :: [] -> (
                 match assign_desc.assign_lhs with
                 | [] ->
-                    let token_expr = disambiguate_expr token disam_tbl in
+                    let token_expr = disambiguate_process_expr token tbl disam_tbl in
                     let au_token = ASTUtil.expr_to_ident token_expr
 
                     in
@@ -1193,7 +1339,8 @@ module ProcessCallables = struct
             | [] -> 
               (match assign_desc.assign_lhs with
               | [ token ] ->
-                Basic (BindAU (ASTUtil.expr_to_ident token)), [], tbl, disam_tbl
+                let token_expr = disambiguate_process_expr token tbl disam_tbl in
+                Basic (BindAU (ASTUtil.expr_to_ident token_expr)), [], tbl, disam_tbl
               | _ ->
                 raise (Generic_Error "incorrect number of bound_args to bindAU()")
               )
@@ -1206,10 +1353,45 @@ module ProcessCallables = struct
             match args with
             | [ token ] -> (
                 match assign_desc.assign_lhs with
-                | [] -> Basic (Stmt.AbortAU (ASTUtil.expr_to_ident token)), [], tbl, disam_tbl
+                | [] -> 
+                  let token_expr = disambiguate_process_expr token tbl disam_tbl in
+                  Basic (Stmt.AbortAU (ASTUtil.expr_to_ident token_expr)), [], tbl, disam_tbl
                 | _ -> raise (Generic_Error "incorrect number of bound_args to abortAU()"))
 
             | _ -> raise (Generic_Error "abortAU() called without token")
+
+          else if QualIdent.compare proc_qual_ident fpu_call = 0 then
+            match assign_desc.assign_lhs, args with
+            | [], [loc_expr; field_expr; val_expr] -> 
+              let loc_expr = disambiguate_process_expr loc_expr tbl disam_tbl in
+              let field_expr = disambiguate_process_expr field_expr tbl disam_tbl in
+              let val_expr = disambiguate_process_expr val_expr tbl disam_tbl in
+
+              if (Type.equal Type.ref (Expr.to_type loc_expr)) then
+                (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident field_expr) with
+                | Some (Field field_def) -> (
+                  (* The following additional call to process_type_expr is required because for fields with custom RAs, their types are stored as module names in typing env. The following call will convert it to appropriate rep type. *)
+                  let field_type = ProcessTypeExpr.process_type_expr field_def.field_type tbl in
+
+                  if (Type.equal (Type.join field_type (Expr.to_type val_expr)) field_type) then
+                    let loc_qual_ident = ASTUtil.expr_to_qual_ident loc_expr in
+                    let field_qual_ident = ASTUtil.expr_to_qual_ident field_expr in
+                    let fpu_desc = {
+                      Stmt.fpu_loc = loc_qual_ident;
+                      fpu_field = field_qual_ident;
+                      fpu_val = val_expr;
+                    } in
+                    Basic (Stmt.Fpu fpu_desc), [], tbl, disam_tbl
+                  else
+                    Error.type_error (Expr.loc assign_desc.assign_rhs) ("Field type mismatch. Field " ^ (Ident.to_string field_def.field_name) ^ " has type " ^ (Type.to_string field_def.field_type ^ "; received " ^ Type.to_string (Expr.to_type val_expr))))
+                | Some _tp -> Error.type_error (Expr.loc assign_desc.assign_rhs) ("Expected Field in typing env. Found" ^ SymbolTbl.typing_env_to_string _tp)
+                | None -> Error.type_error (Expr.loc assign_desc.assign_rhs) ("Field " ^ (Expr.to_string field_expr) ^ "not found in typing env")
+                )
+              else 
+                Error.type_error (Expr.loc assign_desc.assign_rhs) @@ Printf.sprintf "Fpu stmt type mismatch."
+
+            | _ ->
+              raise (Generic_Error "fpu() called incorrectly")
 
           else
             let assign_lhs = List.map assign_desc.assign_lhs 
@@ -1362,6 +1544,9 @@ module ProcessCallables = struct
       | Exhale _expr -> 
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect exhale stmts in AST at this stage."))
+      | Fpu _fpu_desc -> 
+        let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
+        raise (Generic_Error (str ^ ": InternalError: Did not expect Fpu stmts in AST at this stage."))
       
       )
 
@@ -1450,6 +1635,8 @@ module ProcessCallables = struct
         ) in
         (* FuncDefs should not have any new call_decl_locals in body because they are expressions. That is, all call_decl_locals are the arguments it takes. These are being disambiguated in the above.*)
         
+        let tbl = List.fold call_decl_locals_list ~init:tbl ~f:(fun tbl (iden, var_decl) -> SymbolTbl.add tbl (QualIdent.from_ident iden) (VarDecl var_decl)) in
+
         let func_decl = { func_def.func_decl with
           call_decl_formals = List.map func_def.func_decl.call_decl_formals ~f:(DisambiguationTbl.find_exn disam_tbl);
           call_decl_returns = List.map func_def.func_decl.call_decl_returns ~f:(DisambiguationTbl.find_exn disam_tbl);
@@ -1457,8 +1644,6 @@ module ProcessCallables = struct
           call_decl_precond = List.map func_def.func_decl.call_decl_precond ~f:(process_stmt_spec tbl disam_tbl);
           call_decl_postcond = List.map func_def.func_decl.call_decl_postcond ~f:(process_stmt_spec tbl disam_tbl);
         } in 
-        
-        let tbl = List.fold call_decl_locals_list ~init:tbl ~f:(fun tbl (iden, var_decl) -> SymbolTbl.add tbl (QualIdent.from_ident iden) (VarDecl var_decl)) in
 
         let func_body = match func_def.func_body with
           | None -> None
@@ -1550,19 +1735,24 @@ module ProcessCallables = struct
 end
 
 
+
+
 module ProcessModule = struct
-  let add_imports_to_tbl (imported_mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : SymbolTbl.t =
-    let tbl = Map.fold (imported_mod_decl.mod_decl_fields) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (Field data)) in
+  let add_imports_to_tbl (imported_mod: Module.t) (orig_imported_mod: Module.t) (tbl: SymbolTbl.t) : SymbolTbl.t =
+    let tbl = Map.fold (imported_mod.module_decl.mod_decl_fields) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (Field data)) in
 
-    let tbl = Map.fold (imported_mod_decl.mod_decl_mod_defs) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (ModDecl data)) in
+    let tbl = Map.fold (imported_mod.module_decl.mod_decl_mod_defs) ~init:tbl ~f:(fun ~key:mod_name ~data:_mod_decl tbl -> 
+      let orig_mod = Module.find_mod orig_imported_mod.members.mod_defs mod_name in
+      let new_mod = Module.find_mod imported_mod.members.mod_defs mod_name in
+      SymbolTbl.add tbl (QualIdent.from_ident mod_name) (ModDecl (new_mod, orig_mod))) in
 
-    let tbl = Map.fold (imported_mod_decl.mod_decl_mod_aliases) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (ModAlias data)) in
+    let tbl = Map.fold (imported_mod.module_decl.mod_decl_mod_aliases) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (ModAlias data)) in
 
-    let tbl = Map.fold (imported_mod_decl.mod_decl_types) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (TypeAlias data)) in
+    let tbl = Map.fold (imported_mod.module_decl.mod_decl_types) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (TypeAlias data)) in
 
-    let tbl = Map.fold (imported_mod_decl.mod_decl_callables) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (Callable data)) in
+    let tbl = Map.fold (imported_mod.module_decl.mod_decl_callables) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (Callable data)) in
 
-    let tbl = Map.fold (imported_mod_decl.mod_decl_vars) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (VarDecl data)) in
+    let tbl = Map.fold (imported_mod.module_decl.mod_decl_vars) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (VarDecl data)) in
 
     tbl
 
@@ -1578,26 +1768,27 @@ module ProcessModule = struct
       match imp with
       | ModImport tp_exp ->
         (match (SymbolTbl.find tbl (ASTUtil.type_expr_to_qual_ident tp_exp)) with
-        | Some (ModDecl imported_mod_decl) -> 
+        | Some (ModDecl (imported_mod, orig_imp_mod)) -> 
 
           let mod_decl = { mod_decl with
-            mod_decl_fields = Map.merge_skewed mod_decl.mod_decl_fields imported_mod_decl.mod_decl_fields ~combine:merging_function;
-            mod_decl_mod_defs = Map.merge_skewed mod_decl.mod_decl_mod_defs imported_mod_decl.mod_decl_mod_defs ~combine:merging_function;
-            mod_decl_mod_aliases = Map.merge_skewed mod_decl.mod_decl_mod_aliases imported_mod_decl.mod_decl_mod_aliases ~combine:merging_function;
-            mod_decl_types = Map.merge_skewed mod_decl.mod_decl_types imported_mod_decl.mod_decl_types ~combine:merging_function;
-            mod_decl_callables = Map.merge_skewed mod_decl.mod_decl_callables imported_mod_decl.mod_decl_callables ~combine:merging_function;
-            mod_decl_vars = Map.merge_skewed mod_decl.mod_decl_vars imported_mod_decl.mod_decl_vars  ~combine:merging_function;
+            mod_decl_fields = Map.merge_skewed mod_decl.mod_decl_fields imported_mod.module_decl.mod_decl_fields ~combine:merging_function;
+            mod_decl_mod_defs = Map.merge_skewed mod_decl.mod_decl_mod_defs imported_mod.module_decl.mod_decl_mod_defs ~combine:merging_function;
+            mod_decl_mod_aliases = Map.merge_skewed mod_decl.mod_decl_mod_aliases imported_mod.module_decl.mod_decl_mod_aliases ~combine:merging_function;
+            mod_decl_types = Map.merge_skewed mod_decl.mod_decl_types imported_mod.module_decl.mod_decl_types ~combine:merging_function;
+            mod_decl_callables = Map.merge_skewed mod_decl.mod_decl_callables imported_mod.module_decl.mod_decl_callables ~combine:merging_function;
+            mod_decl_vars = Map.merge_skewed mod_decl.mod_decl_vars imported_mod.module_decl.mod_decl_vars  ~combine:merging_function;
           } in
 
-          let tbl = add_imports_to_tbl imported_mod_decl tbl in
+          let tbl = add_imports_to_tbl imported_mod orig_imp_mod tbl in
 
           process_imports import_directives mod_decl tbl
           
         | _ -> Error.lexical_error Loc.dummy ("Import" ^ Type.to_string tp_exp ^ "could not be processed.")
         )
         
-      | MemImport qual_ident ->
-        match (SymbolTbl.find tbl qual_ident) with
+      | MemImport _qual_ident ->
+        (Error.unsupported_error Loc.dummy "MemImports not supported")
+        (* match (SymbolTbl.find tbl qual_ident) with
         | None -> Error.lexical_error Loc.dummy ("Import " ^ QualIdent.to_string qual_ident ^ " not found")
         | Some (TypeAlias tp_alias) ->
           let mod_decl = { mod_decl with
@@ -1624,11 +1815,11 @@ module ProcessModule = struct
 
           process_imports import_directives mod_decl tbl
 
-        | Some (ModDecl mod_decl) -> let mod_decl = { mod_decl with
+        | Some (ModDecl (mod_decl, _orig_mod)) -> let mod_decl = { mod_decl with
             mod_decl_mod_defs = Map.add_exn mod_decl.mod_decl_mod_defs ~key:mod_decl.mod_decl_name ~data:mod_decl;
           } in
 
-          let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_decl.mod_decl_name) (ModDecl mod_decl) in
+          let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_decl.mod_decl_name) (ModDecl (mod_decl, _orig_mod)) in
 
           process_imports import_directives mod_decl tbl
 
@@ -1648,7 +1839,7 @@ module ProcessModule = struct
 
           process_imports import_directives mod_decl tbl
 
-        | _ -> Error.error_simple @@ Printf.sprintf "MemImport of unsupported element '%s' found. Error." (QualIdent.to_string qual_ident)
+        | _ -> Error.error_simple @@ Printf.sprintf "MemImport of unsupported element '%s' found. Error." (QualIdent.to_string qual_ident) *)
     )
 
   let rec process_types (type_aliases: Module.type_alias list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.type_alias list * Module.module_decl * SymbolTbl.t = match type_aliases with 
@@ -1739,13 +1930,28 @@ module ProcessModule = struct
 
         tp_alias :: type_alias_list, mod_decl, tbl
 
-  let rec process_fields (fields: Module.field_def list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.field_def list * Module.module_decl * SymbolTbl.t = 
+  let rec process_fields (fields: Module.field_def list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.field_def list * Module.module_decl * SymbolTbl.t =
     match fields with
     | [] -> [], mod_decl, tbl
     | field :: fields ->
-      let tp_expr = try
-        ProcessTypeExpr.process_type_expr field.field_type tbl
-      with (Generic_Error msg) -> Error.lexical_error field.field_loc msg
+      let tp_expr = 
+        match field.field_type with
+        | App (Var qual_ident, [], tp_attr) ->
+          let fully_quantified_qual_ident = SymbolTbl.fully_quantified qual_ident tbl in
+          (match SymbolTbl.find tbl fully_quantified_qual_ident with
+          | Some RAModDecl _ ->
+            Type.App (Var fully_quantified_qual_ident, [], tp_attr)
+
+          | _ -> 
+            try
+              ProcessTypeExpr.process_type_expr field.field_type tbl
+            with (Generic_Error msg) -> Error.lexical_error field.field_loc msg
+          )
+        
+        | _ ->  
+          try
+            ProcessTypeExpr.process_type_expr field.field_type tbl
+          with (Generic_Error msg) -> Error.lexical_error field.field_loc msg
       in
 
       let field = { field with
@@ -1793,142 +1999,196 @@ module ProcessModule = struct
       var :: vars, mod_decl, tbl
 
 
-  let rec instantiate_module (mod_decl: Module.module_decl) (tp_args: type_expr list) (tbl: SymbolTbl.t) : Module.module_decl = 
-    match (tp_args, mod_decl.mod_decl_formals) with
-    | [], _ -> mod_decl
-    | _tp_arg :: _, [] -> raise (Generic_Error (Ident.to_string mod_decl.mod_decl_name ^ " initialized with too many parameters"))
-    | tp_arg :: tp_args, formal :: formals ->
-      let formal_mod_alias = (match Map.find mod_decl.mod_decl_mod_aliases formal with 
-      | None -> raise (Generic_Error "Formal arg not found; likely parser error")
-      | Some mod_alias -> mod_alias) in
+  let rec instantiate_module (m: Module.t) (tp_args: type_expr list) (tbl: SymbolTbl.t) : Module.t * Module.t * SymbolTbl.t = 
+    let rec instantiate_mod_helper (m: Module.t) (tp_args: type_expr list) (tbl: SymbolTbl.t): Module.t =
+      (match (tp_args, m.module_decl.mod_decl_formals) with
+      | [], _ -> m
+      | _tp_arg :: _, [] -> raise (Generic_Error (Ident.to_string m.module_decl.mod_decl_name ^ " initialized with too many parameters"))
+      | tp_arg :: tp_args, formal :: formals ->
 
-      if Type.is_any formal_mod_alias.mod_alias_type || does_module_implement_module (type_expr_to_mod_decl tp_arg tbl) (type_expr_to_mod_decl formal_mod_alias.mod_alias_type tbl) then
+
+        let formal_mod_alias = (match Map.find m.module_decl.mod_decl_mod_aliases formal with 
+        | None -> raise (Generic_Error "Formal arg not found; likely parser error")
+        | Some mod_alias -> mod_alias) in
+
+        if Type.is_any formal_mod_alias.mod_alias_type || true then
+          (* TODO: || does_module_implement_module (type_expr_to_mod_decl tp_arg tbl) (type_expr_to_mod_decl formal_mod_alias.mod_alias_type tbl)*)
+
+          let new_alias = {formal_mod_alias with mod_alias_def = Some tp_arg} in
+
+          let mod_decl = {m.module_decl with
+            mod_decl_formals = formals;
+            mod_decl_mod_aliases = Map.set m.module_decl.mod_decl_mod_aliases ~key: formal ~data:new_alias
+          } in
+
+          let members = {m.members with
+          mod_aliases = new_alias :: m.members.mod_aliases;
+          } in
+
+          let (new_mod: Module.t) = {
+            module_decl = mod_decl;
+            members = members;
+            interface = false;
+            obligations = m.obligations;
+          } in
+
+          instantiate_mod_helper new_mod tp_args tbl
+        
+        else
+          raise (Generic_Error ("Argument " ^ Type.to_string tp_arg ^ " does not match type " ^ Type.to_string formal_mod_alias.mod_alias_type ^ " for Module " ^ Ident.to_string m.module_decl.mod_decl_name))
+
       
-        let new_mod_alias = { formal_mod_alias with
-          mod_alias_def = Some tp_arg;
-        } in
-
-        let mod_decl = { mod_decl with
-          mod_decl_formals = formals;
-          mod_decl_mod_aliases = Map.set mod_decl.mod_decl_mod_aliases ~key:formal ~data:new_mod_alias; 
-        } in
-
-        instantiate_module mod_decl tp_args tbl
-      
-      else
-        raise (Generic_Error ("Argument " ^ Type.to_string tp_arg ^ " does not match type " ^ Type.to_string formal_mod_alias.mod_alias_type ^ " for Module " ^ Ident.to_string mod_decl.mod_decl_name))
+    ) in
 
 
+    let instantiated_mod = instantiate_mod_helper m tp_args tbl in
+
+    let processed_mod, tbl = process_module instantiated_mod tbl in
+
+    processed_mod, instantiated_mod, tbl
      
   and does_module_implement_module (_mod_decl: Module.module_decl) (_implemented_mod_decl: Module.module_decl) : bool = 
     true
     (* TODO *)
 
-
-  and type_expr_to_mod_decl (type_expr: type_expr) (tbl: SymbolTbl.t) : Module.module_decl =
-    let type_expr = ProcessTypeExpr.process_type_expr type_expr tbl in
-
-    match type_expr with
-    | App (Var qual_ident, tp_args, _tp_attr) -> 
-      let tp_args = List.map ~f:(fun tp -> ProcessTypeExpr.process_type_expr tp tbl) tp_args in
-
-      (match (SymbolTbl.find tbl qual_ident) with
-
-      | Some (ModDecl mod_decl) -> instantiate_module mod_decl tp_args tbl
-
-      | Some (ModAlias mod_alias) -> instantiate_module (resolve_module_alias mod_alias tbl) tp_args tbl
-      
-      | Some (tp_env) -> raise (Generic_Error (QualIdent.to_string qual_ident ^ ": Expected a ModAlias, found '" ^ SymbolTbl.typing_env_to_string tp_env ^ "'"))
-
-      | None -> raise (Generic_Error (QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
-      )
-    | _ -> raise (Generic_Error (Type.to_string type_expr ^ " not a valid module type."))
-
-  and resolve_module_alias (mod_alias: Module.module_alias) (tbl: SymbolTbl.t) : Module.module_decl = 
-    match mod_alias.mod_alias_def with
-    | None -> raise (Generic_Error ("ModAlias " ^ Ident.to_string mod_alias.mod_alias_name ^ " cannot be instantiated because it isn't defined"))
-    | Some tp_expr -> type_expr_to_mod_decl tp_expr tbl
-
-
-  let rec process_mod_aliases (mod_aliases: Module.module_alias list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.module_alias list * Module.module_decl * SymbolTbl.t = 
-    match mod_aliases with
-    | [] -> [], mod_decl, tbl
-    | mod_alias :: mod_aliases -> 
+  and module_alias_to_module (mod_alias: Module.module_alias) (tbl: SymbolTbl.t) : Module.t * Module.t * bool * SymbolTbl.t =
+    let tp_expr = 
       match mod_alias.mod_alias_def with
-      | None -> 
-        let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (ModAlias mod_alias) in
+      | None -> mod_alias.mod_alias_type
+      | Some tp_expr -> tp_expr
 
-        let (mod_aliases, mod_decl, tbl) = process_mod_aliases mod_aliases mod_decl tbl in
-        (* These mod_aliases are not added to the mod_decl because any aliases without definitions are parameter modules which are inserted into mod_decl during parsing itself. *)
-        (mod_alias :: mod_aliases, mod_decl, tbl)
+    in
 
-      | Some mod_alias_def ->
-        let mod_alias_def = try 
-          ProcessTypeExpr.process_type_expr mod_alias_def tbl 
-        with (Generic_Error str) -> Error.lexical_error mod_alias.mod_alias_loc str
+    (match tp_expr with
+      | App (Var mod_name, tp_args, _) ->
+        let orig_mod, is_ra = 
+        (match SymbolTbl.find tbl mod_name with
+        | Some (ModDecl (_mod, orig_mod)) -> orig_mod, false
+        | Some (RAModDecl (_mod, orig_mod)) -> orig_mod, true
         
-        in
+        | Some (ModAlias mod_alias) ->
+          Error.error mod_alias.mod_alias_loc "Error: Found ModAlias in SymbolTbl for definition of mod_alias.";
+        
+        | _ -> Error.error mod_alias.mod_alias_loc "Unexpected elem found in typing env for type of modAlias."
+        ) in
 
-        try
-          let mod_decl_of_alias = type_expr_to_mod_decl mod_alias_def tbl in
+        let new_mod = {orig_mod with
+          module_decl = {orig_mod.module_decl with mod_decl_name = mod_alias.mod_alias_name;}
+        } in
 
-          if Type.is_any mod_alias.mod_alias_type || does_module_implement_module mod_decl_of_alias (type_expr_to_mod_decl mod_alias.mod_alias_type tbl) 
-            (* TODO: Above check is trivially true currently since does_module_implement_module has not been implemented and returns trivially true. *)
-            
-          then
+        let inst_mod, orig_mod, tbl = instantiate_module new_mod tp_args tbl in
 
-            let mod_alias = { mod_alias with
-              mod_alias_def = Some mod_alias_def;
-            } in
+        inst_mod, orig_mod, is_ra, tbl
 
-            let mod_decl = { mod_decl with
-              mod_decl_mod_aliases = Map.set mod_decl.mod_decl_mod_aliases ~key:mod_alias.mod_alias_name ~data:mod_alias;
-            } in
-            
-            let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (ModAlias mod_alias) in
+      | _ -> Error.error mod_alias.mod_alias_loc "Unexpected type_expr found in mod_alias_type for type of modAlias."
+      )
 
-            (* The following push-pop is required because we want to import the members in mod_decl_of_alias, but not in the present scope, but guarded by the mod_alias.mod_alias_name. For example, if we have:
-              module M1 { module M2 = M3 },
-            then we have access to M1.M2.M3_members, but not directly M1.M3_members *)
-            let tbl = SymbolTbl.push_name mod_alias.mod_alias_name tbl in
-            let tbl = add_imports_to_tbl mod_decl_of_alias tbl in
-            let tbl = SymbolTbl.pop tbl in
+  and process_mod_alias_tp_expr (tp_expr: type_expr) (tbl: SymbolTbl.t) (loc: Util.Loc.t): type_expr =
+    (* This function is separate from process_tp_expr is because in normal code, a Var type_expr is treated differently from a Var type_expr used as argument in mod_alias. *)
+  match tp_expr with
+  | App (Var qual_ident, tp_args, tp_attr) ->
 
-            let (mod_aliases, mod_decl, tbl) = process_mod_aliases mod_aliases mod_decl tbl in
+    let tp_args = List.map tp_args ~f:(fun tp_arg -> process_mod_alias_tp_expr tp_arg tbl loc) in
 
-            (mod_alias :: mod_aliases, mod_decl, tbl)
+    let fully_qualified_ident = 
+      try 
+        SymbolTbl.fully_quantified qual_ident tbl 
+      with 
+      | Generic_Error msg -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "%s\nTbl:%s" msg (SymbolTbl.to_string tbl)
+      in
+    (match SymbolTbl.find tbl fully_qualified_ident with
+    | Some (ModDecl _) | Some (TypeAlias _) | Some (ModAlias _) | (Some RAModDecl _) ->
+      Type.App (Var fully_qualified_ident, tp_args, tp_attr)
+    | _ -> Error.error loc "Unexpected argument given in ModAlias"
+    )
+  
+  | _ -> ProcessTypeExpr.process_type_expr tp_expr tbl
+      
+  
+  and process_module_alias (mod_alias: Module.module_alias) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.module_alias * Module.module_decl * SymbolTbl.t = 
+    (* Mod_aliases will be instantiated to appropriate module_decl, and their expanded module_decl will be stored to the symbol tbl. In the actual AST itself, they will remain as mod_aliases. *)
 
-          else
-            Error.lexical_error mod_alias.mod_alias_loc 
-            ("ModAliasDef " ^ Type.to_string mod_alias_def ^ " does not match type " ^ Type.to_string mod_alias.mod_alias_type ^ " in Module " ^ Ident.to_string mod_decl.mod_decl_name)
+    let mod_alias_type = 
+      (match mod_alias.mod_alias_type with
+      | App (Any, _, _) -> 
+        mod_alias.mod_alias_type
+      | App (Var _mod_name, _tp_args, _tp_attr) ->
+        process_mod_alias_tp_expr mod_alias.mod_alias_type tbl mod_alias.mod_alias_loc
 
-        with (Generic_Error str) -> Error.lexical_error mod_alias.mod_alias_loc str
+      | _ -> Error.error (mod_alias.mod_alias_loc) "Unexpected Type found in mod_alias"
+      ) in
 
-  let rec process_module (m: Module.t1) (tbl: SymbolTbl.t) : Module.t * SymbolTbl.t =
+    let mod_alias_def = 
+      (match mod_alias.mod_alias_def with
+      | None -> None
+      | Some tp_expr ->
+        Some (process_mod_alias_tp_expr tp_expr tbl mod_alias.mod_alias_loc)
+      )
 
-    let tbl = SymbolTbl.push_name m.module_decl'.mod_decl_name tbl in
+    in
+
+    let mod_alias = { mod_alias with
+      mod_alias_type = mod_alias_type;
+      mod_alias_def = mod_alias_def;
+    } in
+
+    (* TODO: Make sure mod_alias_def actually implements mod_alias_type *)
+
+    let derived_mod, orig_derived_module, is_ra, tbl = module_alias_to_module mod_alias tbl in
+
+    let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (if is_ra then RAModDecl (derived_mod, orig_derived_module) else (ModDecl (derived_mod, orig_derived_module))) in
+
+    let mod_decl = { mod_decl with
+      mod_decl_mod_aliases = Map.set mod_decl.mod_decl_mod_aliases ~key:mod_alias.mod_alias_name ~data:mod_alias;
+    } in
+
+    mod_alias, mod_decl, tbl
+  
+
+
+  and process_mod_aliases (mod_aliases: Module.module_alias list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.module_alias list * Module.module_decl * SymbolTbl.t = 
+    let (mod_decl, tbl), mod_aliases = List.fold_map mod_aliases ~init:(mod_decl, tbl) ~f:(fun (mod_decl, tbl) mod_alias ->
+      let mod_alias, mod_decl, tbl = process_module_alias mod_alias mod_decl tbl in
+      (mod_decl, tbl), mod_alias
+    ) in
+
+    mod_aliases, mod_decl, tbl
+
+  and process_module (m: Module.t) (tbl: SymbolTbl.t) : Module.t * SymbolTbl.t =
+
+    let orig_mod = m in
+
+    let tbl = SymbolTbl.push_name m.module_decl.mod_decl_name tbl in
 
     (* The following add_imports_to_tbl call is present to allow mutual recursion inside a module. *)
-    let tbl = add_imports_to_tbl m.module_decl' tbl in
+    let tbl = add_imports_to_tbl m m tbl in
 
-    let mod_decl, tbl = process_imports m.members'.imports' m.module_decl' tbl in
+    let mod_decl = m.module_decl in
 
-    let type_aliases, mod_decl, tbl = process_types m.members'.types' mod_decl tbl in
+    let formal_args_mod_aliases = List.map mod_decl.mod_decl_formals ~f:(fun mod_name -> 
+      Map.find_exn mod_decl.mod_decl_mod_aliases mod_name) 
+    in
 
-    let fields, mod_decl, tbl = process_fields m.members'.fields' mod_decl tbl in
+    let _mod_aliases, mod_decl, tbl = process_mod_aliases formal_args_mod_aliases mod_decl tbl in
+    (* This is instantiating all formal arguments to the module. The process_mod_aliases is primarily called to add the requisite members to the tbl for processing the rest of the module. (It also fully modifies the mod_decl by expanding the modules names referenced in mod_aliases to fully quantified names.) The returned mod_aliases are not stored.  *)
 
-    let vars, mod_decl, tbl = process_vars m.members'.vars' mod_decl tbl in
+    let mod_decl, tbl = process_imports m.members.imports mod_decl tbl in
 
-    let mod_aliases, mod_decl, tbl = process_mod_aliases m.members'.mod_aliases' mod_decl tbl in
+    let mod_aliases, mod_decl, tbl = process_mod_aliases m.members.mod_aliases mod_decl tbl in
 
-    let call_defs, mod_decl, tbl = ProcessCallables.process_callables m.members'.call_defs' mod_decl tbl in
+
+    let type_aliases, mod_decl, tbl = process_types m.members.types mod_decl tbl in
+
+    let fields, mod_decl, tbl = process_fields m.members.fields mod_decl tbl in
+
+    let vars, mod_decl, tbl = process_vars m.members.vars mod_decl tbl in
+
+    let call_defs, mod_decl, tbl = ProcessCallables.process_callables m.members.call_defs mod_decl tbl in
     
-    let mod_defs, mod_decl, tbl = List.fold m.members'.mod_defs' ~init:([], mod_decl, tbl) 
-    ~f:(fun (mod_defs, parent_mod_decl, tbl) (mod_def: Module.t1) -> 
+    let mod_defs, mod_decl, tbl = List.fold m.members.mod_defs ~init:([], mod_decl, tbl) 
+    ~f:(fun (mod_defs, parent_mod_decl, tbl) (mod_def: Module.t) -> 
 
       let (mod_def, tbl) = process_module mod_def tbl in
-
-      let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_def.module_decl.mod_decl_name) (ModDecl mod_def.module_decl) in
 
       let (parent_mod_decl': Module.module_decl) = 
       let open Module in  
@@ -1941,24 +2201,219 @@ module ProcessModule = struct
 
     in
 
-    let tbl = SymbolTbl.pop tbl in
+    let tbl = 
+      if (Ident.equal mod_decl.mod_decl_name (Ident.make "Lib" 0)) then 
+        (None, snd (List.hd_exn tbl)) :: (List.tl_exn tbl)
 
-    let processed_members : Module.processed_member_def_list = {
-      imports = m.members'.imports';
-      types = type_aliases;
-      fields = fields;
-      vars = vars;
+      else 
+        SymbolTbl.pop tbl 
+      
+      in
+
+
+    let mod_decl, inherited_fields, inherited_types, inherited_vars, inherited_call_defs, tbl, does_mod_impl_ra = List.fold mod_decl.mod_decl_returns ~init:(mod_decl, [], [], [], [], tbl, false) ~f:(fun (mod_decl, inherited_fields, inherited_types, inherited_vars, inherited_call_defs, tbl, is_ra) tp_expr ->
+      (
+        let tp_expr = process_mod_alias_tp_expr tp_expr tbl (Type.to_loc tp_expr) in 
+        let (impl_alias: Module.module_alias) = {
+          mod_alias_name = mod_decl.mod_decl_name;
+          mod_alias_type = tp_expr;
+          mod_alias_def = None;
+          mod_alias_loc = Type.to_loc tp_expr;
+        } in
+
+        let impl_mod, _, is_ra', _ = module_alias_to_module impl_alias tbl in
+
+        let inherited_fields, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_fields ~init:(inherited_fields, mod_decl, tbl) ~f:(fun ~key:field_name ~data:field_def (inherited_fields, mod_decl, tbl) ->
+          match Map.find mod_decl.mod_decl_fields field_name with
+          | None -> 
+            let mod_decl = { mod_decl with
+              mod_decl_fields = Map.set mod_decl.mod_decl_fields ~key:field_def.field_name ~data:field_def;
+            } in
+
+            let tbl = SymbolTbl.add tbl (QualIdent.from_ident field_def.field_name) (Field field_def) in
+
+            field_def :: inherited_fields, mod_decl, tbl
+          | Some field_def' -> 
+            if Type.equal field_def'.field_type field_def.field_type then 
+              (inherited_fields, mod_decl, tbl)
+            else
+              Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s implementation of field %s incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string field_name) (Type.to_string tp_expr)
+        ) in
+
+        let inherited_types, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_types ~init:(inherited_types, mod_decl, tbl) ~f:(fun ~key:type_name ~data:type_def (inherited_types, mod_decl, tbl) ->
+          match Map.find mod_decl.mod_decl_types type_name with
+          | None -> 
+            let mod_decl = { mod_decl with
+              mod_decl_types = Map.set mod_decl.mod_decl_types ~key:type_def.type_alias_name ~data: type_def; 
+            } in
+
+            let tbl = SymbolTbl.add tbl (QualIdent.from_ident type_def.type_alias_name) (TypeAlias type_def) in
+            type_def :: inherited_types, mod_decl, tbl
+            (* Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement type %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string type_name) (Type.to_string tp_expr) *)
+          | Some type_def' -> 
+            match type_def'.type_alias_def, type_def.type_alias_def with
+            | None, None -> (inherited_types, mod_decl, tbl)
+            | Some _tp_expr, None -> (inherited_types, mod_decl, tbl)
+            | None, Some tp_expr1 -> Error.error (Type.to_loc tp_expr1) @@ Printf.sprintf "Module %s does not implement type %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string type_name) (Type.to_string tp_expr)
+            | Some tp_expr1, Some tp_expr2 ->
+              if Type.equal tp_expr1 tp_expr2 then 
+                (inherited_types, mod_decl, tbl)
+              else
+                Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s implementation of type %s incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string type_name) (Type.to_string tp_expr)
+        ) in
+
+        let inherited_vars, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_vars ~init:(inherited_vars, mod_decl, tbl) ~f:(fun ~key:var_name ~data:var_decl (inherited_vars, mod_decl, tbl) ->
+          match Map.find mod_decl.mod_decl_vars var_name with
+          | None -> 
+            let var_def = Module.find_var impl_mod.members.vars var_name in
+            
+            let mod_decl = { mod_decl with
+            mod_decl_vars = Map.set mod_decl.mod_decl_vars ~key:var_def.var_decl.var_name ~data:var_def.var_decl;
+          } in
+    
+          let tbl = SymbolTbl.add tbl (QualIdent.from_ident var_def.var_decl.var_name) (VarDecl var_def.var_decl) in
+
+            var_def :: inherited_vars, mod_decl, tbl
+            (* Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement var %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string var_name) (Type.to_string tp_expr) *)
+          | Some var_decl' -> 
+            
+            if Type.equal var_decl'.var_type var_decl.var_type then 
+              (inherited_vars, mod_decl, tbl)
+            else
+              Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s type of var %s incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string var_name) (Type.to_string tp_expr)
+        ) in
+
+        let inherited_call_defs, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_callables ~init:(inherited_call_defs, mod_decl, tbl) ~f:(fun ~key:call_name ~data:call_decl (inherited_call_defs, mod_decl, tbl) ->
+          match Map.find mod_decl.mod_decl_callables call_name with
+          | None -> 
+            let impl_callable = (Module.find_callable impl_mod.members.call_defs call_name) in
+            (match impl_callable with
+            | ProcDef proc_def ->
+              (match proc_def.proc_body with
+              | Some _ -> 
+                let mod_decl = { mod_decl with
+                  mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:proc_def.proc_decl.call_decl_name ~data:proc_def.proc_decl;
+                } in
+
+                let tbl = SymbolTbl.add tbl (QualIdent.from_ident proc_def.proc_decl.call_decl_name) (Callable proc_def.proc_decl) in
+
+                impl_callable :: inherited_call_defs, mod_decl, tbl
+              | None ->
+                if m.interface then
+                  let mod_decl = { mod_decl with
+                    mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:proc_def.proc_decl.call_decl_name ~data:proc_def.proc_decl;
+                  } in
+
+                  let tbl = SymbolTbl.add tbl (QualIdent.from_ident proc_def.proc_decl.call_decl_name) (Callable proc_def.proc_decl) in
+
+                  impl_callable :: inherited_call_defs, mod_decl, tbl
+                else
+                  (match proc_def.proc_decl.call_decl_kind with
+                  | Lemma -> 
+                    let proc_def = { proc_def with
+                      proc_body = Some (Stmt.mk_skip (Type.to_loc tp_expr));
+                    } in
+
+                    
+                    let mod_decl = { mod_decl with
+                      mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:proc_def.proc_decl.call_decl_name ~data:proc_def.proc_decl;
+                    } in
+
+                    let tbl = SymbolTbl.add tbl (QualIdent.from_ident proc_def.proc_decl.call_decl_name) (Callable proc_def.proc_decl) in
+
+                    ProcDef proc_def :: inherited_call_defs, mod_decl, tbl
+
+                  | _ -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement callable %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr)
+                  )
+                )
+                
+            | FuncDef func_def ->
+              (match func_def.func_body with
+              | Some _ -> 
+                let mod_decl = { mod_decl with
+                  mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:func_def.func_decl.call_decl_name ~data:func_def.func_decl;
+                } in
+
+                let tbl = SymbolTbl.add tbl (QualIdent.from_ident func_def.func_decl.call_decl_name) (Callable func_def.func_decl) in
+
+                impl_callable :: inherited_call_defs, mod_decl, tbl
+              | None ->
+                if m.interface then
+                  let mod_decl = { mod_decl with
+                    mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:func_def.func_decl.call_decl_name ~data:func_def.func_decl;
+                  } in
+
+                  let tbl = SymbolTbl.add tbl (QualIdent.from_ident func_def.func_decl.call_decl_name) (Callable func_def.func_decl) in
+
+                  impl_callable :: inherited_call_defs, mod_decl, tbl
+                else
+                  Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement callable %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr)
+              )
+            )
+
+            (* :: inherited_call_defs *)
+            (* Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement callable %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr) *)
+          | Some call_decl' -> 
+            
+            if (
+              (* Have to use Poly.(=) because Base shadows polymorphic equality with a restricted integers-only equality. *)
+              Poly.(=) call_decl'.call_decl_kind call_decl.call_decl_kind &&
+
+              List.length call_decl'.call_decl_formals = List.length call_decl.call_decl_formals &&
+              List.fold2_exn call_decl'.call_decl_formals call_decl.call_decl_formals ~init:true ~f:(fun b var1 var2 ->
+                b  && (Type.equal (Map.find_exn call_decl'.call_decl_locals var1).var_type (Map.find_exn call_decl.call_decl_locals var2).var_type)
+              ) &&
+
+              List.length call_decl'.call_decl_returns = List.length call_decl.call_decl_returns &&
+              List.fold2_exn call_decl'.call_decl_returns call_decl.call_decl_returns ~init:true ~f:(fun b var1 var2 ->
+                b  && (Type.equal (Map.find_exn call_decl'.call_decl_locals var1).var_type (Map.find_exn call_decl.call_decl_locals var2).var_type)
+              ) &&
+
+              let alpha_renaming_map = List.fold2_exn (call_decl.call_decl_formals @ call_decl.call_decl_returns) (call_decl'.call_decl_formals @ call_decl'.call_decl_returns) ~init:(Map.empty (module QualIdent)) ~f:(fun map ident1 ident2 -> Map.add_exn map ~key:(QualIdent.from_ident ident1) ~data:(Expr.App (Var (QualIdent.from_ident ident2),  [], Expr.mk_attr (Loc.dummy) (Map.find_exn call_decl'.call_decl_locals ident2).var_type))) in
+
+              (* Order of arguments is flipped for precond and postcond checks; first the impl_mod call_decl is passed, then the actual mod call_decl is passed. This is to match the convention of the alpha_renaming_map above. *)
+              List.length call_decl.call_decl_precond = List.length call_decl'.call_decl_precond &&
+              List.fold2_exn call_decl.call_decl_precond call_decl'.call_decl_precond ~init:true ~f:(fun b spec1 spec2 ->
+                b  && (Expr.compare (Expr.alpha_renaming spec1.spec_form alpha_renaming_map) spec2.spec_form = 0)
+              ) &&
+
+              List.length call_decl.call_decl_postcond = List.length call_decl'.call_decl_postcond &&
+              List.fold2_exn call_decl.call_decl_postcond call_decl'.call_decl_postcond ~init:true ~f:(fun b spec1 spec2 ->
+                b  && (Expr.compare (Expr.alpha_renaming spec1.spec_form alpha_renaming_map) spec2.spec_form = 0)
+              )
+            ) 
+              
+            then 
+              (inherited_call_defs, mod_decl, tbl)
+            else
+              Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s implementation of callable '%s' incompatible with %s. Expected call_decl: \n%s; \n\nfound call_decl: \n%s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr) (Util.Print.string_of_format Callable.pr_call_decl call_decl) (Util.Print.string_of_format Callable.pr_call_decl call_decl')
+        ) in
+
+        mod_decl, inherited_fields, inherited_types, inherited_vars, inherited_call_defs, tbl, (is_ra || is_ra')
+      )
+    ) in
+
+    let processed_members : Module.sorted_member_def_list = {
+      imports = m.members.imports;
+      types = type_aliases @ inherited_types;
+      fields = fields @ inherited_fields;
+      vars = vars @ inherited_vars;
       mod_defs = mod_defs;
       mod_aliases = mod_aliases;
-      call_defs = call_defs; 
+      call_defs = call_defs @ inherited_call_defs; 
     } in
 
+    let (mod_def: Module.t) =
     {
       module_decl = mod_decl;
       members = processed_members;
-      interface = m.interface';
-      obligations = Module.empty_processed_member_def_list;
-    }, tbl
+      interface = m.interface;
+      obligations = Module.empty_sorted_member_def_list;
+    } in
+    
+    let tbl = SymbolTbl.add tbl (QualIdent.from_ident m.module_decl.mod_decl_name) (if (Ident.equal mod_decl.mod_decl_name (Ident.make "ResourceAlgebra" 0) || does_mod_impl_ra) then (RAModDecl (mod_def, orig_mod)) else (ModDecl (mod_def, orig_mod))) in
+    
+    mod_def, tbl
 end
 
 let start_processing ?(tbl = SymbolTbl.push []) (m: Module.t0) = 

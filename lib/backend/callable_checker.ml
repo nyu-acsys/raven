@@ -6,27 +6,37 @@ open Frontend__Process_ast
 open SmtLibAST
 open Smt_solver
 
-let rec alpha_renaming (expr: expr) (map: expr qual_ident_map) : expr =
-  match expr with
-  | App (constr, expr_list, expr_attr) ->
-    let expr_list = List.map expr_list ~f:(fun expr -> alpha_renaming expr map) in
+let rec lookup_type (tp_expr: type_expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : sort =
+  match tp_expr with
+  | App (Int, _, _) ->
+    IntSort
+  | App (Bool, _, _) ->
+    BoolSort
 
-    (match constr with
-    | Var qual_ident ->
-      (match Map.find map qual_ident with
-      | None ->
-        App (Var qual_ident, expr_list, expr_attr)
-      | Some expr' ->
-        expr'
-      )
-    | _ -> App (constr, expr_list, expr_attr)
+  | App (Ref, _, _) ->
+    PreambleConsts.loc_sort
 
+  | App (Var qual_ident, _, _) ->
+    (match SmtEnv.find smtEnv qual_ident with
+    | Some (Type tp_trns) -> tp_trns
+    | Some (_) -> Error.error (Type.to_loc tp_expr) "expected Type in smtEnv; found something else"
+    | None -> Error.error (Type.to_loc tp_expr) (Printf.sprintf "lookup_type (%s) : expected Type in smtEnv; found nothing. SmtEnv: %s" (Type.to_string tp_expr) (SmtEnv.to_string smtEnv)) 
     )
 
-  | Binder (binder, var_decl_list, expr, expr_attr) ->
-    (* TODO: Rename the var_decl to avoid clashing with variables in the map *)
-    let expr = alpha_renaming expr map in
-    Binder (binder, var_decl_list, expr, expr_attr)
+  | App (Set, [set_tp], _) -> 
+    FreeSort (SMTIdent.make "Set", [lookup_type set_tp tbl smtEnv])
+
+  | App (Map, [tp1; tp2], _) -> 
+    ArraySort ((lookup_type tp1 tbl smtEnv), (lookup_type tp2 tbl smtEnv))
+  (* | App (Data of variant_decl list, _, _)
+  | App (Unit, _, _) 
+  | App (AtomicToken, _, _)
+  | App (Perm, _, _)
+  | App (Bot, _, _)
+  | App (Any, _, _) -> () *)
+  | _ -> Error.unsupported_error (Type.to_loc tp_expr) (Printf.sprintf "Unexpected type called in checker.lookup_type: %s" (Type.to_string tp_expr))
+
+
 
 
 let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
@@ -91,47 +101,89 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
       | Some (Func func_trnsl) -> 
         (* The below value should never be used. It should be intercepted by the Call case above. *)
         mk_const (Ident func_trnsl.func_symbol)
-      | Some _ -> Error.error (Expr.loc expr) "Unexpected element found from translate_expr in smtEnv."
-      | None -> Error.error (Expr.loc expr) "Nothing found from translate_expr in smtEnv."
+      | Some (DataConstr data_constr) -> mk_const (Ident data_constr.constr)
+      | Some (DataDestr data_destr) -> mk_const (Ident data_destr.destr)
+      | Some smt_trnsl -> Error.error (Expr.loc expr) @@ Printf.sprintf "Unexpected element %s found in translate_expr for expr '%s' in smtEnv." (SmtEnv.trnsl_to_string smt_trnsl) (Expr.to_string expr)
+      | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Nothing found for %s from translate_expr in smtEnv. \n smtEnv: %s" (QualIdent.to_string qual_ident) (SmtEnv.to_string smtEnv)
       )
+    
+    | DataConstr ->
+      (match expr_list with
+      | App (Var qual_ident, [], _) :: expr_list' -> 
+        (match SmtEnv.find smtEnv qual_ident with
+        | Some (DataConstr data_constr) -> 
+          let smt_term_list' = List.map expr_list' ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+
+          mk_app ~pos:expr_attr.expr_loc (Ident data_constr.constr) smt_term_list'
+        | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Unexpected element found in translate_expr for expr '%s' in smtEnv." (Expr.to_string expr))
+
+      | _ -> Error.error (Expr.loc expr) "Invalid DataConstr expr found")
+    
+    | DataDestr -> 
+      (match expr_list with
+      | [expr1; App (Var qual_ident, [], _) ] -> 
+        (match SmtEnv.find smtEnv qual_ident with
+        | Some (DataDestr data_destr) -> 
+          let smt_term1 = translate_expr expr1 tbl smtEnv in
+            (* List.map expr_list' ~f:(fun expr -> translate_expr expr tbl smtEnv) in *)
+
+          mk_app ~pos:expr_attr.expr_loc (Ident data_destr.destr) [smt_term1]
+        | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Unexpected element found in translate_expr for expr '%s' in smtEnv." (Expr.to_string expr))
+      | _ -> Error.error (Expr.loc expr) "Invalid DataDestr expr found")
     
     | _ -> Error.error (Expr.loc expr) (Printf.sprintf "unsupported expr: %s; smtEnv = %s" (Expr.to_string expr) (SmtEnv.to_string smtEnv))
 
     ))
-  | Binder _ -> Error.error (Expr.loc expr) "translate_expr does not support binder expr."
+    | Binder (Forall, quant_vars, expr, _) ->
+      let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+        let tp = var_decl.var_type in
+        let sort = lookup_type tp tbl smtEnv in
+  
+        (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+        )
+      in
+  
+      let smtEnv' = SmtEnv.push smtEnv in
+      let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+  
+      let expr_term = try
+        translate_expr expr tbl smtEnv'
+      with
+        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported forall expression found in exhale: %s" (Expr.to_string expr) )
+  
+      in
+  
+      let term = 
+        (mk_forall quant_var_sort_list expr_term) in
+  
+      term
 
-
-let rec lookup_type (tp_expr: type_expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : sort =
-  match tp_expr with
-  | App (Int, _, _) ->
-    IntSort
-  | App (Bool, _, _) ->
-    BoolSort
-
-  | App (Ref, _, _) ->
-    PreambleConsts.loc_sort
-
-  | App (Var qual_ident, _, _) ->
-    (match SmtEnv.find smtEnv qual_ident with
-    | Some (Type tp_trns) -> tp_trns
-    | Some (_) -> Error.error (Type.to_loc tp_expr) "expected Type in smtEnv; found something else"
-    | None -> Error.error (Type.to_loc tp_expr) (Printf.sprintf "lookup_type (%s) : expected Type in smtEnv; found nothing. SmtEnv: %s" (Type.to_string tp_expr) (SmtEnv.to_string smtEnv)) 
-    )
-
-  | App (Set, [set_tp], _) -> 
-    FreeSort (SMTIdent.make "Set", [lookup_type set_tp tbl smtEnv])
-
-  | App (Map, [tp1; tp2], _) -> 
-    ArraySort ((lookup_type tp1 tbl smtEnv), (lookup_type tp2 tbl smtEnv))
-  (* | App (Data of variant_decl list, _, _)
-  | App (Unit, _, _) 
-  | App (AtomicToken, _, _)
-  | App (Perm, _, _)
-  | App (Bot, _, _)
-  | App (Any, _, _) -> () *)
-  | _ -> Error.unsupported_error (Type.to_loc tp_expr) (Printf.sprintf "Unexpected type called in checker.lookup_type: %s" (Type.to_string tp_expr))
-
-
+    | Binder (Exists, quant_vars, expr, _) ->
+      let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+        let tp = var_decl.var_type in
+        let sort = lookup_type tp tbl smtEnv in
+  
+        (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+        )
+      in
+  
+      let smtEnv' = SmtEnv.push smtEnv in
+      let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+  
+      let expr_term = try
+        translate_expr expr tbl smtEnv'
+      with
+        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported Exists expression found in exhale: %s" (Expr.to_string expr) )
+  
+      in
+  
+      let term = 
+        (mk_exists quant_var_sort_list expr_term) in
+  
+      term
+    
+    | Binder (Compr, _, _, _) ->
+      Error.error (Expr.loc expr) "translate_expr does not support compr binder expr."
 
 type atomicity_status = | Default | Opened | Stepped
 type atomicity_constraints = {
@@ -218,6 +270,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
     | Assert _
     | New _
     | Assign _
+    | Fpu _
     | Havoc _ ->
       (try
         (atom_step atom_constr), Basic basic_stmt_desc
@@ -233,10 +286,10 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
           let map = List.fold (List.zip_exn formal_args_truncated call_desc.call_args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
 
           let exhale_list : Stmt.t list = List.map call_decl.call_decl_precond 
-            ~f:(fun spec -> {stmt_desc = Basic (Exhale (alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
+            ~f:(fun spec -> {stmt_desc = Basic (Exhale (Expr.alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
           
           let inhale_list : Stmt.t list = List.map call_decl.call_decl_postcond 
-          ~f:(fun spec -> {stmt_desc = Basic (Inhale (alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
+          ~f:(fun spec -> {stmt_desc = Basic (Inhale (Expr.alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
 
           (match atom_constr.status with
           | Default ->
@@ -521,7 +574,7 @@ let reset_all_heaps (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env *
       let loc_term = mk_const (Ident loc_ident) in
       let cmd = (mk_assert (mk_binder Forall [(loc_ident, PreambleConsts.loc_sort)]
         (mk_eq 
-          (mk_annot (PreambleConsts.frac_heap_null) (As (mk_frac_heapchunk_sort field_trnsl.field_sort))) 
+          (mk_annot (PreambleConsts.frac_heap_null) (As field_trnsl.field_sort)) 
           (mk_select new_field_heap_term loc_term)
         )
       )) in 
@@ -868,7 +921,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           let formal_args_truncated, _ = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
           let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
 
-          let pred_body = alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
+          let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
 
           Smt_solver.write_comment session "Exhaling body of predicate";
           let smtEnv, session = check_basic_stmt (Exhale pred_body) path_conds tbl smtEnv session loc in
@@ -890,7 +943,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           let formal_args_truncated, _ = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
           let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
 
-          let pred_body = alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
+          let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
 
           let smtEnv, session = check_basic_stmt (Exhale unfold_desc.unfold_expr) path_conds tbl smtEnv session loc in
 
@@ -937,7 +990,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           | _ -> assert_not session (mk_impl path_cond_term term)
         (* assert_not makes sure all perm_terms are successful by asserting them under negation and checking unsat. *)
         with
-          Error.Msg (_loc, msg) -> Error.error (Expr.loc expr) (Printf.sprintf "%s : Exhaling expr '%s' failed. Specifically, could not exhale %s" msg (Expr.to_string expr) (Util.Print.string_of_format pr_term term))
+          Error.Msg (_loc, _msg) -> Error.error (Expr.loc expr) (Printf.sprintf "Exhaling following expr failed:\n%s\n\nSpecifically, could not exhale: \n%s" (Expr.to_string expr) (Util.Print.string_of_format pr_term term))
 
       in
       
@@ -951,6 +1004,41 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     let smtEnv = update_env smtEnv new_vars in
 
     smtEnv, session
+
+  | Fpu fpu_desc ->
+    match (SmtEnv.find smtEnv fpu_desc.fpu_field), (SmtEnv.find smtEnv fpu_desc.fpu_loc) with
+    | Some (Field field_trnsl), Some (Var var_trnsl) ->
+
+      let val_term = translate_expr fpu_desc.fpu_val tbl smtEnv in
+      let loc_term = var_trnsl.var_symbol in
+      let perm_term = mk_app (Ident field_trnsl.field_fpu) [mk_select field_trnsl.field_heap loc_term; val_term] in
+      let session = assert_not session perm_term in
+
+      let old_fieldheap_term = field_trnsl.field_heap in
+      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+
+      let smtEnv, session = redefine_vars [(fpu_desc.fpu_field, new_fieldheap)] smtEnv session in
+      
+      let l_ident = SMTIdent.make "l" in
+      let l_term = mk_const (Ident l_ident) in
+      let cmd = 
+        mk_assert (mk_binder Forall [(l_ident, PreambleConsts.loc_sort)] 
+          (mk_ite (mk_eq l_term loc_term)
+            (mk_eq (mk_select new_fieldheap_term l_term) val_term)
+            (mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term))
+          )
+        ) in
+
+      Smt_solver.write session cmd;
+
+      smtEnv, session
+      
+    | _ -> Error.error loc @@ Printf.sprintf "Field %s or loc %s for fpu not found in smtEnv" (QualIdent.to_string fpu_desc.fpu_field) (QualIdent.to_string fpu_desc.fpu_loc)
+
+
+
 
 
 and trnsl_assign_rhs (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: session) (loc: Loc.t) : term * session =
@@ -1067,6 +1155,18 @@ and trnsl_inhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
       
       [(pred_name, new_predheap)], [cmd]
       )
+
+    | Some (Func _func_trnsl) -> 
+      let term = try
+        translate_expr expr tbl smtEnv
+      with
+        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+      in
+
+      let cmd = mk_assert term in
+
+      [], [cmd]
+
     | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv")
 
   | App (And, [expr1; expr2], _) -> 
@@ -1261,35 +1361,32 @@ and trnsl_inhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
           ) in
 
           [(pred_name, new_predheap)], [cmd1; cmd2]
+        
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+        in
+  
+        let cmd = mk_assert term in
+  
+        [], [cmd]
           
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
       )
 
-  | Binder (Forall, quant_vars, expr, _) ->
-    let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-      let tp = var_decl.var_type in
-      let sort = lookup_type tp tbl smtEnv in
-
-      (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-      )
-    in
-
-    let smtEnv' = SmtEnv.push smtEnv in
-    let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-    let expr_term = try
-      translate_expr expr tbl smtEnv'
+  | Binder (Forall, _quant_vars, _expr', _) ->
+    let term = try
+      translate_expr expr tbl smtEnv
     with
-      Error.Msg (loc, _msg) -> Error.error loc "Unsupported expression found in inhale"
-
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
     in
 
     let cmd = 
-      mk_assert (mk_forall quant_var_sort_list expr_term) in
+      mk_assert term in
 
     [], [cmd]
-
-    
   
   | Binder (Exists, quant_vars, App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1), expr_attr2) ->
 
@@ -1443,31 +1540,30 @@ and trnsl_inhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
           ) in
 
           [(pred_name, new_predheap)], [cmd]
+
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+        in
+  
+        let cmd = mk_assert term in
+  
+        [], [cmd]
           
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
       )
 
-  | Binder (Exists, quant_vars, expr, _) ->
-    let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-      let tp = var_decl.var_type in
-      let sort = lookup_type tp tbl smtEnv in
-
-      (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-      )
-    in
-
-    let smtEnv' = SmtEnv.push smtEnv in
-    let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-    let expr_term = try
-      translate_expr expr tbl smtEnv'
+  | Binder (Exists, _quant_vars, _expr, _) ->
+    let term = try
+      translate_expr expr tbl smtEnv
     with
-      Error.Msg (loc, _msg) -> Error.error loc "Unsupported expression found in inhale"
-
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
     in
 
     let cmd = 
-      mk_assert (mk_exists quant_var_sort_list expr_term) in
+      mk_assert term in
 
     [], [cmd]
 
@@ -1526,8 +1622,8 @@ and trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
         
     | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
 
-  | App (Call, (App (Var pred_name, [], _)) :: args_list, _) ->
-    (match SmtEnv.find smtEnv pred_name with
+  | App (Call, (App (Var call_name, [], _)) :: args_list, _) ->
+    (match SmtEnv.find smtEnv call_name with
     | Some (Pred pred_trnsl) ->
       (let old_predheap_term = pred_trnsl.pred_heap in
       let old_predheap = smt_ident_of_term old_predheap_term in
@@ -1578,9 +1674,18 @@ and trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
 
       in
       
-      [(pred_name, new_predheap)], [cmd], [permission_term]
+      [(call_name, new_predheap)], [cmd], [permission_term]
       )
-    | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv")
+    
+    | Some (Func _func_trnsl) -> 
+      let term = try
+          translate_expr expr tbl smtEnv
+        with
+        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+      in
+      [], [], [term]
+
+    | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Callable %s not found in smtEnv. \nsmtEnv: %s " (QualIdent.to_string call_name) (SmtEnv.to_string smtEnv))
 
   | App (And, [expr1; expr2], _) -> 
     let new_vars, cmds, perm_terms = trnsl_exhale expr1 tbl smtEnv in
@@ -1805,31 +1910,26 @@ and trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
         ) in
 
           [(pred_name, new_predheap)], [cmd1; cmd2], [perm_term]
+
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    
+        in
+    
+        [], [], [term]
           
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Pred %s not found in smtEnv" (QualIdent.to_string pred_name)
       )
 
-  | Binder (Forall, quant_vars, expr, _) ->
-    let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-      let tp = var_decl.var_type in
-      let sort = lookup_type tp tbl smtEnv in
-
-      (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-      )
+  | Binder (Forall, _quant_vars, _expr, _) ->
+    let term = try
+        translate_expr expr tbl smtEnv
+      with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
     in
-
-    let smtEnv' = SmtEnv.push smtEnv in
-    let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-    let expr_term = try
-      translate_expr expr tbl smtEnv'
-    with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported forall expression found in exhale: %s" (Expr.to_string expr) )
-
-    in
-
-    let term = 
-      (mk_forall quant_var_sort_list expr_term) in
 
     [], [], [term]
   
@@ -1988,31 +2088,26 @@ and trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
           in
 
           [(pred_name, new_predheap)], [cmd], [perm_term]
+
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    
+        in
+    
+        [], [], [term]
           
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
       )
 
-  | Binder (Exists, quant_vars, expr, _) ->
-    let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-      let tp = var_decl.var_type in
-      let sort = lookup_type tp tbl smtEnv in
-
-      (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-      )
+  | Binder (Exists, _quant_vars, _expr, _) ->
+    let term = try
+        translate_expr expr tbl smtEnv
+      with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
     in
-
-    let smtEnv' = SmtEnv.push smtEnv in
-    let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-    let expr_term = try
-      translate_expr expr tbl smtEnv'
-    with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported Exists expression found in exhale: %s" (Expr.to_string expr) )
-
-    in
-
-    let term = 
-      (mk_exists quant_var_sort_list expr_term) in
 
     [], [], [term]
 
@@ -2031,9 +2126,13 @@ and trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident
 (* ------------- *)
 
 
-let initialize_pred (func_def: Callable.func_def) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: session) = 
+let initialize_pred (func_def: Callable.func_def) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: session) = 
   let func_decl = func_def.func_decl in
-  let fully_qualified_name = (SmtEnv.mk_qual_ident smtEnv func_decl.call_decl_name) in
+  let fully_qualified_name = 
+    match alias_name with
+    | None -> (SmtEnv.mk_qual_ident smtEnv func_decl.call_decl_name) 
+    | Some qi -> (SmtEnv.mk_qual_ident_qi smtEnv (QualIdent.append qi func_decl.call_decl_name))
+  in
   let pred_smt_ident = SMTIdent.make (QualIdent.to_string fully_qualified_name) in
   
   let arg_sort_list = (List.filter_map func_decl.call_decl_formals ~f:(fun iden -> 
@@ -2122,7 +2221,7 @@ let check_proc_def (proc_def: Callable.proc_def) (tbl: SymbolTbl.t) (smtEnv: smt
         SmtEnv.add smtEnv' (QualIdent.from_ident ident) (Var var_trnsl)
       ) in
       
-      Smt_solver.write_comment session "Initializing vars for proc_def";
+      Smt_solver.write_comment session ("Initializing vars for proc_def " ^ (QualIdent.to_string fully_qualified_name));
       List.iter (arg_sort_list @ ret_args_sort_list) ~f:(fun (arg, sort) -> 
         Smt_solver.write session (mk_declare_const arg sort)
       );
@@ -2246,7 +2345,7 @@ let check_interface_callable (callable: Callable.t) (tbl: SymbolTbl.t) (smtEnv: 
     let _sort_list = List.map arg_sort_list ~f:snd in
 
     (match proc_decl.call_decl_kind with
-    | Lemma ->
+     | Lemma (* ->
       (* Treating all lemmas in interfaces as axioms *)
 
       let smtEnv' = List.fold2_exn proc_decl.call_decl_formals arg_sort_list ~init:smtEnv ~f:(fun smtEnv' ident (smt_ident, sort) ->
@@ -2283,7 +2382,7 @@ let check_interface_callable (callable: Callable.t) (tbl: SymbolTbl.t) (smtEnv: 
         (mk_impl precond_term postcond_term)
       ));
 
-      smtEnv, session
+      smtEnv, session *)
 
 
     | Proc ->
@@ -2292,11 +2391,15 @@ let check_interface_callable (callable: Callable.t) (tbl: SymbolTbl.t) (smtEnv: 
     | _ -> Error.error_simple "ProcDef can only be a proc/lemma, not func/invariant/pred."
     )
 
-let check_module_callable (callable: Callable.t) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : smt_env * Smt_solver.session =
+let check_module_callable (callable: Callable.t) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : smt_env * Smt_solver.session =
   match callable with
   | FuncDef func_def -> (
     let func_decl = func_def.func_decl in
-    let fully_qualified_name = (SmtEnv.mk_qual_ident smtEnv func_decl.call_decl_name) in
+    let fully_qualified_name = 
+      match alias_name with
+      | None -> (SmtEnv.mk_qual_ident smtEnv func_decl.call_decl_name) 
+      | Some qi -> (SmtEnv.mk_qual_ident_qi smtEnv (QualIdent.append qi func_decl.call_decl_name))
+    in
     let func_smt_ident = SMTIdent.make (QualIdent.to_string fully_qualified_name) in
 
     (match func_decl.call_decl_kind with
