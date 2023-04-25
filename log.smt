@@ -726,190 +726,610 @@
 ; 
 ; 
 ; ---- Starting Program ----
-(declare-const $Program.Main.M1.M.id Int)
-(assert (= $Program.Main.M1.M.id 0))
-(define-fun $Program.Main.M1.M.valid ((n^3 Int)) Bool (>= n^3 0))
-(define-fun $Program.Main.M1.M.comp ((a^29 Int) (b^24 Int)) Int
-            (ite (= a^29 $Program.Main.M1.M.id) b^24
-              (ite (= b^24 $Program.Main.M1.M.id) a^29
-                (ite
-                  (and ($Program.Main.M1.M.valid a^29)
-                    ($Program.Main.M1.M.valid b^24))
-                  (+ a^29 b^24) (* -1 1)))))
-(define-fun $Program.Main.M1.M.frame ((a^30 Int) (b^25 Int)) Int
-            (ite (= b^25 $Program.Main.M1.M.id) a^30
-              (ite
-                (and ($Program.Main.M1.M.valid a^30)
-                  ($Program.Main.M1.M.valid b^25))
-                (- a^30 b^25) (* -1 1))))
-(define-fun $Program.Main.M1.M.fpuAllowed ((a^31 Int) (b^26 Int)) Bool
-            (forall ((c$10 Int))
-                    (=>
-                      (and
-                        (and ($Program.Main.M1.M.valid a^31)
-                          ($Program.Main.M1.M.valid b^26))
-                        ($Program.Main.M1.M.valid
-                          ($Program.Main.M1.M.comp a^31 c$10)))
-                      ($Program.Main.M1.M.valid
-                        ($Program.Main.M1.M.comp b^26 c$10)))))
-(declare-datatype
-                   $Program.Main.M1.T ( ($Program.Main.M1.frag
-                   ($Program.Main.M1.f_proj1 Int))
-                   ($Program.Main.M1.auth_frag ($Program.Main.M1.af_proj1
-                   Int) ($Program.Main.M1.af_proj2 Int))
-                   ($Program.Main.M1.top)))
-(declare-const $Program.Main.M1.id $Program.Main.M1.T)
+(declare-sort $Program.IArray.T 0)
+(declare-fun $Program.IArray.loc ($Program.IArray.T Int) $Loc)
+(declare-fun $Program.IArray.len ($Program.IArray.T) Int)
+(declare-fun $Program.IArray.first ($Loc) $Program.IArray.T)
+(declare-fun $Program.IArray.second ($Loc) Int)
+(declare-sort $Program.ArrayMax.M.T 0)
+(declare-fun $Program.ArrayMax.M.loc ($Program.ArrayMax.M.T Int) $Loc)
+(declare-fun $Program.ArrayMax.M.len ($Program.ArrayMax.M.T) Int)
+(declare-fun $Program.ArrayMax.M.first ($Loc) $Program.ArrayMax.M.T)
+(declare-fun $Program.ArrayMax.M.second ($Loc) Int)
+; Asserting axiom all_diff
 (assert
-        (= $Program.Main.M1.id ($Program.Main.M1.frag $Program.Main.M1.M.id)))
-(define-fun $Program.Main.M1.valid ((n^4 $Program.Main.M1.T)) Bool
-            (ite
-              (= n^4 ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 n^4)))
-              ($Program.Main.M1.M.valid ($Program.Main.M1.f_proj1 n^4))
-              (ite
-                (= n^4
-                  ($Program.Main.M1.auth_frag ($Program.Main.M1.af_proj1 n^4)
-                    ($Program.Main.M1.af_proj2 n^4)))
+        (forall ((a$33 $Program.ArrayMax.M.T) (i$1 Int))
                 (and
-                  (and
-                    ($Program.Main.M1.M.valid
-                      ($Program.Main.M1.af_proj1 n^4))
-                    ($Program.Main.M1.M.valid
-                      ($Program.Main.M1.af_proj2 n^4)))
-                  ($Program.Main.M1.M.valid
-                    ($Program.Main.M1.M.frame ($Program.Main.M1.af_proj1 n^4)
-                      ($Program.Main.M1.af_proj2 n^4))))
-                false)))
-(define-fun $Program.Main.M1.comp ((a^36 $Program.Main.M1.T)
-            (b^30 $Program.Main.M1.T)) $Program.Main.M1.T
-            (ite
-              (and
-                (= a^36
-                  ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 a^36)))
-                (= b^30
-                  ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 b^30))))
-              ($Program.Main.M1.frag
-                ($Program.Main.M1.M.comp ($Program.Main.M1.f_proj1 a^36)
-                  ($Program.Main.M1.f_proj1 b^30)))
-              (ite
-                (and
-                  (= a^36
-                    ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 a^36)))
-                  (= b^30
-                    ($Program.Main.M1.auth_frag
-                      ($Program.Main.M1.af_proj1 b^30)
-                      ($Program.Main.M1.af_proj2 b^30))))
-                ($Program.Main.M1.auth_frag ($Program.Main.M1.af_proj1 b^30)
-                  ($Program.Main.M1.M.comp ($Program.Main.M1.f_proj1 a^36)
-                    ($Program.Main.M1.af_proj2 b^30)))
-                (ite
-                  (and
-                    (= a^36
-                      ($Program.Main.M1.auth_frag
-                        ($Program.Main.M1.af_proj1 a^36)
-                        ($Program.Main.M1.af_proj2 a^36)))
-                    (= b^30
-                      ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 b^30))))
-                  ($Program.Main.M1.auth_frag
-                    ($Program.Main.M1.af_proj1 a^36)
-                    ($Program.Main.M1.M.comp ($Program.Main.M1.f_proj1 b^30)
-                      ($Program.Main.M1.af_proj2 a^36)))
-                  $Program.Main.M1.top))))
-(define-fun $Program.Main.M1.frame ((a^37 $Program.Main.M1.T)
-            (b^31 $Program.Main.M1.T)) $Program.Main.M1.T
-            (ite
-              (and
-                (= a^37
-                  ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 a^37)))
-                (= b^31
-                  ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 b^31))))
-              ($Program.Main.M1.frag
-                ($Program.Main.M1.M.frame ($Program.Main.M1.f_proj1 a^37)
-                  ($Program.Main.M1.f_proj1 b^31)))
-              (ite
-                (and
-                  (= a^37
-                    ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 a^37)))
-                  (= b^31
-                    ($Program.Main.M1.auth_frag
-                      ($Program.Main.M1.af_proj1 b^31)
-                      ($Program.Main.M1.af_proj2 b^31))))
-                $Program.Main.M1.top
-                (ite
-                  (and
-                    (= a^37
-                      ($Program.Main.M1.auth_frag
-                        ($Program.Main.M1.af_proj1 a^37)
-                        ($Program.Main.M1.af_proj2 a^37)))
-                    (= b^31
-                      ($Program.Main.M1.frag ($Program.Main.M1.f_proj1 b^31))))
-                  ($Program.Main.M1.auth_frag
-                    ($Program.Main.M1.af_proj1 a^37)
-                    ($Program.Main.M1.M.frame
-                      ($Program.Main.M1.af_proj2 a^37)
-                      ($Program.Main.M1.f_proj1 b^31)))
-                  (ite
-                    (and
-                      (= a^37
-                        ($Program.Main.M1.auth_frag
-                          ($Program.Main.M1.af_proj1 a^37)
-                          ($Program.Main.M1.af_proj2 a^37)))
-                      (= b^31
-                        ($Program.Main.M1.auth_frag
-                          ($Program.Main.M1.af_proj1 b^31)
-                          ($Program.Main.M1.af_proj2 b^31))))
-                    (ite
-                      (= ($Program.Main.M1.af_proj1 a^37)
-                        ($Program.Main.M1.af_proj1 b^31))
-                      ($Program.Main.M1.frag
-                        ($Program.Main.M1.M.frame
-                          ($Program.Main.M1.af_proj2 a^37)
-                          ($Program.Main.M1.af_proj2 b^31)))
-                      $Program.Main.M1.top)
-                    $Program.Main.M1.top)))))
-(define-fun $Program.Main.M1.fpuAllowed ((a^38 $Program.Main.M1.T)
-            (b^32 $Program.Main.M1.T)) Bool
-            (ite
-              (and
-                (= a^38
-                  ($Program.Main.M1.auth_frag
-                    ($Program.Main.M1.af_proj1 a^38)
-                    ($Program.Main.M1.af_proj2 a^38)))
-                (= b^32
-                  ($Program.Main.M1.auth_frag
-                    ($Program.Main.M1.af_proj1 b^32)
-                    ($Program.Main.M1.af_proj2 b^32))))
-              (and
-                (and
-                  ($Program.Main.M1.M.valid
-                    ($Program.Main.M1.M.frame
-                      ($Program.Main.M1.af_proj1 b^32)
-                      ($Program.Main.M1.af_proj1 a^38)))
-                  ($Program.Main.M1.M.valid
-                    ($Program.Main.M1.M.frame
-                      ($Program.Main.M1.af_proj2 b^32)
-                      ($Program.Main.M1.af_proj2 a^38))))
-                ($Program.Main.M1.M.valid
-                  ($Program.Main.M1.M.frame
-                    ($Program.Main.M1.M.frame
-                      ($Program.Main.M1.af_proj1 b^32)
-                      ($Program.Main.M1.af_proj1 a^38))
-                    ($Program.Main.M1.M.frame
-                      ($Program.Main.M1.af_proj2 b^32)
-                      ($Program.Main.M1.af_proj2 a^38)))))
-              false))
-(define-fun $Program.Main.f@HeapValid ((heap ($OwnHeap $Program.Main.M1.T)))
-            Bool
-            (forall ((l $Loc)) ($Program.Main.M1.valid (select heap l))))
-(define-fun $Program.Main.f@HeapChunkCompare ((x1 $Program.Main.M1.T)
-            (x2 $Program.Main.M1.T)) Bool
-            ($Program.Main.M1.valid ($Program.Main.M1.frame x1 x2)))
-(declare-const $Program.Main.f@OwnHeap ($OwnHeap $Program.Main.M1.T))
-(assert ($Program.Main.f@HeapValid $Program.Main.f@OwnHeap))
+                  (=
+                    ($Program.ArrayMax.M.first
+                      ($Program.ArrayMax.M.loc a$33 i$1))
+                    a$33)
+                  (=
+                    ($Program.ArrayMax.M.second
+                      ($Program.ArrayMax.M.loc a$33 i$1))
+                    i$1))))
+; Asserting axiom len_nonneg
+(assert
+        (forall ((a$34 $Program.ArrayMax.M.T))
+                (>= ($Program.ArrayMax.M.len a$34) 0)))
+(declare-const $Program.ArrayMax.value@OwnHeap
+             ($OwnHeap ($FracHeapChunk Int)))
+(assert ($IntFracHeapValid $Program.ArrayMax.value@OwnHeap))
 (assert
         (forall ((loc $Loc))
-                (= $Program.Main.M1.id (select $Program.Main.f@OwnHeap loc))))
+                (= (as $FracHeapNull ($FracHeapChunk Int))
+                  (select $Program.ArrayMax.value@OwnHeap loc))))
+(declare-const $Program.ArrayMax.x Int)
+(assert (= $Program.ArrayMax.x 4))
+(declare-datatype
+                   $Program.ArrayMax.arr$Pred (
+                   ($Program.ArrayMax.arr$Pred$Constr
+                   ($Program.ArrayMax.arr$Pred$Arg0 $Program.ArrayMax.M.T)
+                   ($Program.ArrayMax.arr$Pred$Arg1 (Array Int Int)))))
+(declare-const $Program.ArrayMax.arr$Pred$Heap
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (= (select $Program.ArrayMax.arr$Pred$Heap $index) 0)))
+(declare-datatype
+                   $Program.ArrayMax.is_max$Pred (
+                   ($Program.ArrayMax.is_max$Pred$Constr
+                   ($Program.ArrayMax.is_max$Pred$Arg0 Int)
+                   ($Program.ArrayMax.is_max$Pred$Arg1 (Array Int Int))
+                   ($Program.ArrayMax.is_max$Pred$Arg2 Int))))
+(declare-const $Program.ArrayMax.is_max$Pred$Heap
+             ($PredHeap $Program.ArrayMax.is_max$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.is_max$Pred))
+                (= (select $Program.ArrayMax.is_max$Pred$Heap $index) 0)))
 (push 1)
-; Initializing vars for proc_def $Program.Main.test
-(declare-const x $Loc)
-(declare-const k $Program.Main.M1.T)
+; Initializing vars for proc_def $Program.ArrayMax.max
+(declare-const a^36 $Program.ArrayMax.M.T)
+(declare-const m^2 (Array Int Int))
+(declare-const x Int)
 ; Inhaling pre-conditions
+(declare-const $Program.ArrayMax.arr$Pred$Heap$1
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$1 $index) 0)))
+(assert
+        (forall ((x0 $Program.ArrayMax.M.T) (x1 (Array Int Int)))
+                (ite (and (= x0 a^36) (= x1 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$1
+                      ($Program.ArrayMax.arr$Pred$Constr x0 x1))
+                    (+ 1
+                      (select $Program.ArrayMax.arr$Pred$Heap
+                        ($Program.ArrayMax.arr$Pred$Constr x0 x1))))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$1
+                      ($Program.ArrayMax.arr$Pred$Constr x0 x1))
+                    (select $Program.ArrayMax.arr$Pred$Heap
+                      ($Program.ArrayMax.arr$Pred$Constr x0 x1))))))
+; Executing body
+(declare-const z Int)
+(declare-const x$1 Int)
+(assert (= x$1 (* -1 1)))
+(declare-const y Int)
+(declare-const x$2 Int)
+(assert (= x$2 0))
+(declare-const y$1 Int)
+(assert (= y$1 (- ($Program.ArrayMax.M.len a^36) 1)))
+; Exhaling loop invariants in current state
+
+(declare-const $Program.ArrayMax.arr$Pred$Heap$2
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$2 $index) 0)))
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (<= 1
+              (select $Program.ArrayMax.arr$Pred$Heap$1
+                ($Program.ArrayMax.arr$Pred$Constr a^36 m^2))))))
+(check-sat)
+(pop 1)
+(assert
+        (forall ((x0$1 $Program.ArrayMax.M.T) (x1$1 (Array Int Int)))
+                (ite (and (= x0$1 a^36) (= x1$1 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$2
+                      ($Program.ArrayMax.arr$Pred$Constr x0$1 x1$1))
+                    (-
+                      (select $Program.ArrayMax.arr$Pred$Heap$1
+                        ($Program.ArrayMax.arr$Pred$Constr x0$1 x1$1))
+                      1))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$2
+                      ($Program.ArrayMax.arr$Pred$Constr x0$1 x1$1))
+                    (select $Program.ArrayMax.arr$Pred$Heap$1
+                      ($Program.ArrayMax.arr$Pred$Constr x0$1 x1$1))))))
+(push 1)
+(assert (not (=> (not (= ($Program.ArrayMax.M.len a^36) 0)) (<= 0 x$2))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (not (=> (not (= ($Program.ArrayMax.M.len a^36) 0)) (<= x$2 y$1))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (< y$1 ($Program.ArrayMax.M.len a^36)))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (forall ((i$2 Int))
+                    (or
+                      (=>
+                        (or (and (<= 0 i$2) (< i$2 x$2))
+                          (and (< y$1 i$2)
+                            (< i$2 ($Program.ArrayMax.M.len a^36))))
+                        (< (select m^2 i$2) (select m^2 x$2)))
+                      (=>
+                        (or (and (<= 0 i$2) (< i$2 x$2))
+                          (and (< y$1 i$2)
+                            (< i$2 ($Program.ArrayMax.M.len a^36))))
+                        (<= (select m^2 i$2) (select m^2 y$1))))))))
+(check-sat)
+(pop 1)
+; Havoc-ing loop vars
+
+(declare-const y$2 Int)
+(declare-const x$3 Int)
+; Checking loop
+
+(push 1)
+; Resetting all heaps
+
+(declare-const $Program.ArrayMax.arr$Pred$Heap$3
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$3 $index) 0)))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (= (select $Program.ArrayMax.arr$Pred$Heap$3 $index) 0)))
+(declare-const $Program.ArrayMax.is_max$Pred$Heap$1
+             ($PredHeap $Program.ArrayMax.is_max$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.is_max$Pred))
+                (>= (select $Program.ArrayMax.is_max$Pred$Heap$1 $index) 0)))
+(assert
+        (forall (($index $Program.ArrayMax.is_max$Pred))
+                (= (select $Program.ArrayMax.is_max$Pred$Heap$1 $index) 0)))
+(declare-const $Program.ArrayMax.value@OwnHeap$1
+             ($OwnHeap ($FracHeapChunk Int)))
+(assert ($IntFracHeapValid $Program.ArrayMax.value@OwnHeap$1))
+(assert
+        (forall ((l $Loc))
+                (= (as $FracHeapNull ($FracHeapChunk Int))
+                  (select $Program.ArrayMax.value@OwnHeap$1 l))))
+; Inhaling invariants inside loop
+(declare-const $Program.ArrayMax.arr$Pred$Heap$4
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$4 $index) 0)))
+(assert
+        (forall ((x0$2 $Program.ArrayMax.M.T) (x1$2 (Array Int Int)))
+                (ite (and (= x0$2 a^36) (= x1$2 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$4
+                      ($Program.ArrayMax.arr$Pred$Constr x0$2 x1$2))
+                    (+ 1
+                      (select $Program.ArrayMax.arr$Pred$Heap$3
+                        ($Program.ArrayMax.arr$Pred$Constr x0$2 x1$2))))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$4
+                      ($Program.ArrayMax.arr$Pred$Constr x0$2 x1$2))
+                    (select $Program.ArrayMax.arr$Pred$Heap$3
+                      ($Program.ArrayMax.arr$Pred$Constr x0$2 x1$2))))))
+(assert (<= 0 x$3))
+(assert (<= x$3 y$2))
+(assert (< y$2 ($Program.ArrayMax.M.len a^36)))
+(assert
+        (forall ((i$3 Int))
+                (or
+                  (=>
+                    (or (and (<= 0 i$3) (< i$3 x$3))
+                      (and (< y$2 i$3)
+                        (< i$3 ($Program.ArrayMax.M.len a^36))))
+                    (< (select m^2 i$3) (select m^2 x$3)))
+                  (=>
+                    (or (and (<= 0 i$3) (< i$3 x$3))
+                      (and (< y$2 i$3)
+                        (< i$3 ($Program.ArrayMax.M.len a^36))))
+                    (<= (select m^2 i$3) (select m^2 y$2))))))
+(assert (not (= x$3 y$2)))
+(declare-const $Program.ArrayMax.arr$Pred$Heap$5
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$5 $index) 0)))
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (<= 1
+              (select $Program.ArrayMax.arr$Pred$Heap$4
+                ($Program.ArrayMax.arr$Pred$Constr a^36 m^2))))))
+(check-sat)
+(pop 1)
+(assert
+        (forall ((x0$3 $Program.ArrayMax.M.T) (x1$3 (Array Int Int)))
+                (ite (and (= x0$3 a^36) (= x1$3 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$5
+                      ($Program.ArrayMax.arr$Pred$Constr x0$3 x1$3))
+                    (-
+                      (select $Program.ArrayMax.arr$Pred$Heap$4
+                        ($Program.ArrayMax.arr$Pred$Constr x0$3 x1$3))
+                      1))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$5
+                      ($Program.ArrayMax.arr$Pred$Constr x0$3 x1$3))
+                    (select $Program.ArrayMax.arr$Pred$Heap$4
+                      ($Program.ArrayMax.arr$Pred$Constr x0$3 x1$3))))))
+(declare-const $Program.ArrayMax.value@OwnHeap$2
+             ($OwnHeap ($FracHeapChunk Int)))
+(assert ($IntFracHeapValid $Program.ArrayMax.value@OwnHeap$2))
+(assert
+        (forall ((j Int))
+                (=> (and (<= 0 j) (< j ($Program.ArrayMax.M.len a^36)))
+                  (=
+                    (select $Program.ArrayMax.value@OwnHeap$2
+                      ($Program.ArrayMax.M.loc a^36 j))
+                    ($IntFracChunkAdd
+                      (select $Program.ArrayMax.value@OwnHeap$1
+                        ($Program.ArrayMax.M.loc a^36 j))
+                      ($FracChunkConstr (select m^2 j) 1))))))
+(assert
+        (forall ((l $Loc))
+                (or
+                  (exists ((j Int))
+                          (and (= l ($Program.ArrayMax.M.loc a^36 j))
+                            (and (<= 0 j)
+                              (< j ($Program.ArrayMax.M.len a^36)))))
+                  (= (select $Program.ArrayMax.value@OwnHeap$2 l)
+                    (select $Program.ArrayMax.value@OwnHeap$1 l)))))
+(declare-const tmp1 Int)
+(declare-const tmp1$1 Int)
+; Checking field read permission
+
+(push 1)
+(assert
+        (not
+          (< 0
+            ($FracOwn
+              (select $Program.ArrayMax.value@OwnHeap$2
+                ($Program.ArrayMax.M.loc a^36 x$3))))))
+(check-sat)
+(pop 1)
+(assert
+        (= tmp1$1
+          ($FracVal
+            (select $Program.ArrayMax.value@OwnHeap$2
+              ($Program.ArrayMax.M.loc a^36 x$3)))))
+(declare-const tmp2 Int)
+(declare-const tmp2$1 Int)
+; Checking field read permission
+
+(push 1)
+(assert
+        (not
+          (< 0
+            ($FracOwn
+              (select $Program.ArrayMax.value@OwnHeap$2
+                ($Program.ArrayMax.M.loc a^36 y$2))))))
+(check-sat)
+(pop 1)
+(assert
+        (= tmp2$1
+          ($FracVal
+            (select $Program.ArrayMax.value@OwnHeap$2
+              ($Program.ArrayMax.M.loc a^36 y$2)))))
+(declare-const x$4 Int)
+(assert (= x$4 (+ x$4 1)))
+(declare-const y$3 Int)
+(assert (= y$3 (- y$3 1)))
+; Unifying conditional branches
+
+(declare-const x$5 Int)
+(declare-const y$4 Int)
+(assert (=> (<= tmp1$1 tmp2$1) (= x$4 x$5)))
+(assert (=> (not (<= tmp1$1 tmp2$1)) (= x$3 x$5)))
+(assert (=> (<= tmp1$1 tmp2$1) (= y$2 y$4)))
+(assert (=> (not (<= tmp1$1 tmp2$1)) (= y$3 y$4)))
+; Finished unifying conditional branches
+
+; Exhaling body of predicate
+(declare-const $Program.ArrayMax.value@OwnHeap$3
+             ($OwnHeap ($FracHeapChunk Int)))
+(assert ($IntFracHeapValid $Program.ArrayMax.value@OwnHeap$3))
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (forall ((j$1 Int))
+                    (=>
+                      (and (<= 0 j$1) (< j$1 ($Program.ArrayMax.M.len a^36)))
+                      ($IntHeapChunkCompare
+                        ($FracChunkConstr (select m^2 j$1) 1)
+                        (select $Program.ArrayMax.value@OwnHeap$2
+                          ($Program.ArrayMax.M.loc a^36 j$1))))))))
+(check-sat)
+(pop 1)
+(assert
+        (forall ((j$1 Int))
+                (=> (and (<= 0 j$1) (< j$1 ($Program.ArrayMax.M.len a^36)))
+                  (=
+                    (select $Program.ArrayMax.value@OwnHeap$3
+                      ($Program.ArrayMax.M.loc a^36 j$1))
+                    ($IntFracChunkSubtract
+                      (select $Program.ArrayMax.value@OwnHeap$2
+                        ($Program.ArrayMax.M.loc a^36 j$1))
+                      ($FracChunkConstr (select m^2 j$1) 1))))))
+(assert
+        (forall ((l $Loc))
+                (or
+                  (exists ((j$1 Int))
+                          (and (= l ($Program.ArrayMax.M.loc a^36 j$1))
+                            (and (<= 0 j$1)
+                              (< j$1 ($Program.ArrayMax.M.len a^36)))))
+                  (= (select $Program.ArrayMax.value@OwnHeap$3 l)
+                    (select $Program.ArrayMax.value@OwnHeap$2 l)))))
+(declare-const $Program.ArrayMax.arr$Pred$Heap$6
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$6 $index) 0)))
+(assert
+        (forall ((x0$4 $Program.ArrayMax.M.T) (x1$4 (Array Int Int)))
+                (ite (and (= x0$4 a^36) (= x1$4 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$6
+                      ($Program.ArrayMax.arr$Pred$Constr x0$4 x1$4))
+                    (+ 1
+                      (select $Program.ArrayMax.arr$Pred$Heap$5
+                        ($Program.ArrayMax.arr$Pred$Constr x0$4 x1$4))))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$6
+                      ($Program.ArrayMax.arr$Pred$Constr x0$4 x1$4))
+                    (select $Program.ArrayMax.arr$Pred$Heap$5
+                      ($Program.ArrayMax.arr$Pred$Constr x0$4 x1$4))))))
+(declare-const $Program.ArrayMax.arr$Pred$Heap$7
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$7 $index) 0)))
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (<= 1
+              (select $Program.ArrayMax.arr$Pred$Heap$6
+                ($Program.ArrayMax.arr$Pred$Constr a^36 m^2))))))
+(check-sat)
+(pop 1)
+(assert
+        (forall ((x0$5 $Program.ArrayMax.M.T) (x1$5 (Array Int Int)))
+                (ite (and (= x0$5 a^36) (= x1$5 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$7
+                      ($Program.ArrayMax.arr$Pred$Constr x0$5 x1$5))
+                    (-
+                      (select $Program.ArrayMax.arr$Pred$Heap$6
+                        ($Program.ArrayMax.arr$Pred$Constr x0$5 x1$5))
+                      1))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$7
+                      ($Program.ArrayMax.arr$Pred$Constr x0$5 x1$5))
+                    (select $Program.ArrayMax.arr$Pred$Heap$6
+                      ($Program.ArrayMax.arr$Pred$Constr x0$5 x1$5))))))
+(push 1)
+(assert (not (=> (not (= ($Program.ArrayMax.M.len a^36) 0)) (<= 0 x$5))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (not (=> (not (= ($Program.ArrayMax.M.len a^36) 0)) (<= x$5 y$4))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (< y$4 ($Program.ArrayMax.M.len a^36)))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (forall ((i$4 Int))
+                    (or
+                      (=>
+                        (or (and (<= 0 i$4) (< i$4 x$5))
+                          (and (< y$4 i$4)
+                            (< i$4 ($Program.ArrayMax.M.len a^36))))
+                        (< (select m^2 i$4) (select m^2 x$5)))
+                      (=>
+                        (or (and (<= 0 i$4) (< i$4 x$5))
+                          (and (< y$4 i$4)
+                            (< i$4 ($Program.ArrayMax.M.len a^36))))
+                        (<= (select m^2 i$4) (select m^2 y$4))))))))
+(check-sat)
+(pop 1)
+(pop 1)
+; Inhaling invariants with havoc-ed variables
+
+(declare-const $Program.ArrayMax.arr$Pred$Heap$8
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$8 $index) 0)))
+(assert
+        (forall ((x0$6 $Program.ArrayMax.M.T) (x1$6 (Array Int Int)))
+                (ite (and (= x0$6 a^36) (= x1$6 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$8
+                      ($Program.ArrayMax.arr$Pred$Constr x0$6 x1$6))
+                    (+ 1
+                      (select $Program.ArrayMax.arr$Pred$Heap$2
+                        ($Program.ArrayMax.arr$Pred$Constr x0$6 x1$6))))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$8
+                      ($Program.ArrayMax.arr$Pred$Constr x0$6 x1$6))
+                    (select $Program.ArrayMax.arr$Pred$Heap$2
+                      ($Program.ArrayMax.arr$Pred$Constr x0$6 x1$6))))))
+(assert (<= 0 x$3))
+(assert (<= x$3 y$2))
+(assert (< y$2 ($Program.ArrayMax.M.len a^36)))
+(assert
+        (forall ((i$5 Int))
+                (or
+                  (=>
+                    (or (and (<= 0 i$5) (< i$5 x$3))
+                      (and (< y$2 i$5)
+                        (< i$5 ($Program.ArrayMax.M.len a^36))))
+                    (< (select m^2 i$5) (select m^2 x$3)))
+                  (=>
+                    (or (and (<= 0 i$5) (< i$5 x$3))
+                      (and (< y$2 i$5)
+                        (< i$5 ($Program.ArrayMax.M.len a^36))))
+                    (<= (select m^2 i$5) (select m^2 y$2))))))
+(assert (not (not (= x$3 y$2))))
+; Unifying conditional branches
+
+(declare-const x$6 Int)
+(declare-const $Program.ArrayMax.arr$Pred$Heap$9
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$9 $index) 0)))
+(assert (=> (= ($Program.ArrayMax.M.len a^36) 0) (= x$1 x$6)))
+(assert (=> (not (= ($Program.ArrayMax.M.len a^36) 0)) (= x$3 x$6)))
+(assert
+        (=> (= ($Program.ArrayMax.M.len a^36) 0)
+          (= $Program.ArrayMax.arr$Pred$Heap$1
+            $Program.ArrayMax.arr$Pred$Heap$9)))
+(assert
+        (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+          (= $Program.ArrayMax.arr$Pred$Heap$8
+            $Program.ArrayMax.arr$Pred$Heap$9)))
+; Finished unifying conditional branches
+
+; Exhaling body of predicate
+(push 1)
+(assert
+        (not
+          (forall ((j$2 Int))
+                  (=> (and (<= 0 j$2) (< j$2 ($Program.ArrayMax.M.len a^36)))
+                    (<= (select m^2 j$2) (select m^2 x$6))))))
+(check-sat)
+(pop 1)
+(declare-const $Program.ArrayMax.is_max$Pred$Heap$2
+             ($PredHeap $Program.ArrayMax.is_max$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.is_max$Pred))
+                (>= (select $Program.ArrayMax.is_max$Pred$Heap$2 $index) 0)))
+(assert
+        (forall ((x0$7 Int) (x1$7 (Array Int Int)) (x2 Int))
+                (ite
+                  (and (= x0$7 x$6) (= x1$7 m^2)
+                    (= x2 ($Program.ArrayMax.M.len a^36)))
+                  (=
+                    (select $Program.ArrayMax.is_max$Pred$Heap$2
+                      ($Program.ArrayMax.is_max$Pred$Constr x0$7 x1$7 x2))
+                    (+ 1
+                      (select $Program.ArrayMax.is_max$Pred$Heap
+                        ($Program.ArrayMax.is_max$Pred$Constr x0$7 x1$7 x2))))
+                  (=
+                    (select $Program.ArrayMax.is_max$Pred$Heap$2
+                      ($Program.ArrayMax.is_max$Pred$Constr x0$7 x1$7 x2))
+                    (select $Program.ArrayMax.is_max$Pred$Heap
+                      ($Program.ArrayMax.is_max$Pred$Constr x0$7 x1$7 x2))))))
+; Exhaling post-conditions
+(declare-const $Program.ArrayMax.arr$Pred$Heap$10
+             ($PredHeap $Program.ArrayMax.arr$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.arr$Pred))
+                (>= (select $Program.ArrayMax.arr$Pred$Heap$10 $index) 0)))
+(push 1)
+(assert
+        (not
+          (<= 1
+            (select $Program.ArrayMax.arr$Pred$Heap$9
+              ($Program.ArrayMax.arr$Pred$Constr a^36 m^2)))))
+(check-sat)
+(pop 1)
+(assert
+        (forall ((x0$8 $Program.ArrayMax.M.T) (x1$8 (Array Int Int)))
+                (ite (and (= x0$8 a^36) (= x1$8 m^2))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$10
+                      ($Program.ArrayMax.arr$Pred$Constr x0$8 x1$8))
+                    (-
+                      (select $Program.ArrayMax.arr$Pred$Heap$9
+                        ($Program.ArrayMax.arr$Pred$Constr x0$8 x1$8))
+                      1))
+                  (=
+                    (select $Program.ArrayMax.arr$Pred$Heap$10
+                      ($Program.ArrayMax.arr$Pred$Constr x0$8 x1$8))
+                    (select $Program.ArrayMax.arr$Pred$Heap$9
+                      ($Program.ArrayMax.arr$Pred$Constr x0$8 x1$8))))))
+(push 1)
+(assert (not (=> (= ($Program.ArrayMax.M.len a^36) 0) (= x$6 (* -1 1)))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert (not (=> (not (= ($Program.ArrayMax.M.len a^36) 0)) (<= 0 x$6))))
+(check-sat)
+(pop 1)
+(push 1)
+(assert
+        (not
+          (=> (not (= ($Program.ArrayMax.M.len a^36) 0))
+            (< x$6 ($Program.ArrayMax.M.len a^36)))))
+(check-sat)
+(pop 1)
+(assert (ite (= ($Program.ArrayMax.M.len a^36) 0) true true))
+(declare-const $Program.ArrayMax.is_max$Pred$Heap$3
+             ($PredHeap $Program.ArrayMax.is_max$Pred))
+(assert
+        (forall (($index $Program.ArrayMax.is_max$Pred))
+                (>= (select $Program.ArrayMax.is_max$Pred$Heap$3 $index) 0)))
+(push 1)
+(assert
+        (not
+          (<= 1
+            (select $Program.ArrayMax.is_max$Pred$Heap$2
+              ($Program.ArrayMax.is_max$Pred$Constr x$6 m^2
+                ($Program.ArrayMax.M.len a^36))))))
+(check-sat)
+(pop 1)
+(assert
+        (forall ((x0$9 Int) (x1$9 (Array Int Int)) (x2$1 Int))
+                (ite
+                  (and (= x0$9 x$6) (= x1$9 m^2)
+                    (= x2$1 ($Program.ArrayMax.M.len a^36)))
+                  (=
+                    (select $Program.ArrayMax.is_max$Pred$Heap$3
+                      ($Program.ArrayMax.is_max$Pred$Constr x0$9 x1$9 x2$1))
+                    (-
+                      (select $Program.ArrayMax.is_max$Pred$Heap$2
+                        ($Program.ArrayMax.is_max$Pred$Constr x0$9 x1$9 x2$1))
+                      1))
+                  (=
+                    (select $Program.ArrayMax.is_max$Pred$Heap$3
+                      ($Program.ArrayMax.is_max$Pred$Constr x0$9 x1$9 x2$1))
+                    (select $Program.ArrayMax.is_max$Pred$Heap$2
+                      ($Program.ArrayMax.is_max$Pred$Constr x0$9 x1$9 x2$1))))))
+(pop 1)

@@ -190,7 +190,7 @@ let add_field (field: Module.field_def) ?(alias_name: QualIdent.t option) (tbl: 
       field_heap_add_chunk = field_heap_add_chunk;
       field_heap_subtract_chunk = field_heap_subtract_chunk;
       heapchunk_compare = heapchunk_compare;
-      field_fpu = field_fpu;
+      field_fpu = Some field_fpu;
     }, ident_heapchunk_term
     )
     | _ -> 

@@ -1011,7 +1011,11 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
       let val_term = translate_expr fpu_desc.fpu_val tbl smtEnv in
       let loc_term = var_trnsl.var_symbol in
-      let perm_term = mk_app (Ident field_trnsl.field_fpu) [mk_select field_trnsl.field_heap loc_term; val_term] in
+      let field_fpu = (match field_trnsl.field_fpu with
+      | Some iden -> iden
+      | None -> Error.error loc @@ Printf.sprintf "fpuApply not found for field fpu"
+      ) in
+      let perm_term = mk_app (Ident field_fpu) [mk_select field_trnsl.field_heap loc_term; val_term] in
       let session = assert_not session perm_term in
 
       let old_fieldheap_term = field_trnsl.field_heap in
@@ -1034,7 +1038,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       Smt_solver.write session cmd;
 
       smtEnv, session
-      
+
     | _ -> Error.error loc @@ Printf.sprintf "Field %s or loc %s for fpu not found in smtEnv" (QualIdent.to_string fpu_desc.fpu_field) (QualIdent.to_string fpu_desc.fpu_loc)
 
 
