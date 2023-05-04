@@ -12,6 +12,8 @@ let rec lookup_type (tp_expr: type_expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : 
     IntSort
   | App (Bool, _, _) ->
     BoolSort
+  | App (Real, _, _) ->
+    RealSort
 
   | App (Ref, _, _) ->
     PreambleConsts.loc_sort
@@ -20,7 +22,7 @@ let rec lookup_type (tp_expr: type_expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : 
     (match SmtEnv.find smtEnv qual_ident with
     | Some (Type tp_trns) -> tp_trns
     | Some (_) -> Error.error (Type.to_loc tp_expr) "expected Type in smtEnv; found something else"
-    | None -> Error.error (Type.to_loc tp_expr) (Printf.sprintf "lookup_type (%s) : expected Type in smtEnv; found nothing. SmtEnv: %s" (Type.to_string tp_expr) (SmtEnv.to_string smtEnv)) 
+    | None -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "lookup_type (%s) : expected Type in smtEnv; found nothing. SmtEnv: %s" (Type.to_string tp_expr) (SmtEnv.to_string smtEnv)
     )
 
   | App (Set, [set_tp], _) -> 
@@ -46,6 +48,7 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
     (match constr with
     | Bool b -> mk_bool ~pos:expr_attr.expr_loc b
     | Int i -> mk_int ~pos:expr_attr.expr_loc (Int64.to_int_exn i)
+    | Real r -> mk_real ~pos:expr_attr.expr_loc (r)
     | Not -> mk_app ~pos:expr_attr.expr_loc Not smt_term_list
     | Uminus -> mk_app ~pos:expr_attr.expr_loc Mult (mk_const (IntConst (-1)) :: smt_term_list)
     | MapLookUp -> mk_app ~pos:expr_attr.expr_loc Select smt_term_list
@@ -54,11 +57,34 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
     | Lt -> mk_app ~pos:expr_attr.expr_loc Lt smt_term_list
     | Geq -> mk_app ~pos:expr_attr.expr_loc Geq smt_term_list
     | Leq -> mk_app ~pos:expr_attr.expr_loc Leq smt_term_list
-    | Diff
-    | Union
-    | Inter
-    | Elem
-    | Subseteq -> Error.unsupported_error (Expr.loc expr) "set expressions not supported presently"
+    | Diff ->
+      (match smt_term_list with
+      | [term1; term2] -> 
+        mk_app (Ident (SMTIdent.make "intersection")) 
+        [term1; mk_app (Ident (SMTIdent.make "complement")) [term2]]
+      | _ -> Error.error (Expr.loc expr) "Diff operation takes exactly two args")
+    | Union -> mk_app (Ident (SMTIdent.make "union")) smt_term_list
+    | Inter -> mk_app (Ident (SMTIdent.make "intersection")) smt_term_list
+    | Elem ->
+      (match smt_term_list with
+      | [term1; term2] ->
+        mk_select term2 term1
+      | _ -> Error.error (Expr.loc expr) "In operation takes exactly two args"
+      )
+    | Setenum ->
+      let tp = Expr.to_type expr in
+      let sort = lookup_type tp tbl smtEnv in
+      List.fold smt_term_list 
+        ~init: (App_t ([mk_annot (mk_const (Ident (SMTIdent.make "const"))) (As sort); mk_bool false], None) )
+        (* ~init:(mk_app (Ident (SMTIdent.make "const")) [mk_bool false]) *)
+        (* (As FreeSort (SMTIdent.make "Set", [sort]))) *)
+        (* ~init:(mk_annot (mk_bool false) (As (FreeSort (SMTIdent.make "const", [FreeSort (SMTIdent.make "Set", [sort])])))) *)
+        ~f:(fun term elem ->
+          mk_app (Ident (SMTIdent.make "store")) [term; elem; mk_bool true]
+        )
+    | Subseteq -> mk_app (Ident (SMTIdent.make "subset")) smt_term_list
+      
+      (* Error.unsupported_error (Expr.loc expr) "set expressions not supported presently" *)
     | And -> mk_app ~pos:expr_attr.expr_loc And smt_term_list
     | Or -> mk_app ~pos:expr_attr.expr_loc Or smt_term_list
     | Impl -> mk_app ~pos:expr_attr.expr_loc Impl smt_term_list
@@ -130,8 +156,8 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
           mk_app ~pos:expr_attr.expr_loc (Ident data_destr.destr) [smt_term1]
         | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Unexpected element found in translate_expr for expr '%s' in smtEnv." (Expr.to_string expr))
       | _ -> Error.error (Expr.loc expr) "Invalid DataDestr expr found")
-    
-    | _ -> Error.error (Expr.loc expr) (Printf.sprintf "unsupported expr: %s; smtEnv = %s" (Expr.to_string expr) (SmtEnv.to_string smtEnv))
+
+    | _ -> Error.error (Expr.loc expr) (Printf.sprintf "unsupported expr: %s" (Expr.to_string expr))
 
     ))
     | Binder (Forall, quant_vars, expr, _) ->
@@ -612,6 +638,1098 @@ let reset_all_heaps (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env *
 
   smtEnv, session
 
+module TrnslInhale = struct
+  let rec trnsl_inhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident * SMTIdent.t) list * command list =
+  match expr with
+  | App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _) ->
+    (match SmtEnv.find smtEnv field_heap with
+    | Some (Field field_trnsl) ->
+      let loc_term = translate_expr loc_expr tbl smtEnv in
+      let val_term = (match val_args with
+        | [val_expr] ->
+          let val_term = translate_expr val_expr tbl smtEnv in
+          val_term
+        | [val_expr; frac_expr] -> 
+          let val_term = translate_expr val_expr tbl smtEnv in
+          let frac_term = translate_expr frac_expr tbl smtEnv in
+
+          frac_chunk_constr val_term frac_term
+        | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+        ) in
+   
+      let old_fieldheap_term = field_trnsl.field_heap in
+      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+      
+      let l_ident = SMTIdent.make "l" in
+      let l_term = mk_const (Ident l_ident) in
+      let cmd = 
+        mk_assert (mk_binder Forall [(l_ident, PreambleConsts.loc_sort)] 
+          (mk_ite (mk_eq l_term loc_term)
+            (mk_eq (mk_select new_fieldheap_term l_term) (mk_app (Ident field_trnsl.field_heap_add_chunk) [mk_select old_fieldheap_term l_term; val_term]))
+            (mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term))
+          )
+        ) in
+
+        [(field_heap, new_fieldheap)], [cmd]
+        
+    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
+
+  | App (Call, (App (Var pred_name, [], _)) :: args_list, _) ->
+    (match SmtEnv.find smtEnv pred_name with
+    | Some (Pred pred_trnsl) ->
+      (let old_predheap_term = pred_trnsl.pred_heap in
+      let old_predheap = smt_ident_of_term old_predheap_term in
+      let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+      let new_predheap_term = mk_const (Ident new_predheap) in
+
+      let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+
+      let pred_decl = pred_trnsl.pred_def.func_decl in
+
+      let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+        let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+        (* TODO: Make sure ghost/implicit is being treated properly *)
+        if not var_decl.var_implicit then
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+          Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+        else
+          None
+        )
+      in
+
+      let new_params_list = List.map new_params_sort_list ~f:fst in
+
+      let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+      (* remove expr given for implicit args *)
+      let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+      let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+      let cmd = 
+        mk_assert (mk_binder Forall new_params_sort_list
+          (mk_ite (mk_and new_params_eq_old_expr_list)
+            (mk_eq 
+              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
+              (mk_app Plus [mk_const (IntConst 1); (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))])
+            )
+            (mk_eq 
+              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
+              (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
+            )
+          )
+        ) in 
+      
+      [(pred_name, new_predheap)], [cmd]
+      )
+
+    | Some (Func _func_trnsl) -> 
+      let term = try
+        translate_expr expr tbl smtEnv
+      with
+        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+      in
+
+      let cmd = mk_assert term in
+
+      [], [cmd]
+
+    | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv")
+
+  | App (And, [expr1; expr2], _) -> 
+    let new_vars, cmds = trnsl_inhale expr1 tbl smtEnv in
+    
+    let smtEnv' = update_env smtEnv new_vars in
+
+    let new_vars', cmds' = trnsl_inhale expr2 tbl smtEnv' in
+
+    new_vars @ new_vars', cmds @ cmds'
+
+  | App (Ite, [expr0; expr1; expr2], _) ->
+    (let new_vars1, cmds1 = trnsl_inhale expr1 tbl smtEnv in
+    let new_vars2, cmds2 = trnsl_inhale expr2 tbl smtEnv in
+
+    let new_vars3 = new_vars_unify new_vars1 new_vars2 in
+
+    let smtEnv1 = update_env smtEnv new_vars1 in
+    let smtEnv2 = update_env smtEnv new_vars2 in
+
+    let new_var_eqs1 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
+      let old_term = SmtEnv.find_term_exn smtEnv1 qual_ident
+
+      in
+      mk_eq (mk_const (Ident smt_ident)) old_term
+
+    ) in
+
+    let new_var_eqs2 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
+      let old_term = SmtEnv.find_term_exn smtEnv2 qual_ident
+
+      in
+      mk_eq (mk_const (Ident smt_ident)) old_term
+
+    ) in
+
+    let cond_term = translate_expr expr0 tbl smtEnv in
+    
+    let cmd = mk_assert (mk_ite cond_term
+      (mk_and (List.map cmds1 ~f:unfold_assert @ new_var_eqs1))
+      (mk_and (List.map cmds2 ~f:unfold_assert @ new_var_eqs2))
+    )
+  
+    in
+
+    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd])
+
+  | Binder (Forall, quant_vars, App (Own, own_args, expr_attr1), expr_attr2) ->
+
+    trnsl_inhale
+    (Binder (Forall, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Own, own_args, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+
+  | Binder (Forall, quant_vars, 
+      App (Impl, [expr0; 
+        App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _)], _
+      ), _
+    ) -> 
+      (match SmtEnv.find smtEnv field_heap with
+      | Some (Field field_trnsl) ->
+        let old_fieldheap_term = field_trnsl.field_heap in
+        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let loc_term = translate_expr loc_expr tbl smtEnv' in
+        let val_term = (match val_args with
+        | [val_expr] ->
+          let val_term = translate_expr val_expr tbl smtEnv' in
+          val_term
+        | [val_expr; frac_expr] -> 
+          let val_term = translate_expr val_expr tbl smtEnv' in
+          let frac_term = translate_expr frac_expr tbl smtEnv' in
+
+          frac_chunk_constr val_term frac_term
+        | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+        ) in
+        
+
+        let l_ident = SMTIdent.make "l" in
+        let l_term = mk_const (Ident l_ident) in
+
+        let cmd1 = 
+          mk_assert (mk_forall quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_eq 
+                (mk_select new_fieldheap_term loc_term)
+                (mk_app (Ident field_trnsl.field_heap_add_chunk) [mk_select old_fieldheap_term loc_term; val_term])
+              )
+            )
+          ) in
+
+        let cmd2 = 
+          mk_assert (mk_forall [(l_ident, PreambleConsts.loc_sort)]
+            (mk_or [
+              mk_exists quant_var_sort_list (mk_and [mk_eq l_term loc_term; cond_term]);
+              mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
+            ])
+          ) in
+
+          [(field_heap, new_fieldheap)], [cmd1; cmd2]
+          
+      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      )
+
+  | Binder (Forall, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+    trnsl_inhale
+    (Binder (Forall, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+  | Binder (Forall, quant_vars, 
+      App (Impl, [expr0; 
+        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+      ], _
+      ), _
+    ) ->
+      (match SmtEnv.find smtEnv pred_name with
+      | Some (Pred pred_trnsl) ->
+        let old_predheap_term = pred_trnsl.pred_heap in
+        let old_predheap = smt_ident_of_term old_predheap_term in
+        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+        let new_predheap_term = mk_const (Ident new_predheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let quant_var_list = List.map quant_var_sort_list ~f:fst in
+
+        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
+
+        let pred_decl = pred_trnsl.pred_def.func_decl in
+
+        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+          (* TODO: Make sure ghost/implicit is being treated properly *)
+          if not var_decl.var_implicit then
+            let tp = var_decl.var_type in
+            let sort = lookup_type tp tbl smtEnv in
+            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+          else
+            None
+          )
+        in
+
+        let new_params_list = List.map new_params_sort_list ~f:fst in
+
+        let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+        (* remove expr given for implicit args *)
+        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+        let cmd1 = 
+          mk_assert (mk_forall quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_eq 
+                (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                (mk_app Plus [mk_const (IntConst 1); mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated)])
+              )
+            )
+          ) in
+
+        let cmd2 = 
+          mk_assert (mk_forall new_params_sort_list
+            (mk_or [
+              mk_exists quant_var_sort_list (mk_and (cond_term :: new_params_eq_old_expr_list));
+              mk_eq (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
+            ])
+          ) in
+
+          [(pred_name, new_predheap)], [cmd1; cmd2]
+        
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+        in
+  
+        let cmd = mk_assert term in
+  
+        [], [cmd]
+          
+      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
+      )
+
+  | Binder (Forall, _quant_vars, _expr', _) ->
+    let term = try
+      translate_expr expr tbl smtEnv
+    with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+    in
+
+    let cmd = 
+      mk_assert term in
+
+    [], [cmd]
+  
+  | Binder (Exists, quant_vars, App (Own, own_args, expr_attr1), expr_attr2) ->
+
+    trnsl_inhale
+    (Binder (Exists, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Own, own_args, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+
+  | Binder (Exists, quant_vars, 
+      App (Impl, [expr0; 
+        App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _)], _
+      ), _
+    ) -> 
+      (match SmtEnv.find smtEnv field_heap with
+      | Some (Field field_trnsl) ->
+        let old_fieldheap_term = field_trnsl.field_heap in
+        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let loc_term = translate_expr loc_expr tbl smtEnv' in
+        let val_term = (match val_args with
+        | [val_expr] ->
+          let val_term = translate_expr val_expr tbl smtEnv' in
+          val_term
+        | [val_expr; frac_expr] -> 
+          let val_term = translate_expr val_expr tbl smtEnv' in
+          let frac_term = translate_expr frac_expr tbl smtEnv' in
+
+          frac_chunk_constr val_term frac_term
+        | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+        ) in
+
+        let l_ident = SMTIdent.make "l" in
+        let l_term = mk_const (Ident l_ident) in
+
+        let cmd = 
+          mk_assert (mk_exists quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_and [
+                (mk_eq 
+                  (mk_select new_fieldheap_term loc_term)
+                  (mk_app (Ident field_trnsl.field_heap_add_chunk) [mk_select old_fieldheap_term loc_term; val_term])
+                );
+
+                (mk_forall [(l_ident, PreambleConsts.loc_sort)]
+                  (mk_or [
+                    mk_and [cond_term; mk_eq l_term loc_term];
+                    mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
+                  ])
+                )
+              ])
+            )
+          ) in
+
+          [(field_heap, new_fieldheap)], [cmd]
+          
+      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      )
+
+  | Binder (Exists, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+    trnsl_inhale
+    (Binder (Exists, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+  | Binder (Exists, quant_vars, 
+      App (Impl, [expr0; 
+        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+      ], _
+      ), _
+    ) ->
+      (match SmtEnv.find smtEnv pred_name with
+      | Some (Pred pred_trnsl) ->
+        let old_predheap_term = pred_trnsl.pred_heap in
+        let old_predheap = smt_ident_of_term old_predheap_term in
+        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+        let new_predheap_term = mk_const (Ident new_predheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let quant_var_list = List.map quant_var_sort_list ~f:fst in
+
+        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in      
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
+
+        let pred_decl = pred_trnsl.pred_def.func_decl in
+
+        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+          (* TODO: Make sure ghost/implicit is being treated properly *)
+          if not var_decl.var_implicit then
+            let tp = var_decl.var_type in
+            let sort = lookup_type tp tbl smtEnv in
+            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+          else
+            None
+          )
+        in
+
+        let new_params_list = List.map new_params_sort_list ~f:fst in
+
+        let _new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+        (* remove expr given for implicit args *)
+        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+        let cmd = 
+          mk_assert (mk_exists quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_and [
+                (mk_eq 
+                  (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                  (mk_app Plus [mk_const (IntConst 1); mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated)])
+                );
+
+                mk_forall new_params_sort_list
+                (mk_or [
+                  mk_and (cond_term :: new_params_eq_old_expr_list);
+
+                  (mk_eq 
+                    (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                    (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                  ) 
+                ])
+              ])
+            )
+          ) in
+
+          [(pred_name, new_predheap)], [cmd]
+
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+        in
+  
+        let cmd = mk_assert term in
+  
+        [], [cmd]
+          
+      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
+      )
+
+  | Binder (Exists, _quant_vars, _expr, _) ->
+    let term = try
+      translate_expr expr tbl smtEnv
+    with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+    in
+
+    let cmd = 
+      mk_assert term in
+
+    [], [cmd]
+
+  | expr -> 
+    let expr_term = try
+      translate_expr expr tbl smtEnv
+    with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+    in
+
+    let cmd = mk_assert expr_term in
+
+    [], [cmd]
+end
+
+module TrnslExhale = struct
+  let rec trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident * SMTIdent.t) list * command list * term list =
+  match expr with
+  | App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _) ->
+    (match SmtEnv.find smtEnv field_heap with
+    | Some (Field field_trnsl) ->
+      let loc_term = translate_expr loc_expr tbl smtEnv in
+      let val_term = (match val_args with
+        | [val_expr] ->
+          let val_term = translate_expr val_expr tbl smtEnv in
+          val_term
+        | [val_expr; frac_expr] -> 
+          let val_term = translate_expr val_expr tbl smtEnv in
+          let frac_term = translate_expr frac_expr tbl smtEnv in
+
+          frac_chunk_constr val_term frac_term
+        | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+        ) in
+
+      let old_fieldheap_term = field_trnsl.field_heap in
+      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+      
+      let l_ident = SMTIdent.make "l" in
+      let l_term = mk_const (Ident l_ident) in
+      let cmd = 
+        mk_assert (mk_binder Forall [(l_ident, PreambleConsts.loc_sort)] 
+          (mk_ite (mk_eq l_term loc_term)
+            (mk_eq (mk_select new_fieldheap_term l_term) (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term l_term; val_term]))
+            (mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term))
+          )
+        ) in
+      
+      let permission_term =
+        mk_app (Ident field_trnsl.heapchunk_compare) [
+          val_term;
+          (mk_select old_fieldheap_term loc_term)
+        ] in
+
+      [(field_heap, new_fieldheap)], [cmd], [permission_term]
+        
+    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
+
+  | App (Call, (App (Var call_name, [], _)) :: args_list, _) ->
+    (match SmtEnv.find smtEnv call_name with
+    | Some (Pred pred_trnsl) ->
+      (let old_predheap_term = pred_trnsl.pred_heap in
+      let old_predheap = smt_ident_of_term old_predheap_term in
+      let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+      let new_predheap_term = mk_const (Ident new_predheap) in
+
+      let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+
+      let pred_decl = pred_trnsl.pred_def.func_decl in
+
+      let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+        let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+        (* TODO: Make sure ghost/implicit is being treated properly *)
+        if not var_decl.var_implicit then
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+          Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+        else
+          None
+        )
+      in
+
+      let new_params_list = List.map new_params_sort_list ~f:fst in
+
+      let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+      (* remove expr given for implicit args *)
+      let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+      let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+      let cmd = 
+        mk_assert (mk_binder Forall new_params_sort_list
+          (mk_ite (mk_and new_params_eq_old_expr_list)
+            (mk_eq 
+              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
+              (mk_app Minus [(mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)); mk_const (IntConst 1)])
+            )
+            (mk_eq 
+              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
+              (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
+            )
+          )
+        ) in
+
+      let permission_term = 
+        mk_leq (mk_const (IntConst 1)) (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+
+      in
+      
+      [(call_name, new_predheap)], [cmd], [permission_term]
+      )
+    
+    | Some (Func _func_trnsl) -> 
+      let term = try
+          translate_expr expr tbl smtEnv
+        with
+        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+      in
+      [], [], [term]
+
+    | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Callable %s not found in smtEnv. \nsmtEnv: %s " (QualIdent.to_string call_name) (SmtEnv.to_string smtEnv))
+
+  | App (And, [expr1; expr2], _) -> 
+    let new_vars, cmds, perm_terms = trnsl_exhale expr1 tbl smtEnv in
+    
+    let smtEnv' = update_env smtEnv new_vars in
+
+    let new_vars', cmds', perm_terms' = trnsl_exhale expr2 tbl smtEnv' in
+
+    new_vars @ new_vars', cmds @ cmds', perm_terms @ perm_terms'
+
+  | App (Ite, [expr0; expr1; expr2], _) ->
+    (let new_vars1, cmds1, perm_terms1 = trnsl_exhale expr1 tbl smtEnv in
+    let new_vars2, cmds2, perm_terms2 = trnsl_exhale expr2 tbl smtEnv in
+
+    let new_vars3 = new_vars_unify new_vars1 new_vars2 in
+
+    let smtEnv1 = update_env smtEnv new_vars1 in
+    let smtEnv2 = update_env smtEnv new_vars2 in
+
+    let new_var_eqs1 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
+      let old_term = (match SmtEnv.find smtEnv1 qual_ident with
+      | Some (Pred pred_trnsl) -> pred_trnsl.pred_heap
+      | Some (Field field_trnsl) -> field_trnsl.field_heap
+      | _ -> Error.error (Expr.loc expr1) "Expected field or predicate when updating env vars; found something else.")
+
+      in
+      mk_eq (mk_const (Ident smt_ident)) old_term
+
+    ) in
+
+    let new_var_eqs2 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
+      let old_term = (match SmtEnv.find smtEnv2 qual_ident with
+      | Some (Pred pred_trnsl) -> pred_trnsl.pred_heap
+      | Some (Field field_trnsl) -> field_trnsl.field_heap
+      | _ -> Error.error (Expr.loc expr1) "Expected field or predicate when updating env vars; found something else.")
+
+      in
+      mk_eq (mk_const (Ident smt_ident)) old_term
+
+    ) in
+
+    let cond_term = translate_expr expr0 tbl smtEnv in
+    
+    let cmd = mk_assert (mk_ite cond_term
+      (mk_and (List.map cmds1 ~f:unfold_assert @ new_var_eqs1))
+      (mk_and (List.map cmds2 ~f:unfold_assert @ new_var_eqs2))
+    )
+  
+    in
+
+    let perm_terms1 = List.map perm_terms1 ~f:(fun term -> mk_impl cond_term term) in
+
+    let perm_terms2 = List.map perm_terms2 ~f:(fun term -> mk_impl (mk_not cond_term) term) in
+
+    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd], perm_terms1 @ perm_terms2)
+
+  | Binder (Forall, quant_vars, App (Own, own_args, expr_attr1), expr_attr2) ->
+    trnsl_exhale
+    (Binder (Forall, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Own, own_args, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+
+  | Binder (Forall, quant_vars, 
+      App (Impl, [expr0; 
+        App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _)], _
+      ), _
+    ) -> 
+      (match SmtEnv.find smtEnv field_heap with
+      | Some (Field field_trnsl) ->
+        let old_fieldheap_term = field_trnsl.field_heap in
+        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let loc_term = translate_expr loc_expr tbl smtEnv' in
+        let val_term = (match val_args with
+        | [val_expr] ->
+          let val_term = translate_expr val_expr tbl smtEnv' in
+          val_term
+        | [val_expr; frac_expr] -> 
+          let val_term = translate_expr val_expr tbl smtEnv' in
+          let frac_term = translate_expr frac_expr tbl smtEnv' in
+
+          frac_chunk_constr val_term frac_term
+        | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+        ) in
+
+        let l_ident = SMTIdent.make "l" in
+        let l_term = mk_const (Ident l_ident) in
+
+        let cmd1 = 
+          mk_assert (mk_forall quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_eq 
+                (mk_select new_fieldheap_term loc_term)
+                (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term loc_term; val_term])
+              )
+            )
+          ) in
+
+        let cmd2 = 
+          mk_assert (mk_forall [(l_ident, PreambleConsts.loc_sort)]
+            (mk_or [
+              mk_exists quant_var_sort_list (mk_and [mk_eq l_term loc_term; cond_term]);
+              mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
+            ])
+          ) in
+
+          let perm_term = (
+            mk_forall quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_app (Ident field_trnsl.heapchunk_compare) [
+                val_term;
+                (mk_select old_fieldheap_term loc_term);
+              ])
+            )
+          ) in
+
+          [(field_heap, new_fieldheap)], [cmd1; cmd2], [perm_term]
+          
+      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+      )
+
+  | Binder (Forall, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+    trnsl_exhale
+    (Binder (Forall, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+  | Binder (Forall, quant_vars, 
+      App (Impl, [expr0; 
+        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+      ], _
+      ), _
+    ) ->
+      (match SmtEnv.find smtEnv pred_name with
+      | Some (Pred pred_trnsl) ->
+        let old_predheap_term = pred_trnsl.pred_heap in
+        let old_predheap = smt_ident_of_term old_predheap_term in
+        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+        let new_predheap_term = mk_const (Ident new_predheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let quant_var_list = List.map quant_var_sort_list ~f:fst in
+
+        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in      
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
+
+        let pred_decl = pred_trnsl.pred_def.func_decl in
+
+        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+          (* TODO: Make sure ghost/implicit is being treated properly *)
+          if not var_decl.var_implicit then
+            let tp = var_decl.var_type in
+            let sort = lookup_type tp tbl smtEnv in
+            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+          else
+            None
+          )
+        in
+
+        let new_params_list = List.map new_params_sort_list ~f:fst in
+
+        let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+        (* remove expr given for implicit args *)
+        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+        let cmd1 = 
+          mk_assert (mk_forall quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_eq 
+                (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                (mk_app Minus [mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated); mk_const (IntConst 1);])
+              )
+            )
+          ) in
+
+        let cmd2 = 
+          mk_assert (mk_forall new_params_sort_list
+            (mk_or [
+              mk_exists quant_var_sort_list (mk_and (cond_term :: new_params_eq_old_expr_list));
+
+              mk_eq (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
+            ])
+          ) in
+
+        let perm_term = (
+          mk_forall quant_var_sort_list
+          (mk_forall new_params_sort_list 
+            (mk_impl cond_term
+              (mk_leq 
+                (mk_const (IntConst 1))
+                (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
+              )
+            ))
+        ) in
+
+          [(pred_name, new_predheap)], [cmd1; cmd2], [perm_term]
+
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    
+        in
+    
+        [], [], [term]
+          
+      | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Pred %s not found in smtEnv" (QualIdent.to_string pred_name)
+      )
+
+  | Binder (Forall, _quant_vars, _expr, _) ->
+    let term = try
+        translate_expr expr tbl smtEnv
+      with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    in
+
+    [], [], [term]
+  
+  | Binder (Exists, quant_vars, 
+      App (Impl, [expr0; 
+        App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _)], _
+      ), _
+    ) -> 
+    (match SmtEnv.find smtEnv field_heap with
+    | Some (Field field_trnsl) ->
+      let old_fieldheap_term = field_trnsl.field_heap in
+      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+      
+      let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+        let tp = var_decl.var_type in
+        let sort = lookup_type tp tbl smtEnv in
+
+        (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+        )
+      in
+
+      let smtEnv' = SmtEnv.push smtEnv in
+      let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+      let cond_term = translate_expr expr0 tbl smtEnv' in
+      let loc_term = translate_expr loc_expr tbl smtEnv' in
+      let val_term = (match val_args with
+      | [val_expr] ->
+        let val_term = translate_expr val_expr tbl smtEnv' in
+        val_term
+      | [val_expr; frac_expr] -> 
+        let val_term = translate_expr val_expr tbl smtEnv' in
+        let frac_term = translate_expr frac_expr tbl smtEnv' in
+
+        frac_chunk_constr val_term frac_term
+      | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+      ) in
+
+      let l_ident = SMTIdent.make "l" in
+      let l_term = mk_const (Ident l_ident) in
+
+      let cmd = 
+        mk_assert (mk_exists quant_var_sort_list 
+          (mk_impl cond_term
+            (mk_and [
+              (mk_eq 
+                (mk_select new_fieldheap_term loc_term)
+                (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term loc_term; val_term])
+              );
+
+              (mk_forall [(l_ident, PreambleConsts.loc_sort)]
+                (mk_or [
+                  mk_and [cond_term; mk_eq l_term loc_term];
+                  mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
+                ])
+              )
+            ])
+          )
+        ) in
+
+        let perm_term = 
+          mk_exists quant_var_sort_list (mk_impl cond_term
+            (mk_app (Ident field_trnsl.heapchunk_compare) [val_term; mk_select old_fieldheap_term loc_term])
+          ) in
+
+        [(field_heap, new_fieldheap)], [cmd], [perm_term]
+        
+    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+    )
+
+  | Binder (Exists, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+    trnsl_exhale
+    (Binder (Exists, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+  | Binder (Exists, quant_vars, 
+      App (Impl, [expr0; 
+        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+      ], _
+      ), _
+    ) ->
+      (match SmtEnv.find smtEnv pred_name with
+      | Some (Pred pred_trnsl) ->
+        let old_predheap_term = pred_trnsl.pred_heap in
+        let old_predheap = smt_ident_of_term old_predheap_term in
+        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+        let new_predheap_term = mk_const (Ident new_predheap) in
+        
+        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+
+          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+          )
+        in
+
+        let quant_var_list = List.map quant_var_sort_list ~f:fst in
+
+        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in      
+
+        let smtEnv' = SmtEnv.push smtEnv in
+        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+        let cond_term = translate_expr expr0 tbl smtEnv' in
+        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
+
+        let pred_decl = pred_trnsl.pred_def.func_decl in
+
+        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+          (* TODO: Make sure ghost/implicit is being treated properly *)
+          if not var_decl.var_implicit then
+            let tp = var_decl.var_type in
+            let sort = lookup_type tp tbl smtEnv in
+            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+          else
+            None
+          )
+        in
+
+        let new_params_list = List.map new_params_sort_list ~f:fst in
+
+        let _new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
+
+        (* remove expr given for implicit args *)
+        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+        let cmd = 
+          mk_assert (mk_exists quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_and [
+                (mk_eq 
+                  (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                  (mk_app Minus [mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated); mk_const (IntConst 1)])
+                );
+
+                mk_forall new_params_sort_list
+                (mk_or [
+                  mk_and (cond_term :: new_params_eq_old_expr_list);
+
+                  (mk_eq 
+                    (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                    (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                  ) 
+                ])
+              ])
+            )
+          ) in
+
+          let perm_term = 
+            mk_exists quant_var_sort_list (mk_impl cond_term
+              (mk_leq 
+                (mk_const (IntConst 1))
+                (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+              )
+            )
+          in
+
+          [(pred_name, new_predheap)], [cmd], [perm_term]
+
+      | Some (Func _) ->
+        let term = try
+          translate_expr expr tbl smtEnv
+        with
+          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    
+        in
+    
+        [], [], [term]
+          
+      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
+      )
+
+  | Binder (Exists, _quant_vars, _expr, _) ->
+    let term = try
+        translate_expr expr tbl smtEnv
+      with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    in
+
+    [], [], [term]
+
+  | expr -> 
+    let expr_term = try
+      translate_expr expr tbl smtEnv
+    with
+      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+
+    in
+
+    [], [], [expr_term]
+end
+
 let stmt_preprocessor_simple (stmt: Stmt.t) (tbl: SymbolTbl.t) : atomicity_constraints * Stmt.t = stmt_preprocessor stmt tbl ~atom_constr:default_atomicity_constraint
 
 let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session) =
@@ -737,7 +1855,58 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     
     smtEnv, session
 
-  | New _new_desc -> Error.error loc "New stmts not supported presently"
+  | New new_desc -> 
+    let fresh_loc_var_name = SMTIdent.fresh (Ident.to_string new_desc.new_lhs) in
+    let fresh_loc_var_term = mk_const (Ident fresh_loc_var_name) in
+    let var_sort = PreambleConsts.loc_sort in
+
+    Smt_solver.write session (mk_declare_const fresh_loc_var_name var_sort);
+
+    let smtEnv = SmtEnv.add smtEnv (QualIdent.from_ident new_desc.new_lhs) (Var {var_symbol = fresh_loc_var_term; var_sort = var_sort}) in
+
+    let smtEnv, session = List.fold new_desc.new_args ~init:(smtEnv, session) ~f:(fun (smtEnv, session) field_expr ->
+      let field_name = ASTUtil.expr_to_qual_ident field_expr in
+      match SmtEnv.find smtEnv field_name with
+      | Some Field field_trnsl ->
+
+        let temp_var_name = SMTIdent.fresh ("tmp") in
+        let temp_var_term = mk_const (Ident temp_var_name) in
+        let temp_var_sort = field_trnsl.field_sort in
+
+        let old_fieldheap_term = field_trnsl.field_heap in
+        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+        
+        let smtEnv, session = redefine_vars [(field_name, new_fieldheap)] smtEnv session in
+
+        let l_ident = SMTIdent.make "l" in
+        let l_term = mk_const (Ident l_ident) in
+        let cmd = 
+          mk_assert (mk_binder Forall [(l_ident, PreambleConsts.loc_sort)] 
+            (mk_ite (mk_eq l_term fresh_loc_var_term)
+              (mk_eq (mk_select new_fieldheap_term l_term) temp_var_term)
+              (mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term))
+            )
+          ) 
+        in
+
+        Smt_solver.write session (mk_declare_const temp_var_name temp_var_sort);
+
+        Smt_solver.write session cmd;
+        smtEnv, session
+
+          (* [(field_heap, new_fieldheap)], [cmd] *)
+
+      | _ -> Error.error loc "Expected field in smtEnv"
+      
+
+    ) in
+
+    smtEnv, session
+
+    
+    (* Error.error loc "New stmts not supported presently" *)
 
   | Assign assign_desc ->
     (match assign_desc.assign_lhs with
@@ -963,7 +2132,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | Inhale expr -> 
     check_sep_star_injectivity expr tbl smtEnv;
 
-    let new_vars, cmds = trnsl_inhale expr tbl smtEnv in
+    let new_vars, cmds = TrnslInhale.trnsl_inhale expr tbl smtEnv in
 
     let smtEnv, session = redefine_vars new_vars smtEnv session in
       
@@ -976,7 +2145,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | Exhale expr ->
     check_sep_star_injectivity expr tbl smtEnv;
 
-    let new_vars, cmds, perm_terms = trnsl_exhale expr tbl smtEnv in
+    let new_vars, cmds, perm_terms = TrnslExhale.trnsl_exhale expr tbl smtEnv in
 
     let smtEnv, session = redefine_vars new_vars smtEnv session in
 
@@ -1013,7 +2182,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       let loc_term = var_trnsl.var_symbol in
       let field_fpu = (match field_trnsl.field_fpu with
       | Some iden -> iden
-      | None -> Error.error loc @@ Printf.sprintf "fpuApply not found for field fpu"
+      | None -> Error.error loc @@ Printf.sprintf "fpuAllowed not found for field fpu.\n%s" (SmtEnv.to_string smtEnv)
       ) in
       let perm_term = mk_app (Ident field_fpu) [mk_select field_trnsl.field_heap loc_term; val_term] in
       let session = assert_not session perm_term in
@@ -1081,1054 +2250,6 @@ and trnsl_assign_rhs (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session:
     | expr -> translate_expr expr tbl smtEnv, session
   
   )
-
-and trnsl_inhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident * SMTIdent.t) list * command list =
-  match expr with
-  | App (Own, [loc_expr; (App (Var field_heap, [], _)); val_expr; frac_expr], _) ->
-    (match SmtEnv.find smtEnv field_heap with
-    | Some (Field field_trnsl) ->
-      let loc_term = translate_expr loc_expr tbl smtEnv in
-      let val_term = translate_expr val_expr tbl smtEnv in
-      let frac_term = translate_expr frac_expr tbl smtEnv in
-
-      let old_fieldheap_term = field_trnsl.field_heap in
-      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
-      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
-      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
-      
-      let l_ident = SMTIdent.make "l" in
-      let l_term = mk_const (Ident l_ident) in
-      let cmd = 
-        mk_assert (mk_binder Forall [(l_ident, PreambleConsts.loc_sort)] 
-          (mk_ite (mk_eq l_term loc_term)
-            (mk_eq (mk_select new_fieldheap_term l_term) (mk_app (Ident field_trnsl.field_heap_add_chunk) [mk_select old_fieldheap_term l_term; frac_chunk_constr val_term frac_term]))
-            (mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term))
-          )
-        ) in
-
-        [(field_heap, new_fieldheap)], [cmd]
-        
-    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
-
-  | App (Call, (App (Var pred_name, [], _)) :: args_list, _) ->
-    (match SmtEnv.find smtEnv pred_name with
-    | Some (Pred pred_trnsl) ->
-      (let old_predheap_term = pred_trnsl.pred_heap in
-      let old_predheap = smt_ident_of_term old_predheap_term in
-      let new_predheap = SMTIdent.fresh old_predheap.ident_name in
-      let new_predheap_term = mk_const (Ident new_predheap) in
-
-      let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
-
-      let pred_decl = pred_trnsl.pred_def.func_decl in
-
-      let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
-        let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
-        (* TODO: Make sure ghost/implicit is being treated properly *)
-        if not var_decl.var_implicit then
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-          Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
-        else
-          None
-        )
-      in
-
-      let new_params_list = List.map new_params_sort_list ~f:fst in
-
-      let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-      (* remove expr given for implicit args *)
-      let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
-
-      let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
-
-      let cmd = 
-        mk_assert (mk_binder Forall new_params_sort_list
-          (mk_ite (mk_and new_params_eq_old_expr_list)
-            (mk_eq 
-              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
-              (mk_app Plus [mk_const (IntConst 1); (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))])
-            )
-            (mk_eq 
-              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
-              (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
-            )
-          )
-        ) in 
-      
-      [(pred_name, new_predheap)], [cmd]
-      )
-
-    | Some (Func _func_trnsl) -> 
-      let term = try
-        translate_expr expr tbl smtEnv
-      with
-        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
-      in
-
-      let cmd = mk_assert term in
-
-      [], [cmd]
-
-    | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv")
-
-  | App (And, [expr1; expr2], _) -> 
-    let new_vars, cmds = trnsl_inhale expr1 tbl smtEnv in
-    
-    let smtEnv' = update_env smtEnv new_vars in
-
-    let new_vars', cmds' = trnsl_inhale expr2 tbl smtEnv' in
-
-    new_vars @ new_vars', cmds @ cmds'
-
-  | App (Ite, [expr0; expr1; expr2], _) ->
-    (let new_vars1, cmds1 = trnsl_inhale expr1 tbl smtEnv in
-    let new_vars2, cmds2 = trnsl_inhale expr2 tbl smtEnv in
-
-    let new_vars3 = new_vars_unify new_vars1 new_vars2 in
-
-    let smtEnv1 = update_env smtEnv new_vars1 in
-    let smtEnv2 = update_env smtEnv new_vars2 in
-
-    let new_var_eqs1 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
-      let old_term = SmtEnv.find_term_exn smtEnv1 qual_ident
-
-      in
-      mk_eq (mk_const (Ident smt_ident)) old_term
-
-    ) in
-
-    let new_var_eqs2 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
-      let old_term = SmtEnv.find_term_exn smtEnv2 qual_ident
-
-      in
-      mk_eq (mk_const (Ident smt_ident)) old_term
-
-    ) in
-
-    let cond_term = translate_expr expr0 tbl smtEnv in
-    
-    let cmd = mk_assert (mk_ite cond_term
-      (mk_and (List.map cmds1 ~f:unfold_assert @ new_var_eqs1))
-      (mk_and (List.map cmds2 ~f:unfold_assert @ new_var_eqs2))
-    )
-  
-    in
-
-    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd])
-
-  | Binder (Forall, quant_vars, App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1), expr_attr2) ->
-
-    trnsl_inhale
-    (Binder (Forall, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-
-  | Binder (Forall, quant_vars, 
-      App (Impl, [expr0; 
-        App (Own, [loc_expr; (App (Var field_heap, [], _)); val_expr; frac_expr], _)], _
-      ), _
-    ) -> 
-      (match SmtEnv.find smtEnv field_heap with
-      | Some (Field field_trnsl) ->
-        let old_fieldheap_term = field_trnsl.field_heap in
-        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
-        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
-        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let loc_term = translate_expr loc_expr tbl smtEnv' in
-        let val_term = translate_expr val_expr tbl smtEnv' in
-        let frac_term = translate_expr frac_expr tbl smtEnv' in
-
-        let l_ident = SMTIdent.make "l" in
-        let l_term = mk_const (Ident l_ident) in
-
-        let cmd1 = 
-          mk_assert (mk_forall quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_eq 
-                (mk_select new_fieldheap_term loc_term)
-                (mk_app (Ident field_trnsl.field_heap_add_chunk) [mk_select old_fieldheap_term loc_term; frac_chunk_constr val_term frac_term])
-              )
-            )
-          ) in
-
-        let cmd2 = 
-          mk_assert (mk_forall [(l_ident, PreambleConsts.loc_sort)]
-            (mk_or [
-              mk_exists quant_var_sort_list (mk_and [mk_eq l_term loc_term; cond_term]);
-              mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
-            ])
-          ) in
-
-          [(field_heap, new_fieldheap)], [cmd1; cmd2]
-          
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
-      )
-
-  | Binder (Forall, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
-    trnsl_inhale
-    (Binder (Forall, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-  | Binder (Forall, quant_vars, 
-      App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
-      ], _
-      ), _
-    ) ->
-      (match SmtEnv.find smtEnv pred_name with
-      | Some (Pred pred_trnsl) ->
-        let old_predheap_term = pred_trnsl.pred_heap in
-        let old_predheap = smt_ident_of_term old_predheap_term in
-        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
-        let new_predheap_term = mk_const (Ident new_predheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let quant_var_list = List.map quant_var_sort_list ~f:fst in
-
-        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
-
-        let pred_decl = pred_trnsl.pred_def.func_decl in
-
-        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
-          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
-          (* TODO: Make sure ghost/implicit is being treated properly *)
-          if not var_decl.var_implicit then
-            let tp = var_decl.var_type in
-            let sort = lookup_type tp tbl smtEnv in
-            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
-          else
-            None
-          )
-        in
-
-        let new_params_list = List.map new_params_sort_list ~f:fst in
-
-        let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-        (* remove expr given for implicit args *)
-        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
-
-        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
-
-        let cmd1 = 
-          mk_assert (mk_forall quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_eq 
-                (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                (mk_app Plus [mk_const (IntConst 1); mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated)])
-              )
-            )
-          ) in
-
-        let cmd2 = 
-          mk_assert (mk_forall new_params_sort_list
-            (mk_or [
-              mk_exists quant_var_sort_list (mk_and (cond_term :: new_params_eq_old_expr_list));
-              mk_eq (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
-            ])
-          ) in
-
-          [(pred_name, new_predheap)], [cmd1; cmd2]
-        
-      | Some (Func _) ->
-        let term = try
-          translate_expr expr tbl smtEnv
-        with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
-        in
-  
-        let cmd = mk_assert term in
-  
-        [], [cmd]
-          
-      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
-      )
-
-  | Binder (Forall, _quant_vars, _expr', _) ->
-    let term = try
-      translate_expr expr tbl smtEnv
-    with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
-    in
-
-    let cmd = 
-      mk_assert term in
-
-    [], [cmd]
-  
-  | Binder (Exists, quant_vars, App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1), expr_attr2) ->
-
-    trnsl_inhale
-    (Binder (Exists, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-
-  | Binder (Exists, quant_vars, 
-      App (Impl, [expr0; 
-        App (Own, [loc_expr; (App (Var field_heap, [], _)); val_expr; frac_expr], _)], _
-      ), _
-    ) -> 
-      (match SmtEnv.find smtEnv field_heap with
-      | Some (Field field_trnsl) ->
-        let old_fieldheap_term = field_trnsl.field_heap in
-        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
-        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
-        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let loc_term = translate_expr loc_expr tbl smtEnv' in
-        let val_term = translate_expr val_expr tbl smtEnv' in
-        let frac_term = translate_expr frac_expr tbl smtEnv' in
-
-        let l_ident = SMTIdent.make "l" in
-        let l_term = mk_const (Ident l_ident) in
-
-        let cmd = 
-          mk_assert (mk_exists quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_and [
-                (mk_eq 
-                  (mk_select new_fieldheap_term loc_term)
-                  (mk_app (Ident field_trnsl.field_heap_add_chunk) [mk_select old_fieldheap_term loc_term; frac_chunk_constr val_term frac_term])
-                );
-
-                (mk_forall [(l_ident, PreambleConsts.loc_sort)]
-                  (mk_or [
-                    mk_and [cond_term; mk_eq l_term loc_term];
-                    mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
-                  ])
-                )
-              ])
-            )
-          ) in
-
-          [(field_heap, new_fieldheap)], [cmd]
-          
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
-      )
-
-  | Binder (Exists, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
-    trnsl_inhale
-    (Binder (Exists, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-  | Binder (Exists, quant_vars, 
-      App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
-      ], _
-      ), _
-    ) ->
-      (match SmtEnv.find smtEnv pred_name with
-      | Some (Pred pred_trnsl) ->
-        let old_predheap_term = pred_trnsl.pred_heap in
-        let old_predheap = smt_ident_of_term old_predheap_term in
-        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
-        let new_predheap_term = mk_const (Ident new_predheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let quant_var_list = List.map quant_var_sort_list ~f:fst in
-
-        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in      
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
-
-        let pred_decl = pred_trnsl.pred_def.func_decl in
-
-        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
-          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
-          (* TODO: Make sure ghost/implicit is being treated properly *)
-          if not var_decl.var_implicit then
-            let tp = var_decl.var_type in
-            let sort = lookup_type tp tbl smtEnv in
-            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
-          else
-            None
-          )
-        in
-
-        let new_params_list = List.map new_params_sort_list ~f:fst in
-
-        let _new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-        (* remove expr given for implicit args *)
-        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
-
-        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
-
-        let cmd = 
-          mk_assert (mk_exists quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_and [
-                (mk_eq 
-                  (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                  (mk_app Plus [mk_const (IntConst 1); mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated)])
-                );
-
-                mk_forall new_params_sort_list
-                (mk_or [
-                  mk_and (cond_term :: new_params_eq_old_expr_list);
-
-                  (mk_eq 
-                    (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                    (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                  ) 
-                ])
-              ])
-            )
-          ) in
-
-          [(pred_name, new_predheap)], [cmd]
-
-      | Some (Func _) ->
-        let term = try
-          translate_expr expr tbl smtEnv
-        with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
-        in
-  
-        let cmd = mk_assert term in
-  
-        [], [cmd]
-          
-      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
-      )
-
-  | Binder (Exists, _quant_vars, _expr, _) ->
-    let term = try
-      translate_expr expr tbl smtEnv
-    with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
-    in
-
-    let cmd = 
-      mk_assert term in
-
-    [], [cmd]
-
-  | expr -> 
-    let expr_term = try
-      translate_expr expr tbl smtEnv
-    with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
-    in
-
-    let cmd = mk_assert expr_term in
-
-    [], [cmd]
-
-
-
-
-(* ------------------------------------------ *)
-
-
-
-
-
-
-and trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident * SMTIdent.t) list * command list * term list =
-  match expr with
-  | App (Own, [loc_expr; (App (Var field_heap, [], _)); val_expr; frac_expr], _) ->
-    (match SmtEnv.find smtEnv field_heap with
-    | Some (Field field_trnsl) ->
-      let loc_term = translate_expr loc_expr tbl smtEnv in
-      let val_term = translate_expr val_expr tbl smtEnv in
-      let frac_term = translate_expr frac_expr tbl smtEnv in
-
-      let old_fieldheap_term = field_trnsl.field_heap in
-      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
-      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
-      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
-      
-      let l_ident = SMTIdent.make "l" in
-      let l_term = mk_const (Ident l_ident) in
-      let cmd = 
-        mk_assert (mk_binder Forall [(l_ident, PreambleConsts.loc_sort)] 
-          (mk_ite (mk_eq l_term loc_term)
-            (mk_eq (mk_select new_fieldheap_term l_term) (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term l_term;  frac_chunk_constr val_term frac_term]))
-            (mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term))
-          )
-        ) in
-      
-      let permission_term =
-        mk_app (Ident field_trnsl.heapchunk_compare) [
-          frac_chunk_constr val_term frac_term;
-          (mk_select old_fieldheap_term loc_term)
-        ] in
-
-      [(field_heap, new_fieldheap)], [cmd], [permission_term]
-        
-    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
-
-  | App (Call, (App (Var call_name, [], _)) :: args_list, _) ->
-    (match SmtEnv.find smtEnv call_name with
-    | Some (Pred pred_trnsl) ->
-      (let old_predheap_term = pred_trnsl.pred_heap in
-      let old_predheap = smt_ident_of_term old_predheap_term in
-      let new_predheap = SMTIdent.fresh old_predheap.ident_name in
-      let new_predheap_term = mk_const (Ident new_predheap) in
-
-      let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
-
-      let pred_decl = pred_trnsl.pred_def.func_decl in
-
-      let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
-        let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
-        (* TODO: Make sure ghost/implicit is being treated properly *)
-        if not var_decl.var_implicit then
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-          Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
-        else
-          None
-        )
-      in
-
-      let new_params_list = List.map new_params_sort_list ~f:fst in
-
-      let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-      (* remove expr given for implicit args *)
-      let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
-
-      let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
-
-      let cmd = 
-        mk_assert (mk_binder Forall new_params_sort_list
-          (mk_ite (mk_and new_params_eq_old_expr_list)
-            (mk_eq 
-              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
-              (mk_app Minus [(mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)); mk_const (IntConst 1)])
-            )
-            (mk_eq 
-              (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) 
-              (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
-            )
-          )
-        ) in
-
-      let permission_term = 
-        mk_leq (mk_const (IntConst 1)) (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-
-      in
-      
-      [(call_name, new_predheap)], [cmd], [permission_term]
-      )
-    
-    | Some (Func _func_trnsl) -> 
-      let term = try
-          translate_expr expr tbl smtEnv
-        with
-        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
-      in
-      [], [], [term]
-
-    | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Callable %s not found in smtEnv. \nsmtEnv: %s " (QualIdent.to_string call_name) (SmtEnv.to_string smtEnv))
-
-  | App (And, [expr1; expr2], _) -> 
-    let new_vars, cmds, perm_terms = trnsl_exhale expr1 tbl smtEnv in
-    
-    let smtEnv' = update_env smtEnv new_vars in
-
-    let new_vars', cmds', perm_terms' = trnsl_exhale expr2 tbl smtEnv' in
-
-    new_vars @ new_vars', cmds @ cmds', perm_terms @ perm_terms'
-
-  | App (Ite, [expr0; expr1; expr2], _) ->
-    (let new_vars1, cmds1, perm_terms1 = trnsl_exhale expr1 tbl smtEnv in
-    let new_vars2, cmds2, perm_terms2 = trnsl_exhale expr2 tbl smtEnv in
-
-    let new_vars3 = new_vars_unify new_vars1 new_vars2 in
-
-    let smtEnv1 = update_env smtEnv new_vars1 in
-    let smtEnv2 = update_env smtEnv new_vars2 in
-
-    let new_var_eqs1 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
-      let old_term = (match SmtEnv.find smtEnv1 qual_ident with
-      | Some (Pred pred_trnsl) -> pred_trnsl.pred_heap
-      | Some (Field field_trnsl) -> field_trnsl.field_heap
-      | _ -> Error.error (Expr.loc expr1) "Expected field or predicate when updating env vars; found something else.")
-
-      in
-      mk_eq (mk_const (Ident smt_ident)) old_term
-
-    ) in
-
-    let new_var_eqs2 = List.map new_vars3 ~f:(fun (qual_ident, smt_ident) ->
-      let old_term = (match SmtEnv.find smtEnv2 qual_ident with
-      | Some (Pred pred_trnsl) -> pred_trnsl.pred_heap
-      | Some (Field field_trnsl) -> field_trnsl.field_heap
-      | _ -> Error.error (Expr.loc expr1) "Expected field or predicate when updating env vars; found something else.")
-
-      in
-      mk_eq (mk_const (Ident smt_ident)) old_term
-
-    ) in
-
-    let cond_term = translate_expr expr0 tbl smtEnv in
-    
-    let cmd = mk_assert (mk_ite cond_term
-      (mk_and (List.map cmds1 ~f:unfold_assert @ new_var_eqs1))
-      (mk_and (List.map cmds2 ~f:unfold_assert @ new_var_eqs2))
-    )
-  
-    in
-
-    let perm_terms1 = List.map perm_terms1 ~f:(fun term -> mk_impl cond_term term) in
-
-    let perm_terms2 = List.map perm_terms2 ~f:(fun term -> mk_impl (mk_not cond_term) term) in
-
-    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd], perm_terms1 @ perm_terms2)
-
-  | Binder (Forall, quant_vars, App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1), expr_attr2) ->
-    trnsl_exhale
-    (Binder (Forall, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Own, [loc_expr; (App (Var field_heap, [], expr_attr0)); val_expr; frac_expr], expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-
-  | Binder (Forall, quant_vars, 
-      App (Impl, [expr0; 
-        App (Own, [loc_expr; (App (Var field_heap, [], _)); val_expr; frac_expr], _)], _
-      ), _
-    ) -> 
-      (match SmtEnv.find smtEnv field_heap with
-      | Some (Field field_trnsl) ->
-        let old_fieldheap_term = field_trnsl.field_heap in
-        let old_fieldheap = smt_ident_of_term old_fieldheap_term in
-        let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
-        let new_fieldheap_term = mk_const (Ident new_fieldheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let loc_term = translate_expr loc_expr tbl smtEnv' in
-        let val_term = translate_expr val_expr tbl smtEnv' in
-        let frac_term = translate_expr frac_expr tbl smtEnv' in
-
-        let l_ident = SMTIdent.make "l" in
-        let l_term = mk_const (Ident l_ident) in
-
-        let cmd1 = 
-          mk_assert (mk_forall quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_eq 
-                (mk_select new_fieldheap_term loc_term)
-                (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term loc_term; frac_chunk_constr val_term frac_term])
-              )
-            )
-          ) in
-
-        let cmd2 = 
-          mk_assert (mk_forall [(l_ident, PreambleConsts.loc_sort)]
-            (mk_or [
-              mk_exists quant_var_sort_list (mk_and [mk_eq l_term loc_term; cond_term]);
-              mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
-            ])
-          ) in
-
-          let perm_term = (
-            mk_forall quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_app (Ident field_trnsl.heapchunk_compare) [
-                frac_chunk_constr val_term frac_term;
-                (mk_select old_fieldheap_term loc_term);
-              ])
-            )
-          ) in
-
-          [(field_heap, new_fieldheap)], [cmd1; cmd2], [perm_term]
-          
-      | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
-      )
-
-  | Binder (Forall, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
-    trnsl_exhale
-    (Binder (Forall, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-  | Binder (Forall, quant_vars, 
-      App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
-      ], _
-      ), _
-    ) ->
-      (match SmtEnv.find smtEnv pred_name with
-      | Some (Pred pred_trnsl) ->
-        let old_predheap_term = pred_trnsl.pred_heap in
-        let old_predheap = smt_ident_of_term old_predheap_term in
-        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
-        let new_predheap_term = mk_const (Ident new_predheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let quant_var_list = List.map quant_var_sort_list ~f:fst in
-
-        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in      
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
-
-        let pred_decl = pred_trnsl.pred_def.func_decl in
-
-        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
-          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
-          (* TODO: Make sure ghost/implicit is being treated properly *)
-          if not var_decl.var_implicit then
-            let tp = var_decl.var_type in
-            let sort = lookup_type tp tbl smtEnv in
-            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
-          else
-            None
-          )
-        in
-
-        let new_params_list = List.map new_params_sort_list ~f:fst in
-
-        let new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-        (* remove expr given for implicit args *)
-        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
-
-        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
-
-        let cmd1 = 
-          mk_assert (mk_forall quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_eq 
-                (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                (mk_app Minus [mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated); mk_const (IntConst 1);])
-              )
-            )
-          ) in
-
-        let cmd2 = 
-          mk_assert (mk_forall new_params_sort_list
-            (mk_or [
-              mk_exists quant_var_sort_list (mk_and (cond_term :: new_params_eq_old_expr_list));
-
-              mk_eq (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list)) (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
-            ])
-          ) in
-
-        let perm_term = (
-          mk_forall quant_var_sort_list
-          (mk_forall new_params_sort_list 
-            (mk_impl cond_term
-              (mk_leq 
-                (mk_const (IntConst 1))
-                (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
-              )
-            ))
-        ) in
-
-          [(pred_name, new_predheap)], [cmd1; cmd2], [perm_term]
-
-      | Some (Func _) ->
-        let term = try
-          translate_expr expr tbl smtEnv
-        with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
-    
-        in
-    
-        [], [], [term]
-          
-      | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Pred %s not found in smtEnv" (QualIdent.to_string pred_name)
-      )
-
-  | Binder (Forall, _quant_vars, _expr, _) ->
-    let term = try
-        translate_expr expr tbl smtEnv
-      with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
-    in
-
-    [], [], [term]
-  
-  | Binder (Exists, quant_vars, 
-      App (Impl, [expr0; 
-        App (Own, [loc_expr; (App (Var field_heap, [], _)); val_expr; frac_expr], _)], _
-      ), _
-    ) -> 
-    (match SmtEnv.find smtEnv field_heap with
-    | Some (Field field_trnsl) ->
-      let old_fieldheap_term = field_trnsl.field_heap in
-      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
-      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
-      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
-      
-      let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-        let tp = var_decl.var_type in
-        let sort = lookup_type tp tbl smtEnv in
-
-        (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-        )
-      in
-
-      let smtEnv' = SmtEnv.push smtEnv in
-      let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-      let cond_term = translate_expr expr0 tbl smtEnv' in
-      let loc_term = translate_expr loc_expr tbl smtEnv' in
-      let val_term = translate_expr val_expr tbl smtEnv' in
-      let frac_term = translate_expr frac_expr tbl smtEnv' in
-
-      let l_ident = SMTIdent.make "l" in
-      let l_term = mk_const (Ident l_ident) in
-
-      let cmd = 
-        mk_assert (mk_exists quant_var_sort_list 
-          (mk_impl cond_term
-            (mk_and [
-              (mk_eq 
-                (mk_select new_fieldheap_term loc_term)
-                (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term loc_term; frac_chunk_constr val_term frac_term])
-              );
-
-              (mk_forall [(l_ident, PreambleConsts.loc_sort)]
-                (mk_or [
-                  mk_and [cond_term; mk_eq l_term loc_term];
-                  mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
-                ])
-              )
-            ])
-          )
-        ) in
-
-        let perm_term = 
-          mk_exists quant_var_sort_list (mk_impl cond_term
-            (mk_app (Ident field_trnsl.heapchunk_compare) [frac_chunk_constr val_term frac_term; mk_select old_fieldheap_term loc_term])
-          ) in
-
-        [(field_heap, new_fieldheap)], [cmd], [perm_term]
-        
-    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
-    )
-
-  | Binder (Exists, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
-    trnsl_exhale
-    (Binder (Exists, quant_vars, 
-      App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
-      ], expr_attr1
-      ), expr_attr2
-    )) tbl smtEnv
-
-  | Binder (Exists, quant_vars, 
-      App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
-      ], _
-      ), _
-    ) ->
-      (match SmtEnv.find smtEnv pred_name with
-      | Some (Pred pred_trnsl) ->
-        let old_predheap_term = pred_trnsl.pred_heap in
-        let old_predheap = smt_ident_of_term old_predheap_term in
-        let new_predheap = SMTIdent.fresh old_predheap.ident_name in
-        let new_predheap_term = mk_const (Ident new_predheap) in
-        
-        let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
-          let tp = var_decl.var_type in
-          let sort = lookup_type tp tbl smtEnv in
-
-          (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
-          )
-        in
-
-        let quant_var_list = List.map quant_var_sort_list ~f:fst in
-
-        let _quant_var_term_list = List.map quant_var_list ~f:(fun ident -> mk_const (Ident ident)) in      
-
-        let smtEnv' = SmtEnv.push smtEnv in
-        let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
-
-        let cond_term = translate_expr expr0 tbl smtEnv' in
-        let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv') in
-
-        let pred_decl = pred_trnsl.pred_def.func_decl in
-
-        let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
-          let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
-          (* TODO: Make sure ghost/implicit is being treated properly *)
-          if not var_decl.var_implicit then
-            let tp = var_decl.var_type in
-            let sort = lookup_type tp tbl smtEnv in
-            Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
-          else
-            None
-          )
-        in
-
-        let new_params_list = List.map new_params_sort_list ~f:fst in
-
-        let _new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in
-
-        (* remove expr given for implicit args *)
-        let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
-
-        let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
-
-        let cmd = 
-          mk_assert (mk_exists quant_var_sort_list 
-            (mk_impl cond_term
-              (mk_and [
-                (mk_eq 
-                  (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                  (mk_app Minus [mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated); mk_const (IntConst 1)])
-                );
-
-                mk_forall new_params_sort_list
-                (mk_or [
-                  mk_and (cond_term :: new_params_eq_old_expr_list);
-
-                  (mk_eq 
-                    (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                    (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-                  ) 
-                ])
-              ])
-            )
-          ) in
-
-          let perm_term = 
-            mk_exists quant_var_sort_list (mk_impl cond_term
-              (mk_leq 
-                (mk_const (IntConst 1))
-                (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
-              )
-            )
-          in
-
-          [(pred_name, new_predheap)], [cmd], [perm_term]
-
-      | Some (Func _) ->
-        let term = try
-          translate_expr expr tbl smtEnv
-        with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
-    
-        in
-    
-        [], [], [term]
-          
-      | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
-      )
-
-  | Binder (Exists, _quant_vars, _expr, _) ->
-    let term = try
-        translate_expr expr tbl smtEnv
-      with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
-    in
-
-    [], [], [term]
-
-  | expr -> 
-    let expr_term = try
-      translate_expr expr tbl smtEnv
-    with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
-
-    in
-
-    [], [], [expr_term]
-
-
-
-(* ------------- *)
-
 
 let initialize_pred (func_def: Callable.func_def) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: session) = 
   let func_decl = func_def.func_decl in
@@ -2243,8 +2364,23 @@ let check_proc_def (proc_def: Callable.proc_def) (tbl: SymbolTbl.t) (smtEnv: smt
     
     let session = Smt_solver.pop session in
     let smtEnv = SmtEnv.pop smtEnv in
+
+    (* asserting lemma if it is axiom *)
+    (* match proc_decl.call_decl_kind, proc_decl.call_decl_formals, proc_decl.call_decl_precond with
+    | Lemma, [], [] ->
+      Smt_solver.write_comment session ("Asserting axiom " ^ (QualIdent.to_string fully_qualified_name));
+
+      List.fold proc_decl.call_decl_postcond ~init:(smtEnv, session) ~f:(fun (smtEnv, session) post_cond ->
+        let term = translate_expr post_cond.spec_form tbl smtEnv in
+
+        Smt_solver.write session (mk_assert term);
+        
+        (smtEnv, session)
+
+      )
     
-    smtEnv, session
+    | _ -> *)
+      smtEnv, session
   )
 
 

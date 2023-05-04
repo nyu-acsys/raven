@@ -142,6 +142,7 @@ module Type = struct
      } *)
   and constr =
     | Int
+    | Real
     | Bool
     | Unit
     | Ref
@@ -166,6 +167,7 @@ module Type = struct
   let set_type_string = "Set"
   let bool_type_string = "Bool"
   let int_type_string = "Int"
+  let real_type_string = "Real"
   let unit_type_string = "Unit"
   let perm_type_string = "Perm"
   let bot_type_string = "Bot"
@@ -176,6 +178,7 @@ module Type = struct
 
   let to_name = function
     | Int -> int_type_string
+    | Real -> real_type_string
     | Bool -> bool_type_string
     | Unit -> unit_type_string
     | Bot -> bot_type_string
@@ -192,7 +195,7 @@ module Type = struct
 
   let rec pr_constr ppf t =
     match t with
-    | Int | Bool | Unit | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
+    | Int | Real | Bool | Unit | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
     | Map ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data decls ->
@@ -259,6 +262,7 @@ module Type = struct
   (* let mk_dot ?(loc=Loc.dummy) t id = Dot (t, id, mk_attr loc) *)
 
   let mk_int loc = App (Int, [], mk_attr loc)
+  let mk_real loc = App (Real, [], mk_attr loc)
   let mk_bool loc = App (Bool, [], mk_attr loc)
   let mk_unit loc = App (Unit, [], mk_attr loc)
   let mk_any loc = App (Any, [], mk_attr loc)
@@ -273,6 +277,7 @@ module Type = struct
 
 
   let int = mk_int Loc.dummy
+  let real = mk_real Loc.dummy
   let bool = mk_bool Loc.dummy
   let unit = mk_unit Loc.dummy
   let any = mk_any Loc.dummy
@@ -294,6 +299,7 @@ module Type = struct
     match (t1, t2) with
     | Bot, t | t, Bot -> t
     | Bool, Perm | Perm, Bool -> Perm
+    | Real, Int | Int, Real -> Real
     (* | Ref, _
        | _, Ref -> Ref *)
     | _, _ -> Any
@@ -306,11 +312,14 @@ module Type = struct
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [join t1 t2], a1)
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
 
+  let is_num tp =
+    compare tp real = 0 || compare tp int = 0
 
   let rec meet_constr t1 t2 = 
     match (t1, t2) with
     | Bot, _ | _, Bot -> Bot
     | Bool, Perm | Perm, Bool -> Perm
+    | Real, Int | Int, Real -> Real
     | Any, t | t, Any -> t
     | _, _ -> Bot
 
@@ -362,6 +371,7 @@ module Expr = struct
     | Unit
     | Bool of bool
     | Int of Int64.t
+    | Real of Float.t
     | Empty
     (* Unary operators *)
     | Not
@@ -398,7 +408,7 @@ module Expr = struct
     (* Variable arity operators *)
     | Setenum
     | Var of qual_ident
-    | New of type_expr [@@deriving compare]
+    | New [@@deriving compare]
   (* | AUToken of au_token *)
 
   type binder = Forall | Exists | Compr [@@deriving compare]
@@ -416,12 +426,20 @@ module Expr = struct
   let loc t = t |> attr_of |> fun attr -> attr.expr_loc
   let to_type t = t |> attr_of |> fun attr -> attr.expr_type
 
+  let set_type t tp = 
+    let attr = attr_of t in
+    let attr = mk_attr attr.expr_loc tp in
+    match t with 
+    | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
+    | Binder (b, v_l, expr, _expr_attr) -> Binder (b, v_l, expr, attr)
+
   (** Pretty printing expressions *)
 
   let constr_to_string = function
     (* function symbols *)
     | Bool b -> Printf.sprintf "%b" b
     | Int i -> Int64.to_string i
+    | Real r -> Float.to_string r
     | Null -> "null"
     | Unit -> "()"
     | Dot -> "."
@@ -443,7 +461,7 @@ module Expr = struct
     | Inter -> "**"
     | Diff -> "--"
     | Ite -> "ite"
-    | New t -> Printf.sprintf !"new %{Type}" t
+    | New -> Printf.sprintf !"new"
     (* predicate symbols *)
     | Eq -> "=="
     | Leq -> "<="
@@ -464,10 +482,10 @@ module Expr = struct
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
 
   let constr_to_prio = function
-    | Null | Unit | Empty | Int _ | Bool _ -> 0
+    | Null | Unit | Empty | Int _ | Real _ | Bool _ -> 0
     | Dot | Setenum | Read | Write | Own | Var _ | MapLookUp -> 1
     | Uminus | Not -> 2
-    | DataConstr | DataDestr | Call | New _ -> 3
+    | DataConstr | DataDestr | Call | New -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Diff | Union | Inter -> 6
@@ -641,7 +659,6 @@ module Stmt = struct
 
   type new_desc = {
     new_lhs : ident;
-    new_type : type_expr;
     new_args : expr list;
   }
 
@@ -740,14 +757,10 @@ module Stmt = struct
             fprintf ppf "@[<2>%a@ :=@ %a@]" Expr.pr_list es Expr.pr
               astm.assign_rhs)
     | Havoc es -> fprintf ppf "@[<2>havoc@ %a@]" Expr.pr_list es
-    | New nstm -> (
-        match nstm.new_args with
-        | [] ->
-            fprintf ppf "@[<2>%a@ :=@ new@ %a@]" Ident.pr nstm.new_lhs Type.pr
-              nstm.new_type
-        | args ->
-            fprintf ppf "@[<2>%a@ :=@ new@ %a(%a)@]" Ident.pr nstm.new_lhs
-              Type.pr nstm.new_type Expr.pr_list args)
+    | New nstm -> 
+        fprintf ppf "@[<2>%a@ :=@ new@ %a@]" Ident.pr nstm.new_lhs
+          Expr.pr_list nstm.new_args
+
     | Assume sf -> pr_spec_list "assume" ppf [ sf ]
     | Assert sf -> pr_spec_list "assert" ppf [ sf ]
     | Fold fld -> fprintf ppf "@[<2>fold %a@]" Expr.pr fld.fold_expr

@@ -1,0 +1,18 @@
+module Main {
+
+    module M1 {
+        rep type T = Int
+    }
+
+    module M2 = Frac[M1]
+
+    field f : M2
+
+    proc test(x: Ref)
+        // requires own(x, f, M2.frac_chunk(4, 1/2))
+        requires own(x, f, M2.frac_chunk(4, 1/2))
+    {
+        // var y: Ref = new(f);
+        fpu(x, f, M2.frac_chunk(5, 1));
+    }
+}

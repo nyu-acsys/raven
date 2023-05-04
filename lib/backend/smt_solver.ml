@@ -560,7 +560,7 @@ let add_ra_field_heap_functions field_sort field_heap_valid field_valid heapchun
 
   write session
   (mk_define_fun heapchunk_compare [(x1_arg, field_sort); (x2_arg, field_sort)] BoolSort
-    (mk_app (Ident field_valid) [(mk_app (Ident field_heap_subtract_chunk) [mk_const (Ident x1_arg); mk_const (Ident x2_arg)])]
+    (mk_app (Ident field_valid) [(mk_app (Ident field_heap_subtract_chunk) [mk_const (Ident x2_arg); mk_const (Ident x1_arg)])]
     )
   );
   ()
@@ -569,6 +569,10 @@ let add_ra_field_heap_functions field_sort field_heap_valid field_valid heapchun
 let init () : session =
   let session = start_solver () in
   let open PreambleConsts in
+
+  let options_list = [
+    SetOption  (":timeout", "2000", None);
+  ] in
 
   let list_of_cmds = 
     let t_param_ident = SMTIdent.make "T" in
@@ -593,6 +597,7 @@ let init () : session =
   ] in
 
   (* preamble *)
+  List.iter options_list ~f:(write session);
   List.iter list_of_cmds ~f:(write session);
 
   

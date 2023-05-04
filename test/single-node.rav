@@ -21,25 +21,25 @@ module Lock {
     atomic requires lock(l, b)
     atomic ensures lock(l, true) && b == false
   {
-		{{ AU(v_phi, "acquire", l, None, not_open) }}
+		// {{ AU(v_phi, "acquire", l, None, not_open) }}
 	
     val phi: Perm;
 
     {!
       phi := bindAU();
 
-			{{ AU(v_phi, "acquire", l, None, not_open) }} * {{ phi = v_phi }}
+			// {{ AU(v_phi, "acquire", l, None, not_open) }} * {{ phi = v_phi }}
 
       val b: Bool;
       b := openAU(phi);
 
-			{{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, v_b) }} * 
-			{{ phi = v_phi, b = v_b }}
+			// {{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, v_b) }} * 
+			// {{ phi = v_phi, b = v_b }}
 
       unfold lock(l, b); 
       
-			{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b) }} * 
-			{{ phi = v_phi, b = v_b }}
+			// {{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b) }} * 
+			// {{ phi = v_phi, b = v_b }}
       
     !}
     
@@ -68,13 +68,13 @@ module Lock {
     {!
       if (res) {
       
-				{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
-				{{ phi = v_phi, b = false, b' = true, res = true }}		      	
+				// {{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+				// {{ phi = v_phi, b = false, b' = true, res = true }}		      	
       
         fold lock(l, true);
         
-				{{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, true) }} * 
-				{{ phi = v_phi, b = false, b' = true, res = true }}		      	
+				// {{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, true) }} * 
+				// {{ phi = v_phi, b = false, b' = true, res = true }}		      	
                 
         commitAU(phi, ());
         
@@ -83,8 +83,8 @@ module Lock {
         exhale (lock(l, true) &*& v_b == false)
 				*/
 				
-				{{ AU(v_phi, "acquire", l, Some(()), not_open) }} * 
-				{{ phi = v_phi, b = false, b' = true, res = true }}
+				// {{ AU(v_phi, "acquire", l, Some(()), not_open) }} * 
+				// {{ phi = v_phi, b = false, b' = true, res = true }}
         
       } else {
         fold lock(l, false); 
@@ -95,8 +95,8 @@ module Lock {
 		CAS_FAIL
 		--------
 
-		{{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
-		{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
+		// {{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
+		// {{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
 
     {!
       if (res) {
@@ -106,8 +106,8 @@ module Lock {
 			
 				fold lock(l, true);
 
-				{{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, true) }} * 
-				{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
+				// {{ AU(v_phi, "acquire", l, None, open(v_b)), lock(l, true) }} * 
+				// {{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
 				
         abortAU(phi);
         /* 
@@ -115,22 +115,22 @@ module Lock {
         exhale (lock(l, v_b))
 				*/
 
-				{{ AU(v_phi, "acquire", l, None, not_open) }} * 
-				{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
+				// {{ AU(v_phi, "acquire", l, None, not_open) }} * 
+				// {{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
       }	
     !}
 
     /* Check for unsoundness here */
     if (!res) {
 				
-			{{ AU(v_phi, "acquire", l, None, not_open) }} * 
-			{{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
+			// {{ AU(v_phi, "acquire", l, None, not_open) }} * 
+			// {{ phi = v_id, b = v_b, b != false, b' = b, res = false }}
 
       val b2: Bool;
       b2 := openAU(phi);
 
-			{{ AU(v_phi, "acquire", l, None, open(v_b2)), lock(l, v_b2) }} * 
-			{{ phi = v_phi, b = v_b2 }}
+			// {{ AU(v_phi, "acquire", l, None, open(v_b2)), lock(l, v_b2) }} * 
+			// {{ phi = v_phi, b = v_b2 }}
 			
 			acquire(l);
 			
@@ -277,7 +277,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     val l: Ref = Lock.create();
     val n: Node = Node.create();
     
-    {{ Lock.lock(l, false), nodeR(n, {||} }}
+    {{ Lock.lock(l, false), nodeR(n, {||}) }}
     
     val r: css;
 
@@ -286,7 +286,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     r.cont_lock := frac(1, {||});
     r.cont_spec := frac(1, {||});
 
-    {{ Lock.lock(l, false), nodeR(n, {||}, own(r.lock, l), own(r.node, n), 
+    {{ Lock.lock(l, false), nodeR(n, {||}), own(r.lock, l), own(r.node, n), 
     		own(r.cont_lock, frac(1, {||})), own(r.cont_spec, frac(1, {||})) }}
     
     {!          

@@ -73,6 +73,7 @@ and adt_def = smt_ident *  smt_ident list * (smt_ident * (smt_ident * sort) list
 type symbol =
   | BoolConst of bool
   | IntConst of int
+  | RealConst of float
   | Ident of smt_ident
   | Minus | Plus | Mult | Div | Mod
   | Eq | Gt | Lt | Geq | Leq
@@ -83,6 +84,7 @@ type binder = Exists | Forall
 
 type term =
   | App of symbol * term list * pos option
+  | App_t of term list * pos option 
   | Binder of binder * (smt_ident * sort) list * term * pos option
   | Let of (smt_ident * term) list * term * pos option
   | Annot of term * annotation * pos option
@@ -124,6 +126,7 @@ type response =
   let mk_const ?pos sym = App (sym, [], pos)
 
   let mk_int ?pos num = mk_const ?pos (IntConst num)
+  let mk_real ?pos num = mk_const ?pos (RealConst num)
   let mk_bool ?pos b = mk_const ?pos (BoolConst b)
 
   let mk_app ?pos sym ts = 
@@ -230,6 +233,7 @@ open Stdlib.Format
 let string_of_symbol = function
   | BoolConst b -> Printf.sprintf "%b" b
   | IntConst i -> Int.to_string i
+  | RealConst r -> Float.to_string r
   | Ident id -> SMTIdent.to_string id
   | Plus -> "+"
   | Minus -> "-"
@@ -289,6 +293,7 @@ let rec pr_var_decls ppf = function
 let rec pr_term ppf = function
   | App (sym, [], _) -> pr_sym ppf sym
   | App (sym, ts, _) -> fprintf ppf "@[<2>(%a@ %a)@]" pr_sym sym pr_terms ts
+  | App_t (ts, _) -> fprintf ppf "@[<2>(%a)@]" pr_terms ts 
   | Binder (b, vs, f, _) -> 
       fprintf ppf "@[<8>(%a@ @[<1>(%a)@]@ %a)@]" pr_binder b pr_var_decls vs pr_term f
   | Let (decls, t, _) ->

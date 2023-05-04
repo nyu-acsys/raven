@@ -72,8 +72,6 @@ let add_type (tp: Module.type_alias) ?(alias_name: QualIdent.t option) (tbl: Sym
     smtEnv, session
 
 let add_field (field: Module.field_def) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session) =
-
-
   let name_qual_ident =
     match alias_name with
     | None -> SmtEnv.mk_qual_ident smtEnv field.field_name
@@ -86,7 +84,6 @@ let add_field (field: Module.field_def) ?(alias_name: QualIdent.t option) (tbl: 
   let field_heap_ident = SMTIdent.fresh (fully_qualified_name ^"@OwnHeap") in
 
   let field_heap_term = mk_const (Ident field_heap_ident) in
-
 
     let create_new_frac_field_trnsl tp_expr : SmtEnv.field_trnsl * term = 
       (let field_sort = Callable_checker.lookup_type tp_expr tbl smtEnv in
@@ -163,7 +160,7 @@ let add_field (field: Module.field_def) ?(alias_name: QualIdent.t option) (tbl: 
       | Some (Func func_trnsl) -> func_trnsl.func_symbol
       | _ -> Util.Error.error field.field_loc "'comp' function not found in RA"
       ) in
-      let field_fpu = (match SmtEnv.find smtEnv (QualIdent.append qual_ident (Ident.make "fpuApply" 0)) with
+      let field_fpu = (match SmtEnv.find smtEnv (QualIdent.append qual_ident (Ident.make "fpuAllowed" 0)) with
       | Some (Func func_trnsl) -> func_trnsl.func_symbol
       | _ -> Util.Error.error field.field_loc "'fpuApply' function not found in RA"
       ) in
@@ -326,6 +323,11 @@ and add_mod_alias_callable (callable: Callable.t) (alias_name: QualIdent.t) (tbl
 
 let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (session: Smt_solver.session) : (SmtEnv.t * Smt_solver.session) =
   let smtEnv = SmtEnv.push_ident smtEnv m.module_decl.mod_decl_name in
+
+  Smt_solver.write_comment session "";
+  Smt_solver.write_comment session "";
+  Smt_solver.write_comment session ("Entering module " ^ SmtEnv.stack_name smtEnv);
+
 
   let (smtEnv, session) = Map.fold m.module_decl.mod_decl_mod_aliases ~init:(smtEnv, session) ~f:(fun ~key:mod_alias_name ~data:mod_alias (smtEnv, session) ->
     let fully_qualified_mod_alias_name = SmtEnv.mk_qual_ident smtEnv mod_alias.mod_alias_name in

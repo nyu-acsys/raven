@@ -25,6 +25,12 @@ interface ResourceAlgebra {
 
     lemma compCommute()
         ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+		
+    // lemma fpu_app(l:T, a:T, b:T)
+    //     requires own(l, a)
+    //     requires fpu(a,b)
+    //     ensures own(l, b)
+    //     /* Should this be a lemma or something else? */
 
     lemma compId()
         ensures forall a:T :: comp(a, id) == a
@@ -35,23 +41,17 @@ interface ResourceAlgebra {
     lemma frameId()
         ensures forall a:T :: frame(a, id) == a
 
+    lemma frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+
     lemma compFrameInv()
-        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+        ensures forall a:T, b:T :: (valid(frame(a,b))) ==> comp(frame(a,b), b) == a
 
     lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
-            // valid(b) && 
-        valid(comp(a,c))) ==> valid(comp(b,c)))
+        ensures (forall a:T, b:T, c:T :: fpuAllowed(a,b) && valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c)))
 
     lemma fpuReflexive()
         ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
-
-    lemma frameValid()
-        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
-
-    lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-
 }
 
 interface CancellativeResourceAlgebra : ResourceAlgebra {
@@ -66,8 +66,11 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool)
 
-    // lemma cancellative()
-    //     ensures forall a:T, b:T, c:T :: (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c))
+    lemma cancellative()
+        ensures forall a:T, b:T, c:T :: (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c))
+
+    // lemma frameValid()
+    //     ensures forall a:T, b:T :: valid(b) && valid(frame(a,b)) ==> valid(a)
 
     lemma frameCompInv()
         ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
@@ -87,18 +90,6 @@ interface LatticeResourceAlgebra : ResourceAlgebra {
     func valid(a:T) returns (ret: Bool)
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool)
-
-    lemma frameCompInv()
-        ensures forall a:T, b:T :: valid(frame(a, b)) ==> frame(a, b) == a
-
-    lemma frameCompInv0()
-        ensures forall a:T, b:T :: valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
-
-    lemma frameCompInv2()
-        ensures forall a:T, b:T :: comp(a, b) == a && valid(a) ==> frame(a, b) == a
-
-    lemma frame_comp_inv()
-        ensures forall a:T, b:T, c:T :: frame(a, comp(b,c)) == frame(frame(a, b), c)
 }
 
 module Nat : CancellativeResourceAlgebra {
@@ -127,17 +118,20 @@ module Nat : CancellativeResourceAlgebra {
             a :
         (valid(a) && valid(b) ?
             a-b : -1)
+
+        // valid(a) && valid(b) ?
+        //     a-b : -1
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) 
         // ensures forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
     {
         // true
-        forall c:T :: valid(a) && valid(comp(a,c)) ==> valid(comp(b,c))
+        forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
     }
 }
 
-module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
+module Auth [M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
         case frag(f_proj1: M);
         case auth_frag(af_proj1: M, af_proj2: M);
@@ -167,22 +161,20 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
             auth_frag(b.af_proj1, M.comp(a.f_proj1, b.af_proj2)) :
         ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
             auth_frag(a.af_proj1, M.comp(b.f_proj1, a.af_proj2)) :
-
             top()))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        b == id ? a : 
-        ((a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+        (a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
             (frag(M.frame(a.f_proj1, b.f_proj1))) :
         ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
             top() :
-        ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == frag(b.f_proj1)) ? 
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
             auth_frag(a.af_proj1, M.frame(a.af_proj2, b.f_proj1)) :
-        ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == auth_frag(b.af_proj1, b.af_proj2) ? 
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) ? 
             (a.af_proj1 == b.af_proj1 ? frag(M.frame(a.af_proj2, b.af_proj2)) : top()) :
             top()
-        )))))
+        ))))
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) 
@@ -194,21 +186,25 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
 
         (a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) ?
             (M.valid(M.frame(b.af_proj1, a.af_proj1)) && 
-            M.valid(M.frame(M.frame(b.af_proj1, b.af_proj2), M.frame(a.af_proj1, a.af_proj2)))) :
+            M.valid(M.frame(b.af_proj2, a.af_proj2)) && 
+            M.valid(M.frame(M.frame(b.af_proj1, a.af_proj1), M.frame(b.af_proj2, a.af_proj2)))) :
 
             false)
+        
     }
 }
 
 // Agree(X)
+// Frac
 // Frac-Agree(X)
 // Map(X,M)
+// SetRA
 
 
-module Frac[X: Type] : CancellativeResourceAlgebra {
+module Frac[X: Type] : ResourceAlgebra {
     rep type T = data {
         case frac_null;
-        case frac_chunk(frac_proj1: X, frac_proj2: Real);
+        case frac_chunk(frac_proj1: X, frac_proj2: Int);
         case frac_top
     }
 
@@ -231,12 +227,21 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
         a == frac_null() ? b :
         (b == frac_null() ? a :
         (valid(a) && valid(b) ? 
-            (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 + b.frac_proj2 > 0 && a.frac_proj2 + b.frac_proj2 <= 1 ? 
-                frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) :
-                frac_top()) : 
+            (a.frac_proj1 == b.frac_proj1 ? frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) : frac_top()) : 
             frac_top()
         )
         )
+
+        // valid(a) && valid(b) ?
+        //     (a == frac_null() ? b :
+        //     (b == frac_null() ? a :
+        //     (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) ? 
+        //         (a.frac_proj1 == b.frac_proj1 ? frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) : frac_top()) :
+        //         frac_top()
+        //     )
+        //     )
+        //     ) :
+        //     frac_top()
     }
 
     func frame(a:T, b:T) returns (ret:T) {
@@ -256,94 +261,53 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     {
         a == b ? true : 
         (a == frac_chunk(a.frac_proj1, a.frac_proj2) ?
-            a.frac_proj2 == 1 && valid(b) :
+            a.frac_proj2 == 1 :
         (a == frac_top() ? true : false))
     }
 }
 
-module SetRA[X: Type] : LatticeResourceAlgebra {
-    rep type T = data {
-        case set_constr(set_proj1: Set[X]);
-        case set_top
-    }
+// module KeySetRA[X] : ResourceAlgebra {
+//     type T1 = Set[X]
+//     rep type = data {
+//         case ksBot;
+//         case ksPair(ks_proj1: T1, ks_proj2: T2);
+//         case ksTop
+//     }
 
-    val id: T = set_constr({||})
+//     var id: T = ksBot
 
-    func valid(n:T) 
-        returns (ret:Bool) 
-    {
-        n == set_constr(n.set_proj1)
-    }
+//     func comp(a:T, b:T) returns (ret:T) {
+//         a == ksBot() ? b :
+//         (b == ksBot() ? a :
+//         (a == ksPair(a.ks_proj1, a.ks_proj2) && b == ksPair(b.ks_proj1, b.ks_proj2) ?
+//             (valid(a) && valid(b) && (a.ks_proj1 ** b.ks_pro1 == {||}) ?
+//                 ksPair(a.ks_proj1 ++ b.ks_proj1, a.ks_proj2 ++ b.ks_proj2) : 
+//                 ksTop()
+//             ) :
+//             ksTop()
+//         )
+//         )
+//     }
 
-    func comp(a:T, b:T)
-        returns (ret:T)
-    {
-        a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1) ? 
-            set_constr(a.set_proj1 ++ b.set_proj1) :
-            set_top()
-    }
+//     func frame(a:T, b:T) returns (ret:T) {
 
-    func frame(a:T, b:T) returns (ret:T) {
-        a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1) ?
-            (b.set_proj1 subseteq a.set_proj1 ? a : set_top()) :
-            set_top()
-    }
+//     }
 
-    func fpuAllowed(a:T, b:T) returns (ret:Bool) 
-        // ensures forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))
-    {
-        a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1) ?
-            a.set_proj1 subseteq b.set_proj1 :
-        (a == set_top() && b == set_top() ? 
-            true :
-            false
-        )
-    }
-}
+//     func valid(a:T) returns (ret: Bool)
+
+//     func fpu(a:T, b:T) returns (ret: Bool)
+
+//     /* alias : a ∘ b = comp(a,b) ? */
+// }
 
 
-module KeySetRA[X: Type] : CancellativeResourceAlgebra {
-    rep type T = data {
-        case ksPair(ks_proj1: Set[X], ks_proj2: Set[X]);
-        case ksTop
-    }
+// interface LatticeResourceAlgebra : ResourceAlgebra {
 
-    var id: T = ksPair({||}, {||})
+// }
 
-    func valid(n:T) returns (ret: Bool) {
-        n == ksPair(n.ks_proj1, n.ks_proj2) ? 
-            n.ks_proj2 subseteq n.ks_proj1 : 
-            false 
-    }
+// interface CancellativeResourceAlgebra : Resource_algebra {
+//     lemma cancellative()
+//         ensures (forall a:T, b:T, c:T :: (valid(comp(a, b) && comp(a,b) == comp(c,b))) ==> (a == c))
 
-    func comp(a:T, b:T) returns (ret:T) {
-        a == id ? b :
-        (b == id ? a :
-        (a == ksPair(a.ks_proj1, a.ks_proj2) && b == ksPair(b.ks_proj1, b.ks_proj2) ?
-            (valid(a) && valid(b) && (a.ks_proj1 ** b.ks_proj1 == {||}) ?
-                ksPair(a.ks_proj1 ++ b.ks_proj1, a.ks_proj2 ++ b.ks_proj2) : 
-                ksTop()
-            ) :
-            ksTop()
-        )
-        )
-    }
-
-    func frame(a:T, b:T) returns (ret:T) {
-        b == id ? a :
-        (a == ksPair(a.ks_proj1, a.ks_proj2) && b == ksPair(b.ks_proj1, b.ks_proj2) ? 
-            (valid(a) && valid(b) && b.ks_proj1 subseteq a.ks_proj1 && b.ks_proj2 subseteq a.ks_proj2 ?
-                ksPair(a.ks_proj1 -- b.ks_proj1, a.ks_proj2 -- b.ks_proj2) :
-                ksTop()
-            ) :
-            ksTop()
-        )
-    }
-
-    func fpuAllowed(a:T, b:T) returns (ret: Bool) {
-        a == b ? true :
-        (a == ksPair(a.ks_proj1, a.ks_proj2) && b == ksPair(b.ks_proj1, b.ks_proj2) ? 
-            valid(a) && valid(b) && b.ks_proj1 subseteq a.ks_proj1 : false
-        )
-    }
-}
+    
+// }

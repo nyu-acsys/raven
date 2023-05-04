@@ -47,10 +47,11 @@ let _ =
       ("pred", FUNC (Pred));
       ("proc", PROC (Proc));
       ("Ref", REF);
+      ("Real", REAL);
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);
-      ("subseteq", SUBSETEQ);
+      (* ("subseteq", SUBSETEQ); *)
       ("Set", SET);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
@@ -82,6 +83,7 @@ let _ =
      "!", NOT;
      "++", ADDOP Expr.Union;
      "--", DIFF;
+     "subseteq", SUBSETEQ;
      "**", MULTOP Expr.Inter;
      "+", ADDOP Expr.Plus;
      "-", MINUS;
@@ -114,6 +116,7 @@ let uppercase_char = ['A'-'Z']
 let ident = lowercase_char ('\'' | ident_char | digit_char)*
 let mod_ident = uppercase_char ('\'' | ident_char | digit_char)*
 let digits = digit_char+
+let float = digits '.' digits
 
 rule token = parse
   [' ' '\t'] { token lexbuf }
@@ -152,6 +155,7 @@ rule token = parse
       IDENT (Ident.make kw 0)
     }
 | digits as num { CONSTVAL (Expr.Int (Int64.of_string num)) }
+| float as num { CONSTVAL (Expr.Real (Float.of_string num)) }
 | eof { EOF }
 | _ { lexical_error lexbuf None }
 

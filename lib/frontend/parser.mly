@@ -21,7 +21,7 @@ open Ast
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
-%token CASE DATA INT BOOL PERM SET MAP ATOMICTOKEN FIELD REF
+%token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
 %token ATOMIC GHOST IMPLICIT REP  
 %token <bool> VAR  
 %token INTERFACE MODULE TYPE IMPORT
@@ -677,11 +677,14 @@ set_expr:
   
 
 new_expr:
-| NEW; t = type_expr {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) [])
-}
-| NEW; t = type_expr; LPAREN; es = separated_list(COMMA,expr); RPAREN {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
+// | NEW; t = type_expr {
+//   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) [])
+// }
+// | NEW; t = type_expr; LPAREN; es = separated_list(COMMA,expr); RPAREN {
+//   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
+// }
+| NEW; LPAREN; es = separated_list(COMMA,expr); RPAREN {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) New es)
 }
 ;
 
@@ -903,6 +906,7 @@ bound_var_opt_type:
       
 type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
+| REAL { Type.mk_real (Loc.make $startpos $endpos)}
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
 | REF { Type.mk_ref (Loc.make $startpos $endpos) }
 | PERM { Type.mk_perm (Loc.make $startpos $endpos)}
