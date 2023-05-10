@@ -1506,13 +1506,8 @@ module ProcessCallables = struct
             match assign_lhs with
             | [expr1] ->
               (* let tp1 = *)
-
-              (try 
-                does_expr_implement_type assign_rhs (Expr.to_type expr1) tbl
-              with
-              | Msg (_loc, msg) ->
-                Error.type_error stmt.stmt_loc ("Assignment type doesn't match : " ^ msg));
-
+              does_expr_implement_type assign_rhs (Expr.to_type expr1) tbl;
+              
               let (assign_desc: Stmt.assign_desc) = { 
                 assign_lhs = assign_lhs;
                 assign_rhs = assign_rhs;
@@ -2057,11 +2052,7 @@ module ProcessModule = struct
       | Some expr -> 
         let expr = process_expr expr tbl in
 
-        (try 
-          does_expr_implement_type expr var_decl.var_type tbl
-        with
-        | Msg (_loc, msg) ->
-          Error.type_error var_decl.var_loc ("Var assignment type doesn't match : " ^ msg));
+        does_expr_implement_type expr var_decl.var_type tbl;
           
         Some expr
 
