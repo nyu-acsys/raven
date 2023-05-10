@@ -199,6 +199,7 @@ module_header:
       ma.mod_alias_name :: formals, add mod_aliases ma.mod_alias_name ma)
       ([], Base.Map.empty (module Ident)) pdecls 
   in
+  let formals = List.rev formals in
   let decl =
     { empty_decl with
       mod_decl_name = id;

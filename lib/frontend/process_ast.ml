@@ -437,7 +437,7 @@ let does_expr_implement_type (expr: expr) (tp_expr: type_expr) (tbl: SymbolTbl.t
   let tp2 = ProcessTypeExpr.expand_type_expr tp_expr tbl in
   (* TODO: Generalize appropriately *)
   if Type.compare (Type.meet tp1 tp2) tp2 <> 0 then
-    type_mismatch_error (Expr.loc expr) tp1 tp2
+    type_mismatch_error (Expr.loc expr) tp2 tp1
 
 let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr = 
   match expr with
@@ -1505,10 +1505,14 @@ module ProcessCallables = struct
           | _ ->
             match assign_lhs with
             | [expr1] ->
+              (* let tp1 = *)
 
-              if Type.compare (Type.meet (Expr.to_type expr1) (Expr.to_type assign_rhs)) Type.bot = 0 then 
-                Error.type_error stmt.stmt_loc "Assignment type doesn't match"
-              else
+              (try 
+                does_expr_implement_type assign_rhs (Expr.to_type expr1) tbl
+              with
+              | Msg (_loc, msg) ->
+                Error.type_error stmt.stmt_loc ("Assignment type doesn't match : " ^ msg));
+
               let (assign_desc: Stmt.assign_desc) = { 
                 assign_lhs = assign_lhs;
                 assign_rhs = assign_rhs;
@@ -2050,7 +2054,16 @@ module ProcessModule = struct
 
       let (var_expr: expr option) =  match var.var_init with 
       | None -> None
-      | Some expr -> Some (process_expr expr tbl)
+      | Some expr -> 
+        let expr = process_expr expr tbl in
+
+        (try 
+          does_expr_implement_type expr var_decl.var_type tbl
+        with
+        | Msg (_loc, msg) ->
+          Error.type_error var_decl.var_loc ("Var assignment type doesn't match : " ^ msg));
+          
+        Some expr
 
       in
 
@@ -2208,8 +2221,6 @@ module ProcessModule = struct
     let derived_mod, orig_derived_module, is_ra, tbl = module_alias_to_module mod_alias tbl in
 
     let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (if is_ra then RAModDecl (derived_mod, orig_derived_module) else (ModDecl (derived_mod, orig_derived_module))) in
-
-    (* if (Ident.equal mod_alias.mod_alias_name (Ident.make "K" 0)) then print_debug2( "FOUND K in " ^ Ident.to_string mod_decl.mod_decl_name ^ " : " ^ (match SymbolTbl.find tbl (QualIdent.from_ident mod_alias.mod_alias_name) with | Some t -> SymbolTbl.typing_env_to_string t | None -> "") ^ "\nTBL NOW: " ^ SymbolTbl.to_string tbl ^ ">>>> \n") else (); *)
 
     let mod_decl = { mod_decl with
       mod_decl_mod_aliases = Map.set mod_decl.mod_decl_mod_aliases ~key:mod_alias.mod_alias_name ~data:mod_alias;

@@ -510,7 +510,7 @@ module Expr = struct
     | Compr -> "%compr%"
 
   (* The first pr is a more verbose print which prints types of each expression. This is useful for debugging. The second pr is the normal pr which is prettier. *)
-  (* let rec pr ppf e =
+  let rec pr ppf e =
     let open Stdlib.Format in
     match e with
     | App (And, [], a) -> pr ppf (App (Bool false, [], a))
@@ -534,10 +534,10 @@ module Expr = struct
     | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|}:%a)" pr_list es Type.pr (to_type e)
     | App (c, es, _) -> fprintf ppf "(%a(@[%a@]):%a)" pr_constr c pr_list es Type.pr (to_type e)
     | Binder (b, vs, e1, _) ->
-        fprintf ppf "@[(%a:%a)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e) *)
+        fprintf ppf "@[(%a:%a)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
 
 
-  let rec pr ppf e =
+  (* let rec pr ppf e =
     let open Stdlib.Format in
     match e with
     | App (And, [], a) -> pr ppf (App (Bool false, [], a))
@@ -561,7 +561,7 @@ module Expr = struct
     | App (Setenum, es, _) -> fprintf ppf "{|@[%a@]|}" pr_list es
     | App (c, es, _) -> fprintf ppf "%a(@[%a@])" pr_constr c pr_list es
     | Binder (b, vs, e1, _) ->
-        fprintf ppf "@[%a@]" pr_binder (b, vs, e1, to_type e)
+        fprintf ppf "@[%a@]" pr_binder (b, vs, e1, to_type e) *)
 
   and pr_list ppf = Print.pr_list_comma pr ppf
   and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
