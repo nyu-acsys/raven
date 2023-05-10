@@ -1002,7 +1002,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       )
     | Var _qual_ident, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " expr takes no arguments"))
 
-    | New, expr_list -> 
+    (*| New, expr_list -> 
       let expr_list = List.map expr_list ~f:(fun expr -> process_expr expr tbl) in
 
       let _ = 
@@ -1021,7 +1021,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
         expr_type = Type.ref;
       } in
 
-      App (New, expr_list, expr_attr)
+      App (New, expr_list, expr_attr)*)
     )
 
   | Binder (binder, var_decl_list, inner_expr, expr_attr) ->
@@ -1480,7 +1480,7 @@ module ProcessCallables = struct
           ) in
 
           match assign_rhs with
-          | App (New, field_args, _) ->
+          (*| App (New, field_args, _) ->
             (match assign_lhs with
             | [expr1] -> 
               let lhs_ident = try
@@ -1501,7 +1501,7 @@ module ProcessCallables = struct
 
               )
             | _ -> Error.type_error stmt.stmt_loc "New expressions only take one expr on LHS"
-            )
+            )*)
           | _ ->
             match assign_lhs with
             | [expr1] ->

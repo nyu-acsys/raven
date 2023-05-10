@@ -1856,16 +1856,16 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     smtEnv, session
 
   | New new_desc -> 
-    let fresh_loc_var_name = SMTIdent.fresh (Ident.to_string new_desc.new_lhs) in
+    let fresh_loc_var_name = SMTIdent.fresh (QualIdent.to_string new_desc.new_lhs) in
     let fresh_loc_var_term = mk_const (Ident fresh_loc_var_name) in
     let var_sort = PreambleConsts.loc_sort in
 
     Smt_solver.write session (mk_declare_const fresh_loc_var_name var_sort);
 
-    let smtEnv = SmtEnv.add smtEnv (QualIdent.from_ident new_desc.new_lhs) (Var {var_symbol = fresh_loc_var_term; var_sort = var_sort}) in
+    let smtEnv = SmtEnv.add smtEnv (new_desc.new_lhs) (Var {var_symbol = fresh_loc_var_term; var_sort = var_sort}) in
 
-    let smtEnv, session = List.fold new_desc.new_args ~init:(smtEnv, session) ~f:(fun (smtEnv, session) field_expr ->
-      let field_name = ASTUtil.expr_to_qual_ident field_expr in
+    let smtEnv, session = List.fold new_desc.new_args ~init:(smtEnv, session) ~f:(fun (smtEnv, session) (field_name, _field_val_opt) ->
+      (* TODO: use initializer value _field_val_opt correctly *)
       match SmtEnv.find smtEnv field_name with
       | Some Field field_trnsl ->
 

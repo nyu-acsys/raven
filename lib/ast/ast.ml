@@ -411,8 +411,7 @@ module Expr = struct
     | Own
     (* Variable arity operators *)
     | Setenum
-    | Var of qual_ident
-    | New [@@deriving compare]
+    | Var of qual_ident [@@deriving compare]
   (* | AUToken of au_token *)
 
   type binder = Forall | Exists | Compr [@@deriving compare]
@@ -465,7 +464,6 @@ module Expr = struct
     | Inter -> "**"
     | Diff -> "--"
     | Ite -> "ite"
-    | New -> Printf.sprintf !"new"
     (* predicate symbols *)
     | Eq -> "=="
     | Leq -> "<="
@@ -489,7 +487,7 @@ module Expr = struct
     | Null | Unit | Empty | Int _ | Real _ | Bool _ -> 0
     | Dot | Setenum | Read | Write | Own | Var _ | MapLookUp -> 1
     | Uminus | Not -> 2
-    | DataConstr | DataDestr | Call | New -> 3
+    | DataConstr | DataDestr | Call -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Diff | Union | Inter -> 6
@@ -662,8 +660,8 @@ module Stmt = struct
   type var_def = { var_decl : var_decl; var_init : expr option }
 
   type new_desc = {
-    new_lhs : ident;
-    new_args : expr list;
+    new_lhs : qual_ident;
+    new_args : (qual_ident * expr option) list;
   }
 
   type assign_desc = { assign_lhs : expr list; assign_rhs : expr }
@@ -762,8 +760,11 @@ module Stmt = struct
               astm.assign_rhs)
     | Havoc es -> fprintf ppf "@[<2>havoc@ %a@]" Expr.pr_list es
     | New nstm -> 
-        fprintf ppf "@[<2>%a@ :=@ new@ %a@]" Ident.pr nstm.new_lhs
-          Expr.pr_list nstm.new_args
+        fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
+          (Print.pr_list_comma (fun ppf -> function
+            | (f, Some e) -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
+            | (f, None) -> QualIdent.pr ppf f))
+          nstm.new_args
 
     | Assume sf -> pr_spec_list "assume" ppf [ sf ]
     | Assert sf -> pr_spec_list "assert" ppf [ sf ]

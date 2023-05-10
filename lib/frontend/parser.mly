@@ -429,15 +429,18 @@ stmt_wo_trailing_substmt:
   in
   Stmt.(Basic (Assign assign))
 }
-(* assignment *)
-| es = separated_nonempty_list(COMMA, expr); COLONEQ; e = expr; SEMICOLON {
-  let assign =
-    Stmt.{ assign_lhs = es;
-           assign_rhs = e;
-         }
-  in
-  Stmt.(Basic (Assign assign))
-  }
+(* assignment / allocation *)
+| es = separated_nonempty_list(COMMA, expr); COLONEQ; e = new_or_expr; SEMICOLON {
+  let open Stmt in
+  match e with
+  | Basic (New new_descr) ->
+      (match es with
+      | [Expr.App(Expr.Var x, _, _)] -> Basic (New { new_descr with new_lhs = x })
+      | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) (Some "Result of allocation must be assigned to a single variable"))
+  | Basic (Assign assign) ->
+      Basic (Assign { assign with assign_lhs = es })
+  | _ -> assert false
+}
 (* havoc *)
 | HAVOC; es = separated_nonempty_list(COMMA, expr); SEMICOLON { 
   Stmt.(Basic (Havoc es))
@@ -491,6 +494,29 @@ stmt_wo_trailing_substmt:
 }
 ;
 
+new_or_expr:
+| NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
+  let to_qual_ident = Expr.(function
+    |  App (Var x, _, _) -> x
+    | _ -> assert false)
+  in
+  let new_descr = Stmt.{
+    new_lhs = QualIdent.from_ident (Ident.make "" 0);
+    new_args = List.map (fun (f, e_opt) -> (to_qual_ident f, e_opt)) fes;
+  }
+  in
+  Stmt.(Basic (New new_descr))
+}
+| e = expr {
+  let assign =
+    Stmt.{ assign_lhs = [];
+           assign_rhs = e;
+         }
+  in
+  Stmt.(Basic (Assign assign))
+}
+
+  
 var_decl:
 | g = ghost_modifier; v = VAR; decl = bound_var {
   let decl =
@@ -661,7 +687,7 @@ primary:
 | c = CONSTVAL { Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c []) }
 | LPAREN; e = expr; RPAREN { e }
 | e = set_expr { e }
-| e = new_expr { e }
+//| e = new_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = maplookup_expr { e }
@@ -677,17 +703,17 @@ set_expr:
 ;
   
 
-new_expr:
+//new_expr:
 // | NEW; t = type_expr {
 //   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) [])
 // }
 // | NEW; t = type_expr; LPAREN; es = separated_list(COMMA,expr); RPAREN {
 //   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
 // }
-| NEW; LPAREN; es = separated_list(COMMA,expr); RPAREN {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) New es)
-}
-;
+//| NEW; LPAREN; es = separated_list(COMMA,expr); RPAREN {
+//  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) New es)
+//}
+//;
 
 dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
