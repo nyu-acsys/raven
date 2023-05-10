@@ -726,20 +726,20 @@ call_opt:
 | (* empty *) { None }
   
 qual_ident_expr:
-| x = ident { x }
-| m = mod_ident; DOT; x = IDENT {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) []) }
-| p = primary DOT m = mod_ident DOT x = IDENT {
-  let e = Expr.(mk_app ~loc:(Loc.make ($startpos(m)) ($endpos(x))) (Var (QualIdent.append m x)) []) in
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; e])
-}
-| p = primary DOT x = ident {
+| x = qual_ident { x }
+| p = primary DOT x = qual_ident {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
-| p = primary DOT LPAREN x = qual_ident_expr RPAREN {
+| p = primary DOT LPAREN x = qual_ident RPAREN {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 
+qual_ident:
+| x = ident { x }
+| m = mod_ident; DOT; x = IDENT {
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
+}    
+    
 mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
