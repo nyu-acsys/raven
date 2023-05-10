@@ -1,0 +1,30 @@
+interface Type {
+  rep type T
+}
+
+module Pair[T1: Type, T2: Type] {
+  rep type T = data {
+    case pair(fst: T1, snd: T2)
+  }
+}
+
+module Test {
+  module IntT: Type {
+    rep type T = Int
+  }
+
+  module BoolT: Type {
+    rep type T = Bool
+  }
+
+  module P = Pair[IntT, BoolT]
+
+  val q: P = P.pair(1, true)
+
+  module P2 = Pair[BoolT, BoolT]
+
+  val p: P2 = P2.pair(true, false)
+
+  val x: Int = p.P2.fst
+
+}
