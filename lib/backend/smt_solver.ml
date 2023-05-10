@@ -169,7 +169,7 @@ type solver_state =
 
 type session = { 
   log_file_name: string;
-  log_out_chan: out_channel;
+  log_out_chan: Stdio.Out_channel.t;
 	mutable assert_count: int;
   mutable response_count: int;
 	(* mutable sat_checked: (solver_state option * response) option; *)
@@ -199,7 +199,7 @@ let start_solver () =
 
   {
     log_file_name = log_file_name;
-    log_out_chan = open_out log_file_name;
+    log_out_chan = Stdio.Out_channel.create log_file_name;
     assert_count = 0;
     response_count = 0;
     stack_height = 0;
