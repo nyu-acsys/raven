@@ -337,7 +337,7 @@ module ProcessTypeExpr = struct
       (match tp_list with
       | [tp_arg] -> let tp_arg' = process_type_expr tp_arg tbl in
         App (Set, [tp_arg'], tp_attr)
-      | _ -> module_arg_mismatch_error (Type.loc tp_expr) Set 1
+      | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) Set 1
       )
 
     | App (Map, tp_list, tp_attr) ->
@@ -345,7 +345,7 @@ module ProcessTypeExpr = struct
       | [tp1; tp2] -> let tp1 = process_type_expr tp1 tbl in
         let tp2 = process_type_expr tp2 tbl in
         App (Map, [tp1; tp2], tp_attr)
-      | _ -> module_arg_mismatch_error (Type.loc tp_expr) Map 2
+      | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) Map 2
       )
 
     | App (Data _variant_decl_list, _tp_list, _tp_attr) ->
@@ -1736,13 +1736,20 @@ module ProcessCallables = struct
         let tbl = SymbolTbl.push tbl in
         let disam_tbl = (DisambiguationTbl.push []) in 
         
-        let disam_tbl, call_decl_locals_list = List.fold_map (Map.to_alist proc_def.proc_decl.call_decl_locals) ~init:disam_tbl ~f:(
+        
+        let disam_tbl, call_decl_locals_list = 
+        try
+        List.fold_map (Map.to_alist proc_def.proc_decl.call_decl_locals) ~init:disam_tbl ~f:(
           fun disam_tbl (_ident, var_decl) ->
             let var_decl = ProcessTypeExpr.process_var_decl var_decl tbl in
             let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
             (disam_tbl, (var_decl'.var_name, var_decl'))
-        ) in
+        )
+        with
+          | Generic_Error msg -> Error.lexical_error proc_def.proc_decl.call_decl_loc ("LL"^ msg)
 
+        in
+         
         let tbl = List.fold call_decl_locals_list ~init:tbl ~f:(fun tbl (iden, var_decl) -> SymbolTbl.add tbl (QualIdent.from_ident iden) (VarDecl var_decl)) in
 
         let proc_decl = { proc_def.proc_decl with
@@ -1788,7 +1795,7 @@ module ProcessCallables = struct
         (mod_decl, tbl), ProcDef proc_def
 
         with
-          Generic_Error msg -> Error.lexical_error proc_def.proc_decl.call_decl_loc msg
+          Generic_Error msg -> Error.lexical_error proc_def.proc_decl.call_decl_loc (msg)
 
   
   let rec process_callables (callables: Callable.t list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Callable.t list * Module.module_decl * SymbolTbl.t =
@@ -1847,7 +1854,7 @@ module ProcessModule = struct
 
           process_imports import_directives mod_decl tbl
           
-        | _ -> Error.lexical_error Loc.dummy ("Import" ^ Type.to_string tp_exp ^ "could not be processed.")
+        | _ -> Error.lexical_error Loc.dummy ("Import " ^ Type.to_string tp_exp ^ " could not be processed." ^ "\n Tbl: \n" ^ SymbolTbl.to_string tbl)
         )
         
       | MemImport _qual_ident ->
@@ -2133,7 +2140,7 @@ module ProcessModule = struct
         | Some (ModAlias mod_alias) ->
           Error.error mod_alias.mod_alias_loc "Error: Found ModAlias in SymbolTbl for definition of mod_alias.";
         
-        | _ -> Error.error mod_alias.mod_alias_loc "Unexpected elem found in typing env for type of modAlias."
+        | _ -> Error.error mod_alias.mod_alias_loc @@ (Printf.sprintf "Unexpected elem found in typing env for type_expr %s of modAlias.\n\nTbl:%s" (Type.to_string tp_expr) (SymbolTbl.to_string tbl))
         ) in
 
         let new_mod = {orig_mod with
@@ -2202,6 +2209,8 @@ module ProcessModule = struct
 
     let tbl = SymbolTbl.add tbl (QualIdent.from_ident mod_alias.mod_alias_name) (if is_ra then RAModDecl (derived_mod, orig_derived_module) else (ModDecl (derived_mod, orig_derived_module))) in
 
+    (* if (Ident.equal mod_alias.mod_alias_name (Ident.make "K" 0)) then print_debug2( "FOUND K in " ^ Ident.to_string mod_decl.mod_decl_name ^ " : " ^ (match SymbolTbl.find tbl (QualIdent.from_ident mod_alias.mod_alias_name) with | Some t -> SymbolTbl.typing_env_to_string t | None -> "") ^ "\nTBL NOW: " ^ SymbolTbl.to_string tbl ^ ">>>> \n") else (); *)
+
     let mod_decl = { mod_decl with
       mod_decl_mod_aliases = Map.set mod_decl.mod_decl_mod_aliases ~key:mod_alias.mod_alias_name ~data:mod_alias;
     } in
@@ -2236,10 +2245,9 @@ module ProcessModule = struct
     let _mod_aliases, mod_decl, tbl = process_mod_aliases formal_args_mod_aliases mod_decl tbl in
     (* This is instantiating all formal arguments to the module. The process_mod_aliases is primarily called to add the requisite members to the tbl for processing the rest of the module. (It also fully modifies the mod_decl by expanding the modules names referenced in mod_aliases to fully quantified names.) The returned mod_aliases are not stored.  *)
 
-    let mod_decl, tbl = process_imports m.members.imports mod_decl tbl in
-
     let mod_aliases, mod_decl, tbl = process_mod_aliases m.members.mod_aliases mod_decl tbl in
 
+    let mod_decl, tbl = process_imports m.members.imports mod_decl tbl in
 
     let type_aliases, mod_decl, tbl = process_types m.members.types mod_decl tbl in
 

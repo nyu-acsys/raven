@@ -486,7 +486,7 @@ stmt_wo_trailing_substmt:
   Stmt.(Basic (OpenInv e))
 }
 | CLOSEINV; e = expr; SEMICOLON {
-  Stmt.(Basic (OpenInv e))
+  Stmt.(Basic (CloseInv e))
 }
 ;
 
