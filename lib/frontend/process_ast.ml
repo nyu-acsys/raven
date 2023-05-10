@@ -435,9 +435,8 @@ end
 let does_expr_implement_type (expr: expr) (tp_expr: type_expr) (tbl: SymbolTbl.t): unit = 
   let tp1 = ProcessTypeExpr.expand_type_expr (Expr.attr_of expr).expr_type tbl in
   let tp2 = ProcessTypeExpr.expand_type_expr tp_expr tbl in
-  let tp1 = Type.meet tp1 tp2 in
   (* TODO: Generalize appropriately *)
-  if Type.compare tp1 tp2 <> 0 then
+  if Type.compare (Type.meet tp1 tp2) tp2 <> 0 then
     type_mismatch_error (Expr.loc expr) tp1 tp2
 
 let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr = 
