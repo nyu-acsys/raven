@@ -15,7 +15,7 @@ open Ast
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token DIFF MINUS
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
-%token AND OR IMPLIES IFF NOT COMMA SEPSTAR
+%token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
 %token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV
 %token IF ELSE WHILE
@@ -728,6 +728,10 @@ qual_ident_expr:
 | x = ident { x }
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) []) }
+| p = primary DOT m = mod_ident DOT x = IDENT {
+  let e = Expr.(mk_app ~loc:(Loc.make ($startpos(m)) ($endpos(x))) (Var (QualIdent.append m x)) []) in
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; e])
+}
 | p = primary DOT x = ident {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }

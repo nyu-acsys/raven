@@ -97,7 +97,6 @@ let _ =
      ",", COMMA;
      ".", DOT;
      "?", QMARK;
-     "&*&", SEPSTAR
      ]
     
 let lexical_error lexbuf msg =

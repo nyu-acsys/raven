@@ -160,6 +160,10 @@ module Type = struct
   (* | Dot of t * Ident.t * type_attr *)
   [@@deriving compare, hash]
 
+  let attr_of = function App (_, _, attr) -> attr
+  let loc t = t |> attr_of |> fun attr -> attr.type_loc
+
+
   (** Pretty printing types *)
 
   let ref_type_string = "Ref"

@@ -61,7 +61,7 @@ let mk_trace_info msg = "Trace Information: " ^ msg
 let mk_error_info msg = "Related Location: " ^ msg
 
 (** Predefined error messags *)
-
+                                                 
 let error loc msg = print_error_loc loc; fail loc @@ "Error: " ^ msg
 
 let error_simple msg = fail Loc.dummy @@ "Error: " ^ msg
@@ -71,7 +71,7 @@ let lexical_error loc msg = print_error_loc loc; fail loc @@ "Lexical Error: " ^
 let unsupported_error loc msg = print_error_loc loc; fail loc @@ "Unsupported Feature Error: " ^ msg
 
 let type_error loc msg = print_error_loc loc; fail loc @@ "Type Error: " ^ msg
-
+                                                                             
 let syntax_error loc msg_opt = 
   match msg_opt with 
   | Some msg -> print_error_loc loc; fail loc @@ "Syntax Error: " ^ msg

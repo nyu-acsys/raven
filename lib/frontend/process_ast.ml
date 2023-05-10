@@ -4,7 +4,7 @@ open Util
 open Error
 
 (* Generic_Error is thrown by functions which don't have any Loc information. These exceptions are then meant to be caught by a caller function which can then generate the appropriate Error.errors with appropriate Loc information attached  *)
-
+  
 module SymbolTbl = struct
   type data_type_constr = {
     constr_name : Ident.t;
@@ -96,7 +96,7 @@ module SymbolTbl = struct
  *)
 
 
- let rec fully_quantified (iden : qual_ident) tbl =
+ let rec fully_qualified (iden : qual_ident) tbl =
   let rec fully_qualified_helper (iden : qual_ident) tbl =
     match tbl with
     | [] -> iden
@@ -111,7 +111,7 @@ module SymbolTbl = struct
     | [] -> raise (Generic_Error ("Ident " ^ QualIdent.to_string iden ^ " not found in typing env"))
     | (label, map) :: ts -> (
         match Map.find map iden with 
-        | None -> fully_quantified iden ts
+        | None -> fully_qualified iden ts
         | Some _ -> fully_qualified_helper iden ((label, map) :: ts))
 
 
@@ -174,6 +174,21 @@ module SymbolTbl = struct
     true (* TODO: Implement properly *)
 end
 
+let type_mismatch_error loc exp_ty fnd_ty =
+  let ty_str ty = "expression of type\n  " ^ Type.to_string ty ^ "\n" in
+  Error.type_error loc
+    ("Expected an " ^ ty_str exp_ty ^ "but found an " ^ ty_str fnd_ty)
+
+let arguments_to_string d =
+  if d = 1 then "one argument" else Printf.sprintf "%d arguments" d
+    
+let module_arg_mismatch_error loc typ_constr expected =
+  Error.type_error loc (Printf.sprintf "Module %s expects %s." (Type.to_name typ_constr) (arguments_to_string expected))
+
+let unknown_ident_error id loc =
+  Error.error loc ("Unknown identifier " ^ QualIdent.to_string id ^ ".")
+    
+    
 let rec pre_process_module (m: Module.t0) : (Module.t) = 
 
   let rec extract_members (mod_decl: Module.module_decl) (sorted_members: Module.sorted_member_def_list) (mod_defs_list: Module.member_def list) : (Module.module_decl * Module.sorted_member_def_list) =
@@ -294,27 +309,27 @@ module ProcessTypeExpr = struct
     | App ((Var qual_ident), tp_list, tp_attr) ->
       (match tp_list with
       | [] -> (
-        let fully_quantified_qual_ident = SymbolTbl.fully_quantified qual_ident tbl in
-        (match SymbolTbl.find tbl fully_quantified_qual_ident with
-        | Some (TypeAlias _tp_alias) -> App ((Var fully_quantified_qual_ident), [], tp_attr)
+        let fully_qualified_qual_ident = SymbolTbl.fully_qualified qual_ident tbl in
+        (match SymbolTbl.find tbl fully_qualified_qual_ident with
+        | Some (TypeAlias _tp_alias) -> App ((Var fully_qualified_qual_ident), [], tp_attr)
         | Some (ModDecl (m, _orig_mod)) | Some RAModDecl (m, _orig_mod) -> (
           match m.module_decl.mod_decl_rep with
           | None -> Error.type_error tp_attr.type_loc ("Expected Type Expr" ^ Type.to_string tp_expr ^ "; found Module in typing environment without a Rep Type")
           | Some iden -> 
-            let new_fully_quantified_qual_ident = QualIdent.append fully_quantified_qual_ident iden in
-            (match SymbolTbl.find tbl new_fully_quantified_qual_ident with
-            | Some (TypeAlias _tp_alias) -> App ((Var new_fully_quantified_qual_ident), [], tp_attr)
+            let new_fully_qualified_qual_ident = QualIdent.append fully_qualified_qual_ident iden in
+            (match SymbolTbl.find tbl new_fully_qualified_qual_ident with
+            | Some (TypeAlias _tp_alias) -> App ((Var new_fully_qualified_qual_ident), [], tp_attr)
             | _ -> Error.type_error tp_attr.type_loc ("Internal Error: Expected Type Expr" ^ Type.to_string tp_expr ^ "; rep type in Module not actually a TpExpr")
             )
         )
-        (* | Some (RAModDecl _) -> App (Var fully_quantified_qual_ident, [], tp_attr) *)
+        (* | Some (RAModDecl _) -> App (Var fully_qualified_qual_ident, [], tp_attr) *)
         | Some (ModAlias _mod_alias) -> Error.unsupported_error tp_attr.type_loc @@ Printf.sprintf "Module Aliases typing not supported\n %s" (SymbolTbl.to_string tbl)
-        | _ -> Error.type_error tp_attr.type_loc ("Type " ^ Type.to_string tp_expr ^ "not found in typing environment")
+        | _ -> Error.type_error tp_attr.type_loc ("Module cannot be instantiated in this context.")
         )
 
         
       )
-      | _ -> raise (Generic_Error (QualIdent.to_string qual_ident ^ ": QualIdent types don't support arguments."))
+      | _ -> Error.type_error tp_attr.type_loc ("Module " ^ QualIdent.to_string qual_ident ^ " cannot be instantiated in this context.")
       (* TODO *)
       )
 
@@ -322,7 +337,7 @@ module ProcessTypeExpr = struct
       (match tp_list with
       | [tp_arg] -> let tp_arg' = process_type_expr tp_arg tbl in
         App (Set, [tp_arg'], tp_attr)
-      | _ -> raise (Generic_Error "Set types take exactly one argument.")
+      | _ -> module_arg_mismatch_error (Type.loc tp_expr) Set 1
       )
 
     | App (Map, tp_list, tp_attr) ->
@@ -330,7 +345,7 @@ module ProcessTypeExpr = struct
       | [tp1; tp2] -> let tp1 = process_type_expr tp1 tbl in
         let tp2 = process_type_expr tp2 tbl in
         App (Map, [tp1; tp2], tp_attr)
-      | _ -> raise (Generic_Error "Map types take exactly two arguments")
+      | _ -> module_arg_mismatch_error (Type.loc tp_expr) Map 2
       )
 
     | App (Data _variant_decl_list, _tp_list, _tp_attr) ->
@@ -417,15 +432,13 @@ module ProcessTypeExpr = struct
 
 end
 
-let does_expr_implement_type (expr: expr) (tp_expr: type_expr) (tbl: SymbolTbl.t): bool = 
+let does_expr_implement_type (expr: expr) (tp_expr: type_expr) (tbl: SymbolTbl.t): unit = 
   let tp1 = ProcessTypeExpr.expand_type_expr (Expr.attr_of expr).expr_type tbl in
   let tp2 = ProcessTypeExpr.expand_type_expr tp_expr tbl in
   let tp1 = Type.meet tp1 tp2 in
   (* TODO: Generalize appropriately *)
-  if Type.compare tp1 tp2 = 0 then
-    true
-  else 
-    false
+  if Type.compare tp1 tp2 <> 0 then
+    type_mismatch_error (Expr.loc expr) tp1 tp2
 
 let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr = 
   match expr with
@@ -697,7 +710,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
       let constr_qual_ident = 
         try
-          SymbolTbl.fully_quantified (ASTUtil.expr_to_qual_ident constr_expr) tbl 
+          SymbolTbl.fully_qualified (ASTUtil.expr_to_qual_ident constr_expr) tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
       in
 
@@ -705,26 +718,28 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
       | Some (DataTypeConstr constr) -> 
         let constr_arg_types_list = List.map constr.constr_args ~f:(fun var_decl -> var_decl.var_type) in
 
-        let args_type_check_list, args_list = List.unzip (match List.map2 args_list constr_arg_types_list ~f:(fun expr tp_expr -> does_expr_implement_type expr tp_expr tbl, Expr.set_type expr tp_expr
-        (* TODO: Make sure this 'type-casting' makes sense *)
-        ) with
-        | Ok list -> list
-        | Unequal_lengths -> Error.lexical_error (Expr.loc expr) (("DataConstr " ^ Ident.to_string constr.constr_name ^ " called with incorrect number of arguments" ))) in
+        let args_list =
+          match List.map2 args_list constr_arg_types_list
+              ~f:(fun expr tp_expr ->
+                does_expr_implement_type expr tp_expr tbl;
+                Expr.set_type expr tp_expr
+                (* TODO: Make sure this 'type-casting' makes sense *))
+          with
+          | Ok list -> list
+          | Unequal_lengths ->
+              Error.type_error (Expr.loc expr) (("data constructor " ^ Ident.to_string constr.constr_name ^ " called with incorrect number of arguments" ))
+        in
 
-        let args_type_check = List.fold args_type_check_list ~init:true ~f:(&&) in
-
-        if args_type_check then
-          let tp = constr.constr_return_type in
-          let expr_attr = { expr_attr with
+        let tp = constr.constr_return_type in
+        let expr_attr =
+          { expr_attr with
             expr_type = tp;
-          } in
+          }
+        in
 
-          let constr_expr = ASTUtil.qual_ident_to_expr constr_qual_ident (Expr.attr_of constr_expr) in
+        let constr_expr = ASTUtil.qual_ident_to_expr constr_qual_ident (Expr.attr_of constr_expr) in
 
-          App (DataConstr, constr_expr :: args_list, expr_attr)
-        
-        else
-          Error.lexical_error (Expr.loc expr) ((Ident.to_string constr.constr_name ^ ": DataConstr called with wrong arguments. Expected: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) constr_arg_types_list ^ "; got: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) (List.map  ~f:Expr.to_type args_list)) ^ "\n\n" ^ (SymbolTbl.to_string tbl))
+        App (DataConstr, constr_expr :: args_list, expr_attr)        
 
       | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": expected to be a DataConstr instead of " ^ SymbolTbl.typing_env_to_string tp_env))
       | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": not found in TypingEnv"))
@@ -738,7 +753,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
       let destr_qual_ident =
         try
-          SymbolTbl.fully_quantified destr_qual_ident tbl 
+          SymbolTbl.fully_qualified destr_qual_ident tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
       in
       
@@ -772,7 +787,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
       let callable_qual_ident = 
         try
-          SymbolTbl.fully_quantified (ASTUtil.expr_to_qual_ident callable_expr) tbl 
+          SymbolTbl.fully_qualified (ASTUtil.expr_to_qual_ident callable_expr) tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
         in
       (match (SymbolTbl.find tbl callable_qual_ident) with
@@ -780,17 +795,16 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
         let callable_arg_ident_list = callable_decl.call_decl_formals in
         let callable_arg_var_decl_list = List.map callable_arg_ident_list ~f:(fun ident -> match Map.find callable_decl.call_decl_locals ident with | Some var -> var | None -> Error.lexical_error (Expr.loc expr) ("Formal arg variable not found in CallDecl")) in
         let callable_arg_types_list = List.map callable_arg_var_decl_list ~f:(fun var_decl -> var_decl.var_type) in
-        let args_type_check_list = (match List.map2 args_list callable_arg_types_list ~f:(fun expr tp_expr -> does_expr_implement_type expr tp_expr tbl) with
-        (* TODO: Extend for implicit ghost arguments *)
-            | Ok list -> list
-            | Unequal_lengths -> Error.lexical_error (Expr.loc expr) (("Callable " ^ Ident.to_string callable_decl.call_decl_name ^ " called with incorrect number of arguments" ))) in
-        let args_type_check = List.fold args_type_check_list ~init:true ~f:(&&) in
-
-        if args_type_check then
-          (* TODO: what type to assign to callable expressions which return multiple things? *)
-          let tp = 
-            ( match callable_decl.call_decl_kind with
-            | Proc | Func ->
+        let _ =
+          match List.map2 args_list callable_arg_types_list ~f:(fun expr tp_expr -> does_expr_implement_type expr tp_expr tbl) with
+            (* TODO: Extend for implicit ghost arguments *)
+            | Ok _ -> ()
+            | Unequal_lengths -> Error.lexical_error (Expr.loc expr) (("Callable " ^ Ident.to_string callable_decl.call_decl_name ^ " called with incorrect number of arguments" ))
+        in
+        (* TODO: what type to assign to callable expressions which return multiple things? *)
+        let tp = 
+          match callable_decl.call_decl_kind with
+          | Proc | Func ->
               (match callable_decl.call_decl_returns with
               | [] -> Type.unit
               | [ident] -> (match Map.find callable_decl.call_decl_locals ident with
@@ -799,20 +813,19 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
                 )
               | _ -> Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables which return multiple values not presently supported"))
               )
-
-            | Pred | Lemma | Invariant -> Type.perm
-            ) in
-          let expr_attr = { expr_attr with
+                
+          | Pred | Lemma | Invariant -> Type.perm
+        in
+        let expr_attr =
+          { expr_attr with
             expr_type = tp;
-          } in
+          }
+        in
 
-          let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) in
+        let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) in
 
-          App (Call, callable_expr :: args_list, expr_attr)
-        else (
-          (* Stdio.print_endline (SymbolTbl.to_string tbl);  *)
-          Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callable called with wrong arguments. Expected: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) callable_arg_types_list ^ "; got: " ^ Print.string_of_format (Print.pr_list_comma Type.pr) (List.map  ~f:Expr.to_type args_list)))
-        )
+        App (Call, callable_expr :: args_list, expr_attr)
+        
 
       | Some (DataTypeConstr _constr) -> process_expr (App (DataConstr, callable_expr :: args_list, Expr.attr_of expr)) tbl
 
@@ -826,7 +839,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
 
       let qual_ident = 
         try
-          SymbolTbl.fully_quantified qual_ident tbl 
+          SymbolTbl.fully_qualified qual_ident tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
       in
       (match SymbolTbl.find tbl qual_ident with    
@@ -965,7 +978,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
     | Var qual_ident, [] ->
       let qual_ident = 
         try
-          SymbolTbl.fully_quantified qual_ident tbl 
+          SymbolTbl.fully_qualified qual_ident tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) (Printf.sprintf "%s\nExpr: %s \nTbl:%s" msg (Expr.to_string expr) (SymbolTbl.to_string tbl))
         in
       (match SymbolTbl.find tbl qual_ident with
@@ -1928,7 +1941,7 @@ module ProcessModule = struct
             }
           ) in
 
-          let fully_qualified_tp_name = SymbolTbl.fully_quantified (QualIdent.from_ident tp_alias.type_alias_name) tbl in
+          let fully_qualified_tp_name = SymbolTbl.fully_qualified (QualIdent.from_ident tp_alias.type_alias_name) tbl in
 
           let tbl = List.fold variant_decl_list ~init:tbl ~f:(fun tbl variant_decl -> 
             let tbl = List.fold variant_decl.variant_args ~init:tbl ~f:(fun tbl var_arg ->
@@ -1989,10 +2002,10 @@ module ProcessModule = struct
       let tp_expr = 
         match field.field_type with
         | App (Var qual_ident, [], tp_attr) ->
-          let fully_quantified_qual_ident = SymbolTbl.fully_quantified qual_ident tbl in
-          (match SymbolTbl.find tbl fully_quantified_qual_ident with
+          let fully_qualified_qual_ident = SymbolTbl.fully_qualified qual_ident tbl in
+          (match SymbolTbl.find tbl fully_qualified_qual_ident with
           | Some RAModDecl _ ->
-            Type.App (Var fully_quantified_qual_ident, [], tp_attr)
+            Type.App (Var fully_qualified_qual_ident, [], tp_attr)
 
           | _ -> 
             try
@@ -2144,7 +2157,7 @@ module ProcessModule = struct
 
     let fully_qualified_ident = 
       try 
-        SymbolTbl.fully_quantified qual_ident tbl 
+        SymbolTbl.fully_qualified qual_ident tbl 
       with 
       | Generic_Error msg -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "%s\nTbl:%s" msg (SymbolTbl.to_string tbl)
       in
