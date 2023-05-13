@@ -6,22 +6,20 @@ Link to the Google Doc: https://docs.google.com/document/d/1AvU88AoWAMsv9lBCK980
 
 ## Dependencies
 
-- opam, version >= 2.0.8
+- opam, version >= 2.1.2
 
-- ocaml, version >= 4.12.0
+- ocaml, version >= 4.14.0
 
-- dune, version >= 2.8.5
+- dune, version >= 3.7.1
 
-- base, version >= 0.14
+- base, version >= 0.15.1
 
-- stdio, version >= 0.14
+- stdio, version >= 0.15
 
-- ppx_custom_printf >= 0.14.1
+- ppx_custom_printf >= 0.15.0
 
-- ppx_compare >= 0.14.0
+- ppx_compare >= 0.15.0
 
-- ppx_hash >= 0.14.0
+- ppx_hash >= 0.15.0
 
-- ppx_sexp_conv >= 0.14.3
-
-- ocamlformat >= 0.22.4
+- ppx_sexp_conv >= 0.15.1
