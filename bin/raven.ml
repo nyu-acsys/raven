@@ -50,7 +50,13 @@ let parse_program filename =
   Lexer.set_file_name lexbuf_lib resource_algebra_file;
 
   (* --- *)
-  let tbl, smtEnv, session = parse_lib lexbuf_lib in
+  let tbl, smtEnv, session =
+    try parse_lib lexbuf_lib
+    with Parser.Error ->
+      Stdio.In_channel.close inx_ra;
+      let err_pos = lexbuf_lib.lex_curr_p in
+      Error.syntax_error (Loc.make err_pos err_pos) None
+  in
   Smt_solver.write_comment session "End of Library";
   Smt_solver.write_comment session "";
   Smt_solver.write_comment session "";
