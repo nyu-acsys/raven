@@ -471,7 +471,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         in
         check_and_set expr given_type_lb given_type_ub expected_typ tbl
     | (Null | Unit | Real _ | Int _ | Bool _ | Empty), _expr_list ->
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
+        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
 
     (* Variables *)
     | Var qual_ident, [] ->
@@ -490,7 +490,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         | None -> unknown_ident_error (Expr.loc expr) qual_ident
       in
       check_and_set expr given_typ given_typ expected_typ tbl
-    | Var _qual_ident, _expr_list -> Error.lexical_error (Expr.loc expr) (("variable or field identifiers take no arguments"))
+    | Var _qual_ident, _expr_list -> Error.type_error (Expr.loc expr) (("variable or field identifiers take no arguments"))
 
           
     (* Unary expressions *)
@@ -505,7 +505,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         let given_type_lb = Expr.to_type expr_arg in
         check_and_set (App (constr, [expr_arg], expr_attr)) given_type_lb given_type_ub expected_typ tbl
     | (Not | Uminus), _expr_list ->
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
+        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
 
     (* Binary expressions *)
     | (MapLookUp
@@ -577,11 +577,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         check_and_set (App (constr, [expr1; expr2], expr_attr)) given_typ_lb given_typ_ub expected_typ tbl
           
     | (MapLookUp | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq), _expr_list ->
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
+        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     (* Ternary expressions *)
     | (Ite | MapUpdate), [expr1; expr2; expr3] ->
-        (* infer and propagated expected type of expr1 *)
+        (* infer and propagate expected type of expr1 *)
         let expected_typ1 =
           match constr with
           | Ite -> Type.bool
@@ -590,7 +590,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         in
         let expr1 = process_expr expr1 tbl expected_typ1 in
         let typ1 = Expr.to_type expr1 in
-        (* infer and propagated expected type of expr2 *)
+        (* infer and propagate expected type of expr2 *)
         let expected_typ2 =
           match constr with
           | Ite -> expected_typ
@@ -599,7 +599,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         in
         let expr2 = process_expr expr2 tbl expected_typ2 in
         let typ2 = Expr.to_type expr2 in
-        (* infer and propagated expected type of expr3 *)
+        (* infer and propagate expected type of expr3 *)
         let expected_typ3 =
           match constr with
           | Ite -> typ2
@@ -677,8 +677,8 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
       let constr =
         match SymbolTbl.find tbl constr_qual_ident with
         | Some (DataTypeConstr constr) -> constr
-        | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": expected to be a DataConstr instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-        | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": not found in TypingEnv"))
+        | Some _ -> Error.type_error (Expr.loc expr) "Expected data constructor"
+        | None -> unknown_ident_error (Expr.loc expr) constr_qual_ident
       in
       let constr_arg_types_list = List.map constr.constr_args ~f:(fun var_decl -> var_decl.var_type) in
       let maybe_args_list = List.map2 args_list constr_arg_types_list ~f:(fun expr tp_expr -> process_expr expr tbl tp_expr) in
@@ -746,7 +746,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
               | [] -> Type.unit
               | [ident] -> (match Map.find callable_decl.call_decl_locals ident with
                 | Some var_decl -> var_decl.var_type
-                | None -> Error.lexical_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
+                | None -> Error.type_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
                 )
               | _ -> Error.error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables that return multiple values not presently supported"))
               )                
@@ -755,10 +755,10 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) (* TW: = old value of callable_expr ? *) in
         let expr = Expr.App (Call, callable_expr :: args_list, expr_attr) in
         check_and_set expr given_typ given_typ expected_typ tbl
-      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
+      | Some tp_env -> Error.type_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+      | None -> Error.type_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
       end
-    | Call, [] -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
+    | Call, [] -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
 
     (* Read expressions *)
     | Read, [expr1; App (Var qual_ident, [], _) as expr2] ->
@@ -777,11 +777,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         let expr2 = Expr.set_type expr2 given_typ in
         let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
         check_and_set expr given_typ given_typ expected_typ tbl                
-      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
+      | Some tp_env -> Error.type_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+      | None -> Error.type_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
       end
 
-    | Read, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
+    | Read, _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     (* Set enumeration expressions *)
     | Setenum, [] -> process_expr (App (Empty, [], expr_attr)) tbl expected_typ 
@@ -1229,7 +1229,7 @@ module ProcessCallables = struct
 
               Basic (Call call_desc), [] , tbl, disam_tbl
 
-            | _ -> Error.lexical_error stmt.stmt_loc "Unexpected error."
+            | _ -> Error.type_error stmt.stmt_loc "Unexpected error."
             )
 
         | _ ->
@@ -1449,7 +1449,7 @@ module ProcessCallables = struct
     {stmt_desc = stmt_desc; stmt_loc = stmt.stmt_loc}, locals, tbl, disam_tbl
 
     with
-      Generic_Error msg -> Error.lexical_error stmt.stmt_loc msg
+      Generic_Error msg -> Error.type_error stmt.stmt_loc msg
 
   let process_callable ((mod_decl, tbl): Module.module_decl * SymbolTbl.t) (callable: Callable.t) : (Module.module_decl * SymbolTbl.t) * Callable.t =
     match callable with
@@ -1495,7 +1495,7 @@ module ProcessCallables = struct
         (mod_decl, tbl), FuncDef func_def
 
         with
-          Generic_Error msg -> Error.lexical_error func_def.func_decl.call_decl_loc msg)
+          Generic_Error msg -> Error.type_error func_def.func_decl.call_decl_loc msg)
 
 
       | ProcDef proc_def ->
@@ -1513,7 +1513,7 @@ module ProcessCallables = struct
             (disam_tbl, (var_decl'.var_name, var_decl'))
         )
         with
-          | Generic_Error msg -> Error.lexical_error proc_def.proc_decl.call_decl_loc ("LL"^ msg)
+          | Generic_Error msg -> Error.type_error proc_def.proc_decl.call_decl_loc ("LL"^ msg)
 
         in
          
@@ -1536,7 +1536,7 @@ module ProcessCallables = struct
           if SymbolTbl.equal tbl' tbl then
             Some stmt, locals
           else
-            Error.lexical_error proc_decl.call_decl_loc "process_stmt returned a changed Typing Env tbl. Examine violation."
+            Error.type_error proc_decl.call_decl_loc "process_stmt returned a changed Typing Env tbl. Examine violation."
           ) 
         
         in
@@ -1562,7 +1562,7 @@ module ProcessCallables = struct
         (mod_decl, tbl), ProcDef proc_def
 
         with
-          Generic_Error msg -> Error.lexical_error proc_def.proc_decl.call_decl_loc (msg)
+          Generic_Error msg -> Error.type_error proc_def.proc_decl.call_decl_loc (msg)
 
   
   let rec process_callables (callables: Callable.t list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Callable.t list * Module.module_decl * SymbolTbl.t =
@@ -1621,7 +1621,7 @@ module ProcessModule = struct
 
           process_imports import_directives mod_decl tbl
           
-        | _ -> Error.lexical_error Loc.dummy ("Import " ^ Type.to_string tp_exp ^ " could not be processed." ^ "\n Tbl: \n" ^ SymbolTbl.to_string tbl)
+        | _ -> Error.type_error Loc.dummy ("Import " ^ Type.to_string tp_exp ^ " could not be processed." ^ "\n Tbl: \n" ^ SymbolTbl.to_string tbl)
         )
         
       | MemImport _qual_ident ->
@@ -1747,7 +1747,7 @@ module ProcessModule = struct
         | _ ->
           let tp_expr = try 
             ProcessTypeExpr.process_type_expr tp_expr tbl 
-          with (Generic_Error msg) -> Error.lexical_error tp_alias.type_alias_loc msg
+          with (Generic_Error msg) -> Error.type_error tp_alias.type_alias_loc msg
           in
 
           tp_expr, tbl
@@ -1783,13 +1783,13 @@ module ProcessModule = struct
           | _ -> 
             try
               ProcessTypeExpr.process_type_expr field.field_type tbl
-            with (Generic_Error msg) -> Error.lexical_error field.field_loc msg
+            with (Generic_Error msg) -> Error.type_error field.field_loc msg
           )
         
         | _ ->  
           try
             ProcessTypeExpr.process_type_expr field.field_type tbl
-          with (Generic_Error msg) -> Error.lexical_error field.field_loc msg
+          with (Generic_Error msg) -> Error.type_error field.field_loc msg
       in
 
       let field = { field with
@@ -1812,7 +1812,7 @@ module ProcessModule = struct
     | var :: vars ->
       let var_decl = try
         ProcessTypeExpr.process_var_decl var.var_decl tbl
-      with (Generic_Error msg) -> Error.lexical_error var.var_decl.var_loc msg
+      with (Generic_Error msg) -> Error.type_error var.var_decl.var_loc msg
       in
 
       let (var_expr: expr option) =  match var.var_init with 
