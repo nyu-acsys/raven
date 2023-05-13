@@ -496,13 +496,9 @@ stmt_wo_trailing_substmt:
 
 new_or_expr:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
-  let to_qual_ident = Expr.(function
-    |  App (Var x, _, _) -> x
-    | _ -> assert false)
-  in
   let new_descr = Stmt.{
     new_lhs = QualIdent.from_ident (Ident.make "" 0);
-    new_args = List.map (fun (f, e_opt) -> (to_qual_ident f, e_opt)) fes;
+    new_args = List.map (fun (f, e_opt) -> (AstUtil.expr_to_qual_ident f, e_opt)) fes;
   }
   in
   Stmt.(Basic (New new_descr))
@@ -708,7 +704,12 @@ dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
 | p = qual_ident_expr; co = call_opt {
   Base.Option.map co ~f:(fun (c, es) ->
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c (p :: es)))
+    let constr, args =
+      let p_ident = AstUtil.expr_to_qual_ident p in
+      Base.Option.map c ~f:(fun c -> c, p :: es) |> 
+      Base.Option.value ~default:(Expr.Call (p_ident, Loc.make $startpos(p) $endpos(p)), es)
+    in
+    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) constr args))
   |> Base.Option.value ~default:p
 }
 ;
@@ -726,17 +727,17 @@ maplookup_expr:
 
 call_expr:
 | p = qual_ident_expr; ces = call {
-  let c, es = ces in
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c (p :: es))
+  let _, es = ces in
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Call (AstUtil.expr_to_qual_ident p, Loc.make $startpos(p) $endpos(p))) es)
 }
   
 call:
-| LPAREN; es = separated_list(COMMA, expr); RPAREN { (Expr.Call, es) }
+| LPAREN; es = separated_list(COMMA, expr); RPAREN { (None, es) }
   
 call_opt:
 | c = call { Some c }
 | LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET {
-  Some (MapUpdate, [e2; e3])
+  Some (Some MapUpdate, [e2; e3])
 }
 | (* empty *) { None }
   

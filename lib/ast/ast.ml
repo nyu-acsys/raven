@@ -178,7 +178,6 @@ module Type = struct
   let perm_type_string = "Perm"
   let bot_type_string = "Bot"
   let any_type_string = "Any"
-  let struct_type_string = "struct"
   let data_type_string = "struct"
   let atomic_token_type_string = "AtomicToken"
 
@@ -197,8 +196,6 @@ module Type = struct
     | Data _ -> data_type_string
     | Var id -> QualIdent.to_string id
     | AtomicToken -> atomic_token_type_string
-  (* | App _ -> "App"
-     | Dot _ -> "Dot" *)
 
   let rec pr_constr ppf t =
     match t with
@@ -211,29 +208,11 @@ module Type = struct
 
   and pr ppf t =
     match t with
-    (* | Int
-       | Bool
-       | Unit
-       | Any
-       | Bot
-       | AnyRef
-       | Perm
-       | Var _
-       | Set
-       | Map ->  Stdlib.Format.fprintf ppf "%s" (to_name t)
-       | Struct decls ->
-           Stdlib.Format.fprintf ppf "struct {@\n  @[%a@]@\n}"
-             pr_var_decl_list decls
-       | Data decls ->
-           Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}"
-             pr_variant_decl_list decls *)
     | App (t1, [], _) -> pr_constr ppf t1
     | App (t1, ts, _) ->
         Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr_constr t1
           (Print.pr_list_comma pr) ts
 
-  (* | Dot (t1, id, _) ->
-      Stdlib.Format.fprintf ppf "%a.%a" pr t1 Ident.pr id *)
   and pr_var_decl ppf decl =
     let open Stdlib.Format in
     fprintf ppf "%s%s @[<2>%a@ :@ %a@]"
@@ -266,7 +245,6 @@ module Type = struct
   let dummy_attr = { type_loc = Loc.dummy }
   let mk_attr loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc }
   let mk_app ?(loc = Loc.dummy) t ts = App (t, ts, mk_attr loc)
-  (* let mk_dot ?(loc=Loc.dummy) t id = Dot (t, id, mk_attr loc) *)
 
   let mk_int loc = App (Int, [], mk_attr loc)
   let mk_real loc = App (Real, [], mk_attr loc)
@@ -421,9 +399,9 @@ module Expr = struct
     | Mult
     | Div
     | Mod
-    | Call
-    | DataConstr
-    | DataDestr
+    | Call of qual_ident * (location [@compare.ignore])
+    | DataConstr of qual_ident * (location [@compare.ignore])
+    | DataDestr of qual_ident * (location [@compare.ignore])
     | Read
     (* Ternary operators *)
     | Ite
@@ -464,9 +442,9 @@ module Expr = struct
     | Real r -> Float.to_string r
     | Null -> "null"
     | Unit -> "()"
-    | DataConstr -> "data_constr"
-    | DataDestr -> "data_destr"
-    | Call -> "call"
+    | DataConstr (id, _) 
+    | DataDestr (id, _) -> QualIdent.to_string id
+    | Call (id, _) -> "call " ^ QualIdent.to_string id
     | Read -> "read"
     | Uminus -> "-"
     | MapLookUp -> "map_lookup"
@@ -505,7 +483,7 @@ module Expr = struct
     | Null | Unit | Empty | Int _ | Real _ | Bool _ -> 0
     | Setenum | Read | Own | Var _ | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
-    | DataConstr | DataDestr | Call -> 3
+    | DataConstr _ | DataDestr _ | Call _ -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Diff | Union | Inter -> 6
@@ -534,7 +512,8 @@ module Expr = struct
     | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "(%a:%a)" pr_constr c Type.pr (to_type e)
-    | App (DataConstr, e0 :: es, _) | App (Call, e0 :: es, _) -> fprintf ppf "(%a(%a):%a)" pr e0 pr_list es Type.pr (to_type e)
+    | App (DataConstr (id, _), es, _) | App (Call (id, _), es, _) ->
+        fprintf ppf "(%a(%a):%a)" QualIdent.pr id pr_list es Type.pr (to_type e)
     | App (Read, [ e1; e2 ], _) ->
         fprintf ppf "((%a).(%a):%a)" pr e1 pr e2 Type.pr (to_type e)
     | App (MapLookUp, [e1; e2], _) ->
@@ -563,9 +542,8 @@ module Expr = struct
     | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "%a" pr_constr c
-    (*| App (DataConstr, e0 :: es, _)*) | App (Call, e0 :: es, _) -> fprintf ppf "%a(%a)" pr e0 pr_list es
-    | App (Dot, [ e1; e2 ], _) | App (Read, [ e1; e2 ], _) ->
-        fprintf ppf "%a.%a" pr e1 pr e2
+    | App (DataConstr (id, _), es, _) | App (Call (id, _), es, _) ->
+        fprintf ppf "%a(%a)" QualIdent.pr id pr_list es
     | App (Write, [ e1; e2; e3 ], _) ->
         fprintf ppf "%a[|%a@ :=@ %a|]" pr e1 pr e2 pr e3
     | App
@@ -1194,11 +1172,10 @@ fprintf ppf "@[<1> %s@;@[<v 2>  %s%a @;%s%a @;%s@] @,}@]"
         find_var var_defs name
 end
 
-module ASTUtil = struct
+module AstUtil = struct
   let expr_to_qual_ident (expr : expr) =
     match expr with
-    | App (Var qual_ident, [], _) -> qual_ident
-    | App (Var _, _, _) -> raise (Failure "Var expr should not have arguments.")
+    | App (Var qual_ident, _, _) -> qual_ident
     | _ ->
         Error.error_simple (*(Expr.loc expr)*)
              (Printf.sprintf "Expected Var expression instead of %s; Loc: %s" (Expr.to_string expr) (Loc.to_string (Expr.loc expr)))

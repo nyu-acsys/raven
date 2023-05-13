@@ -93,18 +93,14 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
     | Div -> mk_app ~pos:expr_attr.expr_loc Div smt_term_list 
     | Mod -> mk_app ~pos:expr_attr.expr_loc Mod smt_term_list
     | Ite -> mk_app ~pos:expr_attr.expr_loc Ite smt_term_list
-    | Call ->
-      (match expr_list with
-      | App (Var qual_ident, [], _) :: expr_list' ->
+    | Call (qual_ident, _) ->
         (match SmtEnv.find smtEnv qual_ident with
         | Some (Func func_trnsl) ->
-          let smt_term_list' = List.map expr_list' ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+          let smt_term_list' = List.map expr_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
           mk_app ~pos:expr_attr.expr_loc (Ident func_trnsl.func_symbol) smt_term_list'
 
         | _ -> Error.error (Expr.loc expr) "Expected function for callable in smtEnv; found something else."
         ) 
-      | _ -> Error.error (Expr.loc expr) "Invalid call_expr found"
-      )
     | Read ->
       (* Permission for the given field needs to be checked earlier; when a `var x = y.f` stmt is found. We will assume that field reads only appear when directly assigned to variables. *)
       (* TODO: Make sure this is actually being done. *)
@@ -133,21 +129,17 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
       | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Nothing found for %s from translate_expr in smtEnv. \n smtEnv: %s" (QualIdent.to_string qual_ident) (SmtEnv.to_string smtEnv)
       )
     
-    | DataConstr ->
-      (match expr_list with
-      | App (Var qual_ident, [], _) :: expr_list' -> 
+    | DataConstr (qual_ident, _) ->
         (match SmtEnv.find smtEnv qual_ident with
         | Some (DataConstr data_constr) -> 
-          let smt_term_list' = List.map expr_list' ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+          let smt_term_list' = List.map expr_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
 
           mk_app ~pos:expr_attr.expr_loc (Ident data_constr.constr) smt_term_list'
         | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Unexpected element found in translate_expr for expr '%s' in smtEnv." (Expr.to_string expr))
-
-      | _ -> Error.error (Expr.loc expr) "Invalid DataConstr expr found")
     
-    | DataDestr -> 
+    | DataDestr (qual_ident, _) -> 
       (match expr_list with
-      | [expr1; App (Var qual_ident, [], _) ] -> 
+      | [expr1] -> 
         (match SmtEnv.find smtEnv qual_ident with
         | Some (DataDestr data_destr) -> 
           let smt_term1 = translate_expr expr1 tbl smtEnv in
@@ -503,7 +495,7 @@ let rec check_sep_star_injectivity (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_
     ), _
   ) -> ()
 
-  | Binder (Forall, _quant_vars, App (Call, (App (Var _pred_name, [], _expr_attr0)) :: _args_list, _), _) -> ()
+  | Binder (Forall, _quant_vars, App (Call (_pred_name, _), _args_list, _), _) -> ()
 
   | _ -> ()
 
@@ -516,7 +508,7 @@ let touched_vars (stmt: Stmt.t) : qual_ident list =
       | VarDef var_def -> touched_var_list, (QualIdent.from_ident var_def.var_decl.var_name) :: local_var_list
       | Assign assign_desc ->
         (try 
-          List.map assign_desc.assign_lhs ~f:(ASTUtil.expr_to_qual_ident) @ touched_var_list, local_var_list
+          List.map assign_desc.assign_lhs ~f:(AstUtil.expr_to_qual_ident) @ touched_var_list, local_var_list
         with
           | Error.Msg(_loc,_msg) -> touched_var_list, local_var_list   
             (* Error.error loc (Printf.sprintf "Assign_desc found with invalid lhs '%s'; expected list of qual_ident: '%s' " ()msg) *)
@@ -676,7 +668,7 @@ module TrnslInhale = struct
         
     | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
 
-  | App (Call, (App (Var pred_name, [], _)) :: args_list, _) ->
+  | App (Call (pred_name, _), args_list, _) ->
     (match SmtEnv.find smtEnv pred_name with
     | Some (Pred pred_trnsl) ->
       (let old_predheap_term = pred_trnsl.pred_heap in
@@ -859,18 +851,18 @@ module TrnslInhale = struct
       | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
       )
 
-  | Binder (Forall, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+  | Binder (Forall, quant_vars, App (Call (pred_name, pred_loc), args_list, expr_attr1), expr_attr2) ->
     trnsl_inhale
     (Binder (Forall, quant_vars, 
       App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+        App (Call (pred_name, pred_loc), args_list, expr_attr1)
       ], expr_attr1
       ), expr_attr2
     )) tbl smtEnv
 
   | Binder (Forall, quant_vars, 
       App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+        App (Call (pred_name, _), args_list, _)
       ], _
       ), _
     ) ->
@@ -1043,18 +1035,18 @@ module TrnslInhale = struct
       | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
       )
 
-  | Binder (Exists, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+  | Binder (Exists, quant_vars, App (Call (pred_name, pred_loc), args_list, expr_attr1), expr_attr2) ->
     trnsl_inhale
     (Binder (Exists, quant_vars, 
       App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+        App (Call (pred_name, pred_loc), args_list, expr_attr1)
       ], expr_attr1
       ), expr_attr2
     )) tbl smtEnv
 
   | Binder (Exists, quant_vars, 
       App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+        App (Call (pred_name, _), args_list, _)
       ], _
       ), _
     ) ->
@@ -1212,7 +1204,7 @@ module TrnslExhale = struct
         
     | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv")
 
-  | App (Call, (App (Var call_name, [], _)) :: args_list, _) ->
+  | App (Call (call_name, _), args_list, _) ->
     (match SmtEnv.find smtEnv call_name with
     | Some (Pred pred_trnsl) ->
       (let old_predheap_term = pred_trnsl.pred_heap in
@@ -1415,18 +1407,18 @@ module TrnslExhale = struct
       | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
       )
 
-  | Binder (Forall, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+  | Binder (Forall, quant_vars, App (Call (pred_name, pred_loc), args_list, expr_attr1), expr_attr2) ->
     trnsl_exhale
     (Binder (Forall, quant_vars, 
       App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+        App (Call (pred_name, pred_loc), args_list, expr_attr1)
       ], expr_attr1
       ), expr_attr2
     )) tbl smtEnv
 
   | Binder (Forall, quant_vars, 
       App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+        App (Call (pred_name, _), args_list, _)
       ], _
       ), _
     ) ->
@@ -1601,18 +1593,18 @@ module TrnslExhale = struct
     | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
     )
 
-  | Binder (Exists, quant_vars, App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1), expr_attr2) ->
+  | Binder (Exists, quant_vars, App (Call (pred_name, pred_loc), args_list, expr_attr1), expr_attr2) ->
     trnsl_exhale
     (Binder (Exists, quant_vars, 
       App (Impl, [Expr.mk_bool true ; 
-        App (Call, (App (Var pred_name, [], expr_attr0)) :: args_list, expr_attr1)
+        App (Call (pred_name, pred_loc), args_list, expr_attr1)
       ], expr_attr1
       ), expr_attr2
     )) tbl smtEnv
 
   | Binder (Exists, quant_vars, 
       App (Impl, [expr0; 
-        App (Call, (App (Var pred_name, [], _)) :: args_list, _)
+        App (Call (pred_name, _), args_list, _)
       ], _
       ), _
     ) ->
@@ -1934,7 +1926,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       smtEnv, session
     
     | [App (MapLookUp, [expr1; expr2], _)] -> 
-      let map_qual_ident = ASTUtil.expr_to_qual_ident expr1 in
+      let map_qual_ident = AstUtil.expr_to_qual_ident expr1 in
       let fresh_map_name = SMTIdent.fresh (QualIdent.to_string map_qual_ident) in
       let fresh_map_term = mk_const (Ident fresh_map_name) in
       let old_map_term, map_sort =
@@ -1973,7 +1965,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       smtEnv, session
 
     | [App (Read, [expr1; expr2], _)] -> 
-      let field_name = ASTUtil.expr_to_qual_ident expr2 in
+      let field_name = AstUtil.expr_to_qual_ident expr2 in
 
       let field_trnsl = (match SmtEnv.find smtEnv field_name with
       | Some (Field field_trnsl) -> field_trnsl
@@ -2030,7 +2022,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | Havoc expr_list -> 
     List.fold expr_list ~init:(smtEnv, session) ~f:(fun (smtEnv, session) expr ->
       let qual_iden = try
-        ASTUtil.expr_to_qual_ident expr 
+        AstUtil.expr_to_qual_ident expr 
         with
           Error.Msg (loc, _msg) -> Error.error loc ("Havoc called on invalid term; only expected qual_idents. Found: " ^ (Expr.to_string expr))
       in
@@ -2083,7 +2075,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | Fold fold_desc ->
     (* TODO: Make sure implicit ghost args are being handled correctly. *)
     (match fold_desc.fold_expr with
-    | App (Call, (App (Var qual_ident, [], _)) :: args, _) -> (
+    | App (Call (qual_ident, _), args, _) -> (
       match SmtEnv.find smtEnv qual_ident with
       | Some (Pred pred_trnsl) ->
         (
@@ -2105,7 +2097,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | Unfold unfold_desc ->
     (* TODO: Make sure implicit ghost args are being handled correctly. *)
     (match unfold_desc.unfold_expr with
-    | App (Call, (App (Var qual_ident, [], _)) :: args, _) -> (
+    | App (Call (qual_ident, _), args, _) -> (
       match SmtEnv.find smtEnv qual_ident with
       | Some (Pred pred_trnsl) ->
         (
