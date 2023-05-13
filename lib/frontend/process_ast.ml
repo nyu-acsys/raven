@@ -4,6 +4,9 @@ open Util
 open Error
 
 (* Generic_Error is thrown by functions which don't have any Loc information. These exceptions are then meant to be caught by a caller function which can then generate the appropriate Error.errors with appropriate Loc information attached  *)
+
+(* TODO: refactor symbol table, type inference, and disambiguation into separate files *) 
+
   
 module SymbolTbl = struct
   type data_type_constr = {
@@ -185,7 +188,7 @@ let arguments_to_string d =
 let module_arg_mismatch_error loc typ_constr expected =
   Error.type_error loc (Printf.sprintf "Module %s expects %s." (Type.to_name typ_constr) (arguments_to_string expected))
 
-let unknown_ident_error id loc =
+let unknown_ident_error loc id =
   Error.error loc ("Unknown identifier " ^ QualIdent.to_string id ^ ".")
     
     
@@ -432,597 +435,370 @@ module ProcessTypeExpr = struct
 
 end
 
-let does_expr_implement_type (expr: expr) (tp_expr: type_expr) (tbl: SymbolTbl.t): unit = 
-  let tp1 = ProcessTypeExpr.expand_type_expr (Expr.attr_of expr).expr_type tbl in
-  let tp2 = ProcessTypeExpr.expand_type_expr tp_expr tbl in
-  (* TODO: Generalize appropriately *)
-  if Type.compare (Type.meet tp1 tp2) tp2 <> 0 then
-    type_mismatch_error (Expr.loc expr) tp2 tp1
-
-let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr = 
+(* TODO: move this function inside of process_expr *)
+let check_and_set (expr: expr) (given_typ_lb: type_expr) (given_typ_ub: type_expr) (expected_typ: type_expr) (tbl: SymbolTbl.t): expr = 
+  let given_typ_lb = ProcessTypeExpr.expand_type_expr given_typ_lb tbl in
+  let given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub tbl in
+  let expected_typ = ProcessTypeExpr.expand_type_expr expected_typ tbl in
+  let typ = Type.meet given_typ_ub expected_typ in
+  if Type.subtype_of given_typ_lb typ then
+    Expr.set_type expr typ
+  else
+    type_mismatch_error (Expr.loc expr) expected_typ given_typ_ub
+      
+let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) : expr =
   match expr with
   | App (constr, expr_list, expr_attr) ->
     (* let expr_list = List.map expr_list ~f:(fun expr -> process_expr expr tbl) in *)
-    let expr_type = expr_attr.expr_type in
+    (* let expr_type = expr_attr.expr_type in *)
 
-    (* The parser returns expressions with expr_type Any. That is why Type.meet is used in the below definitions. It works with the Any type annotations received from the parser, as well as with more precise type annotations. *)
-
-    (* This function is called directly on expressions AST received from parser. That is why, this method must be called on each sub-expression recursively before using them.
+    (* This function is called directly on expressions AST received from parser. That is why this method must be called on each sub-expression recursively before using them.
     
-    This function will also type-check each expression and populate the expr.expr_attr.expr_type with the appropriate type.
-    *)
+       This function will also type-check each subexpression and decorate it with the inferred type.
+     *)
+    begin match constr, expr_list with
+    (* Constants *)
+    | (Null | Unit | Real _ | Int _ | Bool _ | Empty), [] ->
+        let given_type_lb, given_type_ub =
+          match constr with
+          | Null -> Type.ref, Type.ref
+          | Unit -> Type.unit, Type.unit
+          | Real _ -> Type.real, Type.real
+          | Int _ -> Type.int, Type.int
+          | Bool _ -> Type.bool, Type.bool
+          | Empty -> Type.(set_typed bot), Type.(set_typed any)
+          | _ -> assert false
+        in
+        check_and_set expr given_type_lb given_type_ub expected_typ tbl
+    | (Null | Unit | Real _ | Int _ | Bool _ | Empty), _expr_list ->
+        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
 
-    (match constr, expr_list with
-    | Null, [] -> 
-      let tp = Type.meet expr_type Type.ref in
-      if Type.compare tp Type.ref = 0 then
-        let expr_attr = { expr_attr with
-          expr_type = Type.ref;
-        } in
+    (* Variables *)
+    | Var qual_ident, [] ->
+      let qual_ident = 
+        try
+          SymbolTbl.fully_qualified qual_ident tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) (Printf.sprintf "%s\nExpr: %s \nTbl:%s" msg (Expr.to_string expr) (SymbolTbl.to_string tbl))
+      in
+      let given_typ =
+        match SymbolTbl.find tbl qual_ident with
+        | Some (VarDecl var_decl) ->
+            var_decl.var_type     
+        | Some (Field field_def) -> 
+            field_def.field_type
+        | Some _ -> Error.type_error (Expr.loc expr) "Expected variable or field identifier."
+        | None -> unknown_ident_error (Expr.loc expr) qual_ident
+      in
+      check_and_set expr given_typ given_typ expected_typ tbl
+    | Var _qual_ident, _expr_list -> Error.lexical_error (Expr.loc expr) (("variable or field identifiers take no arguments"))
 
-        App (constr, [], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ( (Expr.constr_to_string constr ^ " should have a Ref type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
-    | Null, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
-    
-    | Unit, [] -> 
-      if Type.equal (Type.meet expr_type (Type.unit)) ((Type.unit)) then
-        let expr_attr = { expr_attr with
-          expr_type = (Type.unit);
-        } in
+          
+    (* Unary expressions *)
+    | (Not | Uminus), [expr_arg] ->
+        let given_type_ub =
+          match constr with
+          | Uminus -> Type.num
+          | Not -> Type.bool
+          | _ -> assert false
+        in
+        let expr_arg = process_expr expr_arg tbl given_type_ub in
+        let given_type_lb = Expr.to_type expr_arg in
+        check_and_set (App (constr, [expr_arg], expr_attr)) given_type_lb given_type_ub expected_typ tbl
+    | (Not | Uminus), _expr_list ->
+        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
 
-        App (constr, [], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have type Unit instead of " ^ Type.to_string expr_type))
-    | Unit, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
-    
-    | Empty, [] ->
-      let tp = (Type.meet expr_type (Type.set_typed Type.any)) in
-      (match tp with
-      | Type.App (Set, _, _) -> 
-        let expr_attr = { expr_attr with
-          expr_type = tp;
-        } in
+    (* Binary expressions *)
+    | (MapLookUp
+      | Diff | Union | Inter
+      | Plus | Minus | Mult | Div | Mod
+      | Gt | Lt | Geq | Leq
+      | And | Or | Impl
+      | Subseteq | Elem | Eq), [expr1; expr2] ->
+        (* infer and propagated expected type of expr1 *)
+        let expected_typ1 =
+          match constr with
+          | MapLookUp -> Type.(map bot expected_typ)
+          | Diff | Union | Inter ->
+              Type.meet expected_typ Type.(set_typed any)
+          | Subseteq -> Type.(set_typed any)
+          | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
+          | And | Or | Impl -> Type.bool
+          | Elem | Eq -> Type.any
+          | _ -> assert false
+        in
+        let expr1 = process_expr expr1 tbl expected_typ1 in
+        let typ1 = Expr.to_type expr1 in
+        (* infer and propagated expected type of expr2 *)
+        let expected_typ2 =
+          match constr with
+          | MapLookUp -> Type.map_dom typ1
+          | Diff | Union | Inter 
+          | Plus | Minus | Mult | Div | Mod
+          | Subseteq | Eq | Gt | Lt | Geq | Leq -> typ1
+          | And | Or | Impl -> Type.bool
+          | Elem -> Type.(set_typed typ1)
+          | _ -> assert false
+        in
+        let expr2 = process_expr expr2 tbl expected_typ2 in
+        let typ2 = Expr.to_type expr2 in
+        
+        (* backpropagate typ2 to expr1 if needed *)
+        let expected_typ1 =
+          match constr with
+          | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
+          | Diff | Union | Inter
+          | Plus | Minus | Mult | Div | Mod
+          | Subseteq | Eq | Gt | Lt | Geq | Leq -> typ2
+          | And | Or | Impl -> Type.bool
+          | Elem -> Type.set_elem typ2
+          | _ -> assert false
+        in
+        let expr1 =
+          if Type.equal expected_typ1 typ1
+          then expr1
+          else process_expr expr1 tbl expected_typ1
+        in
+        
+        (* recompute expr and check against its expected type *)
+        let given_typ_lb, given_typ_ub =
+          match constr with
+          | MapLookUp ->
+              let typ = expr1 |> Expr.to_type |> Type.map_codom in
+              typ, typ
+          | Diff | Union | Inter ->
+              Type.(set_typed bot), Type.(set_typed any)
+          | Plus | Minus | Mult | Div | Mod ->
+              let typ = expr1 |> Expr.to_type in
+              typ, typ
+          | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq ->
+              Type.bool, Type.bool
+          | _ -> assert false
+        in         
+        check_and_set (App (constr, [expr1; expr2], expr_attr)) given_typ_lb given_typ_ub expected_typ tbl
+          
+    | (MapLookUp | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq), _expr_list ->
+        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
-        App (constr, [], expr_attr)
+    (* Ternary expressions *)
+    | (Ite | MapUpdate), [expr1; expr2; expr3] ->
+        (* infer and propagated expected type of expr1 *)
+        let expected_typ1 =
+          match constr with
+          | Ite -> Type.bool
+          | MapUpdate -> Type.(map bot any)
+          | _ -> assert false
+        in
+        let expr1 = process_expr expr1 tbl expected_typ1 in
+        let typ1 = Expr.to_type expr1 in
+        (* infer and propagated expected type of expr2 *)
+        let expected_typ2 =
+          match constr with
+          | Ite -> expected_typ
+          | MapUpdate -> Type.map_dom typ1
+          | _ -> assert false
+        in
+        let expr2 = process_expr expr2 tbl expected_typ2 in
+        let typ2 = Expr.to_type expr2 in
+        (* infer and propagated expected type of expr3 *)
+        let expected_typ3 =
+          match constr with
+          | Ite -> typ2
+          | MapUpdate -> Type.map_codom typ2
+          | _ -> assert false
+        in
+        let expr3 = process_expr expr3 tbl expected_typ3 in
+        let typ3 = Expr.to_type expr3 in
+        (* backpropagate typ3 to expr2 if needed *)
+        let expected_typ2 =
+          match constr with
+          | Ite -> typ3
+          | MapUpdate -> typ2
+          | _ -> assert false
+        in
+        let expr2 =
+          if Type.equal expected_typ2 typ2
+          then expr2
+          else process_expr expr2 tbl expected_typ2
+        in
+        let typ2 = Expr.to_type expr2 in
+        (* backpropagate typ3 and typ2 to expr1 if needed *)
+        let expected_typ1 =
+          match constr with
+          | Ite -> Type.bool
+          | MapUpdate -> Type.map typ2 typ3
+          | _ -> assert false
+        in
+        let expr1 =
+          if Type.equal expected_typ1 typ1 
+          then expr1
+          else process_expr expr1 tbl expected_typ1
+        in
+        let typ1 = Expr.to_type expr1 in
+        (* recompute expr and check against its expected type *)
+        let given_typ_lb, given_typ_ub =
+          match constr with
+          | Ite -> typ3, typ3
+          | MapUpdate -> typ1, typ1
+          | _ -> assert false
+        in
+        let expr = Expr.App (constr, [expr1; expr2; expr3], expr_attr) in
+        check_and_set expr given_typ_lb given_typ_ub expected_typ tbl
 
-      | _ -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Set type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
-        )
-    | Empty, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
+    | (Ite | MapUpdate), _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
 
-    | Bool _b, [] -> 
-      let tp = Type.meet expr_type Type.bool in
-      if Type.compare tp Type.bool = 0 then
-        let expr_attr = { expr_attr with
-          expr_type = Type.bool;
-        } in
+    (* Ownership predicates *)
+    | Own, expr1 :: expr2 :: expr3 :: expr4_opt ->
+        let expr1 = process_expr expr1 tbl Type.ref in
+        let field_type =
+          let field_name = ASTUtil.expr_to_qual_ident expr2 in
+          match SymbolTbl.find tbl field_name with
+          | Some (Field field_def) ->
+              ProcessTypeExpr.process_type_expr field_def.field_type tbl
+          | Some _ -> Error.type_error (Expr.loc expr2) "Expected field identifier."
+          | None -> unknown_ident_error (Expr.loc expr2) field_name
+        in
+        let expr2 = process_expr expr2 tbl field_type in
+        let expr3 = process_expr expr3 tbl field_type in
+        (* Implicitely case-split on heap RA vs. other RA *)
+        let expr4_opt = List.map ~f:(fun e -> process_expr e tbl Type.real) expr4_opt in
+        (* Reconstruct and check expr *)
+        let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
+        check_and_set expr Type.perm Type.perm expected_typ tbl         
 
-        App (constr, [], expr_attr)
-      else
-        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Bool type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
-    | Bool _b, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
-      
-    | Int _num, [] ->
-      let tp = Type.meet expr_type Type.int in
-      if Type.compare tp Type.int = 0 then
-        let expr_attr = { expr_attr with
-          expr_type = Type.int;  
-        } in
+    | Own, _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments"))
 
-        App (constr, [], expr_attr)
-      else
-        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Int type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
-    | Int _num, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
-
-    | Real _num, [] ->
-      let tp = Type.meet expr_type Type.real in 
-      if Type.equal tp Type.real then
-        let expr_attr = { expr_attr with
-        expr_type = Type.real;
-        } in
-
-        App (constr, [], expr_attr)
-      else
-        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " should have a Real type instead of " ^ Type.to_string expr_type ^ " or " ^ Type.to_string tp))
-
-    | Real _num, _ -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
-
-    | Not, [expr_arg] ->
-      let expr_arg = process_expr expr_arg tbl in
-      let tp = Type.meet expr_type (Expr.to_type expr_arg) in
-      if Type.compare tp Type.bool = 0 then
-        let expr_attr = { expr_attr with
-          expr_type = Type.bool;  
-        } in
-
-        App (constr, [expr_arg], expr_attr)
-      else
-        Error.type_error (Expr.loc expr) ((Expr.to_string expr_arg ^ " should have a Bool type instead of " ^ Type.to_string (Expr.to_type expr_arg)))
-
-    | Not, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
-    
-    | Uminus, [expr_arg] ->
-      let expr_arg = process_expr expr_arg tbl in
-      let tp = Type.meet expr_type (Expr.to_type expr_arg) in
-      if Type.is_num tp then
-        let expr_attr = { expr_attr with
-          expr_type = tp;  
-        } in
-
-        App (constr, [expr_arg], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.to_string expr_arg ^ " should have Int type instead of " ^ Type.to_string (Expr.to_type expr_arg)))
-    | Uminus, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
-
-    | MapLookUp, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let tp1 = (Expr.to_type expr1) in
-
-      let expr2 = process_expr expr2 tbl in
-      let tp2 = (Expr.to_type expr2) in
-
-      (match tp1 with
-      | App (Map, tp_list, _tp_attr) -> (
-        (match tp_list with
-        | [tp_index; tp_val] -> (
-          if (Type.compare tp_index tp2 = 0) then 
-            let tp = Type.meet expr_type tp_val in
-            if (Type.compare tp tp_val = 0) then
-              let expr_attr = { expr_attr with
-                expr_type = tp;
-              } in
-
-              App (MapLookUp, [expr1; expr2], expr_attr)
-            
-            else
-              Error.type_error (Expr.loc expr) ((Expr.to_string expr ^ " should have type " ^ Type.to_string tp_val ^ "; found: " ^ Type.to_string expr_type))
-          else
-            Error.type_error (Expr.loc expr) (("Index type mismatch for Map expr " ^ Expr.to_string expr1 ^ ". Expected " ^ Type.to_string tp_index ^ "; found " ^ Type.to_string tp2))
-        )
-        | _ -> Error.type_error (Expr.loc expr1) ((Expr.to_string expr1 ^ " has Map type but it should have 2 arguments. Instead of " ^ Type.to_string tp1))
-
-        )
-      )
-      | _ -> Error.type_error (Expr.loc expr1) ((Expr.to_string expr1 ^ " should have Map type instead of " ^ Type.to_string tp1))
-      )
-    
-    | MapLookUp, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | Eq, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      let tp = Type.meet (Expr.to_type expr1) (Expr.to_type expr2) in
-      if not (Type.is_any tp) then
-        let expr_attr = { expr_attr with
-          expr_type = Type.bool;
-        } in
-
-        App (constr, [Expr.set_type expr1 tp; Expr.set_type expr2 tp], expr_attr)
-        (* TODO: Check this type-casting is sound. *)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " args should have same type, instead of " ^ Type.to_string (Expr.to_type expr1) ^ " and " ^ Type.to_string (Expr.to_type expr2))) 
-    | Eq, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | Gt, [expr1; expr2] | Lt, [expr1; expr2] | Geq, [expr1; expr2] | Leq, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      let tp1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) tbl in
-      let tp2 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr2) tbl in
-
-      let tp = Type.join tp1 tp2 in
-      if Type.is_num tp then
-        let expr_attr = { expr_attr with
-          expr_type = Type.bool;
-        } in
-
-        App (constr, [expr1; expr2], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) (Printf.sprintf "%s args should be of Int type, instead of %s and %s; %s" (Expr.constr_to_string constr) (Type.to_string tp1)  (Type.to_string tp2) (Type.to_string tp)) 
-    | Gt, _expr_list | Lt, _expr_list | Geq, _expr_list | Leq, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | Diff, [expr1; expr2] | Union, [expr1; expr2] | Inter, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      let tp = Type.join (Expr.to_type expr1) (Expr.to_type expr2) in
-      if Type.is_set tp then
-        let expr_attr = { expr_attr with
-          expr_type = tp;
-        } in
-
-        App (constr, [expr1; expr2], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " args should be of Set type, instead of " ^ Type.to_string (Expr.to_type expr1) ^ " and " ^ Type.to_string (Expr.to_type expr2))) 
-    | Diff, _expr_list | Union, _expr_list | Inter, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-    
-    | Subseteq, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      let tp = Type.join (Expr.to_type expr1) (Expr.to_type expr2) in
-      if Type.is_set tp then
-        let expr_attr = { expr_attr with
-          expr_type = Type.bool;
-        } in
-
-        App (Subseteq, [expr1; expr2], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " args should be of Set type, instead of " ^ Type.to_string (Expr.to_type expr1) ^ " and " ^ Type.to_string (Expr.to_type expr2))) 
-
-    | Subseteq, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | Elem, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      if Type.compare (Expr.to_type expr2) (Type.set_typed (Expr.to_type expr1)) = 0 then
-        let expr_attr = { expr_attr with
-          expr_type = Type.bool
-        } in
-
-        App (Elem, [expr1; expr2], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.to_string expr ^ ": first arg and second arg incompatible."))
-    | Elem, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | And, [expr1; expr2] | Or, [expr1; expr2] | Impl, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      let tp = Type.meet (Expr.to_type expr1) (Expr.to_type expr2) in
-      if Type.equal tp Type.perm || Type.equal tp Type.bool  then
-        let expr_attr = { expr_attr with
-          expr_type = tp;
-        } in
-
-        App (constr, [expr1; expr2], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " args should be of Bool or Perm type, instead of " ^ Type.to_string (Expr.to_type expr1) ^ " and " ^ Type.to_string (Expr.to_type expr2)))
-    | And, _expr_list | Or, _expr_list | Impl, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | Plus, [expr1; expr2] | Minus, [expr1; expr2] | Mult, [expr1; expr2] | Div, [expr1; expr2] | Mod, [expr1; expr2] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-
-      let tp1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) tbl in
-      let tp2 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr2) tbl in
-
-      let tp = Type.join tp1 tp2 in
-      if Type.is_num tp 
-        (* TODO: Apply expand_type_expr more consistently in codebase. *)
-        then
-        let expr_attr = { expr_attr with
-          expr_type = Expr.to_type expr1;
-        } in
-
-        App (constr, [expr1; expr2], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " args should be of Int type, instead of " ^ Type.to_string (Expr.to_type expr1) ^ " and " ^ Type.to_string (Expr.to_type expr2)))
-    | Plus, _expr_list | Minus, _expr_list | Mult, _expr_list | Div, _expr_list | Mod, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
-    | Dot, _expr_list -> Error.lexical_error (Expr.loc expr) ("Dot expressions should not appear in the AST. Unexpected error.")
-
+    (* Data constructor expressions *)
     | DataConstr, constr_expr :: args_list ->
-      let args_list = List.map args_list ~f:(fun expr -> process_expr expr tbl) in
-
       let constr_qual_ident = 
         try
           SymbolTbl.fully_qualified (ASTUtil.expr_to_qual_ident constr_expr) tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
       in
+      let constr =
+        match SymbolTbl.find tbl constr_qual_ident with
+        | Some (DataTypeConstr constr) -> constr
+        | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": expected to be a DataConstr instead of " ^ SymbolTbl.typing_env_to_string tp_env))
+        | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": not found in TypingEnv"))
+      in
+      let constr_arg_types_list = List.map constr.constr_args ~f:(fun var_decl -> var_decl.var_type) in
+      let maybe_args_list = List.map2 args_list constr_arg_types_list ~f:(fun expr tp_expr -> process_expr expr tbl tp_expr) in
+      let args_list =
+        match maybe_args_list with
+        | Ok list -> list
+        | Unequal_lengths ->
+            Error.type_error (Expr.loc expr) (("data constructor " ^ Ident.to_string constr.constr_name ^ " called with incorrect number of arguments" ))
+      in
+      let given_typ = constr.constr_return_type in
+      let expr = Expr.App (DataConstr, constr_expr :: args_list, expr_attr) in
+      check_and_set expr given_typ given_typ expected_typ tbl
 
-      (match SymbolTbl.find tbl constr_qual_ident with
-      | Some (DataTypeConstr constr) -> 
-        let constr_arg_types_list = List.map constr.constr_args ~f:(fun var_decl -> var_decl.var_type) in
+    | DataConstr, [] -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
 
-        let args_list =
-          match List.map2 args_list constr_arg_types_list
-              ~f:(fun expr tp_expr ->
-                does_expr_implement_type expr tp_expr tbl;
-                Expr.set_type expr tp_expr
-                (* TODO: Make sure this 'type-casting' makes sense *))
-          with
-          | Ok list -> list
-          | Unequal_lengths ->
-              Error.type_error (Expr.loc expr) (("data constructor " ^ Ident.to_string constr.constr_name ^ " called with incorrect number of arguments" ))
-        in
-
-        let tp = constr.constr_return_type in
-        let expr_attr =
-          { expr_attr with
-            expr_type = tp;
-          }
-        in
-
-        let constr_expr = ASTUtil.qual_ident_to_expr constr_qual_ident (Expr.attr_of constr_expr) in
-
-        App (DataConstr, constr_expr :: args_list, expr_attr)        
-
-      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": expected to be a DataConstr instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string constr_qual_ident ^ ": not found in TypingEnv"))
-      )
-      
-    | DataConstr, [] -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
-
-
-    | DataDestr, [expr1; App (Var destr_qual_ident, [], expr_attr')]  -> 
-      let expr1 = process_expr expr1 tbl in
-
+    (* Data destructor expressions *)
+    | DataDestr, [expr1; App (Var destr_qual_ident, [], _) as expr2]  -> 
       let destr_qual_ident =
         try
           SymbolTbl.fully_qualified destr_qual_ident tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
       in
-      
-      (match SymbolTbl.find tbl destr_qual_ident with    
-      | Some (DataTypeDestr data_type_destr) ->
-        let tp = data_type_destr.destr_return_type in
 
-        let expr_attr' = { expr_attr' with
-          expr_type = tp;
-        } in
+      let destr =       
+        match SymbolTbl.find tbl destr_qual_ident with    
+        | Some (DataTypeDestr destr) -> destr
+        | Some _tp_env -> Error.type_error (Expr.loc expr) "Expected data destructor"
+        | None -> unknown_ident_error (Expr.loc expr) destr_qual_ident
+      in
+      let expr1 = process_expr expr1 tbl destr.destr_arg in
+      let given_typ = destr.destr_return_type in
+      let expr2 = Expr.set_type expr2 given_typ in
+      let expr = Expr.App (DataDestr, [expr1; expr2], expr_attr) in
+      check_and_set expr given_typ given_typ expected_typ tbl
 
-        let (expr2: expr) = App (Var destr_qual_ident, [], expr_attr') in
+    | DataDestr, _ -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
-        if Type.equal (Expr.to_type expr1) (data_type_destr.destr_arg) then
-          let expr_attr = { expr_attr with
-            expr_type = tp;
-          } in
-
-          App (DataDestr, [expr1; expr2], expr_attr)
-        
-        else
-          Error.lexical_error (Expr.loc expr) @@ Printf.sprintf "%s: type mismatch for DataTypeDestr expr. First arg should be of type %s, instead of %s" (Expr.to_string expr) (Type.to_string tp) (Type.to_string (Expr.to_type expr1))
-      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string destr_qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string destr_qual_ident ^ ": not found in TypingEnv"))
-      )
-
-    | DataDestr, _ -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
-
+    (* Call expressions *)
     | Call, callable_expr :: args_list ->
-      let args_list = List.map args_list ~f:(fun expr -> process_expr expr tbl) in
-
       let callable_qual_ident = 
         try
           SymbolTbl.fully_qualified (ASTUtil.expr_to_qual_ident callable_expr) tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
-        in
-      (match (SymbolTbl.find tbl callable_qual_ident) with
-      | Some Callable callable_decl -> 
+      in
+      begin match (SymbolTbl.find tbl callable_qual_ident) with
+      | Some (DataTypeConstr _constr) ->
+          process_expr (App (DataConstr, callable_expr :: args_list, Expr.attr_of expr)) tbl expected_typ
+      | Some Callable callable_decl ->
         let callable_arg_ident_list = callable_decl.call_decl_formals in
-        let callable_arg_var_decl_list = List.map callable_arg_ident_list ~f:(fun ident -> match Map.find callable_decl.call_decl_locals ident with | Some var -> var | None -> Error.lexical_error (Expr.loc expr) ("Formal arg variable not found in CallDecl")) in
+        let callable_arg_var_decl_list =
+          List.map callable_arg_ident_list ~f:(Map.find_exn callable_decl.call_decl_locals)
+        in
         let callable_arg_types_list = List.map callable_arg_var_decl_list ~f:(fun var_decl -> var_decl.var_type) in
-        let _ =
-          match List.map2 args_list callable_arg_types_list ~f:(fun expr tp_expr -> does_expr_implement_type expr tp_expr tbl) with
+        let args_list =
+          match List.map2 args_list callable_arg_types_list ~f:(fun expr tp_expr -> process_expr expr tbl tp_expr) with
             (* TODO: Extend for implicit ghost arguments *)
-            | Ok _ -> ()
-            | Unequal_lengths -> Error.lexical_error (Expr.loc expr) (("Callable " ^ Ident.to_string callable_decl.call_decl_name ^ " called with incorrect number of arguments" ))
+            | Ok args_list -> args_list
+            | Unequal_lengths -> Error.type_error (Expr.loc expr) (("Callable " ^ Ident.to_string callable_decl.call_decl_name ^ " called with incorrect number of arguments" ))
         in
         (* TODO: what type to assign to callable expressions which return multiple things? *)
-        let tp = 
+        let given_typ = 
           match callable_decl.call_decl_kind with
-          | Proc | Func ->
+          | Proc | Func | Lemma ->
               (match callable_decl.call_decl_returns with
               | [] -> Type.unit
               | [ident] -> (match Map.find callable_decl.call_decl_locals ident with
                 | Some var_decl -> var_decl.var_type
                 | None -> Error.lexical_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
                 )
-              | _ -> Error.lexical_error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables which return multiple values not presently supported"))
-              )
-                
-          | Pred | Lemma | Invariant -> Type.perm
+              | _ -> Error.error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables that return multiple values not presently supported"))
+              )                
+          | Pred | Invariant -> Type.perm
         in
-        let expr_attr =
-          { expr_attr with
-            expr_type = tp;
-          }
-        in
-
-        let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) in
-
-        App (Call, callable_expr :: args_list, expr_attr)
-        
-
-      | Some (DataTypeConstr _constr) -> process_expr (App (DataConstr, callable_expr :: args_list, Expr.attr_of expr)) tbl
-
+        let callable_expr = ASTUtil.qual_ident_to_expr callable_qual_ident (Expr.attr_of callable_expr) (* TW: = old value of callable_expr ? *) in
+        let expr = Expr.App (Call, callable_expr :: args_list, expr_attr) in
+        check_and_set expr given_typ given_typ expected_typ tbl
       | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
       | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
-      )
+      end
     | Call, [] -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " needs at least one argument (the callable name)"))
 
-    | Read, [expr1; App (Var qual_ident, [], expr_attr')] ->
-      let expr1 = process_expr expr1 tbl in
-
+    (* Read expressions *)
+    | Read, [expr1; App (Var qual_ident, [], _) as expr2] ->
       let qual_ident = 
         try
           SymbolTbl.fully_qualified qual_ident tbl 
         with Generic_Error msg -> Error.error (Expr.loc expr) msg
       in
-      (match SymbolTbl.find tbl qual_ident with    
+
+      begin match SymbolTbl.find tbl qual_ident with    
+      | Some (DataTypeDestr _) ->
+          process_expr (App (DataDestr, [expr1; expr2], expr_attr)) tbl expected_typ
       | Some (Field field_def) -> 
-        let tp = field_def.field_type in
-
-        let expr_attr' = { expr_attr' with
-          expr_type = tp;
-        } in
-
-        let (expr2: expr) = App (Var qual_ident, [], expr_attr') in
-
-        if Type.equal (Expr.to_type expr1) (Type.ref) then
-            let expr_attr = { expr_attr with
-            expr_type = tp;
-            } in
-  
-            App (Read, [expr1; expr2], expr_attr)
-  
-        else
-          Error.lexical_error (Expr.loc expr) ((Expr.to_string expr ^ ": for Read expr, first arg should be a Ref type, instead of " ^ Type.to_string (Expr.to_type expr1)))
-      
-      | Some (DataTypeDestr data_type_destr) ->
-        let tp = data_type_destr.destr_return_type in
-
-        let expr_attr' = { expr_attr' with
-          expr_type = tp;
-        } in
-
-        let (expr2: expr) = App (Var qual_ident, [], expr_attr') in
-
-        if Type.equal (Expr.to_type expr1) (data_type_destr.destr_arg) then
-          let expr_attr = { expr_attr with
-            expr_type = tp;
-          } in
-
-          App (DataDestr, [expr1; expr2], expr_attr)
-        
-        else
-          Error.lexical_error (Expr.loc expr) @@ Printf.sprintf "%s: type mismatch for DataTypeDestr expr. First arg should be of type %s, instead of %s" (Expr.to_string expr) (Type.to_string tp) (Type.to_string (Expr.to_type expr1))
+        let expr1 = process_expr expr1 tbl Type.ref in
+        let given_typ = field_def.field_type in      
+        let expr2 = Expr.set_type expr2 given_typ in
+        let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
+        check_and_set expr given_typ given_typ expected_typ tbl                
       | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
       | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
-      )
+      end
 
     | Read, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
-    | Ite, [cond_expr; if_expr; else_expr] ->
-      let cond_expr = process_expr cond_expr tbl in
-      let if_expr = process_expr if_expr tbl in
-      let else_expr = process_expr else_expr tbl in
-
-      if Type.equal (Expr.to_type cond_expr) Type.bool then
-        let tp = Type.join (Expr.to_type if_expr) (Expr.to_type else_expr) in
-        let expr_attr = { expr_attr with
-          expr_type = tp;
-        } in
-
-        App (Ite, [cond_expr; if_expr; else_expr], expr_attr)
-      else
-        Error.lexical_error (Expr.loc expr) ((Expr.to_string cond_expr ^ ": for If-then-else expr, condition expr should be bool, instead of " ^ Type.to_string (Expr.to_type cond_expr)))
-    | Ite, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
-
-    (* | Write, [expr1; expr2] *)
-    | Write, _expr_list -> Error.lexical_error (Expr.loc expr) ("Write expr not presently supported")
-    
-    | Own, [expr1; expr2; expr3] -> 
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-      let expr3 = process_expr expr3 tbl in
-      (if (Type.equal Type.ref (Expr.to_type expr1)) then
-        (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
-        | Some (Field field_def) -> (
-          (* The following additional call to process_type_expr is required because for fields with custom RAs, their types are stored as module names in typing env. The following call will convert it to appropriate rep type. *)
-          let field_type = ProcessTypeExpr.process_type_expr field_def.field_type tbl in
-
-          if (Type.equal (Type.join field_type (Expr.to_type expr3)) field_type) then
-            let expr_attr = { expr_attr with
-              expr_type = Type.mk_perm (Expr.loc expr);
-            } in
-
-            App (Own, [expr1; expr2; expr3], expr_attr)
-
-          else
-            Error.type_error (Expr.loc expr) ("Field type mismatch. Field " ^ (Ident.to_string field_def.field_name) ^ " has type " ^ (Type.to_string field_def.field_type ^ "; received " ^ Type.to_string (Expr.to_type expr3))))
-        | Some _tp -> Error.type_error (Expr.loc expr) ("Expected Field in typing env. Found" ^ SymbolTbl.typing_env_to_string _tp)
-        | None -> Error.type_error (Expr.loc expr) ("Field " ^ (Expr.to_string expr2) ^ "not found in typing env")
-        )
-        
-      else
-        Error.type_error (Expr.loc expr) ("Own Predicate used incorrectly; called with args of types: " ^ (Print.string_of_format (Print.pr_list_comma Type.pr) (List.map ~f: (Expr.to_type) [expr1; expr2; expr3])))
-      )
-
-
-    | Own, [expr1; expr2; expr3; expr4] ->
-      let expr1 = process_expr expr1 tbl in
-      let expr2 = process_expr expr2 tbl in
-      let expr3 = process_expr expr3 tbl in
-      let expr4 = process_expr expr4 tbl in
-
-      (if (Type.equal Type.ref (Expr.to_type expr1)
-      && Type.is_num (Expr.to_type expr4)
-        ) then 
-          (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident expr2) with
-          | Some (Field field_def) -> (
-            if (Type.equal (Type.join field_def.field_type (Expr.to_type expr3)) field_def.field_type) then
-              let expr_attr = {expr_attr with
-                expr_type = Type.mk_perm (Expr.loc expr);
-              } in
-
-              App (Own, [expr1; expr2; expr3; expr4], expr_attr)
-            else 
-              Error.type_error (Expr.loc expr) ("Field type mismatch. Field " ^ (Ident.to_string field_def.field_name) ^ " has type " ^ (Type.to_string field_def.field_type ^ "; received " ^ Type.to_string (Expr.to_type expr3))))
-          | Some _tp -> Error.type_error (Expr.loc expr) ("Expected Field in typing env. Found" ^ SymbolTbl.typing_env_to_string _tp)
-          | None -> Error.type_error (Expr.loc expr) ("Field " ^ (Expr.to_string expr2) ^ "not found in typing env")
-          )
-      else
-          Error.type_error (Expr.loc expr) ("Own Predicate used incorrectly; called with args of types: " ^ (Print.string_of_format (Print.pr_list_comma Type.pr) (List.map ~f: (Expr.to_type) [expr1; expr2; expr3; expr4])))
-      ) 
-
-    | Own, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments"))
-    
-    | Setenum, member_expr_list -> 
-      let member_expr_list = List.map member_expr_list ~f:(fun expr -> process_expr expr tbl) in
-      let member_type_list = (match member_expr_list with 
-      | [] -> [Type.any] (* Want empty sets to have type Any instead of Bot*)
-      | _ -> List.map member_expr_list ~f:Expr.to_type
-      ) in
-
-      let tp = List.fold member_type_list ~init:Type.bot ~f:Type.join in
-      let expr_attr = { expr_attr with
-          expr_type = Type.set_typed tp;
-        } in
-
-      App (Setenum, member_expr_list, expr_attr)
-    
-    | Var qual_ident, [] ->
-      let qual_ident = 
-        try
-          SymbolTbl.fully_qualified qual_ident tbl 
-        with Generic_Error msg -> Error.error (Expr.loc expr) (Printf.sprintf "%s\nExpr: %s \nTbl:%s" msg (Expr.to_string expr) (SymbolTbl.to_string tbl))
+    (* Set enumeration expressions *)
+    | Setenum, [] -> process_expr (App (Empty, [], expr_attr)) tbl expected_typ 
+          
+    | Setenum, member_expr_list ->
+        (* TODO: make type inference for member_expr_list more precise by using expected_typ *)
+        let member_expr_list, elem_typ =
+          List.fold_right member_expr_list
+            ~f:(fun mexpr (member_expr_list, elem_typ) ->
+              let mexpr = process_expr mexpr tbl elem_typ in
+               (mexpr :: member_expr_list, Expr.to_type mexpr))
+            ~init:([], Type.any)
         in
-      (match SymbolTbl.find tbl qual_ident with
-      | Some (VarDecl var_decl) ->
-        let tp = var_decl.var_type in
-        let expr_attr = { expr_attr with
-          expr_type = tp;
-        } in
-
-        App (Var qual_ident, [], expr_attr)
-      
-      | Some (Field field_def) -> 
-        let tp = field_def.field_type in
-
-        let expr_attr = { expr_attr with
-          expr_type = tp;
-        } in
-
-        App (Var qual_ident, [], expr_attr)
-      | Some tp_env -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.lexical_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
-      )
-    | Var _qual_ident, _expr_list -> Error.lexical_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " expr takes no arguments"))
-
-    (*| New, expr_list -> 
-      let expr_list = List.map expr_list ~f:(fun expr -> process_expr expr tbl) in
-
-      let _ = 
-        List.map expr_list ~f:(fun expr ->
-          let field_name = try 
-            ASTUtil.expr_to_qual_ident expr
-          with
-            | Error.Msg(_loc, _msg) -> Error.type_error (Expr.loc expr) "Expected field name in new expression" 
-          in
-
-          match SymbolTbl.find tbl field_name with
-          | Some (Field _) -> ()
-          | _ -> Error.type_error (Expr.loc expr) "Expected field in symbolTbl for new expr arg."
-        ) in
-      let expr_attr = { expr_attr with
-        expr_type = Type.ref;
-      } in
-
-      App (New, expr_list, expr_attr)*)
-    )
+        let given_typ = Type.set_typed elem_typ in
+        let expr = Expr.App (Setenum, member_expr_list, expr_attr) in
+        check_and_set expr given_typ given_typ expected_typ tbl
+  end
 
   | Binder (binder, var_decl_list, inner_expr, expr_attr) ->
 
@@ -1031,17 +807,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) : expr =
     let tbl = SymbolTbl.push tbl in
     let tbl = List.fold var_decl_list ~init:tbl ~f:(fun tbl' var_decl -> SymbolTbl.add tbl' (QualIdent.from_ident var_decl.var_name) (VarDecl var_decl)) in
 
-    let inner_expr = process_expr inner_expr tbl in
-    if Type.compare (Expr.to_type inner_expr) Type.bool = 0 || Type.compare (Expr.to_type inner_expr) Type.perm = 0 then
-      let expr_attr = { expr_attr with
-        expr_type = (Expr.to_type inner_expr);
-      } in
-
-      Binder (binder, var_decl_list, inner_expr, expr_attr)
-    
-    else
-      Error.lexical_error (Expr.loc expr) ((Expr.to_string expr ^ ": inner expression should have type Bool or Perm, instead of " ^ Type.to_string (Expr.to_type inner_expr)))
-
+    let inner_expr = process_expr inner_expr tbl Type.perm in
+    let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
+    check_and_set expr Type.bool Type.perm expected_typ tbl
+(* end of process_expr *)
+      
 module ProcessCallables = struct
   module DisambiguationTbl = struct
     type t = (ident ident_map) list  
@@ -1103,15 +873,15 @@ module ProcessCallables = struct
     | Binder (binder, var_decl_list, expr, expr_attr) -> 
       Binder (binder, var_decl_list, disambiguate_expr expr disam_tbl, expr_attr)
 
-  let disambiguate_process_expr (expr: expr) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : expr = 
+  let disambiguate_process_expr (expr: expr) (expected_typ: type_expr) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : expr = 
     let expr = disambiguate_expr expr disam_tbl in
-    let expr = process_expr expr tbl 
+    let expr = process_expr expr tbl expected_typ
   
     in expr
           
 
   let process_stmt_spec (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) (spec: Stmt.spec) : Stmt.spec = { spec with
-    spec_form = disambiguate_process_expr spec.spec_form tbl disam_tbl;
+    spec_form = disambiguate_process_expr spec.spec_form Type.perm tbl disam_tbl;
   }
 
 
@@ -1312,7 +1082,7 @@ module ProcessCallables = struct
           {var_decl = var_decl; var_init = None;}
         | Some expr ->
           let expr = disambiguate_expr expr disam_tbl in
-          let expr = process_expr expr tbl in
+          let expr = process_expr expr tbl var_decl.var_type in
           {var_decl = var_decl; var_init = Some expr}
         ) in
 
@@ -1337,14 +1107,16 @@ module ProcessCallables = struct
         let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
         let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in
 
-        (match assign_desc.assign_rhs with
+        begin match assign_desc.assign_rhs with
         | App (Call, proc :: args, expr_attr) ->
           let proc_qual_ident = ASTUtil.expr_to_qual_ident proc in
-
+          (* TODO: there is a lot of duplicated code below that can be factored out.
+             Also, add comments that indicate which kind of assignment statement is handled in each case
+           *)
           if QualIdent.compare proc_qual_ident open_au_call = 0 then
             match args with
             | [ token ] ->
-              let token_expr = disambiguate_process_expr token tbl disam_tbl in
+              let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
               let au_token = ASTUtil.expr_to_ident token_expr
               
               in
@@ -1365,7 +1137,7 @@ module ProcessCallables = struct
             | token :: [] -> (
                 match assign_desc.assign_lhs with
                 | [] ->
-                    let token_expr = disambiguate_process_expr token tbl disam_tbl in
+                    let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
                     let au_token = ASTUtil.expr_to_ident token_expr
 
                     in
@@ -1383,7 +1155,7 @@ module ProcessCallables = struct
             | [] -> 
               (match assign_desc.assign_lhs with
               | [ token ] ->
-                let token_expr = disambiguate_process_expr token tbl disam_tbl in
+                let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
                 Basic (BindAU (ASTUtil.expr_to_ident token_expr)), [], tbl, disam_tbl
               | _ ->
                 raise (Generic_Error "incorrect number of bound_args to bindAU()")
@@ -1398,53 +1170,48 @@ module ProcessCallables = struct
             | [ token ] -> (
                 match assign_desc.assign_lhs with
                 | [] -> 
-                  let token_expr = disambiguate_process_expr token tbl disam_tbl in
+                  let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
                   Basic (Stmt.AbortAU (ASTUtil.expr_to_ident token_expr)), [], tbl, disam_tbl
                 | _ -> raise (Generic_Error "incorrect number of bound_args to abortAU()"))
 
             | _ -> raise (Generic_Error "abortAU() called without token")
 
-          else if QualIdent.compare proc_qual_ident fpu_call = 0 then
+          else if QualIdent.(proc_qual_ident = fpu_call) then
             match assign_desc.assign_lhs, args with
             | [], [loc_expr; field_expr; val_expr] -> 
-              let loc_expr = disambiguate_process_expr loc_expr tbl disam_tbl in
-              let field_expr = disambiguate_process_expr field_expr tbl disam_tbl in
-              let val_expr = disambiguate_process_expr val_expr tbl disam_tbl in
-
-              if (Type.equal Type.ref (Expr.to_type loc_expr)) then
-                (match SymbolTbl.find tbl (ASTUtil.expr_to_qual_ident field_expr) with
-                | Some (Field field_def) -> (
-                  (* The following additional call to process_type_expr is required because for fields with custom RAs, their types are stored as module names in typing env. The following call will convert it to appropriate rep type. *)
-                  let field_type = ProcessTypeExpr.process_type_expr field_def.field_type tbl in
-
-                  if (Type.equal (Type.join field_type (Expr.to_type val_expr)) field_type) then
-                    let loc_qual_ident = ASTUtil.expr_to_qual_ident loc_expr in
-                    let field_qual_ident = ASTUtil.expr_to_qual_ident field_expr in
-                    let fpu_desc = {
-                      Stmt.fpu_loc = loc_qual_ident;
-                      fpu_field = field_qual_ident;
-                      fpu_val = val_expr;
-                    } in
-                    Basic (Stmt.Fpu fpu_desc), [], tbl, disam_tbl
-                  else
-                    Error.type_error (Expr.loc assign_desc.assign_rhs) ("Field type mismatch. Field " ^ (Ident.to_string field_def.field_name) ^ " has type " ^ (Type.to_string field_def.field_type ^ "; received " ^ Type.to_string (Expr.to_type val_expr))))
-                | Some _tp -> Error.type_error (Expr.loc assign_desc.assign_rhs) ("Expected Field in typing env. Found" ^ SymbolTbl.typing_env_to_string _tp)
-                | None -> Error.type_error (Expr.loc assign_desc.assign_rhs) ("Field " ^ (Expr.to_string field_expr) ^ "not found in typing env")
-                )
-              else 
-                Error.type_error (Expr.loc assign_desc.assign_rhs) @@ Printf.sprintf "Fpu stmt type mismatch."
-
+                let loc_expr = disambiguate_process_expr loc_expr Type.ref tbl disam_tbl in
+                let field_name = ASTUtil.expr_to_qual_ident field_expr in
+                let field_type =
+                  match SymbolTbl.find tbl field_name with
+                  | Some (Field field_def) ->
+                      (* The following additional call to process_type_expr is required because for fields with custom RAs,
+                         their types are stored as module names in typing env. The following call will convert it to appropriate rep type.
+                       *)                      
+                      ProcessTypeExpr.process_type_expr field_def.field_type tbl
+                  | Some _tp -> Error.type_error (Expr.loc field_expr) "Expected field identifier"
+                  | None -> unknown_ident_error (Expr.loc field_expr) field_name
+                in
+                let field_expr = disambiguate_process_expr field_expr field_type tbl disam_tbl in
+                let val_expr = disambiguate_process_expr val_expr field_type tbl disam_tbl in
+                let loc_qual_ident = ASTUtil.expr_to_qual_ident loc_expr in
+                let field_qual_ident = ASTUtil.expr_to_qual_ident field_expr in
+                let fpu_desc = {
+                  Stmt.fpu_loc = loc_qual_ident;
+                  fpu_field = field_qual_ident;
+                  fpu_val = val_expr;
+                } in
+                Basic (Stmt.Fpu fpu_desc), [], tbl, disam_tbl
             | _ ->
               raise (Generic_Error "fpu() called incorrectly")
 
           else
             let assign_lhs = List.map assign_desc.assign_lhs 
-              ~f:(fun expr -> disambiguate_process_expr expr tbl disam_tbl) in
+              ~f:(fun expr -> disambiguate_process_expr expr Type.any tbl disam_tbl) in
 
             let args = List.map args
               ~f:(fun expr -> disambiguate_expr expr disam_tbl) in
 
-            (match (process_expr (App (Call, proc :: args, expr_attr)) tbl) with
+            (match (process_expr (App (Call, proc :: args, expr_attr)) tbl Type.any (* TODO: <- replace this with the expected type *)) with
 
             | App (Call, proc :: args, _expr_attr) ->
 
@@ -1468,19 +1235,14 @@ module ProcessCallables = struct
         | _ ->
           let assign_lhs = List.map assign_desc.assign_lhs 
             ~f:(fun expr -> 
-              let expr = disambiguate_process_expr expr tbl disam_tbl in
+              let expr = disambiguate_process_expr expr Type.any tbl disam_tbl in
 
               expr
           ) in
 
-          let assign_rhs = 
-            (let expr = disambiguate_process_expr assign_desc.assign_rhs tbl disam_tbl in
           
-            expr
-          ) in
-
-          match assign_rhs with
-          (*| App (New, field_args, _) ->
+          (*match assign_rhs with
+          | App (New, field_args, _) ->
             (match assign_lhs with
             | [expr1] -> 
               let lhs_ident = try
@@ -1489,7 +1251,7 @@ module ProcessCallables = struct
               | Msg(_loc, _msg) -> Error.error (Expr.loc expr1) "Expected loc variable on lhs of new expr"
               in
 
-              (if Type.equal (Type.meet (Expr.to_type expr1) (Expr.to_type assign_rhs)) Type.ref then
+              (if Type.equal (Type.join (Expr.to_type expr1) (Expr.to_type assign_rhs)) Type.ref then
                 let new_desc = 
                   {Stmt.new_lhs = lhs_ident;
                   new_args = field_args;
@@ -1501,12 +1263,13 @@ module ProcessCallables = struct
 
               )
             | _ -> Error.type_error stmt.stmt_loc "New expressions only take one expr on LHS"
-            )*)
-          | _ ->
+            )
+          | _ ->*)
             match assign_lhs with
-            | [expr1] ->
-              (* let tp1 = *)
-              does_expr_implement_type assign_rhs (Expr.to_type expr1) tbl;
+            | [expr_lhs] ->
+                let assign_rhs = 
+                  disambiguate_process_expr assign_desc.assign_rhs (Expr.to_type expr_lhs) tbl disam_tbl
+                in
               
               let (assign_desc: Stmt.assign_desc) = { 
                 assign_lhs = assign_lhs;
@@ -1518,35 +1281,37 @@ module ProcessCallables = struct
             (* TODO: Need to add support for product types for full functionality - eg match return types for callables which return multiple things *)
 
             | _ -> Error.unsupported_error stmt.stmt_loc "Assign stmts with multiple expr on LHS not currently supported"
-          )
+        end
         )
       
       | Havoc expr_list ->
         let expr_list = List.map expr_list 
           ~f:(fun expr -> 
             let expr = disambiguate_expr expr disam_tbl in
-            let expr = process_expr expr tbl 
+            let expr = process_expr expr tbl Type.any
           
             in expr
         ) in
-        
+        (* TODO: need to make sure that expr_list is havocable *)
         Basic (Havoc expr_list), [], tbl, disam_tbl
 
-      | Return expr_list -> 
+      | Return expr_list ->
+        (* TODO: need to check that return expressions are consistent with types of formal return parameters *)
         let expr_list = List.map expr_list 
           ~f:(fun expr -> 
           let expr = disambiguate_expr expr disam_tbl in
-          let expr = process_expr expr tbl 
+          let expr = process_expr expr tbl Type.any (* TODO: <- replace by expected type *)
         
           in expr
         ) in
       
         Basic (Return expr_list), [], tbl, disam_tbl
 
-      | Fold fold_desc -> 
+      | Fold fold_desc ->
+        (* TODO: need to check that fold_expr is a predicate call. Should we change the representation of fold_desc to get that for free? *)
         let fold_expr = 
           (let expr = disambiguate_expr fold_desc.fold_expr disam_tbl in
-          let expr = process_expr expr tbl 
+          let expr = process_expr expr tbl Type.perm
         
           in expr
         ) in
@@ -1554,9 +1319,10 @@ module ProcessCallables = struct
         Basic (Fold {fold_expr}), [], tbl, disam_tbl
 
       | Unfold unfold_desc -> 
+        (* TODO: need to check that unfold_expr is a predicate call. Should we change the representation of unfold_desc to get that for free? *)
         let unfold_expr = 
           (let expr = disambiguate_expr unfold_desc.unfold_expr disam_tbl in
-          let expr = process_expr expr tbl 
+          let expr = process_expr expr tbl Type.perm 
         
           in expr
         ) in
@@ -1564,15 +1330,17 @@ module ProcessCallables = struct
         Basic (Unfold {unfold_expr}), [], tbl, disam_tbl
       
       | OpenInv expr ->
+        (* TODO: need to check that expr is an invariant. Should we change the representation of OpenInv to get that for free? *)
         let expr = disambiguate_expr expr disam_tbl in
-        let expr = process_expr expr tbl
+        let expr = process_expr expr tbl Type.perm
 
         in 
         Basic (OpenInv expr), [], tbl, disam_tbl
 
       | CloseInv expr ->
+        (* TODO: need to check that expr is an invariant. Should we change the representation of CloseInv to get that for free? *)
         let expr = disambiguate_expr expr disam_tbl in
-        let expr = process_expr expr tbl
+        let expr = process_expr expr tbl Type.perm
 
         in 
         Basic (CloseInv expr), [], tbl, disam_tbl
@@ -1622,7 +1390,7 @@ module ProcessCallables = struct
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
       let tbl = SymbolTbl.pop tbl in
 
-      let loop_test = disambiguate_process_expr loop_desc.loop_test tbl disam_tbl in
+      let loop_test = disambiguate_process_expr loop_desc.loop_test Type.bool tbl disam_tbl in
 
       let tbl = SymbolTbl.push tbl in
       let disam_tbl = DisambiguationTbl.push disam_tbl in
@@ -1630,7 +1398,7 @@ module ProcessCallables = struct
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
       let tbl = SymbolTbl.pop tbl in
 
-      (* Actually think about what variables need to be collected in `locals`. What if same variable is declared in multiple scopes in a callable, do all of them go in the `call_decl.call_decl_locals`? *)
+      (* Actually think about what variables need to be collected in `locals`. What if same variable is declared in multiple scopes in a callable, do all of them go in the `call_decl.call_decl_locals`? TW: I would say yes, unless you already have that information in the SymbolTable and always lookup locals through that. *)
 
       let (loop_desc: Stmt.loop_desc) = {
         loop_contract;
@@ -1642,7 +1410,7 @@ module ProcessCallables = struct
       Loop loop_desc, locals' @ locals'', tbl, disam_tbl
 
     | Cond cond_desc ->
-      let cond_test = disambiguate_process_expr cond_desc.cond_test tbl disam_tbl in
+      let cond_test = disambiguate_process_expr cond_desc.cond_test Type.bool tbl disam_tbl in
 
       let tbl = SymbolTbl.push tbl in
       let disam_tbl = DisambiguationTbl.push disam_tbl in
@@ -1710,7 +1478,7 @@ module ProcessCallables = struct
 
         let func_body = match func_def.func_body with
           | None -> None
-          | Some expr -> Some (process_expr (disambiguate_expr expr disam_tbl) tbl) in
+          | Some expr -> Some (process_expr (disambiguate_expr expr disam_tbl) tbl Type.any (* TODO: <- replace this with the return type of the function *)) in
 
         let (func_def: Callable.func_def) = {
           func_decl = func_decl;
@@ -2050,9 +1818,7 @@ module ProcessModule = struct
       let (var_expr: expr option) =  match var.var_init with 
       | None -> None
       | Some expr -> 
-        let expr = process_expr expr tbl in
-
-        does_expr_implement_type expr var_decl.var_type tbl;
+        let expr = process_expr expr tbl var_decl.var_type in
           
         Some expr
 
@@ -2185,7 +1951,7 @@ module ProcessModule = struct
 
     let mod_alias_type = 
       (match mod_alias.mod_alias_type with
-      | App (Any, _, _) -> 
+      | App (Bot, _, _) -> 
         mod_alias.mod_alias_type
       | App (Var _mod_name, _tp_args, _tp_attr) ->
         process_mod_alias_tp_expr mod_alias.mod_alias_type tbl mod_alias.mod_alias_loc

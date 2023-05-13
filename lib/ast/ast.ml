@@ -143,6 +143,7 @@ module Type = struct
   and constr =
     | Int
     | Real
+    | Num
     | Bool
     | Unit
     | Ref
@@ -172,6 +173,7 @@ module Type = struct
   let bool_type_string = "Bool"
   let int_type_string = "Int"
   let real_type_string = "Real"
+  let num_type_string = "Int or Real"
   let unit_type_string = "Unit"
   let perm_type_string = "Perm"
   let bot_type_string = "Bot"
@@ -183,6 +185,7 @@ module Type = struct
   let to_name = function
     | Int -> int_type_string
     | Real -> real_type_string
+    | Num -> num_type_string
     | Bool -> bool_type_string
     | Unit -> unit_type_string
     | Bot -> bot_type_string
@@ -199,11 +202,11 @@ module Type = struct
 
   let rec pr_constr ppf t =
     match t with
-    | Int | Real | Bool | Unit | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
+    | Int | Real | Num | Bool | Unit | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
     | Map ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data decls ->
-        Stdlib.Format.fprintf ppf "data {@\n  @[%a@]@\n}" pr_variant_decl_list
+        Stdlib.Format.fprintf ppf "data {@\n  @[<2>%a@]@\n}" pr_variant_decl_list
           decls
 
   and pr ppf t =
@@ -267,13 +270,14 @@ module Type = struct
 
   let mk_int loc = App (Int, [], mk_attr loc)
   let mk_real loc = App (Real, [], mk_attr loc)
+  let mk_num loc = App (Num, [], mk_attr loc)
   let mk_bool loc = App (Bool, [], mk_attr loc)
   let mk_unit loc = App (Unit, [], mk_attr loc)
   let mk_any loc = App (Any, [], mk_attr loc)
+  let mk_bot loc = App (Bot, [], mk_attr loc)
   let mk_ref loc = App (Ref, [], mk_attr loc)
-  let mk_set loc = App (Set, [], mk_attr loc)
-  let mk_set_typed tp loc = App (Set, [tp], mk_attr loc)
-  let mk_map loc = App (Map, [], mk_attr loc)
+  let mk_set loc tp = App (Set, [tp], mk_attr loc)
+  let mk_map loc tpi tpo = App (Map, [tpi; tpo], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
   let mk_data decls loc = App (Data decls, [], mk_attr loc)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
@@ -282,62 +286,68 @@ module Type = struct
 
   let int = mk_int Loc.dummy
   let real = mk_real Loc.dummy
+  let num = mk_num Loc.dummy
   let bool = mk_bool Loc.dummy
   let unit = mk_unit Loc.dummy
   let any = mk_any Loc.dummy
-
-  let bot = App (Bot, [], mk_attr Loc.dummy)
+  let bot = mk_bot Loc.dummy
   let ref = mk_ref Loc.dummy
-  let set = mk_set Loc.dummy
-  let set_typed tp = mk_set_typed tp Loc.dummy
+  let set = mk_set Loc.dummy bot
+  let set_typed tp = mk_set Loc.dummy tp
   let map = mk_map Loc.dummy
   let perm = mk_perm Loc.dummy
   let data decls = mk_data decls Loc.dummy
   let var qid = mk_var Loc.dummy qid
   let atomic_token = mk_atomic_token Loc.dummy
 
-  (* TODO: Verify join_constr properly *)
+  (** Equality and Subtyping *)
 
-  (** Subtyping *)
-  let rec join_constr t1 t2 =
-    match (t1, t2) with
+  let equal tp1 tp2 = ((compare tp1 tp2) = 0)
+      
+  let rec join_constr (t1: constr) t2 =
+    if Poly.(t1 = t2) then t1 else
+    match t1, t2 with
     | Bot, t | t, Bot -> t
     | Bool, Perm | Perm, Bool -> Perm
-    | Real, Int | Int, Real -> Real
-    (* | Ref, _
-       | _, Ref -> Ref *)
+    | (Int | Real | Num), (Int | Real | Num) when not @@ Poly.(t1 = t2) -> Num
     | _, _ -> Any
+ 
+  let rec meet_constr t1 t2 = 
+    if Poly.(t1 = t2) then t1 else
+    match t1, t2 with
+    | Any, t | t, Any -> t
+    | Bool, Perm | Perm, Bool -> Bool
+    | Int, Num | Num, Int -> Int
+    | Real, Num | Num, Real -> Real
+    | _, _ -> Bot
 
   (* TODO: Handle edge-cases for join properly. And figure out where and how it can be used. *)
   let rec join t1 t2 =
-    if compare t1 t2 = 0 then t1 else 
+    if equal t1 t2 then t1 else 
     match (t1, t2) with
+    | App (Bot, [], _), t | t, App (Bot, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [join t1 t2], a1)
+    | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Any, [meet ti1 ti2; join to1 to2], a1)
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
-
-  let is_num tp =
-    compare tp real = 0 || compare tp int = 0
-
-  let rec meet_constr t1 t2 = 
+  and meet t1 t2 = 
+    if equal t1 t2 then t1 else
     match (t1, t2) with
-    | Bot, _ | _, Bot -> Bot
-    | Bool, Perm | Perm, Bool -> Perm
-    | Real, Int | Int, Real -> Real
-    | Any, t | t, Any -> t
-    | _, _ -> Bot
-
-
-  let rec meet t1 t2 = 
-    if compare t1 t2 = 0 then t1 else
-    match (t1, t2) with
+    | App (Any, [], _), t | t, App (Any, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [meet t1 t2], a1)
+    | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Any, [join ti1 ti2; meet to1 to2], a1)
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
+
+  let subtype_of tp1 tp2 = equal (join tp1 tp2) tp2
+          
   (** Auxiliary utility functions *)
   (* TODO: Implement this properly. process_expr uses this *)
 
-  let is_any tp_expr = (compare tp_expr (mk_any Loc.dummy)) = 0
+  let is_num tp =
+    equal tp real || equal tp int
+
+  let is_any tp_expr = equal tp_expr any
 
   let is_set tp_expr = match tp_expr with
     | App (Set, _, _) -> true
@@ -349,7 +359,17 @@ module Type = struct
   let to_loc t = match t with
   | App (_, _, tp_attr) -> tp_attr.type_loc
 
-  let equal tp1 tp2 = ((compare tp1 tp2) = 0)
+  let set_elem = function
+  | App (Set, elem :: _, _) -> elem
+  | _ -> failwith "Expected Set type"
+        
+  let map_dom = function
+  | App (Map, dom :: _, _) -> dom
+  | _ -> failwith "Expected Map type"
+        
+  let map_codom = function
+  | App (Map, _ :: codom :: _, _) -> codom
+  | _ -> failwith "Expected Map type"
 end
 
 type type_expr = Type.t [@@deriving compare]
@@ -382,6 +402,7 @@ module Expr = struct
     | Uminus
     (* Binary operators *)
     | MapLookUp
+    | MapUpdate
     | Eq
     | Gt
     | Lt
@@ -400,14 +421,12 @@ module Expr = struct
     | Mult
     | Div
     | Mod
-    | Dot
     | Call
     | DataConstr
     | DataDestr
     | Read
     (* Ternary operators *)
     | Ite
-    | Write
     | Own
     (* Variable arity operators *)
     | Setenum
@@ -431,7 +450,7 @@ module Expr = struct
 
   let set_type t tp = 
     let attr = attr_of t in
-    let attr = mk_attr attr.expr_loc tp in
+    let attr = { attr with expr_type = tp } in
     match t with 
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, expr, _expr_attr) -> Binder (b, v_l, expr, attr)
@@ -445,14 +464,13 @@ module Expr = struct
     | Real r -> Float.to_string r
     | Null -> "null"
     | Unit -> "()"
-    | Dot -> "."
     | DataConstr -> "data_constr"
     | DataDestr -> "data_destr"
     | Call -> "call"
     | Read -> "read"
-    | Write -> "write"
     | Uminus -> "-"
     | MapLookUp -> "map_lookup"
+    | MapUpdate -> "map_update"
     | Plus -> "+"
     | Minus -> "-"
     | Mult -> "*"
@@ -485,7 +503,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Unit | Empty | Int _ | Real _ | Bool _ -> 0
-    | Dot | Setenum | Read | Write | Own | Var _ | MapLookUp -> 1
+    | Setenum | Read | Own | Var _ | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr | DataDestr | Call -> 3
     | Mult | Div | Mod -> 4
@@ -517,10 +535,12 @@ module Expr = struct
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "(%a:%a)" pr_constr c Type.pr (to_type e)
     | App (DataConstr, e0 :: es, _) | App (Call, e0 :: es, _) -> fprintf ppf "(%a(%a):%a)" pr e0 pr_list es Type.pr (to_type e)
-    | App (Dot, [ e1; e2 ], _) | App (Read, [ e1; e2 ], _) ->
+    | App (Read, [ e1; e2 ], _) ->
         fprintf ppf "((%a).(%a):%a)" pr e1 pr e2 Type.pr (to_type e)
-    | App (Write, [ e1; e2; e3 ], _) ->
-        fprintf ppf "(%a[|%a@ :=@ %a|]:%a)" pr e1 pr e2 pr e3 Type.pr (to_type e)
+    | App (MapLookUp, [e1; e2], _) ->
+        fprintf ppf "(%a[%a@]:%a)" pr e1 pr e2 Type.pr (to_type e)
+    | App (MapUpdate, [ e1; e2; e3 ], _) ->
+        fprintf ppf "(%a[%a@ :=@ %a]:%a)" pr e1 pr e2 pr e3 Type.pr (to_type e)
     | App
         ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
            | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
@@ -589,11 +609,11 @@ module Expr = struct
 
   (** Constructors *)
 
-  let mk_app ?(loc = Loc.dummy) ?(typ = Type.Any) c es =
+  let mk_app ?(loc = Loc.dummy) ?(typ = Type.Bot) c es =
     App (c, es, mk_attr loc (App (typ, [], Type.mk_attr loc)))
 
-  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.Any) b vs e =
-    Binder (b, vs, e, mk_attr loc (App (typ, [], Type.mk_attr loc)))
+  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bot) b vs e =
+    Binder (b, vs, e, mk_attr loc typ)
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.Bool (Bool b) []
 

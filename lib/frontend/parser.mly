@@ -96,7 +96,7 @@ module_alias_or_impl:
 }
 | EQ; t = type_expr {
   Module.( ModAlias { mod_alias_name = Ident.make "" 0;
-                      mod_alias_type = Type.mk_any Loc.dummy;
+                      mod_alias_type = Type.mk_bot Loc.dummy;
                       mod_alias_def = Some t;
                       mod_alias_loc = Loc.dummy;
                     } )
@@ -222,7 +222,7 @@ module_decl:
 }
 | MODULE; id = MODIDENT; tdef = module_alias_def {
   Module.( ModAlias { mod_alias_name = id;
-                      mod_alias_type = Type.mk_any Loc.dummy;
+                      mod_alias_type = Type.mk_bot Loc.dummy;
                       mod_alias_def = tdef;
                       mod_alias_loc = Loc.make $startpos(id) $endpos(id);
                     } )
@@ -686,35 +686,24 @@ ghost_block:
 primary:
 | c = CONSTVAL { Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c []) }
 | LPAREN; e = expr; RPAREN { e }
-| e = set_expr { e }
-//| e = new_expr { e }
+| e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = maplookup_expr { e }
 ;
 
-set_expr:
+compr_expr:
 | LBRACEPIPE; es = separated_list(COMMA, expr); RBRACEPIPE {
     Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Setenum es)
   }
 | LBRACEPIPE; v = bound_var; COLONCOLON; e = expr; RBRACEPIPE {
-    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) Compr [v] e)
+    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~typ:Type.(mk_set (Loc.make $startpos $endpos) bot) Compr [v] e)
+  }
+| LBRACKETPIPE; v = bound_var; COLONCOLON; e = expr; RBRACKETPIPE {
+    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~typ:Type.(mk_map (Loc.make $startpos $endpos) any bot) Compr [v] e)
   }
 ;
   
-
-//new_expr:
-// | NEW; t = type_expr {
-//   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) [])
-// }
-// | NEW; t = type_expr; LPAREN; es = separated_list(COMMA,expr); RPAREN {
-//   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (New t) es)
-// }
-//| NEW; LPAREN; es = separated_list(COMMA,expr); RPAREN {
-//  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) New es)
-//}
-//;
-
 dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
 | p = qual_ident_expr; co = call_opt {
@@ -746,8 +735,8 @@ call:
   
 call_opt:
 | c = call { Some c }
-| LBRACKETPIPE; e2 = expr; COLONEQ; e3 = expr; RBRACKETPIPE {
-  Some (Write, [e2; e3])
+| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET {
+  Some (MapUpdate, [e2; e3])
 }
 | (* empty *) { None }
   
@@ -912,7 +901,7 @@ bound_var_opt_type:
 | x = IDENT { 
   let decl =
     Type.{ var_name = x;
-           var_type = Type.mk_any Loc.dummy;
+           var_type = Type.mk_bot Loc.dummy;
            var_loc = Loc.make $startpos $endpos;
            var_const = true;
            var_ghost = false;
@@ -934,7 +923,7 @@ bound_var_opt_type:
   decl
 } 
 ;
-      
+
 type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | REAL { Type.mk_real (Loc.make $startpos $endpos)}
@@ -942,12 +931,12 @@ type_expr:
 | REF { Type.mk_ref (Loc.make $startpos $endpos) }
 | PERM { Type.mk_perm (Loc.make $startpos $endpos)}
 | ATOMICTOKEN { Type.mk_atomic_token (Loc.make $startpos $endpos) }
-| x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
+//| x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
+| SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
+| MAP LBRACKET; t1 = type_expr; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
 | x = mod_ident { Type.mk_var (Loc.make $startpos $endpos) x }
-| SET { Type.mk_set (Loc.make $startpos $endpos) }
-| MAP { Type.mk_map (Loc.make $startpos $endpos) }
-| t = type_expr; LBRACKET; ts = type_expr_list; RBRACKET { match t with 
-  | Type.App(x, _, _) -> App(x, ts, Type.mk_attr (Loc.make $startpos $endpos)) (* Type.mk_app ~loc:(Loc.make $startpos $endpos) t ts *) }
+| x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
+  Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
     
   
 type_expr_list:

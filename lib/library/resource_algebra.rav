@@ -218,7 +218,7 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
         returns (ret:Bool) 
     {
         (n == frac_chunk(n.frac_proj1, n.frac_proj2) ?
-            (n.frac_proj2 > 0 && n.frac_proj2 <= 1) : 
+            (n.frac_proj2 > 0.0 && n.frac_proj2 <= 1.0) : 
             (n == frac_null() ? true : 
                 false
             )
@@ -231,7 +231,7 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
         a == frac_null() ? b :
         (b == frac_null() ? a :
         (valid(a) && valid(b) ? 
-            (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 + b.frac_proj2 > 0 && a.frac_proj2 + b.frac_proj2 <= 1 ? 
+            (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 + b.frac_proj2 > 0.0 && a.frac_proj2 + b.frac_proj2 <= 1.0 ? 
                 frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) :
                 frac_top()) : 
             frac_top()
@@ -256,7 +256,7 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     {
         a == b ? true : 
         (a == frac_chunk(a.frac_proj1, a.frac_proj2) ?
-            a.frac_proj2 == 1 && valid(b) :
+            a.frac_proj2 == 1.0 && valid(b) :
         (a == frac_top() ? true : false))
     }
 }
@@ -301,7 +301,7 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
     }
 }
 
-
+// TW: not sure this belongs in the standard library
 module KeySetRA[X: Type] : CancellativeResourceAlgebra {
     rep type T = data {
         case ksPair(ks_proj1: Set[X], ks_proj2: Set[X]);
