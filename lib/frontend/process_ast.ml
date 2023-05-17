@@ -517,7 +517,8 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
               Type.meet expected_typ Type.(set_typed any)
           | Subseteq -> Type.(set_typed any)
           | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
-          | And | Or | Impl -> Type.bool
+          | And | Or -> Type.perm
+          | Impl -> Type.bool (* antecedent must be pure *)
           | Elem | Eq -> Type.any
           | _ -> assert false
         in
@@ -530,7 +531,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           | Diff | Union | Inter 
           | Plus | Minus | Mult | Div | Mod
           | Subseteq | Eq | Gt | Lt | Geq | Leq -> typ1
-          | And | Or | Impl -> Type.bool
+          | And | Or | Impl -> Type.perm
           | Elem -> Type.(set_typed typ1)
           | _ -> assert false
         in
@@ -544,7 +545,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           | Diff | Union | Inter
           | Plus | Minus | Mult | Div | Mod
           | Subseteq | Eq | Gt | Lt | Geq | Leq -> typ2
-          | And | Or | Impl -> Type.bool
+          | And | Or | Impl -> Type.perm
           | Elem -> Type.set_elem typ2
           | _ -> assert false
         in
@@ -559,8 +560,8 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           | MapLookUp -> Type.map_codom typ1
           | Diff | Union | Inter
           | Plus | Minus | Mult | Div | Mod -> typ2
+          | And | Or | Impl -> Type.perm
           | Subseteq | Eq | Gt | Lt | Geq | Leq
-          | And | Or | Impl
           | Elem -> Type.bool
           | _ -> assert false
         in
@@ -576,7 +577,10 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           | Plus | Minus | Mult | Div | Mod ->
               let typ = expr1 |> Expr.to_type in
               typ, typ
-          | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq ->
+          | And | Or | Impl ->
+              let typ = expr1 |> Expr.to_type in
+            Type.bool, Type.join typ typ2
+          | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq ->
               Type.bool, Type.bool
           | _ -> assert false
         in         
