@@ -381,7 +381,12 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
         try
           Callable_checker.check_interface_callable callable tbl smtEnv session
         with
-        | Util.Error.Msg (_loc, msg) -> Util.Error.error_simple @@ Printf.sprintf " \027[31mCould not verify %s of module %s\027[0m: \n\n%s" (Ident.to_string (Callable.to_decl callable).call_decl_name) (Ident.to_string m.module_decl.mod_decl_name) msg
+        | Util.Error.Msg (_loc, msg) -> 
+          Stdio.prerr_endline ("---------");
+          Stdio.prerr_endline "";
+          Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
+          
+          Util.Error.error_simple @@ Printf.sprintf " \027[31mCould not verify %s of module %s\027[0m: \n\n%s" (Ident.to_string (Callable.to_decl callable).call_decl_name) (Ident.to_string m.module_decl.mod_decl_name) msg
         )
 
     else 
@@ -389,7 +394,12 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
         try
           Callable_checker.check_module_callable callable tbl smtEnv session
         with
-        | Util.Error.Msg (_loc, msg) -> Util.Error.error_simple @@ Printf.sprintf " \027[31mCould not verify %s of module %s\027[0m: \n\n%s" (Ident.to_string (Callable.to_decl callable).call_decl_name) (Ident.to_string m.module_decl.mod_decl_name) msg
+        | Util.Error.Msg (_loc, msg) -> 
+          Stdio.prerr_endline ("---------");
+          Stdio.prerr_endline "";
+          Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
+          
+          Util.Error.error_simple @@ Printf.sprintf " \027[31mCould not verify %s of module %s\027[0m: \n\n%s" (Ident.to_string (Callable.to_decl callable).call_decl_name) (Ident.to_string m.module_decl.mod_decl_name) msg
       ) in
 
 

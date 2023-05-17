@@ -1,0 +1,294 @@
+module Lock {
+  rep type T = Ref
+  
+  field bit: Bool
+  
+  pred lock(l: Ref, b: Bool) {
+    own(l, bit, b, 1.0) 
+  }
+
+  proc create()
+    returns (l: T)
+    ensures lock(l, false)
+  {
+    l := new(bit:false);
+    // l.bit := false;
+    
+    {! 
+    	fold lock(l, false);
+    !}
+  }
+
+  proc acquire(l: T, implicit ghost b: Bool)
+    // atomic requires lock(l, b)
+    requires lock(l, b)
+    // atomic ensures lock(l, true) && b == false
+    ensures lock(l, true) && b == false
+  {
+    {! 
+      // var phi: AtomicToken;
+      // phi := bindAU();
+    	// var b: Bool;
+      // b := openAU(phi);
+      // inhale(lock(l,b));
+
+    	unfold lock(l, b); 
+    !}
+    
+    var res: Bool;
+    /* val res := cas(l.bit, false, true); */
+
+    if (l.bit) { /* can use l.bit OR b*/
+      res := false;
+     }
+    
+    else {
+      res := true;
+    }
+
+    {!
+      if (res) {
+      	fold lock(l, true);
+      	// commitAU(phi);
+        assert (lock(l, true) && b == false);
+      } else {
+      	fold lock(l, false);
+        // abortAU(phi);
+      	assert(lock(l, b));
+      }
+    !}
+    
+    if (!res) {
+    	acquire(l);
+    }
+  }
+
+  proc release(l: T)
+    // atomic requires lock(l, true)
+    // atomic ensures lock(l, false)
+    requires lock(l, true)
+    ensures lock(l, false)
+  {
+  	{! 
+  		// var phi: AtomicToken;
+      // phi := bindAU();
+      // openAU(phi);
+  		unfold lock(l, true);
+  	!}
+ 
+    l.bit := false;
+    
+    {!
+    	fold lock(l, true);
+    	// commitAU(phi);
+      assert (lock(l, false));
+    !}
+  }
+}
+
+
+interface Keyspace {
+  rep type T
+  val ks: Set[T]
+}
+
+module IntKeyspace : Keyspace {
+  rep type T = Int
+
+  val ks = {| k: Int :: true |}
+}
+
+module SearchStructureSpec[K: Keyspace] {
+
+  type Op = data { case searchOp; case insertOp; case deleteOp }
+
+  pred opSpec(op: Op, k: K, c: Set[K], c1: Set[K], res: Bool) {
+    op == searchOp() ?
+      c1 == c && res == (k in c) :
+    (op == insertOp ?
+      c1 == c ++ {|k|} && res == (k !in c) :
+    
+    // op == deleteOp 
+      c1 == c -- {|k|} && res == (k in c)
+    )
+  }
+}
+
+interface NodeImpl[K: Keyspace] {
+  /* import K.ks */
+  // import K
+  /* Need to figure out uppercase/lowercase for these commands.*/
+  module Spec = SearchStructureSpec[K]
+  import Spec
+
+  rep type T
+
+  pred nodeR(n: T, c: Set[K])
+
+  proc create()
+    returns (n: T)
+    ensures nodeR(n, {||})
+
+  proc decisiveOp(dop: Op, n: T, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+    requires k in K.ks && nodeR(n, c)
+    ensures nodeR(n, c1) && opSpec(dop, k, c, c1, res)
+}
+
+interface SearchStructure[K: Keyspace] {
+  /* import K.ks */
+  // import K
+  module Spec = SearchStructureSpec[K]
+  // import Spec
+
+  type CSS
+
+  pred cssR(r: CSS, c: Set[K])
+
+  inv cssInv(r: CSS)
+
+  proc create()
+    returns (r: CSS)
+    ensures cssInv(r) && cssR(r, {||})
+    /* What does `inv(cssI, cssInv(r))` mean? */
+
+  proc cssOp(dop: Op, r: CSS, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+    requires k in ks && cssInv(r)
+    atomic requires cssR(r, c)
+    atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
+}
+
+module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
+  import K
+  import Node
+
+  module FracSK = Lib.Frac[Set[K]]
+
+  type CSS = Ref
+  
+  
+  field lock: Lock
+  field node: Node
+  
+  //ghost fields
+  field cont_lock: FracSK
+  field cont_spec: FracSK
+  
+  
+  pred nodePred(r: CSS, implicit ghost c: Set[K]) {
+    nodeR(r.node, c) && own(r, cont_lock, c, 1.0/2.0)
+  }
+
+  pred cssAuth(r: CSS, c: Set[K]) {
+    own(r, cont_spec, c, 1.0/2.0)
+  }
+
+  pred cssR(r: CSS, c: Set[K]) {
+    own(r, cont_spec, c, 1.0/2.0)
+  }
+
+  pred cssInv(r: CSS, implicit ghost b: Bool, implicit ghost c: Set[K]) {
+    cssAuth(r, c)
+    && own(r, cont_lock, frac(1/2, c))
+    && Lock.lock(r.lock, b) && (b ? true : nodePred(r))
+  }
+
+  proc create()
+    returns (r: CSS)
+  {
+    var l: Lock = Lock.create();
+    var n: Node = Node.create();
+    
+    var r: CSS;
+    r := new(lock:l, node:n, cont_lock: frac({||}, 1.0), cont_spec: frac({||}, 1.0));
+
+    /*var r: CSS = new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(frac(1, {||})) */
+    
+    {!
+    	/* check how dafny does it: uses assert */
+    	/* exists: false, {||} */
+
+			/* Not sure how symbolic execution is supposed to figure out where to apply this */
+			// assert frac(1, {||}) == (frac(1/2, {||}) * frac(1/2, {||}));
+    	 	 
+    	fold(cssAuth(r, {||}));
+
+    	assert cssAuth(r, c)
+      				&& own(r, cont_lock, c, 1.0/2.0)
+      				&& Lock.lock(r.lock, b) && (b ? true : nodePred(r));
+    	fold(cssInv(r));
+      /*createInv cssI cssInv(r);*/
+
+    	fold cssR(r, {||});
+    !} 
+  }
+
+  proc cssOp(dop: Op, r: CSS, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+  {
+    {!
+    	unfold cssI;
+    	unfold cssInv(r, b0, c0);
+    	fold Lock.lock(r.lock, b0);
+    !}
+    
+    acquire(r.lock);
+    
+    {!
+    	assert b0 == false;
+    	assert nodePred(r);
+    	unfold Lock.lock(r.lock, true);
+    	fold cssInv(r, true, c0);
+    	unfold nodePred(r, c0');
+    !} 
+    
+    res, c1 := decisiveOp(dop, r, k);
+
+		{!
+			unfold cssInv;
+			unfold cssInv(r, b1, c1');
+
+			/* lemma below asserts C0' = C1' 
+
+      lemma frac_eq(l: loc, )
+
+      */
+
+			frac_eq((r.cont_lock), 1/2, 1/2, c0', c1');
+
+			/* lemma below sums up fractional resources */
+			frac_sum((r.cont_lock), 1/2, 1/2, c0');
+			
+			/* lemma frac_update l C C' : 
+						own(l, frac(1, C)) ~~> own(l, frac(1, C')) */
+			frac_update((r.cont_lock), c0', c1);
+
+			fold nodePred(r, c1);
+			
+			val phi: AtomicToken;
+      phi := bindAU();
+      c1'' := openAU(phi);
+			
+			unfold cssAuth(r, c0');
+			unfold cssR(r, c1'');
+			frac_eq((r.cont_spec), 1/2, 1/2, c0', c1'');
+			frac_sum((r.cont_spec), 1/2, 1/2, c0');
+			frac_update((r.cont_spec), c0', c1);
+			
+			fold cssAuth(r, c1);
+			fold cssR(r, c1);
+			commitAU(phi);
+
+			assert b1 == true;
+			fold Lock.lock(r, true);				
+		!}
+
+    release(r.lock);
+    
+    {!
+    	unfold Lock.lock(r, false);
+    	fold cssInv(r, false, c1);
+    !}    
+  }
+}

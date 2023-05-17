@@ -227,7 +227,10 @@ module Type = struct
     fprintf ppf "case %a(@[%a@])" Ident.pr decl.variant_name pr_arg_list
       decl.variant_args
 
-  and pr_variant_decl_list ppf = Print.pr_list_nl pr_variant_decl ppf
+  and pr_variant_decl_list ppf variant_decl_list = 
+    (* Print.pr_list_nl pr_variant_decl ppf variant_decl_list *)
+    Stdlib.Format.fprintf ppf ""
+
 
   and pr_ident ppf (id, t) =
     Stdlib.Format.fprintf ppf "%a:@ %a" Ident.pr id pr t
@@ -511,15 +514,15 @@ module Expr = struct
     | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
     | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
-    | App (c, [], _) -> fprintf ppf "(%a:%a)" pr_constr c Type.pr (to_type e)
+    | App (c, [], _) -> fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
     | App (DataConstr (id, _), es, _) | App (Call (id, _), es, _) ->
-        fprintf ppf "(%a(%a):%a)" QualIdent.pr id pr_list es Type.pr (to_type e)
+        fprintf ppf "(%a(%a) \027[35m :%a \027[0m)" QualIdent.pr id pr_list es Type.pr (to_type e)
     | App (Read, [ e1; e2 ], _) ->
-        fprintf ppf "((%a).(%a):%a)" pr e1 pr e2 Type.pr (to_type e)
+        fprintf ppf "((%a).(%a) \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
     | App (MapLookUp, [e1; e2], _) ->
-        fprintf ppf "(%a[%a@]:%a)" pr e1 pr e2 Type.pr (to_type e)
+        fprintf ppf "(%a[%a@] \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
     | App (MapUpdate, [ e1; e2; e3 ], _) ->
-        fprintf ppf "(%a[%a@ :=@ %a]:%a)" pr e1 pr e2 pr e3 Type.pr (to_type e)
+        fprintf ppf "(%a[%a@ :=@ %a] \027[35m :%a \027[0m)" pr e1 pr e2 pr e3 Type.pr (to_type e)
     | App
         ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
            | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
@@ -527,11 +530,11 @@ module Expr = struct
           _ ) ->
         let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
         let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
-        fprintf ppf "@[<2>(%a %a@ %a:%a)@]" pr_e1 e1 pr_constr c pr_e2 e2 Type.pr (to_type e)
-    | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|}:%a)" pr_list es Type.pr (to_type e)
-    | App (c, es, _) -> fprintf ppf "(%a(@[%a@]):%a)" pr_constr c pr_list es Type.pr (to_type e)
+        fprintf ppf "@[<2>(%a %a@ %a \027[35m :%a \027[0m)@]" pr_e1 e1 pr_constr c pr_e2 e2 Type.pr (to_type e)
+    | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
+    | App (c, es, _) -> fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr (to_type e)
     | Binder (b, vs, e1, _) ->
-        fprintf ppf "@[(%a:%a)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
+        fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
 
 
   (* let rec pr ppf e =

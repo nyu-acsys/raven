@@ -460,7 +460,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           | Real _ -> Type.real, Type.real
           | Int _ -> Type.int, Type.int
           | Bool _ -> Type.bool, Type.bool
-          | Empty -> Type.(set_typed bot), Type.(set_typed any)
+          | Empty -> Type.(mk_set (Expr.loc expr) bot), Type.(mk_set (Expr.loc expr) any)
           | _ -> assert false
         in
         check_and_set expr given_type_lb given_type_ub expected_typ tbl
@@ -483,6 +483,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         | Some _ -> Error.type_error (Expr.loc expr) "Expected variable or field identifier."
         | None -> unknown_ident_error (Expr.loc expr) qual_ident
       in
+      let expr = Expr.App (Var qual_ident, [], expr_attr) in
       check_and_set expr given_typ given_typ expected_typ tbl
     | Var _qual_ident, _expr_list -> Error.type_error (Expr.loc expr) (("variable or field identifiers take no arguments"))
 
@@ -551,6 +552,17 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           if Type.equal expected_typ1 typ1
           then expr1
           else process_expr expr1 tbl expected_typ1
+        in
+
+        let expected_typ = 
+          match constr with
+          | MapLookUp -> Type.map_codom typ1
+          | Diff | Union | Inter
+          | Plus | Minus | Mult | Div | Mod -> typ2
+          | Subseteq | Eq | Gt | Lt | Geq | Leq
+          | And | Or | Impl
+          | Elem -> Type.bool
+          | _ -> assert false
         in
         
         (* recompute expr and check against its expected type *)
@@ -698,6 +710,11 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
 
     (* Call expressions *)
     | Call (callable_qual_ident, loc), args_list ->
+      let callable_qual_ident = 
+        try
+          SymbolTbl.fully_qualified callable_qual_ident tbl 
+        with Generic_Error msg -> Error.error (Expr.loc expr) (Printf.sprintf "%s\nExpr: %s \nTbl:%s" msg (Expr.to_string expr) (SymbolTbl.to_string tbl))
+      in
       begin match SymbolTbl.find tbl callable_qual_ident with
       | Some (DataTypeConstr _constr) ->
           process_expr (App (DataConstr (callable_qual_ident, loc), args_list, Expr.attr_of expr)) tbl expected_typ
@@ -727,7 +744,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
               )                
           | Pred | Invariant -> Type.perm
         in
-        let expr = Expr.App (constr, args_list, expr_attr) in
+        let expr = Expr.App (Call (callable_qual_ident, loc), args_list, expr_attr) in
         check_and_set expr given_typ given_typ expected_typ tbl
       | Some tp_env -> Error.type_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
       | None -> Error.type_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
@@ -821,33 +838,34 @@ module ProcessCallables = struct
       var_decl, disam_tbl
   end
 
+  let disambiguate_ident (qual_ident: qual_ident) (disam_tbl: DisambiguationTbl.t) =
+    if List.is_empty qual_ident.qual_path then 
+      QualIdent.{
+       qual_path = [];
+       qual_base = (match DisambiguationTbl.find disam_tbl qual_ident.qual_base with
+       | Some iden -> iden
+       | None -> qual_ident.qual_base);
+     }
+    else
+      qual_ident
+
   let rec disambiguate_expr (expr: expr) (disam_tbl: DisambiguationTbl.t) : expr = 
     match expr with
     | App (constr, expr_list, expr_attr) -> 
       let expr_list = List.map expr_list ~f:(fun expr -> disambiguate_expr expr disam_tbl) in
-      let disambiguate_ident (qual_ident: qual_ident) =
-        if List.is_empty qual_ident.qual_path then 
-          QualIdent.{
-           qual_path = [];
-           qual_base = (match DisambiguationTbl.find disam_tbl qual_ident.qual_base with
-           | Some iden -> iden
-           | None -> qual_ident.qual_base);
-         }
-        else
-          qual_ident
-      in
+      
       let constr = match constr with
       | Var qual_ident -> 
-        let qual_ident = disambiguate_ident qual_ident in
+        let qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.Var qual_ident
       | DataConstr (qual_ident, loc) ->
-        let qual_ident = disambiguate_ident qual_ident in
+        let qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.DataConstr (qual_ident, loc)
       | DataDestr (qual_ident, loc) ->
-        let qual_ident = disambiguate_ident qual_ident in
+        let qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.DataDestr (qual_ident, loc)
       | Call (qual_ident, loc) ->
-        let qual_ident = disambiguate_ident qual_ident in
+        let qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.Call (qual_ident, loc)
       | _ -> constr
       in
@@ -1327,6 +1345,46 @@ module ProcessCallables = struct
         in 
         Basic (CloseInv expr), [], tbl, disam_tbl
 
+      | New new_desc ->
+        let new_qual_ident = disambiguate_ident new_desc.new_lhs disam_tbl in
+
+        (let var_decl = 
+          match SymbolTbl.find tbl new_qual_ident with
+          | Some (VarDecl var_decl) -> var_decl
+          | Some _ -> Error.type_error stmt.stmt_loc "Expected variable for new expr."
+          | None -> unknown_ident_error stmt.stmt_loc new_desc.new_lhs
+
+        in
+
+        (if Type.equal (ProcessTypeExpr.expand_type_expr var_decl.var_type tbl) Type.ref then
+          let new_args = List.map new_desc.new_args ~f:(fun (field_name, expr_opt) ->
+            let field_def =
+              match SymbolTbl.find tbl field_name with
+              | Some Field field_def -> field_def
+              | Some _ -> Error.type_error stmt.stmt_loc "Expected field in new expr."
+              | None -> unknown_ident_error stmt.stmt_loc field_name
+            in
+
+            let expr_opt =
+              match expr_opt with
+              | None -> None
+              | Some expr -> Some (disambiguate_process_expr expr field_def.field_type tbl disam_tbl)
+            in
+
+            (field_name, expr_opt)
+          ) in
+
+          let new_desc = 
+            {Stmt.new_lhs = new_qual_ident;
+            new_args = new_args;
+            } in
+
+            Basic (New new_desc), [], tbl, disam_tbl
+        else
+          type_mismatch_error stmt.stmt_loc Type.ref var_decl.var_type
+        )
+        )
+
       (* The following constructs are not expected here because the parser stores these commands as Assign stmts. 
         The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform 
         them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc. 
@@ -1336,9 +1394,6 @@ module ProcessCallables = struct
       | Call _call_desc -> 
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect call stmts in AST at this stage."))
-      | New _new_desc ->
-        let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
-        raise (Generic_Error (str ^ ": InternalError: Did not expect new stmts in AST at this stage."))
       | BindAU _ident ->
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect bindAU stmts in AST at this stage."))

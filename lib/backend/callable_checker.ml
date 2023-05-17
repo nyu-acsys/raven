@@ -71,14 +71,17 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
         mk_select term2 term1
       | _ -> Error.error (Expr.loc expr) "In operation takes exactly two args"
       )
-    | Setenum ->
+    | Setenum | Empty ->
       let tp = Expr.to_type expr in
-      let sort = lookup_type tp tbl smtEnv in
+      let sort = 
+        try
+          lookup_type tp tbl smtEnv 
+        with
+        | Util.Error.Msg (_loc, msg) ->
+          Util.Error.error (Expr.loc expr) @@ Printf.sprintf "%s: lookup_type failed" msg
+        in
       List.fold smt_term_list 
         ~init: (App_t ([mk_annot (mk_const (Ident (SMTIdent.make "const"))) (As sort); mk_bool false], None) )
-        (* ~init:(mk_app (Ident (SMTIdent.make "const")) [mk_bool false]) *)
-        (* (As FreeSort (SMTIdent.make "Set", [sort]))) *)
-        (* ~init:(mk_annot (mk_bool false) (As (FreeSort (SMTIdent.make "const", [FreeSort (SMTIdent.make "Set", [sort])])))) *)
         ~f:(fun term elem ->
           mk_app (Ident (SMTIdent.make "store")) [term; elem; mk_bool true]
         )
@@ -99,7 +102,8 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
           let smt_term_list' = List.map expr_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
           mk_app ~pos:expr_attr.expr_loc (Ident func_trnsl.func_symbol) smt_term_list'
 
-        | _ -> Error.error (Expr.loc expr) "Expected function for callable in smtEnv; found something else."
+        | Some trnsl_elem -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected function for callable in smtEnv; found something else: %s" (SmtEnv.trnsl_to_string trnsl_elem)
+        | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected function for callable in smtEnv; found nothing."
         ) 
     | Read ->
       (* Permission for the given field needs to be checked earlier; when a `var x = y.f` stmt is found. We will assume that field reads only appear when directly assigned to variables. *)
