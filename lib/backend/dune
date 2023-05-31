@@ -1,3 +1,4 @@
 (library
   (name backend)
-  (libraries base ast frontend util unix str))
+  (libraries base ast frontend util unix str)
+  (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf)))

@@ -17,7 +17,7 @@ open Ast
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
-%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV
+%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV INHALE EXHALE
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -465,6 +465,16 @@ stmt_wo_trailing_substmt:
                spec_error = None; }
   in
   Basic (Assert spec)
+}
+(* inhale *)
+| INHALE; e = expr; SEMICOLON {
+  let open Stmt in
+  Basic (Inhale e)
+}
+(* exhale *)
+| EXHALE; e = expr; SEMICOLON {
+  let open Stmt in
+  Basic (Exhale e)
 }
 (*| contract_mods ASSERT expr with_clause {
   $4 (fst $1) $3 (mk_position (if $1 <> (false, false) then 1 else 2) 4) None
@@ -934,7 +944,7 @@ type_expr:
 | ATOMICTOKEN { Type.mk_atomic_token (Loc.make $startpos $endpos) }
 //| x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
 | SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
-| MAP LBRACKET; t1 = type_expr; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
+| MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
 | x = mod_ident { Type.mk_var (Loc.make $startpos $endpos) x }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }

@@ -328,8 +328,15 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
   Smt_solver.write_comment session "";
   Smt_solver.write_comment session ("Entering module " ^ SmtEnv.stack_name smtEnv);
 
+  let formal_args_mod_aliases = List.map m.module_decl.mod_decl_formals ~f:(
+    fun mod_name -> 
+      Map.find_exn m.module_decl.mod_decl_mod_aliases mod_name
+  ) in
 
-  let (smtEnv, session) = Map.fold m.module_decl.mod_decl_mod_aliases ~init:(smtEnv, session) ~f:(fun ~key:mod_alias_name ~data:mod_alias (smtEnv, session) ->
+  let mod_aliases = formal_args_mod_aliases @ m.members.mod_aliases in
+  (* TODO: The order in which module aliases are added needs to be more carefully chosen; there may be dependencies between them that need to be respected. *)
+
+  let (smtEnv, session) = List.fold mod_aliases ~init:(smtEnv, session) ~f:(fun (smtEnv, session) mod_alias ->
     let fully_qualified_mod_alias_name = SmtEnv.mk_qual_ident smtEnv mod_alias.mod_alias_name in
 
     let mod1 = (match SymbolTbl.find tbl fully_qualified_mod_alias_name with
@@ -337,9 +344,9 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
     | _ -> Util.Error.error m.module_decl.mod_decl_loc "Unexpected element found in SymbolTbl. Expected ModDecl."
     ) in
     
-    add_mod_alias mod1 (QualIdent.from_ident mod_alias_name) tbl smtEnv session
+    Smt_solver.write_comment session @@ Printf.sprintf "Adding mod_alias %s for module %s" (Ident.to_string mod_alias.mod_alias_name) (Ident.to_string m.module_decl.mod_decl_name);
+    add_mod_alias mod1 (QualIdent.from_ident mod_alias.mod_alias_name) tbl smtEnv session
   ) in
-
   
   let (smtEnv,session) = List.fold m.members.mod_defs ~init:(smtEnv,session) ~f:(fun (smtEnv,session) m -> 
     check_module m tbl smtEnv session

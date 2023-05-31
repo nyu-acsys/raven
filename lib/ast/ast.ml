@@ -48,7 +48,6 @@ module Ident = struct
       
     in
 
-    
     (fun x ->
       let list_of_map = Map.to_alist x in
       if List.is_empty list_of_map then (fprintf ppf "_empty_map_") else
@@ -155,6 +154,7 @@ module Type = struct
     | Map
     | Data of variant_decl list
     | AtomicToken
+    | Prod
 
   and t = App of constr * t list * type_attr
   (* | TypeData of qual_ident * type_attr *)
@@ -180,6 +180,7 @@ module Type = struct
   let any_type_string = "Any"
   let data_type_string = "struct"
   let atomic_token_type_string = "AtomicToken"
+  let prod_type_string = "Prod"
 
   let to_name = function
     | Int -> int_type_string
@@ -196,11 +197,12 @@ module Type = struct
     | Data _ -> data_type_string
     | Var id -> QualIdent.to_string id
     | AtomicToken -> atomic_token_type_string
+    | Prod -> prod_type_string
 
   let rec pr_constr ppf t =
     match t with
     | Int | Real | Num | Bool | Unit | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
-    | Map ->
+    | Map | Prod ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data decls ->
         Stdlib.Format.fprintf ppf "data {@\n  @[<2>%a@]@\n}" pr_variant_decl_list
@@ -228,8 +230,8 @@ module Type = struct
       decl.variant_args
 
   and pr_variant_decl_list ppf variant_decl_list = 
-    (* Print.pr_list_nl pr_variant_decl ppf variant_decl_list *)
-    Stdlib.Format.fprintf ppf ""
+    Print.pr_list_nl pr_variant_decl ppf variant_decl_list
+    (* Stdlib.Format.fprintf ppf "" *)
 
 
   and pr_ident ppf (id, t) =
@@ -263,6 +265,7 @@ module Type = struct
   let mk_data decls loc = App (Data decls, [], mk_attr loc)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
   let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
+  let mk_prod loc tp_list = App (Prod, tp_list, mk_attr loc)
 
 
   let int = mk_int Loc.dummy
@@ -317,7 +320,7 @@ module Type = struct
     | App (Any, [], _), t | t, App (Any, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [meet t1 t2], a1)
-    | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Any, [join ti1 ti2; meet to1 to2], a1)
+    | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [join ti1 ti2; meet to1 to2], a1)
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
 
   let subtype_of tp1 tp2 = equal (join tp1 tp2) tp2
@@ -537,7 +540,7 @@ module Expr = struct
         fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
 
 
-  (* let rec pr ppf e =
+  and pr_compact ppf e =
     let open Stdlib.Format in
     match e with
     | App (And, [], a) -> pr ppf (App (Bool false, [], a))
@@ -546,9 +549,7 @@ module Expr = struct
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "%a" pr_constr c
     | App (DataConstr (id, _), es, _) | App (Call (id, _), es, _) ->
-        fprintf ppf "%a(%a)" QualIdent.pr id pr_list es
-    | App (Write, [ e1; e2; e3 ], _) ->
-        fprintf ppf "%a[|%a@ :=@ %a|]" pr e1 pr e2 pr e3
+      fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
     | App
         ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
            | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
@@ -556,13 +557,15 @@ module Expr = struct
           _ ) ->
         let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
         let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
-        fprintf ppf "@[<2>%a %a@ %a@]" pr_e1 e1 pr_constr c pr_e2 e2
-    | App (Setenum, es, _) -> fprintf ppf "{|@[%a@]|}" pr_list es
-    | App (c, es, _) -> fprintf ppf "%a(@[%a@])" pr_constr c pr_list es
+        fprintf ppf "%a %a@ %a" pr_e1 e1 pr_constr c pr_e2 e2
+    | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
+    | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
     | Binder (b, vs, e1, _) ->
-        fprintf ppf "@[%a@]" pr_binder (b, vs, e1, to_type e) *)
+        fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
 
   and pr_list ppf = Print.pr_list_comma pr ppf
+
+  and pr_list_compact ppf = Print.pr_list_comma pr_compact ppf
   and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
 
   and pr_binder ppf = function
@@ -590,13 +593,13 @@ module Expr = struct
 
   (** Constructors *)
 
-  let mk_app ?(loc = Loc.dummy) ?(typ = Type.Bot) c es =
-    App (c, es, mk_attr loc (App (typ, [], Type.mk_attr loc)))
+  let mk_app ?(loc = Loc.dummy) ?(typ = Type.bot) c es =
+    App (c, es, mk_attr loc typ)
 
   let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bot) b vs e =
     Binder (b, vs, e, mk_attr loc typ)
 
-  let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.Bool (Bool b) []
+  let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
   (** Constructor for conjunction.*)
   let mk_and ?(loc = Loc.dummy) = function
@@ -1185,6 +1188,12 @@ module AstUtil = struct
 
   let qual_ident_to_expr (qual_ident: qual_ident) (expr_attr: Expr.expr_attr): expr = 
     App (Var qual_ident, [], expr_attr)
+
+  let ident_to_expr (ident: ident) (expr_attr: Expr.expr_attr): expr =
+    qual_ident_to_expr (QualIdent.from_ident ident) expr_attr
+
+  let var_decl_to_expr (var_decl:var_decl): expr =
+    ident_to_expr var_decl.var_name {Expr.expr_loc = var_decl.var_loc; expr_type = var_decl.var_type}
 
   let qual_ident_to_ident (qual_ident : qual_ident) =
     if List.is_empty qual_ident.qual_path then qual_ident.qual_base

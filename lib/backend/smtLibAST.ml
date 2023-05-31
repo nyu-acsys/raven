@@ -15,7 +15,7 @@ module SMTIdent = struct
   end
 
   include T
-  (* include Comparable.Make (T) *)
+  include Comparable.Make (T)
 
   let pr ppf id = Stdlib.Format.fprintf ppf "%s" (to_string id)
   let pr_list ppf ids = Print.pr_list_comma pr ppf ids

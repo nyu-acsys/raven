@@ -352,48 +352,11 @@ module ProcessTypeExpr = struct
       )
 
     | App (Data _variant_decl_list, _tp_list, _tp_attr) ->
-      (* (match tp_list with
-      | [] -> 
-
-        (* constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
-        let constr_map = List.fold variant_decl_list ~init:(Map.empty (module Ident))  ~f:(fun mp variant_decl -> 
-          List.fold variant_decl.variant_args ~init:mp ~f:(fun mp var_arg ->
-            match
-              (Map.add mp ~key:var_arg.var_name ~data:var_arg)
-            with
-            | `Ok mp -> mp
-            | `Duplicate -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Duplicate constructor found in data type %s" (Type.to_string tp_expr)
-            )
-        ) in
-
-        
-        let variant_decl_list = List.map variant_decl_list ~f:(fun variant_decl -> 
-          let args = List.map variant_decl.variant_args ~f:(fun var_decl -> process_var_decl var_decl tbl) in
-
-          { variant_decl with
-            variant_args = args
-          }
-        ) in 
-
-        let tbl = List.fold variant_decl_list ~init:tbl ~f:(fun tbl variant_decl -> 
-          let tbl = List.fold variant_decl.variant_args ~init:tbl ~f:(fun tbl var_arg ->
-            let data_type_destr = {
-              destr_name = var_arg.var_name;
-              destr_arg = ;
-              destr_return_type = var_arg.var_type;
-            }
-            SymbolTbl.add tbl (QualIdent.from_ident var_arg.var_name) (DataTypeDestr )
-          ) in  
-          
-        ) in
-          
-          
-          
-        ()
-
-      | _ -> raise (Generic_Error "Data types don't take arguments")
-      ) *)
       raise (Generic_Error "Data Types can only be defined as new types. Not used indirectly.")
+
+    | App (Prod, tp_list, tp_attr) ->
+      let tp_list = List.map tp_list ~f:(fun tp -> process_type_expr tp tbl) in
+      App (Prod, tp_list, tp_attr)
 
     | App (constr, [], tp_attr) -> App (constr, [], tp_attr)
 
@@ -416,7 +379,18 @@ module ProcessTypeExpr = struct
           | None -> tp_expr
           | Some tp_expr -> expand_type_expr tp_expr tbl)
         
-        | Some _ -> Error.error (Type.to_loc tp_expr) "Expected type_alias in env here."
+        | Some ModDecl (m, _orig_mod) | Some RAModDecl (m, _orig_mod) ->
+          let rep_type_name = 
+            match m.module_decl.mod_decl_rep with
+            | Some iden -> iden
+            | None -> Error.error (Type.to_loc tp_expr) ("Module name used without any rep type") 
+          in
+          (match 
+          (Map.find_exn m.module_decl.mod_decl_types rep_type_name).type_alias_def with
+          | Some tp_expr -> expand_type_expr tp_expr tbl
+          | None -> tp_expr
+          )
+        | Some _ -> Error.error (Type.to_loc tp_expr) ("Expected type_alias in env here.\n" ^ SymbolTbl.to_string tbl)
         | None -> Error.error (Type.to_loc tp_expr) "Expected type_alias in env here."
         ))
 
@@ -437,7 +411,13 @@ end
 
 (* TODO: move this function inside of process_expr *)
 let check_and_set (expr: expr) (given_typ_lb: type_expr) (given_typ_ub: type_expr) (expected_typ: type_expr) (tbl: SymbolTbl.t): expr = 
-  let given_typ_lb = ProcessTypeExpr.expand_type_expr given_typ_lb tbl in
+  
+  let given_typ_lb = 
+    try
+      ProcessTypeExpr.expand_type_expr given_typ_lb tbl 
+    with
+    | Msg(_loc, msg) -> Error.error (Expr.loc expr) msg
+    in
   let given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub tbl in
   let expected_typ = ProcessTypeExpr.expand_type_expr expected_typ tbl in
   let typ = Type.meet given_typ_ub expected_typ in
@@ -612,7 +592,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         (* infer and propagate expected type of expr3 *)
         let expected_typ3 =
           match constr with
-          | Ite -> typ2
+          | Ite -> expected_typ2
           | MapUpdate -> Type.map_codom typ2
           | _ -> assert false
         in
@@ -727,12 +707,26 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         let callable_arg_var_decl_list =
           List.map callable_arg_ident_list ~f:(Map.find_exn callable_decl.call_decl_locals)
         in
+
+        let _dropped_formal_args = List.map (List.drop callable_arg_var_decl_list (List.length args_list)) ~f:(fun var_decl ->
+          if var_decl.var_implicit then 
+            var_decl 
+          else
+            (* Catches if too few args given *)
+            Error.type_error (Expr.loc expr) @@ Printf.sprintf "Callable %s called with incorrect number of arguments" (Ident.to_string callable_decl.call_decl_name)
+
+        ) in
+
+        let callable_arg_var_decl_list =
+          List.take callable_arg_var_decl_list (List.length args_list)
+        in
         let callable_arg_types_list = List.map callable_arg_var_decl_list ~f:(fun var_decl -> var_decl.var_type) in
         let args_list =
           match List.map2 args_list callable_arg_types_list ~f:(fun expr tp_expr -> process_expr expr tbl tp_expr) with
-            (* TODO: Extend for implicit ghost arguments *)
             | Ok args_list -> args_list
-            | Unequal_lengths -> Error.type_error (Expr.loc expr) (("Callable " ^ Ident.to_string callable_decl.call_decl_name ^ " called with incorrect number of arguments" ))
+            | Unequal_lengths -> 
+              (* Catches if too many args given *)
+              Error.type_error (Expr.loc expr) @@ Printf.sprintf "Callable %s called with incorrect number of arguments" (Ident.to_string callable_decl.call_decl_name)
         in
         (* TODO: what type to assign to callable expressions which return multiple things? *)
         let given_typ = 
@@ -744,7 +738,14 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
                 | Some var_decl -> var_decl.var_type
                 | None -> Error.type_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
                 )
-              | _ -> Error.error (Expr.loc expr) ((Ident.to_string callable_decl.call_decl_name ^ ": Callables that return multiple values not presently supported"))
+              | idents -> 
+                let tps_list = List.map idents ~f:(fun iden ->
+                  match Map.find callable_decl.call_decl_locals iden with
+                  | Some var_decl -> var_decl.var_type
+                  | None -> Error.type_error (Expr.loc expr) ("Return arg variable not found in CallDecl")
+                ) in
+                
+                Type.mk_prod (Expr.loc expr) tps_list
               )                
           | Pred | Invariant -> Type.perm
         in
@@ -755,7 +756,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
       end
 
     (* Read expressions *)
-    | Read, [expr1; App (Var qual_ident, [], _) as expr2] ->
+    | Read, [expr1; App (Var qual_ident, [], expr_attr) as expr2] ->
       let qual_ident = 
         try
           SymbolTbl.fully_qualified qual_ident tbl 
@@ -767,7 +768,8 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           process_expr (App (DataDestr (qual_ident, Expr.loc expr2), [expr1], expr_attr)) tbl expected_typ
       | Some (Field field_def) -> 
         let expr1 = process_expr expr1 tbl Type.ref in
-        let given_typ = field_def.field_type in      
+        let given_typ = field_def.field_type in
+        let expr2 = Expr.App (Var qual_ident, [], expr_attr) in
         let expr2 = Expr.set_type expr2 given_typ in
         let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
         check_and_set expr given_typ given_typ expected_typ tbl                
@@ -795,15 +797,37 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
   end
 
   | Binder (binder, var_decl_list, inner_expr, expr_attr) ->
-
     let var_decl_list = List.map var_decl_list ~f:(fun var_decl -> ProcessTypeExpr.process_var_decl var_decl tbl) in
 
     let tbl = SymbolTbl.push tbl in
     let tbl = List.fold var_decl_list ~init:tbl ~f:(fun tbl' var_decl -> SymbolTbl.add tbl' (QualIdent.from_ident var_decl.var_name) (VarDecl var_decl)) in
 
-    let inner_expr = process_expr inner_expr tbl Type.perm in
-    let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
-    check_and_set expr Type.bool Type.perm expected_typ tbl
+    match binder with
+    | Forall | Exists ->
+      let inner_expr = process_expr inner_expr tbl Type.perm in
+      let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
+      check_and_set expr Type.bool Type.perm expected_typ tbl
+
+    | Compr ->
+      let var_decl = 
+        match var_decl_list with
+        | [v] -> v
+        | _ -> Error.type_error (Expr.loc expr) "Map/Set compr only take one quantified variable"
+      in
+      let inner_expr = process_expr inner_expr tbl Type.any in
+      let inner_expr_type = Expr.to_type inner_expr in
+
+      let expr_typ = 
+        if Type.equal inner_expr_type Type.bool then
+          Type.mk_set var_decl.var_loc var_decl.var_type
+        else
+          Type.mk_map var_decl.var_loc var_decl.var_type inner_expr_type
+
+      in
+
+      let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
+      check_and_set expr expr_typ expr_typ expected_typ tbl
+
 (* end of process_expr *)
       
 module ProcessCallables = struct
@@ -1351,6 +1375,7 @@ module ProcessCallables = struct
 
       | New new_desc ->
         let new_qual_ident = disambiguate_ident new_desc.new_lhs disam_tbl in
+        let new_qual_ident = SymbolTbl.fully_qualified new_qual_ident tbl in
 
         (let var_decl = 
           match SymbolTbl.find tbl new_qual_ident with
@@ -1362,6 +1387,7 @@ module ProcessCallables = struct
 
         (if Type.equal (ProcessTypeExpr.expand_type_expr var_decl.var_type tbl) Type.ref then
           let new_args = List.map new_desc.new_args ~f:(fun (field_name, expr_opt) ->
+            let field_name = SymbolTbl.fully_qualified field_name tbl in
             let field_def =
               match SymbolTbl.find tbl field_name with
               | Some Field field_def -> field_def
@@ -1389,6 +1415,14 @@ module ProcessCallables = struct
         )
         )
 
+      | Inhale expr -> 
+        let expr = disambiguate_process_expr expr Type.perm tbl disam_tbl in
+        Basic (Inhale expr), [], tbl, disam_tbl
+        
+      | Exhale expr -> 
+        let expr = disambiguate_process_expr expr Type.perm tbl disam_tbl in
+        Basic (Exhale expr), [], tbl, disam_tbl
+
       (* The following constructs are not expected here because the parser stores these commands as Assign stmts. 
         The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform 
         them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc. 
@@ -1410,12 +1444,6 @@ module ProcessCallables = struct
       | CommitAU _commit_au ->
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect commitAU stmts in AST at this stage."))
-      | Inhale _expr -> 
-        let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
-        raise (Generic_Error (str ^ ": InternalError: Did not expect inhale stmts in AST at this stage."))
-      | Exhale _expr -> 
-        let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
-        raise (Generic_Error (str ^ ": InternalError: Did not expect exhale stmts in AST at this stage."))
       | Fpu _fpu_desc -> 
         let str = Print.string_of_format Stmt.pr_basic_stmt basic_stmt in
         raise (Generic_Error (str ^ ": InternalError: Did not expect Fpu stmts in AST at this stage."))
@@ -1625,7 +1653,7 @@ module ProcessModule = struct
       let new_mod = Module.find_mod imported_mod.members.mod_defs mod_name in
       SymbolTbl.add tbl (QualIdent.from_ident mod_name) (ModDecl (new_mod, orig_mod))) in
 
-    let tbl = Map.fold (imported_mod.module_decl.mod_decl_mod_aliases) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (ModAlias data)) in
+    (* let tbl = Map.fold (imported_mod.module_decl.mod_decl_mod_aliases) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (ModAlias data)) in *)
 
     let tbl = Map.fold (imported_mod.module_decl.mod_decl_types) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (TypeAlias data)) in
 
@@ -1962,7 +1990,7 @@ module ProcessModule = struct
 
         inst_mod, orig_mod, is_ra, tbl
 
-      | _ -> Error.error mod_alias.mod_alias_loc "Unexpected type_expr found in mod_alias_type for type of modAlias."
+      | _ -> Error.error mod_alias.mod_alias_loc @@ Printf.sprintf "Unexpected type_expr %s found in mod_alias_type for type of modAlias %s" (Type.to_string tp_expr) (Ident.to_string mod_alias.mod_alias_name)
       )
 
   and process_mod_alias_tp_expr (tp_expr: type_expr) (tbl: SymbolTbl.t) (loc: Util.Loc.t): type_expr =
@@ -2297,6 +2325,8 @@ module ProcessModule = struct
     } in
     
     let tbl = SymbolTbl.add tbl (QualIdent.from_ident m.module_decl.mod_decl_name) (if (Ident.equal mod_decl.mod_decl_name (Ident.make "ResourceAlgebra" 0) || does_mod_impl_ra) then (RAModDecl (mod_def, orig_mod)) else (ModDecl (mod_def, orig_mod))) in
+
+    let mod_def = Rewrites.rewrite_compr_modules mod_def (SymbolTbl.fully_qualified (QualIdent.from_ident mod_decl.mod_decl_name) tbl) in
     
     mod_def, tbl
 end

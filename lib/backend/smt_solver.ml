@@ -125,7 +125,7 @@ module SmtEnv = struct
   
   let trnsl_to_string (smt_trnsl: smt_trnsl) : string = 
     match smt_trnsl with
-    | Field field_trnsl -> "Field: " ^ (Util.Print.string_of_format pr_term field_trnsl.field_heap)
+    | Field field_trnsl -> "Field: " ^ (Util.Print.string_of_format pr_term field_trnsl.field_heap) ^ " : " ^ (Util.Print.string_of_format pr_sort field_trnsl.field_sort)
     | Type sort -> "Type: " ^ (Util.Print.string_of_format pr_sort sort)
     | Var var_trnsl -> (Printf.sprintf "Var: %s; sort: %s" (Util.Print.string_of_format pr_term var_trnsl.var_symbol) (Util.Print.string_of_format pr_sort var_trnsl.var_sort))
     | Pred pred_trnsl -> "Pred: " ^ (Util.Print.string_of_format pr_term pred_trnsl.pred_heap)
@@ -153,6 +153,9 @@ module SmtEnv = struct
         " :: [ "
         ^ list_to_string (Map.to_alist t)
         ^ " ]\n" ^ to_string (ts, []))
+
+  (* let trnsl_to_smt_ident (smt_trnsl: smt_trnsl) : smt_ident = *)
+
 
 end
 

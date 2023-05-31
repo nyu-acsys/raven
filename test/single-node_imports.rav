@@ -23,7 +23,7 @@ module Lock {
     // atomic requires lock(l, b)
     requires lock(l, b)
     // atomic ensures lock(l, true) && b == false
-    ensures lock(l, true) // && b == false
+    ensures lock(l, true) && b == false
   {
     {! 
       // var phi: AtomicToken;
@@ -31,8 +31,6 @@ module Lock {
     	// var b: Bool;
       // b := openAU(phi);
       // inhale(lock(l,b));
-
-      // havoc b?
 
     	unfold lock(l, b); 
     !}
@@ -46,24 +44,22 @@ module Lock {
     
     else {
       res := true;
-      l.bit := true;
     }
 
     {!
-
       if (res) {
       	fold lock(l, true);
       	// commitAU(phi);
         assert (lock(l, true) && b == false);
       } else {
-      	fold lock(l, true);
+      	fold lock(l, false);
         // abortAU(phi);
       	assert(lock(l, b));
       }
     !}
     
     if (!res) {
-    	acquire(l, b);
+    	acquire(l);
     }
   }
 
@@ -83,7 +79,7 @@ module Lock {
     l.bit := false;
     
     {!
-    	fold lock(l, false);
+    	fold lock(l, true);
     	// commitAU(phi);
       assert (lock(l, false));
     !}
@@ -96,11 +92,11 @@ interface Keyspace {
   val ks: Set[T]
 }
 
-// module IntKeyspace : Keyspace {
-//   rep type T = Int
+module IntKeyspace : Keyspace {
+  rep type T = Int
 
-//   val ks: Set[T] = {| k: Int :: true |}
-// }
+  val ks: Set[T] = {| k: Int :: true |}
+}
 
 module SearchStructureSpec[K: Keyspace] {
 
@@ -127,17 +123,16 @@ interface NodeImpl[K: Keyspace] {
 
   rep type T
 
-  pred nodeR(n: T, c: Set[Spec.K])
+  pred nodeR(n: T, c: Set[K])
 
   proc create()
     returns (n: T)
     ensures nodeR(n, {||})
 
-  proc decisiveOp(dop: Spec.Op, n: T, k: Spec.K, implicit ghost c: Set[Spec.K])
-    returns (res: Bool, implicit ghost c1: Set[Spec.K])
-    // returns (res: DecisiveOpRet)
-    requires k in Spec.K.ks && nodeR(n, c)
-    ensures nodeR(n, c1) && Spec.opSpec(dop, k, c, c1, res)
+  proc decisiveOp(dop: Op, n: T, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+    requires k in K.ks && nodeR(n, c)
+    ensures nodeR(n, c1) && opSpec(dop, k, c, c1, res)
 }
 
 interface SearchStructure[K: Keyspace] {
@@ -155,6 +150,7 @@ interface SearchStructure[K: Keyspace] {
   proc create()
     returns (r: CSS)
     ensures cssInv(r) && cssR(r, {||})
+    /* What does `inv(cssI, cssInv(r))` mean? */
 
   proc cssOp(dop: Spec.Op, r: CSS, k: Spec.K, implicit ghost c: Set[Spec.K])
     returns (res: Bool, implicit ghost c1: Set[Spec.K])
@@ -163,12 +159,12 @@ interface SearchStructure[K: Keyspace] {
     atomic ensures cssR(r, c1) && Spec.opSpec(dop, k, c, c1, res)
 }
 
-module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K] */ {
+module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   // import K
   import Node
 
   module M_temp : Lib.Type {
-    rep type T = Set[Node.Spec.K]
+    rep type T = Set[K]
   }
 
   module FracSK = Lib.Frac[M_temp]
@@ -183,8 +179,9 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
   field cont_lock: FracSK
   field cont_spec: FracSK
   
-  pred nodePred(r: CSS, implicit ghost c: Set[Node.Spec.K]) {
-    Node.nodeR(r.node, c) && own(r, cont_lock, FracSK.frac_chunk(c, 1.0/2.0))
+  
+  pred nodePred(r: CSS, implicit ghost c: Set[K]) {
+    nodeR(r.node, c) && own(r, cont_lock, FracSK.frac_chunk(c, 1.0/2.0))
   }
 
   pred cssAuth(r: CSS, c: Set[Node.Spec.K]) {
@@ -203,14 +200,14 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
 
   proc create()
     returns (r: CSS)
-    ensures cssInv(r) && cssR(r, {||})
   {
-    var l1: Lock;
-    l1 := Lock.create();
+    var l: Lock = Lock.create();
     var n: Node = Node.create();
     
-    // var r: CSS;
-    r := new(lock:l1, node:n, cont_lock: FracSK.frac_chunk({||}, 1.0), cont_spec: FracSK.frac_chunk({||}, 1.0));
+    var r: CSS;
+    r := new(lock:l, node:n, cont_lock: FracSK.frac_chunk({||}, 1.0), cont_spec: FracSK.frac_chunk({||}, 1.0));
+
+    // var r: CSS = new(lock(l), node(n), cont_lock(frac(1, {||})), cont_spec(frac(1, {||}))) 
     
     {!
     	/* check how dafny does it: uses assert */
@@ -219,80 +216,48 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
 			/* Not sure how symbolic execution is supposed to figure out where to apply this */
 			// assert frac(1, {||}) == (frac(1/2, {||}) * frac(1/2, {||}));
     	 	 
-    	fold cssAuth(r, {||});
-
-      fold nodePred(r);
+    	fold(cssAuth(r, {||}));
 
     	// assert cssAuth(r, {||})
       //   && own(r, cont_lock, {||}, 1.0/2.0)
         // && Lock.lock(r.lock, b) && (b ? true : nodePred(r));
-    	fold cssInv(r);
+    	fold(cssInv(r));
       /*createInv cssI cssInv(r);*/
 
     	fold cssR(r, {||});
     !} 
   }
 
-  proc cssOp(dop: Node.Spec.Op, r: CSS, k: Node.Spec.K, implicit ghost c: Set[Node.Spec.K], implicit ghost l50: Ref)
-    returns (res: Bool, implicit ghost c1: Set[Node.Spec.K])
-    requires k in Node.Spec.K.ks
-    requires own(r, lock, l50, 1.0)
-    // requires cssInv(r)							
-    // atomic requires cssR(r, c)
-    // requires cssR(r, c)
-    // atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
-    // ensures cssR(r, c1) && Node.Spec.opSpec(dop, k, c, c1, res)
+  proc cssOp(dop: Node.Spec.Op, r: CSS, k: Node.Spec.K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
   {
     var b0: Bool;
     var c0: Set[Node.Spec.K];
 
     {!
     	// unfold cssI;
-      inhale cssInv(r);
-
-      // asserting above is useless for three reasons:
-      // 1. Currently asserting only checks whether stmt is valid. Does not actually assert it again to help the solver. This should be changed.
-      // 2. In the current implementation, predHeaps don't store implicit ghost variables. So b0, c0 are already being dropped before even asserting the pred.
-
-      assume cssInv(r, b0, c0);
-      // EG: Even if we add implicit ghost vars to PredHeaps, how will that solve the binding problem? 
-
+      assert cssInv(r, b0, c0);
     	unfold cssInv(r, b0, c0);
-
-    	// fold Lock.lock(r.lock, b0);
-      // no need to fold since the lock is already given to us by the invariant.
+    	fold Lock.lock(r.lock, b0);
     !}
-
-    // Lock.acquire(r.lock);
-    assert (exists b: Bool :: Lock.lock(r.lock,b));
-
-    var b1: Bool;
-    assume Lock.lock(r.lock,b1);
-    exhale Lock.lock(r.lock,b1);
     
-    inhale Lock.lock(r.lock, true) && b1 == false;
+    Lock.acquire(r.lock);
     
     var c0_0: Set[Node.Spec.K];
 
     {!
     	assert b0 == false;
     	assert nodePred(r);
-    	// unfold Lock.lock(r.lock, true);
+    	unfold Lock.lock(r.lock, true);
     	fold cssInv(r, true, c0);
     	unfold nodePred(r, c0_0);
-    !}
-
-    // res, c1 := Node.decisiveOp(dop, r.node, k, c0_0);
-    exhale k in Node.Spec.K.ks && Node.nodeR(r.node,c);
-    inhale nodeR(r.node,c1) && Node.Spec.opSpec(dop, k, c0_0, c1, res);
-
-    ghost var b2: Bool = true;
-    ghost var c1_0: Set[Node.Spec.K];
+    !} 
+    
+    res, c1 := Node.decisiveOp(dop, r.node, k);
 
 		{!
-			// unfold cssInv;
-      assert cssInv(r, b2, c1_0);
-			unfold cssInv(r, b2, c1_0);
+			unfold cssInv;
+			unfold cssInv(r, b1, c1_0);
 
 			/* lemma below asserts C0' = C1' 
 
@@ -300,42 +265,39 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
 
       */
 
-			// frac_eq((r.cont_lock), 1/2, 1/2, c0_0, c1_0);
+			frac_eq((r.cont_lock), 1/2, 1/2, c0_0, c1_0);
 
 			/* lemma below sums up fractional resources */
-			// frac_sum((r.cont_lock), 1/2, 1/2, c0_0);
+			frac_sum((r.cont_lock), 1/2, 1/2, c0_0);
 			
 			/* lemma frac_update l C C' : 
 						own(l, frac(1, C)) ~~> own(l, frac(1, C')) */
-			fpu(r, cont_lock, FracSK.frac_chunk(c1, 1.0));
+			frac_update((r.cont_lock), c0_0, c1);
 
 			fold nodePred(r, c1);
 			
-			// val phi: AtomicToken;
-      // phi := bindAU();
-      // c1_1 := openAU(phi);
+			val phi: AtomicToken;
+      phi := bindAU();
+      c1_1 := openAU(phi);
 			
 			unfold cssAuth(r, c0_0);
-			unfold cssR(r, c);
-
-			// frac_eq((r.cont_spec), 1/2, 1/2, c0_0, c);
-			// frac_sum((r.cont_spec), 1/2, 1/2, c0_0);
-			// frac_update((r.cont_spec), c0_0, c1);
+			unfold cssR(r, c1_1);
+			frac_eq((r.cont_spec), 1/2, 1/2, c0_0, c1_1);
+			frac_sum((r.cont_spec), 1/2, 1/2, c0_0);
+			frac_update((r.cont_spec), c0_0, c1);
 			
-      fpu(r, cont_spec, FracSK.frac_chunk(c1, 1.0));
-
 			fold cssAuth(r, c1);
 			fold cssR(r, c1);
-			// commitAU(phi);
+			commitAU(phi);
 
-			assert b2 == true;
-			assert Lock.lock(r.lock, true);				
+			assert b1 == true;
+			fold Lock.lock(r, true);				
 		!}
 
-    Lock.release(r.lock);
+    release(r.lock);
     
     {!
-    	// unfold Lock.lock(r.lock, false);
+    	unfold Lock.lock(r, false);
     	fold cssInv(r, false, c1);
     !}    
   }

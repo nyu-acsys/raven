@@ -22,7 +22,7 @@ let rec lookup_type (tp_expr: type_expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : 
     (match SmtEnv.find smtEnv qual_ident with
     | Some (Type tp_trns) -> tp_trns
     | Some (_) -> Error.error (Type.to_loc tp_expr) "expected Type in smtEnv; found something else"
-    | None -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "lookup_type (%s) : expected Type in smtEnv; found nothing. SmtEnv: %s" (Type.to_string tp_expr) (SmtEnv.to_string smtEnv)
+    | None -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "lookup_type (%s) : expected Type in smtEnv; found nothing. \n\nSmtEnv: %s" (Type.to_string tp_expr) (SmtEnv.to_string smtEnv)
     )
 
   | App (Set, [set_tp], _) -> 
@@ -39,12 +39,39 @@ let rec lookup_type (tp_expr: type_expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : 
   | _ -> Error.unsupported_error (Type.to_loc tp_expr) (Printf.sprintf "Unexpected type called in checker.lookup_type: %s" (Type.to_string tp_expr))
 
 
+let rec is_expr_pure (expr: Expr.t) tbl : bool =
+  match expr with
+  | App (constr, expr_list, _) ->
+    let b1 = 
+    (match constr with
+    | Own -> false
+    | Call (qual_ident, _) ->
+      (match SymbolTbl.find tbl qual_ident with
+      | Some (Callable c) -> (match c.call_decl_kind with | Func -> true | _ -> false)
+      | _ -> false)
+    | Var _ -> true
+    | _ -> true
+    ) in
+
+    let b2 = List.fold (List.map expr_list ~f:(fun expr -> is_expr_pure expr tbl)) ~init:true ~f:(&&) in
+
+    b1 && b2
+  | Binder (_binder, _var_decls, expr, _) ->
+    is_expr_pure expr tbl
 
 
 let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
   match expr with
   | App (constr, expr_list, expr_attr) ->
-    (let smt_term_list = List.map expr_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+    (* TODO: Clean this up. This is done lazily because for Read expressions, its argument is a variable that is a field location. That will throw "Unexpected element found" error. But Read does not use smt_term list. *)
+    (let smt_term_list = 
+      match constr with
+      | Read -> []
+      | _ ->
+        List.map expr_list ~f:(fun expr -> translate_expr expr tbl smtEnv) 
+      
+    in
+
     (match constr with
     | Bool b -> mk_bool ~pos:expr_attr.expr_loc b
     | Int i -> mk_int ~pos:expr_attr.expr_loc (Int64.to_int_exn i)
@@ -87,7 +114,6 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
         )
     | Subseteq -> mk_app (Ident (SMTIdent.make "subset")) smt_term_list
       
-      (* Error.unsupported_error (Expr.loc expr) "set expressions not supported presently" *)
     | And -> mk_app ~pos:expr_attr.expr_loc And smt_term_list
     | Or -> mk_app ~pos:expr_attr.expr_loc Or smt_term_list
     | Impl -> mk_app ~pos:expr_attr.expr_loc Impl smt_term_list
@@ -101,10 +127,14 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
         | Some (Func func_trnsl) ->
           let smt_term_list' = List.map expr_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
           mk_app ~pos:expr_attr.expr_loc (Ident func_trnsl.func_symbol) smt_term_list'
-
-        | Some trnsl_elem -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected function for callable in smtEnv; found something else: %s" (SmtEnv.trnsl_to_string trnsl_elem)
-        | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected function for callable in smtEnv; found nothing."
+        
+        (* | Some (Pred pred_trnsl) ->
+          (* TODO: Check if this is correct. Also, handle implicit args. *)
+          mk_leq (mk_const (IntConst 1)) (mk_select pred_trnsl.pred_heap (mk_app (Ident pred_trnsl.pred_constr) smt_term_list)) *)
+        | Some trnsl_elem -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected function for callable  %s in smtEnv; found something else: %s" (SmtEnv.trnsl_to_string trnsl_elem) (QualIdent.to_string qual_ident)
+        | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected function for callable %s in smtEnv; found nothing." (QualIdent.to_string qual_ident)
         ) 
+
     | Read ->
       (* Permission for the given field needs to be checked earlier; when a `var x = y.f` stmt is found. We will assume that field reads only appear when directly assigned to variables. *)
       (* TODO: Make sure this is actually being done. *)
@@ -129,6 +159,7 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
         mk_const (Ident func_trnsl.func_symbol)
       | Some (DataConstr data_constr) -> mk_const (Ident data_constr.constr)
       | Some (DataDestr data_destr) -> mk_const (Ident data_destr.destr)
+      (* | Some (Field field_trnsl) *)
       | Some smt_trnsl -> Error.error (Expr.loc expr) @@ Printf.sprintf "Unexpected element %s found in translate_expr for expr '%s' in smtEnv." (SmtEnv.trnsl_to_string smt_trnsl) (Expr.to_string expr)
       | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Nothing found for %s from translate_expr in smtEnv. \n smtEnv: %s" (QualIdent.to_string qual_ident) (SmtEnv.to_string smtEnv)
       )
@@ -195,7 +226,7 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
       let expr_term = try
         translate_expr expr tbl smtEnv'
       with
-        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported Exists expression found in exhale: %s" (Expr.to_string expr) )
+        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\nUnsupported Exists expression found: %s" msg (Expr.to_string expr) )
   
       in
   
@@ -304,21 +335,79 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
       | Some Callable call_decl ->
         (match call_decl.call_decl_kind with
         | Proc -> (
-          let formal_args_truncated, _ = List.split_n call_decl.call_decl_formals (List.length call_desc.call_args) in
+          let formal_args_truncated, dropped_implicit_args = List.split_n call_decl.call_decl_formals (List.length call_desc.call_args) in
           let map = List.fold (List.zip_exn formal_args_truncated call_desc.call_args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
+          
+          let ret_vals_truncated, dropped_rets = List.split_n call_decl.call_decl_returns (List.length call_desc.call_lhs) in
+
+          let map = List.fold (List.zip_exn ret_vals_truncated call_desc.call_lhs) ~init:map ~f:(fun map (ret_arg, lhs_var) -> 
+            (* let var_type = 
+              match SymbolTbl.find tbl lhs_var with
+              | Some (VarDecl v) -> v.var_type
+              | _ -> unknown_ident_error stmt.stmt_loc lhs_var    
+            in *)
+            (* TODO: Figure out way to find actual type of callable lhs, instead of using Type.any below. Above doesn't work because at this stage, tbl does not store information about local variables etc. *)
+            Map.add_exn map ~key:(QualIdent.from_ident ret_arg) ~data: (AstUtil.qual_ident_to_expr lhs_var (Expr.mk_attr stmt.stmt_loc Type.any))
+            
+          ) in
+
+          let dropped_vars_decls = List.map (dropped_implicit_args @ dropped_rets) ~f:(fun iden ->
+              Map.find_exn call_decl.call_decl_locals iden
+          ) in
+
+          let new_vars_decls = List.map dropped_vars_decls ~f:(fun var_decl ->
+            let var_type = 
+              var_decl.var_type 
+            in
+            
+            let var_decl = {
+              Type.var_name = Ident.fresh var_decl.var_name.ident_name;
+              var_loc = stmt.stmt_loc;
+              var_type = var_type;
+              var_const = true;
+              var_ghost = true;
+              var_implicit = true;
+            } in
+
+            var_decl            
+          ) in
+
+          let new_vars_def_stmts = List.map new_vars_decls ~f:(fun var_decl -> {stmt_desc = Basic (VarDef {var_decl = var_decl; var_init = None;}); stmt_loc = stmt.stmt_loc}) in
+
+          (* TODO: Fix this treatment of implicit ghost variables. Not working at present because while checking exhale_stmts for exhaling, the solver can assign arbitrary value to new_vars to falsify the new_var_eq_dropped_var stmt and thus fail the exhale. *)
 
           let exhale_list : Stmt.t list = List.map call_decl.call_decl_precond 
-            ~f:(fun spec -> {stmt_desc = Basic (Exhale (Expr.alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
+            ~f:(fun spec -> 
+              let exhale_stmt =
+                let alpha_renamed_expr = (Expr.alpha_renaming spec.spec_form map) in
+
+                if List.length dropped_vars_decls = 0 then
+                  alpha_renamed_expr
+                else
+                  let new_var_eq_dropped_var_list = List.map2_exn dropped_vars_decls new_vars_decls ~f:(fun dropped_var_decl new_var ->
+                    Expr.mk_app Eq [AstUtil.var_decl_to_expr dropped_var_decl; AstUtil.var_decl_to_expr new_var]
+                  ) in
+                  
+                  Expr.mk_binder ~loc:stmt.stmt_loc Exists dropped_vars_decls (Expr.mk_and (alpha_renamed_expr :: new_var_eq_dropped_var_list))
+
+              in
+              
+              {stmt_desc = Basic (Exhale exhale_stmt); stmt_loc = stmt.stmt_loc}
+          ) in
           
+          let map = List.fold2_exn dropped_vars_decls new_vars_decls ~init:map ~f:(fun map dropped_var new_var ->
+            Map.add_exn map ~key:(QualIdent.from_ident dropped_var.var_name) ~data: (AstUtil.var_decl_to_expr new_var)
+          ) in
+
           let inhale_list : Stmt.t list = List.map call_decl.call_decl_postcond 
           ~f:(fun spec -> {stmt_desc = Basic (Inhale (Expr.alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
 
           (match atom_constr.status with
           | Default ->
-            atom_constr, Block (exhale_list @ inhale_list)
+            atom_constr, Block (new_vars_def_stmts @ exhale_list @ inhale_list)
             
           | Opened ->
-            { atom_constr with status = Stepped}, Block (exhale_list @ inhale_list)
+            { atom_constr with status = Stepped}, Block (new_vars_def_stmts @ exhale_list @ inhale_list)
 
           | Stepped -> 
             Error.error stmt.stmt_loc "Violated atomicity constraints"
@@ -417,14 +506,17 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
 
 
     | Inhale _ 
-    | Exhale _ -> 
-      Error.error stmt.stmt_loc "Inhale/Exhale stmt not expected in AST at this stage."
+    | Exhale _ ->
+      atom_constr, Basic basic_stmt_desc
+      (* Error.error stmt.stmt_loc "Inhale/Exhale stmt not expected in AST at this stage." *)
     )
 
 
   ) in
     
   atom_const, {stmt_desc = stmt_desc; stmt_loc = stmt.stmt_loc}
+
+let stmt_preprocessor_simple (stmt: Stmt.t) (tbl: SymbolTbl.t) : atomicity_constraints * Stmt.t = stmt_preprocessor stmt tbl ~atom_constr:default_atomicity_constraint
 
 
 let update_env (smtEnv: smt_env) (new_vars: (qual_ident * smt_ident) list) : smt_env = 
@@ -542,7 +634,7 @@ let touched_vars (stmt: Stmt.t) : qual_ident list =
   List.filter touched_vars_list ~f:(fun qual_ident -> not (List.exists local_var_list ~f:(QualIdent.equal qual_ident)))
 
 
-let unify_conditional_branches (map1: SmtEnv.smt_trnsl qual_ident_map) (map2: SmtEnv.smt_trnsl qual_ident_map) (smt_env: smt_env) : (qual_ident * smt_ident) list =
+let unify_conditional_branches (map1: SmtEnv.smt_trnsl qual_ident_map) (map2: SmtEnv.smt_trnsl qual_ident_map) (smtEnv: smt_env) : (qual_ident * smt_ident) list =
 
   let new_vars_map = Map.merge_skewed map1 map2 ~combine:(fun ~key:_key val1 _val2 -> val1) in
 
@@ -555,7 +647,19 @@ let unify_conditional_branches (map1: SmtEnv.smt_trnsl qual_ident_map) (map2: Sm
     ) in
 
   let new_new_vars = List.filter_map (Map.to_alist new_vars_smt_ident_map) ~f:(fun (qual_ident, smt_ident) -> 
-    (match SmtEnv.find smt_env qual_ident with
+    (match SmtEnv.find smtEnv qual_ident with
+    | None -> None
+    | Some _ -> Some (qual_ident, SMTIdent.fresh smt_ident.ident_name)
+    )
+    ) in
+
+  new_new_vars
+
+let unify_conditional_vars (new_vars1: (qual_ident * smt_ident) list) (new_vars2: (qual_ident * smt_ident) list) (smtEnv: smt_env) : (qual_ident * smt_ident) list = 
+  let unique_vars = List.dedup_and_sort (new_vars1 @ new_vars2) ~compare:(fun (q_i1, _) (q_i2, _) -> QualIdent.compare q_i1 q_i2) in
+
+  let new_new_vars = List.filter_map unique_vars ~f:(fun (qual_ident, smt_ident) -> 
+    (match SmtEnv.find smtEnv qual_ident with
     | None -> None
     | Some _ -> Some (qual_ident, SMTIdent.fresh smt_ident.ident_name)
     )
@@ -1165,8 +1269,220 @@ module TrnslInhale = struct
 end
 
 module TrnslExhale = struct
+  let rec extract_existential_exhale (expr: expr) (condns: term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) :
+    (qual_ident * SMTIdent.t) list * term list * term list =
+
+  let cond_term = mk_and condns in
+  match expr with
+  | expr when (is_expr_pure expr tbl) ->
+    let expr_term = translate_expr expr tbl smtEnv in
+    [], [], [expr_term]
+
+  | App (Call (pred_name, _), args_list, _) ->
+    (match SmtEnv.find smtEnv pred_name with
+    | Some (Pred pred_trnsl) ->
+      let old_predheap_term = pred_trnsl.pred_heap in
+      let old_predheap = smt_ident_of_term old_predheap_term in
+      let new_predheap = SMTIdent.fresh old_predheap.ident_name in
+      let new_predheap_term = mk_const (Ident new_predheap) in
+      
+      let args_terms = List.map args_list ~f:(fun expr -> translate_expr expr tbl smtEnv) in
+
+      let pred_decl = pred_trnsl.pred_def.func_decl in
+
+      let new_params_sort_list = List.filter_mapi pred_decl.call_decl_formals ~f:(fun index ident -> 
+        let var_decl = Map.find_exn pred_decl.call_decl_locals ident in
+        (* TODO: Make sure ghost/implicit is being treated properly *)
+        if not var_decl.var_implicit then
+          let tp = var_decl.var_type in
+          let sort = lookup_type tp tbl smtEnv in
+          Some (SMTIdent.fresh ("x" ^ Int.to_string index), sort)
+        else
+          None
+        )
+      in
+
+      let new_params_list = List.map new_params_sort_list ~f:fst in
+
+      (* let _new_params_term_list = List.map new_params_list ~f:(fun ident -> mk_const (Ident ident)) in *)
+
+      (* remove expr given for implicit args *)
+      let arg_terms_truncated, _ = List.split_n args_terms (List.length new_params_list) in 
+
+      let new_params_eq_old_expr_list = List.map2_exn new_params_list arg_terms_truncated ~f:(fun iden arg_term -> mk_eq (mk_const (Ident iden)) arg_term) in
+
+      let cmds = 
+        (* mk_assert (mk_exists quant_var_sort_list 
+          (mk_impl cond_term
+            (mk_and  *)
+            [
+              (mk_eq 
+                (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                (mk_app Minus [mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated); mk_const (IntConst 1)])
+              );
+
+              mk_forall new_params_sort_list
+              (mk_or [
+                mk_and (cond_term :: new_params_eq_old_expr_list);
+
+                (mk_eq 
+                  (mk_select new_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                  (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+                ) 
+              ])
+            ]
+            (* )
+          )
+        )  *)
+      in
+
+        let perm_term = 
+          (* mk_exists quant_var_sort_list (mk_impl cond_term *)
+            (mk_leq 
+              (mk_const (IntConst 1))
+              (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) arg_terms_truncated))
+            )
+          (* ) *)
+        in
+
+        [(pred_name, new_predheap)], cmds, [perm_term]
+
+    | Some (Func _) ->
+      (* this should be caught by first case of pure expr *)
+      assert false
+        
+    | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
+    )
+
+  | App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _) ->
+    (match SmtEnv.find smtEnv field_heap with
+    | Some (Field field_trnsl) ->
+      let old_fieldheap_term = field_trnsl.field_heap in
+      let old_fieldheap = smt_ident_of_term old_fieldheap_term in
+      let new_fieldheap = SMTIdent.fresh old_fieldheap.ident_name in
+      let new_fieldheap_term = mk_const (Ident new_fieldheap) in
+
+      let loc_term = translate_expr loc_expr tbl smtEnv in
+      let val_term = (match val_args with
+      | [val_expr] ->
+        let val_term = translate_expr val_expr tbl smtEnv in
+        val_term
+      | [val_expr; frac_expr] -> 
+        let val_term = translate_expr val_expr tbl smtEnv in
+        let frac_term = translate_expr frac_expr tbl smtEnv in
+
+        frac_chunk_constr val_term frac_term
+      | _ -> Error.error (Expr.loc expr) "Invalid own_expr found." 
+      ) in
+
+      let l_ident = SMTIdent.make "l" in
+      let l_term = mk_const (Ident l_ident) in
+
+      let cmds = 
+        (* mk_assert (mk_exists quant_var_sort_list 
+          (mk_impl cond_term
+            (mk_and  *)
+            [
+              (mk_eq 
+                (mk_select new_fieldheap_term loc_term)
+                (mk_app (Ident field_trnsl.field_heap_subtract_chunk) [mk_select old_fieldheap_term loc_term; val_term])
+              );
+
+              (mk_forall [(l_ident, PreambleConsts.loc_sort)]
+                (mk_or [
+                  mk_and [cond_term; mk_eq l_term loc_term];
+                  mk_eq (mk_select new_fieldheap_term l_term) (mk_select old_fieldheap_term l_term)
+                ])
+              )
+            ]
+            (* )
+          )
+        )  *)
+      in
+
+      let perm_term = 
+        (* mk_exists quant_var_sort_list (mk_impl cond_term *)
+          (mk_app (Ident field_trnsl.heapchunk_compare) [val_term; mk_select old_fieldheap_term loc_term])
+        (* ) *)
+        in
+
+      [(field_heap, new_fieldheap)], cmds, [perm_term]
+        
+    | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
+    )
+
+  | App (And, [expr1; expr2], _) ->
+    let new_vars1, cmd_terms1, perm_term1 = extract_existential_exhale expr1 condns tbl smtEnv in
+
+    let new_vars2, cmd_terms2, perm_term2 = extract_existential_exhale expr2 condns tbl smtEnv in
+
+    new_vars1 @ new_vars2, cmd_terms1 @ cmd_terms2, perm_term1 @ perm_term2
+
+  | App (Ite, [expr0; expr1; expr2], _) -> 
+    let local_cond_term = translate_expr expr0 tbl smtEnv in
+
+    let new_vars1, cmd_terms1, perm_term1 = extract_existential_exhale expr1 (local_cond_term :: condns) tbl smtEnv in
+
+    let new_vars2, cmd_terms2, perm_term2 = extract_existential_exhale expr2 (mk_not local_cond_term :: condns) tbl smtEnv in
+
+    let new_vars = unify_conditional_vars new_vars1 new_vars2 smtEnv in
+
+    let cmd_terms1' = (List.map cmd_terms1 ~f:(fun term -> mk_impl local_cond_term term)) in
+
+    let cmd_term1'' = List.map new_vars ~f:(fun (qi, smt_i) ->
+      match List.find new_vars1 ~f:(fun (qi1, _) -> QualIdent.equal qi1 qi) with
+      | Some (_qi1, smt_i1) -> mk_impl local_cond_term (mk_eq (mk_const (Ident smt_i1)) (mk_const (Ident smt_i)))
+      | None -> 
+        let term_old = 
+          match SmtEnv.find smtEnv qi with
+          | Some Field field_trnsl -> field_trnsl.field_heap
+          | Some Pred pred_trnsl -> pred_trnsl.pred_heap
+          | Some Var var_trnsl -> var_trnsl.var_symbol
+          | Some _ -> Error.error (Expr.loc expr) "Some type or function is being redefined. Strange."
+          | None -> Error.error (Expr.loc expr) "Redefined variable not found in original env. Strange."
+        in
+
+        mk_impl local_cond_term (mk_eq term_old (mk_const (Ident smt_i)))
+    )
+
+    in
+    
+    let cmd_term2' = (List.map cmd_terms2 ~f:(fun term -> mk_impl (mk_not local_cond_term) term)) in
+
+    let cmd_term2'' = List.map new_vars ~f:(fun (qi, smt_i) ->
+      match List.find new_vars2 ~f:(fun (qi2, _) -> QualIdent.equal qi2 qi) with
+      | Some (_qi2, smt_i2) -> mk_impl local_cond_term (mk_eq (mk_const (Ident smt_i2)) (mk_const (Ident smt_i)))
+      | None -> 
+        let term_old = 
+          match SmtEnv.find smtEnv qi with
+          | Some Field field_trnsl -> field_trnsl.field_heap
+          | Some Pred pred_trnsl -> pred_trnsl.pred_heap
+          | Some Var var_trnsl -> var_trnsl.var_symbol
+          | Some _ -> Error.error (Expr.loc expr) "Some type or function is being redefined. Strange."
+          | None -> Error.error (Expr.loc expr) "Redefined variable not found in original env. Strange."
+        in
+
+        mk_impl local_cond_term (mk_eq term_old (mk_const (Ident smt_i)))
+    )
+
+    in
+
+
+    let perm_terms = List.map perm_term1 ~f:(fun term -> mk_impl local_cond_term term) @ List.map perm_term2 ~f:(fun term -> mk_impl (mk_not local_cond_term) term) in
+
+    new_vars1 @ new_vars2 @ new_vars, cmd_terms1' @ cmd_term1'' @ cmd_term2' @ cmd_term2'', perm_terms
+
+
+
+  | expr -> Error.error (Expr.loc expr) (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+
+
   let rec trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident * SMTIdent.t) list * command list * term list =
   match expr with
+  | expr when (is_expr_pure expr tbl) -> 
+    let expr_term = translate_expr expr tbl smtEnv in
+    [], [], [expr_term]
+
   | App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _) ->
     (match SmtEnv.find smtEnv field_heap with
     | Some (Field field_trnsl) ->
@@ -1267,7 +1583,7 @@ module TrnslExhale = struct
       let term = try
           translate_expr expr tbl smtEnv
         with
-        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
       in
       [], [], [term]
 
@@ -1510,7 +1826,7 @@ module TrnslExhale = struct
         let term = try
           translate_expr expr tbl smtEnv
         with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
     
         in
     
@@ -1519,21 +1835,99 @@ module TrnslExhale = struct
       | _ -> Error.error (Expr.loc expr) @@ Printf.sprintf "Pred %s not found in smtEnv" (QualIdent.to_string pred_name)
       )
 
-  | Binder (Forall, _quant_vars, _expr, _) ->
+  (* | Binder (Forall, _quant_vars, _expr, _) ->
     let term = try
         translate_expr expr tbl smtEnv
       with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+      Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
     in
 
-    [], [], [term]
-  
+    [], [], [term] *)
+
+  | Binder (Exists, quant_vars, ((App (Call _, _, expr_attr1)) as inner_expr), expr_attr2) 
+  | Binder (Exists, quant_vars, ((App (Own, _, expr_attr1)) as inner_expr), expr_attr2)
+  | Binder (Exists, quant_vars, ((App (And, _, expr_attr1)) as inner_expr), expr_attr2)
+  ->
+    trnsl_exhale
+    (Binder (Exists, quant_vars, 
+      App (Impl, [Expr.mk_bool true ; 
+        inner_expr
+      ], expr_attr1
+      ), expr_attr2
+    )) tbl smtEnv
+
+
   | Binder (Exists, quant_vars, 
-      App (Impl, [expr0; 
-        App (Own, loc_expr :: (App (Var field_heap, [], _)) :: val_args, _)], _
-      ), _
-    ) -> 
-    (match SmtEnv.find smtEnv field_heap with
+      App (Impl, [expr0; ((App (Call (_, _), _, _)) as inner_expr)], _), _)
+
+  | Binder (Exists, quant_vars, 
+      App (Impl, [expr0; ((App (Own, _, _)) as inner_expr)], _), _)
+
+    -> 
+    let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+      let tp = var_decl.var_type in
+      let sort = lookup_type tp tbl smtEnv in
+
+      (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+      )
+    in
+
+    let smtEnv' = SmtEnv.push smtEnv in
+    let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+    let cond_term = translate_expr expr0 tbl smtEnv' in
+
+    let new_vars, cmd_terms, perm_terms = extract_existential_exhale inner_expr [cond_term] tbl smtEnv' in
+
+    let cmd = 
+      mk_assert (mk_exists quant_var_sort_list 
+          (mk_impl cond_term
+            (mk_and cmd_terms)
+          )
+        ) in
+
+    let perm_term = mk_exists quant_var_sort_list (mk_impl cond_term (mk_and perm_terms)) in
+      
+    new_vars, [cmd], [perm_term]
+
+  | Binder (Exists, quant_vars, 
+      App (Impl, [expr0; App (And, inner_expr_list, _)], _), _) ->
+
+    let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+      let tp = var_decl.var_type in
+      let sort = lookup_type tp tbl smtEnv in
+
+      (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+      )
+    in
+
+    let smtEnv' = SmtEnv.push smtEnv in
+    let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+    let cond_term = translate_expr expr0 tbl smtEnv' in
+
+    let new_vars, cmd_terms, perm_terms = List.fold inner_expr_list ~init:([],[],[]) ~f:(fun (new_vars, cmd_terms, perm_term) inner_expr -> 
+      
+      let new_vars', cmd_terms', perm_terms' = extract_existential_exhale inner_expr [cond_term] tbl smtEnv' in
+
+      new_vars @ new_vars', cmd_terms @ cmd_terms', perm_term @ perm_terms'
+    ) 
+  
+    in
+
+    let cmd = 
+      mk_assert (mk_exists quant_var_sort_list 
+          (mk_impl cond_term
+            (mk_and cmd_terms)
+          )
+        ) in
+
+    let perm_term = mk_exists quant_var_sort_list (mk_impl cond_term (mk_and perm_terms)) in
+      
+    new_vars, [cmd], [perm_term]
+
+
+    (* (match SmtEnv.find smtEnv field_heap with
     | Some (Field field_trnsl) ->
       let old_fieldheap_term = field_trnsl.field_heap in
       let old_fieldheap = smt_ident_of_term old_fieldheap_term in
@@ -1595,9 +1989,9 @@ module TrnslExhale = struct
         [(field_heap, new_fieldheap)], [cmd], [perm_term]
         
     | _ -> Error.error (Expr.loc expr) "Field not found in smtEnv"
-    )
+    ) *)
 
-  | Binder (Exists, quant_vars, App (Call (pred_name, pred_loc), args_list, expr_attr1), expr_attr2) ->
+  (* | Binder (Exists, quant_vars, App (Call (pred_name, pred_loc), args_list, expr_attr1), expr_attr2) ->
     trnsl_exhale
     (Binder (Exists, quant_vars, 
       App (Impl, [Expr.mk_bool true ; 
@@ -1608,11 +2002,36 @@ module TrnslExhale = struct
 
   | Binder (Exists, quant_vars, 
       App (Impl, [expr0; 
-        App (Call (pred_name, _), args_list, _)
+        ((App (Call (pred_name, _), args_list, _)) as inner_expr)
       ], _
       ), _
     ) ->
-      (match SmtEnv.find smtEnv pred_name with
+      let quant_var_sort_list = List.map quant_vars ~f:(fun var_decl -> 
+        let tp = var_decl.var_type in
+        let sort = lookup_type tp tbl smtEnv in
+
+        (SMTIdent.fresh (Ident.to_string var_decl.var_name), sort)
+        )
+      in
+
+      let smtEnv' = SmtEnv.push smtEnv in
+      let smtEnv' = List.fold (List.zip_exn (List.map quant_vars ~f:(fun var -> QualIdent.from_ident (var.var_name))) quant_var_sort_list) ~init:smtEnv' ~f:(fun smtEnv (qual_ident, (smt_ident, sort)) -> SmtEnv.add smtEnv qual_ident (Var {var_symbol = mk_const (Ident smt_ident); var_sort = sort})) in
+
+      let cond_term = translate_expr expr0 tbl smtEnv' in
+
+      let new_vars, cmd_terms, perm_terms = extract_existential_exhale inner_expr [cond_term] tbl smtEnv' in
+
+      let cmd = 
+        mk_assert (mk_exists quant_var_sort_list 
+            (mk_impl cond_term
+              (mk_and cmd_terms)
+            )
+          ) in
+
+      let perm_term = mk_exists quant_var_sort_list (mk_impl cond_term (mk_and perm_terms)) in
+        
+      new_vars, [cmd], [perm_term] *)
+      (* (match SmtEnv.find smtEnv pred_name with
       | Some (Pred pred_trnsl) ->
         let old_predheap_term = pred_trnsl.pred_heap in
         let old_predheap = smt_ident_of_term old_predheap_term in
@@ -1697,20 +2116,23 @@ module TrnslExhale = struct
         let term = try
           translate_expr expr tbl smtEnv
         with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
     
         in
     
         [], [], [term]
           
       | _ -> Error.error (Expr.loc expr) "Pred not found in smtEnv"
-      )
+      ) *)
 
+
+
+(* 
   | Binder (Exists, _quant_vars, _expr, _) ->
     let term = try
         translate_expr expr tbl smtEnv
       with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+      Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
     in
 
     [], [], [term]
@@ -1719,14 +2141,13 @@ module TrnslExhale = struct
     let expr_term = try
       translate_expr expr tbl smtEnv
     with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+    Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
 
     in
 
-    [], [], [expr_term]
+    [], [], [expr_term] *)
+  | expr -> Error.error (Expr.loc expr) (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr))
 end
-
-let stmt_preprocessor_simple (stmt: Stmt.t) (tbl: SymbolTbl.t) : atomicity_constraints * Stmt.t = stmt_preprocessor stmt tbl ~atom_constr:default_atomicity_constraint
 
 let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session) =
   (match stmt.stmt_desc with
@@ -1790,8 +2211,10 @@ let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smt
   | Cond cond_desc ->
     let cond_term = translate_expr cond_desc.cond_test tbl smtEnv in
 
+    Smt_solver.write_comment session "If-branch";
     let smtEnv1, session = check_stmt cond_desc.cond_then (cond_term :: path_conds) tbl (SmtEnv.push smtEnv) session in
 
+    Smt_solver.write_comment session "Else-branch";
     let smtEnv2, session = check_stmt cond_desc.cond_else (mk_not cond_term :: path_conds) tbl (SmtEnv.push smtEnv) session in
 
     let new_vars = unify_conditional_branches (List.hd_exn (fst smtEnv1)) (List.hd_exn (fst smtEnv2)) smtEnv in
@@ -1841,13 +2264,37 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       Error.error loc "var_defs should not have any expr (this should be unfolded earlier)."
     )
 
-  | Assume _spec -> Error.error loc "Assume stmts not supported presently"
+  | Assume spec -> 
+    let _, _, perm_terms = TrnslExhale.trnsl_exhale spec.spec_form tbl smtEnv in
+    
+    let path_cond_term = mk_and path_conds in
+
+    (* Smt_solver.write_comment session @@ Stdlib.Format.asprintf "Assume stmt %a" Expr.pr_compact spec.spec_form; *)
+    Smt_solver.write_comment session @@ Stdlib.Format.asprintf "Assume stmt";
+    let session = List.fold perm_terms ~init:session ~f:(fun session term -> 
+      Smt_solver.assert_expr session (mk_impl path_cond_term term);
+      
+      session
+    ) in
+
+    smtEnv, session
+    
+    (* Error.error loc "Assume stmts not supported presently" *)
 
   | Assert spec ->
     let session = Smt_solver.push session in
       let (_, session) = check_basic_stmt (Exhale spec.spec_form) path_conds tbl smtEnv session loc in
     let session = Smt_solver.pop session in
-    (*  *)
+
+    let _, _, perm_terms = TrnslExhale.trnsl_exhale spec.spec_form tbl smtEnv in
+
+    let path_cond_term = mk_and path_conds in
+
+    let session = List.fold perm_terms ~init:session ~f:(fun session term -> 
+      Smt_solver.assert_expr session (mk_impl path_cond_term term);
+      
+      session
+    ) in
     
     smtEnv, session
 
@@ -1860,7 +2307,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
     let smtEnv = SmtEnv.add smtEnv (new_desc.new_lhs) (Var {var_symbol = fresh_loc_var_term; var_sort = var_sort}) in
 
-    let smtEnv, session = List.fold new_desc.new_args ~init:(smtEnv, session) ~f:(fun (smtEnv, session) (field_name, _field_val_opt) ->
+    let smtEnv, session = List.fold new_desc.new_args ~init:(smtEnv, session) ~f:(fun (smtEnv, session) (field_name, field_val_opt) ->
       (* TODO: use initializer value _field_val_opt correctly *)
       match SmtEnv.find smtEnv field_name with
       | Some Field field_trnsl ->
@@ -1868,6 +2315,41 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
         let temp_var_name = SMTIdent.fresh ("tmp") in
         let temp_var_term = mk_const (Ident temp_var_name) in
         let temp_var_sort = field_trnsl.field_sort in
+
+        let val_cmds =
+          match field_trnsl.field_sort with
+          | FreeSort (sort_constr_name, [sort]) 
+            when SMTIdent.equal sort_constr_name (PreambleConsts.frac_heapchunk_sort_ident)->
+            
+            (match field_val_opt with
+            | None -> 
+              let temp_var2_name = SMTIdent.fresh ("tmp") in
+              let temp_var2_term = mk_const (Ident temp_var_name) in
+              let temp_var2_sort = sort in
+
+              [mk_declare_const temp_var2_name temp_var2_sort;
+              mk_assert (mk_eq 
+                temp_var_term 
+                (mk_app (Ident PreambleConsts.frac_chunk_constr_ident) [temp_var2_term; mk_real 1.0]))
+              ]
+            
+            | Some expr -> 
+              let field_val_term = translate_expr expr tbl smtEnv in
+              [mk_assert (mk_eq 
+              temp_var_term 
+              (mk_app (Ident PreambleConsts.frac_chunk_constr_ident) [field_val_term; mk_real 1.0]))]
+            )
+
+          | _ -> 
+            (match field_val_opt with
+            | None -> []
+            | Some expr ->
+              let field_val_term = translate_expr expr tbl smtEnv in
+
+              [ mk_assert (mk_eq temp_var_term field_val_term) ]  
+            )
+          
+        in
 
         let old_fieldheap_term = field_trnsl.field_heap in
         let old_fieldheap = smt_ident_of_term old_fieldheap_term in
@@ -1888,7 +2370,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
         in
 
         Smt_solver.write session (mk_declare_const temp_var_name temp_var_sort);
-
+        List.iter val_cmds ~f:(Smt_solver.write session);
         Smt_solver.write session cmd;
         smtEnv, session
 
@@ -1983,11 +2465,15 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
       Smt_solver.write_comment session "Checking field write permission\n";
 
-      let session = Smt_solver.assert_not session (
+      let path_cond_term = mk_and path_conds in
+
+      (* assert_not session (mk_impl path_cond_term term) *)
+
+      let session = Smt_solver.assert_not session (mk_impl path_cond_term (
         mk_leq 
           (mk_int 1) 
-          (mk_app (Ident PreambleConsts.frac_val_destr_ident) [(mk_select field_trnsl.field_heap loc_term)])
-      ) in
+          (mk_app (Ident PreambleConsts.frac_own_destr_ident) [(mk_select field_trnsl.field_heap loc_term)])
+      )) in
 
       let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs tbl smtEnv session loc in
 
@@ -2077,19 +2563,44 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     )
   | Return _expr_list -> Error.unsupported_error loc "Return stmts not presently supported"
   | Fold fold_desc ->
-    (* TODO: Make sure implicit ghost args are being handled correctly. *)
     (match fold_desc.fold_expr with
     | App (Call (qual_ident, _), args, _) -> (
       match SmtEnv.find smtEnv qual_ident with
       | Some (Pred pred_trnsl) ->
         (
-          let formal_args_truncated, _ = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
+          let formal_args_truncated, implicit_args = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
           let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
 
           let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
 
-          Smt_solver.write_comment session "Exhaling body of predicate";
-          let smtEnv, session = check_basic_stmt (Exhale pred_body) path_conds tbl smtEnv session loc in
+          let pred_body = match implicit_args with
+          | [] -> pred_body
+          | _ -> 
+            let implicit_arg_types = List.map implicit_args ~f:(fun arg -> (Map.find_exn pred_trnsl.pred_def.func_decl.call_decl_locals arg).var_type) in
+
+            let (var_decl_list) = List.map2_exn implicit_args implicit_arg_types ~f:(fun arg arg_type ->
+              {
+                Type.var_name = arg;
+                var_loc = Loc.dummy;
+                var_type = arg_type;
+                var_const = true;
+                var_ghost = false;
+                var_implicit = true;
+
+              }
+            ) in
+
+            Expr.mk_binder Exists var_decl_list pred_body
+
+          in
+
+          Smt_solver.write_comment session @@ Printf.sprintf "Exhaling body of predicate %s in fold" (QualIdent.to_string qual_ident);
+          let smtEnv, session = 
+            try
+              check_basic_stmt (Exhale pred_body) path_conds tbl smtEnv session loc 
+            with
+            | Error.Msg (_loc, msg) -> Error.error loc msg
+            in
 
           let smtEnv, session = check_basic_stmt (Inhale fold_desc.fold_expr) path_conds tbl smtEnv session loc in
 
@@ -2150,9 +2661,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     let session = List.fold perm_terms ~init:session ~f:(fun session term -> 
       let session = 
         try
-          match path_conds with
-          | [] -> assert_not session term
-          | _ -> assert_not session (mk_impl path_cond_term term)
+          assert_not session (mk_impl path_cond_term term)
         (* assert_not makes sure all perm_terms are successful by asserting them under negation and checking unsat. *)
         with
           Error.Msg (_loc, _msg) -> Error.error (Expr.loc expr) (Printf.sprintf "Exhaling following expr failed:\n%s\n\nSpecifically, could not exhale: \n%s" (Expr.to_string expr) (Util.Print.string_of_format pr_term term))
@@ -2238,7 +2747,8 @@ and trnsl_assign_rhs (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session:
 
           mk_app (Ident PreambleConsts.frac_val_destr_ident) [(mk_app Select [(field_trsnl.field_heap); term1])], session
 
-        | _ -> Error.error (Expr.loc expr) "Expected field for read_expr in smtEnv; found something else."
+        | Some trnsl -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected field for read_expr in smtEnv; found something else: %s" (SmtEnv.trnsl_to_string trnsl)
+        | None -> Error.error (Expr.loc expr) @@ Printf.sprintf "Expected field for read_expr in smtEnv; found nothing"
         )
       | _ -> Error.error (Expr.loc expr) "Invalid read_expr found"
       )

@@ -22,6 +22,7 @@ let _ =
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
+      ("exhale", EXHALE);
       ("false", CONSTVAL (Expr.Bool false));
       ("forall", QUANT(Expr.Forall));
       ("exists", QUANT(Expr.Exists));
@@ -31,6 +32,7 @@ let _ =
       ("havoc", HAVOC);
       ("if", IF);
       ("Int", INT);
+      ("inhale", INHALE);
       ("interface", INTERFACE);
       ("inv", FUNC (Invariant));
       ("invariant", INVARIANT);

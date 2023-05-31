@@ -33,7 +33,7 @@ interface Node {
 
 module Flow [Node1: Node, Domain: Lib.CancellativeResourceAlgebra] : Lib.ResourceAlgebra {
   rep type T = data { 
-    case flow_int(infl: Map[Node, Domain], outfl: Map[Node1, Domain], dom: Set[Node1]);
+    case flow_int(infl: Map[Node1, Domain], outfl: Map[Node1, Domain], dom: Set[Node1]);
     case int_undef //top elem
   }
 
@@ -46,8 +46,8 @@ module Flow [Node1: Node, Domain: Lib.CancellativeResourceAlgebra] : Lib.Resourc
   }
     
   /* The empty flow interface */
-  func intEmp() returns (ret: Interface) {
-    flow_int(zeroFlow, zeroFlow, {||})
+  func intEmp() returns (ret: T) {
+    flow_int(zeroFlow(), zeroFlow(), {||})
   }
 
   func valid(intf: T) returns (ret: Bool) {
@@ -61,22 +61,22 @@ module Flow [Node1: Node, Domain: Lib.CancellativeResourceAlgebra] : Lib.Resourc
     && (forall n: Node1 :: n in intf.dom ==> Domain.valid(intf.infl[n]))
     && (forall n: Node1 :: n !in intf.dom ==> Domain.valid(intf.outfl[n]))
     // Empty domain ==> no outflow
-    && (I.dom == {||} ==> (forall n: Node1 :: I.outfl[n] == Domain.id))
+    && (intf.dom == {||} ==> (forall n: Node1 :: intf.outfl[n] == Domain.id))
 
   }
 
-  pred intComposable(i1: Interface, i2: Interface) {
+  pred intComposable(i1: T, i2: T) {
     valid(i1) && valid(i2) && i1.dom ** i2.dom == {||}
-    && (forall n: Node1 :: n in i1.dom ==> i1.infl[n] == Domain.comp(i2.out[n], Domain.frame(i1.infl[n], i2.outfl[n])))
-    && (forall n: Node1 :: n in i2.dom ==> i2.infl[n] == Domain.comp(i1.out[n], Domain.frame(i2.infl[n], i1.outfl[n])))
+    && (forall n: Node1 :: n in i1.dom ==> i1.infl[n] == Domain.comp(i2.outfl[n], Domain.frame(i1.infl[n], i2.outfl[n])))
+    && (forall n: Node1 :: n in i2.dom ==> i2.infl[n] == Domain.comp(i1.outfl[n], Domain.frame(i2.infl[n], i1.outfl[n])))
     && (forall n: Node1 :: n in i1.dom ==> Domain.valid(Domain.frame(i1.infl[n], i2.outfl[n])))
     && (forall n: Node1 :: n in i2.dom ==> Domain.valid(Domain.frame(i2.infl[n], i1.outfl[n])))
   }
 
   func comp(i1: T, i2: T) returns (ret: T) {
-    intComposable(a, b) ?
+    intComposable(i1, i2) ?
       flow_int(
-        {| n: Node1 :: n in i1.dom ? Domain.frame(i1.inf[n], i2.out[n]) :
+        {| n: Node1 :: n in i1.dom ? Domain.frame(i1.infl[n], i2.outfl[n]) :
           (n in i2.dom ? Domain.frame(i2.inf[n], i1.out[n]) :
           domZero) |},
 
@@ -134,7 +134,7 @@ interface NodeImpl[K: Keyspace, Node: Node] {
 		ensures succ ==> k in outset(i_n, nn) 
 
   // difference between ghost vs implicit ghost?
-  proc decisiveOp(n: T, ghost lk: Bool, ghost i_n: FlowInt, ghost c_n: Set[K], dop: op, k: K)
+  proc decisiveOp(n: T, ghost lk: Bool, ghost i_n: FlowInt, ghost c_n: Set[K], dop: Op, k: K)
     returns (succ: Bool, res: Bool, implicit ghost c_n1: Set[K])
     requires nodeR(n, lk, i_n, c_n)
     requires k in inset(i_n) && k !in out(i_n)
@@ -142,7 +142,7 @@ interface NodeImpl[K: Keyspace, Node: Node] {
     ensures succ ==> opSpec(dop, k, c_n, c_n1, res)
     ensures !succ ==> c_n == c_n1
 
-  lemma keysetTheorem(dop: op, k: K, c_n: Set[K], c_n1: Set[K], res: Bool) 
+  lemma keysetTheorem(dop: Op, k: K, c_n: Set[K], c_n1: Set[K], res: Bool) 
   requires opSpec(dop, k, c_n, c_n1, res)
   ensures opSpec(dop, k, c, c_1, res)
 }
