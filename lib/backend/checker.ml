@@ -306,7 +306,7 @@ and add_mod_alias_callable (callable: Callable.t) (alias_name: QualIdent.t) (tbl
           
           Smt_solver.write_comment session ("Asserting axiom " ^ (Ident.to_string call_decl.call_decl_name));
           List.fold call_decl.call_decl_postcond ~init:(smtEnv, session) ~f:(fun (smtEnv, session) post_cond ->
-            Callable_checker.check_basic_stmt (Inhale post_cond.spec_form) [] tbl smtEnv session (call_decl.call_decl_loc)
+            Callable_checker.check_basic_stmt (Spec (Inhale, post_cond)) [] tbl smtEnv session (call_decl.call_decl_loc)
           )
         | _ ->
           smtEnv, session))

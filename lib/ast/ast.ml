@@ -657,7 +657,6 @@ module Stmt = struct
   type spec = {
     spec_form : expr;
     spec_atomic : bool;
-    spec_name : string;
     spec_error : (qual_ident -> string * string) option;
   }
 
@@ -685,10 +684,23 @@ module Stmt = struct
     fpu_val : expr
   }
 
+  type spec_kind =
+    | Assume | Assert | Inhale | Exhale
+
+  let assume_string = "assume"
+  let assert_string = "assert"
+  let inhale_string = "inhale"
+  let exhale_string = "exhale"
+
+  let spec_kind_to_string = function
+    | Assume -> assume_string
+    | Assert -> assert_string
+    | Inhale -> inhale_string
+    | Exhale -> exhale_string
+  
   type basic_stmt_desc =
     | VarDef of var_def
-    | Assume of spec
-    | Assert of spec
+    | Spec of spec_kind * spec
     | New of new_desc
     | Assign of assign_desc
     | Havoc of expr list
@@ -702,8 +714,6 @@ module Stmt = struct
     | CommitAU of ident
     | OpenInv of expr
     | CloseInv of expr
-    | Inhale of expr  
-    | Exhale of expr
     | Fpu of fpu_desc
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
@@ -770,8 +780,7 @@ module Stmt = struct
             | (f, None) -> QualIdent.pr ppf f))
           nstm.new_args
 
-    | Assume sf -> pr_spec_list "assume" ppf [ sf ]
-    | Assert sf -> pr_spec_list "assert" ppf [ sf ]
+    | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
     | Fold fld -> fprintf ppf "@[<2>fold %a@]" Expr.pr fld.fold_expr
     | Unfold ufld -> fprintf ppf "@[<2>unfold %a@]" Expr.pr ufld.unfold_expr
     | Return es -> fprintf ppf "@[<2>return@ %a@]" Expr.pr_list es
@@ -793,8 +802,6 @@ module Stmt = struct
       fprintf ppf "@[<2>OpenInv %a@]" Expr.pr expr
     | CloseInv expr ->
       fprintf ppf "@[<2>CloseInv %a@]" Expr.pr expr
-    | Inhale expr -> fprintf ppf "@[<2>inhale %a@]" Expr.pr expr
-    | Exhale expr -> fprintf ppf "@[<2>exhale %a@]" Expr.pr expr
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a ~> %a@]" QualIdent.pr fpu_desc.fpu_loc QualIdent.pr fpu_desc.fpu_field Expr.pr fpu_desc.fpu_val
 
   let rec pr ppf stmt =
@@ -1209,3 +1216,4 @@ module AstUtil = struct
       | Var qual_ident -> qual_ident
       | _ -> Error.error type_attr.type_loc "Expected type_expr to be qualIdent"
 end
+

@@ -1,6 +1,5 @@
 open Base
 open Ast
-open Util
 
 let rec collect_vars (expr: expr) : expr list =
   match expr with
@@ -112,7 +111,6 @@ let rec rewrite_compr_expr (expr: expr) (scope: qual_ident): Callable.t list * e
 
       { Stmt.spec_form = spec_form;
         spec_atomic = false;
-        spec_name = "ensures";
         spec_error = None;
       } 
 
@@ -167,15 +165,10 @@ let rec rewrite_compr_stmt (scope: qual_ident) (stmt: Stmt.t) : Callable.t list 
 
       fn_list, { stmt with stmt_desc = Basic (VarDef { var_def with var_init = new_expr; }); }
 
-    | Assume spec ->
+    | Spec (sk, spec) ->
       let fn_list, new_spec_form = rewrite_compr_expr spec.spec_form scope in
 
-      fn_list, { stmt with stmt_desc = Basic (Assume { spec with spec_form = new_spec_form; }); }
-
-    | Assert spec ->
-      let fn_list, new_spec_form = rewrite_compr_expr spec.spec_form scope in
-
-      fn_list, { stmt with stmt_desc = Basic (Assert { spec with spec_form = new_spec_form; }); }
+      fn_list, { stmt with stmt_desc = Basic (Spec (sk, { spec with spec_form = new_spec_form; })); }
 
     | Assign assign ->
       let fn_list, new_expr = rewrite_compr_expr assign.assign_rhs scope in
@@ -190,16 +183,6 @@ let rec rewrite_compr_stmt (scope: qual_ident) (stmt: Stmt.t) : Callable.t list 
       ) in
 
       fn_list, { stmt with stmt_desc = Basic (Return expr_list); }
-
-    | Inhale expr ->
-      let fn_list, new_expr = rewrite_compr_expr expr scope in
-
-      fn_list, { stmt with stmt_desc = Basic (Inhale new_expr); }
-    
-    | Exhale expr ->
-      let fn_list, new_expr = rewrite_compr_expr expr scope in
-
-      fn_list, { stmt with stmt_desc = Basic (Exhale new_expr); }
     
     | _ -> [], stmt
     end

@@ -17,7 +17,8 @@ open Ast
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
-%token ASSUME ASSERT HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV INHALE EXHALE
+%token <Ast.Stmt.spec_kind> SPEC
+%token HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -365,7 +366,6 @@ contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
-           spec_name = "requires";
            spec_error = None;
          }
   in
@@ -375,7 +375,6 @@ contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
-           spec_name = "ensures";
            spec_error = None;
          }
   in
@@ -446,35 +445,14 @@ stmt_wo_trailing_substmt:
   Stmt.(Basic (Havoc es))
 }
 
-(* assume *)
-| ASSUME; e = expr; SEMICOLON {
+(* assume / assert / inhale / exhale *)
+| sk = SPEC; e = expr; SEMICOLON {
   let open Stmt in
   let spec = { spec_form = e;
                spec_atomic = false;
-               spec_name = "assume";
                spec_error = None; }
   in
-  Basic (Assume spec)
-}
-(* assert *)
-| ASSERT; e = expr; SEMICOLON {
-  let open Stmt in
-  let spec = { spec_form = e;
-               spec_atomic = false;
-               spec_name = "assert";
-               spec_error = None; }
-  in
-  Basic (Assert spec)
-}
-(* inhale *)
-| INHALE; e = expr; SEMICOLON {
-  let open Stmt in
-  Basic (Inhale e)
-}
-(* exhale *)
-| EXHALE; e = expr; SEMICOLON {
-  let open Stmt in
-  Basic (Exhale e)
+  Basic (Spec (sk, spec))
 }
 (*| contract_mods ASSERT expr with_clause {
   $4 (fst $1) $3 (mk_position (if $1 <> (false, false) then 1 else 2) 4) None
@@ -668,7 +646,6 @@ loop_contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = false;
-           spec_name = "invariant";
            spec_error = None;
          }
   in

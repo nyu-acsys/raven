@@ -319,8 +319,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
   | Basic basic_stmt_desc ->
     (match basic_stmt_desc with
     | VarDef _
-    | Assume _
-    | Assert _
+    | Spec ((Assume | Assert), _)
     | New _
     | Assign _
     | Fpu _
@@ -378,7 +377,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
 
           let exhale_list : Stmt.t list = List.map call_decl.call_decl_precond 
             ~f:(fun spec -> 
-              let exhale_stmt =
+              let exhale_form =
                 let alpha_renamed_expr = (Expr.alpha_renaming spec.spec_form map) in
 
                 if List.length dropped_vars_decls = 0 then
@@ -391,8 +390,8 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
                   Expr.mk_binder ~loc:stmt.stmt_loc Exists dropped_vars_decls (Expr.mk_and (alpha_renamed_expr :: new_var_eq_dropped_var_list))
 
               in
-              
-              {stmt_desc = Basic (Exhale exhale_stmt); stmt_loc = stmt.stmt_loc}
+              let exhale_spec = { spec with spec_form = exhale_form } in
+              {stmt_desc = Basic (Spec (Exhale, exhale_spec)); stmt_loc = stmt.stmt_loc}
           ) in
           
           let map = List.fold2_exn dropped_vars_decls new_vars_decls ~init:map ~f:(fun map dropped_var new_var ->
@@ -400,7 +399,9 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
           ) in
 
           let inhale_list : Stmt.t list = List.map call_decl.call_decl_postcond 
-          ~f:(fun spec -> {stmt_desc = Basic (Inhale (Expr.alpha_renaming spec.spec_form map)); stmt_loc = stmt.stmt_loc}) in
+              ~f:(fun spec ->
+                  let inhale_spec = { spec with spec_form = Expr.alpha_renaming spec.spec_form map } in
+                  {stmt_desc = Basic (Spec (Inhale, inhale_spec)); stmt_loc = stmt.stmt_loc}) in
 
           (match atom_constr.status with
           | Default ->
@@ -505,8 +506,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
       )
 
 
-    | Inhale _ 
-    | Exhale _ ->
+    | Spec ((Inhale | Exhale), _) -> 
       atom_constr, Basic basic_stmt_desc
       (* Error.error stmt.stmt_loc "Inhale/Exhale stmt not expected in AST at this stage." *)
     )
@@ -2164,8 +2164,8 @@ let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smt
     (* TODO: Figure out what to do with loop_prebody here. Is the prebody even being populated by the parser? *)
 
     Smt_solver.write_comment session "Exhaling loop invariants in current state\n";
-    (let (smtEnv, session) = List.fold loop_desc.loop_contract ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec -> 
-      check_stmt ({stmt_desc = Basic (Exhale spec.spec_form); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv session 
+    (let (smtEnv, session) = List.fold loop_desc.loop_contract ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec ->
+      check_stmt ({stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv session 
     ) in
 
     let (modified_var_list: qual_ident list) = touched_vars loop_desc.loop_postbody in
@@ -2185,14 +2185,14 @@ let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smt
       Smt_solver.write_comment session "Inhaling invariants inside loop";
 
       let (smtEnv, session) = List.fold loop_desc.loop_contract ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec -> 
-        check_stmt ({stmt_desc = Basic (Inhale spec.spec_form); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv session 
+        check_stmt ({stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv session 
       ) in
 
       Smt_solver.write session (mk_assert (translate_expr loop_desc.loop_test tbl smtEnv));
       let smtEnv', session = check_stmt loop_desc.loop_postbody (path_conds) tbl smtEnv session in
 
       let (_smtEnv', session) = List.fold loop_desc.loop_contract ~init:(smtEnv', session) ~f:(fun (smtEnv', session) spec -> 
-        check_stmt ({stmt_desc = Basic (Exhale spec.spec_form); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv' session 
+        check_stmt ({stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv' session 
       ) in
 
     let smtEnv = SmtEnv.pop smtEnv in
@@ -2200,7 +2200,7 @@ let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smt
 
     Smt_solver.write_comment session "Inhaling invariants with havoc-ed variables\n";
     let (smtEnv, session) = List.fold loop_desc.loop_contract ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec -> 
-      check_stmt ({stmt_desc = Basic (Inhale spec.spec_form); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv session 
+      check_stmt ({stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = stmt.stmt_loc}) path_conds tbl smtEnv session 
     ) in
 
     Smt_solver.write session (mk_assert (mk_not (translate_expr loop_desc.loop_test tbl smtEnv)));
@@ -2264,7 +2264,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       Error.error loc "var_defs should not have any expr (this should be unfolded earlier)."
     )
 
-  | Assume spec -> 
+  | Spec (Assume, spec) -> 
     let _, _, perm_terms = TrnslExhale.trnsl_exhale spec.spec_form tbl smtEnv in
     
     let path_cond_term = mk_and path_conds in
@@ -2279,11 +2279,9 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
     smtEnv, session
     
-    (* Error.error loc "Assume stmts not supported presently" *)
-
-  | Assert spec ->
+  | Spec (Assert, spec) ->
     let session = Smt_solver.push session in
-      let (_, session) = check_basic_stmt (Exhale spec.spec_form) path_conds tbl smtEnv session loc in
+      let (_, session) = check_basic_stmt (Spec (Exhale, spec)) path_conds tbl smtEnv session loc in
     let session = Smt_solver.pop session in
 
     let _, _, perm_terms = TrnslExhale.trnsl_exhale spec.spec_form tbl smtEnv in
@@ -2578,7 +2576,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           | _ -> 
             let implicit_arg_types = List.map implicit_args ~f:(fun arg -> (Map.find_exn pred_trnsl.pred_def.func_decl.call_decl_locals arg).var_type) in
 
-            let (var_decl_list) = List.map2_exn implicit_args implicit_arg_types ~f:(fun arg arg_type ->
+            let var_decl_list = List.map2_exn implicit_args implicit_arg_types ~f:(fun arg arg_type ->
               {
                 Type.var_name = arg;
                 var_loc = Loc.dummy;
@@ -2593,16 +2591,28 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
             Expr.mk_binder Exists var_decl_list pred_body
 
           in
-
+          let pred_body_spec =
+            { Stmt.spec_form = pred_body;
+              spec_atomic = false;
+              spec_error = Some (fun _ -> "Failed to fold predicate " ^ QualIdent.to_string qual_ident,
+                                          Error.mk_error_info "This is the predicate that could not be folded.")
+            }
+          in
+          
           Smt_solver.write_comment session @@ Printf.sprintf "Exhaling body of predicate %s in fold" (QualIdent.to_string qual_ident);
           let smtEnv, session = 
             try
-              check_basic_stmt (Exhale pred_body) path_conds tbl smtEnv session loc 
+              check_basic_stmt (Spec (Exhale, pred_body_spec)) path_conds tbl smtEnv session loc 
             with
             | Error.Msg (_loc, msg) -> Error.error loc msg
-            in
-
-          let smtEnv, session = check_basic_stmt (Inhale fold_desc.fold_expr) path_conds tbl smtEnv session loc in
+          in
+          let inhale_spec =
+            { Stmt.spec_form = fold_desc.fold_expr;
+              spec_atomic = false;
+              spec_error = None
+            }
+          in
+          let smtEnv, session = check_basic_stmt (Spec (Inhale, inhale_spec)) path_conds tbl smtEnv session loc in
 
           smtEnv, session
         )
@@ -2621,9 +2631,23 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
           let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
 
-          let smtEnv, session = check_basic_stmt (Exhale unfold_desc.unfold_expr) path_conds tbl smtEnv session loc in
+          let unfold_spec =
+            { Stmt.spec_form = unfold_desc.unfold_expr;
+              spec_atomic = false;
+              spec_error = Some (fun _ -> "Failed to unfold predicate " ^ QualIdent.to_string qual_ident, "")
+            }
+          in
+          
+          let smtEnv, session = check_basic_stmt (Spec (Exhale, unfold_spec)) path_conds tbl smtEnv session loc in
 
-          let smtEnv, session = check_basic_stmt (Inhale pred_body) path_conds tbl smtEnv session loc in
+          let pred_body_spec =
+            { Stmt.spec_form = pred_body;
+              spec_atomic = false;
+              spec_error = None
+            }
+          in
+          
+          let smtEnv, session = check_basic_stmt (Spec (Inhale, pred_body_spec)) path_conds tbl smtEnv session loc in
 
           smtEnv, session
         )
@@ -2636,10 +2660,10 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | CommitAU _
   | OpenInv _
   | CloseInv _ -> Error.unsupported_error (Loc.dummy) "AtomicToken commands not supported presently."
-  | Inhale expr -> 
-    check_sep_star_injectivity expr tbl smtEnv;
+  | Spec (Inhale, spec) -> 
+    check_sep_star_injectivity spec.spec_form tbl smtEnv;
 
-    let new_vars, cmds = TrnslInhale.trnsl_inhale expr tbl smtEnv in
+    let new_vars, cmds = TrnslInhale.trnsl_inhale spec.spec_form tbl smtEnv in
 
     let smtEnv, session = redefine_vars new_vars smtEnv session in
       
@@ -2649,10 +2673,10 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
     smtEnv, session
 
-  | Exhale expr ->
-    check_sep_star_injectivity expr tbl smtEnv;
+  | Spec (Exhale, spec) ->
+    check_sep_star_injectivity spec.spec_form tbl smtEnv;
 
-    let new_vars, cmds, perm_terms = TrnslExhale.trnsl_exhale expr tbl smtEnv in
+    let new_vars, cmds, perm_terms = TrnslExhale.trnsl_exhale spec.spec_form tbl smtEnv in
 
     let smtEnv, session = redefine_vars new_vars smtEnv session in
 
@@ -2664,7 +2688,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           assert_not session (mk_impl path_cond_term term)
         (* assert_not makes sure all perm_terms are successful by asserting them under negation and checking unsat. *)
         with
-          Error.Msg (_loc, _msg) -> Error.error (Expr.loc expr) (Printf.sprintf "Exhaling following expr failed:\n%s\n\nSpecifically, could not exhale: \n%s" (Expr.to_string expr) (Util.Print.string_of_format pr_term term))
+          Error.Msg (_loc, _msg) -> Error.error (Expr.loc spec.spec_form) (Printf.sprintf "Exhaling following expr failed:\n%s\n\nSpecifically, could not exhale: \n%s" (Expr.to_string spec.spec_form) (Util.Print.string_of_format pr_term term))
 
       in
       
@@ -2859,13 +2883,20 @@ let check_proc_def (proc_def: Callable.proc_def) (tbl: SymbolTbl.t) (smtEnv: smt
 
 
       Smt_solver.write_comment session "Inhaling pre-conditions";
-      let smtEnv, session = List.fold proc_decl.call_decl_precond ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec -> check_basic_stmt (Inhale spec.spec_form) [] tbl smtEnv session proc_decl.call_decl_loc) in
+      let smtEnv, session =
+        List.fold proc_decl.call_decl_precond ~init:(smtEnv, session)
+          ~f:(fun (smtEnv, session) spec ->
+              check_basic_stmt (Spec (Inhale, spec)) [] tbl smtEnv session proc_decl.call_decl_loc)
+      in
 
       Smt_solver.write_comment session "Executing body";
       let smtEnv, session = check_stmt stmt [] tbl smtEnv session in
 
       Smt_solver.write_comment session "Exhaling post-conditions";
-      let smtEnv, session = List.fold proc_decl.call_decl_postcond ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec -> check_basic_stmt (Exhale spec.spec_form) [] tbl smtEnv session proc_decl.call_decl_loc) in
+      let smtEnv, session =
+        List.fold proc_decl.call_decl_postcond ~init:(smtEnv, session) ~f:(fun (smtEnv, session) spec ->
+            check_basic_stmt (Spec (Exhale, spec)) [] tbl smtEnv session proc_decl.call_decl_loc)
+      in
 
     
     let session = Smt_solver.pop session in

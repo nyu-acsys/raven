@@ -13,8 +13,8 @@ let set_file_name lexbuf name =
 let keyword_table = Hashtbl.create 64
 let _ =
   List.iter (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
-    ([("assert", ASSERT);
-      ("assume", ASSUME);
+    ([("assert", SPEC Stmt.Assert);
+      ("assume", SPEC Stmt.Assume);
       ("atomic", ATOMIC);
       ("AtomicToken", ATOMICTOKEN);
       ("Bool", BOOL);
@@ -22,7 +22,7 @@ let _ =
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
-      ("exhale", EXHALE);
+      ("exhale", SPEC Stmt.Exhale);
       ("false", CONSTVAL (Expr.Bool false));
       ("forall", QUANT(Expr.Forall));
       ("exists", QUANT(Expr.Exists));
@@ -32,7 +32,7 @@ let _ =
       ("havoc", HAVOC);
       ("if", IF);
       ("Int", INT);
-      ("inhale", INHALE);
+      ("inhale", SPEC Stmt.Inhale);
       ("interface", INTERFACE);
       ("inv", FUNC (Invariant));
       ("invariant", INVARIANT);

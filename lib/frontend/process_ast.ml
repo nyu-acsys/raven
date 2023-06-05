@@ -1119,13 +1119,9 @@ module ProcessCallables = struct
 
         Basic (VarDef var_def), [var_decl], tbl, disam_tbl
 
-      | Assume spec -> 
+      | Spec (sk, spec) -> 
         let spec = process_stmt_spec tbl disam_tbl spec in
-        Basic (Assume spec), [], tbl, disam_tbl
-
-      | Assert spec -> 
-        let spec = process_stmt_spec tbl disam_tbl spec in
-        Basic (Assert spec), [], tbl, disam_tbl
+        Basic (Spec (sk, spec)), [], tbl, disam_tbl
 
       | Assign assign_desc ->
         (* THIS IS WHERE the RHS needs to be examined; *)
@@ -1414,14 +1410,6 @@ module ProcessCallables = struct
           type_mismatch_error stmt.stmt_loc Type.ref var_decl.var_type
         )
         )
-
-      | Inhale expr -> 
-        let expr = disambiguate_process_expr expr Type.perm tbl disam_tbl in
-        Basic (Inhale expr), [], tbl, disam_tbl
-        
-      | Exhale expr -> 
-        let expr = disambiguate_process_expr expr Type.perm tbl disam_tbl in
-        Basic (Exhale expr), [], tbl, disam_tbl
 
       (* The following constructs are not expected here because the parser stores these commands as Assign stmts. 
         The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform 
