@@ -463,8 +463,13 @@ stmt_wo_trailing_substmt:
 }
 *)
 (* return *)
-| RETURN; es = separated_list(COMMA, expr); SEMICOLON { 
-  Stmt.(Basic (Return es))
+| RETURN; es = separated_list(COMMA, expr); SEMICOLON {
+  let e = match es with
+  | [] -> Expr.mk_unit ~loc:(Loc.make $startpos $endpos)
+  | [e] -> e
+  | es -> Expr.mk_tuple ~loc:(Loc.make $startpos(es) $endpos(es)) es
+  in
+  Stmt.(Basic (Return e))
 }
 (* fold *)
 | FOLD; e = expr; SEMICOLON {
@@ -741,7 +746,7 @@ qual_ident:
 | x = ident { x }
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
-}    
+}
     
 mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
@@ -923,13 +928,13 @@ type_expr:
 | SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
 | MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
 | x = mod_ident { Type.mk_var (Loc.make $startpos $endpos) x }
+| LPAREN ts = type_expr_list RPAREN { Type.(App(Prod, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
     
   
 type_expr_list:
-| t = type_expr; COMMA; ts = type_expr_list { t :: ts }
-| t = type_expr { [t] }
+| ts = separated_nonempty_list(COMMA, type_expr) { ts }
 ;
 
 quant_var_list:

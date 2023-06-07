@@ -175,14 +175,10 @@ let rec rewrite_compr_stmt (scope: qual_ident) (stmt: Stmt.t) : Callable.t list 
 
       fn_list, { stmt with stmt_desc = Basic (Assign { assign with assign_rhs = new_expr; }); }
 
-    | Return expr_list ->
-      let fn_list, expr_list = List.fold_map expr_list ~init:[] ~f:(fun fn_list expr ->
-        let fn_list', expr = rewrite_compr_expr expr scope in
+    | Return expr ->
+      let fn_list, expr = rewrite_compr_expr expr scope in
 
-        fn_list @ fn_list', expr
-      ) in
-
-      fn_list, { stmt with stmt_desc = Basic (Return expr_list); }
+      fn_list, { stmt with stmt_desc = Basic (Return expr); }
     
     | _ -> [], stmt
     end

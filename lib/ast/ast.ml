@@ -144,7 +144,6 @@ module Type = struct
     | Real
     | Num
     | Bool
-    | Unit
     | Ref
     | Perm
     | Bot
@@ -174,7 +173,6 @@ module Type = struct
   let int_type_string = "Int"
   let real_type_string = "Real"
   let num_type_string = "Int or Real"
-  let unit_type_string = "Unit"
   let perm_type_string = "Perm"
   let bot_type_string = "Bot"
   let any_type_string = "Any"
@@ -187,7 +185,6 @@ module Type = struct
     | Real -> real_type_string
     | Num -> num_type_string
     | Bool -> bool_type_string
-    | Unit -> unit_type_string
     | Bot -> bot_type_string
     | Any -> any_type_string
     | Ref -> ref_type_string
@@ -201,7 +198,7 @@ module Type = struct
 
   let rec pr_constr ppf t =
     match t with
-    | Int | Real | Num | Bool | Unit | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
+    | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
     | Map | Prod ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data decls ->
@@ -211,6 +208,8 @@ module Type = struct
   and pr ppf t =
     match t with
     | App (t1, [], _) -> pr_constr ppf t1
+    | App (Prod, ts, _) ->
+      Stdlib.Format.fprintf ppf "(@[%a@])" (Print.pr_list_comma pr) ts
     | App (t1, ts, _) ->
         Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr_constr t1
           (Print.pr_list_comma pr) ts
@@ -255,7 +254,7 @@ module Type = struct
   let mk_real loc = App (Real, [], mk_attr loc)
   let mk_num loc = App (Num, [], mk_attr loc)
   let mk_bool loc = App (Bool, [], mk_attr loc)
-  let mk_unit loc = App (Unit, [], mk_attr loc)
+  let mk_unit loc = App (Prod, [], mk_attr loc)
   let mk_any loc = App (Any, [], mk_attr loc)
   let mk_bot loc = App (Bot, [], mk_attr loc)
   let mk_ref loc = App (Ref, [], mk_attr loc)
@@ -313,6 +312,10 @@ module Type = struct
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [join t1 t2], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Any, [meet ti1 ti2; join to1 to2], a1)
+    | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
+      (List.map2 ~f:join ts1 ts2 |> function
+      | Ok ts -> App (Prod, ts, a1)
+      | _ -> App (Any, [], a1))      
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
   and meet t1 t2 = 
     if equal t1 t2 then t1 else
@@ -321,6 +324,10 @@ module Type = struct
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [meet t1 t2], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [join ti1 ti2; meet to1 to2], a1)
+    | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
+      (List.map2 ~f:meet ts1 ts2 |> function
+      | Ok ts -> App (Prod, ts, a1)
+      | _ -> App (Bot, [], a1))      
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
 
   let subtype_of tp1 tp2 = equal (join tp1 tp2) tp2
@@ -376,7 +383,7 @@ module Expr = struct
   type constr =
     (* Constants *)
     | Null
-    | Unit
+    (* | Unit <- obsolete (use empty tuple) *)
     | Bool of bool
     | Int of Int64.t
     | Real of Float.t
@@ -414,6 +421,7 @@ module Expr = struct
     | Own
     (* Variable arity operators *)
     | Setenum
+    | Tuple
     | Var of qual_ident [@@deriving compare]
   (* | AUToken of au_token *)
 
@@ -447,7 +455,7 @@ module Expr = struct
     | Int i -> Int64.to_string i
     | Real r -> Float.to_string r
     | Null -> "null"
-    | Unit -> "()"
+    | Tuple -> "()"
     | DataConstr (id, _) 
     | DataDestr (id, _) -> QualIdent.to_string id
     | Call (id, _) -> "call " ^ QualIdent.to_string id
@@ -486,8 +494,8 @@ module Expr = struct
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
 
   let constr_to_prio = function
-    | Null | Unit | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Read | Own | Var _ | MapLookUp | MapUpdate -> 1
+    | Null | Empty | Int _ | Real _ | Bool _ -> 0
+    | Setenum | Tuple | Read | Own | Var _ | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ | Call _ -> 3
     | Mult | Div | Mod -> 4
@@ -535,6 +543,7 @@ module Expr = struct
         let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
         fprintf ppf "@[<2>(%a %a@ %a \027[35m :%a \027[0m)@]" pr_e1 e1 pr_constr c pr_e2 e2 Type.pr (to_type e)
     | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
+    | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
     | App (c, es, _) -> fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr (to_type e)
     | Binder (b, vs, e1, _) ->
         fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
@@ -559,6 +568,7 @@ module Expr = struct
         let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
         fprintf ppf "%a %a@ %a" pr_e1 e1 pr_constr c pr_e2 e2
     | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
+    | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
     | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
     | Binder (b, vs, e1, _) ->
         fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
@@ -601,6 +611,10 @@ module Expr = struct
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
+  let mk_tuple ?(loc = Loc.dummy) es = mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
+
+  let mk_unit ?(loc = Loc.dummy) = mk_tuple ~loc []
+  
   (** Constructor for conjunction.*)
   let mk_and ?(loc = Loc.dummy) = function
     | [] -> mk_bool ~loc false
@@ -705,7 +719,7 @@ module Stmt = struct
     | Assign of assign_desc
     | Havoc of expr list
     | Call of call_desc
-    | Return of expr list
+    | Return of expr
     | Fold of fold_desc
     | Unfold of unfold_desc
     | BindAU of ident
@@ -783,7 +797,7 @@ module Stmt = struct
     | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
     | Fold fld -> fprintf ppf "@[<2>fold %a@]" Expr.pr fld.fold_expr
     | Unfold ufld -> fprintf ppf "@[<2>unfold %a@]" Expr.pr ufld.unfold_expr
-    | Return es -> fprintf ppf "@[<2>return@ %a@]" Expr.pr_list es
+    | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
     | Call cstm -> (
         match cstm.call_lhs with
         | [] ->
@@ -919,6 +933,22 @@ module Callable = struct
     | ProcDef pdef ->
         fprintf ppf "%a%a" pr_call_decl pdef.proc_decl (pr_proc_body Stmt.pr)
           pdef.proc_body
+
+  (** Auxiliary functions *)
+
+  let return_type call_decl =
+    match call_decl.call_decl_kind with
+    | Proc | Func | Lemma ->
+      let returns =
+        List.map call_decl.call_decl_returns
+          ~f:(fun r -> (Map.find_exn call_decl.call_decl_locals r).var_type)
+      in
+      begin match returns with
+      | [] -> Type.unit
+      | [t] -> t
+      | ts -> Type.mk_prod call_decl.call_decl_loc ts
+      end
+    | Pred | Invariant -> Type.perm
 end
 
 
