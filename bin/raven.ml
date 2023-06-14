@@ -19,7 +19,7 @@ let cmd_line_error msg =
 let parse_lib lexbuf =
   let s = Parser.lib Lexer.token lexbuf in
 
-  let processed_lib_ast, tbl = Process_ast.start_processing s in
+  let processed_lib_ast, tbl = Typing.start_processing s in
 
   let smtEnv, session = Checker.start_backend_checking processed_lib_ast tbl in
 
@@ -29,10 +29,10 @@ let parse_and_print lexbuf tbl smtEnv session =
   let s = Parser.main Lexer.token lexbuf in
   (*Stdio.printf !"%{Ast.Stmt}\n" s*)
 
-  let processed_ast, tbl = Process_ast.start_processing ~tbl:tbl s in
+  let processed_ast, tbl = Typing.start_processing ~tbl:tbl s in
   match tbl with
   | [ _ ; _ ] | [ _ ] -> 
-    Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
+    Stdio.printf "SymbolTbl: \n%s" (SymbolTbl.to_string tbl);
     Ast.Module.print_verbose Stdio.stdout processed_ast;
     Stdio.print_endline "\n\nFront-end processing successful.\n";
 
