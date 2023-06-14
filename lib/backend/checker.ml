@@ -1,7 +1,7 @@
 open Smt_solver
 open Ast
 open Base
-open Frontend.Process_ast
+open Frontend
 open SmtLibAST
 
 let add_type (tp: Module.type_alias) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session)  =

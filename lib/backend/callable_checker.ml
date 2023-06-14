@@ -2,7 +2,7 @@
 open Base
 open Ast
 open Util
-open Frontend__Process_ast
+open Frontend
 open SmtLibAST
 open Smt_solver
 
