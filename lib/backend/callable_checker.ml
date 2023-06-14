@@ -275,10 +275,10 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
   let open Stmt in
   let atom_const, stmt_desc = 
   (match stmt.stmt_desc with 
-  | Block stmt_list ->
+  | Block { block_body = stmt_list; block_is_ghost = false } ->
     let atom_const, stmt_list = List.fold_map stmt_list ~init:atom_constr ~f:(fun atom_const stmt -> stmt_preprocessor stmt tbl ~atom_constr:atom_const) in
 
-    atom_const, Block stmt_list
+    atom_const, mk_block stmt_list
   
   | Loop loop_desc ->
     let atom_constr, loop_prebody = stmt_preprocessor loop_desc.loop_prebody tbl ~atom_constr:atom_constr in
@@ -305,15 +305,11 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
     in
     atom_constr, Cond cond_desc
   
-  | Ghost ghost_desc ->
-    let atom_constr', ghost_body = stmt_preprocessor ghost_desc.ghost_body tbl ~atom_constr:{atom_constr with ghost_block = true;} in
+  | Block { block_body = stmt_list; block_is_ghost = true } ->
+    let atom_const, stmt_list = List.fold_map stmt_list ~init:atom_constr ~f:(fun atom_const stmt -> stmt_preprocessor stmt tbl ~atom_constr:{atom_const with ghost_block = true;}) in
 
-    let ghost_desc = { 
-      ghost_body;
-    }
     (* TODO: Implement Atomic Constraints for Ghost blocks correctly *)
-    in
-    {atom_constr' with ghost_block = false;}, Ghost ghost_desc
+    {atom_const with ghost_block = false;}, mk_block ~ghost:true stmt_list
 
 
   | Basic basic_stmt_desc ->
@@ -405,10 +401,10 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
 
           (match atom_constr.status with
           | Default ->
-            atom_constr, Block (new_vars_def_stmts @ exhale_list @ inhale_list)
+            atom_constr, mk_block (new_vars_def_stmts @ exhale_list @ inhale_list)
             
           | Opened ->
-            { atom_constr with status = Stepped}, Block (new_vars_def_stmts @ exhale_list @ inhale_list)
+            { atom_constr with status = Stepped}, mk_block (new_vars_def_stmts @ exhale_list @ inhale_list)
 
           | Stepped -> 
             Error.error stmt.stmt_loc "Violated atomicity constraints"
@@ -433,8 +429,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
       )
 
 
-    | Fold _
-    | Unfold _ -> 
+    | Use _ -> 
       atom_constr, Basic basic_stmt_desc
 
     | BindAU _ident -> 
@@ -599,7 +594,9 @@ let rec check_sep_star_injectivity (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_
 let touched_vars (stmt: Stmt.t) : qual_ident list =
   let rec touched_vars_helper (stmt: Stmt.t) (touched_var_list: qual_ident list) (local_var_list: qual_ident list) = (
     match stmt.stmt_desc with
-    | Block stmt_list -> (List.fold stmt_list ~init:(touched_var_list, local_var_list) ~f:(fun (t_v, l_v) stmt -> touched_vars_helper stmt t_v l_v))
+    | Block {block_body = stmt_list; _ } ->
+      List.fold stmt_list ~init:(touched_var_list, local_var_list)
+        ~f:(fun (t_v, l_v) stmt -> touched_vars_helper stmt t_v l_v)
     | Basic basic_stmt -> (match basic_stmt with
       | VarDef var_def -> touched_var_list, (QualIdent.from_ident var_def.var_decl.var_name) :: local_var_list
       | Assign assign_desc ->
@@ -624,14 +621,14 @@ let touched_vars (stmt: Stmt.t) : qual_ident list =
       let t_v, l_v = touched_vars_helper cond_desc.cond_then touched_var_list local_var_list in
       touched_vars_helper cond_desc.cond_else t_v l_v
 
-    | Ghost ghost_desc -> touched_vars_helper ghost_desc.ghost_body touched_var_list local_var_list
   )
 
   in
 
   let touched_vars_list, local_var_list = touched_vars_helper stmt [] [] in
 
-  List.filter touched_vars_list ~f:(fun qual_ident -> not (List.exists local_var_list ~f:(QualIdent.equal qual_ident)))
+  List.filter touched_vars_list
+    ~f:(fun qual_ident -> not (List.exists local_var_list ~f:(QualIdent.equal qual_ident)))
 
 
 let unify_conditional_branches (map1: SmtEnv.smt_trnsl qual_ident_map) (map2: SmtEnv.smt_trnsl qual_ident_map) (smtEnv: smt_env) : (qual_ident * smt_ident) list =
@@ -2151,8 +2148,11 @@ end
 
 let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session) =
   (match stmt.stmt_desc with
-  | Block stmt_list ->
-    let (smtEnv, session) = List.fold stmt_list ~init:(smtEnv, session) ~f:(fun (smtEnv, session) stmt -> check_stmt stmt path_conds tbl smtEnv session) in
+  | Block { block_body = stmt_list; _ } ->
+    let (smtEnv, session) =
+      List.fold stmt_list ~init:(smtEnv, session)
+        ~f:(fun (smtEnv, session) stmt -> check_stmt stmt path_conds tbl smtEnv session)
+    in
 
     smtEnv, session
 
@@ -2242,9 +2242,6 @@ let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smt
 
     smtEnv, session
 
-  | Ghost ghost_desc -> 
-    check_stmt ghost_desc.ghost_body path_conds tbl smtEnv session
-  
   )
 
 and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) (loc: Util.Loc.t): (smt_env * Smt_solver.session) =
@@ -2560,23 +2557,20 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     | _ -> Error.error loc "Expected function in smtEnv; not found."
     )
   | Return _expr_list -> Error.unsupported_error loc "Return stmts not presently supported"
-  | Fold fold_desc ->
-    (match fold_desc.fold_expr with
-    | App (Call (qual_ident, _), args, _) -> (
-      match SmtEnv.find smtEnv qual_ident with
-      | Some (Pred pred_trnsl) ->
-        (
-          let formal_args_truncated, implicit_args = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
-          let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
+  | Use { use_kind = Fold; use_name = qual_ident; use_args = args } ->
+    begin match SmtEnv.find smtEnv qual_ident with
+    | Some (Pred pred_trnsl) ->
+      let formal_args_truncated, implicit_args = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
+      let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
+      
+      let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
+      
+      let pred_body = match implicit_args with
+        | [] -> pred_body
+        | _ -> 
+          let implicit_arg_types = List.map implicit_args ~f:(fun arg -> (Map.find_exn pred_trnsl.pred_def.func_decl.call_decl_locals arg).var_type) in
 
-          let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
-
-          let pred_body = match implicit_args with
-          | [] -> pred_body
-          | _ -> 
-            let implicit_arg_types = List.map implicit_args ~f:(fun arg -> (Map.find_exn pred_trnsl.pred_def.func_decl.call_decl_locals arg).var_type) in
-
-            let var_decl_list = List.map2_exn implicit_args implicit_arg_types ~f:(fun arg arg_type ->
+          let var_decl_list = List.map2_exn implicit_args implicit_arg_types ~f:(fun arg arg_type ->
               {
                 Type.var_name = arg;
                 var_loc = Loc.dummy;
@@ -2586,74 +2580,80 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
                 var_implicit = true;
 
               }
-            ) in
-
-            Expr.mk_binder Exists var_decl_list pred_body
-
+            )
           in
-          let pred_body_spec =
-            { Stmt.spec_form = pred_body;
-              spec_atomic = false;
-              spec_error = Some (fun _ -> "Failed to fold predicate " ^ QualIdent.to_string qual_ident,
-                                          Error.mk_error_info "This is the predicate that could not be folded.")
-            }
-          in
+
+          Expr.mk_binder Exists var_decl_list pred_body
+
+      in
+      let pred_body_spec =
+        { Stmt.spec_form = pred_body;
+          spec_atomic = false;
+          spec_error = Some (fun _ -> "Failed to fold predicate " ^ QualIdent.to_string qual_ident,
+                                      Error.mk_error_info "This is the predicate that could not be folded.")
+        }
+      in
           
-          Smt_solver.write_comment session @@ Printf.sprintf "Exhaling body of predicate %s in fold" (QualIdent.to_string qual_ident);
-          let smtEnv, session = 
-            try
-              check_basic_stmt (Spec (Exhale, pred_body_spec)) path_conds tbl smtEnv session loc 
-            with
-            | Error.Msg (_loc, msg) -> Error.error loc msg
-          in
-          let inhale_spec =
-            { Stmt.spec_form = fold_desc.fold_expr;
-              spec_atomic = false;
-              spec_error = None
-            }
-          in
-          let smtEnv, session = check_basic_stmt (Spec (Inhale, inhale_spec)) path_conds tbl smtEnv session loc in
-
-          smtEnv, session
-        )
-      | _ -> Error.error (Expr.loc fold_desc.fold_expr) "Predicate not found in smtEnv."
-    )
-    | _ -> Error.unsupported_error (Expr.loc fold_desc.fold_expr) "Unsupported expr found in Fold command")
-  | Unfold unfold_desc ->
+      Smt_solver.write_comment session @@ Printf.sprintf "Exhaling body of predicate %s in fold" (QualIdent.to_string qual_ident);
+      let smtEnv, session = 
+        try
+          check_basic_stmt (Spec (Exhale, pred_body_spec)) path_conds tbl smtEnv session loc 
+        with
+        | Error.Msg (_loc, msg) -> Error.error loc msg
+      in
+      let fold_expr =
+        Expr.mk_app ~loc:loc
+          ~typ:(Callable.return_type pred_trnsl.pred_def.func_decl)
+          (Call (qual_ident, loc)) args
+      in
+      let inhale_spec =
+        { Stmt.spec_form = fold_expr;
+          spec_atomic = false;
+          spec_error = None
+        }
+      in
+      let smtEnv, session = check_basic_stmt (Spec (Inhale, inhale_spec)) path_conds tbl smtEnv session loc in
+      
+      smtEnv, session
+      | _ -> Error.error loc "Predicate not found in smtEnv."
+    end
+  | Use { use_kind = Unfold; use_name = qual_ident; use_args = args } ->
     (* TODO: Make sure implicit ghost args are being handled correctly. *)
-    (match unfold_desc.unfold_expr with
-    | App (Call (qual_ident, _), args, _) -> (
+    begin
       match SmtEnv.find smtEnv qual_ident with
       | Some (Pred pred_trnsl) ->
-        (
-          let formal_args_truncated, _ = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
-          let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
+        let formal_args_truncated, _ = List.split_n pred_trnsl.pred_def.func_decl.call_decl_formals (List.length args) in
+        let map = List.fold (List.zip_exn formal_args_truncated args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
 
-          let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
+        let pred_body = Expr.alpha_renaming (Option.value_exn pred_trnsl.pred_def.func_body) map in
 
-          let unfold_spec =
-            { Stmt.spec_form = unfold_desc.unfold_expr;
-              spec_atomic = false;
-              spec_error = Some (fun _ -> "Failed to unfold predicate " ^ QualIdent.to_string qual_ident, "")
-            }
-          in
-          
-          let smtEnv, session = check_basic_stmt (Spec (Exhale, unfold_spec)) path_conds tbl smtEnv session loc in
+      let unfold_expr =
+        Expr.mk_app ~loc:loc
+          ~typ:(Callable.return_type pred_trnsl.pred_def.func_decl)
+          (Call (qual_ident, loc)) args
+      in
 
-          let pred_body_spec =
-            { Stmt.spec_form = pred_body;
-              spec_atomic = false;
-              spec_error = None
-            }
-          in
-          
-          let smtEnv, session = check_basic_stmt (Spec (Inhale, pred_body_spec)) path_conds tbl smtEnv session loc in
-
-          smtEnv, session
-        )
-      | _ -> Error.error (Expr.loc unfold_desc.unfold_expr) "Predicate not found in smtEnv."
-    )
-    | _ -> Error.unsupported_error (Expr.loc unfold_desc.unfold_expr) "Unsupported expr found in Unfold command")
+      let unfold_spec =
+        { Stmt.spec_form = unfold_expr;
+          spec_atomic = false;
+          spec_error = Some (fun _ -> "Failed to unfold predicate " ^ QualIdent.to_string qual_ident, "")
+        }
+      in
+        
+      let smtEnv, session = check_basic_stmt (Spec (Exhale, unfold_spec)) path_conds tbl smtEnv session loc in
+      
+      let pred_body_spec =
+        { Stmt.spec_form = pred_body;
+          spec_atomic = false;
+          spec_error = None
+        }
+      in
+      
+      let smtEnv, session = check_basic_stmt (Spec (Inhale, pred_body_spec)) path_conds tbl smtEnv session loc in
+      
+      smtEnv, session
+      | _ -> Error.error loc "Predicate not found in smtEnv."
+    end
   | BindAU _
   | OpenAU _
   | AbortAU _

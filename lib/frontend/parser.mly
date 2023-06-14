@@ -18,7 +18,8 @@ open Ast
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
-%token HAVOC NEW RETURN FOLD UNFOLD OWN OPENINV CLOSEINV
+%token <Ast.Stmt.use_kind> USE  
+%token HAVOC NEW RETURN OWN OPENINV CLOSEINV  
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -465,19 +466,14 @@ stmt_wo_trailing_substmt:
 (* return *)
 | RETURN; es = separated_list(COMMA, expr); SEMICOLON {
   let e = match es with
-  | [] -> Expr.mk_unit ~loc:(Loc.make $startpos $endpos)
   | [e] -> e
   | es -> Expr.mk_tuple ~loc:(Loc.make $startpos(es) $endpos(es)) es
   in
   Stmt.(Basic (Return e))
 }
-(* fold *)
-| FOLD; e = expr; SEMICOLON {
-  Stmt.(Basic (Fold {fold_expr = e}))
-}
-(* unfold *)
-| UNFOLD; e = expr; SEMICOLON {
-  Stmt.(Basic (Unfold {unfold_expr = e}))
+(* unfold / fold *)
+| use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN; SEMICOLON {
+  Stmt.(Basic (Use {use_kind = use_kind; use_name = AstUtil.expr_to_qual_ident id; use_args = es}))
 }
 | OPENINV; e = expr; SEMICOLON {
   Stmt.(Basic (OpenInv e))
@@ -549,7 +545,7 @@ var_modifier:
 
   
 block:
-| LBRACE; stmts = stmt_list_opt; RBRACE { Block stmts }
+| LBRACE; stmts = stmt_list_opt; RBRACE { Stmt.mk_block stmts }
 ;
 
 stmt_list_opt:
@@ -660,13 +656,7 @@ loop_contract:
 
 ghost_block:
 | LGHOSTBRACE; stmts = stmt_list_opt; RGHOSTBRACE {
-    let ghost_body = Stmt.{
-      stmt_desc = Block stmts;
-      stmt_loc = Loc.make $startpos $endpos;
-    } in
-    let ghost_block = 
-      Stmt.{ ghost_body = ghost_body; }
-    in Ghost ghost_block
+  Stmt.mk_block ~ghost:true stmts
 }
 ;
 (** Expressions *)

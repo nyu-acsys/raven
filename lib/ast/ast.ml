@@ -613,7 +613,7 @@ module Expr = struct
 
   let mk_tuple ?(loc = Loc.dummy) es = mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
 
-  let mk_unit ?(loc = Loc.dummy) = mk_tuple ~loc []
+  let mk_unit loc = mk_tuple ~loc []
   
   (** Constructor for conjunction.*)
   let mk_and ?(loc = Loc.dummy) = function
@@ -711,6 +711,20 @@ module Stmt = struct
     | Assert -> assert_string
     | Inhale -> inhale_string
     | Exhale -> exhale_string
+
+  type use_kind =
+    | Fold
+    | Unfold
+
+  let use_kind_to_string = function
+    | Fold -> "fold"
+    | Unfold -> "unfold"
+
+  type use_desc = {
+    use_kind : use_kind;
+    use_name : qual_ident;
+    use_args : expr list;
+  }
   
   type basic_stmt_desc =
     | VarDef of var_def
@@ -720,8 +734,7 @@ module Stmt = struct
     | Havoc of expr list
     | Call of call_desc
     | Return of expr
-    | Fold of fold_desc
-    | Unfold of unfold_desc
+    | Use of use_desc
     | BindAU of ident
     | OpenAU of ident
     | AbortAU of ident
@@ -741,14 +754,13 @@ module Stmt = struct
   }
 
   and cond_desc = { cond_test : expr; cond_then : t; cond_else : t }
-  and ghost_desc = { ghost_body : t }
+  and block_desc = { block_body : t list; block_is_ghost: bool }
 
   and stmt_desc =
-    | Block of t list
+    | Block of block_desc
     | Basic of basic_stmt_desc
     | Loop of loop_desc
     | Cond of cond_desc
-    | Ghost of ghost_desc
 
   (** Pretty printing statements *)
 
@@ -795,8 +807,11 @@ module Stmt = struct
           nstm.new_args
 
     | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
-    | Fold fld -> fprintf ppf "@[<2>fold %a@]" Expr.pr fld.fold_expr
-    | Unfold ufld -> fprintf ppf "@[<2>unfold %a@]" Expr.pr ufld.unfold_expr
+    | Use ({ use_kind = (Fold | Unfold); _ } as use_desc) ->
+      fprintf ppf "@[<2>%s %a(@[%a@])@]"
+        (use_kind_to_string use_desc.use_kind)
+        QualIdent.pr use_desc.use_name
+        Expr.pr_list use_desc.use_args
     | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
     | Call cstm -> (
         match cstm.call_lhs with
@@ -824,24 +839,29 @@ module Stmt = struct
     | Loop ldesc ->
         fprintf ppf "%awhile (%a)@ @,@[<2>@ @ %a@]@\n%a"
           (fun ppf -> function
-            | { stmt_desc = Block []; _ } -> ()
+            | { stmt_desc = Block { block_body = []; _ }; _ } -> ()
             | s -> pr ppf s)
           ldesc.loop_prebody Expr.pr ldesc.loop_test (pr_spec_list "invariant")
           ldesc.loop_contract pr ldesc.loop_postbody
     | Cond cdesc -> (
         match cdesc.cond_else.stmt_desc with
-        | Block [] ->
+        | Block { block_body = []; _ } ->
             fprintf ppf "if (@[%a@]) %a" Expr.pr cdesc.cond_test pr
               cdesc.cond_then
         | _ ->
             fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr cdesc.cond_test pr
               cdesc.cond_then pr cdesc.cond_else)
-    | Block stmts -> (
-        match stmts with
-        | [] -> fprintf ppf "{ }"
-        | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts)
+    | Block { block_body = stmts; block_is_ghost = false } -> 
+        begin match stmts with
+          | [] -> fprintf ppf "{ }"
+          | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts
+        end
+    | Block { block_body = stmts; block_is_ghost = true } ->
+        begin match stmts with
+          | [] -> fprintf ppf "{! !}"
+          | _ -> fprintf ppf "{!@\n  @[%a@]@\n!}" pr_block stmts
+        end
     | Basic bs -> pr_basic_stmt ppf bs
-    | Ghost gdesc -> fprintf ppf "{!@\n  @[%a@]@\n!}" pr gdesc.ghost_body
 
   and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts
 
@@ -850,7 +870,9 @@ module Stmt = struct
 
   (** Constructors *)
 
-  let mk_skip loc = { stmt_desc = Block []; stmt_loc = loc }
+  let mk_skip loc = { stmt_desc = Block { block_body = []; block_is_ghost = false }; stmt_loc = loc }
+
+  let mk_block ?(ghost=false) stmts = Block { block_body = stmts; block_is_ghost = ghost }
 end
 
 
@@ -1103,48 +1125,48 @@ module Module = struct
       (* body *)
         pr_processed_mem_list md.members
 
-and pr_mod_decl ppf md = 
-let open Stdlib.Format in
-fprintf ppf "@[%s@;@[<v>%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s @]@]@, }"
-"module_decl = {"
-"mod_decl_name: " Ident.pr md.mod_decl_name
-"mod_decl_formals: " (Print.pr_list_comma Ident.pr) md.mod_decl_formals
-"mod_decl_returns: " (Print.pr_list_comma Type.pr) md.mod_decl_returns
-"mod_decl_rep: " (Print.pr_option Ident.pr) md.mod_decl_rep
-"mod_decl_fields: " (Ident.pr_ident_map pr_field_decl) md.mod_decl_fields
-"mod_decl_mod_defs: " (Ident.pr_ident_map Print.pr_null) md.mod_decl_mod_defs
-"mod_decl_mod_aliases: " (Ident.pr_ident_map pr_mod_alias) md.mod_decl_mod_aliases
-"mod_decl_types: " (Ident.pr_ident_map pr_type_alias) md.mod_decl_types
-"mod_decl_callables: " (Ident.pr_ident_map Callable.pr_call_decl) md.mod_decl_callables
-"mod_decl_vars: " (Ident.pr_ident_map Type.pr_var_decl) md.mod_decl_vars
-"mod_decl_loc: " (* Loc.print_loc  md.mod_decl_loc *)
+  and pr_mod_decl ppf md = 
+    let open Stdlib.Format in
+    fprintf ppf "@[%s@;@[<v>%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s%a @;%s @]@]@, }"
+      "module_decl = {"
+      "mod_decl_name: " Ident.pr md.mod_decl_name
+      "mod_decl_formals: " (Print.pr_list_comma Ident.pr) md.mod_decl_formals
+      "mod_decl_returns: " (Print.pr_list_comma Type.pr) md.mod_decl_returns
+      "mod_decl_rep: " (Print.pr_option Ident.pr) md.mod_decl_rep
+      "mod_decl_fields: " (Ident.pr_ident_map pr_field_decl) md.mod_decl_fields
+      "mod_decl_mod_defs: " (Ident.pr_ident_map Print.pr_null) md.mod_decl_mod_defs
+      "mod_decl_mod_aliases: " (Ident.pr_ident_map pr_mod_alias) md.mod_decl_mod_aliases
+      "mod_decl_types: " (Ident.pr_ident_map pr_type_alias) md.mod_decl_types
+      "mod_decl_callables: " (Ident.pr_ident_map Callable.pr_call_decl) md.mod_decl_callables
+      "mod_decl_vars: " (Ident.pr_ident_map Type.pr_var_decl) md.mod_decl_vars
+      "mod_decl_loc: " (* Loc.print_loc  md.mod_decl_loc *)
 
-and pr_mod_alias ppf md_alias = 
-let open Stdlib.Format in
-fprintf ppf "@[%s @;@[<v 2>  %s%a @,%s%a @,%s%a @,%s @] @,}@]"
-"module_alias = {"
-"mod_alias_name: " Ident.pr md_alias.mod_alias_name
-"mod_alias_type: " Type.pr md_alias.mod_alias_type
-"mod_alias_def: " (Print.pr_option Type.pr) md_alias.mod_alias_def
-"mod_alias_loc: " (* Loc.print_loc  md.mod_decl_loc *)
+  and pr_mod_alias ppf md_alias = 
+    let open Stdlib.Format in
+    fprintf ppf "@[%s @;@[<v 2>  %s%a @,%s%a @,%s%a @,%s @] @,}@]"
+      "module_alias = {"
+      "mod_alias_name: " Ident.pr md_alias.mod_alias_name
+      "mod_alias_type: " Type.pr md_alias.mod_alias_type
+      "mod_alias_def: " (Print.pr_option Type.pr) md_alias.mod_alias_def
+      "mod_alias_loc: " (* Loc.print_loc  md.mod_decl_loc *)
+      
+  and pr_type_alias ppf tp_alias =
+    let open Stdlib.Format in
+    fprintf ppf "@[%s@[<v>@,%s%a @,%s%a @,%s%B @,%s@]@,}@]"
+      "type_alias = {" 
+      "type_alias_name: " Ident.pr tp_alias.type_alias_name
+      "type_alias_def: " (Print.pr_option Type.pr) tp_alias.type_alias_def
+      "type_alias_rep: " tp_alias.type_alias_rep
+      "type_alias_loc: " (*Loc.print_loc  md.mod_decl_loc*)
 
-and pr_type_alias ppf tp_alias =
-let open Stdlib.Format in
-fprintf ppf "@[%s@[<v>@,%s%a @,%s%a @,%s%B @,%s@]@,}@]"
-"type_alias = {" 
-"type_alias_name: " Ident.pr tp_alias.type_alias_name
-"type_alias_def: " (Print.pr_option Type.pr) tp_alias.type_alias_def
-"type_alias_rep: " tp_alias.type_alias_rep
-"type_alias_loc: " (*Loc.print_loc  md.mod_decl_loc*)
-
-and pr_field_decl ppf field_decl =
-let open Stdlib.Format in
-fprintf ppf "@[<1> %s@;@[<v 2>  %s%a @;%s%a @;%s@] @,}@]"
-"field_decl = {" 
-"field_name: " Ident.pr field_decl.field_name
-"field_type: " Type.pr field_decl.field_type
-"field_loc: " (* Loc.print_loc  field_decl.field_loc *)
-
+  and pr_field_decl ppf field_decl =
+    let open Stdlib.Format in
+    fprintf ppf "@[<1> %s@;@[<v 2>  %s%a @;%s%a @;%s@] @,}@]"
+      "field_decl = {" 
+      "field_name: " Ident.pr field_decl.field_name
+      "field_type: " Type.pr field_decl.field_type
+      "field_loc: " (* Loc.print_loc  field_decl.field_loc *)
+    
   let to_string m = Print.string_of_format pr m
   let print chan m = Print.print_of_format pr m chan
   let print_verbose chan m = Print.print_of_format pr_verbose m chan

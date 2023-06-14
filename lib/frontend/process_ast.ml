@@ -707,36 +707,12 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
       | Some (DataTypeConstr _constr) ->
           process_expr (App (DataConstr (callable_qual_ident, loc), args_list, Expr.attr_of expr)) tbl expected_typ
       | Some Callable callable_decl ->
-        let callable_arg_ident_list = callable_decl.call_decl_formals in
-        let callable_arg_var_decl_list =
-          List.map callable_arg_ident_list ~f:(Map.find_exn callable_decl.call_decl_locals)
-        in
-
-        let _dropped_formal_args = List.map (List.drop callable_arg_var_decl_list (List.length args_list)) ~f:(fun var_decl ->
-          if var_decl.var_implicit then 
-            var_decl 
-          else
-            (* Catches if too few args given *)
-            Error.type_error (Expr.loc expr) @@ Printf.sprintf "Callable %s called with incorrect number of arguments" (Ident.to_string callable_decl.call_decl_name)
-
-        ) in
-
-        let callable_arg_var_decl_list =
-          List.take callable_arg_var_decl_list (List.length args_list)
-        in
-        let callable_arg_types_list = List.map callable_arg_var_decl_list ~f:(fun var_decl -> var_decl.var_type) in
-        let args_list =
-          match List.map2 args_list callable_arg_types_list ~f:(fun expr tp_expr -> process_expr expr tbl tp_expr) with
-            | Ok args_list -> args_list
-            | Unequal_lengths -> 
-              (* Catches if too many args given *)
-              Error.type_error (Expr.loc expr) @@ Printf.sprintf "Callable %s called with incorrect number of arguments" (Ident.to_string callable_decl.call_decl_name)
-        in
+        let args_list = process_callable_args tbl (Expr.loc expr) callable_decl args_list in
         let given_typ = Callable.return_type callable_decl in
         let expr = Expr.App (Call (callable_qual_ident, loc), args_list, expr_attr) in
         check_and_set expr given_typ given_typ expected_typ tbl
       | Some tp_env -> Error.type_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": expected to be a callable instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.type_error (Expr.loc expr) ((QualIdent.to_string callable_qual_ident ^ ": not found in TypingEnv"))
+      | None -> unknown_ident_error (Expr.loc expr) callable_qual_ident
       end
 
     (* Read expressions *)
@@ -758,7 +734,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
         check_and_set expr given_typ given_typ expected_typ tbl                
       | Some tp_env -> Error.type_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": expected to be a VarDef instead of " ^ SymbolTbl.typing_env_to_string tp_env))
-      | None -> Error.type_error (Expr.loc expr) ((QualIdent.to_string qual_ident ^ ": not found in TypingEnv"))
+      | None -> unknown_ident_error (Expr.loc expr) qual_ident
       end
 
     | Read, _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
@@ -834,8 +810,34 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
       let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
       check_and_set expr expr_typ expr_typ expected_typ tbl
 
-(* end of process_expr *)
-      
+  (* end of process_expr *)
+
+  and process_callable_args tbl loc callable_decl args_list =
+    let callable_formals =
+      List.map callable_decl.call_decl_formals ~f:(Map.find_exn callable_decl.call_decl_locals)
+    in
+
+    (* Check if too few arguments given. *)
+    let _ =
+      List.drop callable_formals (List.length args_list) |>
+      List.exists ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit) |>
+      fun b -> if b then
+        Error.type_error loc @@
+          Printf.sprintf "Some explicit arguments are missing in this call to %s" (Ident.to_string callable_decl.call_decl_name)
+    in
+
+    let provided_formals =
+      List.take callable_formals (List.length args_list)
+    in
+    let explicit_formal_types = List.map provided_formals ~f:(fun var_decl -> var_decl.Type.var_type) in
+    match List.map2 args_list explicit_formal_types ~f:(fun expr tp_expr -> process_expr expr tbl tp_expr) with
+    | Ok args_list -> args_list
+    | Unequal_lengths -> 
+      (* Catches if too many args given. *)
+      Error.type_error loc @@
+      Printf.sprintf "Too many arguments passed to %s" (Ident.to_string callable_decl.call_decl_name)
+
+
 module ProcessCallables = struct
   module DisambiguationTbl = struct
     type t = (ident ident_map) list  
@@ -1004,9 +1006,9 @@ module ProcessCallables = struct
         x := val;
     *)
     match stmt.stmt_desc with
-    | Block stmt_list ->
-      let stmt_list = List.concat (List.map ~f:pre_process_stmt stmt_list) in
-        [{stmt_desc = Block stmt_list; stmt_loc = stmt.stmt_loc;}]
+    | Block block_desc ->
+      let stmt_list = List.concat (List.map ~f:pre_process_stmt block_desc.block_body) in
+        [{stmt with stmt_desc = Block { block_desc with block_body = stmt_list } }]
     | Basic basic_stmt ->
       (match basic_stmt with
         | VarDef var_def -> 
@@ -1030,13 +1032,15 @@ module ProcessCallables = struct
       let loop_prebody_list = pre_process_stmt loop_desc.loop_prebody in
       let loop_prebody' = (match loop_prebody_list with
         | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_prebody.stmt_loc;}
+        | stmt_list ->
+          {loop_desc.loop_prebody with stmt_desc = Block { block_body = stmt_list; block_is_ghost = false } }
       ) in
 
       let loop_postbody_list = pre_process_stmt loop_desc.loop_postbody in
       let loop_postbody' = (match loop_postbody_list with
         | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_postbody.stmt_loc;}
+        | stmt_list -> 
+          {loop_desc.loop_postbody with stmt_desc = Stmt.mk_block stmt_list }
       ) in
 
 
@@ -1052,13 +1056,13 @@ module ProcessCallables = struct
       let cond_then_list = pre_process_stmt cond_desc.cond_then in
       let cond_then' = (match cond_then_list with
         | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = cond_desc.cond_then.stmt_loc;}
+        | stmt_list -> {stmt_desc = Stmt.mk_block stmt_list; stmt_loc = cond_desc.cond_then.stmt_loc;}
       ) in
 
       let cond_else_list = pre_process_stmt cond_desc.cond_else in
       let cond_else' = (match cond_else_list with
         | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = cond_desc.cond_else.stmt_loc;}
+        | stmt_list -> {stmt_desc = Stmt.mk_block stmt_list; stmt_loc = cond_desc.cond_else.stmt_loc;}
       ) in
 
       let cond_desc' = { cond_desc with
@@ -1069,35 +1073,23 @@ module ProcessCallables = struct
       [{stmt with stmt_desc = Cond cond_desc';}]
     )
 
-    | Ghost ghost_desc -> (
-      let ghost_body_list = pre_process_stmt ghost_desc.ghost_body in
-      let ghost_body' = (match ghost_body_list with
-        | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = ghost_desc.ghost_body.stmt_loc;}
-      ) in
-
-      let (ghost_desc': Stmt.ghost_desc) = { ghost_body = ghost_body';} in
-
-      [{stmt with stmt_desc = Ghost ghost_desc';}]
-    )
-
   let process_stmt (expected_return_type: Type.t) (stmt: Stmt.t) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : Stmt.t * var_decl list * SymbolTbl.t * DisambiguationTbl.t =
     let rec process_stmt stmt tbl disam_tbl =
     try
 
-    let _stmt_list = pre_process_stmt stmt in
-    let stmt = (match _stmt_list with
+    let stmt_list = pre_process_stmt stmt in
+    let stmt = match stmt_list with
       | [stmt'] -> stmt'
-      | stmt_list -> {stmt_desc = Block stmt_list; stmt_loc = stmt.stmt_loc;}
-    ) in
+      | stmt_list -> {stmt_desc = Block { block_body = stmt_list; block_is_ghost = false }; stmt_loc = stmt.stmt_loc;}
+    in
 
     let stmt_desc, locals, tbl, disam_tbl =
     (match stmt.stmt_desc with
-    | Block stmt_list -> 
+    | Block block_desc -> 
       let tbl = SymbolTbl.push tbl in
       let disam_tbl = DisambiguationTbl.push disam_tbl in
 
-      let (locals, tbl, disam_tbl), stmt_list = List.fold_map stmt_list ~init:([], tbl, disam_tbl) 
+      let (locals, tbl, disam_tbl), stmt_list = List.fold_map block_desc.block_body ~init:([], tbl, disam_tbl) 
         ~f:(fun (locals, tbl, disam_tbl) stmt -> 
         
           let stmt, locals', tbl, disam_tbl = process_stmt stmt tbl disam_tbl in
@@ -1108,7 +1100,7 @@ module ProcessCallables = struct
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
       let tbl = SymbolTbl.pop tbl in
       
-      (Stmt.Block stmt_list), locals, tbl, disam_tbl
+      (Stmt.Block { block_desc with block_body = stmt_list }), locals, tbl, disam_tbl
 
     | Basic basic_stmt -> (match basic_stmt with
       | VarDef var_def -> 
@@ -1320,27 +1312,28 @@ module ProcessCallables = struct
 
         Basic (Return expr), [], tbl, disam_tbl
 
-      | Fold fold_desc ->
+      | Use ({ use_kind = (Fold | Unfold); _ } as use_desc) ->
         (* TODO: need to check that fold_expr is a predicate call. Should we change the representation of fold_desc to get that for free? *)
-        let fold_expr = 
-          (let expr = disambiguate_expr fold_desc.fold_expr disam_tbl in
-          let expr = process_expr expr tbl Type.perm
+
+        let use_name = 
+          disambiguate_ident use_desc.use_name disam_tbl |>
+          fun id -> SymbolTbl.fully_qualified id tbl
+        in
+        (*with Generic_Error msg -> Error.error (Expr.loc expr) (Printf.sprintf "%s\nExpr: %s \nTbl:%s" msg (Expr.to_string expr) (SymbolTbl.to_string tbl))*)
+
+        let pred_decl =
+          match SymbolTbl.find tbl use_name with
+          | Some Callable ({call_decl_kind = Pred; _} as pred_decl) -> pred_decl
+          | _ -> Error.type_error stmt.stmt_loc ("Expected predicate identifier but found " ^ QualIdent.to_string use_name)
+        in
         
-          in expr
-        ) in
+        let use_args =
+          List.map use_desc.use_args ~f:(fun expr -> disambiguate_expr expr disam_tbl)
+        in
 
-        Basic (Fold {fold_expr}), [], tbl, disam_tbl
+        let use_args = process_callable_args tbl stmt.stmt_loc pred_decl use_args in
 
-      | Unfold unfold_desc -> 
-        (* TODO: need to check that unfold_expr is a predicate call. Should we change the representation of unfold_desc to get that for free? *)
-        let unfold_expr = 
-          (let expr = disambiguate_expr unfold_desc.unfold_expr disam_tbl in
-          let expr = process_expr expr tbl Type.perm 
-        
-          in expr
-        ) in
-
-        Basic (Unfold {unfold_expr}), [], tbl, disam_tbl
+        Basic (Use {use_desc with use_name = use_name; use_args = use_args}), [], tbl, disam_tbl
       
       | OpenInv expr ->
         (* TODO: need to check that expr is an invariant. Should we change the representation of OpenInv to get that for free? *)
@@ -1478,18 +1471,6 @@ module ProcessCallables = struct
 
       Cond cond_desc, locals' @ locals'', tbl, disam_tbl
 
-    | Ghost ghost_desc -> 
-      let tbl = SymbolTbl.push tbl in
-      let disam_tbl = DisambiguationTbl.push disam_tbl in
-      let ghost_body, locals, tbl, disam_tbl = process_stmt ghost_desc.ghost_body tbl disam_tbl in
-      let disam_tbl = DisambiguationTbl.pop disam_tbl in
-      let tbl = SymbolTbl.pop tbl in
-
-      let (ghost_desc: Stmt.ghost_desc) = {
-        ghost_body;
-      } in
-
-      Ghost ghost_desc, locals, tbl, disam_tbl
     ) in
   
     {stmt_desc = stmt_desc; stmt_loc = stmt.stmt_loc}, locals, tbl, disam_tbl

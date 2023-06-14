@@ -23,11 +23,12 @@ let _ =
       ("else", ELSE);
       ("ensures", ENSURES);
       ("exhale", SPEC Stmt.Exhale);
+      ("exists", QUANT(Expr.Exists));
       ("false", CONSTVAL (Expr.Bool false));
       ("forall", QUANT(Expr.Forall));
-      ("exists", QUANT(Expr.Exists));
-      ("func", FUNC (Func));
+      ("fold", USE (Stmt.Fold));
       ("field", FIELD);
+      ("func", FUNC (Func));
       ("ghost", GHOST);
       ("havoc", HAVOC);
       ("if", IF);
@@ -57,11 +58,10 @@ let _ =
       ("Set", SET);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
+      ("unfold", USE (Stmt.Unfold));
       ("val", VAR true);
       ("var", VAR false);
       ("while", WHILE);
-      ("fold", FOLD);
-      ("unfold", UNFOLD);
       ("openInv", OPENINV);
       ("closeInv", CLOSEINV);
     ])

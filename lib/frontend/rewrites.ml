@@ -142,14 +142,14 @@ let rec rewrite_compr_expr (expr: expr) (scope: qual_ident): Callable.t list * e
 
 let rec rewrite_compr_stmt (scope: qual_ident) (stmt: Stmt.t) : Callable.t list * Stmt.t =
   match stmt.stmt_desc with
-  | Block stmt_list ->
-    let fn_list, stmt_list = List.fold_map stmt_list ~init:[] ~f:(fun fn_list stmt ->
+  | Block block_desc ->
+    let fn_list, stmt_list = List.fold_map block_desc.block_body ~init:[] ~f:(fun fn_list stmt ->
       let fn_list', stmt = rewrite_compr_stmt scope stmt in
 
       fn_list @ fn_list', stmt
     ) in
 
-    fn_list, { stmt with stmt_desc = Block stmt_list; }
+    fn_list, { stmt with stmt_desc = Block { block_desc with block_body = stmt_list; } }
 
   | Basic basic_stmt -> begin
     match basic_stmt with 
@@ -215,12 +215,6 @@ let rec rewrite_compr_stmt (scope: qual_ident) (stmt: Stmt.t) : Callable.t list 
       cond_then = new_then_branch;
       cond_else = new_else_branch;
     }; }
-
-  | Ghost ghost_desc ->
-    let fn_list, new_body = rewrite_compr_stmt scope ghost_desc.ghost_body in
-
-    fn_list, { stmt with stmt_desc = Ghost { ghost_body = new_body; }; }  
-
 
 let rewrite_compr_callable (scope: qual_ident) (callable: Callable.t) : Callable.t list * Callable.t = 
   match callable with
