@@ -6,15 +6,25 @@ Link to the Google Doc: https://docs.google.com/document/d/1AvU88AoWAMsv9lBCK980
 
 ## Dependencies
 
-- opam, version >= 2.0.8
+- opam >= 2.0.8
 
-- ocaml, version >= 4.12.0
+- ocaml >= 4.12.0
 
-- dune, version >= 2.8.5
+- dune >= 2.8.5
 
-- base, version >= 0.14
+- z3 >= 4.12.2
 
-- stdio, version >= 0.14
+- ocamlformat >= 0.22.4
+
+- base >= 0.14
+
+- stdio >= 0.14
+
+- logs >= 0.7.0
+
+- fmt >= 0.9.0
+
+- cmdliner >= 1.2.0
 
 - ppx_custom_printf >= 0.14.1
 
@@ -24,4 +34,4 @@ Link to the Google Doc: https://docs.google.com/document/d/1AvU88AoWAMsv9lBCK980
 
 - ppx_sexp_conv >= 0.14.3
 
-- ocamlformat >= 0.22.4
+
