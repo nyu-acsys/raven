@@ -3,7 +3,9 @@
 open Base
 open Ast
 open Util
-open Error
+
+let unknown_ident_error loc id =
+  Error.error loc ("Unknown identifier " ^ QualIdent.to_string id ^ ".")
 
 type data_type_constr = {
   constr_name : Ident.t;
@@ -93,7 +95,7 @@ let pop tbl =
 *)
 
 
-let rec fully_qualified (iden : qual_ident) tbl =
+let fully_qualified loc (iden : qual_ident) tbl =
   let rec fully_qualified_helper (iden : qual_ident) tbl =
     match tbl with
     | [] -> iden
@@ -103,14 +105,15 @@ let rec fully_qualified (iden : qual_ident) tbl =
         | Some iden' -> fully_qualified_helper (QualIdent.left_append iden' iden) ts)
 
   in
-
+  let rec fully_qualified iden tbl =
   match tbl with
-    | [] -> raise (Generic_Error ("Ident " ^ QualIdent.to_string iden ^ " not found in typing env"))
+    | [] -> unknown_ident_error loc iden
     | (label, map) :: ts -> (
         match Map.find map iden with 
         | None -> fully_qualified iden ts
         | Some _ -> fully_qualified_helper iden ((label, map) :: ts))
-
+  in
+  fully_qualified iden tbl
 
 
 let add (tbl : t) name tp : t =
@@ -166,6 +169,11 @@ let rec find (tbl : t) name =
   | [] -> None
   | (_, map) :: ts -> (
       match Map.find map name with None -> find ts name | Some id -> Some id)
+
+let find_exn loc (tbl : t) name =
+  match find tbl name with
+  | Some decl -> decl
+  | None -> unknown_ident_error loc name
 
 let equal (_tp_env1: t) (_tp_env2: t) : bool =
   true (* TODO: Implement properly *)
