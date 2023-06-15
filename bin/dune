@@ -1,4 +1,4 @@
 (executable
   (name raven)
-  (libraries base config util ast frontend backend)
+  (libraries base cmdliner fmt fmt.cli fmt.tty logs logs.cli logs.fmt config util ast frontend backend)
   (preprocess (pps ppx_custom_printf)))

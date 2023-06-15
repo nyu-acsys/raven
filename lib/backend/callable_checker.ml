@@ -104,8 +104,8 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
         try
           lookup_type tp tbl smtEnv 
         with
-        | Util.Error.Msg (_loc, msg) ->
-          Util.Error.error (Expr.loc expr) @@ Printf.sprintf "%s: lookup_type failed" msg
+        | Util.Error.Msg (lbl, _loc, msg) ->
+          Util.Error.fail ?lbl (Expr.loc expr) @@ Printf.sprintf "%s: lookup_type failed" msg
         in
       List.fold smt_term_list 
         ~init: (App_t ([mk_annot (mk_const (Ident (SMTIdent.make "const"))) (As sort); mk_bool false], None) )
@@ -202,7 +202,8 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
       let expr_term = try
         translate_expr expr tbl smtEnv'
       with
-        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported forall expression found in exhale: %s" (Expr.to_string expr) )
+        Error.Msg (_, loc, _msg) ->
+        Error.error loc (Printf.sprintf "Unsupported forall expression found in exhale: %s" (Expr.to_string expr) )
   
       in
   
@@ -226,7 +227,8 @@ let rec translate_expr (expr: Expr.t) tbl smtEnv : term =
       let expr_term = try
         translate_expr expr tbl smtEnv'
       with
-        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\nUnsupported Exists expression found: %s" msg (Expr.to_string expr) )
+        Error.Msg (_, loc, msg) ->
+        Error.error loc (Printf.sprintf "%s;\n\nUnsupported Exists expression found: %s" msg (Expr.to_string expr) )
   
       in
   
@@ -603,7 +605,7 @@ let touched_vars (stmt: Stmt.t) : qual_ident list =
         (try 
           List.map assign_desc.assign_lhs ~f:(AstUtil.expr_to_qual_ident) @ touched_var_list, local_var_list
         with
-          | Error.Msg(_loc,_msg) -> touched_var_list, local_var_list   
+          | Error.Msg(_, _loc,_msg) -> touched_var_list, local_var_list   
             (* Error.error loc (Printf.sprintf "Assign_desc found with invalid lhs '%s'; expected list of qual_ident: '%s' " ()msg) *)
         )
 
@@ -827,7 +829,7 @@ module TrnslInhale = struct
       let term = try
         translate_expr expr tbl smtEnv
       with
-        Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+        Error.Msg (_, loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
       in
 
       let cmd = mk_assert term in
@@ -879,7 +881,7 @@ module TrnslInhale = struct
   
     in
 
-    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd])
+    new_vars1 @ new_vars2 @ new_vars3, (*cmds1 @ cmds2 @*) [cmd])
 
   | Binder (Forall, quant_vars, App (Own, own_args, expr_attr1), expr_attr2) ->
 
@@ -1043,7 +1045,8 @@ module TrnslInhale = struct
         let term = try
           translate_expr expr tbl smtEnv
         with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+          Error.Msg (_, loc, _msg) ->
+          Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
         in
   
         let cmd = mk_assert term in
@@ -1057,7 +1060,7 @@ module TrnslInhale = struct
     let term = try
       translate_expr expr tbl smtEnv
     with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+      Error.Msg (_, loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
     in
 
     let cmd = 
@@ -1231,7 +1234,7 @@ module TrnslInhale = struct
         let term = try
           translate_expr expr tbl smtEnv
         with
-          Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+          Error.Msg (_, loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
         in
   
         let cmd = mk_assert term in
@@ -1245,7 +1248,7 @@ module TrnslInhale = struct
     let term = try
       translate_expr expr tbl smtEnv
     with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+      Error.Msg (_, loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
     in
 
     let cmd = 
@@ -1257,7 +1260,7 @@ module TrnslInhale = struct
     let expr_term = try
       translate_expr expr tbl smtEnv
     with
-      Error.Msg (loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
+      Error.Msg (_, loc, _msg) -> Error.error loc (Printf.sprintf "Unsupported expression found in inhale: %s" (Expr.to_string expr) )
     in
 
     let cmd = mk_assert expr_term in
@@ -1580,7 +1583,7 @@ module TrnslExhale = struct
       let term = try
           translate_expr expr tbl smtEnv
         with
-        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
+        Error.Msg (_, loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
       in
       [], [], [term]
 
@@ -1823,7 +1826,7 @@ module TrnslExhale = struct
         let term = try
           translate_expr expr tbl smtEnv
         with
-        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
+        Error.Msg (_, loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
     
         in
     
@@ -2224,7 +2227,7 @@ let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smt
       try 
         redefine_vars new_vars smtEnv session 
       with
-      | Error.Msg (_loc, msg) -> Error.error (stmt.stmt_loc) (Printf.sprintf "%s: redefine_vars failed" msg)
+      | Error.Msg (_, _loc, msg) -> Error.error (stmt.stmt_loc) (Printf.sprintf "%s: redefine_vars failed" msg)
     in
 
     let _ = List.map new_vars ~f:(fun (qual_ident, smt_ident) ->
@@ -2509,13 +2512,13 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       let qual_iden = try
         AstUtil.expr_to_qual_ident expr 
         with
-          Error.Msg (loc, _msg) -> Error.error loc ("Havoc called on invalid term; only expected qual_idents. Found: " ^ (Expr.to_string expr))
+          Error.Msg (_, loc, _msg) -> Error.error loc ("Havoc called on invalid term; only expected qual_idents. Found: " ^ (Expr.to_string expr))
       in
       let term = 
         try
           SmtEnv.find_term_exn smtEnv qual_iden
         with
-        Error.Msg (loc, msg) -> Error.error loc ("Havoc term not of expected type in smtEnv: " ^ msg)
+        Error.Msg (_, loc, msg) -> Error.error loc ("Havoc term not of expected type in smtEnv: " ^ msg)
 
 
       in
@@ -2599,7 +2602,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
         try
           check_basic_stmt (Spec (Exhale, pred_body_spec)) path_conds tbl smtEnv session loc 
         with
-        | Error.Msg (_loc, msg) -> Error.error loc msg
+        | Error.Msg (_, _loc, msg) -> Error.error loc msg
       in
       let fold_expr =
         Expr.mk_app ~loc:loc
@@ -2688,7 +2691,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           assert_not session (mk_impl path_cond_term term)
         (* assert_not makes sure all perm_terms are successful by asserting them under negation and checking unsat. *)
         with
-          Error.Msg (_loc, _msg) -> Error.error (Expr.loc spec.spec_form) (Printf.sprintf "Exhaling following expr failed:\n%s\n\nSpecifically, could not exhale: \n%s" (Expr.to_string spec.spec_form) (Util.Print.string_of_format pr_term term))
+          Error.Msg (_, _loc, _msg) -> Error.error (Expr.loc spec.spec_form) (Printf.sprintf "Exhaling following expr failed:\n%s\n\nSpecifically, could not exhale: \n%s" (Expr.to_string spec.spec_form) (Util.Print.string_of_format pr_term term))
 
       in
       
@@ -2765,7 +2768,7 @@ and trnsl_assign_rhs (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session:
                 )
               )
             with
-            | Error.Msg (_loc, msg) -> Error.error (loc) (Printf.sprintf "%s: Checking field_read permission for '%s' failed." msg (Expr.to_string expr))
+            | Error.Msg (_, _loc, msg) -> Error.error (loc) (Printf.sprintf "%s: Checking field_read permission for '%s' failed." msg (Expr.to_string expr))
             
             in
 

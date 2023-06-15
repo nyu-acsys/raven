@@ -1031,14 +1031,14 @@ module Module = struct
     mod_interface : bool;
   }
 
-  and sorted_member_def_list = {
-  imports : import_directive list;
-  types : type_alias list;
-  fields : field_def list;
-  vars : Stmt.var_def list;
-  mod_defs : t list;
-  mod_aliases : module_alias list;
-  call_defs : Callable.t list; 
+  type sorted_member_def_list = {
+    imports : import_directive list;
+    types : type_alias list;
+    fields : field_def list;
+    vars : Stmt.var_def list;
+    mod_defs : t list;
+    mod_aliases : module_alias list;
+    call_defs : Callable.t list; 
   }
   
   and t = {
@@ -1235,6 +1235,9 @@ module Module = struct
         var_def
       else
         find_var var_defs name
+
+  let set_name md name =
+    { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 end
 
 module AstUtil = struct
@@ -1242,7 +1245,7 @@ module AstUtil = struct
     match expr with
     | App (Var qual_ident, _, _) -> qual_ident
     | _ ->
-        Error.error_simple (*(Expr.loc expr)*)
+        Error.error (Expr.loc expr)
              (Printf.sprintf "Expected Var expression instead of %s; Loc: %s" (Expr.to_string expr) (Loc.to_string (Expr.loc expr)))
 
   let qual_ident_to_expr (qual_ident: qual_ident) (expr_attr: Expr.expr_attr): expr = 

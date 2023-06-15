@@ -1,62 +1,47 @@
 open Base
 open Util
 open Frontend
-open Error
 open Backend
 
-let greeting = "Raven version " ^ Config.version ^ "\n"
-
-let usage_message =
-  greeting ^ "\nUsage:\n  "
-  ^ (Sys.get_argv ()).(0)
-  ^ " <input file> [options]\n"
-
-let cmd_line_error msg =
-  Stdlib.Arg.usage (Stdlib.Arg.align Config.cmd_options_spec) usage_message;
-  failwith ("Command line option error: " ^ msg)
-
-
-let parse_lib lexbuf =
-  let s = Parser.lib Lexer.token lexbuf in
-
-  let processed_lib_ast, tbl = Typing.start_processing s in
-
-  let smtEnv, session = Checker.start_backend_checking processed_lib_ast tbl in
-
-  tbl, smtEnv, session 
-
-let parse_and_print lexbuf tbl smtEnv session =
-  let s = Parser.main Lexer.token lexbuf in
-  (*Stdio.printf !"%{Ast.Stmt}\n" s*)
-
-  let processed_ast, tbl = Typing.start_processing ~tbl:tbl s in
-  match tbl with
-  | [ _ ; _ ] | [ _ ] -> 
-    Stdio.printf "SymbolTbl: \n%s" (SymbolTbl.to_string tbl);
-    Ast.Module.print_verbose Stdio.stdout processed_ast;
-    Stdio.print_endline "\n\nFront-end processing successful.\n";
-
-    let _ = Checker.check_module processed_ast tbl smtEnv session in
-
-    Stdio.print_endline "Verification successful.\n"
-
-
-  | _ -> raise (Generic_Error "SymbolTbl should be empty")
-
-let parse_program filename =
-  let resource_algebra_file = "lib/library/resource_algebra.rav" in
-  let inx_ra = Stdio.In_channel.create resource_algebra_file in
-  let lexbuf_lib = Lexing.from_channel inx_ra in
-  Lexer.set_file_name lexbuf_lib resource_algebra_file;
-
-  (* --- *)
-  let tbl, smtEnv, session =
-    try parse_lib lexbuf_lib
+(** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
+let parse_cu top_level_md_ident file_name =
+  let inchan = Stdio.In_channel.create file_name in
+  let lexbuf = Lexing.from_channel inchan in
+  let _ = Lexer.set_file_name lexbuf file_name in
+  let md =
+    try Parser.main Lexer.token lexbuf
     with Parser.Error ->
-      Stdio.In_channel.close inx_ra;
-      let err_pos = lexbuf_lib.lex_curr_p in
+      Stdio.In_channel.close inchan;
+      let err_pos = lexbuf.lex_curr_p in
       Error.syntax_error (Loc.make err_pos err_pos) None
   in
+  Stdio.In_channel.close inchan;
+  Ast.Module.set_name md top_level_md_ident
+
+(** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
+let parse_and_check_cu ?(tbl=None) smtEnv session top_level_md_ident file_name =
+  let md = parse_cu top_level_md_ident file_name in
+  let processed_md, tbl = Typing.process_module ?tbl md in
+  match tbl with
+  | [ _ ; _ ] | [ _ ] -> 
+    Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));
+    (*Logs.debug (fun m -> m !"%{Ast.Module}" processed_md);*)
+    Logs.info (fun m -> m "Front-end processing successful.");
+
+    let session, smtEnv = Checker.check_module processed_md tbl smtEnv session in
+    session, smtEnv, tbl
+
+  | _ -> failwith "SymbolTbl should be empty"
+
+(** Parse and check all compilation units in files [file_names] *)
+let parse_and_check_all file_names =
+  (* Start backend solver session *)
+  let session, smtEnv = Checker.start_session () in
+  (* Parse and check standard library *)
+  let lib_file = "lib/library/resource_algebra.rav" in
+  let smtEnv, session, tbl = parse_and_check_cu smtEnv session (Ast.Ident.make "Lib" 0) lib_file in
+
+  (* --- *)
   Smt_solver.write_comment session "End of Library";
   Smt_solver.write_comment session "";
   Smt_solver.write_comment session "";
@@ -68,43 +53,69 @@ let parse_program filename =
   let session = Smt_solver.init () in *)
   (* --- *)
 
-  Smt_solver.write_comment session "---- Starting Program ----";
-
-  let inx = Stdio.In_channel.create filename in
-  let lexbuf = Lexing.from_channel inx in
-  Lexer.set_file_name lexbuf filename;
-
+  (* Parse and check actual input program *)
+  Smt_solver.write_comment session "---- Starting Program ----";  
   let _ =
-    try parse_and_print lexbuf tbl smtEnv session
-    with Parser.Error ->
-      Stdio.In_channel.close inx;
-      let err_pos = lexbuf.lex_curr_p in
-      Error.syntax_error (Loc.make err_pos err_pos) None
+    List.fold_left file_names ~init:(smtEnv, session, tbl)
+      ~f:(fun (smtEnv, session, tbl) file_name ->
+          Logs.info (fun m -> m "Processing file %s" file_name);
+          parse_and_check_cu ~tbl:(Some tbl) smtEnv session (Ast.Ident.make "$Program" 0) file_name)
   in
-  Stdio.In_channel.close inx
+  (* TODO: Terminate backend solver? *)
+  
+  Logs.app (fun m -> m "Verification successful.")
 
-let () =
-  (* Backtrace.Exn.set_recording true; *)
-  let main_file = ref "" in
-  let set_main_file s = main_file := s in
-  try
-    Stdlib.Arg.parse Config.cmd_options_spec set_main_file usage_message;
-    (*Debug.info (fun () -> greeting);*)
-    if String.equal !main_file "" then cmd_line_error "input file missing"
-    else Error.set_main_file !main_file; parse_program !main_file
-  with
-  | Sys_error s | Failure s ->
-      (*let bs = if Debug.is_debug 0 then Printexc.get_backtrace () else "" in*)
-      Stdio.prerr_endline ("Error: " ^ s);
-      Stdio.prerr_endline "";
-      Stdio.prerr_endline ("---------");
-      Stdio.prerr_endline "";
-      Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
-      Stdlib.exit 1
-  | Error.Msg _ as e ->
-      Stdio.prerr_endline (Error.to_string e);
-      Stdio.prerr_endline "";
-      Stdio.prerr_endline ("---------");
-      Stdio.prerr_endline "";
-      Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
-      Stdlib.exit 1
+(** Command line interface *)
+
+open Cmdliner
+
+let setup_config_cmd style_renderer level =
+  (* Set up logger *)
+  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Logs.set_level level;
+  let pp_header ~pp_h ppf (l, h) = match l with
+      | Logs.App ->
+        begin match h with
+          | None -> ()
+          | Some h -> Fmt.pf ppf "[%a] " Fmt.(styled Logs_fmt.app_style string) h
+        end
+      | Logs.Error ->
+        pp_h ppf Logs_fmt.err_style (match h with None -> "Error" | Some h -> h)
+      | Logs.Warning ->
+        pp_h ppf Logs_fmt.warn_style (match h with None -> "Warning" | Some h -> h)
+      | Logs.Info ->
+        pp_h ppf Logs_fmt.info_style (match h with None -> "Info" | Some h -> h)
+      | Logs.Debug ->
+        pp_h ppf Logs_fmt.debug_style (match h with None -> "Debug" | Some h -> h)
+  in
+  let pp_h ppf style h = Fmt.pf ppf "[%a] " Fmt.(styled style string) h in
+  Logs.set_reporter (Logs_fmt.reporter ~pp_header:(pp_header ~pp_h) ());
+  ()
+
+let setup_config =
+  Term.(const setup_config_cmd $ Fmt_cli.style_renderer () $ Logs_cli.level ())
+
+let input_file =
+  let doc = "Input file." in
+  Arg.(value & (pos_all non_dir_file []) & info [] ~docv:"INPUT" ~doc)
+
+let greeting = "Raven version " ^ Config.version ^ "\n"
+
+let main () input_files = 
+  Logs.app (fun m -> m "%s" greeting);
+  try `Ok (parse_and_check_all input_files) with
+  | Sys_error s | Failure s | Invalid_argument s ->
+      Logs.err (fun m -> m "%s" s);
+      Logs.debug (fun m -> m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
+      Stdlib.exit 1 (* `Error (false, s) <- duplicates error output *)
+  | Error.Msg e ->
+      Logs.err (fun m -> m !"%{Error}" e);
+      Logs.debug (fun m -> m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
+      Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
+
+
+let main_cmd =
+  let info = Cmd.info "raven" ~version:Config.version in
+  Cmd.v info Term.(ret (const main $ setup_config $ input_file))
+
+let () = Stdlib.exit (Cmd.eval main_cmd)

@@ -3,8 +3,6 @@ open Ast
 open Util
 open Error
 
-(* Generic_Error is thrown by functions which don't have any Loc information. These exceptions are then meant to be caught by a caller function which can then generate the appropriate Error.errors with appropriate Loc information attached  *)
-
 let type_mismatch_error loc exp_ty fnd_ty =
   let ty_str ty = "expression of type\n  " ^ Type.to_string ty ^ "\n" in
   Error.type_error loc
@@ -33,7 +31,7 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
           mod_decl_rep = if type_alias.type_alias_rep then
               Some type_alias.type_alias_name
               else mod_decl.mod_decl_rep;
-          mod_decl_types = Map.add_exn mod_decl.mod_decl_types ~key: type_alias.type_alias_name ~data: type_alias;
+          mod_decl_types = Map.add_exn mod_decl.mod_decl_types ~key:type_alias.type_alias_name ~data:type_alias;
         } in
 
         let sorted_members = { sorted_members with
@@ -246,7 +244,7 @@ let check_and_set (expr: expr) (given_typ_lb: type_expr) (given_typ_ub: type_exp
     try
       ProcessTypeExpr.expand_type_expr given_typ_lb tbl 
     with
-    | Msg(_loc, msg) -> Error.error (Expr.loc expr) msg
+    | Msg(lbl, _loc, msg) -> Error.fail ?lbl (Expr.loc expr) msg
     in
   let given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub tbl in
   let expected_typ = ProcessTypeExpr.expand_type_expr expected_typ tbl in
@@ -2142,7 +2140,7 @@ module ProcessModule = struct
     mod_def, tbl
 end
 
-let start_processing ?(tbl = SymbolTbl.push []) (m: Module.t0) = 
+let process_module ?(tbl = SymbolTbl.push []) (m: Module.t0) = 
   let pre_processed_module = pre_process_module m in
   
   ProcessModule.process_module pre_processed_module tbl

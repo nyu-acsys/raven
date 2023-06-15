@@ -40,7 +40,7 @@ let column p = p.pos_cnum - p.pos_bol
 let start_line loc = loc.loc_start.pos_lnum
 let end_line loc = loc.loc_end.pos_lnum
 let start_col loc = column loc.loc_start
-let end_col loc = column loc.loc_start
+let end_col loc = column loc.loc_end
 let start_bol loc = loc.loc_start.pos_bol
 let end_bol loc = loc.loc_end.pos_bol
 let file_name loc = loc.loc_start.pos_fname
@@ -58,32 +58,64 @@ let merge l1 l2 =
     if c >= 0 then l1.loc_end else l2.loc_end
   in
   make spos epos
-    
+
+let to_string_simple loc =
+  if start_line loc <> end_line loc
+  then Printf.sprintf "%s:%d:%d" (file_name loc) (start_line loc) (start_col loc)
+  else 
+    let start_col, end_col = 
+      if start_col loc = end_col loc
+      then 
+        if start_col loc = 0 
+        then 0, 1
+        else start_col loc - 1, end_col loc
+      else start_col loc, end_col loc
+    in
+    Printf.sprintf "%s:%d:%d-%d" (file_name loc) (start_line loc) start_col end_col
+
+
+let context loc = 
+  let rec in_channel_line ic (line_num: int) =
+    let next_line =
+      match Stdio.In_channel.input_line ic with 
+      | None -> Printf.sprintf "Cannot find line %s" (to_string_simple loc)
+      | Some s -> s
+    in
+
+    if line_num = 0 then
+      next_line
+    else begin
+      assert (line_num > 0);
+      in_channel_line ic (line_num-1)
+    end
+  in
+  let ic = Stdio.In_channel.create (file_name loc) in
+  let ctx = in_channel_line ic (start_line loc - 1) in
+  let _ = Stdio.In_channel.close ic in
+  let highlight_prefix_len =
+    1 + String.length (Int.to_string @@ start_line loc) + 2 + (start_col loc)
+  in
+  let highlight_suffix_len =
+    max 1 @@ (if start_line loc = end_line loc then end_col loc else String.length ctx) - start_col loc
+  in
+  Printf.sprintf "%d | %s\n%s%s\n"
+    (start_line loc) ctx
+    (String.make highlight_prefix_len ' ') (String.make highlight_suffix_len '^')
+
+
 let to_string loc =
   if loc.loc_start.pos_lnum = loc.loc_end.pos_lnum 
   then 
-    Printf.sprintf "File \"%s\", line %d, columns %d-%d" 
-      loc.loc_start.pos_fname loc.loc_start.pos_lnum (column loc.loc_start) (column loc.loc_end)
+    Printf.sprintf "File \"%s\", line %d, columns %d-%d:\n%s"
+      (file_name loc)
+      (start_line loc) (start_col loc) (end_col loc)
+      (context loc)
   else 
-    Printf.sprintf "File \"%s\", line %d, column %d to line %d, column %d" 
-      loc.loc_start.pos_fname loc.loc_start.pos_lnum (column loc.loc_start) loc.loc_end.pos_lnum (column loc.loc_end)
-
-      
-(*
-let flycheck_string_of_src_pos pos =
-  if pos.sp_start_line <> pos.sp_end_line 
-  then Printf.sprintf "%s:%d:%d" pos.sp_file pos.sp_start_line pos.sp_start_col
-  else 
-    let start_col, end_col = 
-      if pos.sp_start_col = pos.sp_end_col 
-      then 
-        if pos.sp_start_col = 0 
-        then 0, 1
-        else pos.sp_start_col - 1, pos.sp_end_col
-      else pos.sp_start_col, pos.sp_end_col
-    in
-    Printf.sprintf "%s:%d:%d-%d" pos.sp_file pos.sp_start_line start_col end_col
-*)
+    Printf.sprintf "File \"%s\", line %d, column %d to line %d, column %d:\n%s"
+      (file_name loc)
+      (start_line loc) (start_col loc)
+      (end_line loc) (end_col loc)
+      (context loc)
 
 let (=) = equal
       

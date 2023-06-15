@@ -388,7 +388,7 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
         try
           Callable_checker.check_interface_callable callable tbl smtEnv session
         with
-        | Util.Error.Msg (_loc, msg) -> 
+        | Util.Error.Msg (_lbl, _loc, msg) -> 
           Stdio.prerr_endline ("---------");
           Stdio.prerr_endline "";
           Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
@@ -401,7 +401,7 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
         try
           Callable_checker.check_module_callable callable tbl smtEnv session
         with
-        | Util.Error.Msg (_loc, msg) -> 
+        | Util.Error.Msg (_lbl, _loc, msg) -> 
           Stdio.prerr_endline ("---------");
           Stdio.prerr_endline "";
           Stdio.prerr_endline (Backtrace.to_string (Backtrace.Exn.most_recent ()));
@@ -414,7 +414,6 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
 
   (smtEnv, session)
 
-let start_backend_checking (m: Module.t) (tbl: SymbolTbl.t) = 
-  let session = Smt_solver.init () in
-
-  check_module m tbl (SmtEnv.push ([], [])) session
+let start_session () =
+  Smt_solver.init (), SmtEnv.push ([], [])
+  

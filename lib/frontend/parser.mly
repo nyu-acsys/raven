@@ -35,9 +35,7 @@ open Ast
 %nonassoc EQEQ NEQ 
 
 %start main
-%start lib
 %type <Ast.Module.t0> main
-%type <Ast.Module.t0> lib
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
@@ -56,20 +54,6 @@ main:
   }
 }
 ;
-
-lib:
-| ms = member_def_list_opt; EOF {
-  let open Module in
-  let decl =
-    { empty_decl with
-      mod_decl_name = Ident.make "Lib" 0;
-    }
-  in
-  { mod_decl = decl;
-    mod_def = ms;
-    mod_interface = false;
-  }
-}
 
 (** Member Definitions *)
 
