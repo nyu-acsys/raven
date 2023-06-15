@@ -1,4 +1,6 @@
 # Raven
+![Version 0.1 pre](https://img.shields.io/badge/version-0.1_pre-green.svg)
+[![BSD licensed](https://img.shields.io/badge/license-BSD-blue.svg)](https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE)
 
 The Resource Algebra Verification ENgine.
 
