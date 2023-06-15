@@ -5,58 +5,52 @@ interface IArray {
   
   func loc(a: T, i: Int) returns (r: Ref)
   func len(a: T) returns (l: Int)
-  func first(r: Ref) returns (a: T)
-  func second(r: Ref) returns (i: Int)
   
   lemma all_diff()
-    ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
+    ensures forall a1:T, a2:T, i1: Int, i2: Int :: 
+      loc(a1, i1) == loc(a2, i2) ==> a1 == a2 && i1 == i2 
     
   lemma len_nonneg()
     ensures forall a:T :: len(a) >= 0
 }
 
-module ArrayMax[M: IArray] {
+module ArrayMax[Arr: IArray] {
   field value: Int
 
-  pred arr(a: M, m: Map[Int, Int]) {
-    forall j: Int :: 0 <= j < M.len(a) ==> own(M.loc(a, j), value, m[j], 1.0)
+  pred arr(a: Arr, m: Map[Int, Int]) {
+    forall j: Int :: 0 <= j < Arr.len(a) ==> own(Arr.loc(a, j), value, m[j], 1.0)
   }
-  
-  var x: Int := 4
   
   pred is_max(i: Int, m: Map[Int, Int], u: Int) {
     forall j: Int :: 0 <= j && j < u ==> m[j] <= m[i]
   }
   
-  proc max(a: M, implicit ghost m: Map[Int, Int]) 
+  proc max(a: Arr, implicit ghost m: Map[Int, Int]) 
     returns (x: Int)
     requires arr(a, m)
     ensures  arr(a, m)
-    ensures  M.len(a) == 0 ? x == -1 : (0 <= x && x < M.len(a))
-    ensures  is_max(x, m, M.len(a))
+    ensures  Arr.len(a) == 0 ? x == -1 : (0 <= x && x < Arr.len(a))
+    ensures  is_max(x, m, Arr.len(a))
   {
-    var z : Int;
-    if (M.len(a) == 0) {
+    if (Arr.len(a) == 0) {
       x := -1;
     } else {
       var y: Int;
       x := 0;
-      y := M.len(a) - 1;
+      y := Arr.len(a) - 1;
 
       while (x != y)
         invariant arr(a, m)
-        invariant 0 <= x && x <= y && y < M.len(a)
-        invariant    (forall i: Int ::
-                            (((0 <= i && i < x) || (y < i && i < M.len(a)))
-                        ==> m[i] < m[x]) || 
-                        (((0 <= i && i < x) || (y < i && i < M.len(a)))
-                        ==> m[i] <= m[y])
+        invariant 0 <= x && x <= y && y < Arr.len(a)
+        invariant (forall i: Int ::
+                        ( (0 <= i && i < x) || (y < i && i < Arr.len(a)) )
+                           ==> (m[i] < m[x] || m[i] <= m[y])
                         )
       {
         unfold arr(a,m);
         
-        var tmp1 : Int  = M.loc(a, x).value;
-        var tmp2 : Int = M.loc(a, y).value;
+        var tmp1 : Int  = Arr.loc(a, x).value;
+        var tmp2 : Int = Arr.loc(a, y).value;
         
         if (tmp1 <= tmp2) {
           x := x + 1;
@@ -67,30 +61,33 @@ module ArrayMax[M: IArray] {
       }
     }
 
-    fold is_max(x, m, M.len(a));
+    fold is_max(x, m, Arr.len(a));
   }
 
-  
-/*
-method client() {
-  var a: IArray
-  inhale len(a) == 3
-  inhale access(a)
-  inhale forall i: Int :: 0 <= i && i < len(a) ==> loc(a, i).value == i
 
-  var x: Int
-  x := max(a)
+  proc client() {
+    var a: Arr;
+    inhale Arr.len(a) == 3;
 
-  assert loc(a, 0).value <= x
+    var m: Map[Int, Int];
+    m[0] := 1; m[1] := 2; m[2] := 3;
 
-  assert x == loc(a, len(a) - 1).value
-    /* Necessary to prove the final assertion (due to triggering) */
+    inhale arr(a, m);
 
-  assert x == 2
+    var x: Int;
+    x := max(a, m);
 
-  assert loc(a, 1).value < x
-}
-*/
+    {!
+      unfold is_max(x, m, Arr.len(a));
+      unfold arr(a,m);
+    !}
+    assert Arr.loc(a, 0).value < Arr.loc(a, x).value;
+
+    assert x == 2;
+
+    assert Arr.loc(a, 1).value < Arr.loc(a, x).value;
+  }
+
 }
 
 

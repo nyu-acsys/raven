@@ -15,34 +15,31 @@ module Lock {
     fold lockR(l, false);
   }
 
-  /* How to prove following spec? Lob induction? */ 
-  
   proc acquire(l: T, implicit ghost b: Bool)
     atomic requires lockR(l, b)
-    atomic ensures lockR(l, true)
+    atomic ensures lockR(l, true) && b == false
   {
-    val phi = bindAU();
-    val res: Bool = true;
+    var phi: AtomicToken = bindAU();
+
+    var res: Bool;
 
     openAU(phi);
+    unfold lockR(l, b);
 
-    // res := cas(l.bit, true, false);
-    if (l.bit) {
-        res := false;
-     }
-    
-    else {
-        res := true;
-    }
+    res := cas(l.bit, false, true);
+
+    fold lockR(l, true);
 
     {!
       if (res) commitAU(phi);
       else abortAU(phi);
     !}
 
-    /* Have to formalize the ghost code language. */
-
-    if (!res) acquire(l);
+    if (!res) {
+      openAU(phi);
+      acquire(l);
+      commitAU(phi);
+    }
   }
 
   proc release(l: Lock)
@@ -50,9 +47,11 @@ module Lock {
     atomic ensures lockR(l, false)
   {
     val phi = bindAU();
+    openAU(phi);
+    unfold lockR(l, true);
     l.bit := false;
-
-    /* Presumably the atomic open etc can be automatically inferred for such a simple case? */
+    fold lockR(l, false);
+    commitAU(phi);
   }
 }
 

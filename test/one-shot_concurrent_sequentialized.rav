@@ -1,0 +1,99 @@
+module OneShotIntRA : Lib.ResourceAlgebra {
+    rep type T = data {
+        case zero;
+        case pending;
+        case done(i: Int);
+        case top
+    }
+
+    val id: T = zero();
+
+    func valid(n: T)
+        returns (ret: Bool)
+    {
+        (n == top() ? false : true)
+    }
+
+    func comp(a:T, b:T)
+        returns (ret:T)
+    {
+        a == zero() ? b :
+            (b == zero() ? a :
+        (a == done(a.i) && b == done(a.i) ? 
+            done(a.i) :
+            top()
+        ))
+    }
+
+    func frame(a:T, b:T) returns (ret:T) 
+    {
+        b == zero() ? a :
+        (a == pending() && b == pending() ?
+            zero() :
+            (a == done(a.i) && b == done(a.i) ?
+                done(a.i) :
+                top()
+            ))
+    }
+
+    func fpuAllowed(a: T, b:T) returns (ret:Bool)
+    {
+        a == b ? true :
+        (a == pending() && b == done(b.i) ?
+            true : false
+        )
+        
+    }
+}
+
+module Main {
+    field f: Int
+    field ghost_state: OneShotIntRA
+
+    pred oneshot_inv(x: Ref, implicit ghost n: Int, implicit ghost v: OneShotIntRA) {
+        (own(x, f, n, 1.0) && own(x, ghost_state, v) 
+            && ( 
+              (n == 0 && v == OneShotIntRA.pending()) ||
+              (n != 0 && v == OneShotIntRA.done(n)) 
+            ))
+    }
+
+    proc main() {
+        var x: Ref;
+        x := new(f:0, ghost_state: OneShotIntRA.pending());
+
+        fold oneshot_inv(x, 0, OneShotIntRA.pending());
+        one_time_update(x, 3);
+        // one_time_update(x, 5);
+    }
+
+    proc one_time_update(x: Ref, k: Int)
+        requires oneshot_inv(x)
+        requires k != 0
+        ensures oneshot_inv(x)
+    {
+        var res: Bool;
+        val n: Int;
+        val v: OneShotIntRA;
+
+        unfold oneshot_inv(x, n, v);
+
+        // res := cas(x.f, 0, k);
+        if (x.f == 0) {
+            x.f := k;
+            res := true;
+        }
+        else {
+            res := false;
+        }
+        
+        {!
+            if (res) fpu(x, ghost_state, OneShotIntRA.done(x.f));
+        !}
+
+        fold oneshot_inv(x);
+
+        
+    }
+
+}

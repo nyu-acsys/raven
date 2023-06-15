@@ -3,11 +3,10 @@ interface IArray {
   
   func loc(a: T, i: Int) returns (r: Ref)
   func len(a: T) returns (l: Int)
-  func first(r: Ref) returns (a: T)
-  func second(r: Ref) returns (i: Int)
   
   lemma all_diff()
-    ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
+    ensures forall a1:T, a2:T, i1: Int, i2: Int :: 
+      loc(a1, i1) == loc(a2, i2) ==> a1 == a2 && i1 == i2 
     
   lemma len_nonneg()
     ensures forall a:T :: len(a) >= 0
@@ -77,18 +76,5 @@ module DutchFlag[Arr: IArray] {
 
         fold ordered(m, Arr.len(a));
     }
-
-    proc test1(x: Ref, y: Ref)
-        requires own(x, value, 5, 3/4)
-        requires own(y, value, 5, 3/4)
-        ensures (x != y)
-        { }
-
-    proc test2(l: Ref)
-        requires own(l, value, 5, 1.0/2.0)
-        requires own(l, value, 5, 1/2)
-        ensures own(l, value, 5, 1.0)
-        { }
-
 }
 

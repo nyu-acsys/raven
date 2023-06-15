@@ -882,7 +882,7 @@ module TrnslInhale = struct
   
     in
 
-    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd])
+    new_vars1 @ new_vars2 @ new_vars3, [cmd])
 
   | Binder (Forall, quant_vars, App (Own, own_args, expr_attr1), expr_attr2) ->
 
