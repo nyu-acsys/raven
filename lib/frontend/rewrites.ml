@@ -17,7 +17,7 @@ let rec collect_vars (expr: expr) : expr list =
 
     List.filter var_expr_list ~f:(fun var ->
       List.fold v_l ~init:false ~f:(fun b var_decl ->
-        b || (QualIdent.equal (QualIdent.from_ident var_decl.var_name) (AstUtil.expr_to_qual_ident var))
+        b || (QualIdent.equal (QualIdent.from_ident var_decl.var_name) (Expr.to_qual_ident var))
       )
     )
 
@@ -88,8 +88,8 @@ let rec rewrite_compr_expr (expr: expr) (scope: qual_ident): Callable.t list * e
                 inner_expr;
                 
                 Expr.mk_app ~typ:Type.bool Elem [ 
-                  AstUtil.var_decl_to_expr var_decl;
-                  AstUtil.var_decl_to_expr ret_var_decl
+                  Expr.from_var_decl var_decl;
+                  Expr.from_var_decl ret_var_decl
                 ]
               ]
             )
@@ -103,7 +103,8 @@ let rec rewrite_compr_expr (expr: expr) (scope: qual_ident): Callable.t list * e
                 [ inner_expr;
 
                   Expr.mk_app ~typ:(Type.map_codom ret_typ) MapLookUp [ 
-                    AstUtil.var_decl_to_expr ret_var_decl; AstUtil.var_decl_to_expr var_decl; ]
+                    Expr.from_var_decl ret_var_decl;
+                    Expr.from_var_decl var_decl ]
                 ]
               )
 

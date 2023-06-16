@@ -335,21 +335,26 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
         | Proc -> (
           let formal_args_truncated, dropped_implicit_args = List.split_n call_decl.call_decl_formals (List.length call_desc.call_args) in
           let map = List.fold (List.zip_exn formal_args_truncated call_desc.call_args) ~init:(Map.empty (module QualIdent)) ~f:(fun map (formal_arg, call_arg) -> Map.add_exn map ~key:(QualIdent.from_ident formal_arg) ~data:call_arg) in
+
+          (* TW: Filling in dropped return variables should not be handled here. It should be handled during type checking *)
+          (*let ret_vals_truncated, dropped_rets = List.split_n call_decl.call_decl_returns (List.length call_desc.call_lhs) in
           
-          let ret_vals_truncated, dropped_rets = List.split_n call_decl.call_decl_returns (List.length call_desc.call_lhs) in
-
-          let map = List.fold (List.zip_exn ret_vals_truncated call_desc.call_lhs) ~init:map ~f:(fun map (ret_arg, lhs_var) -> 
-            (* let var_type = 
-              match SymbolTbl.find tbl lhs_var with
-              | Some (VarDecl v) -> v.var_type
-              | _ -> unknown_ident_error stmt.stmt_loc lhs_var    
-            in *)
-            (* TODO: Figure out way to find actual type of callable lhs, instead of using Type.any below. Above doesn't work because at this stage, tbl does not store information about local variables etc. *)
-            Map.add_exn map ~key:(QualIdent.from_ident ret_arg) ~data: (AstUtil.qual_ident_to_expr lhs_var (Expr.mk_attr stmt.stmt_loc Type.any))
+          let map = List.fold3_exn (List.zip_exn ret_vals_truncated call_desc.call_lhs) ~init:map ~f:(fun map (ret_arg, lhs_var) -> 
             
-          ) in
+              let lhs_exp = Expr.mk_var ~loc ~typ:ret_typ lhs_var in
+              
+            Map.add_exn map ~key:(QualIdent.from_ident ret_arg) ~data: (Expr.mk_var ~loc:stmt.stmt_loc ~typ:typ lhs_var (Expr.mk_attr stmt.stmt_loc Type.any))
+            
+            ) in*)
 
-          let dropped_vars_decls = List.map (dropped_implicit_args @ dropped_rets) ~f:(fun iden ->
+          let map =
+            Callable.return_decls call_decl |>
+            List.fold_left ~f:(fun map var_decl ->
+                Map.add_exn map ~key:(QualIdent.from_ident var_decl.Type.var_name) ~data:(Expr.from_var_decl var_decl))
+              ~init:map
+          in
+          
+          let dropped_vars_decls = List.map (dropped_implicit_args (*@ dropped_rets*)) ~f:(fun iden ->
               Map.find_exn call_decl.call_decl_locals iden
           ) in
 
@@ -383,7 +388,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
                   alpha_renamed_expr
                 else
                   let new_var_eq_dropped_var_list = List.map2_exn dropped_vars_decls new_vars_decls ~f:(fun dropped_var_decl new_var ->
-                    Expr.mk_app Eq [AstUtil.var_decl_to_expr dropped_var_decl; AstUtil.var_decl_to_expr new_var]
+                    Expr.mk_app Eq [Expr.from_var_decl dropped_var_decl; Expr.from_var_decl new_var]
                   ) in
                   
                   Expr.mk_binder ~loc:stmt.stmt_loc Exists dropped_vars_decls (Expr.mk_and (alpha_renamed_expr :: new_var_eq_dropped_var_list))
@@ -394,7 +399,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
           ) in
           
           let map = List.fold2_exn dropped_vars_decls new_vars_decls ~init:map ~f:(fun map dropped_var new_var ->
-            Map.add_exn map ~key:(QualIdent.from_ident dropped_var.var_name) ~data: (AstUtil.var_decl_to_expr new_var)
+            Map.add_exn map ~key:(QualIdent.from_ident dropped_var.var_name) ~data: (Expr.from_var_decl new_var)
           ) in
 
           let inhale_list : Stmt.t list = List.map call_decl.call_decl_postcond 
@@ -619,7 +624,7 @@ let touched_vars (stmt: Stmt.t) : qual_ident list =
       | VarDef var_def -> touched_var_list, (QualIdent.from_ident var_def.var_decl.var_name) :: local_var_list
       | Assign assign_desc ->
         (try 
-          List.map assign_desc.assign_lhs ~f:(AstUtil.expr_to_qual_ident) @ touched_var_list, local_var_list
+          List.map assign_desc.assign_lhs ~f:(Expr.to_qual_ident) @ touched_var_list, local_var_list
         with
           | Error.Msg(_, _loc,_msg) -> touched_var_list, local_var_list   
             (* Error.error loc (Printf.sprintf "Assign_desc found with invalid lhs '%s'; expected list of qual_ident: '%s' " ()msg) *)
@@ -2426,7 +2431,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       smtEnv, session
     
     | [App (MapLookUp, [expr1; expr2], _)] -> 
-      let map_qual_ident = AstUtil.expr_to_qual_ident expr1 in
+      let map_qual_ident = Expr.to_qual_ident expr1 in
       let fresh_map_name = SMTIdent.fresh (QualIdent.to_string map_qual_ident) in
       let fresh_map_term = mk_const (Ident fresh_map_name) in
       let old_map_term, map_sort =
@@ -2465,7 +2470,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       smtEnv, session
 
     | [App (Read, [expr1; expr2], _)] -> 
-      let field_name = AstUtil.expr_to_qual_ident expr2 in
+      let field_name = Expr.to_qual_ident expr2 in
 
       let field_trnsl = (match SmtEnv.find smtEnv field_name with
       | Some (Field field_trnsl) -> field_trnsl
@@ -2526,7 +2531,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | Havoc expr_list -> 
     List.fold expr_list ~init:(smtEnv, session) ~f:(fun (smtEnv, session) expr ->
       let qual_iden = try
-        AstUtil.expr_to_qual_ident expr 
+        Expr.to_qual_ident expr 
         with
           Error.Msg (_, loc, _msg) -> Error.error loc ("Havoc called on invalid term; only expected qual_idents. Found: " ^ (Expr.to_string expr))
       in

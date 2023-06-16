@@ -464,7 +464,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
     | Own, expr1 :: expr2 :: expr3 :: expr4_opt ->
         let expr1 = process_expr expr1 tbl Type.ref in
         let field_type =
-          let field_name = AstUtil.expr_to_qual_ident expr2 in
+          let field_name = Expr.to_qual_ident expr2 in
           match SymbolTbl.find_exn (Expr.loc expr2) tbl field_name with
           | Field field_def ->
               ProcessTypeExpr.process_type_expr field_def.field_type tbl
@@ -959,7 +959,7 @@ module ProcessCallables = struct
             match args with
             | [ token ] ->
               let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
-              let au_token = AstUtil.expr_to_ident token_expr
+              let au_token = Expr.to_ident token_expr
               
               in
 
@@ -980,7 +980,7 @@ module ProcessCallables = struct
                 match assign_desc.assign_lhs with
                 | [] ->
                     let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
-                    let au_token = AstUtil.expr_to_ident token_expr
+                    let au_token = Expr.to_ident token_expr
 
                     in
                       
@@ -998,7 +998,7 @@ module ProcessCallables = struct
               (match assign_desc.assign_lhs with
               | [ token ] ->
                 let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
-                Basic (BindAU (AstUtil.expr_to_ident token_expr)), [], tbl, disam_tbl
+                Basic (BindAU (Expr.to_ident token_expr)), [], tbl, disam_tbl
               | _ ->
                 raise (Generic_Error "incorrect number of bound_args to bindAU()")
               )
@@ -1013,7 +1013,7 @@ module ProcessCallables = struct
                 match assign_desc.assign_lhs with
                 | [] -> 
                   let token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) tbl disam_tbl in
-                  Basic (Stmt.AbortAU (AstUtil.expr_to_ident token_expr)), [], tbl, disam_tbl
+                  Basic (Stmt.AbortAU (Expr.to_ident token_expr)), [], tbl, disam_tbl
                 | _ -> raise (Generic_Error "incorrect number of bound_args to abortAU()"))
 
             | _ -> raise (Generic_Error "abortAU() called without token")
@@ -1022,7 +1022,7 @@ module ProcessCallables = struct
             match assign_desc.assign_lhs, args with
             | [], [loc_expr; field_expr; val_expr] -> 
                 let loc_expr = disambiguate_process_expr loc_expr Type.ref tbl disam_tbl in
-                let field_name = AstUtil.expr_to_qual_ident field_expr in
+                let field_name = Expr.to_qual_ident field_expr in
                 let field_type =
                   match SymbolTbl.find_exn (Expr.loc field_expr) tbl field_name with
                   | Field field_def ->
@@ -1036,8 +1036,8 @@ module ProcessCallables = struct
                 in
                 let field_expr = disambiguate_process_expr field_expr field_type tbl disam_tbl in
                 let val_expr = disambiguate_process_expr val_expr field_type tbl disam_tbl in
-                let loc_qual_ident = AstUtil.expr_to_qual_ident loc_expr in
-                let field_qual_ident = AstUtil.expr_to_qual_ident field_expr in
+                let loc_qual_ident = Expr.to_qual_ident loc_expr in
+                let field_qual_ident = Expr.to_qual_ident field_expr in
                 let fpu_desc = {
                   Stmt.fpu_loc = loc_qual_ident;
                   fpu_field = field_qual_ident;
@@ -1071,7 +1071,7 @@ module ProcessCallables = struct
               let (call_desc : Stmt.call_desc) =
                 {
                   call_lhs =
-                    List.map assign_lhs ~f:AstUtil.expr_to_qual_ident;
+                    List.map assign_lhs ~f:Expr.to_qual_ident;
                   call_name = proc_qual_ident;
                   call_args = args;
                 }
@@ -1445,7 +1445,7 @@ module ProcessModule = struct
     | imp :: import_directives -> (
       match imp with
       | ModImport tp_exp ->
-        (match (SymbolTbl.find tbl (AstUtil.type_expr_to_qual_ident tp_exp)) with
+        (match (SymbolTbl.find tbl (Type.to_qual_ident tp_exp)) with
         | Some (ModDecl (imported_mod, orig_imp_mod)) -> 
 
           let mod_decl = { mod_decl with

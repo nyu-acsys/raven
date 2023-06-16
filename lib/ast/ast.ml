@@ -90,7 +90,14 @@ module QualIdent = struct
 
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
   let to_string qid = Print.string_of_format pr qid
+
+  let to_ident qid =
+    match qid.qual_path with
+    | [] -> failwith "qualified ident should be unqualified."
+    | _ -> qid.qual_base
+
   let from_ident id = { qual_path = []; qual_base = id }
+
   let make p id = { qual_path = p; qual_base = id }
 
   let append qi id =
@@ -350,6 +357,14 @@ module Type = struct
   let to_loc t = match t with
   | App (_, _, tp_attr) -> tp_attr.type_loc
 
+  let to_qual_ident t =
+    match t with
+    | App (constr, _tp_expr_list, type_attr) ->
+      match constr with
+      | Var qual_ident -> qual_ident
+      | _ -> Error.error type_attr.type_loc "Expected type variable"
+
+  
   let set_elem = function
   | App (Set, elem :: _, _) -> elem
   | _ -> failwith "Expected Set type"
@@ -602,9 +617,12 @@ module Expr = struct
   let to_string e = Print.string_of_format pr e
 
   (** Constructors *)
-
+  
   let mk_app ?(loc = Loc.dummy) ?(typ = Type.bot) c es =
     App (c, es, mk_attr loc typ)
+
+  let mk_var ?(loc = Loc.dummy) ?(typ = Type.bot) (qual_ident: qual_ident) = 
+    mk_app ~loc ~typ (Var qual_ident) []
 
   let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bot) b vs e =
     Binder (b, vs, e, mk_attr loc typ)
@@ -637,6 +655,21 @@ module Expr = struct
         in
         App (And, es, mk_attr loc t)
 
+  let from_var_decl (var_decl:var_decl) =
+    mk_var ~loc:var_decl.var_loc ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
+
+  (** Auxiliary functions *)
+
+  let to_qual_ident expr =
+    match expr with
+    | App (Var qual_ident, _, _) -> qual_ident
+    | _ ->
+      Error.error (loc expr)
+        (Printf.sprintf "Expected Var expression instead of %s" (to_string expr))
+
+  let to_ident expr =
+    expr |> to_qual_ident |> QualIdent.to_ident
+  
   let rec alpha_renaming (expr: t) (map: t qual_ident_map) : t =
   match expr with
   | App (constr, expr_list, expr_attr) ->
@@ -956,6 +989,10 @@ module Callable = struct
 
   (** Auxiliary functions *)
 
+  let return_decls call_decl = 
+    List.map call_decl.call_decl_returns
+      ~f:(fun r -> (Map.find_exn call_decl.call_decl_locals r))
+  
   let return_type call_decl =
     match call_decl.call_decl_kind with
     | Proc | Func | Lemma ->
@@ -1236,37 +1273,5 @@ module Module = struct
 
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
-end
-
-module AstUtil = struct
-  let expr_to_qual_ident (expr : expr) =
-    match expr with
-    | App (Var qual_ident, _, _) -> qual_ident
-    | _ ->
-        Error.error (Expr.loc expr)
-             (Printf.sprintf "Expected Var expression instead of %s; Loc: %s" (Expr.to_string expr) (Loc.to_string (Expr.loc expr)))
-
-  let qual_ident_to_expr (qual_ident: qual_ident) (expr_attr: Expr.expr_attr): expr = 
-    App (Var qual_ident, [], expr_attr)
-
-  let ident_to_expr (ident: ident) (expr_attr: Expr.expr_attr): expr =
-    qual_ident_to_expr (QualIdent.from_ident ident) expr_attr
-
-  let var_decl_to_expr (var_decl:var_decl): expr =
-    ident_to_expr var_decl.var_name {Expr.expr_loc = var_decl.var_loc; expr_type = var_decl.var_type}
-
-  let qual_ident_to_ident (qual_ident : qual_ident) =
-    if List.is_empty qual_ident.qual_path then qual_ident.qual_base
-    else raise (Failure "Var expr should be unqualified var.")
-
-  let expr_to_ident (expr : expr) =
-    qual_ident_to_ident (expr_to_qual_ident expr)
-
-  let type_expr_to_qual_ident (type_expr: type_expr) =
-    match type_expr with
-    | App (constr, _tp_expr_list, type_attr) ->
-      match constr with
-      | Var qual_ident -> qual_ident
-      | _ -> Error.error type_attr.type_loc "Expected type_expr to be qualIdent"
 end
 

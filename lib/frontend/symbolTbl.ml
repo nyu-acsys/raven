@@ -126,7 +126,7 @@ let add (tbl : t) name tp : t =
         match Map.find map name with
         | None -> (label, Map.add_exn map ~key:name ~data:tp_mem)
         | Some _ ->
-          print_debug ("Overriding " ^ QualIdent.to_string name);
+          Logs.debug (fun m -> m "%s" @@ "Overriding " ^ QualIdent.to_string name);
           let map = Map.set map ~key:name ~data:tp_mem in
           (label, map)
           

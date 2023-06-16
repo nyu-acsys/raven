@@ -457,7 +457,7 @@ stmt_wo_trailing_substmt:
 }
 (* unfold / fold / openInv / closeInv *)
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN; SEMICOLON {
-  Stmt.(Basic (Use {use_kind = use_kind; use_name = AstUtil.expr_to_qual_ident id; use_args = es}))
+  Stmt.(Basic (Use {use_kind = use_kind; use_name = Expr.to_qual_ident id; use_args = es}))
 }
 ;
 
@@ -465,7 +465,7 @@ new_or_expr:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   let new_descr = Stmt.{
     new_lhs = QualIdent.from_ident (Ident.make "" 0);
-    new_args = List.map (fun (f, e_opt) -> (AstUtil.expr_to_qual_ident f, e_opt)) fes;
+    new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
   }
   in
   Stmt.(Basic (New new_descr))
@@ -665,7 +665,7 @@ dot_expr:
 | p = qual_ident_expr; co = call_opt {
   Base.Option.map co ~f:(fun (c, es) ->
     let constr, args =
-      let p_ident = AstUtil.expr_to_qual_ident p in
+      let p_ident = Expr.to_qual_ident p in
       Base.Option.map c ~f:(fun c -> c, p :: es) |> 
       Base.Option.value ~default:(Expr.Call (p_ident, Loc.make $startpos(p) $endpos(p)), es)
     in
@@ -688,7 +688,7 @@ maplookup_expr:
 call_expr:
 | p = qual_ident_expr; ces = call {
   let _, es = ces in
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Call (AstUtil.expr_to_qual_ident p, Loc.make $startpos(p) $endpos(p))) es)
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Call (Expr.to_qual_ident p, Loc.make $startpos(p) $endpos(p))) es)
 }
   
 call:
