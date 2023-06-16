@@ -655,11 +655,11 @@ module ProcessCallables = struct
       | _ :: disam_tbl -> disam_tbl
       | [] -> raise (Invalid_argument "Empty DisambiguationTbl")
 
-    let add (disam_tbl: t) name new_name : t = match disam_tbl with
+    let add (disam_tbl: t) loc name new_name : t = match disam_tbl with
       | hd :: tl ->
         begin match Map.add hd ~key:name ~data:new_name with
           | `Ok hd -> hd :: tl
-          | `Duplicate -> raise (Invalid_argument ("Found duplicate " ^ Ident.to_string name))
+          | `Duplicate -> Error.redeclaration_error loc (Ident.to_string name)
         end
       | [] -> raise (Invalid_argument "Empty DisambiguationTbl")
 
@@ -681,7 +681,7 @@ module ProcessCallables = struct
 
     let add_var_decl (var_decl: Type.var_decl) (disam_tbl: t) : Type.var_decl * t = 
       let new_name = Ident.fresh var_decl.var_name.ident_name in
-      let disam_tbl = add disam_tbl var_decl.var_name new_name in
+      let disam_tbl = add disam_tbl var_decl.var_loc var_decl.var_name new_name in
       let var_decl =
         { var_decl with
           var_name = new_name;
