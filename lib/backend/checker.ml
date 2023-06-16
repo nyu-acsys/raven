@@ -412,8 +412,14 @@ let rec check_module (m: Module.t) (tbl: SymbolTbl.t) (smtEnv: SmtEnv.t) (sessio
 
   let smtEnv = SmtEnv.pop_ident smtEnv in
 
+  Smt_solver.write_comment session "";
+  Smt_solver.write_comment session "";
+  Smt_solver.write_comment session ("Exiting module " ^ SmtEnv.stack_name smtEnv);
+  
   (smtEnv, session)
 
 let start_session () =
   Smt_solver.init (), SmtEnv.push ([], [])
   
+let stop_session session =
+  Smt_solver.stop_solver session

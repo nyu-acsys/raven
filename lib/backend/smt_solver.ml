@@ -164,11 +164,11 @@ type smt_env = SmtEnv.t
 let num_of_sat_queries = ref 0
 
 type solver_state = 
-    { out_chan: Stdio.Out_channel.t;
-      in_chan: Stdio.In_channel.t;
-      pid: int;
-      mutable response_count: int;
-    }
+  { out_chan: Stdio.Out_channel.t;
+    in_chan: Stdio.In_channel.t;
+    (* pid: int; *)
+    mutable response_count: int;
+  }
 
 type session = { 
   log_file_name: string;
@@ -184,17 +184,21 @@ type session = {
 }
 
 let start_solver () = 
-  let in_read, in_write = Unix.pipe () in
+  (*let in_read, in_write = Unix.pipe () in
   let out_read, out_write = Unix.pipe () in
   let pid = Unix.create_process "z3" [| "smt2"; "-in" |] out_read in_write in_write in
 
   close out_read;
-  close in_write;
+  close in_write;*)
 
+  let in_chan, out_chan = Unix.open_process_args "z3" [| "smt2"; "-in" |] in
+  
   let solver_state = {
-    in_chan = in_channel_of_descr in_read;
+    (*in_chan = in_channel_of_descr in_read;
     out_chan = out_channel_of_descr out_write;
-    pid = pid;
+      pid = pid;*)
+    in_chan = in_chan;
+    out_chan = out_chan;
     response_count = 0;
   } in
 
@@ -213,8 +217,16 @@ let write session cmd =
   SmtLibAST.print_command session.log_out_chan cmd;
   SmtLibAST.print_command session.solver_state.out_chan cmd
 
-(* let writeln session cmd = 
-  write session (cmd ^ "\n") *)
+let stop_solver session = 
+  write session @@ mk_exit ();
+  Stdio.Out_channel.flush session.solver_state.out_chan;
+  (* clean up resources *)
+  (*Stdio.Out_channel.close_no_err session.solver_state.out_chan;
+  Stdio.In_channel.close session.solver_state.in_chan;
+  (try Unix.kill state.pid Sys.sigkill with Unix.Unix_error _ -> ())
+    if solver.solver_state.pid <> 0 then ignore (Unix.waitpid [] state.pid))*)
+  ignore @@ Unix.close_process (session.solver_state.in_chan, session.solver_state.out_chan)
+
 
 (* let read_from_chan session chan =
   let lexbuf = Lexing.from_channel chan in

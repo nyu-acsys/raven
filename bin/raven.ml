@@ -20,6 +20,7 @@ let parse_cu top_level_md_ident file_name =
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_and_check_cu ?(tbl=None) smtEnv session top_level_md_ident file_name =
+  Logs.info (fun m -> m "Processing file %s." file_name);
   let md = parse_cu top_level_md_ident file_name in
   let processed_md, tbl = Typing.process_module ?tbl md in
   match tbl with
@@ -29,6 +30,7 @@ let parse_and_check_cu ?(tbl=None) smtEnv session top_level_md_ident file_name =
     Logs.info (fun m -> m "Front-end processing successful.");
 
     let session, smtEnv = Checker.check_module processed_md tbl smtEnv session in
+    Logs.info (fun m -> m "Verification of file %s successful." file_name);
     session, smtEnv, tbl
 
   | _ -> failwith "SymbolTbl should be empty"
@@ -37,31 +39,19 @@ let parse_and_check_cu ?(tbl=None) smtEnv session top_level_md_ident file_name =
 let parse_and_check_all file_names =
   (* Start backend solver session *)
   let session, smtEnv = Checker.start_session () in
+  
   (* Parse and check standard library *)
   let lib_file = "lib/library/resource_algebra.rav" in
   let smtEnv, session, tbl = parse_and_check_cu smtEnv session (Ast.Ident.make "Lib" 0) lib_file in
-
-  (* --- *)
-  Smt_solver.write_comment session "End of Library";
-  Smt_solver.write_comment session "";
-  Smt_solver.write_comment session "";
-
-  (* Keep above section to process Library file; keep below section to not process Library file. *)
-
-  (* let tbl = Process_ast.SymbolTbl.push [] in
-  let smtEnv = Smt_solver.SmtEnv.push ([], []) in
-  let session = Smt_solver.init () in *)
-  (* --- *)
-
+  
   (* Parse and check actual input program *)
-  Smt_solver.write_comment session "---- Starting Program ----";  
   let _ =
     List.fold_left file_names ~init:(smtEnv, session, tbl)
       ~f:(fun (smtEnv, session, tbl) file_name ->
-          Logs.info (fun m -> m "Processing file %s" file_name);
           parse_and_check_cu ~tbl:(Some tbl) smtEnv session (Ast.Ident.make "$Program" 0) file_name)
   in
-  (* TODO: Terminate backend solver? *)
+
+  Checker.stop_session session;
   
   Logs.app (fun m -> m "Verification successful.")
 
@@ -99,7 +89,7 @@ let input_file =
   let doc = "Input file." in
   Arg.(value & (pos_all non_dir_file []) & info [] ~docv:"INPUT" ~doc)
 
-let greeting = "Raven version " ^ Config.version ^ "\n"
+let greeting = "Raven version " ^ Config.version
 
 let main () input_files = 
   Logs.app (fun m -> m "%s" greeting);
