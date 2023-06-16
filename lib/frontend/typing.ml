@@ -4,9 +4,8 @@ open Util
 open Error
 
 let type_mismatch_error loc exp_ty fnd_ty =
-  let ty_str ty = "expression of type\n  " ^ Type.to_string ty ^ "\n" in
   Error.type_error loc
-    ("Expected an " ^ ty_str exp_ty ^ "but found an " ^ ty_str fnd_ty)
+    (Printf.sprintf !"Expected an expression of type\n  %{Type}\nbut found an expression of type\n  %{Type}" exp_ty fnd_ty)
 
 let arguments_to_string d =
   if d = 1 then "one argument" else Printf.sprintf "%d arguments" d
@@ -359,7 +358,8 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
           else process_expr expr1 tbl expected_typ1
         in
 
-        let expected_typ = 
+        let expected_typ =
+          if not @@ Type.is_any expected_typ then expected_typ else
           match constr with
           | MapLookUp -> Type.map_codom typ1
           | Diff | Union | Inter
@@ -578,6 +578,7 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         List.fold_right typed_elem_expr_list
           ~f:(fun (mexpr, mtyp) (elem_expr_list, elem_types) ->
               let mexpr = process_expr mexpr tbl mtyp in
+              Logs.info (fun m -> m "%s %s" (Type.to_string mtyp) (Type.to_string @@ Expr.to_type mexpr) );
               (mexpr :: elem_expr_list, Expr.to_type mexpr :: elem_types))
           ~init:([], [])
       in
