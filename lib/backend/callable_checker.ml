@@ -275,6 +275,7 @@ let atom_step (atom_constr: atomicity_constraints) =
 let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomicity_constraints) : atomicity_constraints * Stmt.t  = 
   (* This function replaces any Call() stmts with appropriate inhale and exhale statements by looking at its spec from tbl, and also tracks whether atomic constrainsts are satisfied. *)
   let open Stmt in
+  let loc = stmt.stmt_loc in
   let atom_const, stmt_desc = 
   (match stmt.stmt_desc with 
   | Block { block_body = stmt_list; block_is_ghost = false } ->
@@ -431,7 +432,7 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
       )
 
 
-    | Use _ -> 
+    | Use { use_kind = (Fold | Unfold); _ } -> 
       atom_constr, Basic basic_stmt_desc
 
     | BindAU _ident -> 
@@ -469,40 +470,55 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
       
       )
 
-    | OpenInv expr -> 
-      (match atom_constr.status with
-      | Default
-      | Opened ->
-        { atom_constr with status = Opened; opened_invariants = expr :: atom_constr.opened_invariants}, Basic basic_stmt_desc
-      | Stepped ->
-        { atom_constr with opened_invariants = expr :: atom_constr.opened_invariants}, Basic basic_stmt_desc
-      )
+    | Use { use_kind = OpenInv; use_name = qual_ident; use_args = args } -> 
+      begin match SymbolTbl.find tbl qual_ident with
+      | Some (Callable pred_trnsl) ->        
+        let inv_expr =
+          Expr.mk_app ~loc:loc
+            ~typ:(Callable.return_type pred_trnsl)
+            (Call (qual_ident, loc)) args
+        in
 
-    | CloseInv expr ->
-      (match atom_constr.status with
-      | Default -> Error.error stmt.stmt_loc "Cannot CloseInv, nothing opened."
-      | Opened 
-      | Stepped ->
-        (match atom_constr.opened_invariants with
-        | [] -> Error.error stmt.stmt_loc "Cannot CloseInv. Invariant not found."
-        | [expr'] -> 
-          if Expr.compare expr expr' = 0 then
-            (match atom_constr.opened_atomic_token with
-            | None -> default_atomicity_constraint, Basic basic_stmt_desc
-            | Some _ -> {atom_constr with opened_invariants = []}, Basic basic_stmt_desc
-            )
-          else
-            Error.error stmt.stmt_loc "Cannot CloseInv; invariants need to be closed in reverse order of opening"
-
-        | expr' :: expr_list ->
-          if Expr.compare expr expr' = 0 then
-            {atom_constr with opened_invariants = expr_list}, Basic basic_stmt_desc
-          else
-            Error.error stmt.stmt_loc "Cannot CloseInv; invariants need to be closed in reverse order of opening"
+        (match atom_constr.status with
+         | Default
+         | Opened ->
+           { atom_constr with status = Opened; opened_invariants = inv_expr :: atom_constr.opened_invariants}, Basic basic_stmt_desc
+         | Stepped ->
+           { atom_constr with opened_invariants = inv_expr :: atom_constr.opened_invariants}, Basic basic_stmt_desc
         )
-      )
-
-
+      | _ -> Error.error loc "Invariant not found in symbol table."
+      end
+    | Use { use_kind = CloseInv; use_name = qual_ident; use_args = args } -> 
+      begin match SymbolTbl.find tbl qual_ident with
+      | Some (Callable pred_trnsl) ->        
+        let inv_expr =
+          Expr.mk_app ~loc:loc
+            ~typ:(Callable.return_type pred_trnsl)
+            (Call (qual_ident, loc)) args
+        in
+        begin match atom_constr.status with
+         | Default -> Error.error stmt.stmt_loc "Cannot CloseInv, nothing opened."
+         | Opened 
+         | Stepped ->
+           (match atom_constr.opened_invariants with
+            | [] -> Error.error stmt.stmt_loc "Cannot CloseInv. Invariant not found."
+            | [expr'] -> 
+              if Expr.compare inv_expr expr' = 0 then
+                (match atom_constr.opened_atomic_token with
+                 | None -> default_atomicity_constraint, Basic basic_stmt_desc
+                 | Some _ -> {atom_constr with opened_invariants = []}, Basic basic_stmt_desc
+                )
+              else
+                Error.error stmt.stmt_loc "Cannot CloseInv; invariants need to be closed in reverse order of opening"
+            | expr' :: expr_list ->
+              if Expr.compare inv_expr expr' = 0 then
+                {atom_constr with opened_invariants = expr_list}, Basic basic_stmt_desc
+              else
+                Error.error stmt.stmt_loc "Cannot CloseInv; invariants need to be closed in reverse order of opening"
+           )
+        end
+      | _ -> Error.error loc "Invariant not found in symbol table."
+      end
     | Spec ((Inhale | Exhale), _) -> 
       atom_constr, Basic basic_stmt_desc
       (* Error.error stmt.stmt_loc "Inhale/Exhale stmt not expected in AST at this stage." *)
@@ -2661,8 +2677,8 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
   | OpenAU _
   | AbortAU _
   | CommitAU _
-  | OpenInv _
-  | CloseInv _ -> Error.unsupported_error (Loc.dummy) "AtomicToken commands not supported presently."
+  | Use { use_kind = (OpenInv | CloseInv); _ } ->
+    Error.unsupported_error (Loc.dummy) "AtomicToken commands not supported presently."
   | Spec (Inhale, spec) -> 
     check_sep_star_injectivity spec.spec_form tbl smtEnv;
 

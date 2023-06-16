@@ -19,6 +19,7 @@ let _ =
       ("AtomicToken", ATOMICTOKEN);
       ("Bool", BOOL);
       ("case", CASE);
+      ("closeInv", USE Stmt.CloseInv);
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
@@ -45,6 +46,7 @@ let _ =
       ("module", MODULE);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
+      ("openInv", USE Stmt.OpenInv);
       ("own", OWN);
       ("Perm", PERM);
       ("pred", FUNC (Pred));
@@ -62,8 +64,6 @@ let _ =
       ("val", VAR true);
       ("var", VAR false);
       ("while", WHILE);
-      ("openInv", OPENINV);
-      ("closeInv", CLOSEINV);
     ])
 
 let operator_table = Hashtbl.create 64

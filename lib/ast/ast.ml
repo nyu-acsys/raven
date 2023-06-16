@@ -715,10 +715,14 @@ module Stmt = struct
   type use_kind =
     | Fold
     | Unfold
+    | OpenInv
+    | CloseInv
 
   let use_kind_to_string = function
     | Fold -> "fold"
     | Unfold -> "unfold"
+    | OpenInv -> "openInv"
+    | CloseInv -> "closeInv"
 
   type use_desc = {
     use_kind : use_kind;
@@ -739,8 +743,6 @@ module Stmt = struct
     | OpenAU of ident
     | AbortAU of ident
     | CommitAU of ident
-    | OpenInv of expr
-    | CloseInv of expr
     | Fpu of fpu_desc
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
@@ -807,7 +809,7 @@ module Stmt = struct
           nstm.new_args
 
     | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
-    | Use ({ use_kind = (Fold | Unfold); _ } as use_desc) ->
+    | Use use_desc ->
       fprintf ppf "@[<2>%s %a(@[%a@])@]"
         (use_kind_to_string use_desc.use_kind)
         QualIdent.pr use_desc.use_name
@@ -827,10 +829,6 @@ module Stmt = struct
     | AbortAU iden -> fprintf ppf "@[<2>AbortAU %a@]" Ident.pr iden
     | CommitAU commit_au ->
         fprintf ppf "@[<2>CommitAU %a@]" Ident.pr commit_au
-    | OpenInv expr ->
-      fprintf ppf "@[<2>OpenInv %a@]" Expr.pr expr
-    | CloseInv expr ->
-      fprintf ppf "@[<2>CloseInv %a@]" Expr.pr expr
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a ~> %a@]" QualIdent.pr fpu_desc.fpu_loc QualIdent.pr fpu_desc.fpu_field Expr.pr fpu_desc.fpu_val
 
   let rec pr ppf stmt =

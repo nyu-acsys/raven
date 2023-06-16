@@ -1131,8 +1131,7 @@ module ProcessCallables = struct
 
         Basic (Return expr), [], tbl, disam_tbl
 
-      | Use ({ use_kind = (Fold | Unfold); _ } as use_desc) ->
-        (* TODO: need to check that fold_expr is a predicate call. Should we change the representation of fold_desc to get that for free? *)
+      | Use use_desc ->
 
         let use_name = 
           disambiguate_ident use_desc.use_name disam_tbl |>
@@ -1140,9 +1139,13 @@ module ProcessCallables = struct
         in
 
         let pred_decl =
-          match SymbolTbl.find_exn stmt.stmt_loc tbl use_name with
-          | Callable ({call_decl_kind = Pred; _} as pred_decl) -> pred_decl
-          | _ -> Error.type_error stmt.stmt_loc ("Expected predicate identifier, but found " ^ QualIdent.to_string use_name)
+          match SymbolTbl.find_exn stmt.stmt_loc tbl use_name, use_desc.use_kind with
+          | Callable ({call_decl_kind = Pred; _} as pred_decl), (Fold | Unfold) -> pred_decl
+          | Callable ({call_decl_kind = Invariant; _} as pred_decl), (OpenInv | CloseInv) -> pred_decl
+          | _, (Fold | Unfold) ->
+            Error.type_error stmt.stmt_loc ("Expected predicate identifier, but found " ^ QualIdent.to_string use_name)
+          | _ ->
+            Error.type_error stmt.stmt_loc ("Expected invariant identifier, but found " ^ QualIdent.to_string use_name)
         in
         
         let use_args =
@@ -1153,22 +1156,6 @@ module ProcessCallables = struct
 
         Basic (Use {use_desc with use_name = use_name; use_args = use_args}), [], tbl, disam_tbl
       
-      | OpenInv expr ->
-        (* TODO: need to check that expr is an invariant. Should we change the representation of OpenInv to get that for free? *)
-        let expr = disambiguate_expr expr disam_tbl in
-        let expr = process_expr expr tbl Type.perm
-
-        in 
-        Basic (OpenInv expr), [], tbl, disam_tbl
-
-      | CloseInv expr ->
-        (* TODO: need to check that expr is an invariant. Should we change the representation of CloseInv to get that for free? *)
-        let expr = disambiguate_expr expr disam_tbl in
-        let expr = process_expr expr tbl Type.perm
-
-        in 
-        Basic (CloseInv expr), [], tbl, disam_tbl
-
       | New new_desc ->
         let new_qual_ident = disambiguate_ident new_desc.new_lhs disam_tbl in
         let new_qual_ident = SymbolTbl.fully_qualified stmt.stmt_loc new_qual_ident tbl in

@@ -19,7 +19,7 @@ open Ast
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
-%token HAVOC NEW RETURN OWN OPENINV CLOSEINV  
+%token HAVOC NEW RETURN OWN
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -455,15 +455,9 @@ stmt_wo_trailing_substmt:
   in
   Stmt.(Basic (Return e))
 }
-(* unfold / fold *)
+(* unfold / fold / openInv / closeInv *)
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN; SEMICOLON {
   Stmt.(Basic (Use {use_kind = use_kind; use_name = AstUtil.expr_to_qual_ident id; use_args = es}))
-}
-| OPENINV; e = expr; SEMICOLON {
-  Stmt.(Basic (OpenInv e))
-}
-| CLOSEINV; e = expr; SEMICOLON {
-  Stmt.(Basic (CloseInv e))
 }
 ;
 
