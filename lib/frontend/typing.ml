@@ -578,7 +578,6 @@ let rec process_expr (expr: expr) (tbl: SymbolTbl.t) (expected_typ: type_expr) :
         List.fold_right typed_elem_expr_list
           ~f:(fun (mexpr, mtyp) (elem_expr_list, elem_types) ->
               let mexpr = process_expr mexpr tbl mtyp in
-              Logs.info (fun m -> m "%s %s" (Type.to_string mtyp) (Type.to_string @@ Expr.to_type mexpr) );
               (mexpr :: elem_expr_list, Expr.to_type mexpr :: elem_types))
           ~init:([], [])
       in
