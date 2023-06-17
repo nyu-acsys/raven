@@ -144,9 +144,9 @@ let add (tbl : t) name tp : t =
       t' :: ts'
   in
 
-  print_debug
-    ("ADDING " ^ QualIdent.to_string name ^ " -> " ^ typing_env_to_string tp
-     ^ "\n" ^ to_string tbl);
+  Logs.debug
+    (fun m -> m "ADDING %s -> %s\n%s"
+        (QualIdent.to_string name) (typing_env_to_string tp) (to_string tbl));
   match tbl with
   | [] -> raise (Failure "Empty symbol table")
   | tbl -> add_helper tbl name tp

@@ -24,15 +24,9 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
     match mod_defs_list with
     | [] -> (mod_decl, sorted_members)
     | def :: defs -> (
+      let mod_decl = Module.add_member mod_decl def in
       match def with
       | TypeAlias type_alias ->
-        let mod_decl = { mod_decl with 
-          mod_decl_rep = if type_alias.type_alias_rep then
-              Some type_alias.type_alias_name
-              else mod_decl.mod_decl_rep;
-          mod_decl_types = Map.add_exn mod_decl.mod_decl_types ~key:type_alias.type_alias_name ~data:type_alias;
-        } in
-
         let sorted_members = { sorted_members with
           types = type_alias :: sorted_members.types;
         } in
@@ -49,10 +43,6 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
       | ModDef module_def -> (
         match module_def with
         | ModImpl mod_impl ->
-          let mod_decl = { mod_decl with
-            mod_decl_mod_defs = Map.add_exn mod_decl.mod_decl_mod_defs ~key:mod_impl.mod_decl.mod_decl_name ~data:mod_impl.mod_decl;
-          } in
-
           let sorted_members = { sorted_members with
             mod_defs = (pre_process_module mod_impl) :: sorted_members.mod_defs;
           } in
@@ -60,10 +50,6 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
           extract_members mod_decl sorted_members defs
 
         | ModAlias mod_alias ->
-          let mod_decl = { mod_decl with
-            mod_decl_mod_aliases = Map.add_exn mod_decl.mod_decl_mod_aliases ~key:mod_alias.mod_alias_name ~data:mod_alias;
-          } in
-
           let sorted_members = { sorted_members with
             mod_aliases = mod_alias :: sorted_members.mod_aliases;
           } in
@@ -72,10 +58,6 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
       )
 
       | FieldDef field_def ->
-        let mod_decl = { mod_decl with
-          mod_decl_fields = Map.add_exn mod_decl.mod_decl_fields ~key: field_def.field_name ~data: field_def
-        } in
-
         let sorted_members = { sorted_members with
           fields = field_def :: sorted_members.fields;
         } in
@@ -83,10 +65,6 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
         extract_members mod_decl sorted_members defs
 
       | ValDef v ->
-          let mod_decl = { mod_decl with
-            mod_decl_vars = Map.add_exn mod_decl.mod_decl_vars ~key:v.var_decl.var_name ~data:v.var_decl;
-          } in
-
           let sorted_members = { sorted_members with
             vars = v :: sorted_members.vars;
           } in
@@ -94,16 +72,6 @@ let rec pre_process_module (m: Module.t0) : (Module.t) =
           extract_members mod_decl sorted_members defs
 
       | CallDef call ->
-        let cl_decl =
-          match call with
-          | FuncDef fn -> fn.func_decl
-          | ProcDef proc -> proc.proc_decl
-        in
-
-        let mod_decl = { mod_decl with
-          mod_decl_callables = Map.add_exn mod_decl.mod_decl_callables ~key:cl_decl.call_decl_name ~data:cl_decl;
-        } in
-
         let sorted_members = { sorted_members with
           call_defs = call :: sorted_members.call_defs;
         } in

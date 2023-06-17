@@ -7,6 +7,7 @@ type location = Loc.t
 
 (** Identifiers *)
 
+(*
 let print_debug _str =
   (* Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m"); *)
   ()
@@ -14,7 +15,8 @@ let print_debug _str =
   let print_debug2 _str =
     Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m");
     ()
-
+*)
+                  
 module Ident = struct
   module T = struct
     type t = { ident_name : string; ident_num : int }
@@ -117,9 +119,7 @@ module QualIdentMap = Map.M (QualIdent)
 type 'a qual_ident_map = 'a QualIdentMap.t
 
 
-(** ----------------- *)
-(** TYPES             *)
-(** ----------------- *)
+(** Types *)
 
 module Type = struct
   type type_attr = { type_loc : Loc.t [@hash.ignore] [@compare.ignore] }
@@ -382,9 +382,7 @@ type type_expr = Type.t [@@deriving compare]
 type var_decl = Type.var_decl [@@deriving compare]
 
 
-(** ----------------- *)
-(** EXPRESSIONS       *)
-(** ----------------- *)
+(** Expressions *)
 
 module Expr = struct
   (* Does not belong here -- needs to be in the symbolic checker. *)
@@ -696,9 +694,7 @@ end
 type expr = Expr.t
 
 
-(** ----------------- *)
-(** STATEMENTS        *)
-(** ----------------- *)
+(** Statements *)
 
 module Stmt = struct
   type spec = {
@@ -907,9 +903,7 @@ module Stmt = struct
 end
 
 
-(** ----------------- *)
-(** CALLABLES         *)
-(** ----------------- *)
+(** Callables *)
 
 module Callable = struct
   type call_kind = 
@@ -1009,9 +1003,7 @@ module Callable = struct
 end
 
 
-(** ----------------- *)
-(** MODULES           *)
-(** ----------------- *)
+(** Modules *)
 
 module Module = struct
   type type_alias = {
@@ -1244,6 +1236,64 @@ module Module = struct
     call_defs = [];
   }
 
+  (** Auxiliary functions *)
+
+  let add_member (mod_decl: module_decl) (mem_def: member_def) =
+    let check_for_duplicates name loc =
+      if List.mem mod_decl.mod_decl_formals name ~equal:Ident.equal ||
+         Map.mem mod_decl.mod_decl_types name ||
+         Map.mem mod_decl.mod_decl_fields name ||
+         Map.mem mod_decl.mod_decl_vars name ||
+         Map.mem mod_decl.mod_decl_mod_aliases name ||
+         Map.mem mod_decl.mod_decl_mod_defs name ||
+         Map.mem mod_decl.mod_decl_callables name
+      then Error.redeclaration_error loc (Ident.to_string name)
+    in
+    match mem_def with
+    | TypeAlias type_alias ->
+      check_for_duplicates type_alias.type_alias_name type_alias.type_alias_loc;
+      { mod_decl with 
+        mod_decl_rep = if type_alias.type_alias_rep then
+            Some type_alias.type_alias_name
+          else mod_decl.mod_decl_rep;
+        mod_decl_types = Map.add_exn mod_decl.mod_decl_types ~key:type_alias.type_alias_name ~data:type_alias;
+      }
+    | Import _import -> mod_decl
+    | ModDef module_def ->
+      begin match module_def with
+        | ModImpl mod_impl ->
+          check_for_duplicates mod_impl.mod_decl.mod_decl_name mod_impl.mod_decl.mod_decl_loc;
+          { mod_decl with
+            mod_decl_mod_defs = Map.add_exn mod_decl.mod_decl_mod_defs ~key:mod_impl.mod_decl.mod_decl_name ~data:mod_impl.mod_decl;
+          }
+        | ModAlias mod_alias ->
+          check_for_duplicates mod_alias.mod_alias_name mod_alias.mod_alias_loc;
+          { mod_decl with
+            mod_decl_mod_aliases = Map.add_exn mod_decl.mod_decl_mod_aliases ~key:mod_alias.mod_alias_name ~data:mod_alias;
+          }
+      end
+    | FieldDef field_def ->
+      check_for_duplicates field_def.field_name field_def.field_loc;
+      { mod_decl with
+        mod_decl_fields = Map.add_exn mod_decl.mod_decl_fields ~key: field_def.field_name ~data: field_def
+      }
+    | ValDef v ->
+      check_for_duplicates v.var_decl.var_name v.var_decl.var_loc;
+      { mod_decl with
+        mod_decl_vars = Map.add_exn mod_decl.mod_decl_vars ~key:v.var_decl.var_name ~data:v.var_decl;
+      }
+    | CallDef call ->
+      let cl_decl =
+        match call with
+        | FuncDef fn -> fn.func_decl
+        | ProcDef proc -> proc.proc_decl
+      in
+      check_for_duplicates cl_decl.call_decl_name cl_decl.call_decl_loc;
+      { mod_decl with
+        mod_decl_callables = Map.add_exn mod_decl.mod_decl_callables ~key:cl_decl.call_decl_name ~data:cl_decl;
+      }
+
+  
   let rec find_mod (mod_defs: t list) (name: Ident.t) =
     match mod_defs with
     | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module %s not found in list " (Ident.to_string name)

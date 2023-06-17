@@ -67,7 +67,7 @@ module SmtEnv = struct
       match Map.find map name with
       | None -> (Map.add_exn map ~key:name ~data:elem) :: ts, stk
       | Some _ ->
-        print_debug ("Overriding " ^ (QualIdent.to_string name));
+        Logs.debug (fun m -> m "Overriding %s" (QualIdent.to_string name));
         (Map.set map ~key:name ~data:elem) :: ts, stk
 
   let find_local tbl name =
