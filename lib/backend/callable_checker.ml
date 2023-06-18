@@ -349,8 +349,11 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
 
           let map =
             Callable.return_decls call_decl |>
-            List.fold_left ~f:(fun map var_decl ->
-                Map.add_exn map ~key:(QualIdent.from_ident var_decl.Type.var_name) ~data:(Expr.from_var_decl var_decl))
+            List.zip_exn call_desc.call_lhs |>
+            List.fold_left ~f:(fun map (lhs_var, var_decl) ->
+                let lhs_exp = Expr.mk_var ~loc ~typ:var_decl.Type.var_type lhs_var in
+                Map.add_exn map ~key:(QualIdent.from_ident var_decl.Type.var_name) ~data:lhs_exp
+              )
               ~init:map
           in
           
