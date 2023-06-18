@@ -859,8 +859,8 @@ module ProcessCallables = struct
       [{stmt with stmt_desc = Cond cond_desc';}]
     )
 
-  let process_stmt (expected_return_type: Type.t) (stmt: Stmt.t) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : Stmt.t * var_decl list * SymbolTbl.t * DisambiguationTbl.t =
-    let rec process_stmt stmt tbl disam_tbl =
+  let process_stmt ?(new_scope=true) (expected_return_type: Type.t) (stmt: Stmt.t) (tbl: SymbolTbl.t) (disam_tbl: DisambiguationTbl.t) : Stmt.t * var_decl list * SymbolTbl.t * DisambiguationTbl.t =
+    let rec process_stmt ?(new_scope=true) stmt tbl disam_tbl =
     try
 
     let stmt_list = pre_process_stmt stmt in
@@ -871,9 +871,12 @@ module ProcessCallables = struct
 
     let stmt_desc, locals, tbl, disam_tbl =
     (match stmt.stmt_desc with
-    | Block block_desc -> 
-      let tbl = SymbolTbl.push tbl in
-      let disam_tbl = DisambiguationTbl.push disam_tbl in
+    | Block block_desc ->
+      let tbl, disam_tbl =
+        if new_scope then
+          SymbolTbl.push tbl, DisambiguationTbl.push disam_tbl
+        else tbl, disam_tbl
+      in
 
       let (locals, tbl, disam_tbl), stmt_list = List.fold_map block_desc.block_body ~init:([], tbl, disam_tbl) 
         ~f:(fun (locals, tbl, disam_tbl) stmt -> 
@@ -883,8 +886,11 @@ module ProcessCallables = struct
           (locals @ locals', tbl, disam_tbl), stmt
         ) in
 
-      let disam_tbl = DisambiguationTbl.pop disam_tbl in
-      let tbl = SymbolTbl.pop tbl in
+      let tbl, disam_tbl =
+        if new_scope then
+          SymbolTbl.pop tbl, DisambiguationTbl.pop disam_tbl
+        else tbl, disam_tbl
+      in
       
       (Stmt.Block { block_desc with block_body = stmt_list }), locals, tbl, disam_tbl
 
@@ -1250,7 +1256,7 @@ module ProcessCallables = struct
 
     with
       Generic_Error msg -> Error.type_error stmt.stmt_loc msg
-    in process_stmt stmt tbl disam_tbl
+    in process_stmt ~new_scope stmt tbl disam_tbl
 
   let process_callable ((mod_decl, tbl): Module.module_decl * SymbolTbl.t) (callable: Callable.t) : (Module.module_decl * SymbolTbl.t) * Callable.t =
     match callable with
@@ -1335,11 +1341,11 @@ module ProcessCallables = struct
           call_decl_postcond = List.map proc_def.proc_decl.call_decl_postcond ~f:(process_stmt_spec tbl disam_tbl);
         } in
 
+        let expected_return_type = Callable.return_type proc_decl in
         let proc_body, (locals: Type.var_decl list) = (match proc_def.proc_body with
         | None -> None, []
         | Some stmt -> 
-          let expected_return_type = Callable.return_type proc_decl in
-          let stmt, locals, tbl', _disam_tbl = process_stmt expected_return_type stmt tbl disam_tbl in
+          let stmt, locals, tbl', _disam_tbl = process_stmt ~new_scope:false expected_return_type stmt tbl disam_tbl in
 
           if SymbolTbl.equal tbl' tbl then
             Some stmt, locals

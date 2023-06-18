@@ -7,16 +7,6 @@ type location = Loc.t
 
 (** Identifiers *)
 
-(*
-let print_debug _str =
-  (* Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m"); *)
-  ()
-
-  let print_debug2 _str =
-    Stdio.print_endline ("\027[31m" ^ _str ^ "\027[0m");
-    ()
-*)
-                  
 module Ident = struct
   module T = struct
     type t = { ident_name : string; ident_num : int }
@@ -140,12 +130,6 @@ module Type = struct
     variant_args : var_decl list;
   }
 
-  (* and atomic_token =
-     {
-       proc : qual_ident [@compare.ignore];
-       params : Stmt.var_def list;
-       committed : (expr list) option;
-     } *)
   and constr =
     | Int
     | Real
@@ -163,8 +147,6 @@ module Type = struct
     | Prod
 
   and t = App of constr * t list * type_attr
-  (* | TypeData of qual_ident * type_attr *)
-  (* | Dot of t * Ident.t * type_attr *)
   [@@deriving compare, hash]
 
   let attr_of = function App (_, _, attr) -> attr
@@ -311,7 +293,6 @@ module Type = struct
     | Real, Num | Num, Real -> Real
     | _, _ -> Bot
 
-  (* TODO: Handle edge-cases for join properly. And figure out where and how it can be used. *)
   let rec join t1 t2 =
     if equal t1 t2 then t1 else 
     match (t1, t2) with
@@ -324,6 +305,7 @@ module Type = struct
       | Ok ts -> App (Prod, ts, a1)
       | _ -> App (Any, [], a1))      
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
+
   and meet t1 t2 = 
     if equal t1 t2 then t1 else
     match (t1, t2) with
@@ -340,8 +322,7 @@ module Type = struct
   let subtype_of tp1 tp2 = equal (join tp1 tp2) tp2
           
   (** Auxiliary utility functions *)
-  (* TODO: Implement this properly. process_expr uses this *)
-
+  
   let is_num tp =
     equal tp real || equal tp int
 
@@ -385,13 +366,6 @@ type var_decl = Type.var_decl [@@deriving compare]
 (** Expressions *)
 
 module Expr = struct
-  (* Does not belong here -- needs to be in the symbolic checker. *)
-  (* type au_token =
-     {
-       proc : qual_ident [@compare.ignore];
-       params : Stmt.var_def list;
-       committed : (expr list) option;
-     } *)
 
   type constr =
     (* Constants *)

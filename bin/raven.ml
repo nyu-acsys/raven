@@ -26,7 +26,7 @@ let parse_and_check_cu ?(tbl=None) smtEnv session top_level_md_ident file_name =
   match tbl with
   | [ _ ; _ ] | [ _ ] -> 
     Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));
-    (*Logs.debug (fun m -> m !"%{Ast.Module}" processed_md);*)
+    Logs.debug (fun m -> m !"%a" Ast.Module.pr_verbose processed_md);
     Logs.info (fun m -> m "Front-end processing successful.");
 
     let session, smtEnv = Checker.check_module processed_md tbl smtEnv session in
