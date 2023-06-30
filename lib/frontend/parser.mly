@@ -35,7 +35,7 @@ open Ast
 %nonassoc EQEQ NEQ 
 
 %start main
-%type <Ast.Module.t0> main
+%type <Ast.Module.t> main
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
@@ -58,56 +58,66 @@ main:
 (** Member Definitions *)
 
 module_def:
-| MODULE; decl = module_header; def = module_alias_or_impl {
+| MODULE; decl = module_header; def = module_inst_or_impl {
   let open Module in
   match def with
-  | ModImpl impl ->
-      ModImpl { impl with mod_decl = decl; }
-  | ModAlias ma ->
+  | ModDef impl ->
+      ModDef { impl with mod_decl = decl; }
+  | ModInst ma ->
   (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def)) (Some "Expected {")
       else
-        ModAlias { ma with
-                   mod_alias_name = decl.mod_decl_name;
-                   mod_alias_loc = decl.mod_decl_loc }
+        let mod_inst_type = match decl.mod_decl_returns with
+        | [ mod_inst_type ] -> mod_inst_type
+        | _ -> Error.syntax_error (Loc.make $endpos(decl) $endpos(decl)) (Some "Expected exactly one interface")
+        in
+        ModInst { ma with
+                  mod_inst_type;
+                  mod_inst_name = decl.mod_decl_name;
+                  mod_inst_loc = decl.mod_decl_loc }
+  | symbol -> symbol
 }
   
-module_alias_or_impl:
+module_inst_or_impl:
 | LBRACE; ms = member_def_list_opt; RBRACE {
-  Module.( ModImpl { mod_decl = empty_decl;
-                     mod_def = ms;
-                     mod_interface = false;
+  Module.( ModDef { mod_decl = empty_decl;
+                    mod_def = ms;
+                    mod_interface = false;
+                  } )
+}
+| EQ; mod_name = qual_ident; args = mod_inst_args {
+  Module.( ModInst { mod_inst_name = Ident.make "" 0; (* dummy *)
+                     mod_inst_type = QualIdent.make [] (Ident.make "" 0); (* dummy *)
+                     mod_inst_def = Some (Expr.to_qual_ident mod_name, args);
+                     mod_inst_loc = Loc.dummy;
                    } )
 }
-| EQ; t = type_expr {
-  Module.( ModAlias { mod_alias_name = Ident.make "" 0;
-                      mod_alias_type = Type.mk_bot Loc.dummy;
-                      mod_alias_def = Some t;
-                      mod_alias_loc = Loc.dummy;
-                    } )
-}
 
+mod_inst_args:
+| LBRACKET ids = separated_list(COMMA, qual_ident) RBRACKET { List.map Expr.to_qual_ident ids }
+| { [] }
+    
 member_def_list_opt:
 | m = member_def; ms = member_def_list_opt { m :: ms }
 | m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
 member_def:
-| def = field_def {Module.FieldDef def}
-| def = module_def { Module.ModDef def }
-| def = interface_def { Module.ModDef def }
-| def = type_def { Module.TypeAlias def }
-| def = var_def { Module.ValDef def }
+| def = field_def { Module.SymbolDef (Module.FieldDef def)}
+| def = module_def { Module.SymbolDef def }
+| def = interface_def { Module.SymbolDef def }
+| def = type_def { Module.SymbolDef (Module.TypeDef def) }
+| def = var_def { Module.SymbolDef (Module.VarDef def) }
 | def = proc_def 
-| def = func_def { Module.CallDef def }
+| def = func_def {Module.SymbolDef (Module.CallDef def) }
 | imp = import_dir { Module.Import imp }
   
 field_def:
 | FIELD x = IDENT; COLON; t = type_expr {
     let decl =
       Module.{ field_name = x;
-      field_type = t;
+      field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t;
       field_loc = Loc.make $startpos $endpos
            }
     in
@@ -117,7 +127,7 @@ field_def:
 type_def:
 | def = type_decl; EQ; t = type_def_expr {
   let open Module in
-  { def with type_alias_def = Some t }
+  { def with type_def_expr = Some t }
 }
 
 type_def_expr:
@@ -144,20 +154,14 @@ proc_def:
   let open Callable in
   let body =
     Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) }
-  in 
-  match def with
-  | ProcDef def ->
-      ProcDef { def with proc_body = Some body }
-  | _ -> assert false
+  in
+  { def with call_def = ProcDef { proc_body = Some body } }
 }
 
 func_def:
 | def = func_decl; LBRACE body = expr RBRACE {
   let open Callable in
-  match def with
-  | FuncDef def ->
-      FuncDef { def with func_body = Some body }
-  | _ -> assert false
+  { def with call_def = FuncDef { func_body = Some body } }
 }
 
     
@@ -166,32 +170,20 @@ func_def:
 
 interface_def:
 | INTERFACE; decl = module_header; LBRACE ms = list(member_decl) RBRACE {
-  Module.( ModImpl { mod_decl = { decl with mod_decl_loc = Loc.make $startpos $endpos };
+  Module.( ModDef { mod_decl = { decl with mod_decl_loc = Loc.make $startpos $endpos };
                      mod_def = ms;
                      mod_interface = true;
                    } )
 }
     
 module_header:
-| id = MODIDENT; pdecls = module_param_list_opt; rts = return_type_list_opt {
+| id = MODIDENT; mod_formals = module_param_list_opt; rts = return_type_list_opt {
   let open Module in
-  let add m id ma =
-    match Base.Map.add m ~key:id ~data:ma with
-    | `Ok m1 -> m1
-    | `Duplicate -> Error.redeclaration_error ma.mod_alias_loc (Ident.name id)
-  in
-  let formals, mod_aliases =
-    List.fold_left (fun (formals, mod_aliases) ma ->
-      ma.mod_alias_name :: formals, add mod_aliases ma.mod_alias_name ma)
-      ([], Base.Map.empty (module Ident)) pdecls 
-  in
-  let formals = List.rev formals in
   let decl =
     { empty_decl with
       mod_decl_name = id;
-      mod_decl_formals = formals;
+      mod_decl_formals = mod_formals;
       mod_decl_returns = rts;
-      mod_decl_mod_aliases = mod_aliases;
       mod_decl_loc = Loc.make $startpos(id) $endpos(id);
     }
   in
@@ -199,30 +191,32 @@ module_header:
 }
 
 module_decl:
-| MODULE; id = MODIDENT; COLON; t = type_expr; tdef = module_alias_def_opt {
-  Module.( ModAlias { mod_alias_name = id;
-                      mod_alias_type = t;
-                      mod_alias_def = tdef;
-                      mod_alias_loc = Loc.make $startpos(id) $endpos(id);
-                    } )
+| MODULE; id = MODIDENT; COLON; t = mod_ident; (*tdef = module_inst_def_opt*) {
+  Module.( ModInst { mod_inst_name = id;
+                     mod_inst_type = t;
+                     mod_inst_def = None;
+                     mod_inst_loc = Loc.make $startpos(id) $endpos(id);
+                   } )
 }
-| MODULE; id = MODIDENT; tdef = module_alias_def {
-  Module.( ModAlias { mod_alias_name = id;
-                      mod_alias_type = Type.mk_bot Loc.dummy;
-                      mod_alias_def = tdef;
-                      mod_alias_loc = Loc.make $startpos(id) $endpos(id);
+/*| MODULE; id = MODIDENT; tdef = module_inst_def {
+  let 
+  Module.( ModInst { mod_inst_name = id;
+                     mod_inst_type = Type.mk_bot Loc.dummy;
+                     mod_inst_def = tdef;
+                     mod_inst_loc = Loc.make $startpos(id) $endpos(id);
                     } )
 }
 
-module_alias_def_opt:
-| t = module_alias_def { t }
+module_inst_def_opt:
+| t = module_inst_def { t }
 | (* empty *) { None }
 
-module_alias_def:
-| EQ; t = type_expr { Some t }
+module_inst_def:
+| EQ; id = mod_ident; ids = mod_inst_args { Some (id, ids) }
+*/
     
 return_type_list_opt:
-| COLON; ts = separated_nonempty_list(COMMA, type_expr) { ts }
+| COLON; ts = separated_nonempty_list(COMMA, mod_ident) { ts }
 | (* empty *) { [] }
 
     
@@ -231,37 +225,37 @@ module_param_list_opt:
 | (* empty *) { [] }
   
 module_param:
-| id = MODIDENT; COLON; t = type_expr {
+| id = MODIDENT; COLON; t = mod_ident {
   let decl =
-    Module.{ mod_alias_name = id;
-             mod_alias_type = t;
-             mod_alias_def = None;
-             mod_alias_loc = Loc.make $startpos $endpos;
+    Module.{ mod_inst_name = id;
+             mod_inst_type = t;
+             mod_inst_def = None;
+             mod_inst_loc = Loc.make $startpos $endpos;
            }
   in
   decl
 }
 
 member_decl:
-| def = type_decl { Module.TypeAlias def }
-| def = interface_def { Module.ModDef def }
-| def = module_decl { Module.ModDef def }
-| def = var_decl { Module.ValDef def }
+| def = type_decl { Module.SymbolDef (Module.TypeDef def) }
+| def = interface_def { Module.SymbolDef def }
+| def = module_decl { Module.SymbolDef def }
+| def = var_decl { Module.SymbolDef (Module.VarDef def) }
 | def = proc_decl 
-| def = func_decl { Module.CallDef def }
+| def = func_decl { Module.SymbolDef (Module.CallDef def) }
 | imp = import_dir { Module.Import imp }
     
     
 import_dir:
-| IMPORT; t = type_expr { Module.ModImport t }
+| IMPORT; id = qual_ident { { import_name = Expr.to_qual_ident id; import_loc = Loc.make $startpos $endpos } }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {
   let ta =
-    Module.{ type_alias_name = id;
-             type_alias_def = None;
-             type_alias_rep = m;
-             type_alias_loc = Loc.make $startpos $endpos }
+    Module.{ type_def_name = id;
+             type_def_expr = None;
+             type_def_rep = m;
+             type_def_loc = Loc.make $startpos $endpos }
   in
   ta
 }
@@ -275,38 +269,23 @@ type_mod:
 
 proc_decl:
 | k = PROC; decl = callable_decl {
-  Callable.( ProcDef { proc_decl = { decl with call_decl_kind = k }; proc_body = None } )
+  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
 }
 
 func_decl:
 | k = FUNC; decl = callable_decl {
-  Callable.( FuncDef { func_decl = { decl with call_decl_kind = k }; func_body = None } )
+  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = FuncDef { func_body = None } }
 }
 
 callable_decl:
-  id = IDENT; LPAREN; pdecls = var_decls_with_modifiers; RPAREN; rdecls = return_params; cs = contracts {
-  let add m id decl =
-    match Base.Map.add m ~key:id ~data:decl with
-    | `Ok m1 -> m1
-    | `Duplicate -> Error.redeclaration_error decl.Type.var_loc (Ident.name id)
-  in
-  let formals, locals =
-    List.fold_left (fun (formals, locals) decl ->
-      Type.(decl.var_name :: formals, add locals decl.var_name decl))
-      ([], Base.Map.empty (module Ident)) pdecls 
-  in
-  let returns, locals =
-    List.fold_left (fun (outputs, locals) decl ->
-      Type.(decl.var_name :: outputs, add locals decl.var_name decl))
-      ([], locals) rdecls
-  in
+  id = IDENT; LPAREN; formals = var_decls_with_modifiers; RPAREN; returns = return_params; cs = contracts {
   let precond, postcond = cs in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
-               call_decl_formals = List.rev formals;
-               call_decl_returns = List.rev returns;
-               call_decl_locals = locals;
+               call_decl_formals = formals;
+               call_decl_returns = returns;
+               call_decl_locals = [];
                call_decl_precond = precond;
                call_decl_postcond = postcond;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
@@ -426,8 +405,8 @@ stmt_wo_trailing_substmt:
   | _ -> assert false
 }
 (* havoc *)
-| HAVOC; es = separated_nonempty_list(COMMA, expr); SEMICOLON { 
-  Stmt.(Basic (Havoc es))
+| HAVOC; id = qual_ident; SEMICOLON { 
+  Stmt.(Basic (Havoc (Expr.to_qual_ident id)))
 }
 
 (* assume / assert / inhale / exhale *)

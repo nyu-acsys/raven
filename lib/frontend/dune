@@ -1,7 +1,7 @@
 (library
   (name frontend)
   (libraries base ast)
-  (preprocess (pps ppx_hash ppx_compare ppx_custom_printf)))
+  (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
 
 (ocamllex
   (modules lexer))

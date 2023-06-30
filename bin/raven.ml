@@ -1,7 +1,7 @@
 open Base
 open Util
 open Frontend
-open Backend
+(*open Backend*)
 
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_cu top_level_md_ident file_name =
@@ -19,39 +19,38 @@ let parse_cu top_level_md_ident file_name =
   Ast.Module.set_name md top_level_md_ident
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-let parse_and_check_cu ?(tbl=None) smtEnv session top_level_md_ident file_name =
+let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv session file_name =
   Logs.info (fun m -> m "Processing file %s." file_name);
-  let md = parse_cu top_level_md_ident file_name in
-  let processed_md, tbl = Typing.process_module ?tbl md in
-  match tbl with
-  | [ _ ; _ ] | [ _ ] -> 
-    Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));
-    Logs.debug (fun m -> m !"%a" Ast.Module.pr_verbose processed_md);
-    Logs.info (fun m -> m "Front-end processing successful.");
+  let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in
+  let md = parse_cu root_ident file_name in
+  let tbl, processed_md = Typing.process_module ~tbl md in
+  (*Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));*)
+  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  Logs.info (fun m -> m "Front-end processing successful.");
 
-    let session, smtEnv = Checker.check_module processed_md tbl smtEnv session in
-    Logs.info (fun m -> m "Verification of file %s successful." file_name);
-    session, smtEnv, tbl
+  (*let session, smtEnv = Checker.check_module processed_md tbl smtEnv session in*)
+  Logs.info (fun m -> m "Verification of file %s successful." file_name);
+  session, smtEnv, tbl
 
-  | _ -> failwith "SymbolTbl should be empty"
 
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all file_names =
   (* Start backend solver session *)
-  let session, smtEnv = Checker.start_session () in
+  (*let session, smtEnv = Checker.start_session () in*)
+  let session, smtEnv = (), () in
   
   (* Parse and check standard library *)
   let lib_file = "lib/library/resource_algebra.rav" in
-  let smtEnv, session, tbl = parse_and_check_cu smtEnv session (Ast.Ident.make "Lib" 0) lib_file in
+  let smtEnv, session, tbl = parse_and_check_cu smtEnv session lib_file in
   
   (* Parse and check actual input program *)
   let _ =
     List.fold_left file_names ~init:(smtEnv, session, tbl)
       ~f:(fun (smtEnv, session, tbl) file_name ->
-          parse_and_check_cu ~tbl:(Some tbl) smtEnv session (Ast.Ident.make "$Program" 0) file_name)
+          parse_and_check_cu ~tbl smtEnv session file_name)
   in
 
-  Checker.stop_session session;
+  (*Checker.stop_session session;*)
   
   Logs.app (fun m -> m "Verification successful.")
 

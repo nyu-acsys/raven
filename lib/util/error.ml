@@ -29,7 +29,9 @@ let mk_trace_info msg = "Trace Information: " ^ msg
 let mk_error_info msg = "Related Location: " ^ msg
 
 (** Predefined error messags *)
-                                                 
+
+let internal_error loc msg = fail loc ~lbl:"Internal Error" msg
+
 let error loc msg = fail loc ~lbl:"Error" msg
 
 let error_simple msg = fail Loc.dummy msg
