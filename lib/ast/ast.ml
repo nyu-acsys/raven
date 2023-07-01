@@ -143,9 +143,7 @@ module QualIdent = struct
   
   let from_ident id = make [] id
 
-  let path qid = match List.rev qid.qual_path with
-    | m :: p -> make (List.rev p) m
-    | [] -> failwith "empty path"      
+  let path qid = qid.qual_path
   
   (* append "M1.M2" "x" -> "M1.M2.x" *)
   let append qi id = make (qi.qual_path @ [ qi.qual_base ]) id
@@ -1095,6 +1093,7 @@ module Module = struct
     mod_inst_name : ident;
     mod_inst_type : QualIdent.t;
     mod_inst_def : (QualIdent.t * QualIdent.t list) option;
+    mod_inst_is_interface : bool;
     mod_inst_loc : location;
   }
 
@@ -1110,6 +1109,7 @@ module Module = struct
     mod_decl_returns : QualIdent.t list;
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
+    mod_decl_is_interface : bool;
     mod_decl_loc : location;
   }
 
@@ -1135,7 +1135,6 @@ module Module = struct
   and t = {
     mod_decl : module_decl;
     mod_def : module_instr list;
-    mod_interface : bool;
   }
 
   let rec pr ppf md =
@@ -1145,13 +1144,13 @@ module Module = struct
           (v.mod_inst_name, v.mod_inst_type))
     in
     fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
-      (if md.mod_interface then "interface" else "module")
+      (if md.mod_decl.mod_decl_is_interface then "interface" else "module")
       Ident.pr md.mod_decl.mod_decl_name
       (* formal parameters *)
         (fun ppf -> function
           | [] -> ()
           | vs -> fprintf ppf "[@[%a@]]" (Print.pr_list_comma (fun ppf (v, t) -> fprintf ppf "%a: %a" Ident.pr v QualIdent.pr t)) vs)
-      mod_vs
+        mod_vs
       (* return types *)
         (fun ppf -> function
           | [] -> ()
@@ -1220,6 +1219,7 @@ module Module = struct
       mod_decl_rep = None;
       mod_decl_loc = Loc.dummy;
       mod_decl_is_ra = false;
+      mod_decl_is_interface = false;
     }
 
 

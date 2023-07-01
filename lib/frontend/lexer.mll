@@ -35,7 +35,7 @@ let _ =
       ("if", IF);
       ("Int", INT);
       ("inhale", SPEC Stmt.Inhale);
-      ("interface", INTERFACE);
+      ("interface", MODULE true);
       ("inv", FUNC (Invariant));
       ("invariant", INVARIANT);
       ("import", IMPORT);
@@ -43,7 +43,7 @@ let _ =
       ("lemma", PROC(Lemma));
       ("rep", REP);
       ("Map", MAP);
-      ("module", MODULE);
+      ("module", MODULE false);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
       ("openInv", USE Stmt.OpenInv);

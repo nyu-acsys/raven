@@ -59,18 +59,16 @@ let update_table f s =
   { s with state_table = f s.state_table },
   ()
 
-let exit mdef s =
+let exit_module mdef s =
   let tbl = s.state_table in
-  let new_symbols, mdef, tbl = match s.state_new_symbols with
+  let new_symbols, mdef = 
+    match s.state_new_symbols with
     | symbols :: new_symbols ->
       let open Module in
       let new_instr = List.rev_map ~f:(fun def -> SymbolDef def) symbols in
-      new_symbols,
-      { mdef with mod_def = new_instr @ mdef.mod_def },
-      (*if s.state_update_table
-      then List.fold_left symbols ~init:tbl ~f:(fun tbl symbol -> SymbolTbl.add_symbol symbol tbl)
-      else*) tbl
-    | _ -> [], mdef, tbl
+      new_symbols,      
+      { mdef with mod_def = new_instr @ mdef.mod_def }
+    | new_symbols -> new_symbols, mdef
   in
   { s with
     state_table = SymbolTbl.exit tbl;
@@ -78,15 +76,50 @@ let exit mdef s =
   },
   mdef
 
-let enter mdef s =
-  let mdef_loc = mdef.Module.mod_decl.mod_decl_loc in
-  let mdef_ident = mdef.mod_decl.mod_decl_name in
+
+let exit_callable call_def s =
+  let tbl = s.state_table in
+  let new_symbols, call_def =
+    match s.state_new_symbols with
+    | new_callable_symbols :: new_mod_symbols :: new_symbols ->
+      let open Callable in
+      let new_locals, new_mod_symbols1 =
+        List.partition_map new_callable_symbols ~f:(function
+            | VarDef ({ var_init = None ; _ } as var_def) -> First var_def.var_decl
+            | symbol -> Second symbol)
+      in
+      let call_decl =
+        { call_def.call_decl with
+          call_decl_locals = List.rev_append new_locals call_def.call_decl.call_decl_locals
+        }
+      in
+      (new_mod_symbols1 @ new_mod_symbols) :: new_symbols,
+      { call_def with call_decl }
+    | new_symbols -> new_symbols, call_def
+  in
+  { s with
+    state_table = SymbolTbl.exit tbl;
+    state_new_symbols = new_symbols
+  },
+  call_def
+
+let enter symbol s =
+  let _ = match symbol with
+    | Module.ModDef _ | CallDef _ -> ()
+    | _ -> failwith "enter: expected module or callable symbol"
+  in
+  let symbol_loc = Module.symbol_to_loc symbol in
+  let symbol_ident = Module.symbol_to_name symbol in
   {
     s with
-    state_table = SymbolTbl.enter mdef_loc mdef_ident s.state_table;
+    state_table = SymbolTbl.enter symbol_loc symbol_ident s.state_table;
     state_new_symbols = [] :: s.state_new_symbols
   },
   ()
+
+let enter_module mdef = enter (ModDef mdef)
+
+let enter_callable callable = enter (CallDef callable)
 
 let declare_symbol symbol : unit t = update_table (SymbolTbl.add_symbol symbol)
 
@@ -150,14 +183,17 @@ module List = struct
   let iter xs ~f = fun s ->
     List.fold_left xs ~init:s ~f:(fun s x -> let res, () = f x s in res), ()
 end
-  
-let map_opt (x: 'a option) (f: 'a -> 'b t): 'b option t = 
-  let open Syntax in
-  match x with
-  | None -> return None
-  | Some v ->
-    let+ res = f v in
-    Some res
+
+module Option = struct
+
+  let map (x: 'a option) ~(f: 'a -> 'b t): 'b option t = 
+    let open Syntax in
+    match x with
+    | None -> return None
+    | Some v ->
+      let+ res = f v in
+      Some res
+end
 
 module Type = struct
   let descend ~f (tp_expr: Type.t) : Type.t t =
@@ -272,7 +308,7 @@ module Stmt = struct
   | Basic basic_stmt -> begin
     match basic_stmt with 
     | VarDef var_def ->
-      let+ new_init = map_opt var_def.var_init f in
+      let+ new_init = Option.map var_def.var_init ~f in
       { stmt with stmt_desc = Basic (VarDef { var_def with var_init = new_init; }); }
 
     | Spec (sk, spec) ->
@@ -297,7 +333,7 @@ module Stmt = struct
       
     | New new_desc ->
       let+ new_args = List.map new_desc.new_args ~f:(fun (x, e_opt) ->
-          let+ e_opt = map_opt e_opt f in
+          let+ e_opt = Option.map e_opt ~f in
           (x, e_opt))
       in
       { stmt with stmt_desc = Basic (New { new_desc with new_args }) }
@@ -349,7 +385,7 @@ module Stmt = struct
     match stmt.Stmt.stmt_desc with
     | Stmt.Basic (VarDef var_def) ->
       let* var_decl = VarDecl.rewrite_types ~f var_def.var_decl
-      and* new_init = map_opt var_def.var_init (Expr.rewrite_types ~f) in
+      and* new_init = Option.map var_def.var_init ~f:(Expr.rewrite_types ~f) in
       let+ _ = add_locals [var_decl] in
       { stmt with stmt_desc = Basic (VarDef { var_decl = var_decl; var_init = new_init; }); }
     | _ -> rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f) stmt
@@ -361,7 +397,7 @@ module Stmt = struct
       begin match basic_stmt with
       | VarDef var_def ->
         let+ var_decl = VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f) var_def.var_decl
-        and+ var_init = map_opt var_def.var_init (Expr.rewrite_qual_idents ~f) in        
+        and+ var_init = Option.map var_def.var_init ~f:(Expr.rewrite_qual_idents ~f) in        
         { stmt with stmt_desc = Basic (VarDef { var_decl; var_init }); }
                 
       | Assign assign ->
@@ -387,7 +423,7 @@ module Stmt = struct
       | New new_desc ->
         let new_lhs = f new_desc.new_lhs in
         let+ new_args = List.map new_desc.new_args ~f:(fun (x, e_opt) ->
-            let+ e_opt = map_opt e_opt (Expr.rewrite_qual_idents ~f) in
+            let+ e_opt = Option.map e_opt ~f:(Expr.rewrite_qual_idents ~f) in
             (f x, e_opt))
         in
         { stmt with stmt_desc = Basic (New { new_lhs; new_args }) }
@@ -425,18 +461,23 @@ module Callable = struct
         call_decl_postcond = new_postconds;
       }
     in
-    begin match callable.call_def with
-      | Callable.FuncDef { func_body } ->
-        let+ func_body = map_opt func_body fe in
-        Callable.{ call_decl; call_def = Callable.FuncDef { func_body } }
+    match callable.call_def with
+    | Callable.FuncDef { func_body } ->
+      let+ func_body = Option.map func_body ~f:fe in
+      Callable.{ call_decl; call_def = Callable.FuncDef { func_body } }
+        
+    | Callable.ProcDef { proc_body } ->
+      let+ proc_body = Option.map proc_body ~f:fs in
+      Callable.{ call_decl; call_def = Callable.ProcDef { proc_body } }   
 
-      | Callable.ProcDef { proc_body } ->
-        let+ proc_body = map_opt proc_body fs in
-        Callable.{ call_decl; call_def = Callable.ProcDef { proc_body } }
-    end
-
+  let rewrite_scoped ~f callable =
+    let open Syntax in
+    let* _ = enter_callable callable in
+    let* callable = f callable in
+    exit_callable callable    
+  
   let rewrite_expressions ~f callable =
-    rewrite_expressions_top ~fe:f ~fs:(Stmt.rewrite_expressions ~f) callable
+    rewrite_scoped ~f:(rewrite_expressions_top ~fe:f ~fs:(Stmt.rewrite_expressions ~f)) callable
   
   let rewrite_types_top ~(ft:type_expr -> type_expr t) ~fe ~fs callable : Callable.t t =
     let open Syntax in
@@ -454,13 +495,17 @@ module Callable = struct
     let callable = { callable with call_decl } in
     rewrite_expressions_top ~fe ~fs callable
 
-  let rewrite_types ~f callable = rewrite_types_top ~ft:f ~fe:(Expr.rewrite_types ~f) ~fs:(Stmt.rewrite_types ~f) callable
+  let rewrite_types ~f callable =
+    rewrite_scoped ~f:(rewrite_types_top ~ft:f ~fe:(Expr.rewrite_types ~f) ~fs:(Stmt.rewrite_types ~f)) callable    
+
+    
 
   let rewrite_qual_idents ~f callable =
-    rewrite_types_top
-      ~ft:(Type.rewrite_qual_idents ~f)
-      ~fe:(Expr.rewrite_qual_idents ~f)
-      ~fs:(Stmt.rewrite_qual_idents ~f)
+    rewrite_scoped
+      ~f:(rewrite_types_top
+            ~ft:(Type.rewrite_qual_idents ~f)
+            ~fe:(Expr.rewrite_qual_idents ~f)
+            ~fs:(Stmt.rewrite_qual_idents ~f))
       callable
   
 end
@@ -470,7 +515,7 @@ module Module = struct
   let rec rewrite_symbols ~f (mdef: Module.t) : Module.t t =
     let open Module in
     let open Syntax in
-    let* _ = enter mdef
+    let* _ = enter_module mdef
     and* symbols = List.map mdef.mod_def ~f:(function
         | SymbolDef (ModDef sub_mdef) ->
           let+ sub_mdef = rewrite_symbols ~f sub_mdef 
@@ -484,14 +529,14 @@ module Module = struct
       )
     in
     let mdef = { mdef with mod_def = symbols } in
-    exit mdef
-
+    exit_module mdef
+    
   let rewrite_expressions ~f mdef : Module.t t =
     let open Syntax in
     let open Module in
     let rewrite_symbol = function
       | VarDef var_def ->
-        let+ new_var_init = map_opt var_def.var_init f in
+        let+ new_var_init = Option.map var_def.var_init ~f in
         VarDef { var_def with var_init = new_var_init }
       | CallDef call_def ->
         let+ new_call_def = Callable.rewrite_expressions ~f call_def in
@@ -506,7 +551,7 @@ module Module = struct
       let open Module in
       function
       | TypeDef type_def ->
-        let+ type_def_expr = map_opt type_def.type_def_expr f in
+        let+ type_def_expr = Option.map type_def.type_def_expr ~f in
         TypeDef { type_def with type_def_expr }
       | ConstrDef constr_def ->
         let+ constr_args = List.map constr_def.constr_args ~f:(VarDecl.rewrite_types ~f)
@@ -518,7 +563,7 @@ module Module = struct
         DestrDef { destr_def with destr_arg; destr_return_type }        
       | VarDef var_def ->
         let+ var_decl = VarDecl.rewrite_types ~f var_def.var_decl
-        and+ var_init = map_opt var_def.var_init (Expr.rewrite_types ~f) in
+        and+ var_init = Option.map var_def.var_init ~f:(Expr.rewrite_types ~f) in
         VarDef { var_decl; var_init }
       | FieldDef field_def ->
         let+ field_type = f field_def.field_type in
@@ -535,13 +580,13 @@ module Module = struct
     let open Module in
     function
       | ModInst mod_inst ->
-        let mod_inst_def = Option.map mod_inst.mod_inst_def ~f:(fun (mod_inst_def_funct, mod_inst_def_args) ->
+        let mod_inst_def = Base.Option.map mod_inst.mod_inst_def ~f:(fun (mod_inst_def_funct, mod_inst_def_args) ->
             f mod_inst_def_funct, Base.List.map ~f mod_inst_def_args)
         in
         let mod_inst_type = f mod_inst.mod_inst_type in
         return @@ ModInst { mod_inst with mod_inst_type; mod_inst_def }
       | TypeDef type_def ->
-        let+ type_def_expr = map_opt type_def.type_def_expr  (Type.rewrite_qual_idents ~f) in
+        let+ type_def_expr = Option.map type_def.type_def_expr  ~f:(Type.rewrite_qual_idents ~f) in
         TypeDef { type_def with type_def_expr }
       | ConstrDef constr_def ->
         let+ constr_args = List.map constr_def.constr_args ~f:(VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f))
@@ -553,7 +598,7 @@ module Module = struct
         DestrDef { destr_def with destr_arg; destr_return_type }        
       | VarDef var_def ->
         let+ var_decl = VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f) var_def.var_decl
-        and+ var_init = map_opt var_def.var_init (Expr.rewrite_qual_idents ~f) in
+        and+ var_init = Option.map var_def.var_init ~f:(Expr.rewrite_qual_idents ~f) in
         VarDef { var_decl; var_init }
       | FieldDef field_def ->
         let+ field_type = Type.rewrite_qual_idents ~f field_def.field_type in
@@ -569,10 +614,14 @@ module Module = struct
 end
 
 module Symbol = struct
-  let reify (symbol, subst) =
-    Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol
+  let reify (name, symbol, subst) =
+    let open Syntax in
+    let+ tbl = get_table in
+    let tbl_scope = SymbolTbl.goto (Ast.Module.symbol_to_loc symbol) name tbl in
+    let _, symbol = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
+    symbol
 
-  let reify_type_def loc (symbol, subst) : Ast.Type.t Option.t t =
+  let reify_type_def loc (_name, symbol, subst) : Ast.Type.t Base.Option.t t =
     let open Syntax in
     match symbol with
     | Ast.Module.TypeDef { type_def_expr = None; _ } ->
@@ -582,7 +631,7 @@ module Symbol = struct
       Some tp_expr
     | _ -> Error.error loc "Expected type identifier"
 
-  let reify_type loc (symbol, subst) : Ast.Type.t t =
+  let reify_type loc (_name, symbol, subst) : Ast.Type.t t =
     let tp_expr =
       match symbol with
       | Ast.Module.VarDef { var_decl; _ } -> var_decl.var_type
@@ -591,7 +640,7 @@ module Symbol = struct
     in
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
       
-  let reify_field_type loc (symbol, subst) : Ast.Type.t t =
+  let reify_field_type loc (_name, symbol, subst) : Ast.Type.t t =
     let tp_expr =
       match symbol with
       | Ast.Module.FieldDef { field_type = App(Fld, [tp], _); _ } -> tp
@@ -600,20 +649,20 @@ module Symbol = struct
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
 
   
-  let orig_symbol (symbol, _subst) = symbol
+  let orig_symbol (_name, symbol, _subst) = symbol
 
   let extract (symbol, subst) ~f =
     f (QualIdent.requalify subst) symbol
 
-  type t = Ast.Module.symbol * QualIdent.subst
+  type t = QualIdent.t * Ast.Module.symbol * QualIdent.subst
                                  
 end
 
 let resolve_and_find loc name : (QualIdent.t * Symbol.t) t =
   let open Syntax in
   let+ tbl = get_table in
-  let qual_ident, symbol, subst = SymbolTbl.resolve_and_find_exn loc name tbl in
-  qual_ident, (symbol, subst)
+  let alias_qual_ident, qual_ident, symbol, subst = SymbolTbl.resolve_and_find_exn loc name tbl in
+  qual_ident, (alias_qual_ident, symbol, subst)
 
 let resolve loc name : QualIdent.t t =
   let open Syntax in

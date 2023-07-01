@@ -49,12 +49,12 @@ module ProcessTypeExpr = struct
     | App (Var _, _, tp_attr) ->
       unexpected_functor_error tp_attr.type_loc 
   
-    | App (Set, tp_list, tp_attr) ->
+    | App ((Set | Fld) as constr, tp_list, tp_attr) ->
       (match tp_list with
        | [tp_arg] ->
          let+ tp_arg' = process_type_expr tp_arg in
-         App (Set, [tp_arg'], tp_attr)
-      | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) Set 1
+         App (constr, [tp_arg'], tp_attr)
+      | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) constr 1
       )
 
     | App (Map, tp_list, tp_attr) ->
@@ -339,13 +339,13 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
     (* Ownership predicates *)
     | Own, expr1 :: expr2 :: expr3 :: expr4_opt ->
-        let* expr1 = process_expr expr1 Type.ref in
-        let field_type = match Expr.to_type expr1 with
+        let* expr1 = process_expr expr1 Type.ref
+        and* expr2 = process_expr expr2 Type.any in
+        let field_type = match Expr.to_type expr2 with
           | App (Fld, [tp_expr], _) -> tp_expr
           | _ -> Error.type_error (Expr.loc expr2) "Expected field identifier."
         in
-        let* expr2 = process_expr expr2 field_type
-        and* expr3 = process_expr expr3 field_type
+        let* expr3 = process_expr expr3 field_type
         (* Implicitely case-split on heap RA vs. other RA *)
         and* expr4_opt = Rewriter.List.map expr4_opt ~f:(fun e -> process_expr e Type.real) in
         (* Reconstruct and check expr *)
@@ -416,13 +416,11 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       begin match symbol with
       | DestrDef _ ->
           process_expr (App (DataDestr (qual_ident, Expr.loc expr2), [expr1], expr_attr)) expected_typ
-      | FieldDef field_def -> 
+      | FieldDef { field_type = (App(Fld, [given_type], _) as tp) ; _ } -> 
         let* expr1 = process_expr expr1 Type.ref in
-        let given_typ = field_def.field_type in
-        let expr2 = Expr.App (Var qual_ident, [], expr_attr) in
-        let expr2 = Expr.set_type expr2 given_typ in
+        let expr2 = Expr.set_type expr2 tp in
         let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
-        check_and_set expr given_typ given_typ expected_typ
+        check_and_set expr given_type given_type expected_typ
       | _ -> Error.type_error (Expr.loc expr) ("Expected field or destructor identifier, but found " ^ QualIdent.to_string qual_ident)
       end
 
@@ -622,167 +620,10 @@ module ProcessCallable = struct
   (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
   () *)
 
-  (* let rec pre_process_stmt (stmt: Stmt.t) (tbl: SymbolTbl.t): Stmt.t list * var_decl list =
-      (* Goes over the body of methods. Implements the following re-writes:
-        1. Replaces any `var x : Type = value` stmts into the following two stmts: `var x : Type; x = value`. 
-           This makes future processing simpler.
-        2. Introduces temp variables for any complex arguments passed to callables, eg `func(1 + x)` becomes `var _temp = 1 + x; func(_temp)`
-        3. It checks that inside ghost blocks, no callables or heap fields are referenced; ie only pure ghost stuff is allowed.
-      *)
-    
-    match stmt.stmt_desc with
-    | Block stmt_list ->
-      let locals, stmt_list_list = List.fold_map stmt_list ~init:[] ~f:(fun locals stmt ->
-        let stmt, locals' = pre_process_stmt stmt tbl in
-          locals @ locals', stmt
-      ) in
-      [{stmt with stmt_desc = Block (List.concat stmt_list_list);}], locals
-
-    | Basic basic_stmt -> 
-      (match basic_stmt with
-      | VarDef var_def ->
-        (match var_def.var_init with
-        | None -> [stmt], []
-        | Some expr ->
-          let stmt1: Stmt.t = { 
-            stmt_desc = Basic (VarDef { var_def with var_init = None;});
-            stmt_loc = stmt.stmt_loc
-          } in
-
-          let stmt2: Stmt.t = {
-            stmt_desc = Basic (Assign { 
-              assign_lhs = [
-                App (Var (QualIdent.from_ident var_def.var_decl.var_name), [],
-                (Expr.mk_attr stmt.stmt_loc var_def.var_decl.var_type))
-              ]; 
-              assign_rhs = expr});
-            stmt_loc = stmt.stmt_loc
-          } in
-
-          [stmt1; stmt2], []
-        )
-
-      | Assume spec | Assert | _ -> ()
-
-      )
-
-    | Loop loop_desc -> 
-      let loop_prebody_list, locals1 = pre_process_stmt loop_desc.loop_prebody tbl in
-      let (loop_prebody: Stmt.t) = (match loop_prebody_list with
-        | [ stmt ] -> stmt
-        | stmt_list -> { stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_prebody.stmt_loc}) 
-      in
-
-      let loop_postbody_list, locals2 = pre_process_stmt loop_desc.loop_postbody tbl in
-      let (loop_postbody: Stmt.t) = (match loop_postbody_list with
-        | [ stmt ] -> stmt
-        | stmt_list -> { stmt_desc = Block stmt_list; stmt_loc = loop_desc.loop_postbody.stmt_loc}
-      ) in
-      
-      let loop_desc = { loop_desc with
-      loop_prebody = loop_prebody;
-      loop_postbody = loop_postbody;
-      }
-      in
-
-      [{ stmt with stmt_desc = Loop loop_desc;}], locals1 @ locals2
-
-
-    | Cond cond_desc -> ()
-    | Ghost ghost_desc -> () *)
-    
-  (*
-  let rec pre_process_stmt (stmt: Stmt.t) : Stmt.t list Rewriter.t = 
-    (* This function only takes stmts of type:
-        var x : Type = val;
-        
-        and unfolds them into:
-        var x : Type;
-        x := val;
-    *)
-    match stmt.stmt_desc with
-    | Block block_desc ->
-      let+ stmt_list =
-        Rewriter.List.fold_right block_desc.block_body ~init:[]
-          ~f:(fun stmt stmt_list ->
-              let+ stmts = pre_process_stmt stmt in
-              stmts @ stmt_list)
-      in
-      [{stmt with stmt_desc = Block { block_desc with block_body = stmt_list } }]
-    | Basic basic_stmt ->
-      (match basic_stmt with
-        | VarDef var_def -> 
-          (match var_def.var_init with
-          | None -> [stmt]
-          | Some expr -> 
-            let (var_def': Stmt.var_def) = {var_decl = var_def.var_decl; var_init = None} in
-            let (stmt1: Stmt.t) = {stmt_desc = Basic (VarDef var_def'); stmt_loc = stmt.stmt_loc;} in
-            let (var_expr: Expr.t) = App (Var (QualIdent.from_ident var_def.var_decl.var_name), [], {expr_loc = stmt.stmt_loc; expr_type = var_def.var_decl.var_type}) in
-            let (assign_desc': Stmt.assign_desc) = {assign_lhs = [var_expr]; assign_rhs = expr} in
-            let (stmt2: Stmt.t) = {stmt_desc = Basic (Assign assign_desc'); stmt_loc = stmt.stmt_loc;} in
-
-            [stmt1; stmt2]
-            
-          )
-
-
-        | _ -> [stmt]
-      )
-    | Loop loop_desc -> (
-      let loop_prebody_list = pre_process_stmt loop_desc.loop_prebody in
-      let loop_prebody' = (match loop_prebody_list with
-        | [stmt'] -> stmt'
-        | stmt_list ->
-          {loop_desc.loop_prebody with stmt_desc = Block { block_body = stmt_list; block_is_ghost = false } }
-      ) in
-
-      let loop_postbody_list = pre_process_stmt loop_desc.loop_postbody in
-      let loop_postbody' = (match loop_postbody_list with
-        | [stmt'] -> stmt'
-        | stmt_list -> 
-          {loop_desc.loop_postbody with stmt_desc = Stmt.mk_block stmt_list }
-      ) in
-
-
-      let loop_desc' = { loop_desc with
-            loop_prebody = loop_prebody';
-            loop_postbody = loop_postbody';
-      } in
-
-      [{stmt with stmt_desc = Loop loop_desc';}]
-      )
-
-    | Cond cond_desc -> (
-      let cond_then_list = pre_process_stmt cond_desc.cond_then in
-      let cond_then' = (match cond_then_list with
-        | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Stmt.mk_block stmt_list; stmt_loc = cond_desc.cond_then.stmt_loc;}
-      ) in
-
-      let cond_else_list = pre_process_stmt cond_desc.cond_else in
-      let cond_else' = (match cond_else_list with
-        | [stmt'] -> stmt'
-        | stmt_list -> {stmt_desc = Stmt.mk_block stmt_list; stmt_loc = cond_desc.cond_else.stmt_loc;}
-      ) in
-
-      let cond_desc' = { cond_desc with
-            cond_then = cond_then';
-            cond_else = cond_else';
-      } in
-
-      [{stmt with stmt_desc = Cond cond_desc';}]
-    )
-  *)
-  let process_stmt ?(new_scope=true) (expected_return_type: Type.t) (stmt: Stmt.t) (disam_tbl: DisambiguationTbl.t) : (Stmt.t * var_decl list * DisambiguationTbl.t) Rewriter.t =
+  let process_stmt ?(new_scope=true) (expected_return_type: Type.t) (stmt: Stmt.t) (disam_tbl: DisambiguationTbl.t) : (Stmt.t * DisambiguationTbl.t) Rewriter.t =
     let rec process_stmt ?(new_scope=true) stmt disam_tbl =
     let open Rewriter.Syntax in
-    (*let stmt_list = pre_process_stmt stmt in
-    let stmt = match stmt_list with
-      | [stmt'] -> stmt'
-      | stmt_list -> {stmt_desc = Block { block_body = stmt_list; block_is_ghost = false }; stmt_loc = stmt.stmt_loc;}
-    in*)
-
-    let+ stmt_desc, locals, disam_tbl =
+    let+ stmt_desc, disam_tbl =
     match stmt.Stmt.stmt_desc with
     | Block block_desc ->
       let disam_tbl =
@@ -791,10 +632,10 @@ module ProcessCallable = struct
         else disam_tbl
       in
 
-      let+ (locals, disam_tbl), stmt_list = Rewriter.List.fold_map block_desc.block_body ~init:([], disam_tbl) 
-        ~f:(fun (locals, disam_tbl) stmt -> 
-             let+ stmt, locals', disam_tbl = process_stmt stmt disam_tbl in
-             (locals @ locals', disam_tbl), stmt
+      let+ disam_tbl, stmt_list = Rewriter.List.fold_map block_desc.block_body ~init:disam_tbl 
+        ~f:(fun disam_tbl stmt -> 
+             let+ stmt, disam_tbl = process_stmt stmt disam_tbl in
+             disam_tbl, stmt
            )
       in
 
@@ -804,7 +645,7 @@ module ProcessCallable = struct
         else disam_tbl
       in
       
-      Stmt.Block { block_desc with block_body = stmt_list }, locals, disam_tbl
+      Stmt.Block { block_desc with block_body = stmt_list }, disam_tbl
 
     | Basic basic_stmt ->
       begin match basic_stmt with
@@ -820,11 +661,11 @@ module ProcessCallable = struct
             let var_expr = Expr.App (Var var, [], {expr_loc = stmt.stmt_loc; expr_type = var_decl.var_type}) in
             let assign_desc = Stmt.{ assign_lhs = [var_expr]; assign_rhs = expr } in
             Stmt.Basic (Assign assign_desc)
-        and+ _ = Rewriter.add_locals [var_decl] in
-        stmt, [var_decl], disam_tbl'
+        and+ _ = Rewriter.introduce_symbol (VarDef { var_decl; var_init = None }) in
+        stmt, disam_tbl'
       | Spec (sk, spec) -> 
         let+ spec = process_stmt_spec disam_tbl spec in
-        Stmt.Basic (Spec (sk, spec)), [], disam_tbl
+        Stmt.Basic (Spec (sk, spec)), disam_tbl
 
       | Assign assign_desc ->
         (* THIS IS WHERE the RHS needs to be examined; *)
@@ -850,7 +691,7 @@ module ProcessCallable = struct
               | [] -> 
                 let open_au = au_token in
 
-                Stmt.Basic (OpenAU open_au), [], disam_tbl
+                Stmt.Basic (OpenAU open_au), disam_tbl
               | _ -> Error.type_error stmt.stmt_loc ("openAU does not take arguments")
               end
 
@@ -865,7 +706,7 @@ module ProcessCallable = struct
                     let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
                     let au_token = Expr.to_ident token_expr in
                       
-                    Stmt.Basic (CommitAU au_token), [], disam_tbl
+                    Stmt.Basic (CommitAU au_token), disam_tbl
 
                 | _ ->
                     Error.error (Stmt.loc stmt) ("incorrect number of LHS args to commitAU()")
@@ -879,7 +720,7 @@ module ProcessCallable = struct
               (match assign_desc.assign_lhs with
               | [ token ] ->
                 let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
-                Stmt.Basic (BindAU (Expr.to_ident token_expr)), [], disam_tbl
+                Stmt.Basic (BindAU (Expr.to_ident token_expr)), disam_tbl
               | _ ->
                 Error.error (Stmt.loc stmt) ("incorrect number of bound_args to bindAU()")
               )
@@ -893,7 +734,7 @@ module ProcessCallable = struct
                 match assign_desc.assign_lhs with
                 | [] -> 
                   let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
-                  Stmt.Basic (Stmt.AbortAU (Expr.to_ident token_expr)), [], disam_tbl
+                  Stmt.Basic (Stmt.AbortAU (Expr.to_ident token_expr)), disam_tbl
                 | _ ->
                   Error.error (Stmt.loc stmt) "incorrect number of bound_args to abortAU()")
             | _ -> Error.error (Stmt.loc stmt)  "abortAU() called without token"
@@ -914,7 +755,7 @@ module ProcessCallable = struct
                   fpu_field = field_qual_ident;
                   fpu_val = val_expr;
                 } in
-                Stmt.Basic (Stmt.Fpu fpu_desc), [], disam_tbl
+                Stmt.Basic (Stmt.Fpu fpu_desc), disam_tbl
             | _ ->
               Error.error (Stmt.loc stmt) "fpu() called incorrectly"
 
@@ -948,7 +789,7 @@ module ProcessCallable = struct
                 }
               in
 
-              Stmt.Basic (Call call_desc), [] , disam_tbl
+              Stmt.Basic (Call call_desc), disam_tbl
 
             | _ -> failwith "Unexpected error during type checking."
             end
@@ -977,19 +818,19 @@ module ProcessCallable = struct
             }
           in
           
-          Stmt.Basic (Assign assign_desc), [], disam_tbl
+          Stmt.Basic (Assign assign_desc), disam_tbl
         end
         )
       
       | Havoc qual_ident ->
         let qual_ident = disambiguate_ident qual_ident disam_tbl in
-        Rewriter.return (Stmt.Basic (Havoc qual_ident), [], disam_tbl)
+        Rewriter.return (Stmt.Basic (Havoc qual_ident), disam_tbl)
 
       | Return expr ->
         let+ expr =
           disambiguate_process_expr expr expected_return_type disam_tbl
         in
-        Stmt.Basic (Return expr), [], disam_tbl
+        Stmt.Basic (Return expr), disam_tbl
 
       | Use use_desc ->
 
@@ -1015,7 +856,7 @@ module ProcessCallable = struct
 
         let+ use_args = process_callable_args stmt.stmt_loc pred_decl use_args in
 
-        Stmt.Basic (Use {use_desc with use_name = use_name; use_args = use_args}), [], disam_tbl
+        Stmt.Basic (Use {use_desc with use_name = use_name; use_args = use_args}), disam_tbl
       
       | New new_desc ->
         let new_qual_ident = disambiguate_ident new_desc.new_lhs disam_tbl in
@@ -1032,7 +873,7 @@ module ProcessCallable = struct
           let process_field_init (field_name, expr_opt) =
             let* field_name, symbol = Rewriter.resolve_and_find stmt.stmt_loc field_name in
             let* field_type = Rewriter.Symbol.reify_field_type stmt.stmt_loc symbol in
-            let+ expr_opt = Rewriter.map_opt expr_opt (fun expr -> disambiguate_process_expr expr field_type disam_tbl) in
+            let+ expr_opt = Rewriter.Option.map expr_opt ~f:(fun expr -> disambiguate_process_expr expr field_type disam_tbl) in
             (field_name, expr_opt)
           in
           let+ new_args = Rewriter.List.map new_desc.new_args ~f:process_field_init in
@@ -1044,7 +885,7 @@ module ProcessCallable = struct
             }
           in
 
-          Stmt.Basic (New new_desc), [], disam_tbl
+          Stmt.Basic (New new_desc), disam_tbl
         else
           type_mismatch_error stmt.stmt_loc Type.ref var_decl.var_type
         
@@ -1073,13 +914,13 @@ module ProcessCallable = struct
       let* loop_contract = Rewriter.List.map loop_desc.loop_contract ~f:(process_stmt_spec disam_tbl) in
 
       let disam_tbl = DisambiguationTbl.push disam_tbl in
-      let* loop_prebody, locals', disam_tbl = process_stmt loop_desc.loop_prebody disam_tbl in
+      let* loop_prebody, disam_tbl = process_stmt loop_desc.loop_prebody disam_tbl in
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
       let* loop_test = disambiguate_process_expr loop_desc.loop_test Type.bool disam_tbl in
 
       let disam_tbl = DisambiguationTbl.push disam_tbl in
-      let+ loop_postbody, locals'', disam_tbl = process_stmt loop_desc.loop_postbody disam_tbl in
+      let+ loop_postbody, disam_tbl = process_stmt loop_desc.loop_postbody disam_tbl in
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
       (* Actually think about what variables need to be collected in `locals`. What if same variable is declared in multiple scopes in a callable, do all of them go in the `call_decl.call_decl_locals`? TW: I would say yes, unless you already have that information in the SymbolTable and always lookup locals through that. *)
@@ -1091,17 +932,17 @@ module ProcessCallable = struct
         loop_postbody;
       } in
 
-      Stmt.Loop loop_desc, locals' @ locals'', disam_tbl
+      Stmt.Loop loop_desc, disam_tbl
 
     | Cond cond_desc ->
       let* cond_test = disambiguate_process_expr cond_desc.cond_test Type.bool disam_tbl in
 
       let disam_tbl = DisambiguationTbl.push disam_tbl in
-      let* cond_then, locals', disam_tbl = process_stmt cond_desc.cond_then disam_tbl in
+      let* cond_then, disam_tbl = process_stmt cond_desc.cond_then disam_tbl in
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
       let disam_tbl = DisambiguationTbl.push disam_tbl in
-      let+ cond_else, locals'', disam_tbl = process_stmt cond_desc.cond_else disam_tbl in
+      let+ cond_else, disam_tbl = process_stmt cond_desc.cond_else disam_tbl in
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
       let (cond_desc: Stmt.cond_desc) = {
@@ -1110,17 +951,17 @@ module ProcessCallable = struct
         cond_else;
       } in
 
-      Stmt.Cond cond_desc, locals' @ locals'', disam_tbl
+      Stmt.Cond cond_desc, disam_tbl
     in
   
-    Stmt.{stmt_desc = stmt_desc; stmt_loc = stmt.stmt_loc}, locals, disam_tbl
+    Stmt.{stmt_desc = stmt_desc; stmt_loc = stmt.stmt_loc}, disam_tbl
 
     in
     process_stmt ~new_scope stmt disam_tbl
 
   let process_callable (callable: Callable.t) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
-    let* _ = Rewriter.update_table (fun tbl -> SymbolTbl.enter callable.call_decl.call_decl_loc callable.call_decl.call_decl_name tbl) in    
+    let* _ = Rewriter.enter_callable callable in
     let disam_tbl = (DisambiguationTbl.push []) in
     let call_decl = Callable.to_decl callable in
     let process_decls var_decls disam_tbl =
@@ -1153,7 +994,7 @@ module ProcessCallable = struct
       | FuncDef func_def ->
         (* FuncDefs should not have any new call_decl_locals in body because they are expressions. That is, all call_decl_locals are the arguments it takes. These are being disambiguated in the above.*)
 
-        let+ func_body = Rewriter.map_opt func_def.func_body (fun expr ->
+        let+ func_body = Rewriter.Option.map func_def.func_body ~f:(fun expr ->
             let expected_return_type = Callable.return_type call_decl in
             disambiguate_process_expr expr expected_return_type disam_tbl)
         in
@@ -1169,19 +1010,11 @@ module ProcessCallable = struct
           
       | ProcDef proc_def ->
         let expected_return_type = Callable.return_type call_decl in
-        let+ proc_body, locals = match proc_def.proc_body with
-        | None -> Rewriter.return (None, [])
-        | Some stmt -> 
-          let+ stmt, locals, _disam_tbl =
+        let+ proc_body = Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
+          let+ stmt, _disam_tbl =
             process_stmt ~new_scope:false expected_return_type stmt disam_tbl
           in
-          Some stmt, locals
-        in
-        
-        let call_decl =
-          { call_decl with
-            call_decl_locals = call_decl.call_decl_locals @ locals
-          }
+          stmt)
         in
         
         let proc_def =
@@ -1192,7 +1025,7 @@ module ProcessCallable = struct
         in
         proc_def
     in
-    let+ _ = Rewriter.update_table (fun tbl -> SymbolTbl.exit tbl) in
+    let+ callable = Rewriter.exit_callable callable in
     Module.CallDef callable
   
       
@@ -1202,34 +1035,12 @@ end
 
 
 module ProcessModule = struct
-  (*let add_imports_to_tbl (imported_mod: Module.t) (tbl: SymbolTbl.t) : SymbolTbl.t =
-    let tbl = Map.fold (imported_mod.mod_decl.mod_decl_fields) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (Field data)) in
-
-    let tbl = List.fold imported_mod.mod_defs imported_mod
-
-
-      Map.fold (imported_mod.mod_decl.mod_decl_mod_defs) ~init:tbl ~f:(fun ~key:mod_name ~data:_mod_decl tbl -> 
-      let orig_mod = Module.find_mod orig_imported_mod.members.mod_defs mod_name in
-      let new_mod = Module.find_mod imported_mod.members.mod_defs mod_name in
-      SymbolTbl.add tbl (QualIdent.from_ident mod_name) (ModDecl (new_mod, orig_mod))) in
-
-    (* let tbl = Map.fold (imported_mod.module_decl.mod_decl_mod_aliases) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (ModAlias data)) in *)
-
-    let tbl = Map.fold (imported_mod.mod_decl.mod_decl_types) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (TypeAlias data)) in
-
-    let tbl = Map.fold (imported_mod.mod_decl.mod_decl_callables) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (Callable data)) in
-
-    let tbl = Map.fold (imported_mod.mod_decl.mod_decl_vars) ~init:tbl ~f:(fun ~key:key ~data:data tbl -> SymbolTbl.add tbl (QualIdent.from_ident key) (VarDecl data)) in
-
-    tbl*)
 
 
   let rec process_type_def (type_def: Module.type_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
     match type_def.type_def_expr with
     | None ->
-      (* TW: is the following update needed? *)
-      (*let tbl = SymbolTbl.set_global_symbol (QualIdent.from_ident type_def.type_def_name) Module.(TypeDef type_def) tbl in*)
       Rewriter.return Module.(TypeDef type_def)
     | Some tp_expr ->
       let+ tp_expr = 
@@ -1329,7 +1140,7 @@ module ProcessModule = struct
   let rec process_var (var: Stmt.var_def) : Module.symbol Rewriter.t = 
     let open Rewriter.Syntax in
     let* var_decl = ProcessTypeExpr.process_var_decl var.var_decl in
-    let+ var_init = Rewriter.map_opt var.var_init (fun expr -> process_expr expr var_decl.var_type) in
+    let+ var_init = Rewriter.Option.map var.var_init ~f:(fun expr -> process_expr expr var_decl.var_type) in
 
     let (var: Stmt.var_def) = { var_decl; var_init } in
 
@@ -1498,15 +1309,15 @@ module ProcessModule = struct
           | ConstrDef _ | DestrDef _ -> Rewriter.return symbol (* These should not occur directly in a module definition *)
           | CallDef call_def -> ProcessCallable.process_callable call_def
           | ModDef mod_def ->
-            let* _ = Rewriter.enter mod_def
+            let* _ = Rewriter.enter_module mod_def
             and* mod_def = process_module mod_def in
-            let+ mod_def = Rewriter.exit mod_def in
+            let+ mod_def = Rewriter.exit_module mod_def in
             Module.ModDef mod_def
           | ModInst _ -> failwith "not implemented"
         in
         let+ _ = Rewriter.set_symbol symbol in
         Module.SymbolDef symbol
-      | Import import -> (* handled earlier *)
+      | Import import -> (* Handled by symbol table *)
         Rewriter.return (Module.Import import)
     in 
 
@@ -1527,11 +1338,9 @@ module ProcessModule = struct
                 ~e:(fun () -> Some type_def.type_def_name) () rep_type
             | _ -> rep_type)
     in
-    (*  let* tbl = Rewriter.get_table in
-      let tbl, mod_decl_type = ProcessTypeExpr.process_type_expr m.mod_decl.mod_decl_rep*)
     let mod_decl = { m.mod_decl with mod_decl_rep } in
     let+ mod_def = Rewriter.List.map m.mod_def ~f:process_instr in
-    Module.{ m with mod_decl; mod_def }
+    Module.{ mod_decl; mod_def }
     
     (*
     let formal_args_mod_aliases = mod_decl.mod_decl_formals in

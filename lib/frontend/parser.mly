@@ -25,8 +25,9 @@ open Ast
 %token <Ast.Callable.call_kind> PROC
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
 %token ATOMIC GHOST IMPLICIT REP  
-%token <bool> VAR  
-%token INTERFACE MODULE TYPE IMPORT
+%token <bool> VAR
+%token <bool> MODULE  
+%token TYPE IMPORT
 %token RETURNS REQUIRES ENSURES INVARIANT
 %token EOF
 
@@ -50,7 +51,6 @@ main:
   in
   { mod_decl = decl;
     mod_def = ms;
-    mod_interface = false;
   }
 }
 ;
@@ -58,44 +58,74 @@ main:
 (** Member Definitions *)
 
 module_def:
-| MODULE; decl = module_header; def = module_inst_or_impl {
+| is_interface = MODULE; decl = module_header; def = module_inst_or_impl_or_decl {
   let open Module in
   match def with
   | ModDef impl ->
-      ModDef { impl with mod_decl = decl; }
+      ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
   | ModInst ma ->
   (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def)) (Some "Expected {")
       else
-        let mod_inst_type = match decl.mod_decl_returns with
-        | [ mod_inst_type ] -> mod_inst_type
-        | _ -> Error.syntax_error (Loc.make $endpos(decl) $endpos(decl)) (Some "Expected exactly one interface")
+        let mod_inst_type =
+          match decl.mod_decl_returns, ma.mod_inst_def with
+        | [ mod_inst_type ], _ 
+        | [], Some (mod_inst_type, _) -> mod_inst_type
+        | [], None -> Error.syntax_error (Loc.make $endpos(decl) $endpos(decl)) (Some "Expected specification of interface implemented by this module")
+        | _ -> Error.syntax_error (Loc.make $endpos(decl) $endpos(decl)) (Some "Expected at most one interface")
         in
         ModInst { ma with
                   mod_inst_type;
                   mod_inst_name = decl.mod_decl_name;
+                  mod_inst_is_interface = is_interface;
                   mod_inst_loc = decl.mod_decl_loc }
   | symbol -> symbol
 }
   
-module_inst_or_impl:
+module_header:
+| id = MODIDENT; mod_formals = module_param_list_opt; rts = return_type_list_opt {
+  let open Module in
+  let decl =
+    { empty_decl with
+      mod_decl_name = id;
+      mod_decl_formals = mod_formals;
+      mod_decl_returns = rts;
+      mod_decl_loc = Loc.make $startpos(id) $endpos(id);
+    }
+  in
+  decl
+}
+
+return_type_list_opt:
+| COLON; ts = separated_nonempty_list(COMMA, mod_ident) { ts }
+| (* empty *) { [] }
+
+module_inst_or_impl_or_decl:
 | LBRACE; ms = member_def_list_opt; RBRACE {
   Module.( ModDef { mod_decl = empty_decl;
                     mod_def = ms;
-                    mod_interface = false;
                   } )
 }
-| EQ; mod_name = qual_ident; args = mod_inst_args {
+| EQ; mod_name = mod_ident; args = mod_inst_args {
   Module.( ModInst { mod_inst_name = Ident.make "" 0; (* dummy *)
                      mod_inst_type = QualIdent.make [] (Ident.make "" 0); (* dummy *)
-                     mod_inst_def = Some (Expr.to_qual_ident mod_name, args);
+                     mod_inst_def = Some (mod_name, args);
+                     mod_inst_is_interface = false;
+                     mod_inst_loc = Loc.dummy;
+                   } )
+}
+| (* empty *) {
+  Module.( ModInst { mod_inst_name = Ident.make "" 0; (* dummy *)
+                     mod_inst_type = QualIdent.make [] (Ident.make "" 0); (* dummy *)
+                     mod_inst_def = None;
+                     mod_inst_is_interface = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
 
 mod_inst_args:
-| LBRACKET ids = separated_list(COMMA, qual_ident) RBRACKET { List.map Expr.to_qual_ident ids }
+| LBRACKET ids = separated_list(COMMA, mod_ident) RBRACKET { ids }
 | { [] }
     
 member_def_list_opt:
@@ -106,7 +136,7 @@ member_def_list_opt:
 member_def:
 | def = field_def { Module.SymbolDef (Module.FieldDef def)}
 | def = module_def { Module.SymbolDef def }
-| def = interface_def { Module.SymbolDef def }
+/*| def = interface_def { Module.SymbolDef def }*/
 | def = type_def { Module.SymbolDef (Module.TypeDef def) }
 | def = var_def { Module.SymbolDef (Module.VarDef def) }
 | def = proc_def 
@@ -125,9 +155,9 @@ field_def:
   }
 
 type_def:
-| def = type_decl; EQ; t = type_def_expr {
+| def = type_decl; t = option(preceded(EQ, type_def_expr)) {
   let open Module in
-  { def with type_def_expr = Some t }
+  { def with type_def_expr = t }
 }
 
 type_def_expr:
@@ -150,24 +180,25 @@ variant_args:
 
     
 proc_def:
-| def = proc_decl; s = block {
+| def = proc_decl; body = option(block) {
   let open Callable in
-  let body =
-    Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) }
+  let proc_body = Option.map body (fun s ->
+    Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(body) $endpos(body) })
   in
-  { def with call_def = ProcDef { proc_body = Some body } }
+  { def with call_def = ProcDef { proc_body } }
 }
 
 func_def:
-| def = func_decl; LBRACE body = expr RBRACE {
+| def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {
   let open Callable in
-  { def with call_def = FuncDef { func_body = Some body } }
+  { def with call_def = FuncDef { func_body = body } }
 }
 
     
 
 (** Member Declarations *)
 
+(*
 interface_def:
 | INTERFACE; decl = module_header; LBRACE ms = list(member_decl) RBRACE {
   Module.( ModDef { mod_decl = { decl with mod_decl_loc = Loc.make $startpos $endpos };
@@ -176,20 +207,6 @@ interface_def:
                    } )
 }
     
-module_header:
-| id = MODIDENT; mod_formals = module_param_list_opt; rts = return_type_list_opt {
-  let open Module in
-  let decl =
-    { empty_decl with
-      mod_decl_name = id;
-      mod_decl_formals = mod_formals;
-      mod_decl_returns = rts;
-      mod_decl_loc = Loc.make $startpos(id) $endpos(id);
-    }
-  in
-  decl
-}
-
 module_decl:
 | MODULE; id = MODIDENT; COLON; t = mod_ident; (*tdef = module_inst_def_opt*) {
   Module.( ModInst { mod_inst_name = id;
@@ -214,12 +231,8 @@ module_inst_def_opt:
 module_inst_def:
 | EQ; id = mod_ident; ids = mod_inst_args { Some (id, ids) }
 */
-    
-return_type_list_opt:
-| COLON; ts = separated_nonempty_list(COMMA, mod_ident) { ts }
-| (* empty *) { [] }
-
-    
+*)
+   
 module_param_list_opt:
 | LBRACKET ps = separated_list(COMMA, module_param) RBRACKET { ps }
 | (* empty *) { [] }
@@ -230,12 +243,14 @@ module_param:
     Module.{ mod_inst_name = id;
              mod_inst_type = t;
              mod_inst_def = None;
+             mod_inst_is_interface = false;
              mod_inst_loc = Loc.make $startpos $endpos;
            }
   in
   decl
 }
 
+(*
 member_decl:
 | def = type_decl { Module.SymbolDef (Module.TypeDef def) }
 | def = interface_def { Module.SymbolDef def }
@@ -244,10 +259,11 @@ member_decl:
 | def = proc_decl 
 | def = func_decl { Module.SymbolDef (Module.CallDef def) }
 | imp = import_dir { Module.Import imp }
-    
+*)  
     
 import_dir:
 | IMPORT; id = qual_ident { { import_name = Expr.to_qual_ident id; import_loc = Loc.make $startpos $endpos } }
+| IMPORT; id = mod_ident { { import_name = id; import_loc = Loc.make $startpos $endpos } }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {
@@ -375,9 +391,6 @@ stmt_no_short_if_desc:
 
 stmt_wo_trailing_substmt:
 (* variable definition *)
-| def = var_decl; SEMICOLON {
-    Basic (VarDef def)
-}
 | def = var_def; SEMICOLON {
     Basic (VarDef def)
 }
@@ -457,28 +470,16 @@ new_or_expr:
   in
   Stmt.(Basic (Assign assign))
 }
-
-  
-var_decl:
-| g = ghost_modifier; v = VAR; decl = bound_var {
-  let decl =
-    Type.{ decl with
-           var_ghost = g;
-           var_const = v;
-         }
-  in
-  Stmt.{ var_decl = decl; var_init = None }
-}
-
+ 
 var_def:
-| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; EQ; e = expr {
+| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(EQ, expr)) {
   let decl =
     Type.{ decl with
            var_ghost = g;
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = Some e }
+  Stmt.{ var_decl = decl; var_init = e }
 }
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr {
   let decl =

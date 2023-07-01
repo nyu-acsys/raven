@@ -106,6 +106,12 @@ let create () =
     tbl_symbols = Map.empty (module QualIdent);
   }
 
+(** Reset table to the root scope *)
+let reset tbl =
+  { tbl with
+    tbl_curr = tbl.tbl_root;
+    tbl_path = [] }
+
 (** Return the name of the root scope of [tbl] *)
 let root_ident tbl = tbl.tbl_root.scope_id
 
@@ -174,14 +180,18 @@ let resolve_exn loc name tbl =
   resolve name tbl |>
   Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
       
-(** Resolve [name] relative to the current scope in [tbl] and return its fully qualified name
-    as well as the associated symbol. *)
-let resolve_and_find name tbl : (QualIdent.t * Module.symbol * QualIdent.subst) option =
+(** Resolve [name] relative to the current scope in [tbl] and return:
+    - the fully qualified name of the associated symbol, relative to the scope where the symbol is declared
+    - the fully qualified name of the associated symbol, relative to the scope where the symbol is used
+    - the associated symbol, relative to the scope where the symbol is declared
+    - a substitution map that maps the symbol definition to the scope where it is used.
+*)
+let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * QualIdent.subst) option =
   let open Option.Syntax in
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
   Logs.debug (fun m -> m "%a" QualIdent.pr orig_qual_ident);
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
-  orig_qual_ident, symbol, subst
+  alias_qual_ident, orig_qual_ident, symbol, subst
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_and_find_exn loc name (tbl : t) =
@@ -206,7 +216,7 @@ let enter loc name tbl : t =
   (let scope_children = get_scope_children tbl.tbl_curr in
    let+ scope = Hashtbl.find scope_children name in
    { tbl with tbl_curr = scope; tbl_path = tbl.tbl_curr :: tbl.tbl_path }) |>
-  Option.lazy_value ~default:(fun () -> Error.internal_error loc (Printf.sprintf !"Did not find scope %{Ident}" name))
+  Option.lazy_value ~default:(fun () -> Error.internal_error loc (Printf.sprintf !"Did not find subscope %{Ident} in scope %{QualIdent}" name (get_scope_id tbl.tbl_curr)))
 
 (** Exit the current scope in [tbl]. *)
 let exit tbl : t =
@@ -214,6 +224,10 @@ let exit tbl : t =
   | scope :: path -> { tbl with tbl_curr = scope; tbl_path = path }
   | [] -> failwith "Empty symbol table"
 
+
+(** Go to the scope in [tbl] that declares the symbol associated with absolute identifier [name] *)
+let goto loc name tbl : t =
+  List.fold_left (QualIdent.path name) ~init:(reset tbl) ~f:(fun tbl ident -> enter loc ident tbl)
 
 let add_to_map map loc key data =
   match Hashtbl.add map ~key ~data with
@@ -225,7 +239,7 @@ let rec import import_instr (tbl : t) : t =
   let open Module in
   let import_loc = import_instr.import_loc in
   let unresolved_imported_ident = import_instr.import_name in
-  let imported_ident, symbol, _ = resolve_and_find_exn import_loc unresolved_imported_ident tbl in
+  let _, imported_ident, symbol, _ = resolve_and_find_exn import_loc unresolved_imported_ident tbl in
   let curr_scope = tbl.tbl_curr in
   let _ = match symbol with
     | ModDef { mod_def ; _ } ->
@@ -233,7 +247,7 @@ let rec import import_instr (tbl : t) : t =
         | SymbolDef symbol ->
           let symbol_name = Module.symbol_to_name symbol in
           let symbol_ident = QualIdent.append unresolved_imported_ident symbol_name in
-          let symbol_fully_qual_ident, _, _ = resolve_and_find_exn import_loc symbol_ident tbl in
+          let _, symbol_fully_qual_ident, _, _ = resolve_and_find_exn import_loc symbol_ident tbl in
           add_to_map (get_scope_entries curr_scope) import_loc symbol_name (Alias (symbol_fully_qual_ident, []))
         | _ -> ())
   | _ ->
@@ -254,7 +268,7 @@ let add_symbol symbol tbl =
       let mod_inst_qual_ident, subst =
         match mod_inst.mod_inst_def with
         | None ->
-          let mod_inst_type, _mod_inst_symbol, _ = resolve_and_find_exn mod_inst.mod_inst_loc mod_inst.mod_inst_type tbl in
+          let _, mod_inst_type, _mod_inst_symbol, _ = resolve_and_find_exn mod_inst.mod_inst_loc mod_inst.mod_inst_type tbl in
           mod_inst_type, []
         | Some (_mod_inst_func, _mod_inst_args) ->
           failwith "not yet implemented"
