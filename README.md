@@ -1,4 +1,4 @@
-<img align="right" width="300" src="logo.png"/>
+<img align="right" width="150" src="logo.png"/>
 
 # Raven
 ![Version 0.1 pre](https://img.shields.io/badge/version-0.1_pre-green.svg)
