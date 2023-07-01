@@ -1,7 +1,7 @@
 (** Symbol table data structure *)
 
 open Base
-open Ast
+open AstDef
 open Util
 
 let unknown_ident_error loc id =

@@ -1,5 +1,5 @@
 open Base
-open Ast
+open AstDef
 open Util
 
 type state = {
@@ -215,7 +215,7 @@ module VarDecl = struct
 
   let rewrite_types ~f var_decl : var_decl t =
     let open Syntax in
-    let+ var_type = f var_decl.Ast.Type.var_type in
+    let+ var_type = f var_decl.AstDef.Type.var_type in
     { var_decl with var_type = var_type }  
 end
 
@@ -232,7 +232,7 @@ module Expr = struct
       and+ inner_expr = f inner_expr in    
       Expr.Binder (b, v_l, inner_expr, expr_attr)
 
-  let rec rewrite_types ~(f: Ast.Type.t -> Ast.Type.t t) (expr: Expr.t) : Expr.t t =
+  let rec rewrite_types ~(f: AstDef.Type.t -> AstDef.Type.t t) (expr: Expr.t) : Expr.t t =
     let open Syntax in
     match expr with
     | App (constr, expr_list, expr_attr) ->
@@ -445,7 +445,7 @@ module Callable = struct
 
   let rewrite_expressions_top ~(fe:expr -> expr t) ~fs callable : Callable.t t =
     let open Syntax in
-    let open Ast.Stmt in
+    let open AstDef.Stmt in
     let rewrite_specs specs =
       List.map specs ~f:(fun spec ->
           let+ new_spec_form = fe spec.spec_form in
@@ -617,33 +617,33 @@ module Symbol = struct
   let reify (name, symbol, subst) =
     let open Syntax in
     let+ tbl = get_table in
-    let tbl_scope = SymbolTbl.goto (Ast.Module.symbol_to_loc symbol) name tbl in
+    let tbl_scope = SymbolTbl.goto (AstDef.Module.symbol_to_loc symbol) name tbl in
     let _, symbol = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
     symbol
 
-  let reify_type_def loc (_name, symbol, subst) : Ast.Type.t Base.Option.t t =
+  let reify_type_def loc (_name, symbol, subst) : AstDef.Type.t Base.Option.t t =
     let open Syntax in
     match symbol with
-    | Ast.Module.TypeDef { type_def_expr = None; _ } ->
+    | AstDef.Module.TypeDef { type_def_expr = None; _ } ->
       return None
     | TypeDef { type_def_expr = Some tp_expr; _ } -> 
       let+ tp_expr = Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr in
       Some tp_expr
     | _ -> Error.error loc "Expected type identifier"
 
-  let reify_type loc (_name, symbol, subst) : Ast.Type.t t =
+  let reify_type loc (_name, symbol, subst) : AstDef.Type.t t =
     let tp_expr =
       match symbol with
-      | Ast.Module.VarDef { var_decl; _ } -> var_decl.var_type
+      | AstDef.Module.VarDef { var_decl; _ } -> var_decl.var_type
       | FieldDef field_def -> field_def.field_type
       | _ -> Error.error loc "Expected expression identifier"
     in
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
       
-  let reify_field_type loc (_name, symbol, subst) : Ast.Type.t t =
+  let reify_field_type loc (_name, symbol, subst) : AstDef.Type.t t =
     let tp_expr =
       match symbol with
-      | Ast.Module.FieldDef { field_type = App(Fld, [tp], _); _ } -> tp
+      | AstDef.Module.FieldDef { field_type = App(Fld, [tp], _); _ } -> tp
       | _ -> Error.error loc "Expected field identifier"
     in
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
@@ -654,7 +654,7 @@ module Symbol = struct
   let extract (symbol, subst) ~f =
     f (QualIdent.requalify subst) symbol
 
-  type t = QualIdent.t * Ast.Module.symbol * QualIdent.subst
+  type t = QualIdent.t * AstDef.Module.symbol * QualIdent.subst
                                  
 end
 
