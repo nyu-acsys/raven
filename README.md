@@ -1,8 +1,8 @@
-<img align="right" width="150" src="logo.png"/>
-
 # Raven
 ![Version 0.1 pre](https://img.shields.io/badge/version-0.1_pre-green.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE)
+
+<img align="right" width="150" src="logo.png"/>
 
 The Resource Algebra Verification ENgine.
 
