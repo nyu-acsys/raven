@@ -7,9 +7,8 @@ let rec pr_list i pr_sep pr_x ppf = function
   | [x] -> fprintf ppf "%a" (pr_x i) x
   | x :: xs -> fprintf ppf "%a%a%a" (pr_x i) x pr_sep () (pr_list (i + 1) pr_sep pr_x) xs
 
-let pr_list_sep sep pr_x ppf = function
-  | [] -> fprintf ppf "_EmptyList_"
-  | l -> pr_list 0 (fun ppf _ -> fprintf ppf sep) (fun _ -> pr_x) ppf l
+let pr_list_sep sep pr_x ppf =
+  pr_list 0 (fun ppf _ -> fprintf ppf sep) (fun _ -> pr_x) ppf
         
 let pr_list_comma pr_x ppf =
   pr_list_sep ",@ " pr_x ppf 

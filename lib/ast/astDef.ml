@@ -89,7 +89,7 @@ module QualIdent = struct
   include Comparable.Make (T)
 
   (* Substitution maps for module instantiation *)
-  type subst = (t * t) list
+  type subst = (t * Ident.t list) list
   
   let to_list qid =
     qid.qual_path @ [ qid.qual_base ]
@@ -154,21 +154,24 @@ module QualIdent = struct
   (* concat "qid1" "qid2" -> "qid1.quid2" *)
   let concat qid1 qid2 = make (qid1.qual_path @ qid1.qual_base :: qid2.qual_path) qid2.qual_base
 
+
+  let requalify_path subst path = 
+    let f path (p, p_new) =
+      let rec requalify p1 p2 =
+        match p1, p2 with
+        | [], p2 -> List.append p_new p2
+        | id1 :: p1, id2 :: p2 when Ident.(id1 = id2) ->
+          requalify p1 p2
+        | _ -> path
+      in
+      requalify (to_list p) path
+    in
+    List.fold_left subst ~init:path ~f
   
   (* requalify [(p, p_new)] "p.p2.x" -> "p_new.p2.x" *)
   let requalify subst qid =
-    let f qid (p, p_new) =
-      let rec requalify p1 p2 =
-        match p1, p2 with
-        | [], p2 -> from_rev_list (List.rev_append p2 @@ to_rev_list p_new)
-        | id1 :: p1, id2 :: p2 when Ident.(id1 = id2) ->
-          requalify p1 p2
-        | _ -> qid
-      in
-      requalify (to_list p) (to_list qid)
-    in
-    List.fold_left subst ~init:qid ~f
-  
+    let path = requalify_path subst (to_list qid) in
+    from_list path
 end
 
 type qual_ident = QualIdent.t [@@deriving compare]
@@ -1226,27 +1229,7 @@ module Module = struct
   (** Auxiliary functions *)
 
   let to_ident m = m.mod_decl.mod_decl_name
-  
-  let symbol_to_loc = function
-    | ModDef mod_def -> mod_def.mod_decl.mod_decl_loc
-    | ModInst mod_inst -> mod_inst.mod_inst_loc
-    | TypeDef type_def -> type_def.type_def_loc
-    | ConstrDef cdef -> cdef.constr_loc
-    | DestrDef cdef -> cdef.destr_loc
-    | FieldDef field_def -> field_def.field_loc
-    | VarDef var_def -> var_def.var_decl.var_loc
-    | CallDef call_def -> Callable.to_loc call_def
-
-  let symbol_to_name = function
-    | ModDef mod_def -> mod_def.mod_decl.mod_decl_name
-    | ModInst mod_inst -> mod_inst.mod_inst_name
-    | TypeDef type_def -> type_def.type_def_name
-    | ConstrDef cdef -> cdef.constr_name
-    | DestrDef cdef -> cdef.destr_name
-    | VarDef var_def -> var_def.var_decl.var_name
-    | FieldDef field_def -> field_def.field_name
-    | CallDef call_def -> Callable.to_ident call_def
-    
+      
   let rec find_mod (mod_defs: t list) (name: Ident.t) =
     match mod_defs with
     | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module %s not found in list " (Ident.to_string name)
@@ -1275,5 +1258,37 @@ module Module = struct
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
 
+
+end
+
+(** Symbols (for convenience) *)
+
+module Symbol = struct
+  type t = Module.symbol
+  open Module
+      
+    let to_loc = function
+    | ModDef mod_def -> mod_def.mod_decl.mod_decl_loc
+    | ModInst mod_inst -> mod_inst.mod_inst_loc
+    | TypeDef type_def -> type_def.type_def_loc
+    | ConstrDef cdef -> cdef.constr_loc
+    | DestrDef cdef -> cdef.destr_loc
+    | FieldDef field_def -> field_def.field_loc
+    | VarDef var_def -> var_def.var_decl.var_loc
+    | CallDef call_def -> Callable.to_loc call_def
+
+  let to_name = function
+    | ModDef mod_def -> mod_def.mod_decl.mod_decl_name
+    | ModInst mod_inst -> mod_inst.mod_inst_name
+    | TypeDef type_def -> type_def.type_def_name
+    | ConstrDef cdef -> cdef.constr_name
+    | DestrDef cdef -> cdef.destr_name
+    | VarDef var_def -> var_def.var_decl.var_name
+    | FieldDef field_def -> field_def.field_name
+    | CallDef call_def -> Callable.to_ident call_def
+
+  let pr = pr_symbol
+
+  let to_string m = Print.string_of_format pr m
 
 end

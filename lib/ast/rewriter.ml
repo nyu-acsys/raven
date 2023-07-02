@@ -108,8 +108,8 @@ let enter symbol s =
     | Module.ModDef _ | CallDef _ -> ()
     | _ -> failwith "enter: expected module or callable symbol"
   in
-  let symbol_loc = Module.symbol_to_loc symbol in
-  let symbol_ident = Module.symbol_to_name symbol in
+  let symbol_loc = Symbol.to_loc symbol in
+  let symbol_ident = Symbol.to_name symbol in
   {
     s with
     state_table = SymbolTbl.enter symbol_loc symbol_ident s.state_table;
@@ -617,7 +617,7 @@ module Symbol = struct
   let reify (name, symbol, subst) =
     let open Syntax in
     let+ tbl = get_table in
-    let tbl_scope = SymbolTbl.goto (AstDef.Module.symbol_to_loc symbol) name tbl in
+    let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
     let _, symbol = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
     symbol
 

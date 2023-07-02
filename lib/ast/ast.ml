@@ -1,3 +1,5 @@
+(** External interface to AST-related modules *)
+
 include AstDef
 
 module SymbolTbl = struct

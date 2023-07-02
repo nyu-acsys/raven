@@ -182,7 +182,7 @@ variant_args:
 proc_def:
 | def = proc_decl; body = option(block) {
   let open Callable in
-  let proc_body = Option.map body (fun s ->
+  let proc_body = Option.map body ~f:(fun s ->
     Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(body) $endpos(body) })
   in
   { def with call_def = ProcDef { proc_body } }

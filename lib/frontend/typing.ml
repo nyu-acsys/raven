@@ -1313,7 +1313,9 @@ module ProcessModule = struct
             and* mod_def = process_module mod_def in
             let+ mod_def = Rewriter.exit_module mod_def in
             Module.ModDef mod_def
-          | ModInst _ -> failwith "not implemented"
+          | ModInst _ ->
+            (* TODO check that instantiation is OK *)
+            Rewriter.return symbol
         in
         let+ _ = Rewriter.set_symbol symbol in
         Module.SymbolDef symbol
