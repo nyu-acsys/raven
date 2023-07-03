@@ -1111,7 +1111,7 @@ module Module = struct
   type module_decl = {
     mod_decl_name : ident;
     mod_decl_formals : module_inst list;
-    mod_decl_returns : QualIdent.t list;
+    mod_decl_returns : QualIdent.t option;
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
@@ -1160,7 +1160,7 @@ module Module = struct
         (fun ppf -> function
           | [] -> ()
           | vs -> fprintf ppf "@ : %a" QualIdent.pr_list vs)
-      md.mod_decl.mod_decl_returns (* body *) pr_instr_list md.mod_def
+      (Option.to_list md.mod_decl.mod_decl_returns) (* body *) pr_instr_list md.mod_def
 
   and pr_instr ppf =
     let open Stdlib.Format in
@@ -1220,7 +1220,7 @@ module Module = struct
     {
       mod_decl_name = Ident.make "" 0;
       mod_decl_formals = [];
-      mod_decl_returns = [];
+      mod_decl_returns = None;
       mod_decl_rep = None;
       mod_decl_loc = Loc.dummy;
       mod_decl_is_ra = false;

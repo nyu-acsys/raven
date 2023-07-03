@@ -70,10 +70,11 @@ module_def:
       else
         let mod_inst_type =
           match decl.mod_decl_returns, ma.mod_inst_def with
-        | [ mod_inst_type ], _ 
-        | [], Some (mod_inst_type, _) -> mod_inst_type
-        | [], None -> Error.syntax_error (Loc.make $endpos(decl) $endpos(decl)) (Some "Expected specification of interface implemented by this module")
-        | _ -> Error.syntax_error (Loc.make $endpos(decl) $endpos(decl)) (Some "Expected at most one interface")
+        | Some mod_inst_type, _ 
+        | None, Some (mod_inst_type, _) -> mod_inst_type
+        | None, None ->
+            Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
+              (Some "Expected specification of interface implemented by this module")
         in
         ModInst { ma with
                   mod_inst_type;
@@ -84,22 +85,22 @@ module_def:
 }
   
 module_header:
-| id = MODIDENT; mod_formals = module_param_list_opt; rts = return_type_list_opt {
+| id = MODIDENT; mod_formals = module_param_list_opt; rt = return_type_opt {
   let open Module in
   let decl =
     { empty_decl with
       mod_decl_name = id;
       mod_decl_formals = mod_formals;
-      mod_decl_returns = rts;
+      mod_decl_returns = rt;
       mod_decl_loc = Loc.make $startpos(id) $endpos(id);
     }
   in
   decl
 }
 
-return_type_list_opt:
-| COLON; ts = separated_nonempty_list(COMMA, mod_ident) { ts }
-| (* empty *) { [] }
+return_type_opt:
+| COLON; t = mod_ident { Some t }
+| (* empty *) { None }
 
 module_inst_or_impl_or_decl:
 | LBRACE; ms = member_def_list_opt; RBRACE {

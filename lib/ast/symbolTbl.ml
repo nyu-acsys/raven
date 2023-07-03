@@ -151,9 +151,9 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
     match ids with
     | [] -> Some (get_scope_id scope, subst)
     | first_id :: ids1 ->
-      if scope.scope_is_abstract &&
-         not @@ is_parent scope tbl &&
-         not @@ Set.mem inst_scopes (get_scope_id scope)
+      if scope.scope_is_abstract && (* if this is a functor or interface ... *)
+         not @@ is_parent scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
+         not @@ Set.mem inst_scopes (get_scope_id scope) (* ... or through one of its concrete instantiations. *)
       then None
       else begin
       let scope_symbols = get_scope_entries scope in
