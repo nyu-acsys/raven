@@ -9,18 +9,20 @@ let unknown_ident_error loc id =
 
 type entry =
   | Symbol of QualIdent.t
-  | Alias of QualIdent.t * QualIdent.subst
+  | Alias of bool * QualIdent.t * QualIdent.subst
   | Import of QualIdent.t
 
 type scope =
   { (* Fully qualified identifier of this scope *)
     scope_id: QualIdent.t;
+    (* Indicates whether this scope is an uninstantiated module functor or interface *)
+    scope_is_abstract: bool;
     (* Scopes of submodules / callables *)
     scope_children: scope IdentHashtbl.t; [@hash.ignore]
     (* Symbols defined in this scope *)
     scope_entries: entry IdentHashtbl.t; [@hash.ignore]
     (* Cache that maps names (partially) qualified names to fully qualified names, relative to this scope. *)
-    scope_cache: (QualIdent.t * QualIdent.t * QualIdent.subst) QualIdentHashtbl.t; [@hash.ignore] 
+    scope_cache: (QualIdent.t * QualIdent.t * QualIdent.subst) QualIdentHashtbl.t; [@hash.ignore]
   } [@@deriving hash]
 
 let get_scope_entries { scope_entries; _ } = scope_entries
@@ -95,8 +97,9 @@ let rec to_string tbl =
     ^ list_to_string (Map.to_alist (snd t))
     ^ " ]\n" ^ to_string ts
 
-let create_scope qual_ident = 
+let create_scope qual_ident is_abstract = 
   { scope_id = qual_ident;
+    scope_is_abstract = is_abstract;
     scope_entries = Hashtbl.create (module Ident);
     scope_children = Hashtbl.create (module Ident);
     scope_cache = Hashtbl.create (module QualIdent);
@@ -104,7 +107,7 @@ let create_scope qual_ident =
 
 let create () =
   let root_id = QualIdent.from_ident (Ident.make "$Root" 0) in
-  let root_scope = create_scope root_id in
+  let root_scope = create_scope root_id false in
   { tbl_root = root_scope;
     tbl_curr = root_scope;
     tbl_path = [];
@@ -144,31 +147,42 @@ let is_parent scope tbl =
 (** Resolve [name] to its fully qualified identifier relative to the current scope in [tbl]. *)
 let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) option =
   let open Option.Syntax in
-  let rec go_forward scope subst ids =
+  let rec go_forward inst_scopes scope subst ids =
     match ids with
     | [] -> Some (get_scope_id scope, subst)
     | first_id :: ids1 ->
+      if scope.scope_is_abstract &&
+         not @@ is_parent scope tbl &&
+         not @@ Set.mem inst_scopes (get_scope_id scope)
+      then None
+      else begin
       let scope_symbols = get_scope_entries scope in
       let* entry = Hashtbl.find scope_symbols first_id in
       match entry, ids1 with
-      | Alias (qual_ident, subst1), _ ->
+      | Alias (is_abstract, qual_ident, subst1), _ ->
         let subst1 = List.map subst1 ~f:(fun (s, t) -> QualIdent.requalify subst s, t) in
         let target_qual_ident = QualIdent.requalify subst qual_ident in
         let new_path = QualIdent.requalify_path subst1 (QualIdent.to_list target_qual_ident @ ids1) in
-        let subst = subst1 @ 
-                      (target_qual_ident, fully_qualify first_id scope tbl |> QualIdent.to_list) :: subst in
-        go_forward tbl.tbl_root subst new_path
+        let subst =
+          subst1 @ 
+          (target_qual_ident, fully_qualify first_id scope tbl |> QualIdent.to_list) :: subst
+        in
+        let new_inst_scopes =
+          if is_abstract then inst_scopes else Set.add inst_scopes target_qual_ident
+        in
+        go_forward new_inst_scopes tbl.tbl_root subst new_path
       | Import qual_ident, _ ->
         let target_qual_ident = QualIdent.requalify subst qual_ident in
         let new_path = QualIdent.to_list target_qual_ident @ ids1 in
         if is_parent scope tbl
-        then go_forward tbl.tbl_root subst new_path
+        then go_forward inst_scopes tbl.tbl_root subst new_path
         else None
       | Symbol qual_ident, [] -> Some (qual_ident, subst)
       | _ ->
         let scope_children = get_scope_children scope in
         let* cscope = Hashtbl.find scope_children first_id in
-        go_forward cscope subst ids1
+        go_forward inst_scopes cscope subst ids1
+    end
   in
   let first_id = QualIdent.first_ident name in 
   let rec go_backward is_first curr_scope path =
@@ -179,7 +193,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         let+ alias_qual_ident, orig_qual_ident, subst =
           if Hashtbl.mem (get_scope_entries curr_scope) first_id
           then
-            let+ alias_qual_ident, subst = go_forward curr_scope [] (QualIdent.to_list name) in
+            let+ alias_qual_ident, subst = go_forward (Set.empty (module QualIdent)) curr_scope [] (QualIdent.to_list name) in
             let orig_qual_ident = alias_qual_ident |> QualIdent.requalify subst in
             alias_qual_ident, orig_qual_ident, subst
           else
@@ -278,7 +292,7 @@ let rec import import_instr (tbl : t) : t =
         | _ -> ())
   | _ ->
     let alias_ident = QualIdent.unqualify unresolved_imported_ident in
-    add_to_map (get_scope_entries curr_scope) import_loc alias_ident (Alias (imported_ident, []))
+    add_to_map (get_scope_entries curr_scope) import_loc alias_ident (Import imported_ident)
       ~duplicate:(fun _ _ _ -> ())
   in
   tbl
@@ -321,7 +335,8 @@ let add_symbol symbol tbl =
             Error.type_error symbol_loc
               (Printf.sprintf !"Module %{QualIdent} expects %d arguments" mod_inst_func (List.length formals))
       in
-      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Alias (mod_inst_qual_ident, subst))
+      let is_abstract = mod_inst.mod_inst_is_interface in
+      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Alias (is_abstract, mod_inst_qual_ident, subst))
         ~duplicate;
       tbl
     | _ ->
@@ -329,12 +344,13 @@ let add_symbol symbol tbl =
       let new_map = Map.add_exn tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
       let tbl = { tbl with tbl_symbols = new_map } in
       match symbol with
-      | ModDef _mod_def ->
-        let symbol_scope = create_scope symbol_qual_ident in
+      | ModDef mod_def ->
+        let is_abstract = mod_def.mod_decl.mod_decl_is_interface || List.length mod_def.mod_decl.mod_decl_formals > 0 in
+        let symbol_scope = create_scope symbol_qual_ident is_abstract in
         add_to_map (get_scope_children curr_scope) symbol_loc symbol_ident symbol_scope;
         tbl
       | CallDef _ -> 
-        let symbol_scope = create_scope symbol_qual_ident in
+        let symbol_scope = create_scope symbol_qual_ident false in
         add_to_map (get_scope_children curr_scope) symbol_loc symbol_ident symbol_scope;
         tbl
       | _ -> tbl

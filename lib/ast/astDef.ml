@@ -1,4 +1,4 @@
-(** Abstract syntax tree of a Raven program *)
+(** Definition of abstract syntax tree of a Raven program *)
 
 open Base
 open Util
@@ -175,6 +175,8 @@ module QualIdent = struct
 end
 
 type qual_ident = QualIdent.t [@@deriving compare]
+
+module QualIdentSet = Set.M (QualIdent)
 
 module QualIdentMap = Map.M (QualIdent)
 
