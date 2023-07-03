@@ -10,6 +10,7 @@ let unknown_ident_error loc id =
 type entry =
   | Symbol of QualIdent.t
   | Alias of QualIdent.t * QualIdent.subst
+  | Import of QualIdent.t
 
 type scope =
   { (* Fully qualified identifier of this scope *)
@@ -73,9 +74,6 @@ let entry_to_string = function
           (Ident.to_string data_type_destr.destr_name)
           (Type.to_string data_type_destr.destr_arg)
           (Type.to_string data_type_destr.destr_return_type)
-  (*  end
-  | Alias id ->
-    Printf.sprintf !"Alias(%{QualIdent})" id*)
   
 let label_to_string label =
   match label with None -> "__" | Some iden -> Ident.to_string iden
@@ -135,7 +133,13 @@ let fully_qualify ident scope tbl : QualIdent.t =
 let pr_subst ppf subst =
   let open Stdlib.Format in
   fprintf ppf "[ @[%a@] ]" (Print.pr_list_sep ",\n" (fun ppf (a, b) -> fprintf ppf "%a -> %a" QualIdent.pr a QualIdent.pr (QualIdent.from_list b))) subst
-                                             
+
+
+(** Check whether [scope] is a parent of the current scope in [tbl]. *)
+let is_parent scope tbl =
+  let scope_id = get_scope_id scope in
+  List.exists (tbl.tbl_curr :: tbl.tbl_path) ~f:(fun p -> QualIdent.(get_scope_id p = scope_id))
+
 
 (** Resolve [name] to its fully qualified identifier relative to the current scope in [tbl]. *)
 let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) option =
@@ -154,6 +158,12 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         let subst = subst1 @ 
                       (target_qual_ident, fully_qualify first_id scope tbl |> QualIdent.to_list) :: subst in
         go_forward tbl.tbl_root subst new_path
+      | Import qual_ident, _ ->
+        let target_qual_ident = QualIdent.requalify subst qual_ident in
+        let new_path = QualIdent.to_list target_qual_ident @ ids1 in
+        if is_parent scope tbl
+        then go_forward tbl.tbl_root subst new_path
+        else None
       | Symbol qual_ident, [] -> Some (qual_ident, subst)
       | _ ->
         let scope_children = get_scope_children scope in
@@ -243,10 +253,11 @@ let exit tbl : t =
 let goto loc name tbl : t =
   List.fold_left (QualIdent.path name) ~init:(reset tbl) ~f:(fun tbl ident -> enter loc ident tbl)
 
-let add_to_map map loc key data =
+let add_to_map map loc key ?(duplicate = fun _ _ _ -> Error.redeclaration_error loc (Ident.to_string key)) data =
   match Hashtbl.add map ~key ~data with
   | `Ok -> ()
-  | `Duplicate -> Error.redeclaration_error loc (Ident.to_string key)
+  | `Duplicate -> duplicate map key data
+    
 
 (** Add an alias based on the import instruction [import_instr] *)
 let rec import import_instr (tbl : t) : t =
@@ -262,11 +273,13 @@ let rec import import_instr (tbl : t) : t =
           let symbol_name = Symbol.to_name symbol in
           let symbol_ident = QualIdent.append unresolved_imported_ident symbol_name in
           let _, symbol_fully_qual_ident, _, _ = resolve_and_find_exn import_loc symbol_ident tbl in
-          add_to_map (get_scope_entries curr_scope) import_loc symbol_name (Alias (symbol_fully_qual_ident, []))
+          add_to_map (get_scope_entries curr_scope) import_loc symbol_name (Import symbol_fully_qual_ident)
+            ~duplicate:(fun _ _ _ -> ())
         | _ -> ())
   | _ ->
     let alias_ident = QualIdent.unqualify unresolved_imported_ident in
     add_to_map (get_scope_entries curr_scope) import_loc alias_ident (Alias (imported_ident, []))
+      ~duplicate:(fun _ _ _ -> ())
   in
   tbl
   
@@ -277,6 +290,11 @@ let add_symbol symbol tbl =
     let symbol_ident = Symbol.to_name symbol in
     let symbol_loc = Symbol.to_loc symbol in
     let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in
+    let duplicate (map: entry IdentHashtbl.t) (key : Ident.t) data =
+      match Hashtbl.find_exn map key with
+      | Import _ -> Hashtbl.set map ~key ~data
+      | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
+    in
     match symbol with
     | ModInst mod_inst ->
       let mod_inst_qual_ident, subst =
@@ -303,10 +321,11 @@ let add_symbol symbol tbl =
             Error.type_error symbol_loc
               (Printf.sprintf !"Module %{QualIdent} expects %d arguments" mod_inst_func (List.length formals))
       in
-      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Alias (mod_inst_qual_ident, subst));
+      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Alias (mod_inst_qual_ident, subst))
+        ~duplicate;
       tbl
     | _ ->
-      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Symbol symbol_qual_ident);
+      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Symbol symbol_qual_ident) ~duplicate;
       let new_map = Map.add_exn tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
       let tbl = { tbl with tbl_symbols = new_map } in
       match symbol with
