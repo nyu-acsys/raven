@@ -1037,7 +1037,7 @@ end
 module ProcessModule = struct
 
 
-  let rec process_type_def (type_def: Module.type_def) : Module.symbol Rewriter.t =
+  let process_type_def (type_def: Module.type_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
     match type_def.type_def_expr with
     | None ->
@@ -1113,7 +1113,7 @@ module ProcessModule = struct
 
       Module.TypeDef type_def
 
-  let rec process_field (field: Module.field_def) : Module.symbol Rewriter.t=
+  let process_field (field: Module.field_def) : Module.symbol Rewriter.t=
     let open Rewriter.Syntax in
     let+ tp_expr = 
         match field.field_type with
@@ -1137,7 +1137,8 @@ module ProcessModule = struct
 
       Module.(FieldDef field)
 
-  let rec process_var (var: Stmt.var_def) : Module.symbol Rewriter.t = 
+  
+  let process_var (var: Stmt.var_def) : Module.symbol Rewriter.t = 
     let open Rewriter.Syntax in
     let* var_decl = ProcessTypeExpr.process_var_decl var.var_decl in
     let+ var_init = Rewriter.Option.map var.var_init ~f:(fun expr -> process_expr expr var_decl.var_type) in
@@ -1146,158 +1147,107 @@ module ProcessModule = struct
 
     Module.(VarDef var)
 
-  (*
-  let rec instantiate_module loc (m: Module.t) (tp_args: type_expr list) (tbl: SymbolTbl.t) : SymbolTbl.t * Module.t = 
-    let rec instantiate_mod_helper loc (m: Module.t) (tp_args: type_expr list) (tbl: SymbolTbl.t): Module.t =
-      (match tp_args, m.mod_decl.mod_decl_formals with
-      | [], _ -> m
-      | _tp_arg :: _, [] ->
-        type_error loc (Ident.to_string m.mod_decl.mod_decl_name ^ " instantiated with too many arguments")
-      | tp_arg :: tp_args, formal_mod_inst :: formals ->
-
-        if Type.is_any formal_mod_inst.mod_inst_type || true then
-          (* TODO: || does_module_implement_module (type_expr_to_mod_decl tp_arg tbl) (type_expr_to_mod_decl formal_mod_alias.mod_alias_type tbl)*)
-
-          let new_inst = {formal_mod_inst with mod_inst_def = Some tp_arg} in
-
-          let mod_decl = {m.mod_decl with
-            mod_decl_formals = formals;
-            mod_decl_mod_aliases = Map.set m.mod_decl.mod_decl_mod_aliases ~key: formal ~data:new_inst
-          } in
-
-          let instr = Module.SymbolDef (ModInst new_inst) :: m.mod_def in
-
-          let (new_mod: Module.t) =
-            { mod_decl = mod_decl;
-              mod_def = instr;
-              mod_interface = false;
-            }
-          in
-
-          instantiate_mod_helper loc new_mod tp_args tbl
-        
-        else
-          type_error (Type.loc tp_arg) ("Argument " ^ Type.to_string tp_arg ^ " does not match type " ^ Type.to_string formal_mod_inst.mod_inst_type ^ " for Module " ^ Ident.to_string m.mod_decl.mod_decl_name)
-
+  let rec check_implements_symbol interface_ident (symbol : Symbol.t) (orig_symbol : Symbol.t) =
+    let loc = Symbol.to_loc symbol in
+    let ident = Symbol.to_name symbol in
+    match symbol, orig_symbol with
+    | TypeDef typ_def, TypeDef orig_typ_def ->
+      if Bool.(typ_def.type_def_rep <> orig_typ_def.type_def_rep) then
+        Error.type_error loc
+          (Printf.sprintf !"Cannot change rep type annotation for type %{Ident} inherited from interface %{QualIdent}" ident interface_ident)
+      else begin
+        match typ_def.type_def_expr, orig_typ_def.type_def_expr with
+        | None, Some _ ->
+          Error.type_error loc
+            (Printf.sprintf !"Type %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}" ident interface_ident)
+        | Some _tp, Some _orig_tp ->
+          Logs.debug (fun m -> m !"orig: %{Type}" _orig_tp);
+          Error.type_error loc
+            (Printf.sprintf !"Type %{Ident} was already defined in interface %{QualIdent}" ident interface_ident)
+        | _ -> ()
+      end
+    | VarDef var_def, VarDef orig_var_def ->
+      if var_def.var_decl.var_const && not orig_var_def.var_decl.var_const then
+          Error.type_error loc
+            (Printf.sprintf !"Cannot redeclare variable %{Ident} from interface %{QualIdent} as value" ident interface_ident)
+      else if not var_def.var_decl.var_const && orig_var_def.var_decl.var_const then
+        Error.type_error loc
+          (Printf.sprintf !"Cannot redeclare value %{Ident} from interface %{QualIdent} as variable" ident interface_ident)
+      else if var_def.var_decl.var_ghost && not orig_var_def.var_decl.var_ghost then
+          Error.type_error loc
+            (Printf.sprintf !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as ghost"
+               (Symbol.kind symbol) ident interface_ident)
+      else if not var_def.var_decl.var_ghost && orig_var_def.var_decl.var_ghost then
+        Error.type_error loc
+          (Printf.sprintf !"Cannot redeclare ghost %s %{Ident} from interface %{QualIdent} as non-ghost"
+             (Symbol.kind symbol) ident interface_ident)
+      else if Type.(var_def.var_decl.var_type <> orig_var_def.var_decl.var_type) then
+        Error.type_error loc
+          (Printf.sprintf !"%s %{Ident} must have type %{Type} according to interface %{QualIdent}"
+             (Symbol.kind symbol |> String.uppercase) ident orig_var_def.var_decl.var_type interface_ident)
+      else begin match var_def.var_init, orig_var_def.var_init with
+        | _, Some _ ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
+               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+        | _ -> ()
+      end
+    | CallDef call_def, CallDef orig_call_def ->
+      let make_subst decls odecls sm =
+        List.fold2 decls odecls ~init:sm
+        ~f:(fun sm (var_decl: var_decl) (ovar_decl: var_decl) ->
+             if
+               Bool.(var_decl.var_const <> ovar_decl.var_const) ||
+               Bool.(var_decl.var_implicit <> ovar_decl.var_implicit) ||
+               Bool.(var_decl.var_ghost <> ovar_decl.var_ghost) ||
+               Type.(var_decl.var_type <> ovar_decl.var_type)
+             then
+               Error.type_error loc
+                 (Printf.sprintf !"Formal parameter %{Ident} of %s %{Ident} does not match parameter %{Ident} of %{Ident} in interface %{QualIdent}."
+                    var_decl.var_name (Symbol.kind symbol) ident ovar_decl.var_name ident interface_ident)
+             else Map.add_exn sm ~key:(QualIdent.from_ident ovar_decl.var_name) ~data:(QualIdent.from_ident var_decl.var_name)) |>
+        function
+          | Ok sm -> sm
+          | Unequal_lengths ->
+              Error.type_error loc
+                (Printf.sprintf !"%s %{Ident} does not have the same number of parameters as %{Ident} in interface %{QualIdent}."
+                    (Symbol.kind symbol) ident ident interface_ident)
+            
+      in
+      let sm = make_subst call_def.call_decl.call_decl_formals orig_call_def.call_decl.call_decl_formals (Map.empty (module QualIdent)) in
+      let _sm = make_subst call_def.call_decl.call_decl_returns orig_call_def.call_decl.call_decl_returns sm in
+      if Poly.(call_def.call_decl.call_decl_kind <> orig_call_def.call_decl.call_decl_kind) then
+        Error.type_error loc
+          (Printf.sprintf !"Cannot redeclare %s %{Ident} from %{QualIdent} as %s."
+             (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))        
       
-    ) in
-
-
-    let instantiated_mod = instantiate_mod_helper loc m tp_args tbl in
-
-    process_module instantiated_mod tbl
-     
-  and does_module_implement_module (_mod_decl: Module.module_decl) (_implemented_mod_decl: Module.module_decl) : bool = 
-    true
-    (* TODO *)
-
-  and module_inst_to_module (mod_inst: Module.module_inst) (tbl: SymbolTbl.t) : SymbolTbl.t * Module.t =
-    let tp_expr = 
-      match mod_inst.mod_inst_def with
-      | None -> mod_inst.mod_inst_type
-      | Some tp_expr -> tp_expr
-
-    in
-    match tp_expr  with
-    | App (Var mod_name, tp_args, _) ->
-        let orig_mod = 
-        (match SymbolTbl.find mod_name tbl with
-        | Some (ModDef orig_mod) -> orig_mod
-        | Some (ModInst mod_inst) ->
-          Error.internal_error mod_inst.mod_inst_loc "Found ModInst in SymbolTbl for definition of mod_inst.";
-        
-        | _ ->
-          Error.internal_error mod_inst.mod_inst_loc @@
-            (Printf.sprintf "Unexpected elem found in typing env for type_expr %s of modAlias.\n\nTbl:%s" (Type.to_string tp_expr) (SymbolTbl.to_string tbl))
-        ) in
-
-        let new_mod_decl = 
-          { orig_mod.mod_decl with
-            mod_decl_name = mod_inst.mod_inst_name;
-            mod_decl_loc = Type.loc tp_expr
-          }
-        in
-        
-        let new_mod =
-          { orig_mod with
-            mod_decl = new_mod_decl
-          }
-        in
-
-        instantiate_module (Type.loc tp_expr) new_mod tp_args tbl
-
-    | _ ->
-      Error.internal_error mod_inst.mod_inst_loc
-        @@ Printf.sprintf "Unexpected type_expr %s found in mod_alias_type for type of modAlias %s" (Type.to_string tp_expr) (Ident.to_string mod_inst.mod_inst_name)
-    
-  and process_mod_inst_tp_expr (tp_expr: type_expr) (tbl: SymbolTbl.t) (loc: Util.Loc.t): type_expr =
-    (* This function is separate from process_tp_expr because in normal code, a Var type_expr is treated differently from a Var type_expr used as argument in mod_alias. *)
-  match tp_expr with
-  | App (Var qual_ident, tp_args, tp_attr) ->
-
-    let tp_args = List.map tp_args ~f:(fun tp_arg -> process_mod_inst_tp_expr tp_arg tbl loc) in
-
-    let fully_qualified_ident, symbol = 
-        SymbolTbl.resolve_and_find_exn (Type.loc tp_expr) qual_ident tbl 
-    in
-    begin match symbol with
-    | ModDef _ | TypeDef _ | ModInst _ ->
-      Type.App (Var fully_qualified_ident, tp_args, tp_attr)
-    | _ ->
-      Error.error loc @@
-        "Expected functor identifier, but found " ^ QualIdent.to_string fully_qualified_ident
-    end
-  
-  | _ -> ProcessTypeExpr.process_type_expr tp_expr tbl
-      
-  
-  and process_module_inst (mod_inst: Module.module_inst) (tbl: SymbolTbl.t) : SymbolTbl.t * Module.module_inst = 
-    (* Mod_aliases will be instantiated to appropriate module_decl, and their expanded module_decl will be stored to the symbol tbl. In the actual AST itself, they will remain as mod_aliases. *)
-
-    let mod_inst_type = 
-      match mod_inst.mod_inst_type with
-      | App (Bot, _, _) -> 
-        mod_inst.mod_inst_type
-      | App (Var _mod_name, _tp_args, _tp_attr) ->
-        process_mod_inst_tp_expr mod_inst.mod_inst_type tbl mod_inst.mod_inst_loc
-
-      | _ -> Error.type_error (mod_inst.mod_inst_loc) "Cannot instantiate this type to a module."
-    in
-
-    let mod_inst_def = 
-      match mod_inst.mod_inst_def with
-      | None -> None
-      | Some tp_expr ->
-        Some (process_mod_inst_tp_expr tp_expr tbl mod_inst.mod_inst_loc)
-    in
-
-    let mod_inst =
-      { mod_inst with
-        mod_inst_type = mod_inst_type;
-        mod_inst_def = mod_inst_def;
-      }
-    in
-
-    (* TODO: Make sure mod_inst_def actually implements mod_inst_type *)
-
-    let tbl, derived_mod = module_inst_to_module mod_inst tbl in
-
-    let tbl = SymbolTbl.set_symbol (ModDef derived_mod) tbl in
-
-    tbl, mod_inst
-  
-   *)
-
-  (*and process_mod_aliases (mod_aliases: Module.module_i list) (mod_decl: Module.module_decl) (tbl: SymbolTbl.t) : Module.module_alias list * Module.module_decl * SymbolTbl.t = 
-    let (mod_decl, tbl), mod_aliases = List.fold_map mod_aliases ~init:(mod_decl, tbl) ~f:(fun (mod_decl, tbl) mod_alias ->
-      let mod_alias, mod_decl, tbl = process_module_alias mod_alias mod_decl tbl in
-      (mod_decl, tbl), mod_alias
-    ) in
-
-    mod_aliases, mod_decl, tbl*)
-
+    | ModInst mod_inst, ModInst orig_mod_inst ->
+      if mod_inst.mod_inst_is_interface && not orig_mod_inst.mod_inst_is_interface then
+          Error.type_error loc
+            (Printf.sprintf !"Cannot redeclare module %{Ident} from interface %{QualIdent} as interface" ident interface_ident)
+      else if not mod_inst.mod_inst_is_interface && orig_mod_inst.mod_inst_is_interface then
+        Error.type_error loc
+          (Printf.sprintf !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module" ident interface_ident)
+      else if QualIdent.(mod_inst.mod_inst_type <> orig_mod_inst.mod_inst_type) then
+        Error.type_error loc
+          (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+             (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
+      else begin match mod_inst.mod_inst_def, orig_mod_inst.mod_inst_def with
+        | Some _, Some _ ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
+               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+        | None, Some _ ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}"
+               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+        | _ -> ()
+      end
+    | _ -> ()
+           
   let rec process_module (m: Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
+    let _ = Logs.debug (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m))) in
     let process_instr =
       function
       | Module.SymbolDef symbol ->
@@ -1323,31 +1273,80 @@ module ProcessModule = struct
         Rewriter.return (Module.Import import)
     in 
 
+    (* Add formal parameters to module definitions *)
     let mod_def_formals =
       List.map m.mod_decl.mod_decl_formals
         ~f: (fun mod_def_formal -> Module.SymbolDef (ModInst mod_def_formal))
     in
     let mod_def = mod_def_formals @ m.mod_def in
+
+    let defined_symbols = List.fold mod_def ~init:(Set.empty (module Ident)) ~f:(fun ids -> function
+        | SymbolDef symbol -> Set.add ids (Symbol.to_name symbol)
+        | _ -> ids)
+    in
+    
+    (* Compute symbols that are inherited from parent interface, respectively, need to be checked against that interface *)
+    let* interface_ident, (inherited_symbols, symbols_to_check) =
+      let+ interface_opt = Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
+          let* interface_id, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid
+          and* mod_qual_ident = Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m))) in
+          let interface_symbol = Rewriter.Symbol.add_subst (interface_id, QualIdent.to_list mod_qual_ident) interface_symbol in
+          let+ interface_symbol = Rewriter.Symbol.reify interface_symbol in
+          mid, interface_symbol)
+      in
+      match interface_opt with
+      | Some (interface_ident, ModDef interface) ->
+        interface_ident,
+        List.fold interface.mod_def ~init:([], Map.empty (module Ident)) ~f:(fun (inherited, to_check) -> function
+            | Module.SymbolDef symbol ->
+              let ident = Symbol.to_name symbol in
+              if Set.mem defined_symbols ident
+              then inherited, Map.add_exn to_check ~key:ident ~data:symbol
+              else begin
+                let _ = Logs.debug (fun m -> m !"Inheriting %{Ident}" (Symbol.to_name symbol)) in
+                Module.SymbolDef symbol :: inherited, to_check
+              end
+            | _ -> inherited, to_check)
+      | _ -> QualIdent.from_ident m.mod_decl.mod_decl_name, ([], Map.empty (module Ident))
+    in
+    
+    let mod_def = inherited_symbols @ mod_def in
     let* _ = Rewriter.List.map mod_def ~f:(function
         | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol
-        | Module.Import import -> Rewriter.import import) 
+        | Module.Import import -> Rewriter.import import)
     in
+
+    (* Find rep type and add it to module declaration *)
     let mod_decl_rep = List.fold_left m.mod_def ~init:None
         ~f:(fun rep_type -> function
             | SymbolDef (TypeDef type_def) when type_def.type_def_rep ->
               Option.map_or_else 
-                ~m:(fun _ -> Error.syntax_error type_def.type_def_loc (Some (Printf.sprintf !"Found more than one rep type in module %{Ident}" m.mod_decl.mod_decl_name)))
+                ~m:(fun _ ->
+                    Error.syntax_error type_def.type_def_loc
+                      (Some (Printf.sprintf !"Found more than one rep type in module %{Ident}" m.mod_decl.mod_decl_name)))
                 ~e:(fun () -> Some type_def.type_def_name) () rep_type
             | _ -> rep_type)
     in
     let mod_decl = { m.mod_decl with mod_decl_rep } in
-    let+ mod_def = Rewriter.List.map m.mod_def ~f:process_instr in
+
+    (* Check and rewrite all symbols *)
+    let+ mod_def = Rewriter.List.map (inherited_symbols @ m.mod_def) ~f:process_instr in
+
+    (* Check symbols against interface *)
+    let _ = List.iter mod_def ~f:(function SymbolDef symbol ->
+        let ident = Symbol.to_name symbol in
+        Map.find symbols_to_check ident |>
+        Option.iter ~f:(fun orig_symbol -> check_implements_symbol interface_ident symbol orig_symbol)
+      | _ -> ())
+    in
+    
     Module.{ mod_decl; mod_def }
     
     (*
     let formal_args_mod_aliases = mod_decl.mod_decl_formals in
 
-    let _mod_aliases, mod_decl, tbl = process_mod_alias formal_args_mod_aliases mod_decl tbl in
+    let _mod_aliases, mod_decl, tbl = process_mod_a    let mod_def = mod_def_formals @ m.mod_def in
+lias formal_args_mod_aliases mod_decl tbl in
     (* This is instantiating all formal arguments to the module. The process_mod_aliases is primarily called to add the requisite members to the tbl for processing the rest of the module. (It also fully modifies the mod_decl by expanding the modules names referenced in mod_aliases to fully qualified names.) The returned mod_aliases are not stored.  *)
 
     let mod_aliases, mod_decl, tbl = process_mod_aliases m.members.mod_aliases mod_decl tbl in

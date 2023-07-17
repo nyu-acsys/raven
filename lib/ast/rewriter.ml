@@ -256,6 +256,9 @@ module Expr = struct
       let expr_attr = { expr_attr with expr_type = expr_type } in
       let constr = match constr with
         | Var qual_ident -> Expr.Var (f qual_ident)
+        | Call (qual_ident, loc) -> Expr.Call (f qual_ident, loc)
+        | DataConstr (qual_ident, loc) -> Expr.DataConstr (f qual_ident, loc)
+        | DataDestr (qual_ident, loc) -> Expr.DataDestr (f qual_ident, loc)
         | _ -> constr
       in
       Expr.App (constr, expr_list, expr_attr)
@@ -575,7 +578,7 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rewrite_qual_idents_in_symbol ~(f: QualIdent.t -> QualIdent.t) : Module.symbol -> Module.symbol t =
+  let rec rewrite_qual_idents_in_symbol ~(f: QualIdent.t -> QualIdent.t) : Module.symbol -> Module.symbol t =
     let open Syntax in
     let open Module in
     function
@@ -606,9 +609,11 @@ module Module = struct
       | CallDef call_def ->
         let+ new_call_def = Callable.rewrite_qual_idents ~f call_def in
         CallDef new_call_def
-      | mem_def -> return mem_def
+      | ModDef mod_def ->
+        let+ new_mod_def = rewrite_qual_idents ~f mod_def in
+        ModDef new_mod_def
 
-  let rewrite_qual_idents ~f mdef : Module.t t =
+  and rewrite_qual_idents ~f mdef : Module.t t =
     (* TODO: rewrite imports *)
     rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef  
 end
@@ -618,8 +623,8 @@ module Symbol = struct
     let open Syntax in
     let+ tbl = get_table in
     let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
-    let _, symbol = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
-    symbol
+    let _, symbol1 = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
+    symbol1
 
   let reify_type_def loc (_name, symbol, subst) : AstDef.Type.t Base.Option.t t =
     let open Syntax in
@@ -654,6 +659,8 @@ module Symbol = struct
   let extract (symbol, subst) ~f =
     f (QualIdent.requalify subst) symbol
 
+  let add_subst s (name, symbol, subst) = (name, symbol, s :: subst)
+  
   type t = QualIdent.t * AstDef.Module.symbol * QualIdent.subst
                                  
 end

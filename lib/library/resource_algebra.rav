@@ -5,7 +5,7 @@ interface Type {
 interface ResourceAlgebra {
     rep type T
 
-    var id: T
+    val id: T
     func comp(a:T, b:T) returns (ret:T)
     /* alias : a ∘ b = comp(a,b) ? */
 
@@ -57,7 +57,7 @@ interface ResourceAlgebra {
 interface CancellativeResourceAlgebra : ResourceAlgebra {
     rep type T
 
-    var id: T
+    val id: T
 
     func comp(a:T, b:T) returns (ret:T)
     func frame(a:T, b:T) returns (ret:T)
@@ -79,7 +79,7 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
 interface LatticeResourceAlgebra : ResourceAlgebra {
     rep type T
 
-    var id: T
+    val id: T
 
     func comp(a:T, b:T) returns (ret:T)
     func frame(a:T, b:T) returns (ret:T)
@@ -104,7 +104,7 @@ interface LatticeResourceAlgebra : ResourceAlgebra {
 module Nat : CancellativeResourceAlgebra {
     rep type T = Int
 
-    var id: T = 0
+    val id: T = 0
 
     func valid(n:T) returns (ret:Bool) { n >= 0 }
 
@@ -308,7 +308,7 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
         case ksTop
     }
 
-    var id: T = ksPair({||}, {||})
+    val id: T = ksPair({||}, {||})
 
     func valid(n:T) returns (ret: Bool) {
         n == ksPair(n.ks_proj1, n.ks_proj2) ? 

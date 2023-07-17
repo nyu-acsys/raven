@@ -62,6 +62,8 @@ end
 
 type ident = Ident.t
 
+module IdentSet = Set.M (Ident)
+
 module IdentMap = Map.M (Ident)
 
 type 'a ident_map = 'a IdentMap.t
@@ -191,44 +193,49 @@ type 'a qual_ident_hashtbl = 'a QualIdentHashtbl.t
 (** Types *)
 
 module Type = struct
-  type type_attr = { type_loc : Loc.t [@hash.ignore] [@compare.ignore] }
+  module T = struct
+    type type_attr = { type_loc : Loc.t [@hash.ignore] [@compare.ignore] }
 
-  and var_decl = {
-    var_name : Ident.t;
-    var_loc : location; [@hash.ignore] [@compare.ignore]
-    var_type : t;
-    var_const : bool;
-    var_ghost : bool;
-    var_implicit : bool;
-  }
-  [@@deriving compare, hash]
+    and var_decl = {
+      var_name : Ident.t;
+      var_loc : Loc.t; [@hash.ignore] [@compare.ignore]
+      var_type : t;
+      var_const : bool;
+      var_ghost : bool;
+      var_implicit : bool;
+    }
+    [@@deriving compare, hash, sexp]
 
-  and variant_decl = {
-    variant_name : Ident.t;
-    variant_loc : location; [@hash.ignore] [@compare.ignore]
-    variant_args : var_decl list;
-  }
+    and variant_decl = {
+      variant_name : Ident.t;
+      variant_loc : Loc.t; [@hash.ignore] [@compare.ignore]
+      variant_args : var_decl list;
+    }
 
-  and constr =
-    | Int
-    | Real
-    | Num
-    | Bool
-    | Ref
-    | Perm
-    | Bot
-    | Any
-    | Var of QualIdent.t
-    | Set
-    | Map
-    | Fld
-    | Data of variant_decl list
-    | AtomicToken
-    | Prod
+    and constr =
+      | Int
+      | Real
+      | Num
+      | Bool
+      | Ref
+      | Perm
+      | Bot
+      | Any
+      | Var of QualIdent.t
+      | Set
+      | Map
+      | Fld
+      | Data of variant_decl list
+      | AtomicToken
+      | Prod
 
-  and t = App of constr * t list * type_attr
-  [@@deriving compare, hash]
+    and t = App of constr * t list * type_attr
+    [@@deriving compare, hash, sexp]
+  end
 
+  include T
+  include Comparable.Make (T)
+    
   let attr_of = function App (_, _, attr) -> attr
   let loc t = t |> attr_of |> fun attr -> attr.type_loc
 
@@ -357,7 +364,7 @@ module Type = struct
 
   (** Equality and Subtyping *)
 
-  let equal tp1 tp2 = ((compare tp1 tp2) = 0)
+  (*let equal tp1 tp2 = ((compare tp1 tp2) = 0)*)
       
   let rec join_constr (t1: constr) t2 =
     if Poly.(t1 = t2) then t1 else
@@ -1288,6 +1295,25 @@ module Symbol = struct
     | VarDef var_def -> var_def.var_decl.var_name
     | FieldDef field_def -> field_def.field_name
     | CallDef call_def -> Callable.to_ident call_def
+
+  let kind = function
+    | TypeDef _ -> "type"
+    | ModInst mod_inst when mod_inst.mod_inst_is_interface -> "interface"
+    | ModDef mod_def when mod_def.mod_decl.mod_decl_is_interface -> "interface"
+    | ModDef _ | ModInst _ -> "module"
+    | VarDef var_def when var_def.var_decl.var_const -> "value"
+    | VarDef _ -> "variable"
+    | ConstrDef _ -> "constructor"
+    | DestrDef _ -> "destructor"
+    | FieldDef _ -> "field"
+    | CallDef call_def ->
+      match call_def.call_decl.call_decl_kind with
+      | Lemma -> "lemma"
+      | Proc -> "procedure"
+      | Func -> "function"
+      | Pred -> "predicate"
+      | Invariant -> "invariant"
+
 
   let pr = pr_symbol
 

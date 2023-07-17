@@ -2,7 +2,13 @@
 
 open Base
   
-type position = Lexing.position
+type position = Lexing.position =
+  { pos_fname : string
+  ; pos_lnum : int
+  ; pos_bol : int
+  ; pos_cnum : int
+  }
+  [@@deriving sexp]
 
 let compare_position p1 p2 =
   let open Lexing in
@@ -24,8 +30,8 @@ type t =
 
       loc_end: position;
     }
-    [@@deriving compare, equal]
-
+    [@@deriving compare, equal, sexp]
+ 
 let make p1 p2 = { loc_start = p1; loc_end = p2 }
       
 let dummy =
