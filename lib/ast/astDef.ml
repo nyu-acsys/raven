@@ -9,13 +9,15 @@ type location = Loc.t
 
 module Ident = struct
   module T = struct
-    type t = { ident_name : string; ident_num : int }
+    type t = { ident_name : string; ident_num : int; ident_loc : Loc.t [@compare.ignore] [@hash.ignore] }
     [@@deriving compare, hash, sexp]
 
     let to_string id =
       match id.ident_num with
       | 0 -> id.ident_name
       | _ -> Printf.sprintf !"%{String}^%{Int}" id.ident_name id.ident_num
+
+    let to_loc id = id.ident_loc      
   end
 
   include T
@@ -46,10 +48,10 @@ module Ident = struct
       fprintf ppf "@[<v> %a @]" pr_tuple_list (list_of_map)
   )
 
-  let make name num = { ident_name = name; ident_num = num }
+  let make loc name num = { ident_name = name; ident_num = num; ident_loc = loc }
   let name id = id.ident_name
 
-  let fresh =
+  let fresh loc =
     let used_names = Hashtbl.create (module String) in
     fun ?(id = 0) (name : string) ->
       let last_index =
@@ -57,7 +59,7 @@ module Ident = struct
       in
       let new_max = Int.max (last_index + 1) id in
       Hashtbl.set used_names ~key:name ~data:new_max;
-      make name new_max
+      make loc name new_max
 end
 
 type ident = Ident.t
@@ -92,6 +94,8 @@ module QualIdent = struct
 
   (* Substitution maps for module instantiation *)
   type subst = (t * Ident.t list) list
+
+  let to_loc qid = Ident.to_loc qid.qual_base
   
   let to_list qid =
     qid.qual_path @ [ qid.qual_base ]
@@ -491,9 +495,9 @@ module Expr = struct
     | Mult
     | Div
     | Mod
-    | Call of qual_ident * (location [@compare.ignore])
-    | DataConstr of qual_ident * (location [@compare.ignore])
-    | DataDestr of qual_ident * (location [@compare.ignore])
+    (*| Call of qual_ident * (location [@compare.ignore])*)
+    | DataConstr of QualIdent.t
+    | DataDestr of QualIdent.t
     | Read
     (* Ternary operators *)
     | Ite
@@ -501,7 +505,7 @@ module Expr = struct
     (* Variable arity operators *)
     | Setenum
     | Tuple
-    | Var of qual_ident [@@deriving compare]
+    | Var of QualIdent.t [@@deriving compare, equal]
   (* | AUToken of au_token *)
 
   type binder = Forall | Exists | Compr [@@deriving compare]
@@ -516,7 +520,7 @@ module Expr = struct
 
   let mk_attr loc t = { expr_loc = loc; expr_type = t }
   let attr_of = function App (_, _, attr) | Binder (_, _, _, attr) -> attr
-  let loc t = t |> attr_of |> fun attr -> attr.expr_loc
+  let to_loc t = t |> attr_of |> fun attr -> attr.expr_loc
   let to_type t = t |> attr_of |> fun attr -> attr.expr_type
 
   let set_type t tp = 
@@ -535,9 +539,9 @@ module Expr = struct
     | Real r -> Float.to_string r
     | Null -> "null"
     | Tuple -> "()"
-    | DataConstr (id, _) 
-    | DataDestr (id, _) -> QualIdent.to_string id
-    | Call (id, _) -> "call " ^ QualIdent.to_string id
+    | DataConstr id
+    | DataDestr id -> QualIdent.to_string id
+    (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
     | Read -> "read"
     | Uminus -> "-"
     | MapLookUp -> "map_lookup"
@@ -576,7 +580,7 @@ module Expr = struct
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
     | Setenum | Tuple | Read | Own | Var _ | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
-    | DataConstr _ | DataDestr _ | Call _ -> 3
+    | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
     | Minus | Plus -> 5
     | Diff | Union | Inter -> 6
@@ -605,7 +609,7 @@ module Expr = struct
     | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
-    | App (DataConstr (id, _), es, _) | App (Call (id, _), es, _) ->
+    | App (DataConstr id, es, _) | App (Var id, (( _ :: _ ) as es), _) ->
         fprintf ppf "(%a(%a) \027[35m :%a \027[0m)" QualIdent.pr id pr_list es Type.pr (to_type e)
     | App (Read, [ e1; e2 ], _) ->
         fprintf ppf "((%a).(%a) \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
@@ -636,7 +640,7 @@ module Expr = struct
     | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
     | App (Inter, [], _) -> fprintf ppf "Univ"
     | App (c, [], _) -> fprintf ppf "%a" pr_constr c
-    | App (DataConstr (id, _), es, _) | App (Call (id, _), es, _) ->
+    | App (DataConstr id, es, _) | App (Var id, ((_ :: _) as es), _) ->
       fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
     | App
         ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
@@ -728,11 +732,71 @@ module Expr = struct
     match expr with
     | App (Var qual_ident, _, _) -> qual_ident
     | _ ->
-      Error.error (loc expr)
+      Error.error (to_loc expr)
         (Printf.sprintf "Expected Var expression instead of %s" (to_string expr))
 
   let to_ident expr =
     expr |> to_qual_ident |> QualIdent.to_ident
+
+
+  (** Map all identifiers occuring in expression [e] to new identifiers according to function [fct] *)
+  let map_idents fct e =
+  let rec sub = function
+    | App (constr, args, expr_attr) ->
+      let args = List.map args ~f:sub in
+      let constr =
+        match constr with
+        | Var qual_ident -> Var (fct qual_ident)
+        | DataConstr qual_ident -> DataConstr (fct qual_ident)
+        | DataDestr qual_ident -> DataDestr (fct qual_ident)
+        | _ -> constr
+      in
+      App (constr, args, expr_attr)
+    | Binder (b, vars, e, expr_attr) ->
+      Binder (b, vars, sub e, expr_attr)
+  in sub e
+    
+  (** Substitutes all identifiers in expression [e] with other identifiers according to substitution map [subst_map].
+   ** This operation is not capture avoiding. *)
+  let subst_idents subst_map e =
+    let sub_id id =
+      Map.find subst_map id |> Option.value ~default:id
+    in
+    map_idents sub_id e
+
+  (** Equality test on expressions. Compares expressions modulo alpha renaming, 
+   * stripping of annotations, etc. *)
+  let alpha_equal ?(sm = Map.empty (module QualIdent)) e1 e2 =
+  (* The map sm represents a bijection between the bound variables in e2 and e1. *)
+  let rec eq sm e1 e2 =
+    match e1, e2 with         
+    | App (constr1, es1, { expr_type = typ1; _ }), App (constr2, es2, { expr_type = typ2; _ })
+        when Type.(typ1 = typ2) ->
+      let b =
+        match constr1, constr2 with
+        | Var qual_ident1, Var qual_ident2 ->
+          let qual_ident2p =
+            Map.find sm qual_ident2 |> Option.value ~default:qual_ident2
+          in
+          QualIdent.(qual_ident1 = qual_ident2p)
+        | _ -> equal_constr constr1 constr2
+      in
+      b && List.for_all2 es1 es2 ~f:(eq sm) |> (function Ok b -> b | Unequal_lengths -> false)
+    | Binder (b1, vs1, e1, _), Binder (b2, vs2, e2, _)
+      when Poly.(b1 = b2) ->
+      let sm = List.fold2 vs1 vs2 ~init:sm ~f:(fun sm var_decl1 var_decl2 ->
+          let var1 = QualIdent.from_ident var_decl1.Type.var_name in
+          let var2 = QualIdent.from_ident var_decl2.Type.var_name in
+          Map.set sm ~key:var2 ~data:var1)
+      in
+      begin match sm with
+      | Ok sm -> eq sm e1 e2
+      | Unequal_lengths -> false
+      end
+    | _ -> false
+  in
+  eq sm e1 e2
+
   
   let rec alpha_renaming (expr: t) (map: t qual_ident_map) : t =
   match expr with
@@ -1225,7 +1289,7 @@ module Module = struct
 
   let empty_decl =
     {
-      mod_decl_name = Ident.make "" 0;
+      mod_decl_name = Ident.make Loc.dummy "" 0;
       mod_decl_formals = [];
       mod_decl_returns = None;
       mod_decl_rep = None;

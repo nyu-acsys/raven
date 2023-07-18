@@ -106,7 +106,9 @@ module Nat : CancellativeResourceAlgebra {
 
     val id: T = 0
 
-    func valid(n:T) returns (ret:Bool) { n >= 0 }
+    func valid(n:T)
+      returns (ret:Bool)
+      { n >= 0 }
 
     func comp(a:T, b:T) returns (ret:T) { 
         (a == id ? 

@@ -25,10 +25,10 @@ module ProcessTypeExpr = struct
     let open Rewriter.Syntax in
     let loc = Type.loc tp_expr in
     match tp_expr with
-    | App ((Var qual_ident), [], tp_attr) ->
+    | App (Var qual_ident, [], tp_attr) ->
       let+ fully_qualified_qual_ident, symbol = Rewriter.resolve_and_find loc qual_ident in
       begin match Rewriter.Symbol.orig_symbol symbol with
-        | TypeDef _tp_alias -> App ((Var fully_qualified_qual_ident), [], tp_attr)
+        | TypeDef _tp_alias -> App (Var fully_qualified_qual_ident, [], tp_attr)
         | ModDef m ->
           begin match m.mod_decl.mod_decl_rep with
             | None ->
@@ -119,14 +119,14 @@ let check_and_set (expr: expr) (given_typ_lb: type_expr) (given_typ_ub: type_exp
     try
       ProcessTypeExpr.expand_type_expr given_typ_lb
     with
-    | Msg(lbl, _loc, msg) -> Error.fail ?lbl (Expr.loc expr) msg
+    | Msg(lbl, _loc, msg) -> Error.fail ?lbl (Expr.to_loc expr) msg
   and+ given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub
   and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ in
   let typ = Type.meet given_typ_ub expected_typ in
   if Type.subtype_of given_typ_lb typ then
     Expr.set_type expr typ
   else
-    type_mismatch_error (Expr.loc expr) expected_typ given_typ_ub
+    type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
 
 (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ] *)
 let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
@@ -142,31 +142,44 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
           | Real _ -> Type.real, Type.real
           | Int _ -> Type.int, Type.int
           | Bool _ -> Type.bool, Type.bool
-          | Empty -> Type.(mk_set (Expr.loc expr) bot), Type.(mk_set (Expr.loc expr) any)
+          | Empty -> Type.(mk_set (Expr.to_loc expr) bot), Type.(mk_set (Expr.to_loc expr) any)
           | _ -> assert false
         in
         check_and_set expr given_type_lb given_type_ub expected_typ
     | (Null | Real _ | Int _ | Bool _ | Empty), _expr_list ->
-        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
+        Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes no arguments"))
 
-    (* Variables *)
-    | Var qual_ident, [] ->
+    (* Variables, fields, and call expressions *)
+    | Var qual_ident, args_list ->
       let* qual_ident, symbol = 
-        Rewriter.resolve_and_find (Expr.loc expr) qual_ident
+        Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
+      let _ = Logs.debug (fun m -> m !"ident: %{QualIdent}" qual_ident) in
       let* symbol = Rewriter.Symbol.reify symbol in
-      let given_typ =
-        match symbol with
-        | VarDef var_def ->
-          var_def.var_decl.var_type     
-        | FieldDef field_def -> 
-          field_def.field_type
-        | _ -> Error.type_error (Expr.loc expr) "Expected variable or field identifier."
-      in
-      let expr = Expr.App (Var qual_ident, [], expr_attr) in
-      check_and_set expr given_typ given_typ expected_typ
-    | Var _qual_ident, _expr_list -> Error.type_error (Expr.loc expr) (("variable or field identifiers take no arguments"))
-
+      begin match symbol with
+        | ConstrDef _constr ->
+          process_expr (App (DataConstr qual_ident, args_list, Expr.attr_of expr)) expected_typ
+        | CallDef callable ->
+          let callable_decl = Callable.to_decl callable in
+          let* args_list = process_callable_args (Expr.to_loc expr) callable_decl args_list in
+          let given_typ = Callable.return_type callable_decl in
+          let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
+          check_and_set expr given_typ given_typ expected_typ
+        | (VarDef _ | FieldDef _) ->
+          let given_typ =
+            match symbol, args_list with
+            | VarDef var_def, [] ->
+              var_def.var_decl.var_type     
+            | FieldDef field_def, [] -> 
+              field_def.field_type
+            | _ -> Error.type_error (Expr.to_loc expr)
+                     (Printf.sprintf !"Identifier %{QualIdent} cannot be called" qual_ident)
+          in
+          let expr = Expr.App (Var qual_ident, [], expr_attr) in
+          check_and_set expr given_typ given_typ expected_typ
+        | _ -> Error.type_error (Expr.to_loc expr)
+                 ("Expected a variable, field, or callable identifier, but found " ^ QualIdent.to_string qual_ident)
+      end
           
     (* Unary expressions *)
     | (Not | Uminus), [expr_arg] ->
@@ -180,7 +193,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         let given_type_lb = Expr.to_type expr_arg in
         check_and_set (App (constr, [expr_arg], expr_attr)) given_type_lb given_type_ub expected_typ
     | (Not | Uminus), _expr_list ->
-        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
+        Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
 
     (* Binary expressions *)
     | (MapLookUp
@@ -268,7 +281,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         check_and_set (App (constr, [expr1; expr2], expr_attr)) given_typ_lb given_typ_ub expected_typ
           
     | (MapLookUp | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq), _expr_list ->
-        Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
+        Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     (* Ternary expressions *)
     | (Ite | MapUpdate), [expr1; expr2; expr3] ->
@@ -335,7 +348,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         let expr = Expr.App (constr, [expr1; expr2; expr3], expr_attr) in
         check_and_set expr given_typ_lb given_typ_ub expected_typ
 
-    | (Ite | MapUpdate), _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
+    | (Ite | MapUpdate), _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
 
     (* Ownership predicates *)
     | Own, expr1 :: expr2 :: expr3 :: expr4_opt ->
@@ -343,7 +356,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         and* expr2 = process_expr expr2 Type.any in
         let field_type = match Expr.to_type expr2 with
           | App (Fld, [tp_expr], _) -> tp_expr
-          | _ -> Error.type_error (Expr.loc expr2) "Expected field identifier."
+          | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier."
         in
         let* expr3 = process_expr expr3 field_type
         (* Implicitely case-split on heap RA vs. other RA *)
@@ -352,10 +365,11 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
         check_and_set expr Type.perm Type.perm expected_typ
 
-    | Own, _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments"))
+    | Own, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments"))
 
     (* Data constructor expressions *)
-    | DataConstr (constr_ident, loc), args_list ->
+    | DataConstr constr_ident, args_list ->
+      let loc = QualIdent.to_loc constr_ident in
       let* constr_decl =
         let* symbol = Rewriter.find loc constr_ident in
         let+ symbol = Rewriter.Symbol.reify symbol in
@@ -369,14 +383,15 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         match maybe_args_list with
         | Ok list -> list
         | Unequal_lengths ->
-            Error.type_error (Expr.loc expr) (("data constructor " ^ QualIdent.to_string constr_ident ^ " called with incorrect number of arguments" ))
+            Error.type_error (Expr.to_loc expr) (("data constructor " ^ QualIdent.to_string constr_ident ^ " called with incorrect number of arguments" ))
       in
       let given_typ = constr_decl.constr_return_type in
       let expr = Expr.App (constr, args_list, expr_attr) in
       check_and_set expr given_typ given_typ expected_typ
 
     (* Data destructor expressions *)
-    | DataDestr (destr_qual_ident, loc), [expr1]  -> 
+    | DataDestr destr_qual_ident, [expr1] ->
+      let loc = QualIdent.to_loc destr_qual_ident in
       let* destr =
         let* symbol = Rewriter.find loc destr_qual_ident in
         let+ symbol = Rewriter.Symbol.reify symbol in
@@ -389,42 +404,27 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       let expr = Expr.App (constr, [expr1], expr_attr) in
       check_and_set expr given_typ given_typ expected_typ
 
-    | DataDestr _, _ -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
+    | DataDestr _, _ -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
 
-    (* Call expressions *)
-    | Call (callable_qual_ident, loc), args_list ->
-      let* callable_qual_ident, symbol = Rewriter.resolve_and_find (Expr.loc expr) callable_qual_ident in
-      let* symbol = Rewriter.Symbol.reify symbol in
-      begin match symbol with
-      | ConstrDef _constr ->
-          process_expr (App (DataConstr (callable_qual_ident, loc), args_list, Expr.attr_of expr)) expected_typ
-      | CallDef callable ->
-        let callable_decl = Callable.to_decl callable in
-        let* args_list = process_callable_args (Expr.loc expr) callable_decl args_list in
-        let given_typ = Callable.return_type callable_decl in
-        let expr = Expr.App (Call (callable_qual_ident, loc), args_list, expr_attr) in
-        check_and_set expr given_typ given_typ expected_typ
-      | _ -> Error.type_error (Expr.loc expr) ("Expected a callable identifier, but found " ^ QualIdent.to_string callable_qual_ident)
-      end
 
     (* Read expressions *)
     | Read, [expr1; App (Var qual_ident, [], expr_attr) as expr2] ->
       let* qual_ident, symbol = 
-          Rewriter.resolve_and_find (Expr.loc expr) qual_ident
+          Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       begin match symbol with
       | DestrDef _ ->
-          process_expr (App (DataDestr (qual_ident, Expr.loc expr2), [expr1], expr_attr)) expected_typ
+          process_expr (App (DataDestr qual_ident, [expr1], expr_attr)) expected_typ
       | FieldDef { field_type = (App(Fld, [given_type], _) as tp) ; _ } -> 
         let* expr1 = process_expr expr1 Type.ref in
         let expr2 = Expr.set_type expr2 tp in
         let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
         check_and_set expr given_type given_type expected_typ
-      | _ -> Error.type_error (Expr.loc expr) ("Expected field or destructor identifier, but found " ^ QualIdent.to_string qual_ident)
+      | _ -> Error.type_error (Expr.to_loc expr) ("Expected field or destructor identifier, but found " ^ QualIdent.to_string qual_ident)
       end
 
-    | Read, _expr_list -> Error.type_error (Expr.loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
+    | Read, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     (* Set enumeration expressions *)
     | Setenum, [] -> process_expr (App (Empty, [], expr_attr)) expected_typ 
@@ -449,7 +449,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         | App (Prod, ts, _) ->
           List.zip elem_expr_list ts |> (function
               | Ok res -> res
-              | _ -> tuple_arg_mismatch_error (Expr.loc expr) (List.length ts))
+              | _ -> tuple_arg_mismatch_error (Expr.to_loc expr) (List.length ts))
         | _ -> List.map ~f:(fun e -> (e, Type.any)) elem_expr_list 
       in
       let* elem_expr_list, elem_types =
@@ -459,7 +459,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
               (mexpr :: elem_expr_list, Expr.to_type mexpr :: elem_types))
           ~init:([], [])
       in
-      let given_typ = Type.mk_prod (Expr.loc expr) elem_types in
+      let given_typ = Type.mk_prod (Expr.to_loc expr) elem_types in
       let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
       check_and_set expr given_typ given_typ expected_typ
           
@@ -481,7 +481,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       let var_decl = 
         match var_decl_list with
         | [v] -> v
-        | _ -> Error.type_error (Expr.loc expr) "Map/Set compr only take one quantified variable"
+        | _ -> Error.type_error (Expr.to_loc expr) "Map/Set compr only take one quantified variable"
       in
       let* inner_expr = process_expr inner_expr Type.any in
       let inner_expr_type = Expr.to_type inner_expr in
@@ -557,7 +557,7 @@ module ProcessCallable = struct
       | [] -> raise Stdlib.Not_found
 
     let add_var_decl (var_decl: Type.var_decl) (disam_tbl: t) : Type.var_decl * t = 
-      let new_name = Ident.fresh var_decl.var_name.ident_name in
+      let new_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name in
       let disam_tbl = add disam_tbl var_decl.var_loc var_decl.var_name new_name in
       let var_decl =
         { var_decl with
@@ -588,15 +588,12 @@ module ProcessCallable = struct
       | Var qual_ident -> 
         let qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.Var qual_ident
-      | DataConstr (qual_ident, loc) ->
+      | DataConstr qual_ident ->
         let qual_ident = disambiguate_ident qual_ident disam_tbl in
-        Expr.DataConstr (qual_ident, loc)
-      | DataDestr (qual_ident, loc) ->
+        Expr.DataConstr qual_ident
+      | DataDestr qual_ident ->
         let qual_ident = disambiguate_ident qual_ident disam_tbl in
-        Expr.DataDestr (qual_ident, loc)
-      | Call (qual_ident, loc) ->
-        let qual_ident = disambiguate_ident qual_ident disam_tbl in
-        Expr.Call (qual_ident, loc)
+        Expr.DataDestr qual_ident
       | _ -> constr
       in
       App (constr, expr_list, expr_attr)
@@ -670,18 +667,18 @@ module ProcessCallable = struct
       | Assign assign_desc ->
         (* THIS IS WHERE the RHS needs to be examined; *)
 
-        (let open_au_call = QualIdent.from_ident (Ident.make "openAU" 0) in
+        ((*(let open_au_call = QualIdent.from_ident (Ident.make "openAU" 0) in
         let commit_au_call = QualIdent.from_ident (Ident.make "commitAU" 0) in
         let bind_au_call = QualIdent.from_ident (Ident.make "bindAU" 0) in
         let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
-        let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in
+        let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in*)
 
         begin match assign_desc.assign_rhs with
-        | App (Call (proc_qual_ident, proc_loc), args, expr_attr) ->
+        | App (Var proc_qual_ident, ((_ :: _) as args), expr_attr) ->
           (* TODO: there is a lot of duplicated code below that can be factored out.
              Also, add comments that indicate which kind of assignment statement is handled in each case
            *)
-          if QualIdent.(proc_qual_ident = open_au_call) then
+          (*if QualIdent.(proc_qual_ident = open_au_call) then
             match args with
             | [ token ] ->
               let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
@@ -746,7 +743,7 @@ module ProcessCallable = struct
                 and* field_expr = disambiguate_process_expr field_expr Type.any disam_tbl in
                 let field_type = match Expr.to_type field_expr with
                   | App (Fld, [tp_expr], _) -> tp_expr
-                  | _ -> Error.type_error (Expr.loc field_expr) "Expected field identifier."
+                  | _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier."
                 in
                 let+ val_expr = disambiguate_process_expr val_expr field_type disam_tbl in
                 let field_qual_ident = Expr.to_qual_ident field_expr in
@@ -759,7 +756,7 @@ module ProcessCallable = struct
             | _ ->
               Error.error (Stmt.loc stmt) "fpu() called incorrectly"
 
-          else
+          else*)
             let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
                 ~f:(fun expr -> disambiguate_process_expr expr Type.any disam_tbl)
             in
@@ -768,17 +765,17 @@ module ProcessCallable = struct
               List.map assign_lhs ~f:Expr.to_type |> function
               | [] -> Type.unit
               | [t] -> t
-              | ts -> Type.mk_prod proc_loc ts
+              | ts -> Type.mk_prod (Expr.to_loc assign_desc.assign_rhs) ts
             in
             
             let+ call_expr = 
-              Expr.App (Call (proc_qual_ident, proc_loc), args, expr_attr) |>
+              Expr.App (Var proc_qual_ident, args, expr_attr) |>
               fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl (* TODO: <- replace this with the expected type *)
             in
 
             begin match call_expr with
 
-            | App (Call (proc_qual_ident, _), args, _expr_attr) ->
+            | App (Var proc_qual_ident, args, _expr_attr) ->
 
               let (call_desc : Stmt.call_desc) =
                 {
@@ -1147,7 +1144,7 @@ module ProcessModule = struct
 
     Module.(VarDef var)
 
-  let rec check_implements_symbol interface_ident (symbol : Symbol.t) (orig_symbol : Symbol.t) =
+  let check_implements_symbol interface_ident (symbol : Symbol.t) (orig_symbol : Symbol.t) =
     let loc = Symbol.to_loc symbol in
     let ident = Symbol.to_name symbol in
     match symbol, orig_symbol with
@@ -1214,13 +1211,79 @@ module ProcessModule = struct
                     (Symbol.kind symbol) ident ident interface_ident)
             
       in
-      let sm = make_subst call_def.call_decl.call_decl_formals orig_call_def.call_decl.call_decl_formals (Map.empty (module QualIdent)) in
-      let _sm = make_subst call_def.call_decl.call_decl_returns orig_call_def.call_decl.call_decl_returns sm in
       if Poly.(call_def.call_decl.call_decl_kind <> orig_call_def.call_decl.call_decl_kind) then
         Error.type_error loc
           (Printf.sprintf !"Cannot redeclare %s %{Ident} from %{QualIdent} as %s."
-             (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))        
-      
+             (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))
+      else 
+      let sm = make_subst call_def.call_decl.call_decl_formals orig_call_def.call_decl.call_decl_formals (Map.empty (module QualIdent)) in
+      let pre_ok =
+        List.for_all2 call_def.call_decl.call_decl_precond orig_call_def.call_decl.call_decl_precond ~f:(fun spec orig_spec ->
+            Bool.(spec.spec_atomic = orig_spec.spec_atomic) && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form)
+        |> function Ok res -> res | Unequal_lengths -> false
+      in
+      let _ =
+        if not pre_ok then
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} does not have the same precondition as %{Ident} in interface %{QualIdent}."
+             (Symbol.kind symbol) ident ident interface_ident)
+      in
+      let sm = make_subst call_def.call_decl.call_decl_returns orig_call_def.call_decl.call_decl_returns sm in
+      let post_ok =
+        List.for_all2 call_def.call_decl.call_decl_postcond orig_call_def.call_decl.call_decl_postcond ~f:(fun spec orig_spec ->
+            Bool.(spec.spec_atomic = orig_spec.spec_atomic) && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form)
+        |> function Ok res -> res | Unequal_lengths -> false
+      in
+      let _ =
+        if not post_ok then
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} does not have the same postcondition as %{Ident} in interface %{QualIdent}."
+             (Symbol.kind symbol) ident ident interface_ident)
+      in
+      begin match call_def.call_def, orig_call_def.call_def with
+      | ProcDef { proc_body = Some _; _ }, ProcDef { proc_body = Some _; _ }
+      | FuncDef { func_body = Some _; _ }, FuncDef { func_body = Some _; _ } ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
+               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+      | ProcDef { proc_body = None; _ }, ProcDef { proc_body = Some _; _ }
+      | FuncDef { func_body = None; _ }, FuncDef { func_body = Some _; _ } ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}"
+               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+      | _ -> ()
+      end
+    | ModDef mod_def, ModInst orig_mod_inst ->
+      if mod_def.mod_decl.mod_decl_is_interface && not orig_mod_inst.mod_inst_is_interface then
+          Error.type_error loc
+            (Printf.sprintf !"Cannot redeclare module %{Ident} from interface %{QualIdent} as interface" ident interface_ident)
+      else if not mod_def.mod_decl.mod_decl_is_interface && orig_mod_inst.mod_inst_is_interface then
+        Error.type_error loc
+          (Printf.sprintf !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module" ident interface_ident)
+      else
+        let _ = match mod_def.mod_decl.mod_decl_returns, orig_mod_inst.mod_inst_type with
+        | Some mod_typ, orig_mod_typ when QualIdent.(mod_typ <> orig_mod_typ) ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+               (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
+        | None, _ ->
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+               (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
+        | _ -> ()
+        in
+        if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
+          Error.type_error loc
+            (Printf.sprintf !"%s %{Ident} cannot have module parameters."
+               (Symbol.kind symbol |> String.uppercase) ident)
+        else
+          begin match orig_mod_inst.mod_inst_def with
+            | Some _ ->
+              Error.type_error loc
+                (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
+                   (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+            | _ -> ()
+          end 
     | ModInst mod_inst, ModInst orig_mod_inst ->
       if mod_inst.mod_inst_is_interface && not orig_mod_inst.mod_inst_is_interface then
           Error.type_error loc
@@ -1243,7 +1306,15 @@ module ProcessModule = struct
                (Symbol.kind symbol |> String.uppercase) ident interface_ident)
         | _ -> ()
       end
-    | _ -> ()
+    | ModDef _mod_def, ModDef _orig_mod_def ->
+      Error.type_error loc
+        (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
+           (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+    | _ ->
+      Error.type_error loc
+        (Printf.sprintf !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s."
+           (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))
+
            
   let rec process_module (m: Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -1285,7 +1356,7 @@ module ProcessModule = struct
         | _ -> ids)
     in
     
-    (* Compute symbols that are inherited from parent interface, respectively, need to be checked against that interface *)
+    (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
     let* interface_ident, (inherited_symbols, symbols_to_check) =
       let+ interface_opt = Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
           let* interface_id, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid

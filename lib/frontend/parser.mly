@@ -46,7 +46,7 @@ main:
   let open Module in
   let decl =
     { empty_decl with
-      mod_decl_name = Ident.make "$Program" 0;
+      mod_decl_name = Ident.make (Loc.make $startpos(ms) $endpos(ms)) "$Program" 0;
     }
   in
   { mod_decl = decl;
@@ -109,16 +109,16 @@ module_inst_or_impl_or_decl:
                   } )
 }
 | EQ; mod_name = mod_ident; args = mod_inst_args {
-  Module.( ModInst { mod_inst_name = Ident.make "" 0; (* dummy *)
-                     mod_inst_type = QualIdent.make [] (Ident.make "" 0); (* dummy *)
+  Module.( ModInst { mod_inst_name = Ident.make Loc.dummy "" 0; (* dummy *)
+                     mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = Some (mod_name, args);
                      mod_inst_is_interface = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
 | (* empty *) {
-  Module.( ModInst { mod_inst_name = Ident.make "" 0; (* dummy *)
-                     mod_inst_type = QualIdent.make [] (Ident.make "" 0); (* dummy *)
+  Module.( ModInst { mod_inst_name = Ident.make Loc.dummy "" 0; (* dummy *)
+                     mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = None;
                      mod_inst_is_interface = false;
                      mod_inst_loc = Loc.dummy;
@@ -457,7 +457,7 @@ stmt_wo_trailing_substmt:
 new_or_expr:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   let new_descr = Stmt.{
-    new_lhs = QualIdent.from_ident (Ident.make "" 0);
+    new_lhs = QualIdent.from_ident (Ident.make Loc.dummy "" 0);
     new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
   }
   in
@@ -648,7 +648,7 @@ dot_expr:
     let constr, args =
       let p_ident = Expr.to_qual_ident p in
       Base.Option.map c ~f:(fun c -> c, p :: es) |> 
-      Base.Option.value ~default:(Expr.Call (p_ident, Loc.make $startpos(p) $endpos(p)), es)
+      Base.Option.value ~default:(Expr.Var p_ident, es)
     in
     Expr.(mk_app ~loc:(Loc.make $startpos $endpos) constr args))
   |> Base.Option.value ~default:p
@@ -669,7 +669,7 @@ maplookup_expr:
 call_expr:
 | p = qual_ident_expr; ces = call {
   let _, es = ces in
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Call (Expr.to_qual_ident p, Loc.make $startpos(p) $endpos(p))) es)
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
 }
   
 call:
@@ -769,8 +769,8 @@ comp_seq:
 | e = add_expr { (e, []) }
 | e1 = add_expr; op = comp_op; cseq = comp_seq {
   let e2, comps = cseq in
-  let loc1 = Expr.loc e1 in
-  let loc2 = Expr.loc e2 in
+  let loc1 = Expr.to_loc e1 in
+  let loc2 = Expr.to_loc e2 in
   (e1, Expr.(mk_app ~loc:(Loc.merge loc1 loc2) op [e1; e2]) :: comps)
 }
 ;

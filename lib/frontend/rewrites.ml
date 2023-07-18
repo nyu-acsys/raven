@@ -28,13 +28,13 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
     let* _ = Rewriter.add_locals v_l
     and* inner_expr = rewrite_compr_expr inner_expr in
         
-    let compr_fn_ident = Ident.fresh "compr" in
+    let compr_fn_ident = Ident.fresh (Expr.to_loc expr) "compr" in
 
     let free_var_exprs = collect_vars inner_expr in
     
     let formal_var_decls = List.map free_var_exprs ~f:(fun var ->
-        { Type.var_name = Ident.fresh "tmp";
-          var_loc = Expr.loc inner_expr;
+        { Type.var_name = Ident.fresh (Expr.to_loc inner_expr) "tmp";
+          var_loc = Expr.to_loc inner_expr;
           var_type = Expr.to_type var;
           var_const = false;
           var_ghost = false;
@@ -44,8 +44,8 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
     in
 
     let ret_var_decl = 
-      { Type.var_name = Ident.fresh "ret";
-        var_loc = Expr.loc expr;
+      { Type.var_name = Ident.fresh (Expr.to_loc expr) "ret";
+        var_loc = Expr.to_loc expr;
         var_type = Expr.to_type expr;
         var_const = false;
         var_ghost = false;
@@ -103,7 +103,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
       call_decl_locals = [];
       call_decl_precond = [];
       call_decl_postcond = [postcond];
-      call_decl_loc = Expr.loc expr;
+      call_decl_loc = Expr.to_loc expr;
     } 
       
     in
@@ -112,7 +112,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
     let compr_fn_def = Module.CallDef (Callable.{ call_decl; call_def = FuncDef { func_body = None;} }) in
     
     let new_expr = 
-      Expr.mk_app ~typ:(ret_typ) ~loc:(Expr.loc expr) (Expr.Call (compr_fn_qual_ident, Expr.loc expr)) free_var_exprs
+      Expr.mk_app ~typ:(ret_typ) ~loc:(Expr.to_loc expr) (Expr.Var compr_fn_qual_ident) free_var_exprs
     in
 
     let+ _ = Rewriter.introduce_symbol compr_fn_def in

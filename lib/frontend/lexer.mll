@@ -142,18 +142,18 @@ rule token = parse
     with Not_found ->
       lexical_error lexbuf (Some("Unknown operator: " ^ op))
     }
-| ident as name '#' (digit_char+ as num) { IDENT(Ident.make name (int_of_string num)) }
+| ident as name '#' (digit_char+ as num) { IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num)) }
 | mod_ident as kw
     { try
       Hashtbl.find keyword_table kw
     with Not_found ->
-      MODIDENT (Ident.make kw 0)
+      MODIDENT (Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) kw 0)
     }
 | ident as kw
     { try
       Hashtbl.find keyword_table kw
     with Not_found ->
-      IDENT (Ident.make kw 0)
+      IDENT (Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) kw 0)
     }
 | digits as num { CONSTVAL (Expr.Int (Int64.of_string num)) }
 | float as num { CONSTVAL (Expr.Real (Float.of_string num)) }

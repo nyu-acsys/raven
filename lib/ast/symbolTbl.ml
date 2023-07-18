@@ -17,6 +17,8 @@ type scope =
     scope_id: QualIdent.t;
     (* Indicates whether this scope is an uninstantiated module functor or interface *)
     scope_is_abstract: bool;
+    (* Indicates whether this scope is a callable *)
+    scope_is_local: bool;
     (* Scopes of submodules / callables *)
     scope_children: scope IdentHashtbl.t; [@hash.ignore]
     (* Symbols defined in this scope *)
@@ -97,17 +99,18 @@ let rec to_string tbl =
     ^ list_to_string (Map.to_alist (snd t))
     ^ " ]\n" ^ to_string ts
 
-let create_scope qual_ident is_abstract = 
+let create_scope qual_ident is_abstract is_local = 
   { scope_id = qual_ident;
     scope_is_abstract = is_abstract;
+    scope_is_local = is_local;
     scope_entries = Hashtbl.create (module Ident);
     scope_children = Hashtbl.create (module Ident);
     scope_cache = Hashtbl.create (module QualIdent);
   }
 
 let create () =
-  let root_id = QualIdent.from_ident (Ident.make "$Root" 0) in
-  let root_scope = create_scope root_id false in
+  let root_id = QualIdent.from_ident (Ident.make Loc.dummy "$Root" 0) in
+  let root_scope = create_scope root_id false false in
   { tbl_root = root_scope;
     tbl_curr = root_scope;
     tbl_path = [];
@@ -149,7 +152,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
   let open Option.Syntax in
   let rec go_forward inst_scopes scope subst ids =
     match ids with
-    | [] -> Some (get_scope_id scope, subst)
+    | [] -> Some (get_scope_id scope, subst, false)
     | first_id :: ids1 ->
       if scope.scope_is_abstract && (* if this is a functor or interface ... *)
          not @@ is_parent scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
@@ -177,7 +180,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         if is_parent scope tbl
         then go_forward inst_scopes tbl.tbl_root subst new_path
         else None
-      | Symbol qual_ident, [] -> Some (qual_ident, subst)
+      | Symbol qual_ident, [] -> Some (qual_ident, subst, scope.scope_is_local)
       | _ ->
         let scope_children = get_scope_children scope in
         let* cscope = Hashtbl.find scope_children first_id in
@@ -193,8 +196,16 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         let+ alias_qual_ident, orig_qual_ident, subst =
           if Hashtbl.mem (get_scope_entries curr_scope) first_id
           then
-            let+ alias_qual_ident, subst = go_forward (Set.empty (module QualIdent)) curr_scope [] (QualIdent.to_list name) in
-            let orig_qual_ident = alias_qual_ident |> QualIdent.requalify subst in
+            let+ alias_qual_ident, subst, is_local = go_forward (Set.empty (module QualIdent)) curr_scope [] (QualIdent.to_list name) in
+            (* Compute resolved identifier *)
+            let orig_qual_ident =
+              alias_qual_ident |> QualIdent.requalify subst
+            in
+            (* Don't qualify orig_qual_ident if it identifies a symbol in a local scope *)
+            let orig_qual_ident =
+              if is_local then orig_qual_ident |> QualIdent.unqualify |> QualIdent.from_ident
+              else orig_qual_ident
+            in
             alias_qual_ident, orig_qual_ident, subst
           else
             let* curr_scope1, path1 =
@@ -224,11 +235,11 @@ let resolve_exn loc name tbl =
 let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * QualIdent.subst) option =
   let open Option.Syntax in
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
+  let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
   Logs.debug (fun m -> m "SymbolTbl.resolve_and_find %a = " QualIdent.pr name);
   Logs.debug (fun m -> m "orig_qual_ident: %a" QualIdent.pr orig_qual_ident);
   Logs.debug (fun m -> m "alias_qual_ident: %a" QualIdent.pr alias_qual_ident);
   Logs.debug (fun m -> m "subst: %a\n" pr_subst subst);
-  let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
   alias_qual_ident, orig_qual_ident, symbol, subst
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
@@ -346,11 +357,11 @@ let add_symbol symbol tbl =
       match symbol with
       | ModDef mod_def ->
         let is_abstract = mod_def.mod_decl.mod_decl_is_interface || List.length mod_def.mod_decl.mod_decl_formals > 0 in
-        let symbol_scope = create_scope symbol_qual_ident is_abstract in
+        let symbol_scope = create_scope symbol_qual_ident is_abstract false in
         add_to_map (get_scope_children curr_scope) symbol_loc symbol_ident symbol_scope;
         tbl
       | CallDef _ -> 
-        let symbol_scope = create_scope symbol_qual_ident false in
+        let symbol_scope = create_scope symbol_qual_ident false true in
         add_to_map (get_scope_children curr_scope) symbol_loc symbol_ident symbol_scope;
         tbl
       | _ -> tbl

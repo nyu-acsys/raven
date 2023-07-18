@@ -256,9 +256,8 @@ module Expr = struct
       let expr_attr = { expr_attr with expr_type = expr_type } in
       let constr = match constr with
         | Var qual_ident -> Expr.Var (f qual_ident)
-        | Call (qual_ident, loc) -> Expr.Call (f qual_ident, loc)
-        | DataConstr (qual_ident, loc) -> Expr.DataConstr (f qual_ident, loc)
-        | DataDestr (qual_ident, loc) -> Expr.DataDestr (f qual_ident, loc)
+        | DataConstr qual_ident -> Expr.DataConstr (f qual_ident)
+        | DataDestr qual_ident -> Expr.DataDestr (f qual_ident)
         | _ -> constr
       in
       Expr.App (constr, expr_list, expr_attr)
@@ -620,11 +619,14 @@ end
 
 module Symbol = struct
   let reify (name, symbol, subst) =
-    let open Syntax in
-    let+ tbl = get_table in
-    let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
-    let _, symbol1 = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
-    symbol1
+    match subst with
+    | [] -> return symbol
+    | _ ->
+      let open Syntax in
+      let+ tbl = get_table in
+      let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
+      let _, symbol1 = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
+      symbol1
 
   let reify_type_def loc (_name, symbol, subst) : AstDef.Type.t Base.Option.t t =
     let open Syntax in
