@@ -182,6 +182,16 @@ module List = struct
   
   let iter xs ~f = fun s ->
     List.fold_left xs ~init:s ~f:(fun s x -> let res, () = f x s in res), ()
+
+  let exists xs ~f =
+    let rec ex xs s =
+      match xs with
+      | [] -> s, false
+      | x :: ys ->
+        let s, b = f x s in
+        if b then s, b else ex ys s
+    in
+    ex xs
 end
 
 module Option = struct

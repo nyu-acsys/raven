@@ -771,8 +771,7 @@ module Expr = struct
   (* The map sm represents a bijection between the bound variables in e2 and e1. *)
   let rec eq sm e1 e2 =
     match e1, e2 with         
-    | App (constr1, es1, { expr_type = typ1; _ }), App (constr2, es2, { expr_type = typ2; _ })
-        when Type.(typ1 = typ2) ->
+    | App (constr1, es1, { expr_type = typ1; _ }), App (constr2, es2, { expr_type = typ2; _ }) ->
       let b =
         match constr1, constr2 with
         | Var qual_ident1, Var qual_ident2 ->

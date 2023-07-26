@@ -1231,7 +1231,10 @@ module ProcessModule = struct
       let sm = make_subst call_def.call_decl.call_decl_returns orig_call_def.call_decl.call_decl_returns sm in
       let post_ok =
         List.for_all2 call_def.call_decl.call_decl_postcond orig_call_def.call_decl.call_decl_postcond ~f:(fun spec orig_spec ->
-            Bool.(spec.spec_atomic = orig_spec.spec_atomic) && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form)
+            let post_ok =
+              Bool.(spec.spec_atomic = orig_spec.spec_atomic) && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form
+            in
+            post_ok)      
         |> function Ok res -> res | Unequal_lengths -> false
       in
       let _ =
@@ -1319,14 +1322,13 @@ module ProcessModule = struct
     let open Rewriter.Syntax in
     let+ qual_mod_ident, mod_symbol = Rewriter.resolve_and_find (QualIdent.to_loc mod_ident) mod_ident
     and+ qual_int_ident, _int_symbol = Rewriter.resolve_and_find (QualIdent.to_loc int_ident) int_ident in
-    let interfaces = Rewriter.Symbol.extract mod_symbol ~f:(fun subst -> function
+    let interfaces = Rewriter.Symbol.extract mod_symbol ~f:(fun _subst -> function
         | Ast.Module.ModDef mod_def ->
           (*Set.map (module QualIdent) mod_def.mod_decl.mod_decl_interfaces ~f:subst*)
           mod_def.mod_decl.mod_decl_interfaces
         | _ -> Set.empty (module QualIdent)
       )
     in
-    let _ = Set.iter interfaces ~f:(fun qid -> Logs.debug (fun m -> m !"%{QualIdent}" qid)) in
     if not (QualIdent.(qual_mod_ident = qual_int_ident) || Set.mem interfaces qual_int_ident) then
       Error.type_error (QualIdent.to_loc mod_ident)
         (Printf.sprintf !"%s %{QualIdent} does not implement interface %{QualIdent}."
@@ -1337,6 +1339,11 @@ module ProcessModule = struct
   let rec process_module (m: Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
     let _ = Logs.debug (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m))) in
+    let* is_root =
+      let+ tbl = Rewriter.get_table in
+      Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl))
+    in
+    
     let process_instr =
       function
       | Module.SymbolDef symbol ->
@@ -1394,12 +1401,16 @@ module ProcessModule = struct
         | SymbolDef symbol -> Set.add ids (Symbol.to_name symbol)
         | _ -> ids)
     in
-    
+
+    let* mod_qual_ident =
+      if is_root then Rewriter.return @@ QualIdent.from_ident (Symbol.to_name (ModDef m))
+      else Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m)))
+    in
+
     (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
     let* mod_decl_returns, mod_decl_interfaces, interface_ident, (inherited_symbols, symbols_to_check) =
       let+ interface_opt = Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
-          let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid
-          and* mod_qual_ident = Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m))) in
+          let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid in
           let interface_symbol = Rewriter.Symbol.add_subst (qual_interface_ident, QualIdent.to_list mod_qual_ident) interface_symbol in
           let+ interface_symbol = Rewriter.Symbol.reify interface_symbol in
           qual_interface_ident, mid, interface_symbol)
@@ -1414,14 +1425,16 @@ module ProcessModule = struct
               let ident = Symbol.to_name symbol in
               if Set.mem defined_symbols ident
               then inherited, Map.add_exn to_check ~key:ident ~data:symbol
-              else begin
-                let _ = Logs.debug (fun m -> m !"Inheriting %{Ident}" (Symbol.to_name symbol)) in
-                Module.SymbolDef symbol :: inherited, to_check
-              end
+              else Module.SymbolDef symbol :: inherited, to_check
             | _ -> inherited, to_check)
       | _ ->
         let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
-        None, Set.add m.mod_decl.mod_decl_interfaces mod_ident, mod_ident, ([], Map.empty (module Ident))
+        let interfaces =
+          if is_root
+          then m.mod_decl.mod_decl_interfaces
+          else Set.add m.mod_decl.mod_decl_interfaces mod_ident
+        in
+        None, interfaces, mod_ident, ([], Map.empty (module Ident))
     in
     
     let mod_def = inherited_symbols @ mod_def in
@@ -1431,7 +1444,7 @@ module ProcessModule = struct
     in
 
     (* Find rep type and add it to module declaration *)
-    let mod_decl_rep = List.fold_left m.mod_def ~init:None
+    let mod_decl_rep = List.fold_left mod_def ~init:None
         ~f:(fun rep_type -> function
             | SymbolDef (TypeDef type_def) when type_def.type_def_rep ->
               Option.map_or_else 
@@ -1441,11 +1454,24 @@ module ProcessModule = struct
                 ~e:(fun () -> Some type_def.type_def_name) () rep_type
             | _ -> rep_type)
     in
+
+    (* Determine whether this module is an RA *)
+    let _ = Set.iter mod_decl_interfaces ~f:(fun qid -> Logs.debug (fun m -> m !"%{QualIdent}" qid)) in
+    let* mod_decl_is_ra =
+      Rewriter.List.exists (Set.to_list mod_decl_interfaces) ~f:(fun interface_ident ->
+          let+ _qual_interface_ident, interface_symbol = Rewriter.resolve_and_find (QualIdent.to_loc interface_ident) interface_ident in
+          Rewriter.Symbol.extract interface_symbol ~f:(fun _ -> function
+              | Module.ModDef mod_def -> mod_def.mod_decl.mod_decl_is_ra
+              | _ -> false))
+    in
+    let mod_decl_is_ra = mod_decl_is_ra || QualIdent.(mod_qual_ident = from_ident (Ident.make Loc.dummy "ResourceAlgebra" 0)) in
+    
     let mod_decl =
       { m.mod_decl with
         mod_decl_rep;
         mod_decl_returns;
         mod_decl_interfaces;
+        mod_decl_is_ra;
       }
     in
 
@@ -1459,276 +1485,26 @@ module ProcessModule = struct
         Option.iter ~f:(fun orig_symbol -> check_implements_symbol interface_ident symbol orig_symbol)
       | _ -> ())
     in
-    
-    Module.{ mod_decl; mod_def }
-    
-    (*
-    let formal_args_mod_aliases = mod_decl.mod_decl_formals in
 
-    let _mod_aliases, mod_decl, tbl = process_mod_a    let mod_def = mod_def_formals @ m.mod_def in
-lias formal_args_mod_aliases mod_decl tbl in
-    (* This is instantiating all formal arguments to the module. The process_mod_aliases is primarily called to add the requisite members to the tbl for processing the rest of the module. (It also fully modifies the mod_decl by expanding the modules names referenced in mod_aliases to fully qualified names.) The returned mod_aliases are not stored.  *)
-
-    let mod_aliases, mod_decl, tbl = process_mod_aliases m.members.mod_aliases mod_decl tbl in
-
-    let mod_defs, mod_decl, tbl = List.fold m.members.mod_defs ~init:([], mod_decl, tbl) 
-    ~f:(fun (mod_defs, parent_mod_decl, tbl) (mod_def: Module.t) -> 
-
-      let (mod_def, tbl) = process_module mod_def tbl in
-
-      let (parent_mod_decl': Module.module_decl) = 
-      let open Module in  
-      { parent_mod_decl with
-        mod_decl_mod_defs = Map.set parent_mod_decl.mod_decl_mod_defs ~key:mod_def.module_decl.mod_decl_name ~data:mod_def.module_decl;
-      } in
-
-      (mod_defs @ [mod_def], parent_mod_decl', tbl)
-    )
-
-    in
-
-    let process_mod_decl (mod_decl, inherited_fields, inherited_types, inherited_vars, inherited_call_defs, tbl, is_ra) tp_expr =
-      let tp_expr = process_mod_alias_tp_expr tp_expr tbl (Type.to_loc tp_expr) in 
-      let (impl_alias: Module.module_alias) = {
-        mod_alias_name = mod_decl.Module.mod_decl_name;
-        mod_alias_type = tp_expr;
-        mod_alias_def = None;
-        mod_alias_loc = Type.to_loc tp_expr;
-      } in
-      
-      let tbl' = SymbolTbl.pop tbl in
-
-      (* The above pop is required because otherwise the instantiated module is instantiated in the wrong namespace. Eg, if the current module is M, impl_mod will be called $Prog.M.M, instead of $Prog.M like we want. *)
-
-      let impl_mod, _, is_ra', _ = module_alias_to_module impl_alias tbl' in
-        
-      let inherited_fields, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_fields ~init:(inherited_fields, mod_decl, tbl) ~f:(fun ~key:field_name ~data:field_def (inherited_fields, mod_decl, tbl) ->
-          match Map.find mod_decl.mod_decl_fields field_name with
-          | None -> 
-            let mod_decl =
-              { mod_decl with
-                mod_decl_fields = Map.set mod_decl.mod_decl_fields ~key:field_def.field_name ~data:field_def;
-              }
-            in
-
-            let tbl = SymbolTbl.add tbl (QualIdent.from_ident field_def.field_name) (Field field_def) in
-
-            field_def :: inherited_fields, mod_decl, tbl
-          | Some field_def' -> 
-            if Type.equal field_def'.field_type field_def.field_type then 
-              (inherited_fields, mod_decl, tbl)
-            else
-              Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s implementation of field %s incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string field_name) (Type.to_string tp_expr)
-        )
-      in
-
-      let inherited_types, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_types ~init:(inherited_types, mod_decl, tbl) ~f:(fun ~key:type_name ~data:type_def (inherited_types, mod_decl, tbl) ->
-          match Map.find mod_decl.mod_decl_types type_name with
-          | None -> 
-            let mod_decl =
-              { mod_decl with
-                mod_decl_types = Map.set mod_decl.mod_decl_types ~key:type_def.type_alias_name ~data: type_def; 
-              }
-            in
-            
-            let tbl = SymbolTbl.add tbl (QualIdent.from_ident type_def.type_alias_name) (TypeAlias type_def) in
-            type_def :: inherited_types, mod_decl, tbl
-            (* Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement type %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string type_name) (Type.to_string tp_expr) *)
-          | Some type_def' -> 
-            match type_def'.type_alias_def, type_def.type_alias_def with
-            | None, None -> (inherited_types, mod_decl, tbl)
-            | Some _tp_expr, None -> (inherited_types, mod_decl, tbl)
-            | None, Some tp_expr1 -> Error.error (Type.to_loc tp_expr1) @@ Printf.sprintf "Module %s does not implement type %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string type_name) (Type.to_string tp_expr)
-            | Some tp_expr1, Some tp_expr2 ->
-              if Type.equal tp_expr1 tp_expr2 then 
-                (inherited_types, mod_decl, tbl)
-              else
-                Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s implementation of type %s incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string type_name) (Type.to_string tp_expr)
-        )
-      in
-
-      let inherited_vars, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_vars ~init:(inherited_vars, mod_decl, tbl) ~f:(fun ~key:var_name ~data:var_decl (inherited_vars, mod_decl, tbl) ->
-          match Map.find mod_decl.mod_decl_vars var_name with
-          | None -> 
-            let var_def = Module.find_var impl_mod.members.vars var_name in
-            
-            let mod_decl =
-              { mod_decl with
-                mod_decl_vars = Map.set mod_decl.mod_decl_vars ~key:var_def.var_decl.var_name ~data:var_def.var_decl;
-              }
-            in
-            
-            let tbl = SymbolTbl.add tbl (QualIdent.from_ident var_def.var_decl.var_name) (VarDecl var_def.var_decl) in
-
-            var_def :: inherited_vars, mod_decl, tbl
-            (* Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement var %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string var_name) (Type.to_string tp_expr) *)
-          | Some var_decl' -> 
-            
-            if Type.equal var_decl'.var_type var_decl.var_type then 
-              (inherited_vars, mod_decl, tbl)
-            else
-              Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s type of var %s incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string var_name) (Type.to_string tp_expr)
-        ) in
-
-      let inherited_call_defs, mod_decl, tbl = Map.fold impl_mod.module_decl.mod_decl_callables ~init:(inherited_call_defs, mod_decl, tbl) ~f:(fun ~key:call_name ~data:call_decl (inherited_call_defs, mod_decl, tbl) ->
-          match Map.find mod_decl.mod_decl_callables call_name with
-          | None -> 
-            let impl_callable = (Module.find_callable impl_mod.members.call_defs call_name) in
-            (match impl_callable with
-             | ProcDef proc_def ->
-               (match proc_def.proc_body with
-                | Some _ -> 
-                  let mod_decl =
-                    { mod_decl with
-                      mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:proc_def.proc_decl.call_decl_name ~data:proc_def.proc_decl;
-                    }
-                  in
-
-                  let tbl = SymbolTbl.add tbl (QualIdent.from_ident proc_def.proc_decl.call_decl_name) (Callable proc_def.proc_decl) in
-
-                  impl_callable :: inherited_call_defs, mod_decl, tbl
-                | None ->
-                  if m.interface then
-                    let mod_decl =
-                      { mod_decl with
-                        mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:proc_def.proc_decl.call_decl_name ~data:proc_def.proc_decl;
-                      }
-                    in
-
-                    let tbl = SymbolTbl.add tbl (QualIdent.from_ident proc_def.proc_decl.call_decl_name) (Callable proc_def.proc_decl) in
-
-                    impl_callable :: inherited_call_defs, mod_decl, tbl
-                  else
-                    (match proc_def.proc_decl.call_decl_kind with
-                     | Lemma -> 
-                       let proc_def =
-                         { proc_def with
-                           proc_body = Some (Stmt.mk_skip (Type.to_loc tp_expr));
-                         }
-                       in
-                       
-                       let mod_decl =
-                         { mod_decl with
-                           mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:proc_def.proc_decl.call_decl_name ~data:proc_def.proc_decl;
-                         }
-                       in
-
-                       let tbl = SymbolTbl.add tbl (QualIdent.from_ident proc_def.proc_decl.call_decl_name) (Callable proc_def.proc_decl) in
-                       
-                       ProcDef proc_def :: inherited_call_defs, mod_decl, tbl
-
-                     | _ -> Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement callable %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr)
-                  )
-                )
-                
-             | FuncDef func_def ->
-               (match func_def.func_body with
-                | Some _ -> 
-                  let mod_decl =
-                    { mod_decl with
-                      mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:func_def.func_decl.call_decl_name ~data:func_def.func_decl;
-                    }
-                  in
-
-                  let tbl = SymbolTbl.add tbl (QualIdent.from_ident func_def.func_decl.call_decl_name) (Callable func_def.func_decl) in
-
-                  impl_callable :: inherited_call_defs, mod_decl, tbl
-              | None ->
-                if m.interface then
-                  let mod_decl =
-                    { mod_decl with
-                      mod_decl_callables = Map.set mod_decl.mod_decl_callables ~key:func_def.func_decl.call_decl_name ~data:func_def.func_decl;
-                    }
-                  in
-
-                  let tbl = SymbolTbl.add tbl (QualIdent.from_ident func_def.func_decl.call_decl_name) (Callable func_def.func_decl) in
-
-                  impl_callable :: inherited_call_defs, mod_decl, tbl
-                else
-                  Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement callable %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr)
-              )
-            )
-            
-            (* :: inherited_call_defs *)
-            (* Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s does not implement callable %s -- incompatible with %s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr) *)
-          | Some call_decl' -> 
-            
-            if (
-              (* Have to use Poly.(=) because Base shadows polymorphic equality with a restricted integers-only equality. *)
-              Poly.(=) call_decl'.call_decl_kind call_decl.call_decl_kind &&
-              
-              List.length call_decl'.call_decl_formals = List.length call_decl.call_decl_formals &&
-              List.fold2_exn call_decl'.call_decl_formals call_decl.call_decl_formals ~init:true ~f:(fun b var1 var2 ->
-                  b  && (Type.equal (Map.find_exn call_decl'.call_decl_locals var1).var_type (Map.find_exn call_decl.call_decl_locals var2).var_type)
-              ) &&
-
-              List.length call_decl'.call_decl_returns = List.length call_decl.call_decl_returns &&
-              List.fold2_exn call_decl'.call_decl_returns call_decl.call_decl_returns ~init:true ~f:(fun b var1 var2 ->
-                  b  && (Type.equal (Map.find_exn call_decl'.call_decl_locals var1).var_type (Map.find_exn call_decl.call_decl_locals var2).var_type)
-              ) &&
-              
-              let alpha_renaming_map = List.fold2_exn (call_decl.call_decl_formals @ call_decl.call_decl_returns) (call_decl'.call_decl_formals @ call_decl'.call_decl_returns) ~init:(Map.empty (module QualIdent)) ~f:(fun map ident1 ident2 -> Map.add_exn map ~key:(QualIdent.from_ident ident1) ~data:(Expr.App (Var (QualIdent.from_ident ident2),  [], Expr.mk_attr (Loc.dummy) (Map.find_exn call_decl'.call_decl_locals ident2).var_type))) in
-
-              (* Order of arguments is flipped for precond and postcond checks; first the impl_mod call_decl is passed, then the actual mod call_decl is passed. This is to match the convention of the alpha_renaming_map above. *)
-              List.length call_decl.call_decl_precond = List.length call_decl'.call_decl_precond &&
-              List.fold2_exn call_decl.call_decl_precond call_decl'.call_decl_precond ~init:true ~f:(fun b spec1 spec2 ->
-                b  && (Expr.compare (Expr.alpha_renaming spec1.spec_form alpha_renaming_map) spec2.spec_form = 0)
-              ) &&
-
-              List.length call_decl.call_decl_postcond = List.length call_decl'.call_decl_postcond &&
-              List.fold2_exn call_decl.call_decl_postcond call_decl'.call_decl_postcond ~init:true ~f:(fun b spec1 spec2 ->
-                b  && (Expr.compare (Expr.alpha_renaming spec1.spec_form alpha_renaming_map) spec2.spec_form = 0)
-              )
-            ) 
-              
-            then 
-              (inherited_call_defs, mod_decl, tbl)
-            else
-              Error.error (Type.to_loc tp_expr) @@ Printf.sprintf "Module %s implementation of callable '%s' incompatible with %s. Expected call_decl: \n%s; \n\nfound call_decl: \n%s" (Ident.to_string mod_decl.mod_decl_name) (Ident.to_string call_name) (Type.to_string tp_expr) (Util.Print.string_of_format Callable.pr_call_decl call_decl) (Util.Print.string_of_format Callable.pr_call_decl call_decl')
-        ) in
-
-        mod_decl, inherited_fields, inherited_types, inherited_vars, inherited_call_defs, tbl, (is_ra || is_ra')
+    (* Check whether modules are indeed modules *)
+    let _ =
+      if not mod_decl.mod_decl_is_interface then
+        List.iter mod_def ~f:(function
+            | Import _ -> ()
+            | SymbolDef symbol ->
+              match symbol with
+              | TypeDef { type_def_expr = None; _ }
+              | ModInst { mod_inst_def = None; _ }
+              | VarDef { var_decl = { var_const = true; _ }; var_init = None }
+              | CallDef { call_def = ProcDef { proc_body = None }; _ }
+              | CallDef { call_def = FuncDef { func_body = None }; _ } ->
+                Error.type_error mod_decl.mod_decl_loc
+                  (Printf.sprintf !"Module %{Ident} must be declared as an interface. The %s %{Ident} is still abstract."
+                     mod_decl.mod_decl_name (Symbol.kind symbol) (Symbol.to_name symbol))
+              | _ -> ())
     in
     
-    let mod_decl, inherited_fields, inherited_types, inherited_vars, inherited_call_defs, tbl, does_mod_impl_ra =
-      List.fold mod_decl.mod_decl_returns ~init:(mod_decl, [], [], [], [], tbl, false)
-        ~f:process_mod_decl
-    in
-
-    let tbl = 
-      if (Ident.equal mod_decl.mod_decl_name (Ident.make "Lib" 0)) then 
-        (None, snd (List.hd_exn tbl)) :: (List.tl_exn tbl)
-
-      else 
-        SymbolTbl.pop tbl 
-      
-    in
-
-    let processed_members : Module.sorted_member_def_list = {
-      imports = m.members.imports;
-      types = type_aliases @ inherited_types;
-      fields = fields @ inherited_fields;
-      vars = vars @ inherited_vars;
-      mod_defs = mod_defs;
-      mod_aliases = mod_aliases;
-      call_defs = call_defs @ inherited_call_defs; 
-    } in
-
-    let (mod_def: Module.t) =
-    {
-      module_decl = mod_decl;
-      members = processed_members;
-      interface = m.interface;
-      obligations = Module.empty_sorted_member_def_list;
-    } in
-    
-    let tbl = SymbolTbl.add tbl (QualIdent.from_ident m.module_decl.mod_decl_name) (if (Ident.equal mod_decl.mod_decl_name (Ident.make "ResourceAlgebra" 0) || does_mod_impl_ra) then (RAModDecl (mod_def, orig_mod)) else (ModDecl (mod_def, orig_mod))) in
-    let tbl, mod_def =
-      Rewrites.rewrite_compr_modules mod_def
-        (SymbolTbl.resolve_exn mod_decl.mod_decl_loc (QualIdent.from_ident mod_decl.mod_decl_name) tbl)
-    in
-    
-    mod_def*)
+    Module.{ mod_decl; mod_def }    
 end
 
 let process_module ?(tbl = SymbolTbl.create ()) (m: Module.t) = 

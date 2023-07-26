@@ -55,17 +55,6 @@ interface ResourceAlgebra {
 }
 
 interface CancellativeResourceAlgebra : ResourceAlgebra {
-    rep type T
-
-    val id: T
-
-    func comp(a:T, b:T) returns (ret:T)
-    func frame(a:T, b:T) returns (ret:T)
-
-    func valid(a:T) returns (ret: Bool)
-
-    func fpuAllowed(a:T, b:T) returns (ret: Bool)
-
     // lemma cancellative()
     //     ensures forall a:T, b:T, c:T :: (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c))
 
@@ -77,17 +66,6 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
 }
 
 interface LatticeResourceAlgebra : ResourceAlgebra {
-    rep type T
-
-    val id: T
-
-    func comp(a:T, b:T) returns (ret:T)
-    func frame(a:T, b:T) returns (ret:T)
-
-    func valid(a:T) returns (ret: Bool)
-
-    func fpuAllowed(a:T, b:T) returns (ret: Bool)
-
     lemma frameCompInv()
         ensures forall a:T, b:T :: valid(frame(a, b)) ==> frame(a, b) == a
 
@@ -137,6 +115,60 @@ module Nat : CancellativeResourceAlgebra {
         // true
         forall c:T :: valid(a) && valid(comp(a,c)) ==> valid(comp(b,c))
     }
+
+    lemma frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+    {}
+
+    lemma frameReflexive()
+        ensures forall a:T :: valid(a) ==> frame(a, a) == id
+    {}
+
+    lemma idValid()
+        ensures valid(id)
+    {}
+
+    lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    {}
+
+    lemma compCommute()
+        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+    {}
+
+    lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+    {}
+ 
+    lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+    {}
+
+    lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+    {}
+    
+    lemma compFrameInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {}
+    
+    lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+            // valid(b) && 
+        valid(comp(a,c))) ==> valid(comp(b,c)))
+    {}
+    
+    lemma fpuReflexive()
+        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+    {}
+    
+    lemma frameValid()
+        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+    {}
+    
+    lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
 }
 
 module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
@@ -200,6 +232,53 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
 
             false)
     }
+
+        lemma idValid()
+        ensures valid(id)
+    {}
+
+    lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    {}
+
+    lemma compCommute()
+        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+    {}
+
+    lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+    {}
+ 
+    lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+    {}
+
+    lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+    {}
+    
+    lemma compFrameInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {}
+    
+    lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+            // valid(b) && 
+        valid(comp(a,c))) ==> valid(comp(b,c)))
+    {}
+    
+    lemma fpuReflexive()
+        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+    {}
+    
+    lemma frameValid()
+        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+    {}
+    
+    lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
+
 }
 
 // Agree(X)
@@ -261,6 +340,60 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
             a.frac_proj2 == 1.0 && valid(b) :
         (a == frac_top() ? true : false))
     }
+
+    lemma frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+    {}
+
+    lemma frameReflexive()
+        ensures forall a:T :: valid(a) ==> frame(a, a) == id
+    {}
+
+    lemma idValid()
+        ensures valid(id)
+    {}
+
+    lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    {}
+
+    lemma compCommute()
+        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+    {}
+
+    lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+    {}
+ 
+    lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+    {}
+
+    lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+    {}
+    
+    lemma compFrameInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {}
+    
+    lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+            // valid(b) && 
+        valid(comp(a,c))) ==> valid(comp(b,c)))
+    {}
+    
+    lemma fpuReflexive()
+        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+    {}
+    
+    lemma frameValid()
+        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+    {}
+    
+    lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
 }
 
 module SetRA[X: Type] : LatticeResourceAlgebra {
@@ -301,6 +434,68 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
             false
         )
     }
+
+        lemma idValid()
+        ensures valid(id)
+    {}
+
+    lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    {}
+
+    lemma compCommute()
+        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+    {}
+
+    lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+    {}
+ 
+    lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+    {}
+
+    lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+    {}
+    
+    lemma compFrameInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {}
+    
+    lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+            // valid(b) && 
+        valid(comp(a,c))) ==> valid(comp(b,c)))
+    {}
+    
+    lemma fpuReflexive()
+        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+    {}
+    
+    lemma frameValid()
+        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+    {}
+    
+    lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
+
+    lemma frameCompInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> frame(a, b) == a
+    {}
+    
+    lemma frameCompInv0()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
+    {}
+    
+    lemma frameCompInv2()
+        ensures forall a:T, b:T :: comp(a, b) == a && valid(a) ==> frame(a, b) == a
+    {}
+    
+    lemma frame_comp_inv()
+        ensures forall a:T, b:T, c:T :: frame(a, comp(b,c)) == frame(frame(a, b), c)
+    {}
 }
 
 // TW: not sure this belongs in the standard library
@@ -348,4 +543,59 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
             valid(a) && valid(b) && b.ks_proj1 subseteq a.ks_proj1 : false
         )
     }
+
+        lemma frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+    {}
+
+    lemma frameReflexive()
+        ensures forall a:T :: valid(a) ==> frame(a, a) == id
+    {}
+
+    lemma idValid()
+        ensures valid(id)
+    {}
+
+    lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    {}
+
+    lemma compCommute()
+        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+    {}
+
+    lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+    {}
+ 
+    lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+    {}
+
+    lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+    {}
+    
+    lemma compFrameInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {}
+    
+    lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+            // valid(b) && 
+        valid(comp(a,c))) ==> valid(comp(b,c)))
+    {}
+    
+    lemma fpuReflexive()
+        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+    {}
+    
+    lemma frameValid()
+        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+    {}
+    
+    lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
+
 }
