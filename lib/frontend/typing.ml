@@ -1315,7 +1315,25 @@ module ProcessModule = struct
         (Printf.sprintf !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s."
            (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))
 
-           
+  let check_module_type mod_ident int_ident =
+    let open Rewriter.Syntax in
+    let+ qual_mod_ident, mod_symbol = Rewriter.resolve_and_find (QualIdent.to_loc mod_ident) mod_ident
+    and+ qual_int_ident, _int_symbol = Rewriter.resolve_and_find (QualIdent.to_loc int_ident) int_ident in
+    let interfaces = Rewriter.Symbol.extract mod_symbol ~f:(fun subst -> function
+        | Ast.Module.ModDef mod_def ->
+          (*Set.map (module QualIdent) mod_def.mod_decl.mod_decl_interfaces ~f:subst*)
+          mod_def.mod_decl.mod_decl_interfaces
+        | _ -> Set.empty (module QualIdent)
+      )
+    in
+    let _ = Set.iter interfaces ~f:(fun qid -> Logs.debug (fun m -> m !"%{QualIdent}" qid)) in
+    if not (QualIdent.(qual_mod_ident = qual_int_ident) || Set.mem interfaces qual_int_ident) then
+      Error.type_error (QualIdent.to_loc mod_ident)
+        (Printf.sprintf !"%s %{QualIdent} does not implement interface %{QualIdent}."
+           (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol)) mod_ident int_ident)
+      
+
+  
   let rec process_module (m: Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
     let _ = Logs.debug (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m))) in
@@ -1334,9 +1352,30 @@ module ProcessModule = struct
             and* mod_def = process_module mod_def in
             let+ mod_def = Rewriter.exit_module mod_def in
             Module.ModDef mod_def
-          | ModInst _ ->
-            (* TODO check that instantiation is OK *)
-            Rewriter.return symbol
+          | ModInst mod_inst ->
+            let* to_check =
+              Rewriter.Option.map mod_inst.mod_inst_def ~f:(fun (mod_inst_func, mod_inst_args) ->
+                  let+ qual_functor_ident, functor_symbol = Rewriter.resolve_and_find mod_inst.mod_inst_loc mod_inst_func in
+                  let formals = Rewriter.Symbol.extract functor_symbol ~f:(fun subst -> function
+                      | Ast.Module.ModDef mod_def ->
+                        List.map mod_def.mod_decl.mod_decl_formals
+                          ~f:(fun mod_inst -> subst mod_inst.mod_inst_type)
+                      | _ -> []
+                    )
+                  in
+                  let args_and_formals =
+                    match List.zip mod_inst_args formals with
+                    | Ok res -> res
+                    | Unequal_lengths ->
+                      Error.type_error mod_inst.mod_inst_loc 
+                        (Printf.sprintf !"Module %{QualIdent} expects %d arguments" mod_inst_func (List.length formals))
+                  in
+                  args_and_formals @ [qual_functor_ident, mod_inst.mod_inst_type]
+                )
+            in
+            let to_check = Option.value to_check ~default:[] in
+            let+ _ = Rewriter.List.iter to_check ~f:(fun (m, i) -> check_module_type m i) in 
+            symbol
         in
         let+ _ = Rewriter.set_symbol symbol in
         Module.SymbolDef symbol
@@ -1357,16 +1396,18 @@ module ProcessModule = struct
     in
     
     (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
-    let* interface_ident, (inherited_symbols, symbols_to_check) =
+    let* mod_decl_returns, mod_decl_interfaces, interface_ident, (inherited_symbols, symbols_to_check) =
       let+ interface_opt = Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
-          let* interface_id, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid
+          let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid
           and* mod_qual_ident = Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m))) in
-          let interface_symbol = Rewriter.Symbol.add_subst (interface_id, QualIdent.to_list mod_qual_ident) interface_symbol in
+          let interface_symbol = Rewriter.Symbol.add_subst (qual_interface_ident, QualIdent.to_list mod_qual_ident) interface_symbol in
           let+ interface_symbol = Rewriter.Symbol.reify interface_symbol in
-          mid, interface_symbol)
+          qual_interface_ident, mid, interface_symbol)
       in
       match interface_opt with
-      | Some (interface_ident, ModDef interface) ->
+      | Some (qual_interface_ident, interface_ident, ModDef interface) ->
+        Some qual_interface_ident,
+        Set.add (interface.mod_decl.mod_decl_interfaces) qual_interface_ident,
         interface_ident,
         List.fold interface.mod_def ~init:([], Map.empty (module Ident)) ~f:(fun (inherited, to_check) -> function
             | Module.SymbolDef symbol ->
@@ -1378,7 +1419,9 @@ module ProcessModule = struct
                 Module.SymbolDef symbol :: inherited, to_check
               end
             | _ -> inherited, to_check)
-      | _ -> QualIdent.from_ident m.mod_decl.mod_decl_name, ([], Map.empty (module Ident))
+      | _ ->
+        let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
+        None, Set.add m.mod_decl.mod_decl_interfaces mod_ident, mod_ident, ([], Map.empty (module Ident))
     in
     
     let mod_def = inherited_symbols @ mod_def in
@@ -1398,7 +1441,13 @@ module ProcessModule = struct
                 ~e:(fun () -> Some type_def.type_def_name) () rep_type
             | _ -> rep_type)
     in
-    let mod_decl = { m.mod_decl with mod_decl_rep } in
+    let mod_decl =
+      { m.mod_decl with
+        mod_decl_rep;
+        mod_decl_returns;
+        mod_decl_interfaces;
+      }
+    in
 
     (* Check and rewrite all symbols *)
     let+ mod_def = Rewriter.List.map (inherited_symbols @ m.mod_def) ~f:process_instr in

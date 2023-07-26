@@ -133,11 +133,12 @@ module QualIdent = struct
     let existing_ids = Hashtbl.create (module IdentList) in
     fun p id ->
       Hashtbl.find existing_ids (id :: p) |>
+      Option.map ~f:(fun unique_id -> { qual_unique_id = unique_id; qual_path = p; qual_base = id }) |>
       Option.lazy_value ~default:(fun () ->
           let uid = !counter in
           let _ = Stdlib.incr counter in
           let qual_ident = { qual_unique_id = uid; qual_path = p; qual_base = id } in
-          let _ = Hashtbl.add_exn existing_ids ~key:(id :: p) ~data:qual_ident in
+          let _ = Hashtbl.add_exn existing_ids ~key:(id :: p) ~data:uid in
           qual_ident)
 
 
@@ -1183,6 +1184,7 @@ module Module = struct
     mod_decl_name : ident;
     mod_decl_formals : module_inst list;
     mod_decl_returns : QualIdent.t option;
+    mod_decl_interfaces : QualIdentSet.t;
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
@@ -1292,6 +1294,7 @@ module Module = struct
       mod_decl_name = Ident.make Loc.dummy "" 0;
       mod_decl_formals = [];
       mod_decl_returns = None;
+      mod_decl_interfaces = Set.empty (module QualIdent);
       mod_decl_rep = None;
       mod_decl_loc = Loc.dummy;
       mod_decl_is_ra = false;

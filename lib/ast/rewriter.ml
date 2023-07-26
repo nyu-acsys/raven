@@ -193,6 +193,7 @@ module Option = struct
     | Some v ->
       let+ res = f v in
       Some res
+
 end
 
 module Type = struct
@@ -654,11 +655,10 @@ module Symbol = struct
       | _ -> Error.error loc "Expected field identifier"
     in
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
-
   
   let orig_symbol (_name, symbol, _subst) = symbol
 
-  let extract (symbol, subst) ~f =
+  let extract (_name, symbol, subst) ~f =
     f (QualIdent.requalify subst) symbol
 
   let add_subst s (name, symbol, subst) = (name, symbol, s :: subst)
