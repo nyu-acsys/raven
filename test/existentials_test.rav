@@ -1,0 +1,131 @@
+field i: Int
+
+proc test(x: Ref) 
+  requires (own(x, i, 5, 1.0))
+  ensures (exists v:Int :: own(x, i, v, 1.0))
+{ }
+
+proc test2(x: Ref) 
+  requires (own(x, i, 5, 1.0))
+  ensures (exists x1:Ref :: own(x1, i, 5, 1.0))
+{ }
+
+proc test3(x: Ref) 
+  requires (own(x, i, 5, 1.0))
+  ensures (exists x1:Ref, v:Int :: own(x1, i, v, 1.0))
+{ }
+
+proc test4(x: Ref, y: Ref, s: Set[Ref], m: Map[Ref, Int]) 
+  requires (own(x, i, 5, 1.0))
+  requires (own(y, i, 6, 1.0))
+  requires (forall x2: Ref :: x2 in s ==> x2 == x || x2 == y)
+  requires (m[x] == 5 && m[y] == 6)
+  // ensures own(x, i, 5, 0.5)
+  // ensures own(x, i, 5, 0.5)
+  // ensures (forall x1:Ref, v:Int :: own(x1, i, v, 1.0) ==> v != 7)
+  ensures (forall x1: Ref :: x1 in s ==> own(x1, i, m[x1], 1.0))
+  // ensures false
+  // ensures x != y
+{ }
+
+
+pred testPred(x: Ref, y: Int) {
+  own(x, i, y, 0.5)
+}
+
+proc test5(x: Ref, y: Ref, s: Set[Ref], m: Map[Ref, Int]) 
+  requires testPred(x, 5)
+  requires testPred(y, 6)
+  requires (forall x2: Ref :: x2 in s ==> x2 == x || x2 == y)
+  requires (m[x] == 5 && m[y] == 6)
+  // ensures own(x, i, 5, 0.5)
+  // ensures own(x, i, 5, 0.5)
+  // ensures (forall x1:Ref, v:Int :: own(x1, i, v, 1.0) ==> v != 7)
+  ensures (forall x1: Ref :: x1 in s ==> own(x1, i, m[x1], 0.5))
+  // ensures false
+  // ensures x != y
+{ 
+  unfold testPred(x, 5);
+  unfold testPred(y, 6);
+}
+
+
+pred testPred2(x: Ref) {
+  exists vv: Int :: own(x, i, vv, 0.5)
+}
+
+proc test6(x: Ref, y: Ref, s: Set[Ref], m: Map[Ref, Int]) 
+  requires testPred2(x)
+  requires testPred2(y)
+  requires own(x, i, 5, 0.5)
+  requires own(y, i, 6, 0.5)
+  requires (forall x2: Ref :: x2 in s ==> x2 == x || x2 == y)
+  requires (m[x] == 5 && m[y] == 6)
+  ensures (forall x1: Ref :: x1 in s ==> own(x1, i, m[x1], 1.0))
+  // ensures false
+  // ensures x != y
+{ 
+  unfold testPred2(x);
+  unfold testPred2(y);
+}
+
+
+pred missing_args(x: Int, implicit ghost y: Int) {
+  x == y
+}
+
+proc test7(x: Int) 
+  requires missing_args(x)
+  ensures missing_args(x, 1)
+{
+// Spurious test. Should fail!!
+}
+
+
+// inv cssI(r: CSS, implicit ghost m_lk: Map[Node, Bool], implicit ghost m_In: Map[Node, FlowInt], implicit ghost m_Cn: Map[Node, Set[K]], implicit ghost i: FlowInt, implicit ghost c: Set[K], implicit ghost n: Node) {
+//   own(r.rp, frac_chunk(c, 1/2))
+//   && own(r.node, n, 1/2)
+//   && inFP(r, n)
+//   && globalRes(r, i, c)
+//   && (forall n:Node :: n in dom(i) ==> 
+//           nodeR(n, m_lk[n], m_In[n], m_Cn[n]))
+//   && (forall n:Node :: n in dom(i) && m_lk[n] ==>
+//     nodePred(r, n, m_In[n], m_Cn[n]))
+// }
+
+field rp: Set[Int]
+
+pred inFP(r: Ref, c: Set[Int]) {
+  c != {||}
+}
+
+
+pred cssI(r: Ref, implicit ghost c: Set[Int], implicit ghost d: Set[Ref], implicit ghost m_Cn: Map[Ref, Set[Int]], implicit ghost m_lk: Map[Ref, Bool]) {
+  own(r, rp, c, 0.5)
+  && inFP(r, c)
+  // && globalRes(r, i, c)
+  && (forall n:Ref :: n in d ==> 
+          inFP(r, m_Cn[n]))
+  // && (forall n:Node :: n in dom(i) && m_lk[n] ==>
+    // nodePred(r, n, m_In[n], m_Cn[n]))
+}
+
+
+proc test8(r: Ref, m: Map[Ref, Set[Int]]) 
+  requires cssI(r)
+  ensures cssI(r)
+{
+  unfold cssI(r, {||}, {| r |}, m);
+  fold cssI(r);
+
+}
+
+
+
+
+
+
+
+// exists [!(v: Int): x] :: own(x, i, v, 1.0)
+
+
