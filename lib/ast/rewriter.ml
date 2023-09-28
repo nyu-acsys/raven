@@ -33,14 +33,14 @@ module Syntax = struct
     
   open Let_syntax
   
-  let (let+) m f = map m ~f
+  let (let+) (m: state -> state * 'a) (f: 'a -> 'b) : (state -> state * 'b) = map m ~f
   let (and+) = both
-  let (let* ) m f = bind m ~f
+  let (let* ) (m: state -> state * 'a) (f: 'a -> state -> state * 'b) : (state -> state * 'b) = bind m ~f
   let (and* ) = both
   
 end
 
-      
+
 let eval ?(update=true) m tbl =
   let sin =
     { state_table = tbl;
