@@ -1474,7 +1474,7 @@ module TrnslExhale = struct
 
 
 
-  | expr -> Error.error (Expr.loc expr) (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr) )
+  | expr -> Error.error (Expr.loc expr) (Printf.sprintf "Unsupported expression found in exhale (1): %s" (Expr.to_string expr) )
 
 
   let rec trnsl_exhale (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) : (qual_ident * SMTIdent.t) list * command list * term list =
@@ -1583,7 +1583,7 @@ module TrnslExhale = struct
       let term = try
           translate_expr expr tbl smtEnv
         with
-        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
+        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale (2): %s" msg (Expr.to_string expr) )
       in
       [], [], [term]
 
@@ -1812,7 +1812,7 @@ module TrnslExhale = struct
         let perm_term = (
           mk_forall quant_var_sort_list
           (mk_forall new_params_sort_list 
-            (mk_impl cond_term
+            (mk_impl (mk_and (cond_term :: new_params_eq_old_expr_list))
               (mk_leq 
                 (mk_const (IntConst 1))
                 (mk_select old_predheap_term (mk_app (Ident pred_trnsl.pred_constr) new_params_term_list))
@@ -1826,7 +1826,7 @@ module TrnslExhale = struct
         let term = try
           translate_expr expr tbl smtEnv
         with
-        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale: %s" msg (Expr.to_string expr) )
+        Error.Msg (loc, msg) -> Error.error loc (Printf.sprintf "%s;\n\n Unsupported expression found in exhale (3): %s" msg (Expr.to_string expr) )
     
         in
     
@@ -2146,7 +2146,7 @@ module TrnslExhale = struct
     in
 
     [], [], [expr_term] *)
-  | expr -> Error.error (Expr.loc expr) (Printf.sprintf "Unsupported expression found in exhale: %s" (Expr.to_string expr))
+  | expr -> Error.error (Expr.loc expr) (Printf.sprintf "Unsupported expression found in exhale (4): %s" (Expr.to_string expr))
 end
 
 let rec check_stmt (stmt: Stmt.t) (path_conds:term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session) =

@@ -100,9 +100,9 @@ pred inFP(r: Ref, c: Set[Int]) {
 }
 
 
-pred cssI(r: Ref, implicit ghost c: Set[Int], implicit ghost d: Set[Ref], implicit ghost m_Cn: Map[Ref, Set[Int]], implicit ghost m_lk: Map[Ref, Bool]) {
+pred cssI(r: Ref, implicit ghost c: Set[Int], implicit ghost d: Set[Ref], implicit ghost m_Cn: Map[Ref, Set[Int]]) {
   own(r, rp, c, 0.5)
-  && inFP(r, c)
+  // && inFP(r, c)
   // && globalRes(r, i, c)
   && (forall n:Ref :: n in d ==> 
           inFP(r, m_Cn[n]))
@@ -116,11 +116,18 @@ proc test8(r: Ref, m: Map[Ref, Set[Int]])
   ensures cssI(r)
 {
   unfold cssI(r, {||}, {| r |}, m);
-  fold cssI(r);
+  fold cssI(r, {||}, {| r |}, m);
 
 }
 
+proc test9(r: Ref, d: Set[Ref], s: Set[Int])
+  requires (forall n:Ref :: n in d ==> 
+          inFP(r, s))
+  ensures (forall n:Ref :: n in d ==> 
+          inFP(r, s))
+{
 
+}
 
 
 
