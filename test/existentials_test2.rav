@@ -1,0 +1,72 @@
+field next: Ref
+field key: Int
+
+proc traverse(x: Ref, s: Set[Ref], k: Int, implicit ghost nmap: Map[Ref, Ref], implicit ghost kmap: Map[Ref, Int])
+  returns (y: Ref)
+  requires forall x1: Ref :: x1 in s ==> own(x1, key, kmap[x1], 1.0)
+  requires forall x1: Ref :: x1 in s ==> own(x1, next, nmap[x1], 1.0)
+  requires forall x1: Ref :: x1 in s ==> nmap[x1] in s
+  requires x in s
+  ensures forall x1: Ref :: x1 in s ==> own(x1, key, kmap[x1], 1.0)
+  ensures forall x1: Ref :: x1 in s ==> own(x1, next, nmap[x1], 1.0)
+  ensures y in s && k <= kmap[y]
+{
+  y := x;
+  var ykey : Int := y.key;
+  while (ykey < k)
+    invariant forall x1: Ref :: x1 in s ==> own(x1, key, kmap[x1], 1.0)
+    invariant forall x1: Ref :: x1 in s ==> own(x1, next, nmap[x1], 1.0)
+    invariant forall x1: Ref :: x1 in s ==> nmap[x1] in s
+    invariant y in s && ykey == kmap[y]
+  {
+    var tmp : Ref := y.next;
+    y := tmp;
+    ykey := y.key;
+  }
+}
+
+proc insert(x: Ref, y: Ref, s: Set[Ref], implicit ghost nmap1: Map[Ref, Ref])
+  returns (nmap2:Map[Ref, Ref])
+  requires forall x1: Ref :: x1 in s ==> own(x1, next, nmap1[x1], 1.0)
+  requires forall x1: Ref :: x1 in s ==> nmap1[x1] in s
+  requires own(y, next, y, 1.0)
+  requires x in s && y !in s
+  ensures forall x1: Ref :: x1 in s ++ {| y |} ==> own(x1, next, nmap2[x1], 1.0)
+  ensures forall x1: Ref :: x1 in s ++ {| y |} ==> nmap2[x1] in s
+  ensures forall x1: Ref :: x1 != y ==> nmap2[x1] == nmap2[x1]
+  ensures nmap2[y] == x
+{
+  y.next := x;
+  nmap2 := nmap1;
+  nmap2[y] := x;
+} 
+
+
+
+
+
+
+
+
+
+
+// proc test0(x: Ref, y: Ref, s: Set[Ref], m: Map[Ref, Int])
+//   returns (m1: Map[Ref, Int])
+//   requires (own(x, i, 5, 1.0))
+//   requires (own(y, i, 6, 1.0))
+//   requires (forall x2: Ref :: x2 in s ==> x2 == x || x2 == y)
+//   requires (m[x] == 5 && m[y] == 6)
+//   ensures (forall x1: Ref :: x1 in s ==> own(x1, i, m1[x1], 1.0))
+//   ensures (m1[x] == 7 && m[y] == 6)
+// {
+//   x.i := 7;
+//   m[x] := 7;
+//   m1 := m;
+// }
+
+// proc test(x: Ref) 
+//   requires (own(x, i, 5, 1.0))
+//   ensures (exists v:Int :: own(x, i, v, 1.0))
+// {
+//   x.i := 6;
+// }
