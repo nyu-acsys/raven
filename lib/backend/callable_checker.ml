@@ -2403,7 +2403,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
       let smtEnv = SmtEnv.add smtEnv qual_ident (Var {var_symbol = fresh_var_term; var_sort = var_sort}) in
 
-      let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs tbl smtEnv session loc
+      let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs path_conds tbl smtEnv session loc
 
       in
       
@@ -2424,7 +2424,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       
       in
 
-      let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs tbl smtEnv session loc in
+      let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs path_conds tbl smtEnv session loc in
 
       let map_source_sort, _map_dest_sort = (match map_sort with
       | ArraySort (s1, s2) -> s1, s2
@@ -2475,7 +2475,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
           (mk_app (Ident PreambleConsts.frac_own_destr_ident) [(mk_select field_trnsl.field_heap loc_term)])
       )) in
 
-      let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs tbl smtEnv session loc in
+      let rhs_term, session = trnsl_assign_rhs assign_desc.assign_rhs path_conds tbl smtEnv session loc in
 
       let rhs_fracchunk_term = mk_app (Ident PreambleConsts.frac_chunk_constr_ident) [rhs_term; mk_int 1] in
 
@@ -2719,7 +2719,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
 
 
-and trnsl_assign_rhs (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: session) (loc: Loc.t) : term * session =
+and trnsl_assign_rhs (expr: expr) (path_conds: term list) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: session) (loc: Loc.t) : term * session =
   (* Makes sure the correct read permissions exist for field reads. *)
   (match expr with
     | App (Read, expr_list, _) ->
@@ -2730,16 +2730,19 @@ and trnsl_assign_rhs (expr: expr) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session:
         | Some (Field field_trsnl) ->
           let term1 = translate_expr expr1 tbl smtEnv in
 
+          let path_cond_term = mk_and path_conds in
+
           Smt_solver.write_comment session "Checking field read permission\n";
+
           let session = 
             try 
               Smt_solver.assert_not session 
-              (mk_lt 
+              (mk_impl path_cond_term (mk_lt 
                 (mk_const (IntConst 0)) 
                 (mk_app (Ident PreambleConsts.frac_own_destr_ident) 
                   [(mk_select field_trsnl.field_heap term1)]
                 )
-              )
+              ))
             with
             | Error.Msg (_loc, msg) -> Error.error (loc) (Printf.sprintf "%s: Checking field_read permission for '%s' failed." msg (Expr.to_string expr))
             

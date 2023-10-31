@@ -1,6 +1,6 @@
 open Base
 open Ast
-open Util
+
 
 let rec collect_vars (expr: expr) : expr list =
   match expr with
