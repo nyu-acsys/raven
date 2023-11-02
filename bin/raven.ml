@@ -32,8 +32,8 @@ let parse_and_print lexbuf tbl smtEnv session =
   let processed_ast, tbl = Process_ast.start_processing ~tbl:tbl s in
   match tbl with
   | [ _ ; _ ] | [ _ ] -> 
-    Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl);
-    Ast.Module.print_verbose Stdio.stdout processed_ast;
+    (* Stdio.printf "SymbolTbl: \n%s" (Process_ast.SymbolTbl.to_string tbl); *)
+    (* Ast.Module.print_verbose Stdio.stdout processed_ast; *)
     Stdio.print_endline "\n\nFront-end processing successful.\n";
 
     let _ = Checker.check_module processed_ast tbl smtEnv session in

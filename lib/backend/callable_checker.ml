@@ -2642,8 +2642,14 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
     let new_vars, cmds = TrnslInhale.trnsl_inhale expr tbl smtEnv in
 
     let smtEnv, session = redefine_vars new_vars smtEnv session in
+
+    let path_cond_term = mk_and path_conds in
       
-    let _ = List.map (cmds) ~f:(Smt_solver.write session) in
+    let _ = List.map (cmds) ~f:(fun cmd -> 
+      match cmd with
+      | Assert (term, _) -> Smt_solver.write session @@ mk_assert (mk_impl path_cond_term term)
+      | _ -> Smt_solver.write session cmd
+    ) in
 
     let smtEnv = update_env smtEnv new_vars in
 
