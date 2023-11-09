@@ -1642,7 +1642,7 @@ module TrnslExhale = struct
 
     let perm_terms2 = List.map perm_terms2 ~f:(fun term -> mk_impl (mk_not cond_term) term) in
 
-    new_vars1 @ new_vars2 @ new_vars3, cmds1 @ cmds2 @ [cmd], perm_terms1 @ perm_terms2)
+    new_vars1 @ new_vars2 @ new_vars3, (*cmds1 @ cmds2 @*) [cmd], perm_terms1 @ perm_terms2)
 
   | Binder (Forall, quant_vars, App (Own, own_args, expr_attr1), expr_attr2) ->
     trnsl_exhale
@@ -2664,6 +2664,8 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
 
     let path_cond_term = mk_and path_conds in
 
+    write_comment session ("Exhale " ^ (String.substr_replace_all (Expr.to_string expr) ~pattern:"\n" ~with_:" ") ^ ": perm-terms");
+
     let session = List.fold perm_terms ~init:session ~f:(fun session term -> 
       let session = 
         try
@@ -2677,6 +2679,7 @@ and check_basic_stmt (stmt: Stmt.basic_stmt_desc) (path_conds: term list) (tbl: 
       session
     ) in
 
+    write_comment session ("Exhale " ^ (String.substr_replace_all (Expr.to_string expr) ~pattern:"\n" ~with_:" ") ^ ": cmds");
     (* This won't work in general. For instance if we exhale `(pred(a) && pred(a))` this will cause an error because predHeap is not being defined after exhaling first copy of pred(a), before the constraint on it is checked. *)
 
     List.iter (cmds) ~f:(Smt_solver.write session);

@@ -510,7 +510,7 @@ module Expr = struct
     | Compr -> "%compr%"
 
   (* The first pr is a more verbose print which prints types of each expression. This is useful for debugging. The second pr is the normal pr which is prettier. *)
-  let rec pr ppf e =
+  let rec pr_explicit ppf e =
     let open Stdlib.Format in
     match e with
     | App (And, [], a) -> pr ppf (App (Bool false, [], a))
@@ -541,7 +541,7 @@ module Expr = struct
 
 
   and pr_compact ppf e =
-    let open Stdlib.Format in
+    begin let open Stdlib.Format in
     match e with
     | App (And, [], a) -> pr ppf (App (Bool false, [], a))
     | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
@@ -562,6 +562,9 @@ module Expr = struct
     | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
     | Binder (b, vs, e1, _) ->
         fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
+    end
+ 
+  and pr ppf e = pr_compact ppf e
 
   and pr_list ppf = Print.pr_list_comma pr ppf
 
