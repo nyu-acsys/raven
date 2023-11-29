@@ -308,7 +308,10 @@ let rec import import_instr (tbl : t) : t =
   in
   tbl
   
-(** Add [symbol] to the current scope of [tbl]. Fails if [symbol] already exists in this scope. *)
+(** Add [symbol] to the appropriate scope of [tbl]. Fails if [symbol] already exists in this scope. 
+  Appropriate scope is equal to the current scope in most cases. Except if [symbol] is something other than a local variable definition and current scope is a callable scope (determined by scope.scope_is_local), then the parent scope is used instead.
+  
+*)
 let add_symbol symbol tbl =
   let rec add symbol tbl =
     let curr_scope = tbl.tbl_curr in
@@ -320,6 +323,21 @@ let add_symbol symbol tbl =
       | Import _ -> Hashtbl.set map ~key ~data
       | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
     in
+
+    let appropriate_scope = (
+      let is_symbol_var_def = match symbol with
+      | VarDef _ -> true
+      | _ -> false
+
+      in
+
+      if curr_scope.scope_is_local && not is_symbol_var_def then
+        match tbl.tbl_path with
+        | [] -> tbl.tbl_root
+        | scope :: _ -> scope
+      else curr_scope
+    ) in
+
     match symbol with
     | ModInst mod_inst ->
       let mod_inst_qual_ident, subst =
@@ -347,22 +365,22 @@ let add_symbol symbol tbl =
               (Printf.sprintf !"Module %{QualIdent} expects %d arguments" mod_inst_func (List.length formals))
       in
       let is_abstract = mod_inst.mod_inst_is_interface in
-      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Alias (is_abstract, mod_inst_qual_ident, subst))
+      add_to_map (get_scope_entries appropriate_scope) symbol_loc symbol_ident (Alias (is_abstract, mod_inst_qual_ident, subst))
         ~duplicate;
       tbl
     | _ ->
-      add_to_map (get_scope_entries curr_scope) symbol_loc symbol_ident (Symbol symbol_qual_ident) ~duplicate;
+      add_to_map (get_scope_entries appropriate_scope) symbol_loc symbol_ident (Symbol symbol_qual_ident) ~duplicate;
       let new_map = Map.add_exn tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
       let tbl = { tbl with tbl_symbols = new_map } in
       match symbol with
       | ModDef mod_def ->
         let is_abstract = mod_def.mod_decl.mod_decl_is_interface || List.length mod_def.mod_decl.mod_decl_formals > 0 in
         let symbol_scope = create_scope symbol_qual_ident is_abstract false in
-        add_to_map (get_scope_children curr_scope) symbol_loc symbol_ident symbol_scope;
+        add_to_map (get_scope_children appropriate_scope) symbol_loc symbol_ident symbol_scope;
         tbl
       | CallDef _ -> 
         let symbol_scope = create_scope symbol_qual_ident false true in
-        add_to_map (get_scope_children curr_scope) symbol_loc symbol_ident symbol_scope;
+        add_to_map (get_scope_children appropriate_scope) symbol_loc symbol_ident symbol_scope;
         tbl
       | _ -> tbl
   in

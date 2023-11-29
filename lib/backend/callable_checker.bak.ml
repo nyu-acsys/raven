@@ -539,6 +539,41 @@ let rec stmt_preprocessor (stmt: Stmt.t) (tbl: SymbolTbl.t) ~(atom_constr: atomi
 
 let stmt_preprocessor_simple (stmt: Stmt.t) (tbl: SymbolTbl.t) : atomicity_constraints * Stmt.t = stmt_preprocessor stmt tbl ~atom_constr:default_atomicity_constraint
 
+
+let update_env (smtEnv: smt_env) (new_vars: (qual_ident * smt_ident) list) : smt_env = 
+  let new_vars_map = List.fold new_vars ~init: (Map.empty (module QualIdent)) ~f:(fun map (quant_iden, smt_ident) ->
+    match Map.find map quant_iden with
+    | None -> Map.add_exn map ~key:quant_iden ~data:smt_ident
+    | Some smt_ident' ->
+      if smt_ident'.ident_num >= smt_ident.ident_num then
+        map
+      else
+        Map.set map ~key:quant_iden ~data:smt_ident
+  ) in
+
+  let smtEnv = List.fold (Map.to_alist new_vars_map) ~init:smtEnv ~f:(fun env (qual_iden, smt_iden) ->
+    match SmtEnv.find env qual_iden with
+    | None -> Error.error_simple @@ Printf.sprintf "update_env called with new variable '%s'; not found in present env. smtEnv: %s" (QualIdent.to_string qual_iden) (SmtEnv.to_string smtEnv)
+    | Some (Field field_trnsl) -> 
+      let new_field_trnsl = { field_trnsl with
+        field_heap = mk_const (Ident smt_iden);
+      } in
+      SmtEnv.add env qual_iden (Field new_field_trnsl)
+    | Some (Var var_trnsl) ->
+      let new_var_trnsl = { var_trnsl with
+        var_symbol = mk_const (Ident smt_iden);
+      } in
+      SmtEnv.add env qual_iden (Var new_var_trnsl)
+    | Some (Pred pred_trnsl) ->
+      let new_pred_trnsl = { pred_trnsl with
+        pred_heap = mk_const (Ident smt_iden);
+      } in
+      SmtEnv.add env qual_iden (Pred new_pred_trnsl)
+    | _ -> Error.error_simple "update_env called with func/type; not expected to update these."
+  ) in
+
+  smtEnv
+
 let new_vars_unify (new_vars1: (qual_ident * smt_ident) list) (new_vars2: (qual_ident * smt_ident) list) : (qual_ident * smt_ident) list =
   let new_vars_map = List.fold (new_vars1 @ new_vars2) ~init: (Map.empty (module QualIdent)) ~f:(fun map (quant_iden, smt_ident) ->
     match Map.find map quant_iden with

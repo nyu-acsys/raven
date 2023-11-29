@@ -1,5 +1,4 @@
 (library
   (name ast)
   (libraries base util)
-  (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf))
-  (modules_without_implementation myMonad))
+  (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf)))

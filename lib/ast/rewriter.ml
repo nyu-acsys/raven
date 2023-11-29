@@ -55,6 +55,14 @@ let init s _ = s, ()
                              
 let get_table s = s, s.state_table
 
+let current_scope s : state * SymbolTbl.scope = s, s.state_table.tbl_curr
+
+let current_scope_id s : state * qual_ident = s, s.state_table.tbl_curr.scope_id
+
+let current_scope_children s : state * SymbolTbl.scope IdentHashtbl.t = s, s.state_table.tbl_curr.scope_children
+
+let current_scope_entries s : state * SymbolTbl.entry IdentHashtbl.t = s, s.state_table.tbl_curr.scope_entries
+
 let update_table f s =
   { s with state_table = f s.state_table },
   ()
@@ -511,7 +519,10 @@ module Callable = struct
   let rewrite_types ~f callable =
     rewrite_scoped ~f:(rewrite_types_top ~ft:f ~fe:(Expr.rewrite_types ~f) ~fs:(Stmt.rewrite_types ~f)) callable    
 
-    
+  let rewrite_stmts ~f callable =
+    let id_expr_rewriter e = return e in
+
+    rewrite_scoped ~f:(rewrite_expressions_top ~fe:id_expr_rewriter ~fs:f) callable 
 
   let rewrite_qual_idents ~f callable =
     rewrite_scoped
@@ -553,6 +564,17 @@ module Module = struct
         VarDef { var_def with var_init = new_var_init }
       | CallDef call_def ->
         let+ new_call_def = Callable.rewrite_expressions ~f call_def in
+        CallDef new_call_def
+      | mem_def -> return mem_def
+    in
+    rewrite_symbols ~f:rewrite_symbol mdef
+
+  let rewrite_stmts ~f mdef : Module.t t = 
+    let open Syntax in
+    let open Module in
+    let rewrite_symbol = function
+      | CallDef call_def ->
+        let+ new_call_def = Callable.rewrite_stmts ~f call_def in
         CallDef new_call_def
       | mem_def -> return mem_def
     in
@@ -693,3 +715,8 @@ let find loc name : Symbol.t t =
   let open Syntax in
   let+ _, symbol = resolve_and_find loc name in
   symbol
+
+let find_and_reify loc name : AstDef.Module.symbol t=
+  let open Syntax in
+   let* symbol = find loc name in
+   Symbol.reify symbol

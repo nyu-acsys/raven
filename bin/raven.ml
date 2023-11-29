@@ -25,6 +25,8 @@ let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv session file_name =
   let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in
   let md = parse_cu root_ident file_name in
   let tbl, processed_md = Typing.process_module ~tbl md in
+
+  let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
   (*Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));*)
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");

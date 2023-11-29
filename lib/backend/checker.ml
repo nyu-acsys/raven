@@ -4,22 +4,22 @@ open Base
 open Frontend
 open SmtLibAST
 
-let add_type (tp: Module.type_alias) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session)  =
-  let fully_qual_ident_fn ident =
+let add_type (tp: Module.type_def) ?(alias_name: QualIdent.t option) (tbl: SymbolTbl.t) (smtEnv: smt_env) (session: Smt_solver.session) : (smt_env * Smt_solver.session)  =
+  (* let fully_qual_ident_fn ident =
     match alias_name with
     | None -> SmtEnv.mk_qual_ident smtEnv ident
     | Some qual_iden -> (SmtEnv.mk_qual_ident_qi smtEnv (QualIdent.append qual_iden ident))
 
-  in
+  in *)
 
 
-  let fully_qualified_ident = fully_qual_ident_fn tp.type_alias_name
+  let fully_qualified_ident = SymbolTbl.fully_qualify tp.type_def_name tbl.tbl_curr tbl
 
   in
 
   let smt_ident = SMTIdent.make (QualIdent.to_string fully_qualified_ident) in
 
-  match tp.type_alias_def with
+  match tp.type_def_expr with
   | None -> (
     let tp_trns = FreeSort (smt_ident, []);
     in
@@ -33,12 +33,12 @@ let add_type (tp: Module.type_alias) ?(alias_name: QualIdent.t option) (tbl: Sym
   | Some (App (Data variant_decl_list, [], _)) -> 
     let smtEnv, constrs_list = List.fold_map variant_decl_list ~init:smtEnv 
     ~f:(fun smtEnv variant_decl ->
-      let constr_fully_qual_ident = fully_qual_ident_fn variant_decl.variant_name in
+      let constr_fully_qual_ident = SymbolTbl.fully_qualify variant_decl.variant_name tbl.tbl_curr tbl in
       let constr_smt_ident = SMTIdent.make (QualIdent.to_string constr_fully_qual_ident) in
 
       let smtEnv, destr_list = List.fold_map variant_decl.variant_args ~init:smtEnv
       ~f:(fun smtEnv var_decl ->
-        let destr_fully_qual_ident = fully_qual_ident_fn var_decl.var_name in
+        let destr_fully_qual_ident = SymbolTbl.fully_qualify var_decl.var_name tbl.tbl_curr tbl in
         let destr_smt_ident = SMTIdent.make (QualIdent.to_string destr_fully_qual_ident) in
 
         let destr_type = var_decl.var_type in
@@ -146,7 +146,7 @@ let add_field (field: Module.field_def) ?(alias_name: QualIdent.t option) (tbl: 
     }, (mk_annot (PreambleConsts.frac_heap_null) (As (mk_frac_heapchunk_sort field_sort)))
   
   | App (Var qual_ident, _, _) -> (
-    match SymbolTbl.find tbl qual_ident with
+    match SymbolTbl.find qual_ident tbl with
     | Some (RAModDecl (ra_mod, _)) -> (
       let (field_type: Type.t) = (match ra_mod.module_decl.mod_decl_rep with
       | None -> Util.Error.error field.field_loc "RA Module does not have a rep type."

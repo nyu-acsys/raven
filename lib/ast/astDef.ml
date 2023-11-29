@@ -694,7 +694,9 @@ module Expr = struct
     mk_app ~loc ~typ (Var qual_ident) []
 
   let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bot) b vs e =
-    Binder (b, vs, e, mk_attr loc typ)
+    match vs with 
+    | [] -> e
+    | _ -> Binder (b, vs, e, mk_attr loc typ)
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
@@ -723,6 +725,10 @@ module Expr = struct
               Type.join t (to_type e))
         in
         App (And, es, mk_attr loc t)
+
+  let mk_not ?(loc = Loc.dummy) e =
+    let t = to_type e in
+    App (Not, [ e ], mk_attr loc t)
 
   let from_var_decl (var_decl:var_decl) =
     mk_var ~loc:var_decl.var_loc ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
@@ -819,6 +825,25 @@ module Expr = struct
     (* TODO: Rename the var_decl to avoid clashing with variables in the map *)
     let expr = alpha_renaming expr map in
     Binder (binder, var_decl_list, expr, expr_attr)
+
+  let rec expr_local_accesses (expr: t) : ident list =
+    match expr with
+    | App (Var qual_ident, expr_list, _expr_attr) ->
+      let var_list = List.map expr_list ~f:(fun expr -> expr_local_accesses expr) in
+
+      if List.is_empty qual_ident.qual_path then
+        qual_ident.qual_base :: List.concat var_list
+      else
+        List.concat var_list
+      
+    | App (_constr, expr_list, _expr_attr) ->
+      let var_list = List.map expr_list ~f:(fun expr -> expr_local_accesses expr) in
+      List.concat var_list
+
+    | Binder (_binder, var_decl_list, expr, _expr_attr) ->
+      let var_list = expr_local_accesses expr in
+      let var_list = List.filter var_list ~f:(fun var -> not (List.exists var_decl_list ~f:(fun var_decl -> Ident.equal var var_decl.var_name))) in
+      var_list
 end
 
 type expr = Expr.t
@@ -891,13 +916,13 @@ module Stmt = struct
   
   type basic_stmt_desc =
     | VarDef of var_def
-    | Spec of spec_kind * spec
+    | Spec of spec_kind * spec (* x *)
     | New of new_desc
-    | Assign of assign_desc
-    | Havoc of qual_ident
+    | Assign of assign_desc (* x *)
+    | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
-    | Use of use_desc
+    | Use of use_desc 
     | BindAU of ident
     | OpenAU of ident
     | AbortAU of ident
@@ -1027,14 +1052,223 @@ module Stmt = struct
 
   (** Constructors *)
 
-  let mk_skip loc = { stmt_desc = Block { block_body = []; block_is_ghost = false }; stmt_loc = loc }
+  let mk_skip ~loc = { stmt_desc = Block { block_body = []; block_is_ghost = false }; stmt_loc = loc }
 
   let mk_block ?(ghost=false) stmts = Block { block_body = stmts; block_is_ghost = ghost }
 
+  let mk_block_stmt ~loc ?(ghost=false) stmts = { stmt_desc = Block { block_body = stmts; block_is_ghost = ghost }; stmt_loc = loc }
+
+  let mk_assume_expr ~loc expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+    { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
+
+  let mk_assume_spec ~loc spec : t = 
+    { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
+
+  let mk_inhale_expr ~loc expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+    { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
+
+  let mk_inhale_spec ~loc spec : t = 
+    { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
+
+  let mk_exhale_expr ~loc expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+    { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
+
+  let mk_exhale_spec ~loc spec : t = 
+    { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
+  
+  let mk_assert_expr ~loc expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+    { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
+
+  let mk_assert_spec ~loc spec : t =
+    { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
+
+
+  let mk_havoc ~loc x = { stmt_desc = Basic (Havoc x); stmt_loc = loc }
+
+  let mk_cond ~loc test then_ else_ =
+    { stmt_desc = Cond { cond_test = test; cond_then = then_; cond_else = else_ }; stmt_loc = loc }
+
+  let mk_call ~loc ?(lhs=[]) name args =
+    { stmt_desc = Basic (Call { call_lhs = lhs; call_name = name; call_args = args }); stmt_loc = loc }
+
+  let mk_assign ~loc lhs rhs =
+    { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs }); stmt_loc = loc }
+
+  let mk_return ~loc e = { stmt_desc = Basic (Return e); stmt_loc = loc }
+
   (** Auxiliary functions *)
+
+  let mk_spec ?(atomic = false) ?(error = None) e = 
+    {
+      spec_form = e;
+      spec_atomic = atomic;
+      spec_error = error;
+    }
 
   let loc s = s.stmt_loc
 
+
+  let stmt_local_vars_accessed (s: t) : ident list =
+    let rec stmt_locals_accessed (s: t): (ident list) =
+      (* Returns all local variables accessed in s.
+        Assumes that all var_decl stmts are abstracted away during type-checking.   
+      *)
+
+      match s.stmt_desc with
+      | Block b ->
+        List.concat_map b.block_body ~f:(fun s -> stmt_locals_accessed s)
+
+      | Basic s1 -> 
+        begin match s1 with
+        | VarDef _ ->
+          Error.internal_error s.stmt_loc "VarDef should not exist in stmt_local_vars_accesses"
+
+        | Spec (_, spec) ->
+          Expr.expr_local_accesses spec.spec_form 
+
+        | New new_desc ->
+          let accesses = List.concat_map new_desc.new_args ~f:(fun (_, e) -> Expr.expr_local_accesses (Option.value ~default:(Expr.mk_unit Loc.dummy) e)) in
+
+          let accesses = if List.is_empty new_desc.new_lhs.qual_path then
+              new_desc.new_lhs.qual_base :: accesses
+            else
+              accesses
+            in
+
+          accesses
+
+        | Assign assign_desc ->
+          List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_local_accesses e)
+          
+        | Havoc x ->
+          if List.is_empty x.qual_path then 
+            [x.qual_base]
+          else 
+            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caugh in stmt_local_vars_accesses")
+
+        | Call call_desc ->
+          let accesses = List.concat_map call_desc.call_args ~f:(fun e -> Expr.expr_local_accesses e) in
+          let accesses = (List.filter_map call_desc.call_lhs ~f:(fun qi -> if List.is_empty qi.qual_path then None else Some qi.qual_base)) @ accesses in
+          accesses
+
+        | Return e ->
+          Expr.expr_local_accesses e
+          
+        | Use use_desc ->
+          List.concat_map use_desc.use_args ~f:(fun e -> Expr.expr_local_accesses e)
+
+        | BindAU _ | OpenAU _ | AbortAU _ | CommitAU _ -> []
+
+        | Fpu fpu_desc ->
+          List.concat_map [fpu_desc.fpu_ref; fpu_desc.fpu_val] ~f:(fun e -> Expr.expr_local_accesses e)
+        end
+
+      | Loop l ->
+        let accesses = Expr.expr_local_accesses l.loop_test in
+        let accesses_prebody = stmt_locals_accessed l.loop_prebody in
+        let accesses_postbody = stmt_locals_accessed l.loop_postbody in
+        let accesses = accesses @ accesses_prebody @ accesses_postbody in
+        accesses
+
+      | Cond c ->
+        let accesses = Expr.expr_local_accesses c.cond_test in
+        let accesses_then = stmt_locals_accessed c.cond_then in
+        let accesses_else = stmt_locals_accessed c.cond_else in
+        let accesses = accesses @ accesses_then @ accesses_else in
+        accesses
+
+    in
+
+    let accesses = stmt_locals_accessed s in
+    let accesses = List.dedup_and_sort accesses ~compare:Ident.compare in
+    accesses
+
+  let stmt_local_vars_modified (s: t) : ident list =
+    let rec stmt_locals_modified (s: t): (ident list) =
+      (* Returns all local variables modified in s.
+        Assumes that all var_decl stmts are abstracted away during type-checking.   
+      *)
+
+      match s.stmt_desc with
+      | Block b ->
+        List.concat_map b.block_body ~f:(fun s -> stmt_locals_modified s)
+
+      | Basic s1 -> 
+        begin match s1 with
+        | VarDef _ ->
+          Error.internal_error s.stmt_loc "VarDef should not exist in stmt_local_vars_modified"
+
+        | Spec _ ->
+          []
+
+        | New new_desc ->
+          if List.is_empty new_desc.new_lhs.qual_path then
+              [new_desc.new_lhs.qual_base]
+          else
+            []
+
+        | Assign assign_desc ->
+          List.filter_map assign_desc.assign_lhs ~f:(fun e -> 
+            match e with
+            | App (Var qi, _, _) -> 
+              if List.is_empty qi.qual_path then
+                Some qi.qual_base
+              else
+                None
+            | _ -> None
+          )
+          
+        | Havoc x ->
+          if List.is_empty x.qual_path then 
+            [x.qual_base]
+          else 
+            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caugh in stmt_local_vars_modified")
+
+        | Call call_desc ->
+          List.filter_map call_desc.call_lhs ~f:(fun qi -> 
+            if List.is_empty qi.qual_path then
+              Some qi.qual_base
+            else
+              None
+          )
+
+        | Return _ ->
+          []
+          
+        | Use _ ->
+          []
+
+        | BindAU _ | OpenAU _ | AbortAU _ | CommitAU _ -> []
+
+        | Fpu fpu_desc ->
+          (match fpu_desc.fpu_ref with
+            | App (Var qi, _, _) -> 
+              if List.is_empty qi.qual_path then
+                [qi.qual_base]
+              else
+                []
+            | _ -> [])
+        end
+
+      | Loop l ->
+        let modified_prebody = stmt_locals_modified l.loop_prebody in
+        let modified_postbody = stmt_locals_modified l.loop_postbody in
+        modified_prebody @ modified_postbody
+
+      | Cond c ->
+        let modified_then = stmt_locals_modified c.cond_then in
+        let modified_else = stmt_locals_modified c.cond_else in
+        modified_then @ modified_else
+
+    in
+
+    let modifieds = stmt_locals_modified s in
+    let modifieds = List.dedup_and_sort modifieds ~compare:Ident.compare in
+    modifieds
 end
 
 
@@ -1059,7 +1293,7 @@ module Callable = struct
   type call_def =
     | ProcDef of { proc_body : Stmt.t option }
     | FuncDef of { func_body : expr option }
-  
+
   type t = { call_decl : call_decl; call_def : call_def }
 
   let pr_call_decl_specs ppf call_decl =

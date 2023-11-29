@@ -22,7 +22,7 @@ module SmtEnv = struct
     pred_args: sort list;
     pred_heap_sort: sort;
     pred_constr : smt_ident;
-    pred_def : Callable.func_def;
+    pred_def : Callable.call_def;
   }
 
   type var_trnsl = {
@@ -122,7 +122,7 @@ module SmtEnv = struct
     compress_env_helper tbl (Map.empty (module QualIdent))
 
 
-  
+
   let trnsl_to_string (smt_trnsl: smt_trnsl) : string = 
     match smt_trnsl with
     | Field field_trnsl -> "Field: " ^ (Util.Print.string_of_format pr_term field_trnsl.field_heap) ^ " : " ^ (Util.Print.string_of_format pr_sort field_trnsl.field_sort)

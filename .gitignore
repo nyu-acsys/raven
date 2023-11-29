@@ -1,5 +1,4 @@
 _build/
-dune-project
 *~
 formalism/formalism.aux
 formalism/formalism.log

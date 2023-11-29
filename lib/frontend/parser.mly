@@ -529,7 +529,7 @@ if_then_stmt:
   let cond =
     Stmt.{ cond_test = e;
            cond_then = st;
-           cond_else = mk_skip (Loc.make $endpos $endpos);
+           cond_else = mk_skip ~loc:(Loc.make $endpos $endpos);
          }
   in
   Stmt.(Cond cond)
@@ -564,7 +564,7 @@ while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; cs = loop_contract_list; s = block {
   let loop =
     Stmt.{ loop_contract = cs;
-           loop_prebody = mk_skip (Loc.make $startpos $startpos);
+           loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = { stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) };
          }
@@ -574,7 +574,7 @@ while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt {
   let loop =
     Stmt.{ loop_contract = [];
-           loop_prebody = mk_skip (Loc.make $startpos $startpos);
+           loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = s;
          }
@@ -587,7 +587,7 @@ while_stmt_no_short_if:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt_no_short_if {
   let loop =
     Stmt.{ loop_contract = [];
-           loop_prebody = mk_skip (Loc.make $startpos $startpos);
+           loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = s;
          }
