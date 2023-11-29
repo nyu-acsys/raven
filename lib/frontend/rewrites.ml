@@ -480,8 +480,8 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
 let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
-  (* let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in *)
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
+  let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in
+  (* let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in *)
   (* let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_call_stmts m in *)
