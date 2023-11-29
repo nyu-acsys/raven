@@ -422,7 +422,7 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
       | _ -> Error.error stmt.stmt_loc "Expected a call_def"
     ) in
 
-    let renaming_map, dropped_args = 
+    let* renaming_map, dropped_args = 
       let truncated_formal_args, dropped_formal_args = List.split_n call_decl.call_decl_formals (List.length call_desc.call_args) in
 
       let fresh_dropped_args = List.map dropped_formal_args ~f:(fun var_decl -> 
@@ -430,13 +430,21 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
       ) in
 
       let fresh_dropped_args_exprs = List.map fresh_dropped_args ~f:(Expr.from_var_decl) in
+
+      (* Need to ensure that call_decl_returns and call_desc.call_lhs line up *)
+      let* lhs_list = Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden -> let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
       
-      let renaming_map = List.fold2_exn (truncated_formal_args @ dropped_formal_args @ call_decl.call_decl_returns) (call_desc.call_args @ fresh_dropped_args_exprs @ call_desc.call_args) ~init:((Map.empty (module QualIdent))) ~f:(fun map var_decl arg_expr ->
+      match symbol with
+      | VarDef v -> Rewriter.return (Expr.from_var_decl v.var_decl)
+      | _ -> Error.error stmt.stmt_loc "Expected a variable"
+      ) in
+      
+      let renaming_map = List.fold2_exn (truncated_formal_args @ dropped_formal_args @ call_decl.call_decl_returns) (call_desc.call_args @ fresh_dropped_args_exprs @ lhs_list) ~init:((Map.empty (module QualIdent))) ~f:(fun map var_decl arg_expr ->
         Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:arg_expr
       )
       in
 
-      renaming_map, fresh_dropped_args
+      Rewriter.return (renaming_map, fresh_dropped_args)
     in
 
     (match call_def with
