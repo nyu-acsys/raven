@@ -51,13 +51,18 @@ module Ident = struct
   let make loc name num = { ident_name = name; ident_num = num; ident_loc = loc }
   let name id = id.ident_name
 
+  let used_names = Hashtbl.create (module String)
+
   let fresh loc =
-    let used_names = Hashtbl.create (module String) in
+    
     fun ?(id = 0) (name : string) ->
       let last_index =
         Hashtbl.find used_names name |> Option.value ~default:(-1)
       in
       let new_max = Int.max (last_index + 1) id in
+      Logs.debug (fun m -> m "Keyset: %d" (List.count (Hashtbl.keys used_names) ~f:(fun _ -> true)));
+      Logs.debug (fun m -> m "old id %s -> %d" name last_index);
+      Logs.debug (fun m -> m "fresh id %s -> %d" name new_max);
       Hashtbl.set used_names ~key:name ~data:new_max;
       make loc name new_max
 end
@@ -435,7 +440,7 @@ module Type = struct
   let to_loc t = match t with
   | App (_, _, tp_attr) -> tp_attr.type_loc
 
-  let to_qual_ident t =
+  let to_qual_ident_exn t =
     match t with
     | App (constr, _tp_expr_list, type_attr) ->
       match constr with
@@ -602,7 +607,7 @@ module Expr = struct
     | Compr -> "%compr%"
 
   (* The first pr is a more verbose print which prints types of each expression. This is useful for debugging. The second pr is the normal pr which is prettier. *)
-  let rec pr ppf e =
+  let rec pr_verbose ppf e =
     let open Stdlib.Format in
     match e with
     | App (And, [], a) -> pr ppf (App (Bool false, [], a))
@@ -656,6 +661,8 @@ module Expr = struct
     | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
     | Binder (b, vs, e1, _) ->
         fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
+
+  and pr ppf e = pr_compact ppf e
 
   and pr_list ppf = Print.pr_list_comma pr ppf
 
@@ -826,6 +833,7 @@ module Expr = struct
     let expr = alpha_renaming expr map in
     Binder (binder, var_decl_list, expr, expr_attr)
 
+  (** Returns list of local variables in expressions. Can return duplicates. Deduplication happens in stmt_local_vars_accessed. *)
   let rec expr_local_accesses (expr: t) : ident list =
     match expr with
     | App (Var qual_ident, expr_list, _expr_attr) ->
@@ -835,15 +843,37 @@ module Expr = struct
         qual_ident.qual_base :: List.concat var_list
       else
         List.concat var_list
-      
+
     | App (_constr, expr_list, _expr_attr) ->
-      let var_list = List.map expr_list ~f:(fun expr -> expr_local_accesses expr) in
-      List.concat var_list
+      List.concat_map expr_list ~f:(fun expr -> expr_local_accesses expr)
 
     | Binder (_binder, var_decl_list, expr, _expr_attr) ->
       let var_list = expr_local_accesses expr in
       let var_list = List.filter var_list ~f:(fun var -> not (List.exists var_decl_list ~f:(fun var_decl -> Ident.equal var var_decl.var_name))) in
       var_list
+
+  (** Returns list of heaps accessed in expressions. Can return duplicates. Deduplication happens in stmt_heaps_accessed. *)
+  let rec expr_heaps_accessed (expr: t) : qual_ident list =
+    match expr with
+    (* Following can be strengthened to exactly 3 args, once we implement rewriting 4-arg Own predicates to 3-arg Own predicates during typing, using $Library.Frac *)
+    | App (Own, expr1 :: expr2 :: expr3s, _expr_attr) ->
+      (match expr2 with
+      | App (Var qual_ident, [], _expr_attr) ->
+        [qual_ident]
+      | _ -> assert false)
+
+    | App (Read, expr1 :: expr2 :: [], _expr_attr) ->
+      (match expr2 with
+      | App (Var qual_ident, [], _expr_attr) ->
+        [qual_ident]
+      | _ -> assert false)
+      
+
+    | App (_constr, expr_list, _expr_attr) ->
+      List.concat_map expr_list ~f:(fun expr -> expr_heaps_accessed expr)
+
+    | Binder (_binder, var_decl_list, expr, _expr_attr) ->
+      expr_heaps_accessed expr
 end
 
 type expr = Expr.t
@@ -1269,6 +1299,63 @@ module Stmt = struct
     let modifieds = stmt_locals_modified s in
     let modifieds = List.dedup_and_sort modifieds ~compare:Ident.compare in
     modifieds
+
+
+  let stmt_heaps_accessed (s: t) : qual_ident list =
+    let rec stmt_heaps_accessed (s: t): (qual_ident list) =
+      (* Returns all field heaps accessed in s. *)
+
+      match s.stmt_desc with
+      | Block b ->
+        List.concat_map b.block_body ~f:(fun s -> stmt_heaps_accessed s)
+
+      | Basic s1 -> 
+        begin match s1 with
+        | VarDef _ ->
+          Error.internal_error s.stmt_loc "VarDef should not exist in the AST during stmt_heaps_accessed"
+
+        | Spec (_, s) ->
+          Expr.expr_heaps_accessed s.spec_form
+
+        | New _ ->
+          []
+
+        | Assign assign_desc ->
+          List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_heaps_accessed e)
+
+        | Havoc _ ->
+          []
+
+        | Call call_desc ->
+          Error.internal_error s.stmt_loc "Call stmts should not exist in the AST during stmt_heaps_accessed"
+
+        | Return _ ->
+          []
+          
+        | Use _ ->
+          []
+
+        | BindAU _ | OpenAU _ | AbortAU _ | CommitAU _ -> []
+
+        | Fpu fpu_desc ->
+          [fpu_desc.fpu_field]
+        end
+
+      | Loop l ->
+        let heaps_accessed_prebody = stmt_heaps_accessed l.loop_prebody in
+        let heaps_accessed_postbody = stmt_heaps_accessed l.loop_postbody in
+        heaps_accessed_prebody @ heaps_accessed_postbody
+
+      | Cond c ->
+        let heaps_accessed_then = stmt_heaps_accessed c.cond_then in
+        let heaps_accessed_else = stmt_heaps_accessed c.cond_else in
+        heaps_accessed_then @ heaps_accessed_else
+
+    in
+
+    let heaps_accessed = stmt_heaps_accessed s in
+    let heaps_accessed = List.dedup_and_sort heaps_accessed ~compare:QualIdent.compare in
+    heaps_accessed
 end
 
 
@@ -1442,7 +1529,7 @@ module Module = struct
   and module_instr =
     | SymbolDef of symbol
     | Import of import_directive
-    
+
   and t = {
     mod_decl : module_decl;
     mod_def : module_instr list;
@@ -1618,5 +1705,21 @@ module Symbol = struct
   let pr = pr_symbol
 
   let to_string m = Print.string_of_format pr m
+
+end
+
+
+module Predefs = struct
+  let lib_ident = (Ident.make Loc.dummy "Library" 0)
+
+  let prog_ident = Ident.make Loc.dummy "$Program" 0
+
+  let lib_type_mod_ident = Ident.make Loc.dummy "Type" 0
+  let lib_type_mod_qual_ident = QualIdent.from_list [lib_ident; lib_type_mod_ident]
+  let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
+
+  let lib_cancellative_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CancellativeResourceAlgebra" 0]
+
+  let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
 
 end

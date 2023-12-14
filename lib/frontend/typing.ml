@@ -351,21 +351,28 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
     | (Ite | MapUpdate), _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
 
     (* Ownership predicates *)
-    | Own, expr1 :: expr2 :: expr3 :: expr4_opt ->
+    | Own, expr1 :: (App (Var qual_ident, [], expr_attr) as expr2) :: expr3 :: expr4_opt ->
         let* expr1 = process_expr expr1 Type.ref
-        and* expr2 = process_expr expr2 Type.any in
+        and* expr2 = process_expr expr2 Type.any 
+      
+        in
+          
         let field_type = match Expr.to_type expr2 with
           | App (Fld, [tp_expr], _) -> tp_expr
           | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier."
         in
         let* expr3 = process_expr expr3 field_type
         (* Implicitely case-split on heap RA vs. other RA *)
-        and* expr4_opt = Rewriter.List.map expr4_opt ~f:(fun e -> process_expr e Type.real) in
+        and* expr4_opt = 
+          if List.length expr4_opt > 1 then 
+            Error.type_error (Expr.to_loc expr) "Own takes either three or four arguments."
+          else
+          Rewriter.List.map expr4_opt ~f:(fun e -> process_expr e Type.real) in
         (* Reconstruct and check expr *)
         let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
         check_and_set expr Type.perm Type.perm expected_typ
 
-    | Own, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments"))
+    | Own, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments, and second argument is a field name."))
 
     (* Data constructor expressions *)
     | DataConstr constr_ident, args_list ->
@@ -1339,8 +1346,15 @@ module ProcessModule = struct
   let rec process_module (m: Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
     let _ = Logs.debug (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m))) in
+    
+    let* sc = Rewriter.current_scope_children in
+    Logs.debug (fun mm -> 
+      
+      mm !"Processing module %{Ident}: scope_children: %a" (Symbol.to_name (ModDef m)) (Print.pr_list_comma Ident.pr) (Hashtbl.keys sc)
+    );
     let* is_root =
       let+ tbl = Rewriter.get_table in
+      (* Hashtbl.mem  *)
       Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl))
     in
     
@@ -1404,15 +1418,21 @@ module ProcessModule = struct
 
     let* mod_qual_ident =
       if is_root then Rewriter.return @@ QualIdent.from_ident (Symbol.to_name (ModDef m))
-      else Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m)))
+      else 
+        let _ = Logs.debug (fun mm -> mm "Typing.process_module: computing mod_qual_ident: %a" QualIdent.pr (QualIdent.from_ident (Symbol.to_name (ModDef m)))) in
+
+        Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m)))
     in
 
     (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
     let* mod_decl_returns, mod_decl_interfaces, interface_ident, (inherited_symbols, symbols_to_check) =
       let+ interface_opt = Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
+          Logs.debug (fun mm -> mm !"Typing.process_module: module %{Ident}: checking return type %{QualIdent}" (Symbol.to_name (ModDef m)) mid);
           let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid in
           let interface_symbol = Rewriter.Symbol.add_subst (qual_interface_ident, QualIdent.to_list mod_qual_ident) interface_symbol in
+
           let+ interface_symbol = Rewriter.Symbol.reify interface_symbol in
+          Logs.debug (fun mm -> mm !"Typing.process_module: %{Ident}: checking return type %{Symbol}: reified; \n qual_interface_ident: %{QualIdent} \n mid: %{QualIdent}" (Symbol.to_name (ModDef m)) interface_symbol qual_interface_ident mid);
           qual_interface_ident, mid, interface_symbol)
       in
       match interface_opt with
@@ -1509,5 +1529,27 @@ end
 
 let process_module ?(tbl = SymbolTbl.create ()) (m: Module.t) = 
   assert (SymbolTbl.curr_is_root tbl);
-  assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl));
-  Rewriter.eval (ProcessModule.process_module m) tbl
+  (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
+  let tbl = SymbolTbl.enter Loc.dummy m.mod_decl.mod_decl_name tbl in
+  let tbl, m = Rewriter.eval (ProcessModule.process_module m) tbl in
+  let tbl = SymbolTbl.exit tbl in
+  tbl, m
+
+
+let process_symbol (symbol: Module.symbol) : Module.symbol Rewriter.t =
+  let open Rewriter.Syntax in
+
+  match symbol with
+  | Module.TypeDef type_def -> ProcessModule.process_type_def type_def
+  | Module.VarDef var_def -> ProcessModule.process_var var_def
+  | Module.FieldDef field_def -> ProcessModule.process_field field_def
+  | Module.ConstrDef _ | Module.DestrDef _ -> Rewriter.return symbol (* These should not occur directly in a module definition *)
+  | Module.CallDef call_def -> ProcessCallable.process_callable call_def
+  | Module.ModDef mod_def ->
+    
+
+    let* _ = Rewriter.enter_module mod_def
+    and* mod_def = ProcessModule.process_module mod_def in
+    let+ mod_def = Rewriter.exit_module mod_def in
+    Module.ModDef mod_def
+  | Module.ModInst mod_inst -> Rewriter.return symbol

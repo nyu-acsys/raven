@@ -81,7 +81,7 @@ let entry_to_string = function
   
 let label_to_string label =
   match label with None -> "__" | Some iden -> Ident.to_string iden
-                                                   
+
 let rec to_string tbl =
   let rec list_to_string t =
     match t with
@@ -160,9 +160,14 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
       then None
       else begin
       let scope_symbols = get_scope_entries scope in
+      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
+      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: first_id: %a" (Ident.pr) first_id); *)
       let* entry = Hashtbl.find scope_symbols first_id in
+      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: entry:"); *)
       match entry, ids1 with
       | Alias (is_abstract, qual_ident, subst1), _ ->
+        (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 1"); *)
+
         let subst1 = List.map subst1 ~f:(fun (s, t) -> QualIdent.requalify subst s, t) in
         let target_qual_ident = QualIdent.requalify subst qual_ident in
         let new_path = QualIdent.requalify_path subst1 (QualIdent.to_list target_qual_ident @ ids1) in
@@ -175,13 +180,17 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         in
         go_forward new_inst_scopes tbl.tbl_root subst new_path
       | Import qual_ident, _ ->
+        (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
         let target_qual_ident = QualIdent.requalify subst qual_ident in
         let new_path = QualIdent.to_list target_qual_ident @ ids1 in
         if is_parent scope tbl
         then go_forward inst_scopes tbl.tbl_root subst new_path
         else None
-      | Symbol qual_ident, [] -> Some (qual_ident, subst, scope.scope_is_local)
+      | Symbol qual_ident, [] -> 
+        (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 3"); *)
+        Some (qual_ident, subst, scope.scope_is_local)
       | _ ->
+        (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 4"); *)
         let scope_children = get_scope_children scope in
         let* cscope = Hashtbl.find scope_children first_id in
         go_forward inst_scopes cscope subst ids1
@@ -194,6 +203,11 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
        Hashtbl.find scope_cache name
      else None) |> Option.or_else () ~f:(fun _ ->
         let+ alias_qual_ident, orig_qual_ident, subst =
+          let exists = Hashtbl.mem (get_scope_entries curr_scope) first_id in
+          (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: curr_scope: %a" QualIdent.pr (curr_scope.scope_id)); *)
+          (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: first_id: %a" QualIdent.pr name); *)
+          (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys (get_scope_entries curr_scope))); *)
+          (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: exists: %b" exists); *)
           if Hashtbl.mem (get_scope_entries curr_scope) first_id
           then
             let+ alias_qual_ident, subst, is_local = go_forward (Set.empty (module QualIdent)) curr_scope [] (QualIdent.to_list name) in
@@ -219,13 +233,18 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
           alias_qual_ident, orig_qual_ident, subst
         )
   in
+  Logs.debug (fun m -> m "SymbolTbl.resolve: name: %a" QualIdent.pr name);
+  Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
+  Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
   go_backward true tbl.tbl_curr tbl.tbl_path
 
 (** Like [resolve] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_exn loc name tbl =
+  Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
+  Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
   resolve name tbl |>
   Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
-      
+
 (** Resolve [name] relative to the current scope in [tbl] and return:
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is declared
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is used
@@ -234,17 +253,24 @@ let resolve_exn loc name tbl =
 *)
 let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * QualIdent.subst) option =
   let open Option.Syntax in
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: %a" QualIdent.pr name);
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find %a = " QualIdent.pr name);
-  Logs.debug (fun m -> m "orig_qual_ident: %a" QualIdent.pr orig_qual_ident);
-  Logs.debug (fun m -> m "alias_qual_ident: %a" QualIdent.pr alias_qual_ident);
-  Logs.debug (fun m -> m "subst: %a\n" pr_subst subst);
+  
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: orig_qual_ident: %a" QualIdent.pr orig_qual_ident); *)
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: alias_qual_ident: %a" QualIdent.pr alias_qual_ident); *)
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: subst: %a\n" pr_subst subst); *)
   alias_qual_ident, orig_qual_ident, symbol, subst
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_and_find_exn loc name (tbl : t) =
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: name: %a" QualIdent.pr name);
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_entries qualIdents: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_entries));
+
   resolve_and_find name tbl |>
+
   Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
 
 (** Find the symbol associated with [name] relative to the current scope in [tbl]. *)
@@ -282,7 +308,15 @@ let add_to_map map loc key ?(duplicate = fun _ _ _ -> Error.redeclaration_error 
   match Hashtbl.add map ~key ~data with
   | `Ok -> ()
   | `Duplicate -> duplicate map key data
-    
+
+let get_scope_exn scope_name tbl : scope =
+  let tbl = goto Loc.dummy scope_name tbl in
+
+  let scope_children = get_scope_children tbl.tbl_curr in
+
+  Hashtbl.find_exn scope_children (scope_name.qual_base)
+
+
 
 (** Add an alias based on the import instruction [import_instr] *)
 let rec import import_instr (tbl : t) : t =
@@ -307,22 +341,15 @@ let rec import import_instr (tbl : t) : t =
       ~duplicate:(fun _ _ _ -> ())
   in
   tbl
-  
+
 (** Add [symbol] to the appropriate scope of [tbl]. Fails if [symbol] already exists in this scope. 
   Appropriate scope is equal to the current scope in most cases. Except if [symbol] is something other than a local variable definition and current scope is a callable scope (determined by scope.scope_is_local), then the parent scope is used instead.
-  
 *)
-let add_symbol symbol tbl =
+let add_symbol ?(scope : scope option = None) symbol tbl =
   let rec add symbol tbl =
     let curr_scope = tbl.tbl_curr in
     let symbol_ident = Symbol.to_name symbol in
     let symbol_loc = Symbol.to_loc symbol in
-    let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in
-    let duplicate (map: entry IdentHashtbl.t) (key : Ident.t) data =
-      match Hashtbl.find_exn map key with
-      | Import _ -> Hashtbl.set map ~key ~data
-      | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
-    in
 
     let appropriate_scope = (
       let is_symbol_var_def = match symbol with
@@ -331,12 +358,23 @@ let add_symbol symbol tbl =
 
       in
 
-      if curr_scope.scope_is_local && not is_symbol_var_def then
+      let scope = Option.value scope ~default:curr_scope
+
+      in
+
+      if scope.scope_is_local && not is_symbol_var_def then
         match tbl.tbl_path with
         | [] -> tbl.tbl_root
         | scope :: _ -> scope
-      else curr_scope
+      else scope
     ) in
+
+    let symbol_qual_ident = fully_qualify symbol_ident appropriate_scope tbl in
+    let duplicate (map: entry IdentHashtbl.t) (key : Ident.t) data =
+      match Hashtbl.find_exn map key with
+      | Import _ -> Hashtbl.set map ~key ~data
+      | _ -> Error.redeclaration_error symbol_loc (Ident.to_string key)
+    in
 
     match symbol with
     | ModInst mod_inst ->
@@ -392,7 +430,7 @@ let set_symbol symbol tbl : t =
   let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in
   let new_map = Map.set tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
   { tbl with tbl_symbols = new_map }
- 
+
 
 (** Add local variable declarations [var_decls] to the current scope in [tbl].
     Updates the symbol definition if a variable is already present. *)

@@ -185,8 +185,18 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
       
         (* redefined loop_args for uniqueness *)
         let loop_arg_var_decls = List.map curr_loop_arg_var_decls ~f:(fun var_decl -> 
-          { var_decl with var_name = Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name }
+          let new_var_name = Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name in
+          Logs.debug (fun m -> m "Loop old_var_name: %a" Ident.pr var_decl.var_name);
+          Logs.debug (fun m -> m "Loop new_var_name: %a" Ident.pr new_var_name);
+          let new_new_var_name = Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name in
+          Logs.debug (fun m -> m "Loop new_new_var_name: %a" Ident.pr new_new_var_name);
+          { var_decl with var_name = new_var_name }
+          (* { var_decl with var_name = Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name } *)
         ) in
+
+        Logs.debug (fun m -> m "Loop curr_loop_arg_var_decls:\n %a" (Print.pr_list_comma Ident.pr) (List.map curr_loop_arg_var_decls ~f:(fun var_decl -> var_decl.var_name)));
+
+        Logs.debug (fun m -> m "Loop loop_arg_var_decls:\n %a" (Print.pr_list_comma Ident.pr) (List.map loop_arg_var_decls ~f:(fun var_decl -> var_decl.var_name)));
 
         let loop_arg_renaming_map = List.fold2_exn curr_loop_arg_var_decls loop_arg_var_decls ~init:(Map.empty (module QualIdent)) ~f:(fun map old_var_decl new_var_decl ->
           Map.add_exn map ~key:(QualIdent.from_ident old_var_decl.var_name) ~data:(Expr.from_var_decl new_var_decl)
@@ -294,12 +304,21 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
     let* _ = Rewriter.introduce_symbol loop_proc_symbol in
 
+    let* curr_state = Rewriter.__get_state in
+
+    Logs.debug (fun m -> m "Rewrites.rewrite_loops: Loop introduced symbols:\n %a" (Print.pr_list_comma Symbol.pr) (List.hd_exn curr_state.state_new_symbols));
+
+    Logs.debug (fun m -> m "Rewrites.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr curr_state.state_table.tbl_curr.scope_id);
+
+
     let new_stmt = 
       let lhs_list = List.map curr_loop_ret_var_decls ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name) in
       let args_list = List.map curr_loop_arg_var_decls ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
 
       Stmt.mk_call ~loc:(Stmt.loc stmt) ~lhs:lhs_list (QualIdent.from_ident loop_proc_name) args_list in
 
+
+    Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
     Rewriter.return new_stmt
 
 
@@ -327,11 +346,11 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
     let postconds_spec = callable_decl.call_decl_postcond in
 
-    let postconds_assume_stmts = List.map postconds_spec ~f:(fun spec -> Stmt.mk_assert_spec ~loc:stmt.stmt_loc spec) in
+    let postconds_assert_stmts = List.map postconds_spec ~f:(fun spec -> Stmt.mk_assert_spec ~loc:stmt.stmt_loc spec) in
 
     let assume_false = Stmt.mk_assume_expr ~loc:stmt.stmt_loc (Expr.mk_bool ~loc:stmt.stmt_loc false) in
 
-    let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc (postconds_assume_stmts @ [assume_false]) in
+    let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc (postconds_assert_stmts @ [assume_false]) in
 
     Rewriter.return new_stmt
 
@@ -470,6 +489,7 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
       (* TODO: Make sure implicit vars that appear in postconditions are being treated properly *)
       let inhale_stmts = List.map call_decl.call_decl_postcond ~f:(fun spec -> Stmt.mk_inhale_spec ~loc:stmt.stmt_loc (build_correct_spec spec)) in
 
+      (* TODO: Need to havoc ret vars before inhaling postconditions *)
       let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc (exhale_stmts @ inhale_stmts) in
       
       Rewriter.return new_stmt
@@ -486,13 +506,153 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_call_stmts
 
 
+let rec rewrite_own_expr_4_arg (expr: Expr.t) : Expr.t Rewriter.t =
+  (* Rewrites expressions of the form `own(x, f, v, p)` to `own (x, f, Frac[f.type].frac_chunk(v, p)) 
+     
+  Essentially, makes a uniform 3-arg representation of all own expressions, frac-type as well as RA type.
+  *)
+  let open Rewriter.Syntax in
+  match expr with
+  | App (Own, expr1 :: expr2 :: expr3 :: expr4 :: [], expr_attr) ->
+
+    let field_type = match Expr.to_type expr2 with
+      | App (Fld, [tp_expr], _) -> tp_expr
+      | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier."
+    in
+
+    let+ expr3 =
+      begin 
+        let expr3_1 = expr3 in
+
+        let expr3_2 = expr4 in
+
+        Logs.debug (fun m -> m "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: tp_module: %a" Type.pr field_type);
+
+        let* tp_module = Rewriter.ProgUtils.intros_type_module ~loc:(Expr.to_loc expr) ~f:Typing.process_symbol field_type in
+
+        Logs.debug (fun m -> m "Rewrites.rewrite_own_expr_4_arg: intros_type_module done: tp_module: %a" QualIdent.pr tp_module);
+
+          let instantiated_frac_module = 
+            Module.ModInst {
+              mod_inst_name = Ident.make (Expr.to_loc expr) (Rewriter.ProgUtils.serialize ("Frac$" ^ Type.to_string field_type)) 0;
+              mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
+              mod_inst_def = Some (Predefs.lib_frac_mod_qual_ident, [tp_module]);
+              mod_inst_is_interface = false;
+              mod_inst_loc = (Expr.to_loc expr);
+            } in
+
+          let* frac_mod_name = Rewriter.introduce_toplevel_symbol ~loc:(Expr.to_loc expr) ~f:Typing.process_symbol instantiated_frac_module in
+
+          let frac_type = Type.mk_var (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "T" 0)) in
+          (* let frac_constr = Rewriter.find_and_reify (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0)) in *)
+          let expr3 = Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:frac_type (Expr.DataConstr (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0))) [expr3_1; expr3_2] in
+
+          Rewriter.return expr3
+      end 
+    in
+
+    Expr.App (Own, [expr1; expr2; expr3], expr_attr)
+
+  | _ -> Rewriter.Expr.descend expr ~f:rewrite_compr_expr
+
+
+let rec expr_preds_mentioned (expr: Expr.t) : (QualIdent.t list) Rewriter.t =
+  let open Rewriter.Syntax in 
+  match expr with
+  | App (Var qual_ident, _, _) ->
+    let+ _, (_, symbol, _) = Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident in
+
+    (match symbol with
+    | CallDef c -> 
+      (match c.call_decl.call_decl_kind with
+      | Pred -> [qual_ident]
+      | _ -> []
+      )
+    | _ -> []
+    )
+  | App (_, expr_list, _) ->
+    Rewriter.List.fold_right expr_list ~init:([]) ~f:(fun expr acc ->
+      let+ expr_predicates = expr_preds_mentioned expr in
+      (acc @ expr_predicates)
+    )
+
+  | Binder (_, _, expr, _) ->
+    expr_preds_mentioned expr
+
+let stmt_preds_mentioned (s: Stmt.t) : (QualIdent.t list) Rewriter.t = 
+  let open Rewriter.Syntax in
+  let rec stmt_preds_mentioned (s: Stmt.t) : (QualIdent.t list) Rewriter.t =
+    match s.stmt_desc with
+    | Block b -> 
+      let* block_preds = Rewriter.List.map b.block_body ~f:stmt_preds_mentioned in
+
+      Rewriter.return (List.concat block_preds)
+    
+    | Loop l ->
+      let* prebody_preds = stmt_preds_mentioned l.loop_prebody in
+      (* let* test_preds = expr_preds_mentioned l.loop_test in *)
+      let* postbody_preds = stmt_preds_mentioned l.loop_postbody in
+
+      (* Rewriter.return (prebody_preds @ test_preds @ postbody_preds) *)
+      Rewriter.return (prebody_preds @ postbody_preds)
+
+    | Cond c ->
+      (* let* test_preds = expr_preds_mentioned c.cond_test in *)
+      let* then_preds = stmt_preds_mentioned c.cond_then in
+      let* else_preds = stmt_preds_mentioned c.cond_else in
+
+      (* Rewriter.return (test_preds @ then_preds @ else_preds) *)
+      Rewriter.return (then_preds @ else_preds)
+
+    | Basic s ->
+      begin match s with
+      | Spec (_, sp) -> 
+        expr_preds_mentioned sp.spec_form
+      
+      | Use u ->
+        Rewriter.return [u.use_name]
+      
+      | _ -> Rewriter.return []
+      end
+
+    in
+
+  let* preds_list = stmt_preds_mentioned s in
+  let preds_list = List.dedup_and_sort preds_list ~compare:QualIdent.compare in
+
+  Rewriter.return preds_list
+
+
+let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match c.call_def with
+  | FuncDef _ -> 
+    Rewriter.return c
+
+  | ProcDef {proc_body = None} ->
+    Rewriter.return c
+  
+  | ProcDef {proc_body = Some body} -> 
+    let* preds_list = stmt_preds_mentioned body in
+    let heaps_list = Stmt.stmt_heaps_accessed body in
+
+    (* let* body = introduce_heaps_in_stmts ~heaps_list ~preds_list body *)
+
+    Rewriter.return { c with call_def = ProcDef { proc_body = Some body; } }
+  
+  
+
+
+
 let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
+  (* let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_own_expr_4_arg m in *)
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in
-  (* let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in *)
-  (* let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
+  (* let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in *)
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_call_stmts m in *)
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_call_stmts m in
+  (* TODO: havoc return vars before inhaling *)
 
   Rewriter.return m
 
@@ -500,5 +660,5 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
 
 let process_module ?(tbl = SymbolTbl.create ()) (m: Module.t) = 
   assert (SymbolTbl.curr_is_root tbl);
-  assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl));
+  (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
   Rewriter.eval (all_rewrites m) tbl

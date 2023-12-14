@@ -1,0 +1,24 @@
+interface MyType {
+  rep type T;
+
+}
+
+module MyIntMod : Library.Type {
+  rep type T = Int;
+
+}
+
+
+module M {
+
+
+  field f: Int;
+
+  proc p1(x: Ref, v: Int) 
+    requires own(x, f, v, 1.0)
+    ensures own(x, f, v, 1.0)
+  {
+    
+  }
+
+}

@@ -20,10 +20,11 @@ let parse_cu top_level_md_ident file_name =
   Ast.Module.set_name md top_level_md_ident
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv session file_name =
+let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident session file_name =
   Logs.info (fun m -> m "Processing file %s." file_name);
-  let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in
-  let md = parse_cu root_ident file_name in
+  (* let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in *)
+  let md = parse_cu top_level_md_ident file_name in
+  let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl md in
 
   let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
@@ -44,17 +45,18 @@ let parse_and_check_all file_names =
   
   (* Parse and check standard library *)
   let lib_file = "lib/library/resource_algebra.rav" in
-  let smtEnv, session, tbl = parse_and_check_cu smtEnv session lib_file in
+  let tbl = SymbolTbl.create () in
+  let smtEnv, session, tbl = parse_and_check_cu ~tbl smtEnv Predefs.lib_ident session lib_file in
   
   (* Parse and check actual input program *)
   let _ =
     List.fold_left file_names ~init:(smtEnv, session, tbl)
       ~f:(fun (smtEnv, session, tbl) file_name ->
-          parse_and_check_cu ~tbl smtEnv session file_name)
+          parse_and_check_cu ~tbl smtEnv Predefs.prog_ident session file_name)
   in
 
   (*Checker.stop_session session;*)
-  
+
   Logs.app (fun m -> m "Verification successful.")
 
 (** Command line interface *)

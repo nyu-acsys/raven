@@ -7,11 +7,11 @@ type state = {
   state_update_table: bool;
   state_new_symbols: Module.symbol list list;
 }
-  
+
 type 'a t = state -> (state * 'a)
 
 let return a = fun s -> (s, a)
-                           
+
 module Syntax = struct
   (* For ppx_let *)
   module Let_syntax = struct
@@ -49,11 +49,15 @@ let eval ?(update=true) m tbl =
     }
   in
   let sout, res = m sin in
+  (*  *)
   sout.state_table, res
     
 let init s _ = s, ()
                              
 let get_table s = s, s.state_table
+
+(** Warning: should only be used for debugging purposes *)
+let __get_state s = s, s
 
 let current_scope s : state * SymbolTbl.scope = s, s.state_table.tbl_curr
 
@@ -67,16 +71,22 @@ let update_table f s =
   { s with state_table = f s.state_table },
   ()
 
-let exit_module mdef s =
+let exit_module (mdef: Module.t) s =
+  (* Logs.debug (fun m -> m "exit_module: %a" Module.pr (mdef)); *)
+
   let tbl = s.state_table in
   let new_symbols, mdef = 
     match s.state_new_symbols with
     | symbols :: new_symbols ->
+      (* Logs.debug (fun m -> m "exit_module: %a;\nnew symbols: %a" Ident.pr (mdef.mod_decl.mod_decl_name) (Print.pr_list_comma AstDef.Symbol.pr) symbols); *)
+
       let open Module in
       let new_instr = List.rev_map ~f:(fun def -> SymbolDef def) symbols in
       new_symbols,      
       { mdef with mod_def = new_instr @ mdef.mod_def }
-    | new_symbols -> new_symbols, mdef
+    | new_symbols -> 
+      assert (List.is_empty new_symbols);
+      new_symbols, mdef
   in
   { s with
     state_table = SymbolTbl.exit tbl;
@@ -85,12 +95,20 @@ let exit_module mdef s =
   mdef
 
 
-let exit_callable call_def s =
+let exit_callable (call_def: Callable.t) s =
+  (* Logs.debug (fun m -> m "exit_callable: %a" Ident.pr (call_def.call_decl.call_decl_name)); *)
+  (* (match call_def.call_def with
+   | Callable.FuncDef { func_body = Some _; _ } -> ()
+   | Callable.ProcDef { proc_body = Some pp; _ } -> 
+    Logs.debug (fun m -> m "exit_callable: proc_body = %a" AstDef.Stmt.pr pp);
+   | _ -> ()); *)
+
   let tbl = s.state_table in
   let new_symbols, call_def =
     match s.state_new_symbols with
     | new_callable_symbols :: new_mod_symbols :: new_symbols ->
       let open Callable in
+      (* Logs.debug (fun m -> m "exit_callable: new_callable_symbols = %a" (Print.pr_list_comma AstDef.Symbol.pr) new_callable_symbols); *)
       let new_locals, new_mod_symbols1 =
         List.partition_map new_callable_symbols ~f:(function
             | VarDef ({ var_init = None ; _ } as var_def) -> First var_def.var_decl
@@ -101,6 +119,11 @@ let exit_callable call_def s =
           call_decl_locals = List.rev_append new_locals call_def.call_decl.call_decl_locals
         }
       in
+      (* if (List.is_empty new_mod_symbols1) then
+        ()
+      else
+        Logs.debug (fun m -> m "exit_callable: new_mod_symbols = %a" (Print.pr_list_comma AstDef.Symbol.pr) new_mod_symbols1); *)
+        
       (new_mod_symbols1 @ new_mod_symbols) :: new_symbols,
       { call_def with call_decl }
     | new_symbols -> new_symbols, call_def
@@ -143,6 +166,70 @@ let introduce_symbol symbol s =
   },
   ()
 
+let introduce_toplevel_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) ?(topscope_name=(QualIdent.from_ident Predefs.prog_ident)) (symbol: Module.symbol) (s: state) : state * qual_ident =
+  (* This function takes a symbol and adds it to a top-scope, typically $Program. This is achieved by calling exit_module a bunch of times till we are in the right scope in table. Then, calling the f typechecking function on symbol, then *)
+
+  (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
+
+
+  let topscope = SymbolTbl.get_scope_exn topscope_name s.state_table in
+
+  assert (SymbolTbl.is_parent topscope s.state_table);
+
+  let symbol_qual_ident = QualIdent.append topscope_name (Symbol.to_name symbol) in
+  match (SymbolTbl.resolve_and_find symbol_qual_ident s.state_table), s.state_update_table with
+  | Some _, _ | _, false -> s, symbol_qual_ident
+  | None, true -> 
+
+    let (s, scope_new_symbols_list : (state * ((ident * (Module.symbol list)) list))) =
+      let rec pop_fn (topscope: qual_ident) (s: state) (scope_new_symbols_list: ((ident * (Module.symbol list)) list)) : state * ((ident * (Module.symbol list)) list) = 
+        if QualIdent.equal s.state_table.tbl_curr.scope_id topscope then
+          s, scope_new_symbols_list
+        else
+          let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
+          let curr_scope_symbols = (List.hd_exn s.state_new_symbols) in
+          let scope_new_symbols_list = (curr_scope_name, curr_scope_symbols) :: scope_new_symbols_list in
+
+          let empty_module = Module.{
+            mod_decl = empty_decl;
+            mod_def = [];
+          } (* using empty module to exit. Result of exit_module is thrown away, so it doesn't matter *)
+        
+          in
+          let s, _m = exit_module empty_module s in 
+
+          pop_fn topscope s scope_new_symbols_list
+      in
+
+      pop_fn topscope_name s []    
+    in
+
+    let s, _ = declare_symbol symbol s in
+    let s, symbol = f symbol s in
+
+
+    let s = { s with
+      state_new_symbols =
+        match s.state_new_symbols with
+        | scope :: new_symbols -> (symbol :: scope) :: new_symbols
+        | _ -> failwith "empty scope";
+    } 
+    (* Above code is implementing some of the functionalities of introduce_symbol manually. The reason introduce_symbol cannot be called directly is because we want to run type-checking on symbol (using the function `f`). For this, the symbol first needs to be added to the symbolTbl, before calling `f` *)
+  
+    in
+
+    let s = List.fold scope_new_symbols_list ~init:s ~f:(fun s (scope_name, scope_symbols) ->
+        { s with
+          state_table = SymbolTbl.enter loc scope_name s.state_table;
+          state_new_symbols = scope_symbols :: s.state_new_symbols
+        }
+        (* since we don't have the actual ModDef/CallDef, cannot call Rewriter.enter.
+         Instead, manually implementing its functionality using SymbolTbl.enter. *)
+      )
+    
+    in
+
+    s, symbol_qual_ident
 
 let add_locals var_decls s =
   if s.state_update_table
@@ -488,7 +575,9 @@ module Callable = struct
       Callable.{ call_decl; call_def = Callable.FuncDef { func_body } }
         
     | Callable.ProcDef { proc_body } ->
+      (* Logs.debug (fun m -> m "Rewriter.Callable.rewrite_expressions_top: old_proc_body = %a" (Print.pr_option AstDef.Stmt.pr) proc_body); *)
       let+ proc_body = Option.map proc_body ~f:fs in
+      (* Logs.debug (fun m -> m "Rewriter.Callable.rewrite_expressions_top: new_proc_body = %a" (Print.pr_option AstDef.Stmt.pr) proc_body); *)
       Callable.{ call_decl; call_def = Callable.ProcDef { proc_body } }   
 
   let rewrite_scoped ~f callable =
@@ -531,7 +620,6 @@ module Callable = struct
             ~fe:(Expr.rewrite_qual_idents ~f)
             ~fs:(Stmt.rewrite_qual_idents ~f))
       callable
-  
 end
 
 module Module = struct
@@ -546,8 +634,11 @@ module Module = struct
           and+ _ = set_symbol (ModDef sub_mdef) in
           SymbolDef (ModDef sub_mdef)
         | SymbolDef symbol ->
+            (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
             let+ symbol = f symbol
             and+ _ = set_symbol symbol in
+            (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
+
             SymbolDef symbol
         | import -> return import 
       )
@@ -652,6 +743,8 @@ end
 
 module Symbol = struct
   let reify (name, symbol, subst) =
+    Logs.debug (fun m -> m "Rewriter.Symbol.reify %a" AstDef.Symbol.pr symbol);
+
     match subst with
     | [] -> return symbol
     | _ ->
@@ -702,6 +795,8 @@ end
 let resolve_and_find loc name : (QualIdent.t * Symbol.t) t =
   let open Syntax in
   let+ tbl = get_table in
+  (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id)); *)
+  (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children)); *)
   let alias_qual_ident, qual_ident, symbol, subst = SymbolTbl.resolve_and_find_exn loc name tbl in
   qual_ident, (alias_qual_ident, symbol, subst)
 
@@ -716,7 +811,56 @@ let find loc name : Symbol.t t =
   let+ _, symbol = resolve_and_find loc name in
   symbol
 
-let find_and_reify loc name : AstDef.Module.symbol t=
+let find_and_reify loc name : AstDef.Module.symbol t =
   let open Syntax in
    let* symbol = find loc name in
    Symbol.reify symbol
+
+
+
+module ProgUtils = struct
+  let serialize (s: string) : string =
+    let s = String.map s ~f:(function
+        | '.' -> '_'
+        | c -> c)
+    in
+    s
+
+  let intros_type_module ~(loc: location) ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (tp: AstDef.type_expr) : qual_ident t =
+    let open Syntax in
+    
+    let mod_decl = begin
+      let mod_name = 
+        let mod_name_string = (AstDef.Type.to_string tp) ^ "$Mod" in
+        Ident.make loc (serialize mod_name_string) 0
+      in
+
+      {
+        AstDef.Module.mod_decl_name = mod_name;
+        mod_decl_formals = [];
+        mod_decl_returns = (*None*) Some Predefs.lib_type_mod_qual_ident;
+        mod_decl_interfaces = (Set.singleton (module QualIdent)) Predefs.lib_type_mod_qual_ident;
+        mod_decl_rep = Some Predefs.lib_type_rep_type_ident;
+        mod_decl_is_ra = false;
+        mod_decl_is_interface = false;
+        mod_decl_loc = loc;
+      }
+    end in
+
+    let (mod_def: AstDef.Module.module_instr list) = begin
+      [
+         SymbolDef (TypeDef {
+          type_def_name = Predefs.lib_type_rep_type_ident;
+          type_def_expr = Some tp;
+          type_def_rep = true;
+          type_def_loc = loc;
+        });
+
+      ]
+    end in
+
+    let symbol = AstDef.Module.ModDef { mod_decl; mod_def } in
+
+    Logs.debug (fun m -> m "Rewriter.ProgUtils.intros_type_module: symbol = %a" AstDef.Symbol.pr symbol);
+    introduce_toplevel_symbol ~loc ~f symbol
+end

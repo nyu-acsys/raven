@@ -1,0 +1,28 @@
+proc p1() {
+	var x: Int;
+  var y: Int;
+  var z: Int;
+
+	while(x < 10)
+		invariant (x <= y + z)
+	{
+		x := y + z;
+	}
+}
+
+module M {
+	var xx: Int = 5;
+
+	proc p2() {
+		var x: Int = xx;
+		var y: Int;
+		var z: Int;
+
+
+		while(x < 10)
+			invariant (x <= y + z)
+		{
+			x := y + z;
+		}
+}
+}
