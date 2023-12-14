@@ -2,26 +2,6 @@ open Base
 open Ast
 open Util
 
-let rec collect_vars (expr: expr) : expr list =
-  match expr with
-  | App (constr, expr_list, _) ->
-    let init_list =
-      match constr with
-      | Var _ -> [expr] 
-      | _ -> []
-    in
-
-    List.fold (List.map expr_list ~f:collect_vars) ~init:init_list ~f:(List.append)
-
-  | Binder (_, v_l, expr, _) ->
-    let var_expr_list = collect_vars expr in
-
-    List.filter var_expr_list ~f:(fun var ->
-      List.fold v_l ~init:false ~f:(fun b var_decl ->
-        b || (QualIdent.equal (QualIdent.from_ident var_decl.var_name) (Expr.to_qual_ident var))
-      )
-    )
-
 let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
@@ -31,16 +11,19 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
         
     let compr_fn_ident = Ident.fresh (Expr.to_loc expr) "compr" in
 
-    let free_var_exprs = collect_vars inner_expr in
+    let free_vars = Expr.fv inner_expr in
     
-    let formal_var_decls = List.map free_var_exprs ~f:(fun var ->
-        { Type.var_name = Ident.fresh (Expr.to_loc inner_expr) "tmp";
-          var_loc = Expr.to_loc inner_expr;
-          var_type = Expr.to_type var;
-          var_const = false;
-          var_ghost = false;
-          var_implicit = false;
-        }
+    let formal_var_decls, actual_arg_exprs =
+      Map.fold free_vars ~init:([], []) ~f:(fun ~key ~data (formals, actuals) ->
+          if QualIdent.is_qualified key then formals, actuals else
+            { Type.var_name = QualIdent.unqualify key;
+              var_loc = Expr.to_loc inner_expr;
+              var_type = data;
+              var_const = true;
+              var_ghost = false;
+              var_implicit = false;
+            } :: formals,
+            Expr.mk_var ~loc:(Expr.to_loc inner_expr) ~typ:data key :: actuals
       )
     in
 
@@ -113,7 +96,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
     let compr_fn_def = Module.CallDef (Callable.{ call_decl; call_def = FuncDef { func_body = None;} }) in
     
     let new_expr = 
-      Expr.mk_app ~typ:(ret_typ) ~loc:(Expr.to_loc expr) (Expr.Var compr_fn_qual_ident) free_var_exprs
+      Expr.mk_app ~typ:(ret_typ) ~loc:(Expr.to_loc expr) (Expr.Var compr_fn_qual_ident) actual_arg_exprs
     in
 
     let+ _ = Rewriter.introduce_symbol compr_fn_def in

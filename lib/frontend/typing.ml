@@ -903,14 +903,8 @@ module ProcessCallable = struct
         discovered by this function, then something unexpected has happened. *)
       | Call _call_desc -> 
         internal_error (Stmt.loc stmt) "Did not expect call stmts in AST at this stage."
-      | BindAU _ident ->
-        internal_error (Stmt.loc stmt) "Did not expect bindAU stmts in AST at this stage."
-      | OpenAU _open_au ->
-        internal_error (Stmt.loc stmt) "Did not expect openAU stmts in AST at this stage."
-      | AbortAU _ident ->
-        internal_error (Stmt.loc stmt) "Did not expect abortAU stmts in AST at this stage."
-      | CommitAU _commit_au ->
-        internal_error (Stmt.loc stmt) "Did not expect commitAU stmts in AST at this stage."
+      | AUAction _au_action_kind ->
+        internal_error (Stmt.loc stmt) "Did not expect AU action stmts in AST at this stage."
       | Fpu _fpu_desc -> 
         internal_error (Stmt.loc stmt) "Did not expect Fpu stmts in AST at this stage."
     end

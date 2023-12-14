@@ -267,6 +267,9 @@ module List = struct
   let fold_right (xs : 'a list) ~(init : 'b) ~f : 'b t = fun s -> 
     List.fold_right xs ~f:(fun x (s, acc) -> f x acc s) ~init:(s, init) 
         
+  let fold_left (xs : 'a list) ~(init : 'b) ~f : 'b t = fun s ->
+    List.fold_left xs ~f:(fun (s, acc) x -> f acc x s) ~init:(s, init)
+
   let fold_map xs ~init ~f = fun s ->
     let (s, acc), ys = List.fold_map xs ~init:(s, init)
         ~f:(fun (s, acc) x ->
@@ -309,6 +312,14 @@ module Type = struct
       let+ tp_list = List.map tp_list ~f in
       Type.App (constr, tp_list, tp_attr)
 
+  let rec fold ~(init: 'a) ~(f: 'a -> Type.t -> 'a t) tp_expr : 'a t =
+    let open Syntax in
+    match tp_expr with
+    | Type.App (_constr, tp_list, _tp_attr) as typ ->
+      let* acc = f typ init in
+      List.fold_left tp_list ~f:(fun acc typ -> fold ~f ~init:acc typ) ~init:acc
+    
+  
   let rec rewrite_qual_idents ~f (tp_expr: Type.t) : Type.t t =
     match tp_expr with
     | App (Var id, [], tp_attr) ->

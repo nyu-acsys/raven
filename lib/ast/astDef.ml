@@ -127,6 +127,8 @@ module QualIdent = struct
 
   let unqualify qid = qid.qual_base
 
+  let is_qualified qid = not @@ List.is_empty qid.qual_path
+  
   module IdentList = struct
     type t = Ident.t list [@@deriving hash, compare, sexp]
   end
@@ -753,6 +755,24 @@ module Expr = struct
     expr |> to_qual_ident |> QualIdent.to_ident
 
 
+  (** Compute the signature of the free variables occuring in expression [e]. *)
+  let fv e = 
+    let rec fv bv vars = function
+      | App (Var id, [],  attr) -> 
+        if Set.mem bv id
+        then vars
+        else Map.set vars ~key:id ~data:attr.expr_type
+      | App (_, ts, _) ->
+	List.fold_left ts ~f:(fv bv) ~init:vars
+      | Binder (_, vs, e, _) ->
+        let bv =
+          List.fold_left vs
+            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
+        in
+        fv bv vars e
+    in 
+    fv (Set.empty (module QualIdent)) (Map.empty (module QualIdent)) e 
+  
   (** Map all identifiers occuring in expression [e] to new identifiers according to function [fct] *)
   let map_idents fct e =
   let rec sub = function
@@ -784,7 +804,7 @@ module Expr = struct
   (* The map sm represents a bijection between the bound variables in e2 and e1. *)
   let rec eq sm e1 e2 =
     match e1, e2 with         
-    | App (constr1, es1, { expr_type = typ1; _ }), App (constr2, es2, { expr_type = typ2; _ }) ->
+    | App (constr1, es1, _), App (constr2, es2, _) ->
       let b =
         match constr1, constr2 with
         | Var qual_ident1, Var qual_ident2 ->
@@ -943,6 +963,22 @@ module Stmt = struct
     use_name : qual_ident;
     use_args : expr list;
   }
+
+  type auaction_kind =
+    | BindAU of qual_ident
+    | OpenAU of qual_ident
+    | AbortAU
+    | CommitAU
+
+  let auaction_kind_to_string = function
+    | BindAU _ -> "bindAU"
+    | OpenAU _ -> "openAU"
+    | AbortAU -> "abortAU"
+    | CommitAU -> "commitAU"
+
+  type auaction_desc = {
+    auaction_kind : auaction_kind;
+  }
   
   type basic_stmt_desc =
     | VarDef of var_def
@@ -952,11 +988,8 @@ module Stmt = struct
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
-    | Use of use_desc 
-    | BindAU of ident
-    | OpenAU of ident
-    | AbortAU of ident
-    | CommitAU of ident
+    | Use of use_desc
+    | AUAction of auaction_desc
     | Fpu of fpu_desc
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
@@ -1038,11 +1071,12 @@ module Stmt = struct
             fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" QualIdent.pr_list
               cstm.call_lhs QualIdent.pr cstm.call_name Expr.pr_list
               cstm.call_args)
-    | BindAU iden -> fprintf ppf "@[<2>BindAU %a@]" Ident.pr iden
-    | OpenAU open_au -> fprintf ppf "@[<2>OpenAU(%a)@]" Ident.pr open_au
-    | AbortAU iden -> fprintf ppf "@[<2>AbortAU %a@]" Ident.pr iden
-    | CommitAU commit_au ->
-        fprintf ppf "@[<2>CommitAU %a@]" Ident.pr commit_au
+    | AUAction { auaction_kind = BindAU token} ->
+      fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
+    | AUAction { auaction_kind = OpenAU token} ->
+      fprintf ppf "@[<2>%s(%a)@]" (auaction_kind_to_string (OpenAU token)) QualIdent.pr token
+    | AUAction { auaction_kind; _} ->
+      fprintf ppf "@[<2>%s()@]" (auaction_kind_to_string auaction_kind)
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field Expr.pr fpu_desc.fpu_val
 
   let rec pr ppf stmt =
@@ -1191,7 +1225,7 @@ module Stmt = struct
         | Use use_desc ->
           List.concat_map use_desc.use_args ~f:(fun e -> Expr.expr_local_accesses e)
 
-        | BindAU _ | OpenAU _ | AbortAU _ | CommitAU _ -> []
+        | AUAction _ -> []
 
         | Fpu fpu_desc ->
           List.concat_map [fpu_desc.fpu_ref; fpu_desc.fpu_val] ~f:(fun e -> Expr.expr_local_accesses e)
@@ -1272,7 +1306,7 @@ module Stmt = struct
         | Use _ ->
           []
 
-        | BindAU _ | OpenAU _ | AbortAU _ | CommitAU _ -> []
+        | AUAction _ -> []
 
         | Fpu fpu_desc ->
           (match fpu_desc.fpu_ref with
@@ -1335,7 +1369,7 @@ module Stmt = struct
         | Use _ ->
           []
 
-        | BindAU _ | OpenAU _ | AbortAU _ | CommitAU _ -> []
+        | AUAction _ -> []
 
         | Fpu fpu_desc ->
           [fpu_desc.fpu_field]
