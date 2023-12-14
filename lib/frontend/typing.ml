@@ -1446,7 +1446,7 @@ module ProcessModule = struct
         let interfaces =
           if is_root
           then m.mod_decl.mod_decl_interfaces
-          else Set.add m.mod_decl.mod_decl_interfaces mod_ident
+          else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
         in
         None, interfaces, mod_ident, ([], Map.empty (module Ident))
     in
