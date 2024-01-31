@@ -640,16 +640,11 @@ module Module = struct
     let open Syntax in
     let* _ = enter_module mdef
     and* symbols = List.map mdef.mod_def ~f:(function
-        | SymbolDef (ModDef sub_mdef) ->
-          let+ sub_mdef = rewrite_symbols ~f sub_mdef 
-          and+ _ = set_symbol (ModDef sub_mdef) in
-          SymbolDef (ModDef sub_mdef)
         | SymbolDef symbol ->
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
             let+ symbol = f symbol
             and+ _ = set_symbol symbol in
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
-
             SymbolDef symbol
         | import -> return import 
       )
@@ -749,7 +744,21 @@ module Module = struct
 
   and rewrite_qual_idents ~f mdef : Module.t t =
     (* TODO: rewrite imports *)
-    rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef  
+    let open Syntax in
+    let open Module in
+    let+ mdef1 = rewrite_symbols ~f:(rewrite_qual_idents_in_symbol ~f) mdef in
+    let mod_decl_interfaces =
+      Set.fold mdef1.mod_decl.mod_decl_interfaces ~init:(Set.empty (module QualIdent))
+        ~f:(fun interfaces id -> Set.add interfaces (f id))
+    in
+    let mod_decl_returns = Base.Option.map ~f mdef1.mod_decl.mod_decl_returns in
+    let mod_decl =
+      { mdef1.mod_decl with
+        mod_decl_interfaces;
+        mod_decl_returns
+      }
+    in
+    { mdef1 with mod_decl }
 end
 
 module Symbol = struct

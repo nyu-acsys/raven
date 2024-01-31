@@ -1417,7 +1417,7 @@ module ProcessModule = struct
 
         Rewriter.resolve m.mod_decl.mod_decl_loc (QualIdent.from_ident (Symbol.to_name (ModDef m)))
     in
-
+    
     (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
     let* mod_decl_returns, mod_decl_interfaces, interface_ident, (inherited_symbols, symbols_to_check) =
       let+ interface_opt = Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
@@ -1450,7 +1450,7 @@ module ProcessModule = struct
         in
         None, interfaces, mod_ident, ([], Map.empty (module Ident))
     in
-    
+
     let mod_def = inherited_symbols @ mod_def in
     let* _ = Rewriter.List.map mod_def ~f:(function
         | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol
@@ -1517,6 +1517,7 @@ module ProcessModule = struct
                      mod_decl.mod_decl_name (Symbol.kind symbol) (Symbol.to_name symbol))
               | _ -> ())
     in
+    let _ = Logs.debug (fun mm -> mm !"Done with processing module %{Ident}" (Symbol.to_name (ModDef m))) in
     
     Module.{ mod_decl; mod_def }    
 end
