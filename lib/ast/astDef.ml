@@ -168,6 +168,10 @@ module QualIdent = struct
   (* concat "qid1" "qid2" -> "qid1.quid2" *)
   let concat qid1 qid2 = make (qid1.qual_path @ qid1.qual_base :: qid2.qual_path) qid2.qual_base
 
+  let pop qid = match qid.qual_path with
+    | [] -> failwith "Cannot pop from empty path"
+    | path -> make (List.drop_last_exn path) (List.last_exn path)
+
 
   let requalify_path subst path = 
     let f path (p, p_new) =
@@ -461,6 +465,15 @@ module Type = struct
   let map_codom = function
   | App (Map, _ :: codom :: _, _) -> codom
   | _ -> failwith "Expected Map type"
+
+  let tuple_lookup tp i = 
+    match tp with
+    | App (Prod, ts, _) -> 
+      begin match List.nth ts i with
+      | Some t -> t
+      | None -> failwith "Index out of bounds"
+      end
+    | _ -> failwith "Expected Tuple type"
 end
 
 type type_expr = Type.t [@@deriving compare]
@@ -483,6 +496,7 @@ module Expr = struct
     | Not
     | Uminus
     (* Binary operators *)
+    | TupleLookUp
     | MapLookUp
     | MapUpdate
     | Eq
@@ -552,6 +566,7 @@ module Expr = struct
     (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
     | Read -> "read"
     | Uminus -> "-"
+    | TupleLookUp -> "tuple_lookup"
     | MapLookUp -> "map_lookup"
     | MapUpdate -> "map_update"
     | Plus -> "+"
@@ -586,7 +601,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Own | Var _ | MapLookUp | MapUpdate -> 1
+    | Setenum | Tuple | Read | Own | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
@@ -754,6 +769,10 @@ module Expr = struct
   let to_ident expr =
     expr |> to_qual_ident |> QualIdent.to_ident
 
+  let to_int expr = 
+    match expr with
+    | App (Int i, _, _) -> Int.of_int64_exn i
+    | _ -> Error.error (to_loc expr) "Expected Int expression"
 
   (** Compute the signature of the free variables occuring in expression [e]. *)
   let fv e = 
@@ -1747,13 +1766,18 @@ module Predefs = struct
   let lib_ident = (Ident.make Loc.dummy "Library" 0)
 
   let prog_ident = Ident.make Loc.dummy "$Program" 0
+  let prog_qual_ident = QualIdent.from_ident prog_ident
 
   let lib_type_mod_ident = Ident.make Loc.dummy "Type" 0
   let lib_type_mod_qual_ident = QualIdent.from_list [lib_ident; lib_type_mod_ident]
   let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
 
+  let lib_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "ResourceAlgebra" 0]
+
   let lib_cancellative_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CancellativeResourceAlgebra" 0]
 
   let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
+
+
 
 end

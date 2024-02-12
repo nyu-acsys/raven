@@ -1,3 +1,7 @@
 (env
   (dev
     (flags (:standard -warn-error -A -w -39 -w -27 -w -32))))
+(copy_files "lib/library/*")
+(copy_files "test/*")
+(copy_files "tests/*")
+(copy_files "tests/front-end/*")

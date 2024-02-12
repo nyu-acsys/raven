@@ -28,6 +28,9 @@ let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident sess
   let tbl, processed_md = Typing.process_module ~tbl md in
 
   let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
+
+  (* Logs.debug (fun m -> m "SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist tbl.tbl_symbols)); *)
+
   (*Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));*)
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");

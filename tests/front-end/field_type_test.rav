@@ -1,0 +1,10 @@
+module M {
+  module NatType : Library.Type {
+    rep type T = Int
+  }
+
+  module N = Library.Frac[NatType]
+
+  field f : N
+  field g : Int
+}

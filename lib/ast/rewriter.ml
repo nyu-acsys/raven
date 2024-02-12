@@ -14,7 +14,7 @@ let return a = fun s -> (s, a)
 
 module Syntax = struct
   (* For ppx_let *)
-  module Let_syntax = struct
+  module Let_syntax = struct 
     let bind m ~f = fun sin ->
       let sout, res = m sin in
       f res sout
@@ -166,11 +166,29 @@ let introduce_symbol symbol s =
   },
   ()
 
+
+let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (symbol: Module.symbol) (s: state) : state * qual_ident =
+  (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
+  
+  let current_scope = s.state_table.tbl_curr.scope_id in
+  let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
+
+  let s, _ = declare_symbol symbol s in
+  let s, symbol = f symbol s in
+  
+  { s with
+    state_new_symbols =
+      match s.state_new_symbols with
+      | scope :: new_symbols -> (symbol :: scope) :: new_symbols
+      | _ -> failwith "empty scope";
+  }, qual_ident
+
 let introduce_toplevel_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) ?(topscope_name=(QualIdent.from_ident Predefs.prog_ident)) (symbol: Module.symbol) (s: state) : state * qual_ident =
   (* This function takes a symbol and adds it to a top-scope, typically $Program. This is achieved by calling exit_module a bunch of times till we are in the right scope in table. Then, calling the f typechecking function on symbol, then *)
 
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
 
+  Logs.debug (fun m -> m "Rewriter.introduce_toplevel_symbol: topscope_name = %a" QualIdent.pr topscope_name);
 
   let topscope = SymbolTbl.get_scope_exn topscope_name s.state_table in
 
@@ -244,6 +262,7 @@ let add_call_decl_locals (call_decl : Callable.call_decl) =
   ()
 
 let set_symbol symbol s =
+  Logs.debug (fun m -> m "Rewriter.set_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
   if s.state_update_table
   then { s with state_table = SymbolTbl.set_symbol symbol s.state_table }, ()
   else s, ()
@@ -823,6 +842,7 @@ let resolve_and_find loc name : (QualIdent.t * Symbol.t) t =
 let resolve loc name : QualIdent.t t =
   let open Syntax in
   let+ qual_ident, _ = resolve_and_find loc name in
+  Logs.debug (fun m -> m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name QualIdent.pr qual_ident);
   qual_ident
 
 
@@ -836,30 +856,147 @@ let find_and_reify loc name : AstDef.Module.symbol t =
    let* symbol = find loc name in
    Symbol.reify symbol
 
+let is_local loc qual_ident s =
+  let open Syntax in
+  let s, qual_ident = resolve loc qual_ident s in
 
+  Logs.debug (fun m -> m "Rewriter.is_local: qual_ident = %a" QualIdent.pr qual_ident);
+  s, Base.List.is_empty qual_ident.qual_path
 
 module ProgUtils = struct
   let serialize (s: string) : string =
     let s = String.map s ~f:(function
         | '.' -> '_'
+        | '[' -> '\''
+        | ']' -> '\''
         | c -> c)
     in
     s
 
+  let field_type_to_frac_mod_ident ~loc field_tp = Ident.make loc (serialize ("Frac$" ^ AstDef.Type.to_string field_tp)) 0
+
+  let find_highest_valid_scope_qi loc (qi: qual_ident) : qual_ident t =
+    
+    let open Syntax in
+    Logs.debug (fun m -> m "Rewriter.ProgUtils.find_highest_valid_scope_qi: qi = %a" AstDef.QualIdent.pr qi);
+    let rec find_highest_valid_scope_qi' (qi: qual_ident) : qual_ident t =
+      (* starting from the current scope, keeps going up till it reaches an abstract scope. Not ideal, since it does not take into account the actual qual_ident `qi` being looked up. *)
+      match qi.qual_path with
+      | [] -> return (QualIdent.from_ident AstDef.Predefs.prog_ident)
+      | _ ->
+        let* current_scope = current_scope in
+        if current_scope.scope_is_abstract then
+          return current_scope.scope_id
+        else
+          find_highest_valid_scope_qi' (QualIdent.pop current_scope.scope_id)
+
+        (* let* tbl = get_table in
+        let scope = SymbolTbl.get_scope_exn (QualIdent.pop qi) tbl in
+
+        if scope.scope_is_abstract then
+          return (QualIdent.pop qi)
+        else
+          find_highest_valid_scope_qi' (QualIdent.pop qi) *)
+
+        (* let* symbol = find_and_reify loc (QualIdent.pop qi) in
+        match symbol with
+        | ModDef m -> 
+          (* Logs.debug (fun mm -> mm "Rewriter.ProgUtils.find_highest_valid_scope_qi: Found module definition = %a" AstDef.Module.pr m);
+          if m.mod_decl.mod_decl_is_interface || not (Base.List.is_empty m.mod_decl.mod_decl_formals) then
+            return (QualIdent.pop qi)
+          else
+            find_highest_valid_scope_qi' (QualIdent.pop qi) *)
+
+          let qual_base_is_a_formal = Base.List.fold m.mod_decl.mod_decl_formals ~init:false ~f:(fun acc formal -> acc || Ident.equal formal.mod_inst_name qi.qual_base) in
+          (* replace with List.exists *)
+
+          if qual_base_is_a_formal then
+            return (QualIdent.pop qi)
+          else
+            find_highest_valid_scope_qi' (QualIdent.pop qi)
+          
+        | _ -> Error.error loc "Rewriter.find_highest_valid_scope_qi: Expected module definition." *)
+
+    in
+
+    let* highest_valid_scope = find_highest_valid_scope_qi' qi in
+
+    Logs.debug (fun m -> m "Rewriter.ProgUtils.find_highest_valid_scope_qi: Found scope = %a" AstDef.QualIdent.pr highest_valid_scope);
+
+    return highest_valid_scope
+
+  let find_highest_valid_scope_type_expr loc (tp: type_expr) : (qual_ident option) t =
+    let open Syntax in
+
+    (* Logs.debug (fun m -> m "Rewriter.ProgUtils.find_highest_valid_scope_type_expr: tp = %a" AstDef.Type.pr tp); *)
+    
+    let rec find_highest_valid_scope_type_expr' (tp: type_expr) : (qual_ident list) t =
+      match tp with
+      | App (constr, tp_expr_list, _) -> 
+        let* valid_scopes_list = List.fold_left tp_expr_list ~init:[] ~f:(fun acc tp_expr ->
+            let* scopes = find_highest_valid_scope_type_expr' tp_expr in
+            return (scopes @ acc)
+          )
+        in
+
+        let+ valid_scopes_list = 
+          match constr with
+          | Var qi -> 
+            let+ qi_scope = (find_highest_valid_scope_qi loc qi) in
+            qi_scope :: valid_scopes_list
+          | _ -> return valid_scopes_list
+        
+        in
+        valid_scopes_list
+
+    in
+
+    let+ valid_scopes_list = find_highest_valid_scope_type_expr' tp in
+
+    (* Logs.debug (fun m -> m "Rewriter.ProgUtils.find_highest_valid_scope_type_expr: valid_scopes_list = %a" (Print.pr_list_comma AstDef.QualIdent.pr) valid_scopes_list); *)
+
+    Base.List.fold valid_scopes_list ~init:(Some AstDef.Predefs.prog_qual_ident) ~f:(fun qi scope ->
+      let open Util.Option.Syntax in
+      let rec compute_longer_qi q1 q2 = 
+        match q1, q2 with
+        | [], _ -> Some q2
+        | _, [] -> Some q1
+        | x :: xs, y :: ys -> 
+          if not (Ident.equal x y) then
+            None
+          else
+            let+ longer_qi = compute_longer_qi xs ys
+            in
+            x :: longer_qi
+      
+      in
+      
+      let* qi_unwrapped = qi in  
+      let+ new_qi = compute_longer_qi (QualIdent.to_list qi_unwrapped) (QualIdent.to_list scope) in   
+      
+      (* Logs.debug (fun m -> m "Rewriter.ProgUtils.find_highest_valid_scope_type_expr: scope_found = %a" AstDef.QualIdent.pr (QualIdent.from_list new_qi)); *)
+
+      QualIdent.from_list new_qi
+    )
+
+
+  
+
+  (** Takes a type expression `tp` and introduces a module which implements Library.Type whose rep type T is `tp`. ~f here is expected to be Typing.process_symbol, but it's not hardcoded to prevent recursive dependencies  *)
   let intros_type_module ~(loc: location) ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (tp: AstDef.type_expr) : qual_ident t =
     let open Syntax in
     
     let mod_decl = begin
       let mod_name = 
-        let mod_name_string = (AstDef.Type.to_string tp) ^ "$Mod" in
+        let mod_name_string = (AstDef.Type.to_string tp) ^ "$Type_Mod" in
         Ident.make loc (serialize mod_name_string) 0
       in
 
       {
         AstDef.Module.mod_decl_name = mod_name;
         mod_decl_formals = [];
-        mod_decl_returns = (*None*) Some Predefs.lib_type_mod_qual_ident;
-        mod_decl_interfaces = (Set.singleton (module QualIdent)) Predefs.lib_type_mod_qual_ident;
+        mod_decl_returns = Some Predefs.lib_type_mod_qual_ident;
+        mod_decl_interfaces = Set.empty (module QualIdent);
         mod_decl_rep = Some Predefs.lib_type_rep_type_ident;
         mod_decl_is_ra = false;
         mod_decl_is_interface = false;
@@ -882,5 +1019,47 @@ module ProgUtils = struct
     let symbol = AstDef.Module.ModDef { mod_decl; mod_def } in
 
     Logs.debug (fun m -> m "Rewriter.ProgUtils.intros_type_module: symbol = %a" AstDef.Symbol.pr symbol);
-    introduce_toplevel_symbol ~loc ~f symbol
+
+    (* let* topscope_name = find_highest_valid_scope_type_expr loc tp in
+
+    let topscope_name = match topscope_name with
+      | Some qi -> qi
+      | None -> Error.type_error loc ("Could not find a valid scope to add type definition " ^ (AstDef.Type.to_string tp) ^ " to.") 
+    
+    in *)
+
+    introduce_typecheck_symbol ~loc ~f symbol
+
+  let rec does_symbol_implement_ra (symbol: AstDef.Module.symbol) : bool t =
+    Logs.debug (fun m -> m "Rewriter.ProgUtils.does_symbol_implement_ra: symbol = %a" AstDef.Symbol.pr symbol);
+    let open Syntax in
+    match symbol with
+    | ModDef mod_def ->
+      let mod_decl = mod_def.mod_decl in
+      return mod_decl.mod_decl_is_ra
+    | ModInst mod_inst ->
+      
+      let* does_type_implement_ra = 
+        let* mod_inst_type_symbol = find_and_reify mod_inst.mod_inst_loc mod_inst.mod_inst_type in
+        does_symbol_implement_ra mod_inst_type_symbol 
+      in
+
+      if does_type_implement_ra then
+        return true
+      else (
+        match mod_inst.mod_inst_def with
+        | None -> return false
+        | Some (mod_inst_def_funct, mod_inst_def_args) ->
+          
+          let* mod_inst_def_funct_is_ra = 
+            let* mod_inst_def_funct_symbol = find_and_reify mod_inst.mod_inst_loc mod_inst_def_funct in
+            does_symbol_implement_ra mod_inst_def_funct_symbol in
+
+          return mod_inst_def_funct_is_ra
+      )
+    | _ -> return false
+
+
+    
+
 end

@@ -489,6 +489,70 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_call_stmts
 
 
+let rec rewrite_frac_field_types (symbol: Module.symbol) : Module.symbol Rewriter.t =
+  let open Rewriter.Syntax in
+  match symbol with
+  | ModDef _ | ModInst _ | TypeDef _ | ConstrDef _ | DestrDef _ |  VarDef _ | CallDef _ -> Rewriter.return symbol
+
+
+  | FieldDef f ->
+    let* is_field_an_ra = 
+      begin
+        match f.field_type with
+        | App (Fld, [App (Var qual_iden, args, _)], _) ->
+          assert (List.is_empty args);
+
+          let module_name = QualIdent.pop qual_iden in
+
+          let* does_module_implement_ra = 
+            let* module_symbol = Rewriter.find_and_reify f.field_loc module_name in
+            Rewriter.ProgUtils.does_symbol_implement_ra module_symbol
+          in
+
+          Rewriter.return does_module_implement_ra
+        
+        | _ -> Rewriter.return false
+
+      end
+    in
+
+    Logs.debug (fun m -> m "Rewrites.rewrite_frac_field_types: is_field_an_ra: %s -> %b" (Type.to_string f.field_type) is_field_an_ra);
+    if is_field_an_ra then
+      Rewriter.return symbol
+    else
+      let field_underlying_tp = match f.field_type with
+        | App (Fld, [tp_expr], _) -> tp_expr
+        | _ -> Error.type_error f.field_loc "Expected field identifier."
+      in 
+
+      
+      let* tp_module = Rewriter.ProgUtils.intros_type_module ~loc:(f.field_loc) ~f:Typing.process_symbol field_underlying_tp in
+
+      let instantiated_frac_module = 
+        Module.ModInst {
+          mod_inst_name = Rewriter.ProgUtils.field_type_to_frac_mod_ident ~loc:f.field_loc f.field_type;
+          mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
+          mod_inst_def = Some (Predefs.lib_frac_mod_qual_ident, [tp_module]);
+          mod_inst_is_interface = false;
+          mod_inst_loc = f.field_loc;
+        } in
+      
+      (* let* topscope_name = Rewriter.ProgUtils.find_highest_valid_scope_type_expr f.field_loc field_underlying_tp in
+
+      let topscope_name = match topscope_name with
+        | Some topscope_name -> topscope_name
+        | None -> Error.type_error f.field_loc ("Could not find a valid scope to add field " ^ (Ident.to_string f.field_name) ^ " to.")
+      
+      in *)
+
+
+      let* frac_mod_name = Rewriter.introduce_typecheck_symbol ~loc:f.field_loc ~f:Typing.process_symbol instantiated_frac_module in
+
+      let frac_type = Type.mk_var f.field_loc (QualIdent.append frac_mod_name (Ident.make f.field_loc "T" 0)) in
+
+      Rewriter.return (Module.FieldDef { f with field_type = frac_type })
+
+
 let rec rewrite_own_expr_4_arg (expr: Expr.t) : Expr.t Rewriter.t =
   (* Rewrites expressions of the form `own(x, f, v, p)` to `own (x, f, Frac[f.type].frac_chunk(v, p)) 
      
@@ -498,39 +562,27 @@ let rec rewrite_own_expr_4_arg (expr: Expr.t) : Expr.t Rewriter.t =
   match expr with
   | App (Own, expr1 :: expr2 :: expr3 :: expr4 :: [], expr_attr) ->
 
-    let field_type = match Expr.to_type expr2 with
+    (* let field_type = match Expr.to_type expr2 with
       | App (Fld, [tp_expr], _) -> tp_expr
       | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier."
-    in
+    in *)
+
+    let field_type = Expr.to_type expr2 in
 
     let+ expr3 =
       begin 
         let expr3_1 = expr3 in
-
         let expr3_2 = expr4 in
 
         Logs.debug (fun m -> m "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: tp_module: %a" Type.pr field_type);
 
-        let* tp_module = Rewriter.ProgUtils.intros_type_module ~loc:(Expr.to_loc expr) ~f:Typing.process_symbol field_type in
+        let* frac_mod_name = Rewriter.resolve (Expr.to_loc expr) (QualIdent.from_ident (Rewriter.ProgUtils.field_type_to_frac_mod_ident ~loc:(Expr.to_loc expr) field_type)) in
 
-        Logs.debug (fun m -> m "Rewrites.rewrite_own_expr_4_arg: intros_type_module done: tp_module: %a" QualIdent.pr tp_module);
+        let frac_type = Type.mk_var (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "T" 0)) in
+        (* let frac_constr = Rewriter.find_and_reify (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0)) in *)
+        let expr3 = Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:frac_type (Expr.DataConstr (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0))) [expr3_1; expr3_2] in
 
-          let instantiated_frac_module = 
-            Module.ModInst {
-              mod_inst_name = Ident.make (Expr.to_loc expr) (Rewriter.ProgUtils.serialize ("Frac$" ^ Type.to_string field_type)) 0;
-              mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
-              mod_inst_def = Some (Predefs.lib_frac_mod_qual_ident, [tp_module]);
-              mod_inst_is_interface = false;
-              mod_inst_loc = (Expr.to_loc expr);
-            } in
-
-          let* frac_mod_name = Rewriter.introduce_toplevel_symbol ~loc:(Expr.to_loc expr) ~f:Typing.process_symbol instantiated_frac_module in
-
-          let frac_type = Type.mk_var (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "T" 0)) in
-          (* let frac_constr = Rewriter.find_and_reify (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0)) in *)
-          let expr3 = Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:frac_type (Expr.DataConstr (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0))) [expr3_1; expr3_2] in
-
-          Rewriter.return expr3
+        Rewriter.return expr3
       end 
     in
 
@@ -623,16 +675,81 @@ let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
 
     Rewriter.return { c with call_def = ProcDef { proc_body = Some body; } }
   
-  
+(* let rewrite_add_field_utils (symbol: Module.symbol) : Module.symbol Rewriter.t =
+  let open Rewriter.Syntax in
+  match symbol with
+  | FieldDef f ->
+    let utils_module = 
+      (* 
+      module f$utils {
+        type T = f.field_type.T;
+        func f$heapValid(h: Map[Ref, T]) returns (ret:Bool) {
+          forall l: Ref :: T.valid(h[l])
+        }
+
+        func f$heapAddChunk(x1: T, x2: T) returns (ret: T) {
+          T.comp(x1, x2)
+        }
+
+        func f$heapSubChunk(x1: T, x2: T) returns (ret: T) {
+          T.frame(x1, x2)
+        }
+
+        func f$heapchunk_compare(x1: T, x2: T) returns (ret: Bool) {
+          T.valid(f$heapSubChunk(x1, x2))
+        }
+      }
+       *)
+
+      (* let* curr_scope = Rewriter.current_scope in
+      let* curr_tbl = Rewriter.get_table in *)
+      (* let field_fully_qual_name = SymbolTbl.fully_qualify f.field_name curr_scope curr_tbl in *)
+
+      let* field_fully_qual_name = Rewriter.resolve f.field_loc (QualIdent.from_ident f.field_name) in
+
+      let mod_decl =
+        let mod_name = ProgUtils.serialize (QualIdent.to_stringfield_fully_qual_name) in
+        let mod_decl_formals = [] in
+        let mod_decl_returns = None in
+        let mod_decl_interfaces = Set.empty (module QualIdent) in
+        let mod_decl_rep = None in
+        let mod_decl_is_ra = false in
+        let mod_decl_is_interface = false in
+        let mod_decl_loc = f.field_loc in
+
+        { 
+          Module.mod_name; 
+          mod_decl_formals; 
+          mod_decl_returns; 
+          mod_decl_interfaces; 
+          mod_decl_rep; 
+          mod_decl_is_ra; 
+          mod_decl_is_interface; 
+          mod_decl_loc; 
+        }
+      in
+
+      let mod_def =
+        ()
+      in
+      
+      ()
+    
+    in
+
+    ()
+  | _ -> Rewriter.return symbol *)
+    
 
 
 
 let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
-  (* let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_own_expr_4_arg m in *)
+  let* m = Rewriter.Module.rewrite_symbols ~f:rewrite_frac_field_types m in
+  let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_own_expr_4_arg m in
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
-  (* let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in *)
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_call_stmts m in
   (* TODO: havoc return vars before inhaling *)

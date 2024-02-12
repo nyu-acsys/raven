@@ -196,7 +196,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
 
     (* Binary expressions *)
-    | (MapLookUp
+    | (TupleLookUp | MapLookUp
       | Diff | Union | Inter
       | Plus | Minus | Mult | Div | Mod
       | Gt | Lt | Geq | Leq
@@ -205,6 +205,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         (* infer and propagated expected type of expr1 *)
         let expected_typ1 =
           match constr with
+          | TupleLookUp -> Type.(any)
           | MapLookUp -> Type.(map bot expected_typ)
           | Diff | Union | Inter ->
               Type.meet expected_typ Type.(set_typed any)
@@ -220,6 +221,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         (* infer and propagated expected type of expr2 *)
         let expected_typ2 =
           match constr with
+          | TupleLookUp -> Type.int
           | MapLookUp -> Type.map_dom typ1
           | Diff | Union | Inter 
           | Plus | Minus | Mult | Div | Mod
@@ -234,6 +236,10 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         (* backpropagate typ2 to expr1 if needed *)
         let expected_typ1 =
           match constr with
+          | TupleLookUp -> 
+            let _lookup_type = Type.tuple_lookup typ1 (Expr.to_int expr2) in
+            (* above lookup checks well-formedness of typ1 *)
+            typ1
           | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
           | Diff | Union | Inter
           | Plus | Minus | Mult | Div | Mod
@@ -251,6 +257,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         let expected_typ =
           if not @@ Type.is_any expected_typ then expected_typ else
           match constr with
+          | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
           | MapLookUp -> Type.map_codom typ1
           | Diff | Union | Inter
           | Plus | Minus | Mult | Div | Mod -> typ2
@@ -263,6 +270,9 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         (* recompute expr and check against its expected type *)
         let given_typ_lb, given_typ_ub =
           match constr with
+          | TupleLookUp -> 
+            let typ = Type.tuple_lookup typ1 (Expr.to_int expr2) in
+            typ, typ
           | MapLookUp ->
               let typ = expr1 |> Expr.to_type |> Type.map_codom in
               typ, typ
@@ -280,7 +290,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         in         
         check_and_set (App (constr, [expr1; expr2], expr_attr)) given_typ_lb given_typ_ub expected_typ
           
-    | (MapLookUp | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq), _expr_list ->
+    | (TupleLookUp | MapLookUp | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq), _expr_list ->
         Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly two arguments"))
 
     (* Ternary expressions *)
@@ -575,41 +585,57 @@ module ProcessCallable = struct
       var_decl, disam_tbl
   end
 
-  let disambiguate_ident (qual_ident: qual_ident) (disam_tbl: DisambiguationTbl.t) =
+  let disambiguate_ident (qual_ident: qual_ident) (disam_tbl: DisambiguationTbl.t) : qual_ident Rewriter.t =
+    let open Rewriter.Syntax in
     if List.is_empty qual_ident.qual_path then
-      let base =
+      let* base =
         match DisambiguationTbl.find disam_tbl qual_ident.qual_base with
-        | Some iden -> iden
-        | None -> qual_ident.qual_base;
+        | Some iden -> Rewriter.return iden
+        | None ->
+          let* is_local = Rewriter.is_local (qual_ident.qual_base.ident_loc) qual_ident in
+          if is_local then
+            (* if variable is local and it doesn't exist in DisambiguationTbl, then it is not defined in scope *)
+            error (QualIdent.to_loc qual_ident) @@ Printf.sprintf "Identifier %s unbound in scope" (Ident.to_string qual_ident.qual_base)
+          else
+            Rewriter.return qual_ident.qual_base;
       in
-      QualIdent.make [] base
+      Rewriter.return (QualIdent.make [] base)
     else
-      qual_ident
+      Rewriter.return qual_ident
 
-  let rec disambiguate_expr (expr: expr) (disam_tbl: DisambiguationTbl.t) : expr = 
+  let rec disambiguate_expr (expr: expr) (disam_tbl: DisambiguationTbl.t) : expr Rewriter.t = 
+    let open Rewriter.Syntax in
     match expr with
     | App (constr, expr_list, expr_attr) -> 
-      let expr_list = List.map expr_list ~f:(fun expr -> disambiguate_expr expr disam_tbl) in
+      let* expr_list = Rewriter.List.map expr_list ~f:(fun expr -> disambiguate_expr expr disam_tbl) in
       
-      let constr = match constr with
+      let* constr = match constr with
       | Var qual_ident -> 
-        let qual_ident = disambiguate_ident qual_ident disam_tbl in
+        let+ qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.Var qual_ident
       | DataConstr qual_ident ->
-        let qual_ident = disambiguate_ident qual_ident disam_tbl in
+        let+ qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.DataConstr qual_ident
       | DataDestr qual_ident ->
-        let qual_ident = disambiguate_ident qual_ident disam_tbl in
+        let+ qual_ident = disambiguate_ident qual_ident disam_tbl in
         Expr.DataDestr qual_ident
-      | _ -> constr
+      | _ -> Rewriter.return constr
       in
-      App (constr, expr_list, expr_attr)
+      Rewriter.return Expr.(App (constr, expr_list, expr_attr))
       
     | Binder (binder, var_decl_list, expr, expr_attr) -> 
-      Binder (binder, var_decl_list, disambiguate_expr expr disam_tbl, expr_attr)
+      let disam_tbl = DisambiguationTbl.push disam_tbl in
+      let disam_tbl, var_decl_list = List.fold_map var_decl_list ~init:disam_tbl ~f:(fun disam_tbl var_decl -> 
+          let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
+          disam_tbl, var_decl'
+        ) in
+      let* disambiguated_expr = disambiguate_expr expr disam_tbl in
+
+      Rewriter.return Expr.(Binder (binder, var_decl_list, disambiguated_expr, expr_attr))
 
   let disambiguate_process_expr (expr: expr) (expected_typ: type_expr) (disam_tbl: DisambiguationTbl.t) : expr Rewriter.t = 
-    let expr = disambiguate_expr expr disam_tbl in
+    let open Rewriter.Syntax in
+    let* expr = disambiguate_expr expr disam_tbl in
     process_expr expr expected_typ
           
 
@@ -827,7 +853,7 @@ module ProcessCallable = struct
         )
       
       | Havoc qual_ident ->
-        let qual_ident = disambiguate_ident qual_ident disam_tbl in
+        let* qual_ident = disambiguate_ident qual_ident disam_tbl in
         Rewriter.return (Stmt.Basic (Havoc qual_ident), disam_tbl)
 
       | Return expr ->
@@ -839,7 +865,7 @@ module ProcessCallable = struct
       | Use use_desc ->
 
         let* use_name, symbol = 
-          let id = disambiguate_ident use_desc.use_name disam_tbl in
+          let* id = disambiguate_ident use_desc.use_name disam_tbl in
           Rewriter.resolve_and_find stmt.stmt_loc id
         in
         let* symbol = Rewriter.Symbol.reify symbol in
@@ -854,8 +880,8 @@ module ProcessCallable = struct
             Error.type_error stmt.stmt_loc ("Expected invariant identifier, but found " ^ QualIdent.to_string use_name)
         in
         
-        let use_args =
-          List.map use_desc.use_args ~f:(fun expr -> disambiguate_expr expr disam_tbl)
+        let* use_args =
+          Rewriter.List.map use_desc.use_args ~f:(fun expr -> disambiguate_expr expr disam_tbl)
         in
 
         let+ use_args = process_callable_args stmt.stmt_loc pred_decl use_args in
@@ -863,7 +889,7 @@ module ProcessCallable = struct
         Stmt.Basic (Use {use_desc with use_name = use_name; use_args = use_args}), disam_tbl
       
       | New new_desc ->
-        let new_qual_ident = disambiguate_ident new_desc.new_lhs disam_tbl in
+        let* new_qual_ident = disambiguate_ident new_desc.new_lhs disam_tbl in
         let* new_qual_ident, symbol = Rewriter.resolve_and_find stmt.stmt_loc new_qual_ident in
         let* symbol = Rewriter.Symbol.reify symbol in
         let var_decl = 
@@ -1478,12 +1504,19 @@ module ProcessModule = struct
               | Module.ModDef mod_def -> mod_def.mod_decl.mod_decl_is_ra
               | _ -> false))
     in
-    let mod_decl_is_ra = mod_decl_is_ra || QualIdent.(mod_qual_ident = from_ident (Ident.make Loc.dummy "ResourceAlgebra" 0)) in
+    let mod_decl_is_ra = mod_decl_is_ra || QualIdent.(mod_qual_ident = Ast.Predefs.lib_ra_mod_qual_ident) in
+
+    (* Logs.debug (fun mm -> mm !"Typing.process_module: module %{Ident}: mod_decl_is_ra: %{Bool}" (Symbol.to_name (ModDef m)) mod_decl_is_ra); *)
+
+    (* Add return type to module declaration *)
     
+    let* mod_decl_formals = Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun mod_inst -> let+ mod_inst_type = Rewriter.resolve mod_inst.mod_inst_loc mod_inst.mod_inst_type in  { mod_inst with mod_inst_type;}) in
+
     let mod_decl =
       { m.mod_decl with
         mod_decl_rep;
         mod_decl_returns;
+        mod_decl_formals;
         mod_decl_interfaces;
         mod_decl_is_ra;
       }
@@ -1547,4 +1580,6 @@ let process_symbol (symbol: Module.symbol) : Module.symbol Rewriter.t =
     and* mod_def = ProcessModule.process_module mod_def in
     let+ mod_def = Rewriter.exit_module mod_def in
     Module.ModDef mod_def
-  | Module.ModInst mod_inst -> Rewriter.return symbol
+  | Module.ModInst mod_inst -> 
+    (* TODO: Implement checking for mod_inst too *)
+    Rewriter.return symbol

@@ -205,7 +205,7 @@ module GiveUpTemplate[K: Keyspace, Node: Node, NodeImpl: NodeImpl[K, Node]] : Se
     && own(r.fl, frag(i_n))
     && dom(i_n) == {| n |}
   }
-  
+
   pred cssR(r: CSS, c: Set[K]) {
     own(r.rp, frac_chunk(c, 1/2))
   }

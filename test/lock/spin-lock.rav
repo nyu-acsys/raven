@@ -32,8 +32,8 @@ module Lock {
     
     else {
         res := true;
-    }
-
+    
+}
     {!
       if (res) commit(phi);
       else abort(phi);

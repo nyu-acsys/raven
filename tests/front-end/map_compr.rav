@@ -1,0 +1,24 @@
+field f: Int
+
+var y: Bool
+
+proc p() {
+
+  var m: Map[Int, Int] := {| y:Int :: (exists a: Int :: (y == 2*a)) ? y/2 : y  |};
+  // var z: Int := a;
+
+  // var l: Ref;
+  // var b1: Bool := exists c : Int :: own(l, f, c);
+  // var d: Int := c;
+
+  // var b2: Bool := exists c : Bool :: c && c == false;
+  // var e: Bool := c;
+
+  // if (true) {
+  //   var x: Bool := y;
+  // }
+
+  // var b1: Bool := x;
+
+  // var e: Bool := false; this causes error
+}

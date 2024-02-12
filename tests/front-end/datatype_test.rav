@@ -1,0 +1,15 @@
+module N1 : Library.Type {
+  rep type T = Int
+}
+
+module N2 : Library.Type {
+  rep type T = Int
+}
+
+module M {
+  module M1 = Library.Frac[N1]
+  module M2 = Library.Frac[N2]
+  
+  var x : Int
+  var y : M2.T = x
+}

@@ -14,7 +14,7 @@ open Ast
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token DIFF MINUS
-%token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
+%token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ HASH
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
@@ -627,6 +627,7 @@ primary:
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = maplookup_expr { e }
+| e = tuple_lookup_expr { e }
 ;
 
 compr_expr:
@@ -664,6 +665,12 @@ maplookup_expr:
 | e1 = qual_ident_expr; LBRACKET; e2 = expr; RBRACKET {
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
 
+}
+
+tuple_lookup_expr:
+| e1 = qual_ident_expr; HASH; e2 = primary {
+  Logs.debug (fun m -> m "Tuple lookup: %a %a" Expr.pr e1 Expr.pr e2);
+  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
 }
 
 call_expr:
@@ -799,6 +806,8 @@ or_expr:
   }
 ;
 
+
+
 impl_expr:
 | e = or_expr { e }
 | e1 = or_expr; IMPLIES; e2 = impl_expr {
@@ -877,7 +886,7 @@ type_expr:
 | SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
 | MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
 | x = mod_ident { Type.mk_var (Loc.make $startpos $endpos) x }
-| LPAREN ts = type_expr_list RPAREN { Type.(App(Prod, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
+| LPAREN ts = type_expr_list RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
     
@@ -904,6 +913,7 @@ quant_expr:
 
 expr:
 | e = quant_expr { e } 
+| LPAREN; e = expr; COMMA; es = expr_list; RPAREN { Expr.mk_tuple ~loc:(Loc.make $startpos $endpos) (e :: es) }
 ;
 
 expr_list:

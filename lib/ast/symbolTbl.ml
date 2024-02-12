@@ -161,15 +161,23 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
       else begin
       let scope_symbols = get_scope_entries scope in
       (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
-      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: first_id: %a" (Ident.pr) first_id); *)
+      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids: %a" (Util.Print.pr_list_comma (Ident.pr))  ids);
+      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: subst: %a" (Util.Print.pr_list_comma 
+        (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
+      ) subst);
       let* entry = Hashtbl.find scope_symbols first_id in
       (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: entry:"); *)
       match entry, ids1 with
-      | Alias (is_abstract, qual_ident, subst1), _ ->
-        (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 1"); *)
+      | Alias (is_abstract, qual_ident, subst1), _ -> (* /// <- when can an alias have is_abstract?*)
 
+        Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: found Alias: <%a, %a >" QualIdent.pr qual_ident (Util.Print.pr_list_comma 
+        (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
+      ) subst1) ;
         let subst1 = List.map subst1 ~f:(fun (s, t) -> QualIdent.requalify subst s, t) in
-        let target_qual_ident = QualIdent.requalify subst qual_ident in
+        (* if the first argument is abstract, then it needs to be requalified. The second arg doesn't because this is taken care of by the order in which elements are added to the subst list. QualIdent.requalify will make sure the renaming on the second argument by existing substitutions happens *)
+
+        (* let target_qual_ident = QualIdent.requalify subst qual_ident in *)
+        let target_qual_ident = qual_ident in
         let new_path = QualIdent.requalify_path subst1 (QualIdent.to_list target_qual_ident @ ids1) in
         let subst =
           subst1 @ 
@@ -179,6 +187,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
           if is_abstract then inst_scopes else Set.add inst_scopes target_qual_ident
         in
         go_forward new_inst_scopes tbl.tbl_root subst new_path
+        (* /// why do we jump to tbl.root from here? *)
       | Import qual_ident, _ ->
         (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
         let target_qual_ident = QualIdent.requalify subst qual_ident in
@@ -203,7 +212,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
        Hashtbl.find scope_cache name
      else None) |> Option.or_else () ~f:(fun _ ->
         let+ alias_qual_ident, orig_qual_ident, subst =
-          let exists = Hashtbl.mem (get_scope_entries curr_scope) first_id in
+          (* let exists = Hashtbl.mem (get_scope_entries curr_scope) first_id in *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: curr_scope: %a" QualIdent.pr (curr_scope.scope_id)); *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: first_id: %a" QualIdent.pr name); *)
           (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_backward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys (get_scope_entries curr_scope))); *)
@@ -370,6 +379,7 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
     ) in
 
     let symbol_qual_ident = fully_qualify symbol_ident appropriate_scope tbl in
+    Logs.debug (fun m -> m "SymbolTbl.add_symbol: symbol_qual_ident: %a" QualIdent.pr symbol_qual_ident);
     let duplicate (map: entry IdentHashtbl.t) (key : Ident.t) data =
       match Hashtbl.find_exn map key with
       | Import _ -> Hashtbl.set map ~key ~data
@@ -428,7 +438,9 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
 let set_symbol symbol tbl : t =
   let symbol_ident = Symbol.to_name symbol in
   let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in
+  Logs.debug (fun m -> m "SymbolTbl.set_symbol: symbol_qual_ident: %a" QualIdent.pr symbol_qual_ident);
   let new_map = Map.set tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
+  (* Logs.debug (fun m -> m "SymbolTbl.set_symbol: new_map: %a" (Print.pr_list_comma QualIdent.pr) (Map.keys new_map)); *)
   { tbl with tbl_symbols = new_map }
 
 

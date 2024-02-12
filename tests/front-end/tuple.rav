@@ -1,0 +1,11 @@
+module M {
+
+  proc p() {
+    var x: (Int, Bool) = (1, true);
+    var y: Bool := x#0;
+    var z: Bool := x#1;
+    // var zz: Int := x#2;
+  } 
+  
+
+}
