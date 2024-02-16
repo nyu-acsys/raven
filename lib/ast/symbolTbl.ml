@@ -190,7 +190,7 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         (* /// why do we jump to tbl.root from here? *)
       | Import qual_ident, _ ->
         (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
-        let target_qual_ident = QualIdent.requalify subst qual_ident in
+        let target_qual_ident = (*QualIdent.requalify subst*) qual_ident in
         let new_path = QualIdent.to_list target_qual_ident @ ids1 in
         if is_parent scope tbl
         then go_forward inst_scopes tbl.tbl_root subst new_path
@@ -242,15 +242,15 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
           alias_qual_ident, orig_qual_ident, subst
         )
   in
-  Logs.debug (fun m -> m "SymbolTbl.resolve: name: %a" QualIdent.pr name);
+  (*Logs.debug (fun m -> m "SymbolTbl.resolve: name: %a" QualIdent.pr name);
   Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
-  Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
+  Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));*)
   go_backward true tbl.tbl_curr tbl.tbl_path
 
 (** Like [resolve] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_exn loc name tbl =
-  Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
-  Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
+  (*Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
+  Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));*)
   resolve name tbl |>
   Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
 
@@ -266,17 +266,17 @@ let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * Qua
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
   
-  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: orig_qual_ident: %a" QualIdent.pr orig_qual_ident); *)
-  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: alias_qual_ident: %a" QualIdent.pr alias_qual_ident); *)
-  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: subst: %a\n" pr_subst subst); *)
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: orig_qual_ident: %a" QualIdent.pr orig_qual_ident);
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: alias_qual_ident: %a" QualIdent.pr alias_qual_ident);
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: subst: %a\n" pr_subst subst);
   alias_qual_ident, orig_qual_ident, symbol, subst
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_and_find_exn loc name (tbl : t) =
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: name: %a" QualIdent.pr name);
+  (*Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: name: %a" QualIdent.pr name);
   Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
   Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_entries qualIdents: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_entries));
+  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_entries qualIdents: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_entries));*)
 
   resolve_and_find name tbl |>
 
