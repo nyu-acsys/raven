@@ -300,7 +300,17 @@ let enter loc name tbl : t =
   (let scope_children = get_scope_children tbl.tbl_curr in
    let+ scope = Hashtbl.find scope_children name in
    { tbl with tbl_curr = scope; tbl_path = tbl.tbl_curr :: tbl.tbl_path }) |>
-  Option.lazy_value ~default:(fun () -> Error.internal_error loc (Printf.sprintf !"Did not find subscope %{Ident} in scope %{QualIdent}" name (get_scope_id tbl.tbl_curr)))
+  Option.lazy_value ~default:(fun () -> 
+    (* let curr_id = get_scope_id tbl.tbl_curr in
+    let parent_scope = match tbl.tbl_path with
+      | [] -> tbl.tbl_root
+      | scope :: _ -> scope in
+      
+    Logs.debug (fun m -> m "SymbolTbl.enter: tbl_curr: %a" QualIdent.pr curr_id);
+    Logs.debug (fun m -> m "SymbolTbl.enter: tbl_parent_scopes: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map (Hashtbl.to_alist parent_scope.scope_children) ~f:(fun (_, scope) -> scope.scope_id))); *)
+    Error.internal_error loc (Printf.sprintf !"Did not find subscope %{Ident} in scope %{QualIdent}" name (get_scope_id tbl.tbl_curr))
+    
+    )
 
 (** Exit the current scope in [tbl]. *)
 let exit tbl : t =

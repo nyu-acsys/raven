@@ -1,0 +1,27 @@
+// module M {
+  module IntType : Library.Type {
+    rep type T = Int;
+  }
+
+  module FracInt = Library.Frac[IntType];
+
+  field f: FracInt
+  field g: Int
+
+  func p(v: Ref) returns (ret: Bool) {
+    true
+  }
+
+
+
+  proc pr() {
+    var x: Ref;
+    inhale forall y: Ref :: p(y) ==> (exists v: Int :: own(y, f, FracInt.frac_chunk(v, 1.0)));
+    // var x: Map[Ref, Int] :| forall y: Ref :: p(y) ==> (own(y, f, FracInt.frac_chunk(x[y], 1.0)));
+
+    inhale exists v: Int :: p(x) ==> own(x, f, FracInt.frac_chunk(v, 1.0));
+
+    exhale own(x, f, FracInt.frac_chunk(1, 1.0));
+
+  }
+// }

@@ -67,6 +67,19 @@ let current_scope_children s : state * SymbolTbl.scope IdentHashtbl.t = s, s.sta
 
 let current_scope_entries s : state * SymbolTbl.entry IdentHashtbl.t = s, s.state_table.tbl_curr.scope_entries
 
+let current_module_name s : state * qual_ident = 
+  let s, curr_scope = current_scope s in
+
+  if curr_scope.scope_is_local then
+    s, QualIdent.pop curr_scope.scope_id
+  else begin
+    (* Logs.warn (fun m -> m "Rewrites.generate_inv_function: Expected a local scope, but got a non-local scope: %a" QualIdent.pr curr_scope.scope_id); *)
+    s, curr_scope.scope_id
+  end
+  
+  
+
+
 let update_table f s =
   { s with state_table = f s.state_table },
   ()
@@ -170,12 +183,48 @@ let introduce_symbol symbol s =
 let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (symbol: Module.symbol) (s: state) : state * qual_ident =
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
   
+  Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
   let current_scope = s.state_table.tbl_curr.scope_id in
   let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
 
   let s, _ = declare_symbol symbol s in
-  let s, symbol = f symbol s in
+
+
+  (* if symbol is getting added to parent scope (see appropriate_scope in SymbolTbl.add_symbol, then we need to go to parent scope before calling `f` on `symbol`) *)
+
+  (* let s, symbol = f symbol s in *)
+  let s, symbol = 
+    match symbol with
+    | VarDef _ -> f symbol s 
+    | _ ->
+      if s.state_table.tbl_curr.scope_is_local then
+        let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
+        let curr_scope_symbols = (List.hd_exn s.state_new_symbols) in
+
+        let empty_module = Module.{
+            mod_decl = empty_decl;
+            mod_def = [];
+          } (* using empty module to exit. Result of exit_module is thrown away, so it doesn't matter *)
+        
+          in
+          let s, _ = exit_module empty_module s in
+
+          let s, symbol = f symbol s in
+
+          let s = { 
+            s with
+            state_table = SymbolTbl.enter loc curr_scope_name s.state_table;
+            state_new_symbols = curr_scope_symbols :: s.state_new_symbols
+          } in
+        
+        s, symbol
+      else
+        f symbol s
   
+  in
+  
+  Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol end: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
+
   { s with
     state_new_symbols =
       match s.state_new_symbols with
@@ -671,7 +720,7 @@ module Module = struct
     let mdef = { mdef with mod_def = symbols } in
     exit_module mdef
     
-  let rewrite_expressions ~f mdef : Module.t t =
+  let rec rewrite_expressions ~f mdef : Module.t t =
     let open Syntax in
     let open Module in
     let rewrite_symbol = function
@@ -681,17 +730,23 @@ module Module = struct
       | CallDef call_def ->
         let+ new_call_def = Callable.rewrite_expressions ~f call_def in
         CallDef new_call_def
+      | ModDef mod_def ->
+        let+ new_mod_def = rewrite_expressions ~f mod_def in
+        ModDef new_mod_def
       | mem_def -> return mem_def
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rewrite_stmts ~f mdef : Module.t t = 
+  let rec rewrite_stmts ~f mdef : Module.t t = 
     let open Syntax in
     let open Module in
     let rewrite_symbol = function
       | CallDef call_def ->
         let+ new_call_def = Callable.rewrite_stmts ~f call_def in
         CallDef new_call_def
+      | ModDef mod_def ->
+        let+ new_mod_def = rewrite_stmts ~f mod_def in
+        ModDef new_mod_def
       | mem_def -> return mem_def
     in
     rewrite_symbols ~f:rewrite_symbol mdef
@@ -1060,6 +1115,59 @@ module ProgUtils = struct
     | _ -> return false
 
 
+  let get_field_utils_module_ident loc field_ident : ident =
+    Ident.make loc (serialize ("FieldUtils$" ^ (Ident.to_string field_ident))) 0
+
+
+  let get_field_utils_module loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_fully_qual_name = resolve loc field_name in
+
+    QualIdent.make field_fully_qual_name.qual_path (get_field_utils_module_ident loc field_fully_qual_name.qual_base)
+
+  let get_field_utils_comp loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_utils_module = get_field_utils_module loc field_name in
+    QualIdent.append field_utils_module (Ident.make loc "comp" 0)
+
+  let get_field_utils_frame loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_utils_module = get_field_utils_module loc field_name in
+    QualIdent.append field_utils_module (Ident.make loc "frame" 0)
+
+  let get_field_utils_valid loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_utils_module = get_field_utils_module loc field_name in
+    QualIdent.append field_utils_module (Ident.make loc "valid" 0)
+
+  let rec is_expr_pure (expr: expr) : bool t =
+    let open Syntax in
+    match expr with
     
+    | App (constr, expr_list, _) ->
+      let* b1 = 
+      (match constr with
+      | Own -> return false
+      | Var qual_ident ->
+        let* _, symbol, _ = find (AstDef.Expr.to_loc expr) qual_ident in
+        (match symbol with
+        | CallDef c -> (match c.call_decl.call_decl_kind with 
+          | Func -> return true 
+          | _ -> return false)
+        | FieldDef _ -> return false
+        | VarDef _  | ConstrDef _ | DestrDef _  -> return true
+        | _ -> Error.error (AstDef.Expr.to_loc expr) "Rewriter.ProgUtils.is_expr_pure: Expected a function or a variable"
+        )
+      | _ -> return true
+      ) in
+  
+      let* expr_list_pure = (List.map expr_list ~f:is_expr_pure) in
+      let b2 = Base.List.fold_left ~init:true expr_list_pure ~f:(&&) in
+  
+      return (b1 && b2)
+
+    | Binder (_binder, _var_decls, expr, _) ->
+      is_expr_pure expr
+
 
 end

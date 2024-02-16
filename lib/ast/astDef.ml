@@ -359,7 +359,11 @@ module Type = struct
   let mk_data decls loc = App (Data decls, [], mk_attr loc)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
   let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
-  let mk_prod loc tp_list = App (Prod, tp_list, mk_attr loc)
+  let mk_prod loc tp_list = 
+    match tp_list with
+    | [] -> mk_unit loc
+    | tp :: [] -> tp
+    | _ -> App (Prod, tp_list, mk_attr loc)
 
 
   let int = mk_int Loc.dummy
@@ -460,11 +464,11 @@ module Type = struct
         
   let map_dom = function
   | App (Map, dom :: _, _) -> dom
-  | _ -> failwith "Expected Map type"
+  | _t -> failwith ("Expected Map type; found: " ^ (to_string _t))
         
   let map_codom = function
   | App (Map, _ :: codom :: _, _) -> codom
-  | _ -> failwith "Expected Map type"
+  | _t -> failwith ("Expected Map type; found: " ^ (to_string _t))
 
   let tuple_lookup tp i = 
     match tp with
@@ -714,7 +718,7 @@ module Expr = struct
   let mk_app ?(loc = Loc.dummy) ?(typ = Type.bot) c es =
     App (c, es, mk_attr loc typ)
 
-  let mk_var ?(loc = Loc.dummy) ?(typ = Type.bot) (qual_ident: qual_ident) = 
+  let mk_var ?(loc = Loc.dummy) ~typ (qual_ident: qual_ident) = 
     mk_app ~loc ~typ (Var qual_ident) []
 
   let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bot) b vs e =
@@ -724,7 +728,10 @@ module Expr = struct
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
-  let mk_tuple ?(loc = Loc.dummy) es = mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
+  let mk_tuple ?(loc = Loc.dummy) es = 
+    match es with
+    | e :: [] -> e
+    | _ -> mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
 
   let mk_unit loc = mk_tuple ~loc []
   
@@ -751,9 +758,26 @@ module Expr = struct
         App (And, es, mk_attr loc t)
 
   let mk_not ?(loc = Loc.dummy) e =
-    let t = to_type e in
-    App (Not, [ e ], mk_attr loc t)
+    (* let t = to_type e in *)
+    App (Not, [ e ], mk_attr loc Type.bool)
 
+
+  let mk_eq ?(loc = Loc.dummy) e1 e2 =
+    let typ_join = (Type.join (to_type e1) (to_type e2)) in
+    assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  );
+    (* let t = Type.join (to_type e1) (to_type e2) in *)
+    App (Eq, [ e1; e2 ], mk_attr loc Type.bool)
+
+  let mk_impl ?(loc = Loc.dummy) e1 e2 =
+    assert (Type.equal (to_type e1) Type.bool);
+    (assert ((Type.equal (to_type e2) Type.bool) || (Type.equal (to_type e2) Type.perm)));
+
+    App (Impl, [ e1; e2 ], mk_attr loc (Type.join (to_type e1) (to_type e2)))
+
+  let mk_maplookup ?(loc = Loc.dummy) e1 e2 =
+    let t = Type.map_codom (to_type e1) in
+    App (MapLookUp, [ e1; e2 ], mk_attr loc t)
+  
   let from_var_decl (var_decl:var_decl) =
     mk_var ~loc:var_decl.var_loc ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
 
@@ -892,7 +916,7 @@ module Expr = struct
       var_list
 
   (** Returns list of heaps accessed in expressions. Can return duplicates. Deduplication happens in stmt_heaps_accessed. *)
-  let rec expr_heaps_accessed (expr: t) : qual_ident list =
+  let rec expr_fields_accessed (expr: t) : qual_ident list =
     match expr with
     (* Following can be strengthened to exactly 3 args, once we implement rewriting 4-arg Own predicates to 3-arg Own predicates during typing, using $Library.Frac *)
     | App (Own, expr1 :: expr2 :: expr3s, _expr_attr) ->
@@ -909,10 +933,10 @@ module Expr = struct
       
 
     | App (_constr, expr_list, _expr_attr) ->
-      List.concat_map expr_list ~f:(fun expr -> expr_heaps_accessed expr)
+      List.concat_map expr_list ~f:(fun expr -> expr_fields_accessed expr)
 
     | Binder (_binder, var_decl_list, expr, _expr_attr) ->
-      expr_heaps_accessed expr
+      expr_fields_accessed expr
 end
 
 type expr = Expr.t
@@ -1354,33 +1378,33 @@ module Stmt = struct
     modifieds
 
 
-  let stmt_heaps_accessed (s: t) : qual_ident list =
-    let rec stmt_heaps_accessed (s: t): (qual_ident list) =
+  let stmt_fields_accessed (s: t) : qual_ident list =
+    let rec stmt_fields_accessed (s: t): (qual_ident list) =
       (* Returns all field heaps accessed in s. *)
 
       match s.stmt_desc with
       | Block b ->
-        List.concat_map b.block_body ~f:(fun s -> stmt_heaps_accessed s)
+        List.concat_map b.block_body ~f:(fun s -> stmt_fields_accessed s)
 
       | Basic s1 -> 
         begin match s1 with
         | VarDef _ ->
-          Error.internal_error s.stmt_loc "VarDef should not exist in the AST during stmt_heaps_accessed"
+          Error.internal_error s.stmt_loc "VarDef should not exist in the AST during stmt_fields_accessed"
 
         | Spec (_, s) ->
-          Expr.expr_heaps_accessed s.spec_form
+          Expr.expr_fields_accessed s.spec_form
 
         | New _ ->
           []
 
         | Assign assign_desc ->
-          List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_heaps_accessed e)
+          List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
 
         | Havoc _ ->
           []
 
         | Call call_desc ->
-          Error.internal_error s.stmt_loc "Call stmts should not exist in the AST during stmt_heaps_accessed"
+          Error.internal_error s.stmt_loc "Call stmts should not exist in the AST during stmt_fields_accessed"
 
         | Return _ ->
           []
@@ -1395,18 +1419,18 @@ module Stmt = struct
         end
 
       | Loop l ->
-        let heaps_accessed_prebody = stmt_heaps_accessed l.loop_prebody in
-        let heaps_accessed_postbody = stmt_heaps_accessed l.loop_postbody in
+        let heaps_accessed_prebody = stmt_fields_accessed l.loop_prebody in
+        let heaps_accessed_postbody = stmt_fields_accessed l.loop_postbody in
         heaps_accessed_prebody @ heaps_accessed_postbody
 
       | Cond c ->
-        let heaps_accessed_then = stmt_heaps_accessed c.cond_then in
-        let heaps_accessed_else = stmt_heaps_accessed c.cond_else in
+        let heaps_accessed_then = stmt_fields_accessed c.cond_then in
+        let heaps_accessed_else = stmt_fields_accessed c.cond_else in
         heaps_accessed_then @ heaps_accessed_else
 
     in
 
-    let heaps_accessed = stmt_heaps_accessed s in
+    let heaps_accessed = stmt_fields_accessed s in
     let heaps_accessed = List.dedup_and_sort heaps_accessed ~compare:QualIdent.compare in
     heaps_accessed
 end
