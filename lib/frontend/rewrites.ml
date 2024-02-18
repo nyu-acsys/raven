@@ -157,7 +157,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
     let* loop_arg_var_decls, loop_arg_renaming_map, curr_loop_arg_var_decls = 
       begin
         (* Local variables accessed from loop body become arguments for loop procedure *)
-        let curr_loop_args = Stmt.stmt_local_vars_accessed loop.loop_postbody in
+        let curr_loop_args = Stmt.local_vars_accessed loop.loop_postbody |> Set.to_list in
         let+ curr_loop_arg_var_decls = Rewriter.List.map curr_loop_args ~f:(fun var -> 
           let+ symbol = Rewriter.find_and_reify stmt.stmt_loc (QualIdent.from_ident var) in
           
@@ -457,9 +457,7 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
         let used_implicit_vars = List.filter dropped_args ~f:(
           fun var_decl -> 
-            List.exists (Expr.expr_local_accesses spec_form) ~f:(
-              fun iden -> Ident.equal var_decl.var_name iden
-            )
+            Set.mem (Expr.local_vars spec_form) var_decl.var_name
         ) in
 
         let spec_form = Expr.mk_binder ~loc:stmt.stmt_loc ~typ:Type.bool Exists used_implicit_vars spec_form in

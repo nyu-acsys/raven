@@ -842,7 +842,7 @@ module Expr = struct
     map_idents sub_id e
 
   (** Equality test on expressions. Compares expressions modulo alpha renaming, 
-   * stripping of annotations, etc. *)
+   * stripping off annotations, etc. *)
   let alpha_equal ?(sm = Map.empty (module QualIdent)) e1 e2 =
   (* The map sm represents a bijection between the bound variables in e2 and e1. *)
   let rec eq sm e1 e2 =
@@ -896,24 +896,15 @@ module Expr = struct
     let expr = alpha_renaming expr map in
     Binder (binder, var_decl_list, expr, expr_attr)
 
-  (** Returns list of local variables in expressions. Can return duplicates. Deduplication happens in stmt_local_vars_accessed. *)
-  let rec expr_local_accesses (expr: t) : ident list =
-    match expr with
-    | App (Var qual_ident, expr_list, _expr_attr) ->
-      let var_list = List.map expr_list ~f:(fun expr -> expr_local_accesses expr) in
+  (** Returns the set of local variables in expression [t]. *)
+  let rec local_vars (expr: t) : IdentSet.t =
+    let sign = fv expr in
+    Map.fold sign ~f:(fun ~key ~data:_ locals ->
+        if QualIdent.is_qualified key
+        then locals
+        else Set.add locals (QualIdent.unqualify key))
+      ~init:(Set.empty (module Ident))
 
-      if List.is_empty qual_ident.qual_path then
-        qual_ident.qual_base :: List.concat var_list
-      else
-        List.concat var_list
-
-    | App (_constr, expr_list, _expr_attr) ->
-      List.concat_map expr_list ~f:(fun expr -> expr_local_accesses expr)
-
-    | Binder (_binder, var_decl_list, expr, _expr_attr) ->
-      let var_list = expr_local_accesses expr in
-      let var_list = List.filter var_list ~f:(fun var -> not (List.exists var_decl_list ~f:(fun var_decl -> Ident.equal var var_decl.var_name))) in
-      var_list
 
   (** Returns list of heaps accessed in expressions. Can return duplicates. Deduplication happens in stmt_heaps_accessed. *)
   let rec expr_fields_accessed (expr: t) : qual_ident list =
@@ -1219,15 +1210,19 @@ module Stmt = struct
   let loc s = s.stmt_loc
 
 
-  let stmt_local_vars_accessed (s: t) : ident list =
-    let rec stmt_locals_accessed (s: t): (ident list) =
+  let local_vars_accessed (s: t) : IdentSet.t =
+    let rec stmt_locals_accessed (accesses: IdentSet.t) (s: t): IdentSet.t =
       (* Returns all local variables accessed in s.
         Assumes that all var_decl stmts are abstracted away during type-checking.   
       *)
-
+      let scan_expr_list accesses exprs =
+        List.fold exprs
+          ~f:(fun accesses e -> Set.union (Expr.local_vars e) accesses)
+          ~init:accesses
+      in
       match s.stmt_desc with
       | Block b ->
-        List.concat_map b.block_body ~f:(fun s -> stmt_locals_accessed s)
+        List.fold b.block_body ~f:stmt_locals_accessed ~init:accesses
 
       | Basic s1 -> 
         begin match s1 with
@@ -1235,64 +1230,72 @@ module Stmt = struct
           Error.internal_error s.stmt_loc "VarDef should not exist in stmt_local_vars_accesses"
 
         | Spec (_, spec) ->
-          Expr.expr_local_accesses spec.spec_form 
+          Expr.local_vars spec.spec_form 
 
         | New new_desc ->
-          let accesses = List.concat_map new_desc.new_args ~f:(fun (_, e) -> Expr.expr_local_accesses (Option.value ~default:(Expr.mk_unit Loc.dummy) e)) in
-
-          let accesses = if List.is_empty new_desc.new_lhs.qual_path then
-              new_desc.new_lhs.qual_base :: accesses
-            else
-              accesses
-            in
-
+          let accesses =
+            List.fold new_desc.new_args ~f:(fun accesses (_, e_opt) ->
+                let e_accesses =
+                  Option.map e_opt ~f:Expr.local_vars |>
+                  Option.value ~default:(Set.empty (module Ident))
+                in
+                Set.union e_accesses accesses) ~init:accesses
+          in
+          let accesses =
+            if QualIdent.is_qualified new_desc.new_lhs
+            then accesses
+            else Set.add accesses (QualIdent.unqualify new_desc.new_lhs)
+          in
           accesses
 
         | Assign assign_desc ->
-          List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_local_accesses e)
-          
+          scan_expr_list accesses (assign_desc.assign_rhs :: assign_desc.assign_lhs)
+            
         | Havoc x ->
           if List.is_empty x.qual_path then 
-            [x.qual_base]
-          else 
-            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caugh in stmt_local_vars_accesses")
+            Set.add accesses x.qual_base
+          else
+            accesses
+            (* TW: This error should not be handled here.
+            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caugh in stmt_local_vars_accesses")*)
 
         | Call call_desc ->
-          let accesses = List.concat_map call_desc.call_args ~f:(fun e -> Expr.expr_local_accesses e) in
-          let accesses = (List.filter_map call_desc.call_lhs ~f:(fun qi -> if List.is_empty qi.qual_path then None else Some qi.qual_base)) @ accesses in
+          let accesses = scan_expr_list accesses call_desc.call_args in
+          let accesses =
+            List.fold call_desc.call_lhs
+              ~f:(fun accesses qi ->
+                  if QualIdent.is_qualified qi
+                  then accesses
+                  else Set.add accesses (QualIdent.unqualify qi))
+              ~init:accesses
+          in
           accesses
 
         | Return e ->
-          Expr.expr_local_accesses e
+          Set.union (Expr.local_vars e) accesses 
           
         | Use use_desc ->
-          List.concat_map use_desc.use_args ~f:(fun e -> Expr.expr_local_accesses e)
+          scan_expr_list accesses use_desc.use_args
 
-        | AUAction _ -> []
+        | AUAction _ -> accesses
 
         | Fpu fpu_desc ->
-          List.concat_map [fpu_desc.fpu_ref; fpu_desc.fpu_val] ~f:(fun e -> Expr.expr_local_accesses e)
+          scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_val]
         end
 
       | Loop l ->
-        let accesses = Expr.expr_local_accesses l.loop_test in
-        let accesses_prebody = stmt_locals_accessed l.loop_prebody in
-        let accesses_postbody = stmt_locals_accessed l.loop_postbody in
-        let accesses = accesses @ accesses_prebody @ accesses_postbody in
-        accesses
+        let accesses = Expr.local_vars l.loop_test in
+        let accesses_prebody = stmt_locals_accessed accesses l.loop_prebody in
+        stmt_locals_accessed accesses_prebody l.loop_postbody
 
       | Cond c ->
-        let accesses = Expr.expr_local_accesses c.cond_test in
-        let accesses_then = stmt_locals_accessed c.cond_then in
-        let accesses_else = stmt_locals_accessed c.cond_else in
-        let accesses = accesses @ accesses_then @ accesses_else in
-        accesses
+        let accesses = Set.union (Expr.local_vars c.cond_test) accesses in
+        let accesses_then = stmt_locals_accessed accesses c.cond_then in
+        stmt_locals_accessed accesses_then c.cond_else
 
     in
 
-    let accesses = stmt_locals_accessed s in
-    let accesses = List.dedup_and_sort accesses ~compare:Ident.compare in
-    accesses
+    stmt_locals_accessed (Set.empty (module Ident)) s
 
   let stmt_local_vars_modified (s: t) : ident list =
     let rec stmt_locals_modified (s: t): (ident list) =
