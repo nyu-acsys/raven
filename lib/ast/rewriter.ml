@@ -2,13 +2,18 @@ open Base
 open AstDef
 open Util
 
-type state = {
+(* type state = { *)
+type 'a state = {
   state_table: SymbolTbl.t;
   state_update_table: bool;
   state_new_symbols: Module.symbol list list;
+  state_user_data: 'a;
 }
 
-type 'a t = state -> (state * 'a)
+type ('a, 'b) t_ext = 'b state -> ('b state * 'a)
+type 'a t = ('a, unit) t_ext
+
+(* type 'a t = state -> (state * 'a) *)
 
 let return a = fun s -> (s, a)
 
@@ -33,9 +38,9 @@ module Syntax = struct
     
   open Let_syntax
   
-  let (let+) (m: state -> state * 'a) (f: 'a -> 'b) : (state -> state * 'b) = map m ~f
+  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f
   let (and+) = both
-  let (let* ) (m: state -> state * 'a) (f: 'a -> state -> state * 'b) : (state -> state * 'b) = bind m ~f
+  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f
   let (and* ) = both
   
 end
@@ -46,11 +51,22 @@ let eval ?(update=true) m tbl =
     { state_table = tbl;
       state_update_table = update;
       state_new_symbols = [];
+      state_user_data = ();
     }
   in
   let sout, res = m sin in
   (*  *)
   sout.state_table, res
+
+
+let eval_with_user_state ~init (f:('a state -> 'a state * 'b)) : 'b t =
+  fun st -> 
+    
+    let s, v  = f { st with state_user_data = init } in
+
+    let s = { st with state_user_data = () } in
+    s, v
+
     
 let init s _ = s, ()
                              
@@ -59,15 +75,18 @@ let get_table s = s, s.state_table
 (** Warning: should only be used for debugging purposes *)
 let __get_state s = s, s
 
-let current_scope s : state * SymbolTbl.scope = s, s.state_table.tbl_curr
+let current_scope s : 'a state * SymbolTbl.scope = s, s.state_table.tbl_curr
 
-let current_scope_id s : state * qual_ident = s, s.state_table.tbl_curr.scope_id
+let current_scope_id s : 'a state * qual_ident = s, s.state_table.tbl_curr.scope_id
 
-let current_scope_children s : state * SymbolTbl.scope IdentHashtbl.t = s, s.state_table.tbl_curr.scope_children
+let current_scope_children s : 'a state * SymbolTbl.scope IdentHashtbl.t = s, s.state_table.tbl_curr.scope_children
 
-let current_scope_entries s : state * SymbolTbl.entry IdentHashtbl.t = s, s.state_table.tbl_curr.scope_entries
+let current_scope_entries s : 'a state * SymbolTbl.entry IdentHashtbl.t = s, s.state_table.tbl_curr.scope_entries
 
-let current_module_name s : state * qual_ident = 
+let current_user_state s : 'a state * 'a = s, s.state_user_data
+let set_user_state user_data s = { s with state_user_data = user_data }, ()
+
+let current_module_name s : 'a state * qual_ident = 
   let s, curr_scope = current_scope s in
 
   if curr_scope.scope_is_local then
@@ -180,7 +199,7 @@ let introduce_symbol symbol s =
   ()
 
 
-let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (symbol: Module.symbol) (s: state) : state * qual_ident =
+let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (symbol: Module.symbol) (s: 'a state) : 'a state * qual_ident =
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
   
   Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
@@ -232,7 +251,7 @@ let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.s
       | _ -> failwith "empty scope";
   }, qual_ident
 
-let introduce_toplevel_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) ?(topscope_name=(QualIdent.from_ident Predefs.prog_ident)) (symbol: Module.symbol) (s: state) : state * qual_ident =
+let introduce_toplevel_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) ?(topscope_name=(QualIdent.from_ident Predefs.prog_ident)) (symbol: Module.symbol) (s: 'a state) : 'a state * qual_ident =
   (* This function takes a symbol and adds it to a top-scope, typically $Program. This is achieved by calling exit_module a bunch of times till we are in the right scope in table. Then, calling the f typechecking function on symbol, then *)
 
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
@@ -248,8 +267,8 @@ let introduce_toplevel_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.sy
   | Some _, _ | _, false -> s, symbol_qual_ident
   | None, true -> 
 
-    let (s, scope_new_symbols_list : (state * ((ident * (Module.symbol list)) list))) =
-      let rec pop_fn (topscope: qual_ident) (s: state) (scope_new_symbols_list: ((ident * (Module.symbol list)) list)) : state * ((ident * (Module.symbol list)) list) = 
+    let (s, scope_new_symbols_list : ('a state * ((ident * (Module.symbol list)) list))) =
+      let rec pop_fn (topscope: qual_ident) (s: 'a state) (scope_new_symbols_list: ((ident * (Module.symbol list)) list)) : 'a state * ((ident * (Module.symbol list)) list) = 
         if QualIdent.equal s.state_table.tbl_curr.scope_id topscope then
           s, scope_new_symbols_list
         else
@@ -320,9 +339,13 @@ let import import_instr s =
   { s with state_table = SymbolTbl.import import_instr s.state_table },
   ()
 
+
+let wrap_user_state_rewriter (f: 'a state -> 'a state * 'b) (s: unit state) : 'a state * 'b =
+  f s
+
 module List = struct
 
-  let map (xs : 'a list) ~(f : 'a -> 'b t) : 'b list t = fun s ->
+  let map (xs : 'a list) ~(f : 'a -> ('b, 'c) t_ext) : ('b list, 'c) t_ext = fun s ->
     List.fold_map xs ~init:s ~f:(fun s x -> f x s)
 
   let map2 (xs : 'a list) (ys : 'b list) ~f = fun s ->
@@ -332,10 +355,10 @@ module List = struct
       s, Base.List.Or_unequal_lengths.Ok res
     | Unequal_lengths -> s, Unequal_lengths
 
-  let fold_right (xs : 'a list) ~(init : 'b) ~f : 'b t = fun s -> 
+  let fold_right (xs : 'a list) ~(init : 'b) ~f : ('b, 'c) t_ext = fun s -> 
     List.fold_right xs ~f:(fun x (s, acc) -> f x acc s) ~init:(s, init) 
         
-  let fold_left (xs : 'a list) ~(init : 'b) ~f : 'b t = fun s ->
+  let fold_left (xs : 'a list) ~(init : 'b) ~f : ('b, 'c) t_ext = fun s ->
     List.fold_left xs ~f:(fun (s, acc) x -> f acc x s) ~init:(s, init)
 
   let fold_map xs ~init ~f = fun s ->
@@ -362,7 +385,7 @@ end
 
 module Option = struct
 
-  let map (x: 'a option) ~(f: 'a -> 'b t): 'b option t = 
+  let map (x: 'a option) ~(f: 'a -> ('b, 'c) t_ext): ('b option, 'c) t_ext = 
     let open Syntax in
     match x with
     | None -> return None
@@ -373,14 +396,14 @@ module Option = struct
 end
 
 module Type = struct
-  let descend ~f (tp_expr: Type.t) : Type.t t =
+  let descend ~f (tp_expr: Type.t) : (Type.t, 'a) t_ext =
     let open Syntax in
     match tp_expr with
     | App (constr, tp_list, tp_attr) ->
       let+ tp_list = List.map tp_list ~f in
       Type.App (constr, tp_list, tp_attr)
 
-  let rec fold ~(init: 'a) ~(f: 'a -> Type.t -> 'a t) tp_expr : 'a t =
+  let rec fold ~(init: 'a) ~(f: 'a -> Type.t -> ('a, 'b) t_ext) tp_expr : ('a, 'b) t_ext =
     let open Syntax in
     match tp_expr with
     | Type.App (_constr, tp_list, _tp_attr) as typ ->
@@ -388,7 +411,7 @@ module Type = struct
       List.fold_left tp_list ~f:(fun acc typ -> fold ~f ~init:acc typ) ~init:acc
     
   
-  let rec rewrite_qual_idents ~f (tp_expr: Type.t) : Type.t t =
+  let rec rewrite_qual_idents ~f (tp_expr: Type.t) : (Type.t, 'a) t_ext =
     match tp_expr with
     | App (Var id, [], tp_attr) ->
       return (Type.App (Var (f id), [], tp_attr))
@@ -398,14 +421,14 @@ end
 
 module VarDecl = struct
 
-  let rewrite_types ~f var_decl : var_decl t =
+  let rewrite_types ~f var_decl : (var_decl, 'a) t_ext =
     let open Syntax in
     let+ var_type = f var_decl.AstDef.Type.var_type in
     { var_decl with var_type = var_type }  
 end
 
 module Expr = struct
-  let descend ~f (expr: Expr.t) : Expr.t t =
+  let descend ~f (expr: Expr.t) : (Expr.t, 'a) t_ext =
     let open Syntax in
     match expr with
     | App (constr, expr_list, expr_attr) ->
@@ -417,7 +440,7 @@ module Expr = struct
       and+ inner_expr = f inner_expr in    
       Expr.Binder (b, v_l, inner_expr, expr_attr)
 
-  let rec rewrite_types ~(f: AstDef.Type.t -> AstDef.Type.t t) (expr: Expr.t) : Expr.t t =
+  let rec rewrite_types ~(f: AstDef.Type.t -> (AstDef.Type.t, 'a) t_ext) (expr: Expr.t) : (Expr.t, 'a) t_ext =
     let open Syntax in
     match expr with
     | App (constr, expr_list, expr_attr) ->
@@ -432,7 +455,7 @@ module Expr = struct
       and+ inner_expr = rewrite_types ~f inner_expr in
       Expr.Binder (b, var_decls, inner_expr, expr_attr)
     
-  let rec rewrite_qual_idents ~f (expr: Expr.t) : Expr.t t =
+  let rec rewrite_qual_idents ~f (expr: Expr.t) : (Expr.t, 'a) t_ext =
     let open Syntax in
     match expr with
     | App (constr, expr_list, expr_attr) ->
@@ -456,7 +479,7 @@ module Expr = struct
 end
 
 module Stmt = struct
-  let descend ~(f: Stmt.t -> Stmt.t t) (stmt: Stmt.t) : Stmt.t t =
+  let descend ~(f: Stmt.t -> (Stmt.t, 'a) t_ext) (stmt: Stmt.t) : (Stmt.t, 'a) t_ext =
     let open Syntax in
     match stmt.stmt_desc with
     | Block block_desc ->
@@ -489,7 +512,7 @@ module Stmt = struct
       { stmt with stmt_desc = Cond cond_desc }
     | _ -> return stmt
   
-  let rewrite_expressions_top ~f ~c (stmt: Stmt.t) : Stmt.t t =
+  let rewrite_expressions_top ~f ~c (stmt: Stmt.t) : (Stmt.t, 'a) t_ext =
   let open Syntax in
   match stmt.stmt_desc with
   | Basic basic_stmt -> begin
@@ -564,10 +587,10 @@ module Stmt = struct
 
   | _ -> descend stmt ~f:c
 
-  let rec rewrite_expressions ~f stmt : Stmt.t t =
+  let rec rewrite_expressions ~f stmt : (Stmt.t, 'a) t_ext =
     rewrite_expressions_top ~f ~c:(rewrite_expressions ~f) stmt
   
-  let rec rewrite_types ~f stmt : Stmt.t t =
+  let rec rewrite_types ~f stmt : (Stmt.t, 'a) t_ext =
     let open Syntax in
     match stmt.Stmt.stmt_desc with
     | Stmt.Basic (VarDef var_def) ->
@@ -577,7 +600,7 @@ module Stmt = struct
       { stmt with stmt_desc = Basic (VarDef { var_decl = var_decl; var_init = new_init; }); }
     | _ -> rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f) stmt
 
-  let rec rewrite_qual_idents ~f stmt : Stmt.t t =
+  let rec rewrite_qual_idents ~f stmt : (Stmt.t, 'a) t_ext =
     let open Syntax in
     match stmt.Stmt.stmt_desc with
     | Basic basic_stmt ->
@@ -630,7 +653,7 @@ end
 
 module Callable = struct
 
-  let rewrite_expressions_top ~(fe:expr -> expr t) ~fs callable : Callable.t t =
+  let rewrite_expressions_top ~(fe:expr -> (expr, 'a) t_ext) ~fs callable : (Callable.t, 'a) t_ext =
     let open Syntax in
     let open AstDef.Stmt in
     let rewrite_specs specs =
@@ -668,7 +691,7 @@ module Callable = struct
   let rewrite_expressions ~f callable =
     rewrite_scoped ~f:(rewrite_expressions_top ~fe:f ~fs:(Stmt.rewrite_expressions ~f)) callable
   
-  let rewrite_types_top ~(ft:type_expr -> type_expr t) ~fe ~fs callable : Callable.t t =
+  let rewrite_types_top ~(ft:type_expr -> type_expr t) ~fe ~fs callable : (Callable.t, 'a) t_ext =
     let open Syntax in
     let call_decl = Callable.to_decl callable in
     let* call_decl_formals = List.map call_decl.call_decl_formals ~f:(VarDecl.rewrite_types ~f:ft)
@@ -703,7 +726,7 @@ end
 
 module Module = struct
 
-  let rec rewrite_symbols ~f (mdef: Module.t) : Module.t t =
+  let rec rewrite_symbols ~f (mdef: Module.t) : (Module.t, 'a) t_ext =
     let open Module in
     let open Syntax in
     let* _ = enter_module mdef
@@ -720,7 +743,7 @@ module Module = struct
     let mdef = { mdef with mod_def = symbols } in
     exit_module mdef
     
-  let rec rewrite_expressions ~f mdef : Module.t t =
+  let rec rewrite_expressions ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
     let open Module in
     let rewrite_symbol = function
@@ -737,7 +760,7 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rec rewrite_stmts ~f mdef : Module.t t = 
+  let rec rewrite_stmts ~f mdef : (Module.t, 'a) t_ext = 
     let open Syntax in
     let open Module in
     let rewrite_symbol = function
@@ -751,7 +774,7 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rewrite_types ~f mdef : Module.t t =
+  let rewrite_types ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
     let rewrite_symbol : Module.symbol -> Module.symbol t =
       let open Module in
@@ -781,7 +804,7 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rec rewrite_qual_idents_in_symbol ~(f: QualIdent.t -> QualIdent.t) : Module.symbol -> Module.symbol t =
+  let rec rewrite_qual_idents_in_symbol ~(f: QualIdent.t -> QualIdent.t) : Module.symbol -> (Module.symbol, 'a) t_ext =
     let open Syntax in
     let open Module in
     function
@@ -816,7 +839,7 @@ module Module = struct
         let+ new_mod_def = rewrite_qual_idents ~f mod_def in
         ModDef new_mod_def
 
-  and rewrite_qual_idents ~f mdef : Module.t t =
+  and rewrite_qual_idents ~f mdef : (Module.t, 'a) t_ext =
     (* TODO: rewrite imports *)
     let open Syntax in
     let open Module in
@@ -848,7 +871,7 @@ module Symbol = struct
       let _, symbol1 = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
       symbol1
 
-  let reify_type_def loc (_name, symbol, subst) : AstDef.Type.t Base.Option.t t =
+  let reify_type_def loc (_name, symbol, subst) : (AstDef.Type.t Base.Option.t, 'a) t_ext =
     let open Syntax in
     match symbol with
     | AstDef.Module.TypeDef { type_def_expr = None; _ } ->
@@ -858,7 +881,7 @@ module Symbol = struct
       Some tp_expr
     | _ -> Error.error loc "Expected type identifier"
 
-  let reify_type loc (_name, symbol, subst) : AstDef.Type.t t =
+  let reify_type loc (_name, symbol, subst) : (AstDef.Type.t, 'a) t_ext =
     let tp_expr =
       match symbol with
       | AstDef.Module.VarDef { var_decl; _ } -> var_decl.var_type
@@ -867,7 +890,7 @@ module Symbol = struct
     in
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
       
-  let reify_field_type loc (_name, symbol, subst) : AstDef.Type.t t =
+  let reify_field_type loc (_name, symbol, subst) : (AstDef.Type.t, 'a) t_ext =
     let tp_expr =
       match symbol with
       | AstDef.Module.FieldDef { field_type = App(Fld, [tp], _); _ } -> tp
@@ -886,7 +909,7 @@ module Symbol = struct
                                  
 end
 
-let resolve_and_find loc name : (QualIdent.t * Symbol.t) t =
+let resolve_and_find loc name : ((QualIdent.t * Symbol.t), 'a) t_ext =
   let open Syntax in
   let+ tbl = get_table in
   (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id)); *)
@@ -894,19 +917,19 @@ let resolve_and_find loc name : (QualIdent.t * Symbol.t) t =
   let alias_qual_ident, qual_ident, symbol, subst = SymbolTbl.resolve_and_find_exn loc name tbl in
   qual_ident, (alias_qual_ident, symbol, subst)
 
-let resolve loc name : QualIdent.t t =
+let resolve loc name : (QualIdent.t, 'a) t_ext =
   let open Syntax in
   let+ qual_ident, _ = resolve_and_find loc name in
   Logs.debug (fun m -> m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name QualIdent.pr qual_ident);
   qual_ident
 
 
-let find loc name : Symbol.t t =
+let find loc name : (Symbol.t, 'a) t_ext =
   let open Syntax in
   let+ _, symbol = resolve_and_find loc name in
   symbol
 
-let find_and_reify loc name : AstDef.Module.symbol t =
+let find_and_reify loc name : (AstDef.Module.symbol, 'a) t_ext =
   let open Syntax in
    let* symbol = find loc name in
    Symbol.reify symbol

@@ -1381,6 +1381,85 @@ module HeapsExplicitTrnsl = struct
 
 
   module TrnslExhale = struct
+    let rec rewriter_eliminate_existentials_from_exhales (stmt: Stmt.t) : (Stmt.t, expr option) Rewriter.t_ext =
+      let open Rewriter.Syntax in
+
+      let rec find_existentials (expr: expr) : var_decl list =
+        match expr with
+        | Binder (Exists, var_decls, e, _) -> var_decls @ find_existentials e
+        | Binder (_, var_decls, e, _) -> find_existentials e
+        | App (_, exprs, _) -> List.concat_map exprs ~f:find_existentials
+
+      in
+
+      let elim_existentials_from_expr (expr: expr) (subst_map : expr qual_ident_map): expr = 
+        let rec elim_exists (expr: expr) (subst_map) : expr = 
+          match expr with
+          | Binder (Exists, var_decls, e, _) ->
+            let all_existentials_exist = List.for_all var_decls ~f:(fun var_decl -> 
+              Map.mem subst_map (QualIdent.from_ident var_decl.var_name)
+            ) in
+
+            if not all_existentials_exist then
+              Error.internal_error (Expr.to_loc expr) "Expected all existentials to be matched up"
+            else
+              e
+
+          | Binder (b, var_decls, e, expr_attr) ->
+              let e = elim_exists e subst_map in
+              Binder (b, var_decls, e, expr_attr)
+
+          | App (constr, exprs, expr_attr) ->
+            let exprs = List.map exprs ~f:(fun e -> elim_exists e subst_map) in
+            App (constr, exprs, expr_attr)
+
+        in
+
+        let expr = Expr.alpha_renaming expr subst_map in
+        elim_exists expr subst_map
+
+      in
+
+      match stmt.stmt_desc with
+      | Basic (Spec (Exhale, spec)) ->
+        let* prev_expr = Rewriter.current_user_state in
+        let* () = Rewriter.set_user_state None in
+
+
+        let exhale_expr = spec.spec_form in
+        begin
+          match prev_expr with
+          | None -> 
+            Rewriter.return stmt
+          
+          | Some prev_expr ->
+            let existential_vars = find_existentials exhale_expr in 
+            
+              match match_up_expr spec.spec_form prev_expr existential_vars with
+              | None -> 
+                Rewriter.return stmt
+
+              | Some var_map ->
+                let subst_map = Map.map var_map ~f:(fun (var_decl, expr) -> expr) in
+                let subst_map = (Map.map_keys_exn (module QualIdent)) subst_map ~f:(fun ident -> QualIdent.from_ident ident) in
+                let spec_form = elim_existentials_from_expr exhale_expr subst_map in
+
+                let spec = { spec with spec_form } in
+
+                Rewriter.return {stmt with stmt_desc = Basic (Spec (Exhale, spec))}
+        end
+
+      | Basic (Spec (Assert, spec)) ->
+        let* () = Rewriter.set_user_state (Some spec.spec_form) in
+        Rewriter.return stmt
+
+
+      | _ -> 
+        let* () = Rewriter.set_user_state None in
+        Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_existentials_from_exhales
+    
+    
+    
     let rec trnsl_exhale_expr (expr: expr) : Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
@@ -1606,7 +1685,8 @@ module HeapsExplicitTrnsl = struct
         | Assume -> 
           Error.error (s.stmt_loc) "Unimplemented"
         | Assert ->
-          Error.error (s.stmt_loc) "Unimplemented"
+          Rewriter.return s
+          (* Error.error (s.stmt_loc) "Unimplemented" *)
         end
         (* Error.error Loc.dummy "unimplemented" *)
       | _ -> Rewriter.return s
@@ -2031,6 +2111,10 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
 
 
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_inhale_stmts m in
+  let* m = 
+    Rewriter.eval_with_user_state ~init:None
+    (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_eliminate_existentials_from_exhales m) in
+
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m in
 
   (* TODO: havoc return vars before inhaling *)

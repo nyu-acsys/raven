@@ -1,4 +1,4 @@
-// module M {
+module M {
   module IntType : Library.Type {
     rep type T = Int;
   }
@@ -24,7 +24,12 @@
 
     inhale exists v: Int :: p(x) ==> own(x, f, FracInt.frac_chunk(v, 1.0));
 
-    exhale own(x, f, FracInt.frac_chunk(1, 1.0));
+    assert own(x, f, FracInt.frac_chunk(1, 1.0));
+    exhale exists v:Int :: own(x, f, FracInt.frac_chunk(v, 1.0));
+
+
+    assert forall x: Ref, a: Int :: p(x) ==> own(x, f, FracInt.frac_chunk(1, 1.0));
+    exhale forall x: Ref, a: Int :: p(x) ==> (exists v: Int :: own(x, f, FracInt.frac_chunk(v, 1.0)));
 
   }
-// }
+}
