@@ -885,6 +885,7 @@ module Expr = struct
       | None ->
         App (Var qual_ident, expr_list, expr_attr)
       | Some expr' ->
+        (* TODO: Potentially dropping expr_list here *)
         expr'
       )
     | _ -> App (constr, expr_list, expr_attr)
