@@ -926,6 +926,113 @@ module HeapsExplicitTrnsl = struct
 
     Rewriter.return body
   
+
+  type expr_match = {
+    var_decl: var_decl;
+    expr: expr option;
+  }
+
+  let match_up_expr (expr1: expr) (expr2: expr) (vars: var_decl list) : ((var_decl * expr) ident_map) option =
+    (* expr1 is the expr with vars; expr2 is the one to be matched against. So expr1 is allowed to have more existentials than expr2. For first implementation, expr2 is not allowed to have any existentials for now *)
+
+    (* Return value of None represents that the expressions did not match up *)
+
+    (* Running example: 
+            expr1: forall a :: f(a) ==> exists b :: e(a, b) 
+            expr2: forall a1 :: f(a1) ==> e(a1, v)
+
+            vars: [b]
+    *)
+
+    let rec match_up_expr (expr1: expr) (expr2: expr) (var_map: expr_match ident_map) : (expr_match ident_map) option  =
+
+    if Type.((Expr.to_type expr1) <> (Expr.to_type expr2)) then
+      None
+    else
+
+    match expr1, expr2 with
+    | Binder (Compr, v_d1, e1, _), Binder (Compr, v_d2, e2, _)
+    | Binder (Forall, v_d1, e1, _), Binder (Forall, v_d2, e2, _) ->
+      if not (Int.equal (List.length v_d1) (List.length v_d2)) then 
+        None
+      else
+        let typ_check = List.for_all2_exn v_d1 v_d2 ~f:(fun vd1 vd2 -> Type.equal vd1.var_type vd2.var_type) in
+
+        if not typ_check then
+          None
+        else
+
+        let renaming_map = List.fold2_exn v_d1 v_d2 ~init:(Map.empty (module QualIdent)) ~f:(fun renam_map vd1 vd2 ->
+          Map.add_exn renam_map ~key:(QualIdent.from_ident vd2.var_name) ~data:(Expr.from_var_decl vd1)
+          
+        ) in
+        
+        (* renaming expr2 to use the same universal quants as expr1 *)
+        let e2 = Expr.alpha_renaming e2 renaming_map in
+
+        match_up_expr e1 e2 var_map 
+
+    | Binder (Exists, v_d1, e1, _), e2 ->
+      let var_map = List.fold v_d1 ~init:var_map ~f:(fun var_map vd1 -> 
+        match Map.find var_map vd1.var_name with
+        | Some _ -> var_map
+        | None -> Error.error (Expr.to_loc expr1) "Unexpected existential quantifier in expr1; expected all existentials to be declared in var_map"
+      ) in
+
+        match_up_expr e1 e2 var_map
+
+    | App (constr1, exprs1, _), App (constr2, exprs2, _) ->
+      begin match constr1 with
+      | Var qual_ident when 
+          (List.exists (Map.keys var_map) ~f:(fun iden -> QualIdent.equal (QualIdent.from_ident iden) qual_ident))  
+        -> (
+        let var_iden = QualIdent.to_ident qual_ident in
+        
+
+        let expr_match = (Map.find_exn var_map var_iden) in
+        match expr_match.expr with
+        | None ->
+          let var_map = Map.set var_map ~key:var_iden ~data:{ expr_match with expr = Some expr2} in
+          
+          Some var_map
+
+        | Some e ->
+          if Expr.alpha_equal e expr2 then
+            Some var_map
+          else
+            None
+      )
+
+      | _ -> 
+        if Expr.equal_constr constr1 constr2 then
+          if List.length exprs1 <> List.length exprs2 then
+            None
+          else
+            let var_map_optn = List.fold2_exn exprs1 exprs2 ~init:(Some var_map) ~f:(fun var_map_optn e1 e2 -> 
+              Option.flat_map var_map_optn ~f:(fun var_map -> match_up_expr e1 e2 var_map)
+            ) in
+
+            var_map_optn
+        
+        else
+          None
+      end
+
+
+    | _ -> None
+
+    in
+
+    let var_map_optn = match_up_expr expr1 expr2 (Map.of_alist_exn (module Ident) (List.map vars ~f:(fun var_decl -> (var_decl.var_name, { var_decl; expr = None })))) in
+
+    match var_map_optn with
+    | Some var_map -> 
+      Some (Map.map var_map ~f:(fun { var_decl; expr } -> 
+        match expr with
+        | Some e -> (var_decl, e)
+        | None -> Error.error (Expr.to_loc expr1) "Expected all variables to be matched up"
+      ))
+    | None -> None
   
   module TrnslInhale = struct 
     let rec skolemize_inhale_expr (universal_quants: universal_quants) (subst: expr qual_ident_map) (expr: expr) : expr Rewriter.t =
@@ -1064,6 +1171,46 @@ module HeapsExplicitTrnsl = struct
 
       | _ -> Rewriter.Stmt.descend stmt ~f:rewriter_skolemize_inhale_stmts
 
+
+    let rec rewriter_eliminate_binds_for_inhale (stmt: Stmt.t) : (Stmt.t, expr option) Rewriter.t_ext =
+      let open Rewriter.Syntax in
+      match stmt.stmt_desc with
+      | Basic (Spec (Inhale, spec)) ->
+        let* () = Rewriter.set_user_state (Some spec.spec_form) in
+        Rewriter.return stmt
+
+      | Basic (Bind bind_desc) ->
+        let* prev_expr = Rewriter.current_user_state in
+        let* () = Rewriter.set_user_state None in
+
+        begin match prev_expr with
+        | None ->
+          Rewriter.return stmt
+
+        | Some prev_expr ->
+          let* bind_lhs_var_decls = Rewriter.List.map bind_desc.bind_lhs ~f:(fun var -> 
+            let* symbol = Rewriter.find_and_reify (Expr.to_loc bind_desc.bind_rhs) (Expr.to_qual_ident var) in
+            match symbol with
+            | VarDef v -> Rewriter.return v.var_decl
+            | _ -> Error.error (Expr.to_loc bind_desc.bind_rhs) "Expected a variable declaration"
+          ) in
+
+          match match_up_expr bind_desc.bind_rhs prev_expr bind_lhs_var_decls with
+          | None -> Rewriter.return stmt
+          | Some var_map ->
+            let assign_stmts = List.map bind_lhs_var_decls ~f:(fun var_decl -> 
+              let _, rhs = Map.find_exn var_map (var_decl.var_name) in
+
+              Stmt.mk_assign ~loc:(Expr.to_loc bind_desc.bind_rhs) [(Expr.from_var_decl var_decl)] rhs
+            ) in
+
+            Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc bind_desc.bind_rhs) (assign_stmts))
+
+        end
+
+      | _ -> 
+        let* () = Rewriter.set_user_state None in
+        Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_binds_for_inhale
 
     let rec trnsl_inhale_expr (expr: expr) : Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
@@ -1270,115 +1417,6 @@ module HeapsExplicitTrnsl = struct
           else
            unsupported_expr_error expr
   end
-
-
-  type expr_match = {
-    var_decl: var_decl;
-    expr: expr option;
-  }
-
-  let match_up_expr (expr1: expr) (expr2: expr) (vars: var_decl list) : ((var_decl * expr) ident_map) option =
-    (* expr1 is the expr with vars; expr2 is the one to be matched against. So expr1 is allowed to have more existentials than expr2. For first implementation, expr2 is not allowed to have any existentials for now *)
-
-    (* Return value of None represents that the expressions did not match up *)
-
-    (* Running example: 
-            expr1: forall a :: f(a) ==> exists b :: e(a, b) 
-            expr2: forall a1 :: f(a1) ==> e(a1, v)
-
-            vars: [b]
-    *)
-
-    let rec match_up_expr (expr1: expr) (expr2: expr) (var_map: expr_match ident_map) : (expr_match ident_map) option  =
-
-    if Type.((Expr.to_type expr1) <> (Expr.to_type expr2)) then
-      None
-    else
-
-    match expr1, expr2 with
-    | Binder (Compr, v_d1, e1, _), Binder (Compr, v_d2, e2, _)
-    | Binder (Forall, v_d1, e1, _), Binder (Forall, v_d2, e2, _) ->
-      if not (Int.equal (List.length v_d1) (List.length v_d2)) then 
-        None
-      else
-        let typ_check = List.for_all2_exn v_d1 v_d2 ~f:(fun vd1 vd2 -> Type.equal vd1.var_type vd2.var_type) in
-
-        if not typ_check then
-          None
-        else
-
-        let renaming_map = List.fold2_exn v_d1 v_d2 ~init:(Map.empty (module QualIdent)) ~f:(fun renam_map vd1 vd2 ->
-          Map.add_exn renam_map ~key:(QualIdent.from_ident vd2.var_name) ~data:(Expr.from_var_decl vd1)
-          
-        ) in
-        
-        (* renaming expr2 to use the same universal quants as expr1 *)
-        let e2 = Expr.alpha_renaming e2 renaming_map in
-
-        match_up_expr e1 e2 var_map 
-
-    | Binder (Exists, v_d1, e1, _), e2 ->
-      let var_map = List.fold v_d1 ~init:var_map ~f:(fun var_map vd1 -> 
-        match Map.find var_map vd1.var_name with
-        | Some _ -> var_map
-        | None -> Error.error (Expr.to_loc expr1) "Unexpected existential quantifier in expr1; expected all existentials to be declared in var_map"
-      ) in
-
-        match_up_expr e1 e2 var_map
-
-    | App (constr1, exprs1, _), App (constr2, exprs2, _) ->
-      begin match constr1 with
-      | Var qual_ident when 
-          (List.exists (Map.keys var_map) ~f:(fun iden -> QualIdent.equal (QualIdent.from_ident iden) qual_ident))  
-        -> (
-        let var_iden = QualIdent.to_ident qual_ident in
-        
-
-        let expr_match = (Map.find_exn var_map var_iden) in
-        match expr_match.expr with
-        | None ->
-          let var_map = Map.set var_map ~key:var_iden ~data:{ expr_match with expr = Some expr2} in
-          
-          Some var_map
-
-        | Some e ->
-          if Expr.alpha_equal e expr2 then
-            Some var_map
-          else
-            None
-      )
-
-      | _ -> 
-        if Expr.equal_constr constr1 constr2 then
-          if List.length exprs1 <> List.length exprs2 then
-            None
-          else
-            let var_map_optn = List.fold2_exn exprs1 exprs2 ~init:(Some var_map) ~f:(fun var_map_optn e1 e2 -> 
-              Option.flat_map var_map_optn ~f:(fun var_map -> match_up_expr e1 e2 var_map)
-            ) in
-
-            var_map_optn
-        
-        else
-          None
-      end
-
-
-    | _ -> None
-
-    in
-
-    let var_map_optn = match_up_expr expr1 expr2 (Map.of_alist_exn (module Ident) (List.map vars ~f:(fun var_decl -> (var_decl.var_name, { var_decl; expr = None })))) in
-
-    match var_map_optn with
-    | Some var_map -> 
-      Some (Map.map var_map ~f:(fun { var_decl; expr } -> 
-        match expr with
-        | Some e -> (var_decl, e)
-        | None -> Error.error (Expr.to_loc expr1) "Expected all variables to be matched up"
-      ))
-    | None -> None
-
 
   module TrnslExhale = struct
     let rec rewriter_eliminate_existentials_from_exhales (stmt: Stmt.t) : (Stmt.t, expr option) Rewriter.t_ext =
@@ -1683,12 +1721,35 @@ module HeapsExplicitTrnsl = struct
           let* stmt = TrnslExhale.trnsl_exhale_expr expr in
           Rewriter.return stmt
         | Assume -> 
-          Error.error (s.stmt_loc) "Unimplemented"
+          let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
+          if is_e_pure then
+            Rewriter.return s
+          else  
+            Error.error s.stmt_loc "Assume statements with non-pure expressions are not supported."
         | Assert ->
-          Rewriter.return s
-          (* Error.error (s.stmt_loc) "Unimplemented" *)
+          let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
+          if is_e_pure then
+            let assume_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc spec.spec_form in
+            Rewriter.return (Stmt.mk_block_stmt ~loc:s.stmt_loc [s; assume_stmt])
+          else
+            let nondet_var = Type.{ var_name = Ident.fresh s.stmt_loc "$nondet"; var_loc = s.stmt_loc; 
+              var_type = Type.bool; var_const = true; var_ghost = false; var_implicit = false; } in
+
+            let (nondet_var_def: Module.symbol) = VarDef {var_decl = nondet_var; var_init = None} in
+
+            let* _ = Rewriter.introduce_symbol nondet_var_def in
+
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr spec.spec_form in
+            let assert_false_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
+
+            let cond_stmt = Stmt.Cond {
+              cond_test = Expr.from_var_decl nondet_var; 
+              cond_then = Stmt.mk_block_stmt ~loc:s.stmt_loc [exhale_stmt; assert_false_stmt];
+              cond_else = Stmt.mk_block_stmt ~loc:s.stmt_loc []} in
+
+
+            Rewriter.return Stmt.{stmt_desc = cond_stmt; stmt_loc = s.stmt_loc}
         end
-        (* Error.error Loc.dummy "unimplemented" *)
       | _ -> Rewriter.return s
       end 
     | _ -> 
@@ -2109,8 +2170,12 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_call_stmts m in
 
-
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_inhale_stmts m in
+
+  let* m = 
+    Rewriter.eval_with_user_state ~init:None
+    (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale m) in
+
   let* m = 
     Rewriter.eval_with_user_state ~init:None
     (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_eliminate_existentials_from_exhales m) in

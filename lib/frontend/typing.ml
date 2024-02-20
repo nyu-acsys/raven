@@ -852,6 +852,24 @@ module ProcessCallable = struct
         end
         )
       
+      | Bind bind_desc ->
+        let* bind_lhs = Rewriter.List.map bind_desc.bind_lhs ~f:(fun e -> 
+          match e with  
+          | App (Var qual_ident, [], _) when not (QualIdent.is_qualified qual_ident) -> 
+            disambiguate_process_expr e Type.any disam_tbl 
+
+          | _ -> Error.type_error stmt.stmt_loc "Expected identifier on left-hand side of bind"
+          
+        ) in
+        let* bind_rhs = disambiguate_process_expr bind_desc.bind_rhs Type.any disam_tbl in
+        let bind_desc = 
+          Stmt.{ 
+            bind_lhs;
+            bind_rhs;
+          }
+        in
+        Rewriter.return (Stmt.Basic (Bind bind_desc), disam_tbl)
+
       | Havoc qual_ident ->
         let* qual_ident = disambiguate_ident qual_ident disam_tbl in
         Rewriter.return (Stmt.Basic (Havoc qual_ident), disam_tbl)

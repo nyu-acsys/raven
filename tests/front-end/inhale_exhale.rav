@@ -16,20 +16,25 @@ module M {
 
   proc pr() {
     var x: Ref;
-    inhale forall y: Ref :: p(y) ==> (exists v: Int :: own(y, f, FracInt.frac_chunk(v, 1.0)));
+    // inhale forall y: Ref :: p(y) ==> (exists v: Int :: own(y, f, FracInt.frac_chunk(v, 1.0)));
     // var x: Map[Ref, Int] :| forall y: Ref :: p(y) ==> (own(y, f, FracInt.frac_chunk(x[y], 1.0)));
 
+    var myMap: Map[(Ref, Int), Int];
+    
     inhale forall x: Ref, a: Int :: p(x) ==> (exists v: Int :: own(x, f, FracInt.frac_chunk(v, 1.0)));
+    myMap :| forall x: Ref, a: Int :: p(x) ==> (own(x, f, FracInt.frac_chunk(myMap[(x, a)], 1.0)));
+
+    assert forall x: Ref, a: Int :: p(x) ==> own(x, f, FracInt.frac_chunk(myMap[(x,a)], 1.0));
+    exhale forall x: Ref, a: Int :: p(x) ==> (exists v: Int :: own(x, f, FracInt.frac_chunk(v, 1.0)));
 
 
-    inhale exists v: Int :: p(x) ==> own(x, f, FracInt.frac_chunk(v, 1.0));
+    inhale exists v:Int :: own(x, f, FracInt.frac_chunk(v, 1.0));
 
     assert own(x, f, FracInt.frac_chunk(1, 1.0));
     exhale exists v:Int :: own(x, f, FracInt.frac_chunk(v, 1.0));
 
 
-    assert forall x: Ref, a: Int :: p(x) ==> own(x, f, FracInt.frac_chunk(1, 1.0));
-    exhale forall x: Ref, a: Int :: p(x) ==> (exists v: Int :: own(x, f, FracInt.frac_chunk(v, 1.0)));
+
 
   }
 }

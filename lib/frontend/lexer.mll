@@ -100,6 +100,7 @@ let _ =
      ".", DOT;
      "?", QMARK;
      "#", HASH;
+     ":|", COLONPIPE;
      ]
     
 let lexical_error lexbuf msg =
@@ -137,7 +138,6 @@ rule token = parse
 | ']' { RBRACKET }
 | "{!" { LGHOSTBRACE }
 | "!}" { RGHOSTBRACE }
-(* | "#" { HASH } *)
 | operator as op
     { try
       Hashtbl.find operator_table op

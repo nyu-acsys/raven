@@ -11,7 +11,7 @@ open Ast
 %token <Ast.Expr.constr> CONSTVAL
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
-%token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK
+%token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token DIFF MINUS
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ HASH
@@ -417,6 +417,15 @@ stmt_wo_trailing_substmt:
   | Basic (Assign assign) ->
       Basic (Assign { assign with assign_lhs = es })
   | _ -> assert false
+}
+(* bind *)
+| es = separated_nonempty_list(COMMA, expr); COLONPIPE; e = expr; SEMICOLON {
+  let bind =
+    Stmt.{ bind_lhs = es;
+           bind_rhs = e;
+         }
+  in
+  Stmt.(Basic (Bind bind))
 }
 (* havoc *)
 | HAVOC; id = qual_ident; SEMICOLON { 

@@ -951,6 +951,7 @@ module Stmt = struct
   }
 
   type assign_desc = { assign_lhs : expr list; assign_rhs : expr }
+  type bind_desc = { bind_lhs : expr list; bind_rhs : expr }
 
   type call_desc = {
     call_lhs : qual_ident list;
@@ -1020,6 +1021,7 @@ module Stmt = struct
     | Spec of spec_kind * spec (* x *)
     | New of new_desc
     | Assign of assign_desc (* x *)
+    | Bind of bind_desc (* x *)
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
@@ -1082,6 +1084,13 @@ module Stmt = struct
         | es ->
             fprintf ppf "@[<2>%a@ :=@ %a@]" Expr.pr_list es Expr.pr
               astm.assign_rhs)
+    | Bind bstm -> (
+      match bstm.bind_lhs with
+      | [] -> Expr.pr ppf bstm.bind_rhs
+      | es ->
+          fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
+          bstm.bind_rhs)
+
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1251,6 +1260,9 @@ module Stmt = struct
 
         | Assign assign_desc ->
           scan_expr_list accesses (assign_desc.assign_rhs :: assign_desc.assign_lhs)
+        
+        | Bind bind_desc ->
+          scan_expr_list accesses (bind_desc.bind_rhs :: bind_desc.bind_lhs)
             
         | Havoc x ->
           if List.is_empty x.qual_path then 
@@ -1332,6 +1344,17 @@ module Stmt = struct
                 None
             | _ -> None
           )
+
+        | Bind bind_desc ->
+          List.filter_map bind_desc.bind_lhs ~f:(fun e -> 
+            match e with
+            | App (Var qi, _, _) -> 
+              if List.is_empty qi.qual_path then
+                Some qi.qual_base
+              else
+                None
+            | _ -> None
+          )
           
         | Havoc x ->
           if List.is_empty x.qual_path then 
@@ -1403,6 +1426,9 @@ module Stmt = struct
 
         | Assign assign_desc ->
           List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
+        
+        | Bind bind_desc ->
+          List.concat_map (bind_desc.bind_rhs :: bind_desc.bind_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
 
         | Havoc _ ->
           []
