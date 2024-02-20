@@ -14,7 +14,8 @@ open Ast
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token DIFF MINUS
-%token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ HASH
+%token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
+%token <Int64.t> HASH
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
@@ -589,8 +590,7 @@ primary:
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
-| e = maplookup_expr { e }
-| e = tuple_lookup_expr { e }
+| e = lookup_expr { e }
 ;
 
 compr_expr:
@@ -624,18 +624,18 @@ own_expr:
   Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Own es)
 }
 
-maplookup_expr:
-| e1 = qual_ident_expr; LBRACKET; e2 = expr; RBRACKET {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
+lookup_expr:
+| e1 = qual_ident_expr; e_fn = lookup; { e_fn e1 }
 
+lookup:
+| LBRACKET; e2 = expr; RBRACKET {
+  fun e1 -> Expr.(mk_app ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
+}     
+| n = HASH {
+  let e2 = Expr.(mk_app ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
+  fun e1 -> Expr.(mk_app ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
 }
-
-tuple_lookup_expr:
-| e1 = qual_ident_expr; HASH; e2 = primary {
-  Logs.debug (fun m -> m "Tuple lookup: %a %a" Expr.pr e1 Expr.pr e2);
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
-}
-
+    
 call_expr:
 | p = qual_ident_expr; ces = call {
   let _, es = ces in

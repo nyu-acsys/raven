@@ -99,7 +99,6 @@ let _ =
      ",", COMMA;
      ".", DOT;
      "?", QMARK;
-     "#", HASH;
      ":|", COLONPIPE;
      ]
     
@@ -110,7 +109,7 @@ let lexical_error lexbuf msg =
 
 }
 
-let operator_char = ['+''-''*''/''%''.'':'',''?''>''<''=''&''|''!'';''#']
+let operator_char = ['+''-''*''/''%''.'':'',''?''>''<''=''&''|''!']
 let operator = operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
@@ -143,7 +142,8 @@ rule token = parse
       Hashtbl.find operator_table op
     with Not_found ->
       lexical_error lexbuf (Some("Unknown operator: " ^ op))
-    }
+  }
+| '#' (digit_char+ as num) { HASH(Int64.of_string num) }
 | ident as name '^' (digit_char+ as num) { IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num)) }
 | mod_ident as kw
     { try
