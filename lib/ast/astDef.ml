@@ -241,7 +241,7 @@ module Type = struct
       | Set
       | Map
       | Fld
-      | Data of variant_decl list
+      | Data of QualIdent.t * variant_decl list
       | AtomicToken
       | Prod
 
@@ -285,7 +285,7 @@ module Type = struct
     | Map -> map_type_string
     | Fld -> fld_type_string
     | Perm -> perm_type_string
-    | Data _ -> data_type_string
+    | Data (id, _) -> QualIdent.to_string id
     | Var id -> QualIdent.to_string id
     | AtomicToken -> atomic_token_type_string
     | Prod -> prod_type_string
@@ -295,9 +295,10 @@ module Type = struct
     | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
     | Map | Fld | Prod ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
-    | Data decls ->
-        Stdlib.Format.fprintf ppf "data {@\n  @[<2>%a@]@\n}" pr_variant_decl_list
-          decls
+    | Data (id, decls) ->
+      Stdlib.Format.fprintf ppf "data %a {@\n  @[<2>%a@]@\n}"
+        QualIdent.pr id
+        pr_variant_decl_list decls
 
   and pr ppf t =
     match t with
@@ -356,7 +357,7 @@ module Type = struct
   let mk_map loc tpi tpo = App (Map, [tpi; tpo], mk_attr loc)
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
-  let mk_data decls loc = App (Data decls, [], mk_attr loc)
+  let mk_data id decls loc = App (Data (id, decls), [], mk_attr loc)
   let mk_var loc qid = App (Var qid, [], mk_attr loc)
   let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
   let mk_prod loc tp_list = 
@@ -378,7 +379,7 @@ module Type = struct
   let set_typed tp = mk_set Loc.dummy tp
   let map = mk_map Loc.dummy
   let perm = mk_perm Loc.dummy
-  let data decls = mk_data decls Loc.dummy
+  let data id decls = mk_data id decls Loc.dummy
   let var qid = mk_var Loc.dummy qid
   let atomic_token = mk_atomic_token Loc.dummy
 
@@ -478,6 +479,19 @@ module Type = struct
       | None -> failwith "Index out of bounds"
       end
     | _ -> failwith "Expected Tuple type"
+
+  let symbols ?(acc = Set.empty (module QualIdent)) tp =
+    let rec symbols acc = function
+      | App (c, ts, _) ->
+        let acc = match c with
+          | Var id
+          | Data (id, _) ->
+            Set.add acc id
+          | _ -> acc
+        in
+        List.fold ~init:acc ~f:symbols ts
+    in
+    symbols acc tp
 end
 
 type type_expr = Type.t [@@deriving compare]
@@ -798,24 +812,6 @@ module Expr = struct
     | App (Int i, _, _) -> Int.of_int64_exn i
     | _ -> Error.error (to_loc expr) "Expected Int expression"
 
-  (** Compute the signature of the free variables occuring in expression [e]. *)
-  let fv e = 
-    let rec fv bv vars = function
-      | App (Var id, [],  attr) -> 
-        if Set.mem bv id
-        then vars
-        else Map.set vars ~key:id ~data:attr.expr_type
-      | App (_, ts, _) ->
-	List.fold_left ts ~f:(fv bv) ~init:vars
-      | Binder (_, vs, e, _) ->
-        let bv =
-          List.fold_left vs
-            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
-        in
-        fv bv vars e
-    in 
-    fv (Set.empty (module QualIdent)) (Map.empty (module QualIdent)) e 
-  
   (** Map all identifiers occuring in expression [e] to new identifiers according to function [fct] *)
   let map_idents fct e =
   let rec sub = function
@@ -897,9 +893,50 @@ module Expr = struct
     let expr = alpha_renaming expr map in
     Binder (binder, var_decl_list, expr, expr_attr)
 
+  (** Extends [acc] with the signature of the free variables occuring in expression [e]. *)
+  let signature ?(acc = Map.empty (module QualIdent)) e = 
+    let rec fv bv vars = function
+      | App (Var id, [],  attr) -> 
+        if Set.mem bv id
+        then vars
+        else Map.set vars ~key:id ~data:attr.expr_type
+      | App (_, ts, _) ->
+	List.fold_left ts ~f:(fv bv) ~init:vars
+      | Binder (_, vs, e, _) ->
+        let bv =
+          List.fold_left vs
+            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
+        in
+        fv bv vars e
+    in 
+    fv (Set.empty (module QualIdent)) acc e 
+  
+  (** Extends [acc] with the set of all symbols occuring free in expression [e]. *)
+  let symbols ?(acc = Set.empty (module QualIdent)) e = 
+    let rec symbols bv syms = function
+      | App (Var id, [],  attr) -> 
+        if Set.mem bv id
+        then syms
+        else Set.add syms id
+      | App (_, ts, _) ->
+	List.fold_left ts ~f:(symbols bv) ~init:syms
+      | Binder (_, vs, e, _) ->
+        let syms =
+          List.fold_left vs
+            ~init:syms ~f:(fun syms var_decl -> Type.symbols ~acc:syms var_decl.var_type)
+        in
+        let bv =
+          List.fold_left vs
+            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
+        in
+        symbols bv syms e
+    in 
+    symbols (Set.empty (module QualIdent)) acc e 
+
+
   (** Returns the set of local variables in expression [t]. *)
   let rec local_vars (expr: t) : IdentSet.t =
-    let sign = fv expr in
+    let sign = signature expr in
     Map.fold sign ~f:(fun ~key ~data:_ locals ->
         if QualIdent.is_qualified key
         then locals
@@ -908,6 +945,7 @@ module Expr = struct
 
 
   (** Returns list of heaps accessed in expressions. Can return duplicates. Deduplication happens in stmt_heaps_accessed. *)
+  (* TODO: rewrite to use Expr.signature instead *)
   let rec expr_fields_accessed (expr: t) : qual_ident list =
     match expr with
     (* Following can be strengthened to exactly 3 args, once we implement rewriting 4-arg Own predicates to 3-arg Own predicates during typing, using $Library.Frac *)
@@ -1219,44 +1257,34 @@ module Stmt = struct
 
   let loc s = s.stmt_loc
 
-
-  let local_vars_accessed (s: t) : IdentSet.t =
-    let rec stmt_locals_accessed (accesses: IdentSet.t) (s: t): IdentSet.t =
-      (* Returns all local variables accessed in s.
-        Assumes that all var_decl stmts are abstracted away during type-checking.   
-      *)
+  (** Extends [accessed] with the set of all symbols occuring free in [s] *)
+  (** Assumes that all var_decl stmts are abstracted away during type-checking. *)  
+  let symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
+    let rec symbols (accesses: QualIdentSet.t) (s: t) =
       let scan_expr_list accesses exprs =
         List.fold exprs
-          ~f:(fun accesses e -> Set.union (Expr.local_vars e) accesses)
+          ~f:(fun accesses e -> Expr.symbols ~acc:accesses e)
           ~init:accesses
       in
       match s.stmt_desc with
       | Block b ->
-        List.fold b.block_body ~f:stmt_locals_accessed ~init:accesses
+        List.fold b.block_body ~f:symbols ~init:accesses
 
       | Basic s1 -> 
         begin match s1 with
         | VarDef _ ->
-          Error.internal_error s.stmt_loc "VarDef should not exist in stmt_local_vars_accesses"
+          Error.internal_error s.stmt_loc "VarDef should not exist in Stmt.symbols"
 
         | Spec (_, spec) ->
-          Expr.local_vars spec.spec_form 
+          Expr.symbols ~acc:accesses spec.spec_form 
 
         | New new_desc ->
           let accesses =
             List.fold new_desc.new_args ~f:(fun accesses (_, e_opt) ->
-                let e_accesses =
-                  Option.map e_opt ~f:Expr.local_vars |>
-                  Option.value ~default:(Set.empty (module Ident))
-                in
-                Set.union e_accesses accesses) ~init:accesses
+                Option.map e_opt ~f:(Expr.symbols ~acc:accesses) |>
+                Option.value ~default:accesses) ~init:accesses
           in
-          let accesses =
-            if QualIdent.is_qualified new_desc.new_lhs
-            then accesses
-            else Set.add accesses (QualIdent.unqualify new_desc.new_lhs)
-          in
-          accesses
+          Set.add accesses new_desc.new_lhs
 
         | Assign assign_desc ->
           scan_expr_list accesses (assign_desc.assign_rhs :: assign_desc.assign_lhs)
@@ -1265,27 +1293,19 @@ module Stmt = struct
           scan_expr_list accesses (bind_desc.bind_rhs :: bind_desc.bind_lhs)
             
         | Havoc x ->
-          if List.is_empty x.qual_path then 
-            Set.add accesses x.qual_base
-          else
-            accesses
-            (* TW: This error should not be handled here.
-            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caugh in stmt_local_vars_accesses")*)
+          Set.add accesses x
 
         | Call call_desc ->
           let accesses = scan_expr_list accesses call_desc.call_args in
           let accesses =
             List.fold call_desc.call_lhs
-              ~f:(fun accesses qi ->
-                  if QualIdent.is_qualified qi
-                  then accesses
-                  else Set.add accesses (QualIdent.unqualify qi))
+              ~f:Set.add
               ~init:accesses
           in
           accesses
 
         | Return e ->
-          Set.union (Expr.local_vars e) accesses 
+          Expr.symbols ~acc:accesses e
           
         | Use use_desc ->
           scan_expr_list accesses use_desc.use_args
@@ -1297,18 +1317,25 @@ module Stmt = struct
         end
 
       | Loop l ->
-        let accesses = Expr.local_vars l.loop_test in
-        let accesses_prebody = stmt_locals_accessed accesses l.loop_prebody in
-        stmt_locals_accessed accesses_prebody l.loop_postbody
+        let accesses = Expr.symbols ~acc:accesses l.loop_test in
+        let accesses_prebody = symbols accesses l.loop_prebody in
+        symbols accesses_prebody l.loop_postbody
 
       | Cond c ->
-        let accesses = Set.union (Expr.local_vars c.cond_test) accesses in
-        let accesses_then = stmt_locals_accessed accesses c.cond_then in
-        stmt_locals_accessed accesses_then c.cond_else
-
+        let accesses = Expr.symbols ~acc:accesses c.cond_test in
+        let accesses_then = symbols accesses c.cond_then in
+        symbols accesses_then c.cond_else
     in
+    symbols accessed s
 
-    stmt_locals_accessed (Set.empty (module Ident)) s
+  let local_vars_accessed (s: t) : IdentSet.t =
+    let sign = symbols s in
+    Set.fold sign ~f:(fun locals id ->
+        if QualIdent.is_qualified id
+        then locals
+        else Set.add locals (QualIdent.unqualify id))
+      ~init:(Set.empty (module Ident))
+
 
   let stmt_local_vars_modified (s: t) : ident list =
     let rec stmt_locals_modified (s: t): (ident list) =

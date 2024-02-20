@@ -11,7 +11,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
         
     let compr_fn_ident = Ident.fresh (Expr.to_loc expr) "compr" in
 
-    let free_vars = Expr.fv inner_expr in
+    let free_vars = Expr.signature inner_expr in
     
     let formal_var_decls, actual_arg_exprs =
       Map.fold free_vars ~init:([], []) ~f:(fun ~key ~data (formals, actuals) ->

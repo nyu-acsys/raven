@@ -164,7 +164,7 @@ type_def:
 type_def_expr:
 | t = type_expr { t }
 | DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl) RBRACE {
-  Type.mk_data decls (Loc.make $startpos $endpos)
+  Type.mk_data (QualIdent.from_ident (Ident.make Loc.dummy "" 0)) decls (Loc.make $startpos $endpos)
 }
 
 variant_decl:
@@ -198,41 +198,6 @@ func_def:
     
 
 (** Member Declarations *)
-
-(*
-interface_def:
-| INTERFACE; decl = module_header; LBRACE ms = list(member_decl) RBRACE {
-  Module.( ModDef { mod_decl = { decl with mod_decl_loc = Loc.make $startpos $endpos };
-                     mod_def = ms;
-                     mod_interface = true;
-                   } )
-}
-    
-module_decl:
-| MODULE; id = MODIDENT; COLON; t = mod_ident; (*tdef = module_inst_def_opt*) {
-  Module.( ModInst { mod_inst_name = id;
-                     mod_inst_type = t;
-                     mod_inst_def = None;
-                     mod_inst_loc = Loc.make $startpos(id) $endpos(id);
-                   } )
-}
-/*| MODULE; id = MODIDENT; tdef = module_inst_def {
-  let 
-  Module.( ModInst { mod_inst_name = id;
-                     mod_inst_type = Type.mk_bot Loc.dummy;
-                     mod_inst_def = tdef;
-                     mod_inst_loc = Loc.make $startpos(id) $endpos(id);
-                    } )
-}
-
-module_inst_def_opt:
-| t = module_inst_def { t }
-| (* empty *) { None }
-
-module_inst_def:
-| EQ; id = mod_ident; ids = mod_inst_args { Some (id, ids) }
-*/
-*)
    
 module_param_list_opt:
 | LBRACKET ps = separated_list(COMMA, module_param) RBRACKET { ps }
@@ -251,17 +216,6 @@ module_param:
   decl
 }
 
-(*
-member_decl:
-| def = type_decl { Module.SymbolDef (Module.TypeDef def) }
-| def = interface_def { Module.SymbolDef def }
-| def = module_decl { Module.SymbolDef def }
-| def = var_decl { Module.SymbolDef (Module.VarDef def) }
-| def = proc_decl 
-| def = func_decl { Module.SymbolDef (Module.CallDef def) }
-| imp = import_dir { Module.Import imp }
-*)  
-    
 import_dir:
 | IMPORT; id = qual_ident { { import_name = Expr.to_qual_ident id; import_loc = Loc.make $startpos $endpos } }
 | IMPORT; id = mod_ident { { import_name = id; import_loc = Loc.make $startpos $endpos } }

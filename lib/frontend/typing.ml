@@ -66,7 +66,7 @@ module ProcessTypeExpr = struct
       | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) Map 2
       )
 
-    | App (Data _variant_decl_list, _tp_list, _tp_attr) ->
+    | App (Data _, _tp_list, _tp_attr) ->
       (* The parser should prevent this from happening. *)
       Error.internal_error (Type.loc tp_expr) "Data types can only be defined as new types, not used inline."
 
@@ -1087,8 +1087,12 @@ module ProcessModule = struct
     | Some tp_expr ->
       let+ tp_expr = 
         match tp_expr with
-        | App (Data variant_decl_list, [], _tp_attr) ->
-          (* _constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
+        | App (Data (_, variant_decl_list), [], _tp_attr) ->
+          let* fully_qualified_tp_name =
+            Rewriter.resolve type_def.type_def_loc (QualIdent.from_ident type_def.type_def_name)
+          in
+          
+(* _constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
           let _constr_map = List.fold variant_decl_list ~init:(Map.empty (module Ident))  ~f:(fun mp variant_decl -> 
             List.fold variant_decl.variant_args ~init:mp ~f:(fun mp var_arg ->
               match
@@ -1137,10 +1141,10 @@ module ProcessModule = struct
                 Rewriter.introduce_symbol Module.(ConstrDef data_type_constr)
               )
           in
-          Type.App (Data variant_decl_list, [], _tp_attr)
+          Type.App (Data (fully_qualified_tp_name, variant_decl_list), [], _tp_attr)
 
           
-        | App (Data _variant_decl_list, _, _tp_attr) ->
+        | App (Data _, _, _tp_attr) ->
           Error.error (Type.to_loc tp_expr) ("Data types don't take arguments")
 
         | _ ->
