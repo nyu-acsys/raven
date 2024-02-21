@@ -9,6 +9,17 @@ module type Vertex = sig
   
 end
 
+(*module type Graph = sig
+  type vertex
+  type t
+
+  module VertexSet = Set.M(String)
+  module VertexMap = Set.M(String).t
+
+  type t = VertexSet.t * VertexSet.t VertexMap.t
+
+end*)
+  
 module Make(V: Vertex) = struct
 
   module VertexSet = Set.M(V)
@@ -16,6 +27,8 @@ module Make(V: Vertex) = struct
   module VertexMap = Map.M(V)
 
   module H = Hashtbl.M(V)
+
+  type vertex = V.t
       
   type t = VertexSet.t * VertexSet.t VertexMap.t
 
@@ -27,19 +40,23 @@ module Make(V: Vertex) = struct
   let empty =
     empty_vertex_set, empty_vertex_map
 
-  let add_vertex (vs, es) v = (Set.add v vs, Map.add ~key:v ~data:empty_vertex_set es)
+  let add_vertex (vs, es) (v: vertex) : t = (Set.add vs v, Map.add_exn ~key:v ~data:empty_vertex_set es)
       
-  let add_edge (vs, es) src dst =
-    (vs,
+  let add_edge (vs, es) (src: vertex) (dst: vertex) : t =
+    (Set.add vs src,
      Map.update es src ~f:(fun old_dsts_opt ->
          let old_dsts = Option.value old_dsts_opt ~default:empty_vertex_set in
          Set.add old_dsts dst))
 
-  let add_edges (vs, es) src dsts =
-    (vs, Map.update es src ~f:(fun old_dsts_opt ->
+  let add_edges (vs, es) (src: vertex) dsts : t =
+    (Set.add vs src,
+     Map.update es src ~f:(fun old_dsts_opt ->
          let old_dsts = Option.value old_dsts_opt ~default:empty_vertex_set in
          Set.union old_dsts dsts))
-       
+
+  let targets (vs, es) : VertexSet.t =
+    Map.fold es ~f:(fun ~key ~data -> Set.union data) ~init:empty_vertex_set
+  
   let topsort ((vs, es): t) : V.t list list =
     let index = ref 0 in
     let indexes = Hashtbl.create (module V) in

@@ -1590,6 +1590,8 @@ module Callable = struct
 
   let to_loc (call: t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_loc
 
+  let kind (call: t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_kind
+  
   let return_decls call_decl = 
     call_decl.call_decl_returns
   
@@ -1833,7 +1835,7 @@ module Symbol = struct
   type t = Module.symbol
   open Module
       
-    let to_loc = function
+  let to_loc = function
     | ModDef mod_def -> mod_def.mod_decl.mod_decl_loc
     | ModInst mod_inst -> mod_inst.mod_inst_loc
     | TypeDef type_def -> type_def.type_def_loc
@@ -1870,7 +1872,6 @@ module Symbol = struct
       | Func -> "function"
       | Pred -> "predicate"
       | Invariant -> "invariant"
-
 
   let pr = pr_symbol
 
