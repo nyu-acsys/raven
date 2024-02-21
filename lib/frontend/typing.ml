@@ -1487,7 +1487,12 @@ module ProcessModule = struct
               let ident = Symbol.to_name symbol in
               if Set.mem defined_symbols ident
               then inherited, Map.add_exn to_check ~key:ident ~data:symbol
-              else Module.SymbolDef symbol :: inherited, to_check
+              else
+                let symbol = match symbol with
+                  | CallDef call_def -> Module.CallDef (Callable.make_free call_def)
+                  | _ -> symbol
+                in
+                Module.SymbolDef symbol :: inherited, to_check
             | _ -> inherited, to_check)
       | _ ->
         let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in

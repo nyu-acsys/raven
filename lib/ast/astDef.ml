@@ -1515,6 +1515,7 @@ module Callable = struct
     call_decl_locals : var_decl list;  (** all local variables, excluding formal parameters and return parameters *)
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
+    call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
     call_decl_loc : location;  (** source location of declaration *)
   }
 
@@ -1631,6 +1632,10 @@ module Callable = struct
           else syms)
       ~init:symbols_w_locals_and_spec
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
+
+  (** Change the given symbol to one whose correctness is assumed *)
+  let make_free call_def = 
+    { call_def with call_decl = { (to_decl call_def) with call_decl_is_free = true } }
 end
 
 

@@ -87,6 +87,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
       call_decl_locals = [];
       call_decl_precond = [];
       call_decl_postcond = [postcond];
+      call_decl_is_free = true;
       call_decl_loc = Expr.to_loc expr;
     }
       
@@ -241,6 +242,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
         call_decl_locals = [];
         call_decl_precond = loop_precond;
         call_decl_postcond = loop_postcond;
+        call_decl_is_free = false;
         call_decl_loc = stmt.stmt_loc;
       }
     in
@@ -841,6 +843,7 @@ module HeapsExplicitTrnsl = struct
       call_decl_locals = [];
       call_decl_precond = [];
       call_decl_postcond = [postcond];
+      call_decl_is_free = false;
       call_decl_loc = Expr.to_loc expr;
     }
       

@@ -260,6 +260,7 @@ callable_decl:
                call_decl_locals = [];
                call_decl_precond = precond;
                call_decl_postcond = postcond;
+               call_decl_is_free = false;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl
