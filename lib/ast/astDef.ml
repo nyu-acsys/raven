@@ -1593,6 +1593,29 @@ module Callable = struct
       | ts -> Type.mk_prod call_decl.call_decl_loc ts
       end
     | Pred | Invariant -> Type.perm
+
+  (** Computes the set of all symbols occuring free in [callable]. *)
+  let symbols callable =
+    let symbols_w_locals =
+      match callable.call_def with
+      | FuncDef { func_body = Some e; _} ->
+        Expr.symbols e
+      | ProcDef { proc_body = Some s; _ } -> Stmt.symbols s
+      | _ -> Set.empty (module QualIdent)
+    in
+    let symbols_w_locals_and_spec =
+      List.fold ~f:(fun syms spec -> Expr.symbols ~acc:syms spec.spec_form)
+        ~init:symbols_w_locals
+        (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
+    in
+    List.fold ~f:(fun syms var_decl ->
+          let qi = QualIdent.from_ident var_decl.var_name in
+          (* Remove qi if it occurs but add all symbols from its type *)
+          if Set.mem syms qi
+          then Type.symbols ~acc:(Set.remove syms qi) var_decl.var_type
+          else syms)
+      ~init:symbols_w_locals_and_spec
+      (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
 end
 
 
