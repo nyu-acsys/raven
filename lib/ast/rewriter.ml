@@ -804,6 +804,23 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
+  let rec rewrite_callables ~f mdef : (Module.t, 'a) t_ext =
+    let open Syntax in
+    let open Module in
+    let rewrite_symbol = function
+      | CallDef call_def ->
+        let* _ = enter_callable call_def in
+
+        let* new_call_def = f call_def in
+        let+ new_call_def = exit_callable new_call_def in
+        CallDef new_call_def
+      | ModDef mod_def ->
+        let+ new_mod_def = rewrite_callables ~f mod_def in
+        ModDef new_mod_def
+      | mem_def -> return mem_def
+    in
+    rewrite_symbols ~f:rewrite_symbol mdef
+
   let rec rewrite_qual_idents_in_symbol ~(f: QualIdent.t -> QualIdent.t) : Module.symbol -> (Module.symbol, 'a) t_ext =
     let open Syntax in
     let open Module in
@@ -1162,6 +1179,28 @@ module ProgUtils = struct
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
     QualIdent.append field_utils_module (Ident.make loc "valid" 0)
+
+  let get_field_utils_id loc field_name : expr t =
+    let open Syntax in
+    let* field_utils_module = get_field_utils_module loc field_name in
+
+    let* field = find_and_reify loc field_name in
+    let field_type = 
+      match field with
+      | AstDef.Module.FieldDef { field_type; _ } -> field_type
+      | _ -> Error.error loc "Rewriter.ProgUtils.get_field_utils_id: Expected field definition"
+    in
+
+    let field_elem_type = match field_type with
+      | App (Fld, [tp], _) -> tp
+      | _ -> Error.error loc "Rewriter.ProgUtils.get_field_utils_id: Expected field type"
+    in
+
+    let id_qual_ident = QualIdent.append field_utils_module (Ident.make loc "id" 0)
+
+    in
+
+    return @@ AstDef.Expr.mk_var  ~loc id_qual_ident ~typ:field_elem_type
 
   let rec is_expr_pure (expr: expr) : bool t =
     let open Syntax in

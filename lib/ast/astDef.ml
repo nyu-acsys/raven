@@ -127,7 +127,9 @@ module QualIdent = struct
 
   let unqualify qid = qid.qual_base
 
-  let is_qualified qid = not @@ List.is_empty qid.qual_path
+  let is_local qid = List.is_empty qid.qual_path
+
+  let is_qualified qid = not @@ is_local qid
   
   module IdentList = struct
     type t = Ident.t list [@@deriving hash, compare, sexp]
@@ -806,6 +808,11 @@ module Expr = struct
 
   let to_ident expr =
     expr |> to_qual_ident |> QualIdent.to_ident
+
+  let is_ident expr =
+    match expr with
+    | App (Var qual_ident, [], _) -> QualIdent.is_local qual_ident
+    | _ -> false
 
   let to_int expr = 
     match expr with
@@ -1541,12 +1548,18 @@ module Callable = struct
       | rs ->
           fprintf ppf "@\nreturns (@[<0>%a@])" Expr.pr_var_decl_list rs
     in
-    fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a@]" 
+    let pr_call_locals ppf = function
+      | [] -> ()
+      | ls ->
+          fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
+    in
+    fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a%a@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
       pr_returns call_decl.call_decl_returns 
       pr_call_decl_specs call_decl
+      pr_call_locals call_decl.call_decl_locals
 
   let pr ppf def =
     let open Stdlib.Format in

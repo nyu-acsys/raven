@@ -2,8 +2,9 @@
 
 open Base
 open Util
+open Ast
 
-module SMTIdent = struct
+(* module SMTIdent = struct
   module T = struct
     type t = { ident_name : string; ident_num : int }
     [@@deriving compare, hash, sexp]
@@ -56,21 +57,21 @@ module SMTIdent = struct
       make ~num:new_max name 
 end
 
-type smt_ident = SMTIdent.t
+type smt_ident = SMTIdent.t *)
 
 type pos = Loc.t
 
-type sort = 
+(* type sort = 
   | IntSort | BoolSort | RealSort
   | AdtSort of smt_ident * adt_def list
   (* why is it smt_ident * adt_def list?  *)
   | FreeSort of smt_ident * sort list
-  | ArraySort of sort * sort
+  | ArraySort of sort * sort *)
 
-and adt_def = smt_ident *  smt_ident list * (smt_ident * (smt_ident * sort) list) list
+(* and adt_def = smt_ident *  smt_ident list * (smt_ident * (smt_ident * sort) list) list *)
 (* adt_def = name_of_type, optional params list, (constructor, (destructor, sort) list) list *)
 
-type symbol =
+(* type symbol =
   | BoolConst of bool
   | IntConst of int
   | RealConst of float
@@ -78,34 +79,43 @@ type symbol =
   | Minus | Plus | Mult | Div | Mod
   | Eq | Gt | Lt | Geq | Leq
   | And | Or | Impl | Not | Ite
-  | Select
+  | Select *)
 
-type binder = Exists | Forall
+(* type binder = Exists | Forall *)
 
-type term =
+(* type term =
   | App of symbol * term list * pos option
   | App_t of term list * pos option 
   | Binder of binder * (smt_ident * sort) list * term * pos option
   | Let of (smt_ident * term) list * term * pos option
   | Annot of term * annotation * pos option
-  | Match of term * (term * term) list * pos option
+  | Match of term * (term * term) list * pos option *)
 
-and annotation =
+(* and annotation =
   | Name of smt_ident
   | Pattern of term list
-  | As of sort
+  | As of sort *)
+
+type term = Ast.expr
+type sort = Ast.Type.t
+type smt_ident = qual_ident
+
+and adt_def = smt_ident * smt_ident list * (smt_ident * (smt_ident * sort) list) list
+              (* name     optional params  (constructor, (destructor, sort) list) list *)
 
 type command =
   | SetInfo of string * string * pos option
   | SetOption of string * string * pos option
   | SetLogic of string * pos option
   | DeclareSort of smt_ident * int * pos option
-  (* | DeclareDatatypes of adt_def list * pos option *)
   | DeclareDatatype of adt_def * pos option
+  (* | DeclareDatatypes of adt_def list * pos option *)
   | DefineSort of smt_ident * smt_ident list * sort * pos option
   | DeclareFun of smt_ident * sort list * sort * pos option
   | DeclareConst of smt_ident * sort * pos option
   | DefineFun of smt_ident * (smt_ident * sort) list * sort * term * pos option
+  | DefineFunRec of smt_ident * (smt_ident * sort) list * sort * term * pos option
+  (* | DefineFunsRec of (smt_ident * (smt_ident * sort) list * sort * term) list * pos option *)
   | Assert of term * pos option
   | Push of int * pos option
   | Pop of int * pos option
@@ -123,7 +133,7 @@ type response =
   | Error of string
 
 
-  let mk_const ?pos sym = App (sym, [], pos)
+  (* let mk_const ?pos sym = App (sym, [], pos)
 
   let mk_int ?pos num = mk_const ?pos (IntConst num)
   let mk_real ?pos num = mk_const ?pos (RealConst num)
@@ -179,7 +189,7 @@ type response =
 
   let mk_ite ?pos t0 t1 t2 = mk_app ?pos Ite [t0; t1; t2]
 
-  let term_of_string ?pos str = mk_app ?pos (Ident (SMTIdent.make str)) []
+  let term_of_string ?pos str = mk_app ?pos (Ident (SMTIdent.make str)) [] *)
 
   
   let mk_set_logic ?pos l = SetLogic (l, pos)
@@ -217,20 +227,20 @@ type response =
 
   (* --- *)
 
-  let smt_ident_of_term term = 
+  (* let smt_ident_of_term term = 
     match term with
     | App (Ident ident, [], _) -> ident
-    | _ -> raise (Failure "smt_ident_of_term failed: found unexpected term")
+    | _ -> raise (Failure "smt_ident_of_term failed: found unexpected term") *)
 
-  let unfold_assert cmd = match cmd with
+  (* let unfold_assert cmd = match cmd with
   | Assert (term, _) -> term
-  | _ -> Error.error_simple "Unfold_assert called on command which is not assert"
+  | _ -> Error.error_simple "Unfold_assert called on command which is not assert" *)
 
 (** Pretty printing *)
 
 open Stdlib.Format
 
-let string_of_symbol = function
+(* let string_of_symbol = function
   | BoolConst b -> Printf.sprintf "%b" b
   | IntConst i -> Int.to_string i
   | RealConst r -> Float.to_string r
@@ -250,37 +260,55 @@ let string_of_symbol = function
   | Impl -> "=>"
   | Not -> "not"
   | Ite -> "ite"
-  | Select -> "select"
+  | Select -> "select" *)
 
-let pr_ident ppf id = fprintf ppf "%s" (SMTIdent.to_string id)
+let pr_ident ppf id = QualIdent.pr ppf id
 
 let rec pr_idents ppf = function
   | [] -> ()
   | [id] -> pr_ident ppf id
   | id :: ids -> fprintf ppf "%a@ %a" pr_ident id pr_idents ids
 
-let rec pr_sort ppf = function
+let rec pr_sort ppf (sort: sort) = 
+  match sort with
+  | App (Int, [], _) -> fprintf ppf "Int"
+  | App (Real, [], _) -> fprintf ppf "Real"
+  | App (Bool, [], _) -> fprintf ppf "Bool"
+  | App (Ref, [], _) -> fprintf ppf "Ref"
+  | App (Var qual_iden, [], _) -> pr_ident ppf qual_iden
+  | App (Set, [srt], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
+  | App (Map, [srt1; srt2], _) -> fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
+  | App (Data (id, _), [], _) -> pr_ident ppf id
+
+
+
+  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) | App (AtomicToken, _, _) -> Error.smt_error (Type.to_loc sort) "pr_sort: unexpected sort"
+
+  | _ -> assert false
+  
+  (* function
+
   | AdtSort  (id, _) -> pr_ident ppf id
   | FreeSort (id, []) -> pr_ident ppf id
   | FreeSort (id, srts) -> fprintf ppf "@[<2>(%s@ %a)@]" (SMTIdent.to_string id) pr_sorts srts
   | BoolSort -> fprintf ppf "Bool"
   | IntSort -> fprintf ppf "Int"
   | RealSort -> fprintf ppf "Real"
-  | ArraySort (s1, s2) -> fprintf ppf "@[<2>(Array %a %a)@]" pr_sort s1 pr_sort s2 
+  | ArraySort (s1, s2) -> fprintf ppf "@[<2>(Array %a %a)@]" pr_sort s1 pr_sort s2  *)
 
 and pr_sorts ppf = function
   | [] -> ()
   | [srt] -> pr_sort ppf srt
   | srt :: srts -> fprintf ppf "%a@ %a" pr_sort srt pr_sorts srts
 
-let pr_sym ppf sym = fprintf ppf "%s" (string_of_symbol sym)
+(* let pr_sym ppf sym = fprintf ppf "%s" (string_of_symbol sym) *)
 
-let pr_binder ppf b =
+(* let pr_binder ppf b =
   let b_str = match b with
   | Forall -> "forall"
   | Exists -> "exists"
   in 
-  fprintf ppf "%s" b_str
+  fprintf ppf "%s" b_str *)
 
 let pr_var_decl ppf (x, srt) =
   fprintf ppf "@[<1>(%a@ %a)@]" pr_ident x pr_sort srt
@@ -290,16 +318,49 @@ let rec pr_var_decls ppf = function
   | [v] -> fprintf ppf "%a" pr_var_decl v
   | v :: vs -> fprintf ppf "%a@ %a" pr_var_decl v pr_var_decls vs
 
-let rec pr_term ppf = function
-  | App (sym, [], _) -> pr_sym ppf sym
-  | App (sym, ts, _) -> fprintf ppf "@[<2>(%a@ %a)@]" pr_sym sym pr_terms ts
-  | App_t (ts, _) -> fprintf ppf "@[<2>(%a)@]" pr_terms ts 
-  | Binder (b, vs, f, _) -> 
-      fprintf ppf "@[<8>(%a@ @[<1>(%a)@]@ %a)@]" pr_binder b pr_var_decls vs pr_term f
-  | Let (decls, t, _) ->
-      fprintf ppf "@[<5>(let@ (%a) %a)@]" pr_let_decls decls pr_term t
-  | Annot (t, a, _) -> pr_annot ppf (t, a)
-  | Match (t, t_t_list, _) -> fprintf ppf "@[ (match@ %a (%a))@]" pr_term t pr_list_pair_of_terms t_t_list
+let term_constr_to_string loc (constr: Expr.constr)  : string = match constr with
+| Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ -> Expr.constr_to_string constr
+| Not -> "not"
+| MapLookUp -> "select"
+| MapUpdate -> "store"
+| Eq -> "="
+| Union -> "union"
+| Inter -> "intersection"
+| Elem -> "select"
+| Subseteq -> "subset"
+| And -> "and"
+| Or -> "or"
+| Impl -> "=>"
+| Var id -> QualIdent.to_string id
+| Ite -> "ite"
+| _ -> Error.smt_error loc ("term_constr_to_string: unexpected constr" ^ (Expr.constr_to_string constr))
+
+
+let rec pr_term ppf (term: term) = match term with
+  | App (constr, expr_list, _) -> begin
+    match constr, expr_list with
+    | (Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq | Leq | Union | Inter | Elem | Subseteq | And | Or | Impl | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _) as sym, ts -> 
+      fprintf ppf "@[<2>(%s@ %a)@]" (term_constr_to_string (Expr.to_loc term) sym) pr_terms ts
+    
+    | Null, [] -> fprintf ppf "null"
+    | Empty, [] ->  fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)
+    | Uminus, [t] -> fprintf ppf "@[<2>(* -1 @ %a)@]" pr_term t
+    | Setenum, es ->
+      let empty_set = asprintf "((as const (Set %a)) false)" pr_sort (Expr.to_type term) in
+      let str = List.fold es ~init:empty_set ~f:(fun acc e -> asprintf "(store %s %a true)" acc pr_term e) in
+      fprintf ppf "%s" str
+
+    | TupleLookUp, [tuple_expr; index] -> ()
+    | Tuple, es -> ()
+
+    | Diff, _
+    | Read, _
+    | Own, _ | _ -> Error.smt_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
+  end
+
+  | Binder (b, vs, f, _) ->
+    let vs = List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type)) in
+    fprintf ppf "(%s (%a) %a)" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
 
 and pr_terms ppf = function
   | [] -> ()
@@ -319,7 +380,7 @@ and pr_let_decls ppf = function
   | decl :: decls ->
       fprintf ppf "%a@ %a" pr_let_decl decl pr_let_decls decls
         
-and pr_annot ppf (t, a) =
+(* and pr_annot ppf (t, a) =
   match a with
   | Name id ->
       let id2 = Str.global_replace (Str.regexp " \\|(\\|)\\|<\\|>") "-" (SMTIdent.to_string id) in
@@ -328,7 +389,7 @@ and pr_annot ppf (t, a) =
   | Pattern ts ->
       fprintf ppf "@[<3>(! %a@ @[:pattern@ (%a)@])@]" pr_term t pr_terms ts
   | As srt ->
-      fprintf ppf "@[<4>(as@ %a@ %a)@]" pr_term t pr_sort srt
+      fprintf ppf "@[<4>(as@ %a@ %a)@]" pr_term t pr_sort srt *)
 
 let print_term out_ch t = fprintf (formatter_of_out_channel out_ch) "%a@?" pr_term t
 
@@ -352,7 +413,11 @@ match params with
 | [] -> fprintf ppf "@[%a (%a)@]" pr_ident id pr_adt_constrs constrs
 | _ -> fprintf ppf "@[%a (par (%a) (%a))@]" pr_ident id pr_idents params pr_adt_constrs constrs
 
-
+(* let rec pr_adts ppf adt_list = 
+  match adt_list with
+  | [] -> ()
+  | _ -> 
+    fprintf ppf "%a@ %a" pr_adt adt pr_adts adts *)
         
 let pr_command ppf = function
   | SetInfo (i, v, _) ->
@@ -365,6 +430,8 @@ let pr_command ppf = function
       fprintf ppf "@[<14>(declare-sort@ %a@ %d)@]@\n" pr_ident id n
   | DeclareDatatype (adt, _) ->
       fprintf ppf "@[<19>(declare-datatype@ @[<2>%a@])@]@\n" pr_adt adt
+  (* | DeclareDatatypes (adts, _) ->
+      fprintf ppf "@[<19>(declare-datatypes@ @[<2>(%a)@])@]@\n" pr_adt adts *)
   | DefineSort (id, svs, srt, _) ->
       fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@\n" pr_ident id pr_idents svs pr_sort srt
   | DeclareFun (id, srts, srt, _) ->
@@ -373,6 +440,10 @@ let pr_command ppf = function
     fprintf ppf "@[<13>(declare-const@ %a@ %a)@]\n" pr_ident id pr_sort srt
   | DefineFun (id, vs, srt, t, _) ->
       fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@\n" pr_ident id pr_var_decls vs pr_sort srt pr_term t
+  | DefineFunRec (id, vs, srt, t, _) ->
+      fprintf ppf "@[<12>(define-fun-rec@ %a@ (%a)@ %a@ %a)@]@\n" pr_ident id pr_var_decls vs pr_sort srt pr_term t
+  (* | DefineFunsRec (defs, _) ->
+      fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@\n" pr_list_pair_of_terms defs *)
   | Assert (t, _) ->
       fprintf ppf "@[<8>(assert@ %a)@]@\n" pr_term t
   | Push (n, _) -> fprintf ppf "@[<6>(push@ %d)@]@\n" n

@@ -50,4 +50,4 @@ let syntax_error loc msg_opt =
 let redeclaration_error loc name =
   error loc (Printf.sprintf !"Identifier %{String} has already been declared in this scope." name)
 
-let smt_error msg = fail Loc.dummy ~lbl:"SMT Error" msg
+let smt_error loc msg = fail loc ~lbl:"SMT Error" msg
