@@ -1792,11 +1792,11 @@ module HeapsExplicitTrnsl = struct
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
             let* exhale_stmt = TrnslExhale.trnsl_exhale_expr spec.spec_form in
-            let assert_false_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
+            let assume_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {
               cond_test = Expr.from_var_decl nondet_var; 
-              cond_then = Stmt.mk_block_stmt ~loc:s.stmt_loc [exhale_stmt; assert_false_stmt];
+              cond_then = Stmt.mk_block_stmt ~loc:s.stmt_loc [exhale_stmt; assume_false_stmt];
               cond_else = Stmt.mk_block_stmt ~loc:s.stmt_loc []} in
 
 

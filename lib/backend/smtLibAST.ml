@@ -4,97 +4,7 @@ open Base
 open Util
 open Ast
 
-(* module SMTIdent = struct
-  module T = struct
-    type t = { ident_name : string; ident_num : int }
-    [@@deriving compare, hash, sexp]
-
-    let to_string id =
-      match id.ident_num with
-      | 0 -> id.ident_name
-      | _ -> Printf.sprintf "%s$%d" id.ident_name id.ident_num
-  end
-
-  include T
-  include Comparable.Make (T)
-
-  let pr ppf id = Stdlib.Format.fprintf ppf "%s" (to_string id)
-  let pr_list ppf ids = Print.pr_list_comma pr ppf ids
-
-  let pr_ident_map pr_x ppf = 
-    let open Stdlib.Format in
-    let rec pr_tuple_list ppf (m : (t * 'a) list) =
-      match m with
-      | [] -> ()
-      | (k, v) :: [] -> fprintf ppf "%a -> %a" 
-        pr k
-        pr_x v
-      | (k, v) :: ls ->
-          fprintf ppf "%a -> %a@,%a" 
-          pr k
-          pr_x v
-          pr_tuple_list ls
-      
-    in
-
-    (fun x ->
-      let list_of_map = Map.to_alist x in
-      if List.is_empty list_of_map then (fprintf ppf "_empty_map_") else
-      fprintf ppf "@[<v> %a @]" pr_tuple_list (list_of_map)
-  )
-
-  let make ?(num=0) name = { ident_name = name; ident_num = num }
-  let name id = id.ident_name
-
-  let fresh =
-    let used_names = Hashtbl.create (module String) in
-    fun ?(id = 0) (name : string) ->
-      let last_index =
-        Hashtbl.find used_names name |> Option.value ~default:(-1)
-      in
-      let new_max = Int.max (last_index + 1) id in
-      Hashtbl.set used_names ~key:name ~data:new_max;
-      make ~num:new_max name 
-end
-
-type smt_ident = SMTIdent.t *)
-
-type pos = Loc.t
-
-(* type sort = 
-  | IntSort | BoolSort | RealSort
-  | AdtSort of smt_ident * adt_def list
-  (* why is it smt_ident * adt_def list?  *)
-  | FreeSort of smt_ident * sort list
-  | ArraySort of sort * sort *)
-
-(* and adt_def = smt_ident *  smt_ident list * (smt_ident * (smt_ident * sort) list) list *)
-(* adt_def = name_of_type, optional params list, (constructor, (destructor, sort) list) list *)
-
-(* type symbol =
-  | BoolConst of bool
-  | IntConst of int
-  | RealConst of float
-  | Ident of smt_ident
-  | Minus | Plus | Mult | Div | Mod
-  | Eq | Gt | Lt | Geq | Leq
-  | And | Or | Impl | Not | Ite
-  | Select *)
-
-(* type binder = Exists | Forall *)
-
-(* type term =
-  | App of symbol * term list * pos option
-  | App_t of term list * pos option 
-  | Binder of binder * (smt_ident * sort) list * term * pos option
-  | Let of (smt_ident * term) list * term * pos option
-  | Annot of term * annotation * pos option
-  | Match of term * (term * term) list * pos option *)
-
-(* and annotation =
-  | Name of smt_ident
-  | Pattern of term list
-  | As of sort *)
+(* type pos = Loc.t *)
 
 type term = Ast.expr
 type sort = Ast.Type.t
@@ -103,26 +13,32 @@ type smt_ident = qual_ident
 and adt_def = smt_ident * smt_ident list * (smt_ident * (smt_ident * sort) list) list
               (* name     optional params  (constructor, (destructor, sort) list) list *)
 
+
+module PreambleConsts = struct
+  let loc_ident = QualIdent.from_ident (Ident.make Util.Loc.dummy "$Loc" 0)
+  (* let loc_sort = FreeSort (loc_ident, []) *)
+end
+
 type command =
-  | SetInfo of string * string * pos option
-  | SetOption of string * string * pos option
-  | SetLogic of string * pos option
-  | DeclareSort of smt_ident * int * pos option
-  | DeclareDatatype of adt_def * pos option
-  (* | DeclareDatatypes of adt_def list * pos option *)
-  | DefineSort of smt_ident * smt_ident list * sort * pos option
-  | DeclareFun of smt_ident * sort list * sort * pos option
-  | DeclareConst of smt_ident * sort * pos option
-  | DefineFun of smt_ident * (smt_ident * sort) list * sort * term * pos option
-  | DefineFunRec of smt_ident * (smt_ident * sort) list * sort * term * pos option
-  (* | DefineFunsRec of (smt_ident * (smt_ident * sort) list * sort * term) list * pos option *)
-  | Assert of term * pos option
-  | Push of int * pos option
-  | Pop of int * pos option
-  | CheckSat of pos option
-  | GetModel of pos option
-  | GetUnsatCore of pos option
-  | Exit of pos option
+  | SetInfo of string * string * location option
+  | SetOption of string * string * location option
+  | SetLogic of string * location option
+  | DeclareSort of smt_ident * int * location option
+  | DeclareDatatype of adt_def * location option
+  (* | DeclareDatatypes of adt_def list * location option *)
+  | DefineSort of smt_ident * smt_ident list * sort * location option
+  | DeclareFun of smt_ident * sort list * sort * location option
+  | DeclareConst of smt_ident * sort * location option
+  | DefineFun of smt_ident * (smt_ident * sort) list * sort * term * location option
+  | DefineFunRec of smt_ident * (smt_ident * sort) list * sort * term * location option
+  (* | DefineFunsRec of (smt_ident * (smt_ident * sort) list * sort * term) list * location option *)
+  | Assert of term * location option
+  | Push of int * location option
+  | Pop of int * location option
+  | CheckSat of location option
+  | GetModel of location option
+  | GetUnsatCore of location option
+  | Exit of location option
 
 type response =
   | Sat
@@ -132,135 +48,41 @@ type response =
   | UnsatCore of string list
   | Error of string
 
-
-  (* let mk_const ?pos sym = App (sym, [], pos)
-
-  let mk_int ?pos num = mk_const ?pos (IntConst num)
-  let mk_real ?pos num = mk_const ?pos (RealConst num)
-  let mk_bool ?pos b = mk_const ?pos (BoolConst b)
-
-  let mk_app ?pos sym ts = 
-    match sym, ts with
-    | Minus, [App (IntConst i, [], _)] -> 
-        App (IntConst (-i), [], pos)
-    | _, _ -> 
-        App (sym, ts, pos)
-
-  let mk_binder ?pos b vs t =
-    match vs with
-    | [] -> t
-    | _ -> Binder (b, vs, t, pos)
-
-  let mk_forall ?pos vs t = mk_binder ?pos Forall vs t
-
-  let mk_exists ?pos vs t = mk_binder ?pos Exists vs t
-  
-  let mk_let ?pos defs t = Let (defs, t, pos)
-  
-  let mk_annot ?pos t a = Annot (t, a, pos)
-
-  let mk_match ?pos t t_t_list = Match (t, t_t_list, pos)
-
-  let mk_and ?pos ts = 
-    match ts with
-    | [] -> (mk_bool true)
-    | [term] -> term
-    | ts -> mk_app ?pos And ts
-
-  let mk_or ?pos ts = 
-    match ts with
-    | [] -> (mk_bool false)
-    | [term] -> term
-    | ts -> mk_app ?pos Or ts
-
-  let mk_not ?pos t = mk_app ?pos Not [t]
-
-  let mk_impl ?pos t1 t2 = mk_app ?pos Impl [t1; t2]
-
-  let mk_eq ?pos t1 t2 = mk_app ?pos Eq [t1; t2]
-
-  let mk_select ?pos t1 t2 = mk_app ?pos Select [t1; t2]
-
-  let mk_leq ?pos t1 t2 = mk_app ?pos Leq [t1; t2]
-  let mk_lt ?pos t1 t2 = mk_app ?pos Lt [t1; t2]
-
-  let mk_geq ?pos t1 t2 = mk_app ?pos Geq [t1; t2]
-  let mk_gt ?pos t1 t2 = mk_app ?pos Gt [t1; t2] 
-
-  let mk_ite ?pos t0 t1 t2 = mk_app ?pos Ite [t0; t1; t2]
-
-  let term_of_string ?pos str = mk_app ?pos (Ident (SMTIdent.make str)) [] *)
-
-  
-  let mk_set_logic ?pos l = SetLogic (l, pos)
+  let mk_set_logic ?loc l = SetLogic (l, loc)
       
-  let mk_set_option ?pos o v = SetOption (o, v, pos)
+  let mk_set_option ?loc o v = SetOption (o, v, loc)
   
-  let mk_set_info ?pos i v = SetInfo (i, v, pos)
+  let mk_set_info ?loc i v = SetInfo (i, v, loc)
   
-  let mk_declare_sort ?pos id arity = DeclareSort (id, arity, pos)
+  let mk_declare_sort ?loc id arity = DeclareSort (id, arity, loc)
       
-  let mk_declare_datatype ?pos adt = DeclareDatatype (adt, pos)
+  let mk_declare_datatype ?loc adt = DeclareDatatype (adt, loc)
   
-  let mk_declare_fun ?pos id arg_srts res_srt = DeclareFun (id, arg_srts, res_srt, pos)
+  let mk_declare_fun ?loc id arg_srts res_srt = DeclareFun (id, arg_srts, res_srt, loc)
 
-  let mk_declare_const ?pos id srt = DeclareConst (id, srt, pos)
+  let mk_declare_const ?loc id srt = DeclareConst (id, srt, loc)
   
-  let mk_define_sort ?pos id args srt = DefineSort (id, args, srt, pos)
+  let mk_define_sort ?loc id args srt = DefineSort (id, args, srt, loc)
   
-  let mk_define_fun ?pos id args res_srt t = DefineFun (id, args, res_srt, t, pos)
+  let mk_define_fun ?loc id args res_srt t = DefineFun (id, args, res_srt, t, loc)
   
-  let mk_assert ?pos t = Assert (t, pos)
+  let mk_assert ?loc t = Assert (t, loc)
   
-  let mk_push ?pos n = Push (n, pos)
+  let mk_push ?loc n = Push (n, loc)
   
-  let mk_pop ?pos n = Pop (n, pos)
+  let mk_pop ?loc n = Pop (n, loc)
   
-  let mk_check_sat ?pos () = CheckSat pos
+  let mk_check_sat ?loc () = CheckSat loc
   
-  let mk_get_model ?pos () = GetModel pos
+  let mk_get_model ?loc () = GetModel loc
   
-  let mk_get_unsat_core ?pos () = GetModel pos
+  let mk_get_unsat_core ?loc () = GetModel loc
   
-  let mk_exit ?pos () = Exit pos
-
-
-  (* --- *)
-
-  (* let smt_ident_of_term term = 
-    match term with
-    | App (Ident ident, [], _) -> ident
-    | _ -> raise (Failure "smt_ident_of_term failed: found unexpected term") *)
-
-  (* let unfold_assert cmd = match cmd with
-  | Assert (term, _) -> term
-  | _ -> Error.error_simple "Unfold_assert called on command which is not assert" *)
+  let mk_exit ?loc () = Exit loc
 
 (** Pretty printing *)
 
 open Stdlib.Format
-
-(* let string_of_symbol = function
-  | BoolConst b -> Printf.sprintf "%b" b
-  | IntConst i -> Int.to_string i
-  | RealConst r -> Float.to_string r
-  | Ident id -> SMTIdent.to_string id
-  | Plus -> "+"
-  | Minus -> "-"
-  | Mult -> "*"
-  | Div -> "/"
-  | Mod -> "mod"
-  | Eq -> "="
-  | Leq -> "<="
-  | Geq -> ">="
-  | Lt -> "<"
-  | Gt -> ">"
-  | And -> "and"
-  | Or -> "or"
-  | Impl -> "=>"
-  | Not -> "not"
-  | Ite -> "ite"
-  | Select -> "select" *)
 
 let pr_ident ppf id = QualIdent.pr ppf id
 
@@ -274,7 +96,7 @@ let rec pr_sort ppf (sort: sort) =
   | App (Int, [], _) -> fprintf ppf "Int"
   | App (Real, [], _) -> fprintf ppf "Real"
   | App (Bool, [], _) -> fprintf ppf "Bool"
-  | App (Ref, [], _) -> fprintf ppf "Ref"
+  | App (Ref, [], _) -> pr_ident ppf PreambleConsts.loc_ident
   | App (Var qual_iden, [], _) -> pr_ident ppf qual_iden
   | App (Set, [srt], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (Map, [srt1; srt2], _) -> fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
@@ -285,30 +107,11 @@ let rec pr_sort ppf (sort: sort) =
   | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) | App (AtomicToken, _, _) -> Error.smt_error (Type.to_loc sort) "pr_sort: unexpected sort"
 
   | _ -> assert false
-  
-  (* function
-
-  | AdtSort  (id, _) -> pr_ident ppf id
-  | FreeSort (id, []) -> pr_ident ppf id
-  | FreeSort (id, srts) -> fprintf ppf "@[<2>(%s@ %a)@]" (SMTIdent.to_string id) pr_sorts srts
-  | BoolSort -> fprintf ppf "Bool"
-  | IntSort -> fprintf ppf "Int"
-  | RealSort -> fprintf ppf "Real"
-  | ArraySort (s1, s2) -> fprintf ppf "@[<2>(Array %a %a)@]" pr_sort s1 pr_sort s2  *)
 
 and pr_sorts ppf = function
   | [] -> ()
   | [srt] -> pr_sort ppf srt
   | srt :: srts -> fprintf ppf "%a@ %a" pr_sort srt pr_sorts srts
-
-(* let pr_sym ppf sym = fprintf ppf "%s" (string_of_symbol sym) *)
-
-(* let pr_binder ppf b =
-  let b_str = match b with
-  | Forall -> "forall"
-  | Exists -> "exists"
-  in 
-  fprintf ppf "%s" b_str *)
 
 let pr_var_decl ppf (x, srt) =
   fprintf ppf "@[<1>(%a@ %a)@]" pr_ident x pr_sort srt
@@ -462,3 +265,4 @@ let rec pr_commands ppf = function
 
 let print_command out_ch cmds = fprintf (formatter_of_out_channel out_ch) "%a@?" pr_command cmds
 let print_commands out_ch cmds = fprintf (formatter_of_out_channel out_ch) "%a@?" pr_commands cmds
+
