@@ -1,4 +1,4 @@
-
+(* 
 open Base
 open Ast
 open Util
@@ -3151,4 +3151,4 @@ let check_module_callable (callable: Callable.t) ?(alias_name: QualIdent.t optio
   )
 
   | ProcDef proc_def ->
-    check_proc_def proc_def tbl smtEnv session
+    check_proc_def proc_def tbl smtEnv session *)

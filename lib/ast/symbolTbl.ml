@@ -151,17 +151,21 @@ let is_parent scope tbl =
 let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) option =
   let open Option.Syntax in
   let rec go_forward inst_scopes scope subst ids =
+    Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a" QualIdent.pr (get_scope_id scope));
+    Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: tbl.tbl_path: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map tbl.tbl_path ~f:get_scope_id));
+    Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids1: %a" (Util.Print.pr_list_comma (Ident.pr))  ids);
+
     match ids with
     | [] -> Some (get_scope_id scope, subst, false)
     | first_id :: ids1 ->
-      if scope.scope_is_abstract && (* if this is a functor or interface ... *)
+      (* if scope.scope_is_abstract && (* if this is a functor or interface ... *)
          not @@ is_parent scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
          not @@ Set.mem inst_scopes (get_scope_id scope) (* ... or through one of its concrete instantiations. *)
       then None
-      else begin
+      else *) begin 
       let scope_symbols = get_scope_entries scope in
-      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
-      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids: %a" (Util.Print.pr_list_comma (Ident.pr))  ids);
+      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols));
+      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids2: %a" (Util.Print.pr_list_comma (Ident.pr))  ids);
       Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: subst: %a" (Util.Print.pr_list_comma 
         (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
       ) subst);
@@ -280,7 +284,10 @@ let resolve_and_find_exn loc name (tbl : t) =
 
   resolve_and_find name tbl |>
 
-  Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
+  Option.lazy_value ~default:(fun () -> 
+    Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
+    (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
+    unknown_ident_error loc name)
 
 (** Find the symbol associated with [name] relative to the current scope in [tbl]. *)
 let find name tbl : (Module.symbol * QualIdent.subst) option =

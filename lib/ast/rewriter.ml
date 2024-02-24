@@ -742,6 +742,32 @@ module Module = struct
     in
     let mdef = { mdef with mod_def = symbols } in
     exit_module mdef
+
+  let rec rec_rewrite_symbols ~f (mdef: Module.t) : (Module.t, 'a) t_ext =
+    let open Module in
+    let open Syntax in
+    let* _ = enter_module mdef
+    and* symbols = List.map mdef.mod_def ~f:(function
+        | SymbolDef symbol ->
+          let* symbol = 
+            (match symbol with
+            | ModDef mod_def ->
+              let* new_mod_def = rec_rewrite_symbols ~f mod_def in
+              return @@ ModDef new_mod_def 
+            | _ -> return symbol
+            ) 
+          in
+
+            (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
+          let+ symbol = f symbol
+          and+ _ = set_symbol symbol in
+            (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
+          SymbolDef symbol
+        | import -> return import 
+      )
+    in
+    let mdef = { mdef with mod_def = symbols } in
+    exit_module mdef
     
   let rec rewrite_expressions ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
@@ -1155,31 +1181,60 @@ module ProgUtils = struct
     | _ -> return false
 
 
-  let get_field_utils_module_ident loc field_ident : ident =
-    Ident.make loc (serialize ("FieldUtils$" ^ (Ident.to_string field_ident))) 0
+  let field_get_ra_qual_iden (field: AstDef.Module.field_def) = 
+    let field_type = 
+      match field.field_type with
+      | App (Fld, [tp_expr], _) -> tp_expr
+      | _ -> Error.error field.field_loc "Rewriter.ProgUtils.field_get_ra_module: Expected field definition"
+    in
 
+    match field_type with
+    | App (Var qual_iden, [], _) -> QualIdent.pop qual_iden
+    | _ -> Error.error field.field_loc "Rewriter.ProgUtils.field_get_ra_module: Expected field type to be a variable"
+
+  let field_get_ra_id (field: AstDef.Module.field_def) : qual_ident =
+    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "id" 0)
+
+  let get_ra_valid_fn_qual_ident (field: AstDef.Module.field_def) : qual_ident =
+    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "valid" 0)
+
+  let get_ra_comp_fn_qual_ident (field: AstDef.Module.field_def) : qual_ident =
+    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "comp" 0)
+
+  let get_ra_frame_fn_qual_ident (field: AstDef.Module.field_def) : qual_ident =
+    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "frame" 0)
+
+
+  let field_utils_module_ident loc field_ident : ident =
+    Ident.make loc (serialize ("FieldUtils$" ^ (Ident.to_string field_ident))) 0
 
   let get_field_utils_module loc field_name : qual_ident t =
     let open Syntax in
     let+ field_fully_qual_name = resolve loc field_name in
 
-    QualIdent.make field_fully_qual_name.qual_path (get_field_utils_module_ident loc field_fully_qual_name.qual_base)
+    QualIdent.make field_fully_qual_name.qual_path (field_utils_module_ident loc field_fully_qual_name.qual_base)
 
+
+  let field_utils_comp_chunk_ident loc = Ident.make loc "heapChunkComp" 0
   let get_field_utils_comp loc field_name : qual_ident t =
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
-    QualIdent.append field_utils_module (Ident.make loc "comp" 0)
+    QualIdent.append field_utils_module (field_utils_comp_chunk_ident loc)
 
+  let field_utils_frame_chunk_ident loc = Ident.make loc "heapChunkFrame" 0
   let get_field_utils_frame loc field_name : qual_ident t =
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
-    QualIdent.append field_utils_module (Ident.make loc "frame" 0)
+    QualIdent.append field_utils_module (field_utils_frame_chunk_ident loc)
 
+  let field_utils_valid_ident loc = Ident.make loc "valid" 0
   let get_field_utils_valid loc field_name : qual_ident t =
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
-    QualIdent.append field_utils_module (Ident.make loc "valid" 0)
+    QualIdent.append field_utils_module (field_utils_valid_ident loc)
 
+
+  let field_utils_id_ident loc = Ident.make loc "id" 0
   let get_field_utils_id loc field_name : expr t =
     let open Syntax in
     let* field_utils_module = get_field_utils_module loc field_name in
@@ -1196,11 +1251,13 @@ module ProgUtils = struct
       | _ -> Error.error loc "Rewriter.ProgUtils.get_field_utils_id: Expected field type"
     in
 
-    let id_qual_ident = QualIdent.append field_utils_module (Ident.make loc "id" 0)
+    let id_qual_ident = QualIdent.append field_utils_module (field_utils_id_ident loc)
 
     in
 
     return @@ AstDef.Expr.mk_var  ~loc id_qual_ident ~typ:field_elem_type
+
+  let field_utils_heapchunk_compare_id loc = Ident.make loc "heapChunkCompare" 0
 
   let rec is_expr_pure (expr: expr) : bool t =
     let open Syntax in

@@ -68,7 +68,9 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t): QualIdent.t list list =
     in
     Option.value res ~default:g
   in
+  Logs.debug (fun m -> m "Dependencies.analyze: Analyzing dependencies of module %a" Ident.pr mdef.mod_decl.mod_decl_name);
   let root_g = root_dependencies tbl mdef in
+  Logs.debug (fun m -> m "Dependencies.analyze: Root Dependencies done for module %a" Ident.pr mdef.mod_decl.mod_decl_name);
   let roots = Graph.vertices root_g in
   let targets = Graph.targets root_g in
   let g = inst_dependencies (Set.diff targets roots) roots root_g in

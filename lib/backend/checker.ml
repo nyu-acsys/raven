@@ -17,8 +17,16 @@ let define_type (fully_qual_name: qual_ident) (typ: Ast.Module.type_def) : unit 
     | App (Data (name, variant_decls), _, _) ->
 
       let* variant_list = Rewriter.List.map variant_decls ~f:(fun v -> 
-        let destr_list = List.map v.variant_args ~f:(fun v_d -> (QualIdent.from_ident v_d.var_name, v_d.var_type)) in
-        let* constr_fully_qual_name = Rewriter.resolve typ.type_def_loc (QualIdent.from_ident v.variant_name) in 
+        
+        let destr_list = List.map v.variant_args ~f:(fun v_d -> 
+          let destr_qual_ident = QualIdent.append (QualIdent.pop fully_qual_name) v_d.var_name in
+          (destr_qual_ident, v_d.var_type)) in
+
+        let constr_qual_ident = QualIdent.append (QualIdent.pop fully_qual_name) v.variant_name in
+        
+        let* constr_fully_qual_name = Rewriter.resolve typ.type_def_loc constr_qual_ident in 
+
+        assert Poly.(constr_fully_qual_name = constr_qual_ident);
 
         Rewriter.return (constr_fully_qual_name, destr_list)
       ) in
@@ -70,7 +78,9 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
 
       | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
 
-    | _ -> Error.smt_error stmt.stmt_loc "Unexpected basic stmt"
+    | _ -> 
+      Logs.debug (fun m -> m "Checker.check_stmt: Ignoring basic stmt: %a" Stmt.pr stmt);
+      Error.smt_error stmt.stmt_loc "Unexpected basic stmt"
     )
 
   | _ -> Error.smt_error stmt.stmt_loc "Unexpected stmt"
@@ -96,7 +106,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
 
       let post_cond_cmd = SmtLibAST.mk_assert 
-        (Expr.mk_binder Forall call_decl.call_decl_formals 
+        (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
           (Expr.mk_impl 
             (Expr.mk_eq 
               (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
@@ -123,7 +133,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         expr in
 
       let check_contract_expr = 
-        (Expr.mk_binder Forall call_decl.call_decl_formals 
+        (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns)
           (Expr.mk_impl 
             (Expr.mk_and 
               (
@@ -139,7 +149,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       ) in
 
       let post_cond_cmd = SmtLibAST.mk_assert 
-      (Expr.mk_binder Forall call_decl.call_decl_formals 
+      (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
         (Expr.mk_impl 
           (Expr.mk_eq 
             (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
@@ -166,6 +176,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
   
   | ProcDef {proc_body = Some stmt} -> 
     let* _ = push in
+    let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
 
     let* _ = Rewriter.List.iter call_decl.call_decl_locals ~f:(fun local -> 
       write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type )
@@ -178,8 +189,52 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
     Rewriter.return ()
 
 
-(* let start_session () =
-  init (), SmtEnv.push ([], [])
-  
-let stop_session session =
-  Smt_solver.stop_solver session *)
+
+let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
+  let open Rewriter.Syntax in
+
+  let* _ = push in
+  let* _ = write_comment (Stdlib.Format.asprintf "Checking members in %a" Ident.pr mod_name) in
+
+  let* _ = Rewriter.List.iter deps ~f:(fun dep ->
+    match dep with
+    | [qual_name] -> 
+      Logs.debug (fun m -> m "Checker.check_members: Checking: %a" QualIdent.pr qual_name);
+      let* symbol = Rewriter.find_and_reify (Loc.dummy) qual_name in
+      begin match symbol with
+      | CallDef callable -> 
+        check_callable qual_name callable
+      | TypeDef typ -> 
+        define_type qual_name typ
+      | VarDef var_def ->
+        let* _ = write (mk_declare_const qual_name var_def.var_decl.var_type) in
+        (match var_def.var_init with
+        | None -> Rewriter.return ()
+        | Some expr -> write (mk_assert (Expr.mk_eq (Expr.mk_app (Var qual_name) []) expr)))
+
+
+      | _ -> Error.unsupported_error (Loc.dummy) ("Unsupported symbol: " ^ Symbol.to_string symbol)
+      end
+
+    | [] -> assert false  
+    | _ -> Error.unsupported_error (Loc.dummy) "Recursive dependencies not supported at present"
+    
+  ) in
+
+  let* _ = pop in
+
+  Rewriter.current_user_state
+
+let check_module (module_def: Ast.Module.t) (tbl: SymbolTbl.t) (smt_env: smt_env): smt_env =
+  let open Rewriter.Syntax in
+
+  let dependencies = Dependencies.analyze tbl module_def in
+
+  Logs.debug (fun m -> m "Dependencies: %a" (Util.Print.pr_list_sep " ]]\n" (Util.Print.pr_list_comma QualIdent.pr)) dependencies);
+
+  let _tbl, smt_env = Rewriter.eval ~update:false (
+    Rewriter.eval_with_user_state ~init:(smt_env) (check_members module_def.mod_decl.mod_decl_name dependencies)
+  ) tbl in
+
+  smt_env
+

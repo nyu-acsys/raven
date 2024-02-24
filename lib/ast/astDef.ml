@@ -438,6 +438,9 @@ module Type = struct
           
   (** Auxiliary utility functions *)
   
+  let mk_var_decl ?(loc = Loc.dummy) ?(const = false) ?(ghost = false) ?(implicit = false) name tp =
+    { var_name = name; var_loc = loc; var_type = tp; var_const = const; var_ghost = ghost; var_implicit = implicit }
+
   let is_num tp =
     equal tp real || equal tp int
 
@@ -486,9 +489,11 @@ module Type = struct
     let rec symbols acc = function
       | App (c, ts, _) ->
         let acc = match c with
-          | Var id
-          | Data (id, _) ->
-            Set.add acc id
+          | Var id -> Set.add acc id
+          | Data (id, variant_decls) ->
+            let acc = Set.add acc id in
+            let var_args = List.concat_map ~f:(fun vdecl -> vdecl.variant_args) variant_decls in
+            List.fold var_args ~init:acc ~f:(fun acc v_arg -> symbols acc v_arg.var_type) 
           | _ -> acc
         in
         List.fold ~init:acc ~f:symbols ts
@@ -737,7 +742,7 @@ module Expr = struct
   let mk_var ?(loc = Loc.dummy) ~typ (qual_ident: qual_ident) = 
     mk_app ~loc ~typ (Var qual_ident) []
 
-  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bot) b vs e =
+  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) b vs e =
     match vs with 
     | [] -> e
     | _ -> Binder (b, vs, e, mk_attr loc typ)
@@ -753,7 +758,7 @@ module Expr = struct
   
   (** Constructor for conjunction.*)
   let mk_and ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc false
+    | [] -> mk_bool ~loc true
     | [ e ] -> e
     | es ->
         let t =
@@ -764,7 +769,7 @@ module Expr = struct
 
   (** Constructor for disjunction.*)
   let mk_or ?(loc = Loc.dummy) = function
-    | [] -> mk_bool ~loc true
+    | [] -> mk_bool ~loc false
     | [ e ] -> e
     | es ->
         let t =
@@ -921,7 +926,8 @@ module Expr = struct
   (** Extends [acc] with the set of all symbols occuring free in expression [e]. *)
   let symbols ?(acc = Set.empty (module QualIdent)) e = 
     let rec symbols bv syms = function
-      | App (Var id, [],  attr) -> 
+      | App (Var id, ts,  attr) -> 
+        let syms = List.fold_left ts ~f:(symbols bv) ~init:syms in
         if Set.mem bv id
         then syms
         else Set.add syms id

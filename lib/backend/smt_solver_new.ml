@@ -203,7 +203,7 @@ let write cmd : unit t =
 
   (* SmtSession.write state.smt_env.session cmd *)
   
-let write_comment state cmnt =
+let write_comment cmnt =
   let open Rewriter.Syntax in
   let* smt_env = Rewriter.current_user_state in
   let _ = SmtSession.write_comment smt_env.session cmnt in
@@ -269,6 +269,7 @@ let assert_expr (expr: term) : unit t =
 let check_valid (expr: term) : bool t = 
   let open Rewriter.Syntax in
   let* smt_env = Rewriter.current_user_state in
+  Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);
 
   let res, session = SmtSession.check_valid smt_env.session (Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr) in
 
@@ -281,7 +282,7 @@ let check_valid (expr: term) : bool t =
 
 
 
-let init tbl (s: unit Rewriter.state) : smt_env Rewriter.state =
+let init () : smt_env =
   let open SmtSession in
   let session = start_solver () in
   let open PreambleConsts in
@@ -308,8 +309,7 @@ let init tbl (s: unit Rewriter.state) : smt_env Rewriter.state =
   write_comment session "";
   write_comment session "";
 
-  { s with state_user_data = smt_env} 
-
+  smt_env
 
 
 

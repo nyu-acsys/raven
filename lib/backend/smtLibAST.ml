@@ -106,7 +106,9 @@ let rec pr_sort ppf (sort: sort) =
 
   | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) | App (AtomicToken, _, _) -> Error.smt_error (Type.to_loc sort) "pr_sort: unexpected sort"
 
-  | _ -> assert false
+  | _ -> 
+    Logs.debug (fun m -> m "pr_sort: unexpected sort %s" (Type.to_string sort));
+    assert false
 
 and pr_sorts ppf = function
   | [] -> ()
@@ -142,8 +144,11 @@ let term_constr_to_string loc (constr: Expr.constr)  : string = match constr wit
 let rec pr_term ppf (term: term) = match term with
   | App (constr, expr_list, _) -> begin
     match constr, expr_list with
-    | (Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq | Leq | Union | Inter | Elem | Subseteq | And | Or | Impl | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _) as sym, ts -> 
-      fprintf ppf "@[<2>(%s@ %a)@]" (term_constr_to_string (Expr.to_loc term) sym) pr_terms ts
+    | (Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq | Leq | Union | Inter | Subseteq | And | Or | Impl | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _) as sym, ts -> 
+      (match expr_list with
+      | [] -> fprintf ppf "%s" (term_constr_to_string (Expr.to_loc term) sym)
+      | _ -> fprintf ppf "@[<2>(%s@ %a)@]" (term_constr_to_string (Expr.to_loc term) sym) pr_terms ts)
+    | Elem, [t; s] -> fprintf ppf "@[<2>(select@ %a@ %a)@]" pr_term s pr_term t
     
     | Null, [] -> fprintf ppf "null"
     | Empty, [] ->  fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)

@@ -1,4 +1,4 @@
-open Base
+(* open Base
 open Unix
 open Util__Error
 open SmtLibAST
@@ -624,4 +624,4 @@ let init () : session =
   write_comment session "";
   write_comment session "";
 
-  session
+  session *)

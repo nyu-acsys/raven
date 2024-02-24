@@ -20,7 +20,7 @@ let parse_cu top_level_md_ident file_name =
   Ast.Module.set_name md top_level_md_ident
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident session file_name =
+let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident file_name =
   Logs.info (fun m -> m "Processing file %s." file_name);
   (* let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in *)
   let md = parse_cu top_level_md_ident file_name in
@@ -35,27 +35,27 @@ let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident sess
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
 
-  (*let session, smtEnv = Checker.check_module processed_md tbl smtEnv session in*)
+  let smtEnv = Backend.Checker.check_module processed_md tbl smtEnv in
   Logs.info (fun m -> m "Verification of file %s successful." file_name);
-  session, smtEnv, tbl
+  smtEnv, tbl
 
 
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all file_names =
   (* Start backend solver session *)
   (*let session, smtEnv = Checker.start_session () in*)
-  let session, smtEnv = (), () in
+  let smtEnv = Backend.Smt_solver_new.init () in
   
   (* Parse and check standard library *)
   let lib_file = "lib/library/resource_algebra.rav" in
   let tbl = SymbolTbl.create () in
-  let smtEnv, session, tbl = parse_and_check_cu ~tbl smtEnv Predefs.lib_ident session lib_file in
+  let smtEnv, tbl = parse_and_check_cu ~tbl smtEnv Predefs.lib_ident lib_file in
   
   (* Parse and check actual input program *)
   let _ =
-    List.fold_left file_names ~init:(smtEnv, session, tbl)
-      ~f:(fun (smtEnv, session, tbl) file_name ->
-          parse_and_check_cu ~tbl smtEnv Predefs.prog_ident session file_name)
+    List.fold_left file_names ~init:(smtEnv, tbl)
+      ~f:(fun (smtEnv, tbl) file_name ->
+          parse_and_check_cu ~tbl smtEnv Predefs.prog_ident file_name)
   in
 
   (*Checker.stop_session session;*)
