@@ -425,10 +425,11 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
 
     (* Read expressions *)
-    | Read, [expr1; App (Var qual_ident, [], expr_attr) as expr2] ->
+    | Read, [expr1; App (Var qual_ident, [], expr_attr)] ->
       let* qual_ident, symbol = 
           Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
+      let expr2 = Expr.App (Var qual_ident, [], expr_attr) in
       let* symbol = Rewriter.Symbol.reify symbol in
       begin match symbol with
       | DestrDef _ ->
@@ -706,8 +707,21 @@ module ProcessCallable = struct
         let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
         let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in*)
 
-        begin match assign_desc.assign_rhs with
-        | App (Var proc_qual_ident, ((_ :: _) as args), expr_attr) ->
+        let* is_assign_rhs_callable = 
+          match assign_desc.assign_rhs with
+          | App (Var qual_ident, _, _) -> 
+            let+ _, symbol, _ = Rewriter.find stmt.stmt_loc qual_ident in
+            (match symbol with
+            | CallDef _ -> true
+            | _ -> false)
+          | _ -> Rewriter.return false
+        in
+
+        begin match is_assign_rhs_callable with
+        | true ->
+
+        (* begin match assign_desc.assign_rhs with
+        | App (Var proc_qual_ident, ((_ :: _) as args), expr_attr) -> *)
           (* TODO: there is a lot of duplicated code below that can be factored out.
              Also, add comments that indicate which kind of assignment statement is handled in each case
            *)
@@ -790,6 +804,9 @@ module ProcessCallable = struct
               Error.error (Stmt.loc stmt) "fpu() called incorrectly"
 
           else*)
+
+          begin match assign_desc.assign_rhs with
+          | App (Var proc_qual_ident, args, expr_attr) ->
             let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
                 ~f:(fun expr -> disambiguate_process_expr expr Type.any disam_tbl)
             in
@@ -823,18 +840,18 @@ module ProcessCallable = struct
 
             | _ -> failwith "Unexpected error during type checking."
             end
+          
+          | _ -> failwith "Unexpected error during type checking."
+          end
 
-        | _ ->
+        | false ->
           let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
             ~f:(fun expr -> 
                  disambiguate_process_expr expr Type.any disam_tbl)
           in
 
           let expected_type =
-            List.map assign_lhs ~f:Expr.to_type |> function
-            | [] -> Type.unit
-            | [t] -> t
-            | ts -> Type.mk_prod stmt.stmt_loc ts
+            Type.mk_prod stmt.stmt_loc (List.map assign_lhs ~f:Expr.to_type)
           in
 
           let+ assign_rhs = 
@@ -945,8 +962,49 @@ module ProcessCallable = struct
         
         This function is not expected to go over these parts of the AST again. If the following constructs are
         discovered by this function, then something unexpected has happened. *)
-      | Call _call_desc -> 
-        internal_error (Stmt.loc stmt) "Did not expect call stmts in AST at this stage."
+
+      (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
+      | Call call_desc -> 
+        let* call_lhs = Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden -> 
+            let* qual_iden = disambiguate_ident qual_iden disam_tbl in
+            Rewriter.resolve stmt.stmt_loc qual_iden
+        ) in
+        let* call_lhs_types = Rewriter.List.map call_lhs 
+            ~f:(fun qual_iden -> 
+                let* qual_iden, symbol = Rewriter.resolve_and_find stmt.stmt_loc qual_iden in
+                let* symbol = Rewriter.Symbol.reify symbol in
+                match symbol with
+                | VarDef var_def -> 
+                  let* var_type_expanded = ProcessTypeExpr.expand_type_expr var_def.var_decl.var_type in
+                  Rewriter.return var_type_expanded
+                | _ -> Error.type_error stmt.stmt_loc "Expected variable identifier on left-hand side of call"
+              )  
+            
+        in
+
+        let expected_return_type = Type.mk_prod stmt.stmt_loc call_lhs_types in
+        
+        let+ call_expr = 
+          Expr.App (Var call_desc.call_name, call_desc.call_args, { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot }) |>
+          fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl (* TODO: <- replace this with the expected type *)
+        in
+
+        begin match call_expr with
+
+        | App (Var proc_qual_ident, args, _expr_attr) ->
+
+          let (call_desc : Stmt.call_desc) =
+            { 
+              call_lhs;
+              call_name = proc_qual_ident;
+              call_args = args;
+            }
+          in
+
+          Stmt.Basic (Call call_desc), disam_tbl
+        | _ -> failwith "Unexpected error during type checking."
+        end
+
       | AUAction _au_action_kind ->
         internal_error (Stmt.loc stmt) "Did not expect AU action stmts in AST at this stage."
       | Fpu _fpu_desc -> 
@@ -1440,6 +1498,7 @@ module ProcessModule = struct
             let+ _ = Rewriter.List.iter to_check ~f:(fun (m, i) -> check_module_type m i) in 
             symbol
         in
+        Logs.debug (fun mm -> mm !"Processing module %{Ident}: symbol: %a" (Symbol.to_name (ModDef m)) Module.pr_symbol symbol);
         let+ _ = Rewriter.set_symbol symbol in
         Module.SymbolDef symbol
       | Import import -> (* Handled by symbol table *)
@@ -1585,16 +1644,19 @@ end
 let process_module ?(tbl = SymbolTbl.create ()) (m: Module.t) = 
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  let tbl = SymbolTbl.enter Loc.dummy m.mod_decl.mod_decl_name tbl in
-  let tbl, m = Rewriter.eval (ProcessModule.process_module m) tbl in
-  let tbl = SymbolTbl.exit tbl in
+  let tbl, m = Rewriter.eval (fun st ->
+    let st, _ = Rewriter.enter_module m st in
+    let st, m = ProcessModule.process_module m st in
+    let st, m = Rewriter.exit_module m st in
+    st, m
+  ) tbl in
   tbl, m
 
 
 let process_symbol (symbol: Module.symbol) : Module.symbol Rewriter.t =
   let open Rewriter.Syntax in
 
-  match symbol with
+  let* symbol = match symbol with
   | Module.TypeDef type_def -> ProcessModule.process_type_def type_def
   | Module.VarDef var_def -> ProcessModule.process_var var_def
   | Module.FieldDef field_def -> ProcessModule.process_field field_def
@@ -1610,3 +1672,8 @@ let process_symbol (symbol: Module.symbol) : Module.symbol Rewriter.t =
   | Module.ModInst mod_inst -> 
     (* TODO: Implement checking for mod_inst too *)
     Rewriter.return symbol
+
+  in
+
+  let+ _ = Rewriter.set_symbol symbol in
+  symbol

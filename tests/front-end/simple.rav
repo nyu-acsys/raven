@@ -1,0 +1,13 @@
+module M {
+proc p() {
+  var x: Int;
+}
+}
+
+proc q(x: Int)
+  requires x == 5
+  ensures x == 5
+ {
+  x := 3;
+  var y: Int;
+}

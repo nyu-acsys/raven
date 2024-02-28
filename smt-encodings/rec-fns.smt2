@@ -2,6 +2,8 @@
 (set-option :produce-unsat-cores true)
 (set-option :timeout 4000)
 
+; (define-fun (par))
+
 (define-funs-rec ((f ((x Int)) Int) (g ((y Int)) Int))  ( (g x)  (f y) )  )
 
 ; (define-funs-rec ((f ((x Int)) Int) (g ((y Int)) Int))  ( (g x)  (f y) )  )
@@ -27,6 +29,24 @@
 
 (declare-datatypes ((M 0) (N 0)) (((A (A1 Int))) ((B (B1 Int)))))
 
+
+
 ; (declare-datatypes ((M 0) (N 0)) ())
 
-(declare-datatype x ((A (A1 Int))))
+; (declare-datatype x ((A (A1 Int))))
+; (declare-datatype x'y' ((A (A1 Int))))
+
+(declare-datatype $tuple_1 (par (X0) ( ($tuple_1 ($tuple_1_0 X0)))))
+(declare-datatype x (par (X) ((x (A1 X)))))
+(declare-const zzz (x Int))
+; (assert (= zzz ((_ as (x Int)) x 5)))
+
+(assert (= 5 (mod 15 0)))
+
+; (define-fun-rec fn ((x Int)) Int (ite (= x 0) x (fn (- x 1))))
+(define-fun-rec fn ((x Int)) Int (fn (- x 1)))
+(define-fun-rec fibonacci ((x Int)) Int (ite (or (= x 0) (= x 1)) 1 (+ (fibonacci (- x 1)) (fibonacci (- x 2)))))
+
+(assert (not (= (fn 5) 0)))
+(assert (= (fibonacci 5) 8))
+(check-sat)

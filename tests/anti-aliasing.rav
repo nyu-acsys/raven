@@ -2,8 +2,8 @@ module Main {
     field f : Int
 
     proc test(x: Ref, y: Ref)
-        requires own(x, f, 1, 3/4) 
-        requires own(y, f, 1, 3/4)
+        requires own(x, f, 1, 0.75) 
+        requires own(y, f, 1, 0.75)
         ensures x != y
     { }
 }

@@ -705,6 +705,7 @@ module Expr = struct
         fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
 
   and pr ppf e = pr_compact ppf e
+  (* and pr ppf e = pr_verbose ppf e *)
 
   and pr_list ppf = Print.pr_list_comma pr ppf
 
@@ -931,6 +932,8 @@ module Expr = struct
         if Set.mem bv id
         then syms
         else Set.add syms id
+      | App (Own, [expr1; expr2; expr3], _) ->
+        List.fold_left [expr1; expr3] ~f:(symbols bv) ~init:syms
       | App (_, ts, _) ->
 	List.fold_left ts ~f:(symbols bv) ~init:syms
       | Binder (_, vs, e, _) ->
@@ -1213,9 +1216,15 @@ module Stmt = struct
 
   let mk_skip ~loc = { stmt_desc = Block { block_body = []; block_is_ghost = false }; stmt_loc = loc }
 
-  let mk_block ?(ghost=false) stmts = Block { block_body = stmts; block_is_ghost = ghost }
+  let mk_block ?(ghost=false) stmts = 
+    let stmts = List.concat_map stmts ~f:(function
+      | { stmt_desc = Block { block_body; block_is_ghost }; _ } -> block_body
+      | s -> [s]) in
 
-  let mk_block_stmt ~loc ?(ghost=false) stmts = { stmt_desc = Block { block_body = stmts; block_is_ghost = ghost }; stmt_loc = loc }
+    Block { block_body = stmts; block_is_ghost = ghost }
+
+  let mk_block_stmt ~loc ?(ghost=false) stmts = 
+    { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
   let mk_assume_expr ~loc expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in

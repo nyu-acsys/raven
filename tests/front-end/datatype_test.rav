@@ -11,5 +11,5 @@ module M {
   module M2 = Library.Frac[N2]
   
   var x : Int
-  var y : M2.T = x
+  var y : M2.T = M2.frac_chunk(x, 0.75)
 }

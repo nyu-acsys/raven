@@ -3,7 +3,7 @@ open Unix
 open Util__Error
 open SmtLibAST
 open Ast
-open Rewriter
+(* open Rewriter *)
 
 
 module SmtSession = struct
@@ -191,13 +191,15 @@ type 'a t = ('a, smt_env) Rewriter.t_ext
 let to_string (state: state) : string =
   smt_env_to_string state.smt_env *)
 
-
 let write cmd : unit t =
   let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-  let _ = SmtSession.write smt_env.session cmd in
+  match cmd with
+  | Assert _ -> Util.Error.internal_error (Util.Loc.dummy) "Cannot write assert command directly; use assume_expr instead"
+  | _ ->
+    let* smt_env = Rewriter.current_user_state in
+    let _ = SmtSession.write smt_env.session cmd in
 
-  Rewriter.return ()
+    Rewriter.return ()
 
 
 
@@ -258,11 +260,18 @@ let is_unsat : bool t =
 
   Rewriter.return @@ SmtSession.is_unsat smt_env.session
 
-let assert_expr (expr: term) : unit t = 
+let assume_expr (expr: term) : unit t = 
+  (* Externally facing command to assume expressions. Takes path_condns into account *)
   let open Rewriter.Syntax in
   let* smt_env = Rewriter.current_user_state in
 
-  let _ = SmtSession.assert_expr smt_env.session (Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr) in
+  let expr = match smt_env.path_conditions with
+    | [] -> expr
+    | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr 
+  in
+
+  let cmd = mk_assert expr in
+  let _ = SmtSession.write smt_env.session cmd in
 
   Rewriter.return ()
 
@@ -281,6 +290,20 @@ let check_valid (expr: term) : bool t =
 (* --- *)
 
 
+let declare_tuple_sort (arity:int) : command =
+  let tuple_sort_name = QualIdent.from_ident (Ident.make Util.Loc.dummy ("$tuple_" ^ (Int.to_string arity)) 0) in
+
+  let params =
+    Base.List.init arity ~f:(fun i -> QualIdent.from_ident (Ident.make Util.Loc.dummy ("X" ^ (Int.to_string i)) 0))
+  in
+
+  let constr = tuple_sort_name in
+  let destrs = Base.List.init arity ~f:(fun i -> QualIdent.from_ident (Ident.make Util.Loc.dummy ("$tuple_" ^ (Int.to_string arity) ^ "_" ^ (Int.to_string i)) 0)) in
+
+  let destrs_sorts = Base.List.map2_exn destrs params ~f:(fun destr param -> (destr, Ast.Type.mk_var Util.Loc.dummy param)) in
+
+  mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
+
 
 let init () : smt_env =
   let open SmtSession in
@@ -291,10 +314,11 @@ let init () : smt_env =
     SetOption  (":timeout", "2000", None);
   ] in
 
-  let list_of_cmds =     
-    [
+  let list_of_cmds = [
     mk_declare_sort loc_ident 0;
   ] in
+
+  let list_of_cmds = list_of_cmds @ (Base.List.init 10 ~f:(fun i -> declare_tuple_sort (i+1))) in
 
   let smt_env = {
     session = session;
@@ -310,6 +334,8 @@ let init () : smt_env =
   write_comment session "";
 
   smt_env
+
+
 
 
 

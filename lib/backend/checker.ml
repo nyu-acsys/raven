@@ -1,7 +1,7 @@
 open Smt_solver_new
 open Ast
 open Base
-open Frontend
+(* open Frontend *)
 open SmtLibAST
 open Util
 
@@ -69,7 +69,7 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
     | Spec (spec_kind, spec) ->
       (match spec_kind with
       | Assume -> 
-        write (SmtLibAST.mk_assert spec.spec_form)
+        assume_expr spec.spec_form
       | Assert ->
         let* b = check_valid spec.spec_form in
         (match b with
@@ -79,8 +79,7 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
       | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
 
     | _ -> 
-      Logs.debug (fun m -> m "Checker.check_stmt: Ignoring basic stmt: %a" Stmt.pr stmt);
-      Error.smt_error stmt.stmt_loc "Unexpected basic stmt"
+      Error.smt_error stmt.stmt_loc ("Unexpected basic stmt: " ^ (Stmt.to_string stmt))
     )
 
   | _ -> Error.smt_error stmt.stmt_loc "Unexpected stmt"
@@ -105,7 +104,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
         (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
 
-      let post_cond_cmd = SmtLibAST.mk_assert 
+      let post_cond_expr =  
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
           (Expr.mk_impl 
             (Expr.mk_eq 
@@ -119,7 +118,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         ) in
       
       let* _ = write cmd in
-      write post_cond_cmd
+      assume_expr post_cond_expr
 
   | FuncDef {func_body = Some expr} -> 
     if Poly.(call_decl.call_decl_kind = Pred || call_decl.call_decl_kind = Invariant) then
@@ -148,7 +147,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         )
       ) in
 
-      let post_cond_cmd = SmtLibAST.mk_assert 
+      let post_cond_expr = 
       (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
         (Expr.mk_impl 
           (Expr.mk_eq 
@@ -165,7 +164,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let* b = check_valid check_contract_expr in
 
       (match b with
-      | true -> write post_cond_cmd
+      | true -> assume_expr post_cond_expr
       | false -> Error.smt_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
 
     
@@ -178,7 +177,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
     let* _ = push in
     let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
 
-    let* _ = Rewriter.List.iter call_decl.call_decl_locals ~f:(fun local -> 
+    let* _ = Rewriter.List.iter (call_decl.call_decl_formals @ call_decl.call_decl_returns @ call_decl.call_decl_locals) ~f:(fun local -> 
       write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type )
     ) in
 
@@ -210,7 +209,7 @@ let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
         let* _ = write (mk_declare_const qual_name var_def.var_decl.var_type) in
         (match var_def.var_init with
         | None -> Rewriter.return ()
-        | Some expr -> write (mk_assert (Expr.mk_eq (Expr.mk_app (Var qual_name) []) expr)))
+        | Some expr -> assume_expr (Expr.mk_eq (Expr.mk_app (Var qual_name) []) expr))
 
 
       | _ -> Error.unsupported_error (Loc.dummy) ("Unsupported symbol: " ^ Symbol.to_string symbol)
@@ -226,8 +225,6 @@ let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
   Rewriter.current_user_state
 
 let check_module (module_def: Ast.Module.t) (tbl: SymbolTbl.t) (smt_env: smt_env): smt_env =
-  let open Rewriter.Syntax in
-
   let dependencies = Dependencies.analyze tbl module_def in
 
   Logs.debug (fun m -> m "Dependencies: %a" (Util.Print.pr_list_sep " ]]\n" (Util.Print.pr_list_comma QualIdent.pr)) dependencies);

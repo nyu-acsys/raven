@@ -101,10 +101,10 @@ let rec pr_sort ppf (sort: sort) =
   | App (Set, [srt], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (Map, [srt1; srt2], _) -> fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
   | App (Data (id, _), [], _) -> pr_ident ppf id
+  | App (Prod, srts, _) -> 
+    fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length srts) pr_sorts srts
 
-
-
-  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) | App (AtomicToken, _, _) -> Error.smt_error (Type.to_loc sort) "pr_sort: unexpected sort"
+  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) | App (AtomicToken, _, _) -> Error.smt_error (Type.to_loc sort) ("pr_sort: unexpected sort: " ^ (Type.to_string sort))
 
   | _ -> 
     Logs.debug (fun m -> m "pr_sort: unexpected sort %s" (Type.to_string sort));
@@ -124,7 +124,8 @@ let rec pr_var_decls ppf = function
   | v :: vs -> fprintf ppf "%a@ %a" pr_var_decl v pr_var_decls vs
 
 let term_constr_to_string loc (constr: Expr.constr)  : string = match constr with
-| Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ -> Expr.constr_to_string constr
+| Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div | DataConstr _ | DataDestr _ -> Expr.constr_to_string constr
+| Mod -> "mod"
 | Not -> "not"
 | MapLookUp -> "select"
 | MapUpdate -> "store"
@@ -146,7 +147,7 @@ let rec pr_term ppf (term: term) = match term with
     match constr, expr_list with
     | (Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq | Leq | Union | Inter | Subseteq | And | Or | Impl | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _) as sym, ts -> 
       (match expr_list with
-      | [] -> fprintf ppf "%s" (term_constr_to_string (Expr.to_loc term) sym)
+      | [] -> fprintf ppf "@[%s@]" (term_constr_to_string (Expr.to_loc term) sym)
       | _ -> fprintf ppf "@[<2>(%s@ %a)@]" (term_constr_to_string (Expr.to_loc term) sym) pr_terms ts)
     | Elem, [t; s] -> fprintf ppf "@[<2>(select@ %a@ %a)@]" pr_term s pr_term t
     
@@ -158,8 +159,17 @@ let rec pr_term ppf (term: term) = match term with
       let str = List.fold es ~init:empty_set ~f:(fun acc e -> asprintf "(store %s %a true)" acc pr_term e) in
       fprintf ppf "%s" str
 
-    | TupleLookUp, [tuple_expr; index] -> ()
-    | Tuple, es -> ()
+    | TupleLookUp, [tuple_expr; index] -> 
+      let arity =
+        match Expr.to_type tuple_expr with
+        | App (Prod, ts, _) -> List.length ts
+        | _ -> Error.smt_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
+      in
+
+      fprintf ppf "@[<2>(tuple_%i_%a@ %a@)@]" arity pr_term index pr_term tuple_expr
+
+    | Tuple, es -> 
+      fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es
 
     | Diff, _
     | Read, _
@@ -168,7 +178,7 @@ let rec pr_term ppf (term: term) = match term with
 
   | Binder (b, vs, f, _) ->
     let vs = List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type)) in
-    fprintf ppf "(%s (%a) %a)" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
+    fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
 
 and pr_terms ppf = function
   | [] -> ()
@@ -229,39 +239,39 @@ match params with
         
 let pr_command ppf = function
   | SetInfo (i, v, _) ->
-      fprintf ppf "@[<10>(set-info@ %s@ %s)@]@\n" i v
+      fprintf ppf "@[<10>(set-info@ %s@ %s)@]@," i v
   | SetOption (o, v, _) ->
-      fprintf ppf "@[<12>(set-option@ %s@ %s)@]@\n" o v
+      fprintf ppf "@[<12>(set-option@ %s@ %s)@]@," o v
   | SetLogic (l, _) ->
-      fprintf ppf "@[<11>(set-logic@ %s)@]@\n" l
+      fprintf ppf "@[<11>(set-logic@ %s)@]@," l
   | DeclareSort (id, n, _) ->
-      fprintf ppf "@[<14>(declare-sort@ %a@ %d)@]@\n" pr_ident id n
+      fprintf ppf "@[<14>(declare-sort@ %a@ %d)@]@," pr_ident id n
   | DeclareDatatype (adt, _) ->
-      fprintf ppf "@[<19>(declare-datatype@ @[<2>%a@])@]@\n" pr_adt adt
+      fprintf ppf "@[<19>(declare-datatype@ @[<2>%a@])@]@," pr_adt adt
   (* | DeclareDatatypes (adts, _) ->
-      fprintf ppf "@[<19>(declare-datatypes@ @[<2>(%a)@])@]@\n" pr_adt adts *)
+      fprintf ppf "@[<19>(declare-datatypes@ @[<2>(%a)@])@]@," pr_adt adts *)
   | DefineSort (id, svs, srt, _) ->
-      fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@\n" pr_ident id pr_idents svs pr_sort srt
+      fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@," pr_ident id pr_idents svs pr_sort srt
   | DeclareFun (id, srts, srt, _) ->
-      fprintf ppf "@[<13>(declare-fun@ %a@ (%a)@ %a)@]@\n" pr_ident id pr_sorts srts pr_sort srt
+      fprintf ppf "@[<13>(declare-fun@ %a@ @,(%a)@ %a)@]@," pr_ident id pr_sorts srts pr_sort srt
   | DeclareConst (id, srt, _) ->
-    fprintf ppf "@[<13>(declare-const@ %a@ %a)@]\n" pr_ident id pr_sort srt
+    fprintf ppf "@[<13>(declare-const@ %a@ %a)@]@," pr_ident id pr_sort srt
   | DefineFun (id, vs, srt, t, _) ->
-      fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@\n" pr_ident id pr_var_decls vs pr_sort srt pr_term t
+      fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@," pr_ident id pr_var_decls vs pr_sort srt pr_term t
   | DefineFunRec (id, vs, srt, t, _) ->
-      fprintf ppf "@[<12>(define-fun-rec@ %a@ (%a)@ %a@ %a)@]@\n" pr_ident id pr_var_decls vs pr_sort srt pr_term t
+      fprintf ppf "@[<12>(define-fun-rec@ %a@ (%a)@ %a@ %a)@]@," pr_ident id pr_var_decls vs pr_sort srt pr_term t
   (* | DefineFunsRec (defs, _) ->
-      fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@\n" pr_list_pair_of_terms defs *)
+      fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@," pr_list_pair_of_terms defs *)
   | Assert (t, _) ->
-      fprintf ppf "@[<8>(assert@ %a)@]@\n" pr_term t
-  | Push (n, _) -> fprintf ppf "@[<6>(push@ %d)@]@\n" n
-  | Pop (n, _) -> fprintf ppf "@[<5>(pop@ %d)@]@\n" n
-  | CheckSat _ -> fprintf ppf "(check-sat)@\n"
-  | GetModel _ -> fprintf ppf "(get-model)@\n"
-  | GetUnsatCore _ -> fprintf ppf "(get-unsat-core)@\n"
-  | Exit _ -> fprintf ppf "(exit)@\n"
+      fprintf ppf "@[<4>(assert@ %a)@]@," pr_term t
+  | Push (n, _) -> fprintf ppf "@[<6>(push@ %d)@]@," n
+  | Pop (n, _) -> fprintf ppf "@[<5>(pop@ %d)@]@," n
+  | CheckSat _ -> fprintf ppf "@[(check-sat)@]@."
+  | GetModel _ -> fprintf ppf "(get-model)@."
+  | GetUnsatCore _ -> fprintf ppf "(get-unsat-core)@,"
+  | Exit _ -> fprintf ppf "(exit)@,"
 
-let print_comment out_ch cmnt = fprintf (formatter_of_out_channel out_ch) "; %s\n@?" cmnt
+let print_comment out_ch cmnt = fprintf (formatter_of_out_channel out_ch) "@[<v>; %s @,@]@?" cmnt
 
 let rec pr_commands ppf = function
   | [] -> ()

@@ -10,6 +10,8 @@ proc p1() {
 	}
 }
 
+
+
 module M {
 	var xx: Int = 5;
 

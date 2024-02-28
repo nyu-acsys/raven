@@ -151,9 +151,9 @@ let is_parent scope tbl =
 let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) option =
   let open Option.Syntax in
   let rec go_forward inst_scopes scope subst ids =
-    Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a" QualIdent.pr (get_scope_id scope));
-    Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: tbl.tbl_path: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map tbl.tbl_path ~f:get_scope_id));
-    Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids1: %a" (Util.Print.pr_list_comma (Ident.pr))  ids);
+    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a" QualIdent.pr (get_scope_id scope)); *)
+    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: tbl.tbl_path: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map tbl.tbl_path ~f:get_scope_id)); *)
+    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids1: %a" (Util.Print.pr_list_comma (Ident.pr))  ids); *)
 
     match ids with
     | [] -> Some (get_scope_id scope, subst, false)
@@ -164,19 +164,19 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
       then None
       else *) begin 
       let scope_symbols = get_scope_entries scope in
-      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols));
-      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids2: %a" (Util.Print.pr_list_comma (Ident.pr))  ids);
-      Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: subst: %a" (Util.Print.pr_list_comma 
+      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
+      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids2: %a" (Util.Print.pr_list_comma (Ident.pr))  ids); *)
+      (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: subst: %a" (Util.Print.pr_list_comma 
         (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
-      ) subst);
+      ) subst); *)
       let* entry = Hashtbl.find scope_symbols first_id in
       (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: entry:"); *)
       match entry, ids1 with
       | Alias (is_abstract, qual_ident, subst1), _ -> (* /// <- when can an alias have is_abstract?*)
 
-        Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: found Alias: <%a, %a >" QualIdent.pr qual_ident (Util.Print.pr_list_comma 
+        (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: found Alias: <%a, %a >" QualIdent.pr qual_ident (Util.Print.pr_list_comma 
         (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
-      ) subst1) ;
+      ) subst1) ; *)
         let subst1 = List.map subst1 ~f:(fun (s, t) -> QualIdent.requalify subst s, t) in
         (* if the first argument is abstract, then it needs to be requalified. The second arg doesn't because this is taken care of by the order in which elements are added to the subst list. QualIdent.requalify will make sure the renaming on the second argument by existing substitutions happens *)
 
@@ -266,13 +266,13 @@ let resolve_exn loc name tbl =
 *)
 let resolve_and_find name tbl : (QualIdent.t * QualIdent.t * Module.symbol * QualIdent.subst) option =
   let open Option.Syntax in
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: %a" QualIdent.pr name);
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: %a" QualIdent.pr name); *)
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
   
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: orig_qual_ident: %a" QualIdent.pr orig_qual_ident);
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: alias_qual_ident: %a" QualIdent.pr alias_qual_ident);
-  Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: subst: %a\n" pr_subst subst);
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: orig_qual_ident: %a" QualIdent.pr orig_qual_ident); *)
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: alias_qual_ident: %a" QualIdent.pr alias_qual_ident); *)
+  (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: subst: %a\n" pr_subst subst); *)
   alias_qual_ident, orig_qual_ident, symbol, subst
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
@@ -456,8 +456,10 @@ let set_symbol symbol tbl : t =
   let symbol_ident = Symbol.to_name symbol in
   let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in
   Logs.debug (fun m -> m "SymbolTbl.set_symbol: symbol_qual_ident: %a" QualIdent.pr symbol_qual_ident);
+  Logs.debug (fun m -> m "SymbolTbl.set_symbol: symbol: %a" Symbol.pr symbol);
   let new_map = Map.set tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
   (* Logs.debug (fun m -> m "SymbolTbl.set_symbol: new_map: %a" (Print.pr_list_comma QualIdent.pr) (Map.keys new_map)); *)
+
   { tbl with tbl_symbols = new_map }
 
 

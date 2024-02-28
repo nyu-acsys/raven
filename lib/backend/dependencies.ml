@@ -48,9 +48,11 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t): QualIdent.t list list =
     let res =
       let open Option.Syntax in
       let+ qid = Set.choose todos in
-      let _, _, sym, sm = SymbolTbl.resolve_and_find_exn (QualIdent.to_loc qid) qid tbl in
+      (* let _, _, sym, sm = SymbolTbl.resolve_and_find_exn (QualIdent.to_loc qid) qid tbl in *)
+      let _, sym = Rewriter.eval ~update:false (Rewriter.find_and_reify (QualIdent.to_loc qid) qid) tbl in
       let deps = match sym with
         | TypeDef type_def ->
+          Logs.debug (fun m -> m "Dependencies.analyze: Analyzing dependencies of type %a" Symbol.pr sym);
           Option.map type_def.type_def_expr ~f:Type.symbols |> Option.value ~default:Graph.empty_vertex_set
         | CallDef call_def ->
           let open Callable in
@@ -61,6 +63,7 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t): QualIdent.t list list =
           end
         | _ -> Graph.empty_vertex_set
       in
+      Logs.debug (fun m -> m "Dependencies.analyze: Adding dependencies of %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
       let g1 = Graph.add_edges g qid deps in
       let covered1 = Set.add covered qid in
       let todos1 = Set.union (Set.remove todos qid) (Set.diff deps covered1) in
@@ -71,6 +74,7 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t): QualIdent.t list list =
   Logs.debug (fun m -> m "Dependencies.analyze: Analyzing dependencies of module %a" Ident.pr mdef.mod_decl.mod_decl_name);
   let root_g = root_dependencies tbl mdef in
   Logs.debug (fun m -> m "Dependencies.analyze: Root Dependencies done for module %a" Ident.pr mdef.mod_decl.mod_decl_name);
+  Logs.debug (fun m -> m "Dependencies.analyze: Root Dependencies for module %a: %a" Ident.pr mdef.mod_decl.mod_decl_name (Print.pr_list_comma QualIdent.pr) (Set.elements (Set.union (Graph.targets root_g) (Graph.vertices root_g))));
   let roots = Graph.vertices root_g in
   let targets = Graph.targets root_g in
   let g = inst_dependencies (Set.diff targets roots) roots root_g in

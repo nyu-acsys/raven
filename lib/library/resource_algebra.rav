@@ -235,7 +235,7 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
 
         lemma idValid()
         ensures valid(id)
-    {}
+    { M.idValid(); }
 
     lemma compAssoc()
         ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))

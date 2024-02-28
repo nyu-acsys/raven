@@ -56,16 +56,20 @@ let eval ?(update=true) m tbl =
   in
   let sout, res = m sin in
   (*  *)
+
+  (* Logs.debug (fun m -> m "Rewriter.eval: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys sout.state_table.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
+
+
   sout.state_table, res
 
 
 let eval_with_user_state ~init (f:('a state -> 'a state * 'b)) : 'b t =
   fun st -> 
     
-    let s, v  = f { st with state_user_data = init } in
+    let st, v  = f { st with state_user_data = init } in
 
-    let s = { st with state_user_data = () } in
-    s, v
+    let st = { st with state_user_data = () } in
+    st, v
 
     
 let init s _ = s, ()
@@ -158,7 +162,9 @@ let exit_callable (call_def: Callable.t) s =
         
       (new_mod_symbols1 @ new_mod_symbols) :: new_symbols,
       { call_def with call_decl }
-    | new_symbols -> new_symbols, call_def
+    | new_symbols -> 
+      Logs.debug (fun m -> m "exit_callable: No New Symbols");
+      new_symbols, call_def
   in
   { s with
     state_table = SymbolTbl.exit tbl;
@@ -214,7 +220,8 @@ let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.s
   (* let s, symbol = f symbol s in *)
   let s, symbol = 
     match symbol with
-    | VarDef _ -> f symbol s 
+    | VarDef _ -> 
+      f symbol s 
     | _ ->
       if s.state_table.tbl_curr.scope_is_local then
         let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
@@ -241,8 +248,10 @@ let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.s
         f symbol s
   
   in
+
+
   
-  Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol end: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
+  Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol end: symbol = %a" Symbol.pr (symbol));
 
   { s with
     state_new_symbols =
@@ -319,7 +328,9 @@ let introduce_toplevel_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.sy
 
 let add_locals var_decls s =
   if s.state_update_table
-  then update_table (SymbolTbl.add_local_vars var_decls) s
+  then 
+    (Logs.debug (fun m -> m "Rewriter.add_locals: var_decls = %a" (Print.pr_list_comma AstDef.Ident.pr) (List.map var_decls ~f:(fun (vd: var_decl) -> vd.var_name)));
+    update_table (SymbolTbl.add_local_vars var_decls) s)
   else s, ()
 
 let add_call_decl_locals (call_decl : Callable.call_decl) =
@@ -330,7 +341,8 @@ let add_call_decl_locals (call_decl : Callable.call_decl) =
   ()
 
 let set_symbol symbol s =
-  Logs.debug (fun m -> m "Rewriter.set_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
+  (* Logs.debug (fun m -> m "Rewriter.set_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol)); *)
+  (* Logs.debug (fun m -> m "Rewriter.set_symbol: symbol = %a" Symbol.pr symbol); *)
   if s.state_update_table
   then { s with state_table = SymbolTbl.set_symbol symbol s.state_table }, ()
   else s, ()
@@ -395,6 +407,14 @@ module Option = struct
 
 end
 
+module VarDecl = struct
+
+  let rewrite_types ~f var_decl : (var_decl, 'a) t_ext =
+    let open Syntax in
+    let+ var_type = f var_decl.AstDef.Type.var_type in
+    { var_decl with var_type = var_type }  
+end
+
 module Type = struct
   let descend ~f (tp_expr: Type.t) : (Type.t, 'a) t_ext =
     let open Syntax in
@@ -412,20 +432,26 @@ module Type = struct
     
   
   let rec rewrite_qual_idents ~f (tp_expr: Type.t) : (Type.t, 'a) t_ext =
+    let open Syntax in
     match tp_expr with
     | App (Var id, [], tp_attr) ->
       return (Type.App (Var (f id), [], tp_attr))
+    | App (Data (qual_id, variant_decls_list), [], tp_attr) ->
+      let qual_id = f qual_id in
+      let* variant_decls_list = List.map variant_decls_list ~f:(fun variant_decl ->
+        let+ var_decls_list = List.map variant_decl.variant_args ~f:(fun var_decl ->
+          VarDecl.rewrite_types ~f:(rewrite_qual_idents ~f) var_decl)
+        
+        in
+        { variant_decl with variant_args = var_decls_list }
+        )
+      in
+      return (Type.App (Data (qual_id, variant_decls_list), [], tp_attr))
     | _ -> descend ~f:(rewrite_qual_idents ~f) tp_expr
   
 end
 
-module VarDecl = struct
 
-  let rewrite_types ~f var_decl : (var_decl, 'a) t_ext =
-    let open Syntax in
-    let+ var_type = f var_decl.AstDef.Type.var_type in
-    { var_decl with var_type = var_type }  
-end
 
 module Expr = struct
   let descend ~f (expr: Expr.t) : (Expr.t, 'a) t_ext =
@@ -733,10 +759,14 @@ module Module = struct
     and* symbols = List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
-            let+ symbol = f symbol
-            and+ _ = set_symbol symbol in
+            let* symbol = f symbol in
+            let* _ = set_symbol symbol in
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
-            SymbolDef symbol
+
+            let* tbl = get_table in
+            (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
+
+            return (SymbolDef symbol)
         | import -> return import 
       )
     in
@@ -832,16 +862,20 @@ module Module = struct
 
   let rec rewrite_callables ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
-    let open Module in
-    let rewrite_symbol = function
+    let rewrite_symbol = 
+      let open Module in
+      function
       | CallDef call_def ->
         let* _ = enter_callable call_def in
 
         let* new_call_def = f call_def in
         let+ new_call_def = exit_callable new_call_def in
+        (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_callables: new_call_def = %a" AstDef.Callable.pr new_call_def); *)
         CallDef new_call_def
       | ModDef mod_def ->
         let+ new_mod_def = rewrite_callables ~f mod_def in
+        (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_callables: new_module_def = %a" AstDef.Module.pr new_mod_def); *)
+
         ModDef new_mod_def
       | mem_def -> return mem_def
     in
@@ -903,7 +937,7 @@ end
 
 module Symbol = struct
   let reify (name, symbol, subst) =
-    Logs.debug (fun m -> m "Rewriter.Symbol.reify %a" AstDef.Symbol.pr symbol);
+    (* Logs.debug (fun m -> m "Rewriter.Symbol.reify %a; %a" AstDef.Symbol.pr symbol (Print.pr_list_comma (fun ppf (q, i_l) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q (Print.pr_list_comma Ident.pr) i_l )) subst); *)
 
     match subst with
     | [] -> return symbol
@@ -912,6 +946,8 @@ module Symbol = struct
       let+ tbl = get_table in
       let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
       let _, symbol1 = eval (Module.rewrite_qual_idents_in_symbol ~f:(QualIdent.requalify subst) symbol) tbl_scope in
+
+      (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
       symbol1
 
   let reify_type_def loc (_name, symbol, subst) : (AstDef.Type.t Base.Option.t, 'a) t_ext =
@@ -978,7 +1014,6 @@ let find_and_reify loc name : (AstDef.Module.symbol, 'a) t_ext =
    Symbol.reify symbol
 
 let is_local loc qual_ident s =
-  let open Syntax in
   let s, qual_ident = resolve loc qual_ident s in
 
   Logs.debug (fun m -> m "Rewriter.is_local: qual_ident = %a" QualIdent.pr qual_ident);
@@ -988,8 +1023,8 @@ module ProgUtils = struct
   let serialize (s: string) : string =
     let s = String.map s ~f:(function
         | '.' -> '_'
-        | '[' -> '\''
-        | ']' -> '\''
+        | '[' -> '-'
+        | ']' -> '-'
         | c -> c)
     in
     s
@@ -1105,8 +1140,6 @@ module ProgUtils = struct
 
   (** Takes a type expression `tp` and introduces a module which implements Library.Type whose rep type T is `tp`. ~f here is expected to be Typing.process_symbol, but it's not hardcoded to prevent recursive dependencies  *)
   let intros_type_module ~(loc: location) ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (tp: AstDef.type_expr) : qual_ident t =
-    let open Syntax in
-    
     let mod_decl = begin
       let mod_name = 
         let mod_name_string = (AstDef.Type.to_string tp) ^ "$Type_Mod" in
