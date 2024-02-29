@@ -99,6 +99,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
       call_decl_precond = [];
       call_decl_postcond = [postcond];
       call_decl_is_free = true;
+      call_decl_is_auto = false;
       call_decl_loc = Expr.to_loc expr;
     }
       
@@ -241,6 +242,7 @@ let rec rewrite_set_diff_expr (expr: expr) : expr Rewriter.t =
       call_decl_precond = [];
       call_decl_postcond = [postcond];
       call_decl_is_free = true;
+      call_decl_is_auto = false;
       call_decl_loc = Expr.to_loc expr;
     }
       
@@ -403,6 +405,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
         call_decl_precond = loop_precond;
         call_decl_postcond = loop_postcond;
         call_decl_is_free = false;
+        call_decl_is_auto = false;
         call_decl_loc = stmt.stmt_loc;
       }
     in
@@ -1027,6 +1030,7 @@ module HeapsExplicitTrnsl = struct
       call_decl_precond = [];
       call_decl_postcond = [postcond];
       call_decl_is_free = false;
+      call_decl_is_auto = false;
       call_decl_loc = Expr.to_loc expr;
     }
       
@@ -1187,6 +1191,7 @@ module HeapsExplicitTrnsl = struct
             call_decl_precond = [];
             call_decl_postcond = [];
             call_decl_is_free = false;
+            call_decl_is_auto = false;
             call_decl_loc = f.field_loc;
           } in
 
@@ -1225,6 +1230,7 @@ module HeapsExplicitTrnsl = struct
             call_decl_precond = [];
             call_decl_postcond = [];
             call_decl_is_free = false;
+            call_decl_is_auto = false;
             call_decl_loc = f.field_loc;
           } in
 
@@ -1256,6 +1262,7 @@ module HeapsExplicitTrnsl = struct
             call_decl_precond = [];
             call_decl_postcond = [];
             call_decl_is_free = false;
+            call_decl_is_auto = false;
             call_decl_loc = f.field_loc;
           } in
 
@@ -1286,6 +1293,7 @@ module HeapsExplicitTrnsl = struct
             call_decl_precond = [];
             call_decl_postcond = [];
             call_decl_is_free = false;
+            call_decl_is_auto = false;
             call_decl_loc = f.field_loc;
           } in
 
@@ -1868,7 +1876,11 @@ module HeapsExplicitTrnsl = struct
         | e ->
           let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
           if is_e_pure then
-            let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
+            let body_expr = match conds with
+            | [] -> e
+            | _ -> Expr.mk_impl (Expr.mk_and conds) e 
+          in
+            let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
             Rewriter.return (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assume_expr)
           else
            unsupported_expr_error expr

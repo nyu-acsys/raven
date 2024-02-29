@@ -280,7 +280,12 @@ let check_valid (expr: term) : bool t =
   let* smt_env = Rewriter.current_user_state in
   Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);
 
-  let res, session = SmtSession.check_valid smt_env.session (Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr) in
+  let expr = match smt_env.path_conditions with
+    | [] -> expr
+    | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
+  in
+  
+  let res, session = SmtSession.check_valid smt_env.session expr in
 
   let* _ = Rewriter.set_user_state  { smt_env with session = session } in
 

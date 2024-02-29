@@ -118,7 +118,9 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         ) in
       
       let* _ = write cmd in
-      assume_expr post_cond_expr
+      (match call_decl.call_decl_postcond with
+      | [] -> Rewriter.return ()
+      | _ -> assume_expr post_cond_expr)
 
   | FuncDef {func_body = Some expr} -> 
     if Poly.(call_decl.call_decl_kind = Pred || call_decl.call_decl_kind = Invariant) then
@@ -164,29 +166,56 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let* b = check_valid check_contract_expr in
 
       (match b with
-      | true -> assume_expr post_cond_expr
+      | true -> (
+        match call_decl.call_decl_postcond with
+        | [] -> Rewriter.return ()
+        | _ -> assume_expr post_cond_expr
+        )
       | false -> Error.smt_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
 
-    
 
-  | ProcDef {proc_body = None} -> 
-    Rewriter.return ()
+  | ProcDef proc_def->
+    let* _ = match proc_def.proc_body with
+    | None -> Rewriter.return ()
+    | Some stmt -> 
+      let* _ = push in
+      let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
 
-  
-  | ProcDef {proc_body = Some stmt} -> 
-    let* _ = push in
-    let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
+      let* _ = Rewriter.List.iter (call_decl.call_decl_formals @ call_decl.call_decl_returns @ call_decl.call_decl_locals) ~f:(fun local -> 
+        write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type )
+      ) in
 
-    let* _ = Rewriter.List.iter (call_decl.call_decl_formals @ call_decl.call_decl_returns @ call_decl.call_decl_locals) ~f:(fun local -> 
-      write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type )
-    ) in
-
-    let* _ = check_stmt stmt in
-    
-    let* _ = pop in
+      let* _ = check_stmt stmt in
       
+      let* _ = pop in
+        
+      Rewriter.return ()
+
+    in
+
     Rewriter.return ()
 
+    (* begin 
+      match call_decl.call_decl_kind, call_decl.call_decl_is_auto with
+      | Lemma, true -> 
+        let* spec_is_pure = Rewriter.List.fold_left ~init:true (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~f:(fun acc spec -> 
+          let* is_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
+          Rewriter.return (acc && is_pure)
+        ) in
+        
+        if spec_is_pure && (List.is_empty (call_decl.call_decl_formals @ call_decl.call_decl_returns)) then
+          let* _ = write_comment (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr fully_qual_name) in
+          match call_decl.call_decl_precond with
+          | [] -> assume_expr (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form)))
+          | _ -> 
+            assume_expr (
+              Expr.mk_impl 
+              (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_form)))
+              (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form))))
+        else
+          Error.smt_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
+      | _ -> Rewriter.return ()
+    end *)
 
 
 let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =

@@ -25,7 +25,7 @@ open Ast
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
-%token ATOMIC GHOST IMPLICIT REP  
+%token ATOMIC GHOST IMPLICIT REP AUTO 
 %token <bool> VAR
 %token <bool> MODULE  
 %token TYPE IMPORT
@@ -244,6 +244,11 @@ proc_decl:
   Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
 }
 
+| AUTO; k = PROC; decl = callable_decl {
+  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = true; }; call_def = ProcDef { proc_body = None } }
+
+}
+
 func_decl:
 | k = FUNC; decl = callable_decl {
   Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = FuncDef { func_body = None } }
@@ -261,6 +266,7 @@ callable_decl:
                call_decl_precond = precond;
                call_decl_postcond = postcond;
                call_decl_is_free = false;
+               call_decl_is_auto = false;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl

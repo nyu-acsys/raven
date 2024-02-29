@@ -1292,7 +1292,7 @@ module ProgUtils = struct
 
   let field_utils_heapchunk_compare_id loc = Ident.make loc "heapChunkCompare" 0
 
-  let rec is_expr_pure (expr: expr) : bool t =
+  let rec is_expr_pure (expr: expr)  : (bool, 'a) t_ext =
     let open Syntax in
     match expr with
     
@@ -1301,6 +1301,9 @@ module ProgUtils = struct
       (match constr with
       | Own -> return false
       | Var qual_ident ->
+        if AstDef.QualIdent.is_local qual_ident then
+          return true
+        else
         let* _, symbol, _ = find (AstDef.Expr.to_loc expr) qual_ident in
         (match symbol with
         | CallDef c -> (match c.call_decl.call_decl_kind with 

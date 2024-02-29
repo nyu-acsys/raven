@@ -1531,6 +1531,7 @@ module Callable = struct
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
+    call_decl_is_auto : bool;
     call_decl_loc : location;  (** source location of declaration *)
   }
 
