@@ -274,9 +274,8 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
             // valid(b) && 
         valid(comp(a,c))) ==> valid(comp(b,c)))
     { 
-        // idValid(); compAssoc(); compCommute(); compId(); compValid(); frameId(); compFrameInv();
-    M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
-    M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv(); M.frameCompInv(); M.frameReflexive(); 
+        M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
+        M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv(); M.frameCompInv(); M.frameReflexive(); 
     }
     
     
@@ -287,16 +286,15 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
     auto lemma frameValid()
         ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
     {
-    M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
-    M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv(); M.frameCompInv(); M.frameReflexive(); 
-
+        M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
+        M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv(); M.frameCompInv(); M.frameReflexive(); 
     }
     
     auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {
         M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
-    M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv(); M.frameCompInv(); M.frameReflexive(); 
+        M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv(); M.frameCompInv(); M.frameReflexive(); 
     }
 
 }
