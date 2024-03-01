@@ -563,10 +563,10 @@ module Expr = struct
     (* Application expressions *)
     | App of constr * t list * (expr_attr [@compare.ignore])
     (* Variable binder expressions *)
-    | Binder of binder * var_decl list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
+    | Binder of binder * var_decl list * (t list) list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
 
   let mk_attr loc t = { expr_loc = loc; expr_type = t }
-  let attr_of = function App (_, _, attr) | Binder (_, _, _, attr) -> attr
+  let attr_of = function App (_, _, attr) | Binder (_, _, _, _, attr) -> attr
   let to_loc t = t |> attr_of |> fun attr -> attr.expr_loc
   let to_type t = t |> attr_of |> fun attr -> attr.expr_type
 
@@ -575,7 +575,7 @@ module Expr = struct
     let attr = { attr with expr_type = tp } in
     match t with 
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
-    | Binder (b, v_l, expr, _expr_attr) -> Binder (b, v_l, expr, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
   (** Pretty printing expressions *)
 
@@ -640,8 +640,8 @@ module Expr = struct
 
   let to_prio = function
     | App (c, _, _) -> constr_to_prio c
-    | Binder (Compr, _, _, _) -> 0
-    | Binder ((Forall | Exists), _, _, _) -> 18
+    | Binder (Compr, _, _, _, _) -> 0
+    | Binder ((Forall | Exists), _, _, _, _) -> 18
 
   let binder_to_string = function
     | Exists -> "exists"
@@ -676,8 +676,8 @@ module Expr = struct
     | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
     | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
     | App (c, es, _) -> fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr (to_type e)
-    | Binder (b, vs, e1, _) ->
-        fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
+    | Binder (b, vs, trgs, e1, _) ->
+        fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, trgs, e1, to_type e) Type.pr (to_type e)
 
 
   and pr_compact ppf e =
@@ -701,8 +701,8 @@ module Expr = struct
     | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
     | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
     | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
-    | Binder (b, vs, e1, _) ->
-        fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
+    | Binder (b, vs, trgs, e1, _) ->
+        fprintf ppf "%a" pr_binder (b, vs, trgs, e1, to_type e)
 
   and pr ppf e = pr_compact ppf e
   (* and pr ppf e = pr_verbose ppf e *)
@@ -713,15 +713,21 @@ module Expr = struct
   and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
 
   and pr_binder ppf = function
-    | ((Forall | Exists) as b), vs, e, _ ->
-        Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a" (binder_to_string b)
-          pr_var_decl_list vs pr e
-    | Compr, vs, e, App (Set, _, _) ->
+    | ((Forall | Exists) as b), vs, trgs, e, _ ->
+      Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a %a" (binder_to_string b)
+      pr_var_decl_list vs pr_trgs trgs pr e
+    | Compr, vs, trgs, e, App (Set, _, _) ->
         Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs
           pr e
-    | Compr, vs, e, _ ->
+    | Compr, vs, trgs, e, _ ->
         Stdlib.Format.fprintf ppf "[|@ @[%a@ ::@ %a@]@ |]" pr_var_decl_list vs
           pr e
+
+  and pr_trgs ppf trgs = 
+    match trgs with
+    | [] -> ()
+    | trg :: trgs -> 
+      Stdlib.Format.fprintf ppf "{ @[%a@] } %a" (Print.pr_list_comma pr) trg pr_trgs trgs
 
   and pr_var_decl ppf vdecl =
     let open Type in
@@ -743,10 +749,10 @@ module Expr = struct
   let mk_var ?(loc = Loc.dummy) ~typ (qual_ident: qual_ident) = 
     mk_app ~loc ~typ (Var qual_ident) []
 
-  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) b vs e =
+  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) ?(trigs = []) b vs e =
     match vs with 
     | [] -> e
-    | _ -> Binder (b, vs, e, mk_attr loc typ)
+    | _ -> Binder (b, vs, trigs, e, mk_attr loc typ)
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
@@ -838,8 +844,9 @@ module Expr = struct
         | _ -> constr
       in
       App (constr, args, expr_attr)
-    | Binder (b, vars, e, expr_attr) ->
-      Binder (b, vars, sub e, expr_attr)
+    | Binder (b, vars, trgs, e, expr_attr) ->
+      let trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:sub) in
+      Binder (b, vars, trgs, sub e, expr_attr)
   in sub e
     
   (** Substitutes all identifiers in expression [e] with other identifiers according to substitution map [subst_map].
@@ -867,7 +874,7 @@ module Expr = struct
         | _ -> equal_constr constr1 constr2
       in
       b && List.for_all2 es1 es2 ~f:(eq sm) |> (function Ok b -> b | Unequal_lengths -> false)
-    | Binder (b1, vs1, e1, _), Binder (b2, vs2, e2, _)
+    | Binder (b1, vs1, trgs1, e1, _), Binder (b2, vs2, trgs2, e2, _)
       when Poly.(b1 = b2) ->
       let sm = List.fold2 vs1 vs2 ~init:sm ~f:(fun sm var_decl1 var_decl2 ->
           let var1 = QualIdent.from_ident var_decl1.Type.var_name in
@@ -901,10 +908,11 @@ module Expr = struct
 
     )
 
-  | Binder (binder, var_decl_list, expr, expr_attr) ->
+  | Binder (binder, var_decl_list, trgs, expr, expr_attr) ->
     (* TODO: Rename the var_decl to avoid clashing with variables in the map *)
     let expr = alpha_renaming expr map in
-    Binder (binder, var_decl_list, expr, expr_attr)
+    let trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:(fun expr -> alpha_renaming expr map)) in
+    Binder (binder, var_decl_list, trgs, expr, expr_attr)
 
   (** Extends [acc] with the signature of the free variables occuring in expression [e]. *)
   let signature ?(acc = Map.empty (module QualIdent)) e = 
@@ -915,7 +923,7 @@ module Expr = struct
         else Map.set vars ~key:id ~data:attr.expr_type
       | App (_, ts, _) ->
 	List.fold_left ts ~f:(fv bv) ~init:vars
-      | Binder (_, vs, e, _) ->
+      | Binder (_, vs, trgs, e, _) ->
         let bv =
           List.fold_left vs
             ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
@@ -936,14 +944,15 @@ module Expr = struct
         List.fold_left [expr1; expr3] ~f:(symbols bv) ~init:syms
       | App (_, ts, _) ->
 	List.fold_left ts ~f:(symbols bv) ~init:syms
-      | Binder (_, vs, e, _) ->
+      | Binder (_, vs, trgs, e, _) ->
         let syms =
           List.fold_left vs
             ~init:syms ~f:(fun syms var_decl -> Type.symbols ~acc:syms var_decl.var_type)
         in
         let bv =
           List.fold_left vs
-            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
+            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name)) in
+        let syms = List.fold_left trgs ~f:(fun syms exprs -> List.fold_left exprs ~f:(symbols bv) ~init:syms) ~init:syms
         in
         symbols bv syms e
     in 
@@ -981,7 +990,7 @@ module Expr = struct
     | App (_constr, expr_list, _expr_attr) ->
       List.concat_map expr_list ~f:(fun expr -> expr_fields_accessed expr)
 
-    | Binder (_binder, var_decl_list, expr, _expr_attr) ->
+    | Binder (_binder, var_decl_list, trgs, expr, _expr_attr) ->
       expr_fields_accessed expr
 end
 
@@ -1628,6 +1637,7 @@ module Callable = struct
 
   (** Computes the set of all symbols occuring free in [callable]. *)
   let symbols callable =
+    Logs.debug (fun m -> m "Computing symbols for callable %a" pr callable);
     let symbols_w_locals =
       match callable.call_def with
       | FuncDef { func_body = Some e; _} ->

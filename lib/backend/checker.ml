@@ -73,7 +73,8 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
       | Assert ->
         let* b = check_valid spec.spec_form in
         (match b with
-        | true -> Rewriter.return ()
+        | true -> assume_expr spec.spec_form
+        (* Rewriter.return () *)
         | false -> Error.smt_error stmt.stmt_loc "Assertion is not valid")
 
       | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
@@ -127,11 +128,31 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       Rewriter.return ()
     else
 
-      let cmd =
+      (* let cmd =
         SmtLibAST.mk_define_fun ~loc:call_decl.call_decl_loc fully_qual_name 
         (List.map call_decl.call_decl_formals ~f:(fun arg -> (QualIdent.from_ident arg.var_name, arg.var_type))) 
         (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) 
-        expr in
+        expr in *)
+
+      let cmd = 
+        SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name 
+        (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
+        (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
+
+      and spec_expr = 
+
+         (Expr.mk_binder Forall (call_decl.call_decl_formals) 
+          ~trigs: [[(Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
+            (Expr.mk_eq 
+              (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+
+              expr
+            ) 
+        )
+
+      
+      
+      in
 
       let check_contract_expr = 
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns)
@@ -163,6 +184,8 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       ) in
 
       let* _ = write cmd in
+      let* _ = assume_expr spec_expr in
+
       let* b = check_valid check_contract_expr in
 
       (match b with
@@ -193,9 +216,9 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
 
     in
 
-    Rewriter.return ()
+    (* Rewriter.return () *)
 
-    (* begin 
+    begin 
       match call_decl.call_decl_kind, call_decl.call_decl_is_auto with
       | Lemma, true -> 
         let* spec_is_pure = Rewriter.List.fold_left ~init:true (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~f:(fun acc spec -> 
@@ -215,7 +238,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         else
           Error.smt_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
       | _ -> Rewriter.return ()
-    end *)
+    end
 
 
 let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =

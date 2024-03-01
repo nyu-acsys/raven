@@ -876,10 +876,14 @@ quant_vars:
 
 quant_expr: 
 | e = ite_expr { e }
-| q = QUANT; vs = quant_vars; COLONCOLON; e = quant_expr {
-    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) q vs e)
+| q = QUANT; vs = quant_vars; COLONCOLON; trigs = patterns; e = quant_expr {
+    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~trigs q vs e)
   }
 ;
+
+patterns:
+| LBRACE; es = expr_list; RBRACE; trgs = patterns { es :: trgs }
+| /* empty */ { [] }
 
 expr:
 | e = quant_expr { e } 

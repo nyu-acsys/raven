@@ -5,7 +5,7 @@ open Util
 let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
-  | Binder (Compr, v_l, inner_expr, _expr_attr) ->
+  | Binder (Compr, v_l, trgs, inner_expr, _expr_attr) ->
     let* _ = Rewriter.add_locals v_l
     and* inner_expr = rewrite_compr_expr inner_expr in
         
@@ -840,7 +840,7 @@ let rec expr_preds_mentioned (expr: Expr.t) : (QualIdent.t list) Rewriter.t =
       (acc @ expr_predicates)
     )
 
-  | Binder (_, _, expr, _) ->
+  | Binder (_, _, _, expr, _) ->
     expr_preds_mentioned expr
 
 let stmt_preds_mentioned (s: Stmt.t) : (QualIdent.t list) Rewriter.t = 
@@ -932,7 +932,10 @@ module HeapsExplicitTrnsl = struct
   type conditions = Expr.t list
   (* Two componends in conditionals are used to keep track of conditionals given before existential quants, and ones given after existential quants *)
 
-  type universal_quants = (ident * var_decl) list
+  type universal_quants = {
+    univ_vars: (ident * var_decl) list;
+    triggers: expr list list;
+  }
 
   type existential_quant_record = { 
     var_decl: var_decl;
@@ -992,7 +995,7 @@ module HeapsExplicitTrnsl = struct
     (*       ensures forall a, b, c, d, e, f :: m1(a,b,c) && m2(a, b, c, d, e, f) && v == f2(a, b, c, d, e, f) ==> d == ret *)
     let postcond =
       let spec_form = 
-        let var_decls_forall = (List.map universal_quants ~f:(fun (var, var_decl) -> var_decl)) in
+        let var_decls_forall = (List.map universal_quants.univ_vars ~f:(fun (var, var_decl) -> var_decl)) in
         let var_decls_existentials = (List.map (Map.to_alist existential_quants) ~f:(fun (var, { var_decl; _ }) -> var_decl)) in
         let var_decls = var_decls_forall @ var_decls_existentials in
 
@@ -1066,7 +1069,7 @@ module HeapsExplicitTrnsl = struct
     
     *)
 
-    let univ_quants_list = universal_quants in
+    let univ_quants_list = universal_quants.univ_vars in
   
     (* [a, b] *)
     let univ_vars = List.map univ_quants_list ~f:(fun (_, var_decl) -> var_decl) in
@@ -1417,8 +1420,8 @@ module HeapsExplicitTrnsl = struct
     else
 
     match expr1, expr2 with
-    | Binder (Compr, v_d1, e1, _), Binder (Compr, v_d2, e2, _)
-    | Binder (Forall, v_d1, e1, _), Binder (Forall, v_d2, e2, _) ->
+    | Binder (Compr, v_d1, _, e1, _), Binder (Compr, v_d2, _, e2, _)
+    | Binder (Forall, v_d1, _, e1, _), Binder (Forall, v_d2, _, e2, _) ->
       if not (Int.equal (List.length v_d1) (List.length v_d2)) then 
         None
       else
@@ -1438,7 +1441,7 @@ module HeapsExplicitTrnsl = struct
 
         match_up_expr e1 e2 var_map 
 
-    | Binder (Exists, v_d1, e1, _), e2 ->
+    | Binder (Exists, v_d1, _, e1, _), e2 ->
       let var_map = List.fold v_d1 ~init:var_map ~f:(fun var_map vd1 -> 
         match Map.find var_map vd1.var_name with
         | Some _ -> var_map
@@ -1505,7 +1508,7 @@ module HeapsExplicitTrnsl = struct
       let open Rewriter.Syntax in
 
       let generate_skolem_function (universal_quants: universal_quants) (var_decl: var_decl) : expr Rewriter.t = 
-        let univ_quants_list = universal_quants in
+        let univ_quants_list = universal_quants.univ_vars in
         (* univ_quants_list computed here to keep the ordering on keys constant for the construction *)
         if List.is_empty univ_quants_list then
           let var_decl = { var_decl with var_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name } in
@@ -1584,10 +1587,12 @@ module HeapsExplicitTrnsl = struct
       in
 
       match expr with
-      | Binder (Forall, var_decls, e, e_attr) ->
+      | Binder (Forall, var_decls, trgs, e, e_attr) ->
         let universal_quants = 
           let new_quants = List.map var_decls ~f:(fun var_decl -> (var_decl.var_name, var_decl)) in
-           universal_quants @ new_quants 
+          { universal_quants with 
+            univ_vars = universal_quants.univ_vars @ new_quants
+          }  
         in
           
           (* List.fold var_decls ~init:universal_quants ~f:(fun map var_decl -> 
@@ -1595,9 +1600,9 @@ module HeapsExplicitTrnsl = struct
         in *)
         let* e = skolemize_inhale_expr universal_quants subst e in
 
-        Rewriter.return Expr.(Binder (Forall, var_decls, e, e_attr))
+        Rewriter.return Expr.(Binder (Forall, var_decls, trgs, e, e_attr))
 
-      | Binder (Exists, var_decls, e, e_attr) ->
+      | Binder (Exists, var_decls, trgs, e, e_attr) ->
         let* subst =
           Rewriter.List.fold_left var_decls ~init:subst ~f:(fun map var_decl -> 
             let* (new_expr: expr) = generate_skolem_function universal_quants var_decl in
@@ -1626,7 +1631,7 @@ module HeapsExplicitTrnsl = struct
       | Basic (Spec (spec_kind, spec)) ->
         (match spec_kind with
         | Inhale ->
-          let* e = skolemize_inhale_expr [] (Map.empty (module QualIdent)) spec.spec_form in
+          let* e = skolemize_inhale_expr {univ_vars = []; triggers = []} (Map.empty (module QualIdent)) spec.spec_form in
 
           let spec = { spec with spec_form = e } in
 
@@ -1702,7 +1707,7 @@ module HeapsExplicitTrnsl = struct
         Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
         
   
-      | _ -> trnsl_inhale_a2 [] conds expr
+      | _ -> trnsl_inhale_a2 {univ_vars = []; triggers = []} conds expr
 
     and trnsl_inhale_a2 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
@@ -1713,10 +1718,15 @@ module HeapsExplicitTrnsl = struct
   
         Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
   
-      | Binder (Forall, var_decls, e, _) ->
+      | Binder (Forall, var_decls, trgs, e, _) ->
         let universal_quants = 
           let new_quants = List.map var_decls ~f:(fun var_decl -> (var_decl.var_name, var_decl)) in
-           universal_quants @ new_quants 
+          {  
+            univ_vars = universal_quants.univ_vars @ new_quants;
+            triggers = match universal_quants.triggers with
+            | [] -> trgs
+            | _ -> List.concat_map universal_quants.triggers ~f:(fun trigs -> List.map trgs ~f:(fun trg -> trigs @ trg));
+          }  
         in
           
           (* List.fold var_decls ~init:universal_quants ~f:(fun map var_decl -> 
@@ -1754,7 +1764,7 @@ module HeapsExplicitTrnsl = struct
       and trnsl_inhale_a0 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
         let open Rewriter.Syntax in
 
-        let univ_quants_list = universal_quants in
+        let univ_quants_list = universal_quants.univ_vars in
         (* creating list at the top to preserve order throughout *)
 
         match expr with
@@ -1880,7 +1890,7 @@ module HeapsExplicitTrnsl = struct
             | [] -> e
             | _ -> Expr.mk_impl (Expr.mk_and conds) e 
           in
-            let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
+            let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
             Rewriter.return (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assume_expr)
           else
            unsupported_expr_error expr
@@ -1892,8 +1902,8 @@ module HeapsExplicitTrnsl = struct
 
       let rec find_existentials (expr: expr) : var_decl list =
         match expr with
-        | Binder (Exists, var_decls, e, _) -> var_decls @ find_existentials e
-        | Binder (_, var_decls, e, _) -> find_existentials e
+        | Binder (Exists, var_decls, trgs, e, _) -> var_decls @ find_existentials e
+        | Binder (_, var_decls, trgs, e, _) -> find_existentials e
         | App (_, exprs, _) -> List.concat_map exprs ~f:find_existentials
 
       in
@@ -1901,7 +1911,7 @@ module HeapsExplicitTrnsl = struct
       let elim_existentials_from_expr (expr: expr) (subst_map : expr qual_ident_map): expr = 
         let rec elim_exists (expr: expr) (subst_map) : expr = 
           match expr with
-          | Binder (Exists, var_decls, e, _) ->
+          | Binder (Exists, var_decls, trgs, e, _) ->
             let all_existentials_exist = List.for_all var_decls ~f:(fun var_decl -> 
               Map.mem subst_map (QualIdent.from_ident var_decl.var_name)
             ) in
@@ -1911,9 +1921,9 @@ module HeapsExplicitTrnsl = struct
             else
               e
 
-          | Binder (b, var_decls, e, expr_attr) ->
+          | Binder (b, var_decls, trgs, e, expr_attr) ->
               let e = elim_exists e subst_map in
-              Binder (b, var_decls, e, expr_attr)
+              Binder (b, var_decls, trgs, e, expr_attr)
 
           | App (constr, exprs, expr_attr) ->
             let exprs = List.map exprs ~f:(fun e -> elim_exists e subst_map) in
@@ -1988,7 +1998,7 @@ module HeapsExplicitTrnsl = struct
         
         Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
         
-      | _ -> trnsl_exhale_a2 [] conds expr
+      | _ -> trnsl_exhale_a2 {univ_vars = []; triggers = []} conds expr
 
     and trnsl_exhale_a2 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
@@ -1999,10 +2009,15 @@ module HeapsExplicitTrnsl = struct
   
         Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
   
-      | Binder (Forall, var_decls, e, _) ->
+      | Binder (Forall, var_decls, trgs, e, _) ->
         let universal_quants = 
           let new_quants = List.map var_decls ~f:(fun var_decl -> (var_decl.var_name, var_decl)) in
-          universal_quants @ new_quants 
+          {  
+            univ_vars = universal_quants.univ_vars @ new_quants;
+            triggers = match universal_quants.triggers with
+            | [] -> trgs
+            | _ -> List.concat_map universal_quants.triggers ~f:(fun trigs -> List.map trgs ~f:(fun trg -> trigs @ trg));
+          }    
         in
           
           (* List.fold var_decls ~init:universal_quants ~f:(fun map var_decl -> 
@@ -2040,7 +2055,7 @@ module HeapsExplicitTrnsl = struct
       and trnsl_exhale_a0 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
         let open Rewriter.Syntax in
 
-        let univ_quants_list = universal_quants in
+        let univ_quants_list = universal_quants.univ_vars in
         (* creating list at the top to preserve order throughout *)
 
         match expr with
@@ -2161,8 +2176,12 @@ module HeapsExplicitTrnsl = struct
         | e ->
           let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
           if is_e_pure then
-            let assert_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
-            Rewriter.return (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) assert_expr)
+            let assert_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
+
+            let assert_stmt = (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) assert_expr) in
+            (* let assume_stmt = (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assert_expr) in *)
+            (* Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc e) [assume_stmt; assert_stmt]) *)
+            Rewriter.return assert_stmt
           else
            unsupported_expr_error expr
   end
@@ -2195,8 +2214,10 @@ module HeapsExplicitTrnsl = struct
         | Assert ->
           let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
           if is_e_pure then
-            let assume_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc spec.spec_form in
-            Rewriter.return (Stmt.mk_block_stmt ~loc:s.stmt_loc [s; assume_stmt])
+            (* let assume_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc spec.spec_form in *)
+            (* Rewriter.return (Stmt.mk_block_stmt ~loc:s.stmt_loc [s; assume_stmt]) *)
+            (* The corresponding assume stmt is being added in backend/checker.ml *)
+            Rewriter.return s
           else
             let nondet_var = Type.{ var_name = Ident.fresh s.stmt_loc "$nondet"; var_loc = s.stmt_loc; 
               var_type = Type.bool; var_const = true; var_ghost = false; var_implicit = false; } in

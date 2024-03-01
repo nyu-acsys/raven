@@ -483,16 +483,19 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
           
   end
 
-  | Binder (binder, var_decl_list, inner_expr, expr_attr) ->
+  | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) ->
     let* var_decl_list =
       Rewriter.List.map var_decl_list
-        ~f:(fun var_decl -> ProcessTypeExpr.process_var_decl var_decl)
-    and* _ = Rewriter.add_locals var_decl_list in
+        ~f:(fun var_decl -> ProcessTypeExpr.process_var_decl var_decl) in
+    let* _ = Rewriter.add_locals var_decl_list in
 
     match binder with
     | Forall | Exists ->
       let* inner_expr = process_expr inner_expr Type.perm in
-      let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
+      let* trgs = Rewriter.List.map trgs ~f:(fun trg -> Rewriter.List.map trg ~f:(fun expr -> process_expr expr Type.any)) in
+      
+      (* TODO: Add additional checks for triggers *)
+      let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
       check_and_set expr Type.bool Type.perm expected_typ
 
     | Compr ->
@@ -512,7 +515,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
       in
 
-      let expr = Expr.Binder (binder, var_decl_list, inner_expr, expr_attr) in
+      let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
       check_and_set expr expr_typ expr_typ expected_typ
 
   (* end of process_expr *)
@@ -624,15 +627,16 @@ module ProcessCallable = struct
       in
       Rewriter.return Expr.(App (constr, expr_list, expr_attr))
       
-    | Binder (binder, var_decl_list, expr, expr_attr) -> 
+    | Binder (binder, var_decl_list, trgs, expr, expr_attr) -> 
       let disam_tbl = DisambiguationTbl.push disam_tbl in
       let disam_tbl, var_decl_list = List.fold_map var_decl_list ~init:disam_tbl ~f:(fun disam_tbl var_decl -> 
           let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
           disam_tbl, var_decl'
         ) in
       let* disambiguated_expr = disambiguate_expr expr disam_tbl in
+      let* trgs = Rewriter.List.map trgs ~f:(fun trg -> Rewriter.List.map trg ~f:(fun expr -> disambiguate_expr expr disam_tbl)) in
 
-      Rewriter.return Expr.(Binder (binder, var_decl_list, disambiguated_expr, expr_attr))
+      Rewriter.return Expr.(Binder (binder, var_decl_list, trgs, disambiguated_expr, expr_attr))
 
   let disambiguate_process_expr (expr: expr) (expected_typ: type_expr) (disam_tbl: DisambiguationTbl.t) : expr Rewriter.t = 
     let open Rewriter.Syntax in

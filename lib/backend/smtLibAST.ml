@@ -176,9 +176,11 @@ let rec pr_term ppf (term: term) = match term with
     | Own, _ | _ -> Error.smt_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
   end
 
-  | Binder (b, vs, f, _) ->
+  | Binder (b, vs, trgs, f, _) ->
     let vs = List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type)) in
-    fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
+    match trgs with
+    | [] -> fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
+    | _ -> fprintf ppf "@[(%s @[(%a)@,(! %a %a))@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f pr_trgs trgs
 
 and pr_terms ppf = function
   | [] -> ()
@@ -197,6 +199,11 @@ and pr_let_decls ppf = function
   | [decl] -> pr_let_decl ppf decl
   | decl :: decls ->
       fprintf ppf "%a@ %a" pr_let_decl decl pr_let_decls decls
+
+and pr_trgs ppf = function
+| [] -> ()
+| [t] -> fprintf ppf "@[:pattern (%a)@]" pr_terms t
+| t :: ts -> fprintf ppf "@[:pattern (%a) @,%a@]" pr_terms t pr_trgs ts
         
 (* and pr_annot ppf (t, a) =
   match a with

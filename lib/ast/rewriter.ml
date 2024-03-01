@@ -461,10 +461,11 @@ module Expr = struct
       let+ expr_list = List.map expr_list ~f in
       Expr.App (constr, expr_list, expr_attr)
 
-    | Binder (b, v_l, inner_expr, expr_attr) ->
+    | Binder (b, v_l, trgs, inner_expr, expr_attr) ->
       let+ _ = add_locals v_l
-      and+ inner_expr = f inner_expr in    
-      Expr.Binder (b, v_l, inner_expr, expr_attr)
+      and+ inner_expr = f inner_expr
+      and+ trgs = List.map trgs ~f:(List.map ~f) in
+      Expr.Binder (b, v_l, trgs, inner_expr, expr_attr)
 
   let rec rewrite_types ~(f: AstDef.Type.t -> (AstDef.Type.t, 'a) t_ext) (expr: Expr.t) : (Expr.t, 'a) t_ext =
     let open Syntax in
@@ -475,11 +476,12 @@ module Expr = struct
       let expr_attr = { expr_attr with expr_type = expr_type } in
       Expr.App (constr, expr_list, expr_attr)
 
-    | Binder (b, var_decls, inner_expr, expr_attr) ->
+    | Binder (b, var_decls, trgs, inner_expr, expr_attr) ->
       let* var_decls = List.map var_decls ~f:(VarDecl.rewrite_types ~f) in
       let+ _ = add_locals var_decls
-      and+ inner_expr = rewrite_types ~f inner_expr in
-      Expr.Binder (b, var_decls, inner_expr, expr_attr)
+      and+ inner_expr = rewrite_types ~f inner_expr 
+      and+ trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:(rewrite_types ~f)) in
+      Expr.Binder (b, var_decls, trgs, inner_expr, expr_attr)
     
   let rec rewrite_qual_idents ~f (expr: Expr.t) : (Expr.t, 'a) t_ext =
     let open Syntax in
@@ -496,11 +498,13 @@ module Expr = struct
       in
       Expr.App (constr, expr_list, expr_attr)
 
-    | Binder (b, var_decls, inner_expr, expr_attr) ->
+    | Binder (b, var_decls, trgs, inner_expr, expr_attr) ->
       let* var_decls = List.map var_decls ~f:(VarDecl.rewrite_types ~f:(Type.rewrite_qual_idents ~f)) in
       let+ _ = add_locals var_decls
-      and+ inner_expr = rewrite_qual_idents ~f inner_expr in
-      Expr.Binder (b, var_decls, inner_expr, expr_attr)
+      and+ inner_expr = rewrite_qual_idents ~f inner_expr 
+      and+ trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:(rewrite_qual_idents ~f)) in
+
+      Expr.Binder (b, var_decls, trgs, inner_expr, expr_attr)
     
 end
 
@@ -1321,7 +1325,7 @@ module ProgUtils = struct
   
       return (b1 && b2)
 
-    | Binder (_binder, _var_decls, expr, _) ->
+    | Binder (_binder, _var_decls, _trgs, expr, _) ->
       is_expr_pure expr
 
 
