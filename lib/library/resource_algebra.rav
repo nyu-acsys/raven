@@ -732,3 +732,90 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
     {}
 
 }
+
+module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra] : ResourceAlgebra {
+    rep type T = data {
+        case prod(proj1: M1, proj2: M2)
+    }
+
+    val id: T = prod(M1.id, M2.id)
+
+    func valid(n:T) 
+        returns (ret:Bool) 
+    {
+        n == prod(n.proj1, n.proj2) ? M1.valid(n.proj1) && M2.valid(n.proj2) : false
+    }
+
+    func comp(a:T, b:T)
+        returns (ret:T)
+    {
+        a == prod(a.proj1, a.proj2) && b == prod(b.proj1, b.proj2) ? 
+            prod(M1.comp(a.proj1, b.proj1), M2.comp(a.proj2, b.proj2)) : 
+            prod(M1.id, M2.id)
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        b == id ? a : 
+        (a == prod(a.proj1, a.proj2) && b == prod(b.proj1, b.proj2) ? 
+            prod(M1.frame(a.proj1, b.proj1), M2.frame(a.proj2, b.proj2)) : 
+            prod(M1.id, M2.id)
+        )
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) 
+        // ensures forall c:T :: valid(a) && valid(b) && valid(comp(a,c)) ==> valid(comp(b,c))    
+    {
+        a == b ? true : 
+        (a == prod(a.proj1, a.proj2) && b == prod(b.proj1, b.proj2) ? 
+            M1.fpuAllowed(a.proj1, b.proj1) && M2.fpuAllowed(a.proj2, b.proj2) : 
+            false
+        )
+    }
+
+    auto lemma idValid()
+        ensures valid(id)
+    { M1.idValid(); M2.idValid(); }
+
+    auto lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    { M1.compAssoc(); M2.compAssoc(); }
+
+    auto lemma compCommute()
+        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+    { M1.compCommute(); M2.compCommute(); }
+
+    auto lemma compId()
+        ensures forall a:T :: comp(a, id) == a
+    { M1.compId(); M2.compId(); }
+
+    auto lemma compValid()
+        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+    { M1.compValid(); M2.compValid(); }
+
+    auto lemma frameId()
+        ensures forall a:T :: frame(a, id) == a
+    { M1.frameId(); M2.frameId(); }
+
+    auto lemma compFrameInv()
+        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    { M1.compFrameInv(); M2.compFrameInv(); }
+
+    auto lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+            // valid(b) && 
+        valid(comp(a,c))) ==> valid(comp(b,c)))
+    { M1.fpuValid(); M2.fpuValid(); }
+
+    auto lemma fpuReflexive()
+        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+    { M1.fpuReflexive(); M2.fpuReflexive(); }
+
+    auto lemma frameValid()
+        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+    { M1.frameValid(); M2.frameValid(); }
+
+    auto lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    { M1.weak_frameCompInv(); M2.weak_frameCompInv(); }
+
+}
