@@ -106,12 +106,14 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
 
       let post_cond_expr =  
+        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
+
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
           (Expr.mk_impl 
             (Expr.mk_eq 
-              (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+              (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
-              (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg)))
+              ret_tuple
             ) 
 
           (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
@@ -142,9 +144,9 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       and spec_expr = 
 
          (Expr.mk_binder Forall (call_decl.call_decl_formals) 
-          ~trigs: [[(Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
+          ~trigs: [[(Expr.mk_app ~typ:Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
             (Expr.mk_eq 
-              (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+              (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
               expr
             ) 
@@ -155,13 +157,14 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       in
 
       let check_contract_expr = 
+        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns)
           (Expr.mk_impl 
             (Expr.mk_and 
               (
                 (Expr.mk_eq 
-                  (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg)))
-                  (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+                  ret_tuple
+                  (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
                 )
               :: List.map call_decl.call_decl_precond ~f:(fun pre -> pre.spec_form))
             )
@@ -171,12 +174,13 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       ) in
 
       let post_cond_expr = 
+        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
       (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
         (Expr.mk_impl 
           (Expr.mk_eq 
-            (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+            (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
-            (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg)))
+            ret_tuple
           ) 
 
         (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
@@ -261,7 +265,7 @@ let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
         let* _ = write (mk_declare_const qual_name var_def.var_decl.var_type) in
         (match var_def.var_init with
         | None -> Rewriter.return ()
-        | Some expr -> assume_expr (Expr.mk_eq (Expr.mk_app (Var qual_name) []) expr))
+        | Some expr -> assume_expr (Expr.mk_eq (Expr.mk_app ~typ:(Expr.to_type expr) (Var qual_name) []) expr))
 
 
       | _ -> Error.unsupported_error (Loc.dummy) ("Unsupported symbol: " ^ Symbol.to_string symbol)

@@ -743,7 +743,7 @@ module Expr = struct
 
   (** Constructors *)
   
-  let mk_app ?(loc = Loc.dummy) ?(typ = Type.bot) c es =
+  let mk_app ?(loc = Loc.dummy) ~typ c es =
     App (c, es, mk_attr loc typ)
 
   let mk_var ?(loc = Loc.dummy) ~typ (qual_ident: qual_ident) = 
@@ -1637,7 +1637,7 @@ module Callable = struct
 
   (** Computes the set of all symbols occuring free in [callable]. *)
   let symbols callable =
-    Logs.debug (fun m -> m "Computing symbols for callable %a" pr callable);
+    (* Logs.debug (fun m -> m "Computing symbols for callable %a" pr callable); *)
     let symbols_w_locals =
       match callable.call_def with
       | FuncDef { func_body = Some e; _} ->
@@ -1927,6 +1927,21 @@ module Predefs = struct
 
   let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
 
+  let lib_frac_chunk_constr_ident = Ident.make Loc.dummy "frac_chunk" 0
 
+  let lib_frac_chunk_destr1_ident = Ident.make Loc.dummy "frac_proj1" 0
+
+  let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
+
+  
+  let lib_auth_frag_constr_ident = Ident.make Loc.dummy "auth_frag" 0
+  
+  let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
+  
+  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Agree" 0]
+
+  let lib_agree_constr_ident = Ident.make Loc.dummy "agree_constr" 0
+
+  let lib_agree_destr1_ident = Ident.make Loc.dummy "agree_proj1" 0
 
 end

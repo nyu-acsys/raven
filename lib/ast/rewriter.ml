@@ -208,7 +208,8 @@ let introduce_symbol symbol s =
 let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.symbol t) (symbol: Module.symbol) (s: 'a state) : 'a state * qual_ident =
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
   
-  Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
+  (* Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol)); *)
+  Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" Symbol.pr symbol);
   let current_scope = s.state_table.tbl_curr.scope_id in
   let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
 
@@ -1189,7 +1190,7 @@ module ProgUtils = struct
     introduce_typecheck_symbol ~loc ~f symbol
 
   let rec does_symbol_implement_ra (symbol: AstDef.Module.symbol) : bool t =
-    Logs.debug (fun m -> m "Rewriter.ProgUtils.does_symbol_implement_ra: symbol = %a" AstDef.Symbol.pr symbol);
+    Logs.debug (fun m -> m "Rewriter.ProgUtils.does_symbol_implement_ra: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol));
     let open Syntax in
     match symbol with
     | ModDef mod_def ->
@@ -1328,5 +1329,38 @@ module ProgUtils = struct
     | Binder (_binder, _var_decls, _trgs, expr, _) ->
       is_expr_pure expr
 
+
+  let get_data_destrs_from_constr (qual_ident: qual_ident) : (qual_ident list) t =
+    let open Syntax in
+    let* symbol = find_and_reify (AstDef.QualIdent.to_loc qual_ident) qual_ident in
+    match symbol with
+    | AstDef.Module.ConstrDef constr_def ->
+
+      let tp_name = match constr_def.constr_return_type with
+        | App (Var qi, _, _) -> qi
+        | _ -> Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a variable"
+      in
+
+      let* symbol = find_and_reify (AstDef.QualIdent.to_loc tp_name) tp_name in
+      (match symbol with
+      | AstDef.Module.TypeDef { type_def_expr = Some tp_expr; _ } ->
+        (match tp_expr with
+        | App (Data (_, variant_decls), [], _) ->
+          let variant_decl = Base.List.find variant_decls ~f:(fun variant_decl -> Ident.equal variant_decl.variant_name qual_ident.qual_base) in
+
+          (match variant_decl with
+          | None -> Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a variant declaration"
+          | Some variant_decl ->
+            return (Base.List.map variant_decl.variant_args ~f:(fun var_decl -> QualIdent.append (QualIdent.pop qual_ident) var_decl.var_name)))
+
+        | _ ->
+          Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a data type"
+
+        )
+      
+      | _ -> Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a type definition"
+      )
+
+    | _ -> Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a constructor definition"
 
 end

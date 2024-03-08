@@ -1,0 +1,16 @@
+module NatAuth = Library.Auth[Library.Nat]
+
+field f: NatAuth
+
+field g: Int
+
+proc p() {
+  var x: Ref;
+
+  inhale own(x, f, NatAuth.auth_frag(3, 1));
+  exhale exists v: Int :: own(x, f, NatAuth.auth_frag(v, 0));
+
+
+  inhale forall z: Ref :: z != x ==> own(z, f, NatAuth.auth_frag(3, 1));
+  exhale forall z: Ref :: z != x ==> (exists v: Int :: own(z, f, NatAuth.auth_frag(v, 0)));
+}

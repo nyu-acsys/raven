@@ -536,7 +536,7 @@ let rec rewrite_new_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
     in
 
-    let inhale_expr = Expr.mk_app ~loc:stmt.stmt_loc Expr.Own 
+    let inhale_expr = Expr.mk_app ~typ:Type.perm ~loc:stmt.stmt_loc Expr.Own 
       [Expr.mk_var ~loc:stmt.stmt_loc ~typ:Type.ref new_desc.new_lhs;
       Expr.mk_var ~loc:stmt.stmt_loc ~typ:field_type field_name;
       field_val;
@@ -1112,6 +1112,97 @@ module HeapsExplicitTrnsl = struct
     in
       
     Rewriter.return assert_stmt
+
+
+  let generate_skolem_function (universal_quants: universal_quants) (var_decl: var_decl) ?(postconds: expr list = []) ?(optn_args: (var_decl * expr) list = []) ~loc : expr Rewriter.t = 
+    let open Rewriter.Syntax in
+    let univ_quants_list = universal_quants.univ_vars in
+
+    let skolem_fn_ident = Ident.fresh loc ("$skolem_" ^ (Ident.to_string var_decl.var_name)) in
+
+    let formal_var_decls = 
+      List.map univ_quants_list ~f:(fun (v, v_decl) -> 
+        { 
+          Type.var_name = v_decl.var_name; 
+          var_loc = loc; 
+          var_type = v_decl.var_type; 
+          var_const = true; 
+          var_ghost = false; 
+          var_implicit = false; 
+        }
+      ) @
+
+      List.map optn_args ~f:(fun (v_decl, _) -> 
+        { 
+          Type.var_name = v_decl.var_name; 
+          var_loc = loc; 
+          var_type = v_decl.var_type; 
+          var_const = true; 
+          var_ghost = false; 
+          var_implicit = false; 
+        }
+      )
+
+    in
+
+    let ret_var_decl = {
+      Type.var_name = Ident.fresh loc ("ret_" ^ (Ident.to_string var_decl.var_name));
+      var_loc = loc;
+      var_type = var_decl.var_type;
+      var_const = true;
+      var_ghost = false;
+      var_implicit = false;
+    } in
+
+    let postconds = List.map postconds ~f:(fun postcond -> 
+      Expr.alpha_renaming postcond (Map.singleton (module QualIdent) (QualIdent.from_ident var_decl.var_name) (Expr.from_var_decl ret_var_decl))
+      
+    ) in
+
+    let postconds = List.map postconds ~f:(fun postcond -> 
+      {
+        Stmt.spec_form = postcond;
+        spec_atomic = false;
+        spec_error = None;
+      }
+    ) in
+
+    let call_decl = {
+      Callable.call_decl_kind = Func;
+      call_decl_name = skolem_fn_ident;
+      call_decl_formals = formal_var_decls;
+      call_decl_returns = [ret_var_decl];
+      call_decl_locals = [];
+      call_decl_precond = [];
+      call_decl_postcond = postconds;
+      call_decl_loc = loc;
+      call_decl_is_free = false;
+      call_decl_is_auto = false;
+    }
+
+    in
+
+    let* skolem_fn_qual_ident = 
+      let+ module_qual_ident = Rewriter.current_module_name in
+
+      QualIdent.append module_qual_ident skolem_fn_ident
+
+    in
+  
+    let callable = Callable.{ call_decl; call_def = FuncDef { func_body = None;} }
+
+    
+    in
+
+    let symbol = Module.CallDef callable in
+
+    let* _ = Rewriter.introduce_typecheck_symbol ~loc ~f:(Typing.process_symbol) symbol in
+
+    let ret_expr_args_list = (List.map univ_quants_list ~f:(fun (_, vd) -> Expr.from_var_decl vd)) @ (List.map optn_args ~f:(fun (_, expr) -> expr)) in
+
+    let ret_expr = Expr.mk_app ~typ:var_decl.var_type (Expr.Var skolem_fn_qual_ident) ret_expr_args_list in
+
+    Rewriter.return ret_expr
 
 
   let rewrite_add_field_utils (symbol: Module.symbol) : Module.symbol Rewriter.t =
@@ -1897,7 +1988,7 @@ module HeapsExplicitTrnsl = struct
   end
 
   module TrnslExhale = struct
-    let rec rewriter_eliminate_existentials_from_exhales (stmt: Stmt.t) : (Stmt.t, expr option) Rewriter.t_ext =
+    let rec rewriter_user_annot_elim_exists_from_exhales (stmt: Stmt.t) : (Stmt.t, expr option) Rewriter.t_ext =
       let open Rewriter.Syntax in
 
       let rec find_existentials (expr: expr) : var_decl list =
@@ -1908,7 +1999,7 @@ module HeapsExplicitTrnsl = struct
 
       in
 
-      let elim_existentials_from_expr (expr: expr) (subst_map : expr qual_ident_map): expr = 
+      let subst_existentials (expr: expr) (subst_map : expr qual_ident_map): expr = 
         let rec elim_exists (expr: expr) (subst_map) : expr = 
           match expr with
           | Binder (Exists, var_decls, trgs, e, _) ->
@@ -1958,7 +2049,7 @@ module HeapsExplicitTrnsl = struct
               | Some var_map ->
                 let subst_map = Map.map var_map ~f:(fun (var_decl, expr) -> expr) in
                 let subst_map = (Map.map_keys_exn (module QualIdent)) subst_map ~f:(fun ident -> QualIdent.from_ident ident) in
-                let spec_form = elim_existentials_from_expr exhale_expr subst_map in
+                let spec_form = subst_existentials exhale_expr subst_map in
 
                 let spec = { spec with spec_form } in
 
@@ -1972,9 +2063,357 @@ module HeapsExplicitTrnsl = struct
 
       | _ -> 
         let* () = Rewriter.set_user_state None in
-        Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_existentials_from_exhales
+        Rewriter.Stmt.descend stmt ~f:rewriter_user_annot_elim_exists_from_exhales
     
+
+
+
     
+
+    module WitnessComputation = struct
+      let rec find_witnesses_elim_exists (expr: expr) : expr Rewriter.t =
+        elim_a {univ_vars = []; triggers = []} [] expr
+
+      and elim_a (universal_quants: universal_quants) (conds: conditions) (expr: expr): expr Rewriter.t =
+        let open Rewriter.Syntax in
+
+        match expr with
+        | App (Ite, [c; e1; e2], expr_attr) ->
+          let* e1 = elim_a universal_quants (c :: conds) e1 in
+    
+          let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
+          let* e2 = elim_a universal_quants (not_c :: conds) e2 in
+          
+          Rewriter.return (Expr.App (Ite, [c; e1; e2], expr_attr))
+        | App (Impl, [c; e2], expr_attr) ->
+          let+ e2 = elim_a universal_quants (c :: conds) e2 in
+          Expr.App (Impl, [c; e2], expr_attr)
+    
+        | App (And, e_list, expr_attr) ->
+          let* e_list = Rewriter.List.map e_list ~f:(fun e -> elim_a universal_quants conds e) in
+
+          Rewriter.return (Expr.App (And, e_list, expr_attr))
+
+        | Binder (Forall, var_decls, trgs, e, expr_attr) ->
+          let universal_quants = 
+            let new_quants = List.map var_decls ~f:(fun var_decl -> (var_decl.var_name, var_decl)) in
+            {  
+              univ_vars = universal_quants.univ_vars @ new_quants;
+              triggers = match universal_quants.triggers with
+              | [] -> trgs
+              | _ -> List.concat_map universal_quants.triggers ~f:(fun trigs -> List.map trgs ~f:(fun trg -> trigs @ trg));
+            }  
+          in
+
+          let* e = elim_a universal_quants conds e in
+    
+          Rewriter.return (Expr.Binder (Forall, var_decls, trgs, e, expr_attr))
+          
+    
+        | _ -> elim_a1 universal_quants conds expr
+  
+
+      and elim_a1 (univ_vars: universal_quants) (univ_conds: conditions) (expr: expr): expr Rewriter.t = 
+        let open Rewriter.Syntax in
+
+        match expr with
+        | Binder (Exists, var_decls, trgs, e, expr_attr) ->
+          let init_map = List.fold var_decls ~init:(Map.empty (module Ident)) ~f:(fun map var_decl -> 
+            Map.add_exn map ~key:var_decl.var_name ~data:[]
+          ) in
+          let* witnesses = elim_a0 univ_vars var_decls (univ_conds, []) e init_map in
+
+          Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: witnesses:");
+
+          List.iter (Map.to_alist witnesses) ~f:(fun (id, witns) ->
+            List.iter witns ~f:(fun (conds, e) ->
+                Logs.debug (fun m -> m "id: %a, conds: %a, e: %a" Ident.pr id (Fmt.Dump.list Expr.pr) conds (Fmt.Dump.option Expr.pr) e)
+            )
+          );
+
+          let* skolemized_exprs = Rewriter.List.map var_decls ~f:(fun var_decl ->
+              let* postconds, optn_args = (match Map.find witnesses var_decl.var_name with
+                | None -> Rewriter.return ([], [])
+                | Some witness_list -> 
+                  let witness_list = List.filter witness_list ~f:(fun (conds, e) -> Option.is_some e) in
+
+                  let postconds, optn_args =
+                  List.unzip
+                  (List.map witness_list ~f:(fun (conds, e) -> 
+                    let witness = (Option.value_exn e) in
+                    let optn_arg = { 
+                      Type.var_name = Ident.fresh var_decl.var_loc ("witness_" ^ (Ident.to_string var_decl.var_name));
+                      var_loc = var_decl.var_loc;
+                      var_type = (Expr.to_type witness);
+                      var_const = true;
+                      var_ghost = false;
+                      var_implicit = false;
+                    } in
+
+                    Expr.mk_impl 
+                      (Expr.mk_and (univ_conds @ conds)) 
+                      (Expr.mk_eq 
+                        (Expr.from_var_decl var_decl) 
+                        (Expr.from_var_decl optn_arg)
+                      ), (optn_arg, witness)
+                  ))
+
+                  in
+
+                  let conds = List.concat_map witness_list ~f:(fun (conds, _) -> conds) in
+                  let conds = univ_conds @ conds in
+
+                  let symbols = List.fold conds ~init:(Set.empty (module QualIdent)) ~f:(fun symbols cond -> 
+                    Expr.symbols cond
+                  ) in
+
+                  let locals = Set.filter symbols ~f:(fun s -> (QualIdent.is_local s) && not (List.exists univ_vars.univ_vars ~f:(fun (i, _) -> Ident.(i = (QualIdent.unqualify s))))) in
+
+                  let locals = Set.to_list locals in
+
+                  let* locals_var_decls = Rewriter.List.map locals ~f:(fun qual_ident -> 
+                    let+ symbol = Rewriter.find_and_reify var_decl.var_loc qual_ident in
+                    match symbol with
+                    | VarDef v -> v.var_decl
+                    | _ -> Error.error var_decl.var_loc "Expected a variable declaration"
+                    )
+                  in
+
+                  Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: locals_var_decls: %a" (Fmt.Dump.list QualIdent.pr) locals);
+
+                  let optn_args = optn_args @ (List.map locals_var_decls ~f:(fun var_decl -> (var_decl, Expr.from_var_decl var_decl))) in
+
+                  Rewriter.return (postconds, optn_args)
+              ) in
+
+              let+ expr = generate_skolem_function univ_vars var_decl ~postconds ~optn_args ~loc:var_decl.var_loc in
+
+              expr
+          )
+
+          in
+
+          let renaming_map = List.fold2_exn var_decls skolemized_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+            Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+          ) in
+
+          let e = Expr.alpha_renaming e renaming_map in
+
+          Rewriter.return e
+          
+          
+    
+        | _ -> 
+          (* No existentials found *)
+          Rewriter.return expr
+
+      and elim_a0 (univ_vars: universal_quants) (exist_vars: var_decl list) (univ_conds, exist_conds: conditions * conditions) (expr: expr) (witness_map: ((conditions * expr option) list ident_map)) : ((conditions * expr option) list ident_map) Rewriter.t =
+        let open Rewriter.Syntax in
+
+        match expr with
+        | App (And, e_list, _) ->
+          
+          let* witness_map = Rewriter.List.fold_left e_list ~init:witness_map ~f:(fun map e -> elim_a0 univ_vars exist_vars (univ_conds, exist_conds) e map) in
+
+          Rewriter.return witness_map
+        
+        | App (Impl, [c; e2], _) ->
+          let* witness_map = elim_a0 univ_vars exist_vars (univ_conds, c :: exist_conds) e2 witness_map in
+
+          Rewriter.return witness_map
+
+        | App (Ite, [c; e1; e2], _) ->
+          let* witness_map = elim_a0 univ_vars exist_vars (univ_conds, c :: exist_conds) e1 witness_map in
+
+          let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
+          let* witness_map = elim_a0 univ_vars exist_vars (univ_conds, not_c :: exist_conds) e2 witness_map in
+
+          Rewriter.return witness_map
+
+        | App (Own, [loc_expr; field_expr; val_expr], _) ->
+          let field_name = try Expr.to_qual_ident field_expr 
+            with _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier." 
+          in
+
+          let field_elem_type = (match Expr.to_type field_expr with
+            | App (Fld, [tp_expr], _) -> tp_expr
+            | _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier.")
+        
+          in
+
+          let field_heap_name = field_heap_name field_name in
+          let field_heap_type = Type.mk_map (Expr.to_loc expr) Type.ref field_elem_type in
+
+          let concrete_expr = Expr.mk_maplookup (Expr.mk_var ~typ:field_heap_type (QualIdent.from_ident field_heap_name)) loc_expr in
+
+          let relevant_vars = List.filter exist_vars ~f:(fun var_decl -> Set.exists (Expr.local_vars val_expr) ~f:(Ident.equal var_decl.var_name)) in
+
+          let* witnesses = core_witness_comp relevant_vars concrete_expr val_expr false in
+
+          Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: witnesses: %a" (Fmt.Dump.list (fun ppf (i, e)  -> Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i Expr.pr e)) (Map.to_alist witnesses));
+
+          let witness_map = List.fold relevant_vars ~init:witness_map ~f:(fun witness_map var_decl -> 
+            let existing_val = Map.find_exn witness_map var_decl.var_name in  
+
+            let new_val = (exist_conds, Map.find witnesses var_decl.var_name) :: existing_val in
+
+            Map.set witness_map ~key:var_decl.var_name ~data:new_val
+            
+          ) in
+
+          Rewriter.return witness_map
+
+
+        | _ -> 
+          Rewriter.return (Map.empty (module Ident))
+
+
+      and core_witness_comp (exists: var_decl list) (concrete_expr: expr) (given_expr: expr) (exact: bool) : (expr ident_map) Rewriter.t = 
+        let open Rewriter.Syntax in
+
+        Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.core_witness_comp: exists: %a, concrete_expr: %a, given_expr: %a, exact: %b" 
+          (Fmt.Dump.list Ident.pr) (List.map exists ~f:(fun v -> v.var_name)) Expr.pr concrete_expr Expr.pr given_expr exact);
+
+        match exact with
+        | false ->
+          let ra_name = match (Expr.to_type given_expr) with
+            | App (Var ra_name, [], _) -> (QualIdent.pop ra_name)
+            | App (Data (ra_name, _), [], _) -> (QualIdent.pop ra_name)
+            | tp -> Error.type_error (Expr.to_loc given_expr) ("Expected an RA type; found: " ^ Type.to_string tp)
+        
+          in
+
+          let* orig_name, ra_def, _ = Rewriter.find (Expr.to_loc given_expr) ra_name in
+
+          if QualIdent.(orig_name = Predefs.lib_auth_mod_qual_ident) then
+            (match given_expr with
+            | App (DataConstr constr_ident, exprs, _) ->
+              if Ident.(QualIdent.unqualify constr_ident = Predefs.lib_auth_frag_constr_ident) then
+                let auth_chunk = Expr.mk_app ~typ:(Expr.to_type (List.hd_exn exprs)) (Expr.DataDestr (QualIdent.append ra_name Predefs.lib_auth_frag_destr1_ident)) [concrete_expr] in
+                core_witness_comp exists auth_chunk (List.hd_exn exprs) true
+
+                (* Error.error_simple "unimplemented" *)
+
+              else
+                Rewriter.return (Map.empty (module Ident))
+                
+            | _ -> 
+              Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
+            )
+
+          else if QualIdent.(orig_name = Predefs.lib_frac_mod_qual_ident) then
+            (match given_expr with
+            | App (DataConstr constr_ident, exprs, _) ->
+              if Ident.(QualIdent.unqualify constr_ident = Predefs.lib_frac_chunk_constr_ident) then
+                let frac_chunk = Expr.mk_app ~typ:(Expr.to_type (List.hd_exn exprs)) (Expr.DataDestr (QualIdent.append ra_name Predefs.lib_frac_chunk_destr1_ident)) [concrete_expr] in
+                core_witness_comp exists frac_chunk (List.hd_exn exprs) true
+
+              else
+                Rewriter.return (Map.empty (module Ident))
+
+            | _ -> 
+              Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
+            )
+
+          else if QualIdent.(orig_name = Predefs.lib_agree_mod_qual_ident) then
+            (match given_expr with
+            | App (DataConstr constr_ident, exprs, _) ->
+              if Ident.(QualIdent.unqualify constr_ident = Predefs.lib_agree_constr_ident) then
+                let agree_chunk = Expr.mk_app ~typ:(Expr.to_type (List.hd_exn exprs)) (Expr.DataDestr (QualIdent.append ra_name Predefs.lib_agree_destr1_ident)) [concrete_expr] in
+                core_witness_comp exists agree_chunk (List.hd_exn exprs) true
+
+              else
+                Rewriter.return (Map.empty (module Ident))
+
+            | _ -> 
+              Error.type_error (Expr.to_loc given_expr) "Expected a data constructor."
+            )
+
+          else
+            Rewriter.return (Map.empty (module Ident))
+            
+        
+        | true ->
+          match given_expr with
+          | App (Var ident, [], _) ->
+            if List.exists exists ~f:(fun var_decl -> Poly.((QualIdent.from_ident var_decl.var_name) = ident)) then
+              Rewriter.return (Map.singleton (module Ident) (QualIdent.unqualify ident) concrete_expr)
+            else
+              Rewriter.return (Map.empty (module Ident))
+
+          | App (Tuple, exprs, _) ->
+            let* witness_map = Rewriter.List.fold_left exprs ~init:(Map.empty (module Ident)) ~f:(fun witness_map expr -> 
+              let* new_witness_map = core_witness_comp exists concrete_expr expr true in
+
+              let witness_map = Map.merge witness_map new_witness_map ~f:(fun ~key:_ -> function
+                | `Both (w1, w2) -> Some w1
+                | `Left w1 -> Some w1
+                | `Right w2 -> Some w2
+              ) in
+
+              Rewriter.return witness_map
+            ) in
+
+            Rewriter.return witness_map
+
+          | App (DataConstr qual_iden, exprs, _) ->
+            let* destrs = Rewriter.ProgUtils.get_data_destrs_from_constr qual_iden in
+
+            let* destrs = Rewriter.List.map destrs ~f:(fun destr -> 
+              let+ destr_ret_type =
+                let* destr_symbol = Rewriter.find_and_reify (Expr.to_loc given_expr) destr in
+                match destr_symbol with
+                | DestrDef destr -> Rewriter.return destr.destr_return_type
+                | _ -> Error.error (Expr.to_loc given_expr) "Expected a destr definition"
+              in
+
+              destr, destr_ret_type
+
+            ) in
+
+            let destr_exprs = List.map2_exn destrs exprs ~f:(fun (destr, ret_typ) expr -> 
+               Expr.mk_app ~typ:ret_typ (Expr.DataDestr destr) [expr]
+              
+            ) in
+
+            let* witness_map = Rewriter.List.fold_left destr_exprs ~init:(Map.empty (module Ident)) ~f:(fun witness_map destr_expr -> 
+              let* new_witness_map = core_witness_comp exists concrete_expr destr_expr true in
+
+              let witness_map = Map.merge witness_map new_witness_map ~f:(fun ~key:_ -> function
+                | `Both (w1, w2) -> Some w1
+                | `Left w1 -> Some w1
+                | `Right w2 -> Some w2
+              ) in
+
+              Rewriter.return witness_map
+            ) in
+
+            Rewriter.return witness_map
+
+          | _ ->
+            Rewriter.return (Map.empty (module Ident))
+    end
+
+
+    let rec rewriter_find_witness_elim_exists_from_exhale (stmt: Stmt.t) : Stmt.t Rewriter.t =
+      let open Rewriter.Syntax in
+      match stmt.stmt_desc with
+      | Basic (Spec (Exhale, spec)) ->
+        let exhale_expr = spec.spec_form in
+        begin
+          let* elim_expr = WitnessComputation.find_witnesses_elim_exists exhale_expr in
+
+          let spec = { spec with spec_form = elim_expr } in
+
+          Rewriter.return {stmt with stmt_desc = Basic (Spec (Exhale, spec))}
+        end
+
+      | Basic (Spec (Assert, spec)) ->
+        Rewriter.return stmt
+
+
+      | _ -> 
+        Rewriter.Stmt.descend stmt ~f:rewriter_find_witness_elim_exists_from_exhale
     
     let rec trnsl_exhale_expr (expr: expr) : Stmt.t Rewriter.t =
       trnsl_exhale_a [] expr
@@ -2265,7 +2704,7 @@ let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
 
     let* body = HeapsExplicitTrnsl.introduce_heaps_in_stmts ~loc:c.call_decl.call_decl_loc ~fields_list ~preds_list body in
 
-    let* body = HeapsExplicitTrnsl.rewrite_make_heaps_explicit body in
+    (* let* body = HeapsExplicitTrnsl.rewrite_make_heaps_explicit body in *)
 
     Rewriter.return { c with call_def = ProcDef { proc_body = Some body; } }
   
@@ -2499,25 +2938,31 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_own_expr_4_arg on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_own_expr_4_arg m in
+  
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_field_utils on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rec_rewrite_symbols ~f:HeapsExplicitTrnsl.rewrite_add_field_utils m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_skolemize_inhale_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_inhale_stmts m in
 
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_eliminate_existentials_from_exhales on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_eliminate_binds_for_inhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = 
     Rewriter.eval_with_user_state ~init:None
     (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale m) in
 
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_eliminate_existentials_from_exhales on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_user_annot_elim_exists_from_exhales on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = 
     Rewriter.eval_with_user_state ~init:None
-    (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_eliminate_existentials_from_exhales m) in
-
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_field_utils on module %a" Ident.pr m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rec_rewrite_symbols ~f:HeapsExplicitTrnsl.rewrite_add_field_utils m in
+    (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales m) in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_introduce_heaps on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_introduce_heaps m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_find_witness_elim_exists_from_exhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_find_witness_elim_exists_from_exhale m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_make_heaps_explicit on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_ssa_transform on module %a: %a" Ident.pr m.mod_decl.mod_decl_name Module.pr m);
   let* m = 
