@@ -1,0 +1,20 @@
+module IntType : Library.Type {
+  rep type T = Int;
+}
+
+module NatAgree = Library.AgreeRA[IntType]
+
+field f: NatAgree
+
+proc p() {
+  var x: Ref;
+  var a1: Int;
+  var a2: Int;
+
+  assume (a1 != a2);
+
+  inhale own(x, f, NatAgree.agree_constr(a1));
+  inhale own(x, f, NatAgree.agree_constr(a2));
+
+  assert false;
+}

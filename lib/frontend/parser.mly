@@ -243,15 +243,16 @@ proc_decl:
 | k = PROC; decl = callable_decl {
   Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
 }
-
 | AUTO; k = PROC; decl = callable_decl {
   Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = true; }; call_def = ProcDef { proc_body = None } }
-
 }
 
 func_decl:
 | k = FUNC; decl = callable_decl {
   Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = FuncDef { func_body = None } }
+}
+| k = FUNC; decl = callable_decl_out_vars {
+  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
 }
 
 callable_decl:
@@ -271,6 +272,25 @@ callable_decl:
              }
   in decl
 }
+
+callable_decl_out_vars:
+  id = IDENT; LPAREN; formals = var_decls_with_modifiers; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
+  let precond, postcond = cs in
+  let decl =
+    Callable.{ call_decl_kind = Func;
+               call_decl_name = id;
+               call_decl_formals = formals;
+               call_decl_returns = returns;
+               call_decl_locals = [];
+               call_decl_precond = precond;
+               call_decl_postcond = postcond;
+               call_decl_is_free = false;
+               call_decl_is_auto = false;
+               call_decl_loc = Loc.make $startpos(id) $endpos(id);
+             }
+  in decl
+}
+
 
 return_params:
 | RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }

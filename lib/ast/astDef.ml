@@ -756,6 +756,8 @@ module Expr = struct
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
+  let mk_int ?(loc = Loc.dummy) i = mk_app ~loc ~typ:Type.int (Int (Int64.of_int i)) []
+
   let mk_tuple ?(loc = Loc.dummy) es = 
     match es with
     | e :: [] -> e
@@ -1943,5 +1945,9 @@ module Predefs = struct
   let lib_agree_constr_ident = Ident.make Loc.dummy "agree_constr" 0
 
   let lib_agree_destr1_ident = Ident.make Loc.dummy "agree_proj1" 0
+
+  let lib_countAgreeRA_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CountAgreeRA" 0]
+
+  let lib_countAgreeRA_constr_ident = Ident.make Loc.dummy "count_cons" 0
 
 end

@@ -887,6 +887,90 @@ let stmt_preds_mentioned (s: Stmt.t) : (QualIdent.t list) Rewriter.t =
   Rewriter.return preds_list
 
 
+let rewrite_add_predicate_validity_lemmas (c: Callable.t) : Callable.t Rewriter.t =
+  let open Rewriter.Syntax in
+
+  match c.call_decl.call_decl_kind with
+  | Pred ->
+    (match c.call_decl.call_decl_returns, c.call_def with
+    | [], _ | _, FuncDef { func_body =  None} -> Rewriter.return c
+    
+    | rets, FuncDef { func_body =  Some body} ->
+      let pred_valid_lemma_ident = Ident.fresh c.call_decl.call_decl_loc ("pred_valid$" ^ (Ident.to_string c.call_decl.call_decl_name)) in
+
+      let formal_args, renaming_map1, renaming_map2, preconds =
+        let renamings, in_args = List.fold_map c.call_decl.call_decl_formals ~init:(Map.empty (module QualIdent)) ~f:(fun acc_renamings var_decl ->
+          let new_var_decl = { var_decl with var_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name } in
+          let new_var_expr = Expr.from_var_decl new_var_decl in
+
+          (Map.add_exn acc_renamings ~key:(QualIdent.from_ident var_decl.var_name) ~data:new_var_expr), new_var_decl
+        ) in
+
+        let renamings1, out_args1 = List.fold_map rets ~init:renamings ~f:(fun acc_renamings var_decl ->
+          let new_var_decl = { var_decl with var_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name } in
+          let new_var_expr = Expr.from_var_decl new_var_decl in
+
+          (Map.add_exn acc_renamings ~key:(QualIdent.from_ident var_decl.var_name) ~data:new_var_expr), new_var_decl
+        ) in
+
+        let renamings2, out_args2 = List.fold_map rets ~init:renamings ~f:(fun acc_renamings var_decl ->
+          let new_var_decl = { var_decl with var_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name } in
+          let new_var_expr = Expr.from_var_decl new_var_decl in
+
+          (Map.add_exn acc_renamings ~key:(QualIdent.from_ident var_decl.var_name) ~data:new_var_expr), new_var_decl
+        ) in
+
+        let preconds = List.map2_exn out_args1 out_args2 ~f:(fun out_arg1 out_arg2 ->
+          let spec_expr = Expr.mk_not (Expr.mk_eq ~loc:(Expr.to_loc body) (Expr.from_var_decl out_arg1) (Expr.from_var_decl out_arg2)) in
+          
+          { 
+            Stmt.spec_form = spec_expr; 
+            spec_atomic = false; 
+            spec_error = None;
+          }
+        ) in
+
+        in_args @ out_args1 @ out_args2, renamings1, renamings2, preconds
+      in
+
+      let postcond = { 
+        Stmt.spec_form = Expr.mk_bool ~loc:(Expr.to_loc body) false; 
+        spec_atomic = false; 
+        spec_error = None;
+      } in
+
+      let call_decl = {
+        Callable.call_decl_kind = Lemma;
+        call_decl_name = pred_valid_lemma_ident;
+        call_decl_formals = formal_args;
+        call_decl_returns = [];
+        call_decl_locals = [];
+        call_decl_precond = preconds;
+        call_decl_postcond = [postcond];
+        call_decl_is_free = false;
+        call_decl_is_auto = false;
+        call_decl_loc = c.call_decl.call_decl_loc;
+      }
+
+      in
+
+      let call_body = Stmt.mk_block_stmt ~loc:c.call_decl.call_decl_loc [
+        Stmt.mk_inhale_expr ~loc:c.call_decl.call_decl_loc (Expr.alpha_renaming body renaming_map1);
+        Stmt.mk_inhale_expr ~loc:c.call_decl.call_decl_loc (Expr.alpha_renaming body renaming_map2);
+      ] in
+
+      let call_def = Module.CallDef (Callable.{ call_decl; call_def = ProcDef { proc_body = Some call_body } }) in
+
+      let* _ = Rewriter.introduce_typecheck_symbol ~loc:c.call_decl.call_decl_loc ~f:Typing.process_symbol call_def in
+
+      Rewriter.return c
+
+    | _, ProcDef _ -> Error.internal_error c.call_decl.call_decl_loc "Expected a function definition for a predicate"
+    )
+
+  | _ -> Rewriter.return c
+
+
 module HeapsExplicitTrnsl = struct
   (**
   
@@ -956,6 +1040,16 @@ module HeapsExplicitTrnsl = struct
     let field_name_str = QualIdent.to_string field_name in
     let field_name_str = Rewriter.ProgUtils.serialize field_name_str in
     Ident.make (Loc.dummy) (field_name_str ^ "$Heap2") 0
+
+  let pred_heap_name (pred_name: qual_ident) = 
+    let pred_name_str = QualIdent.to_string pred_name in
+    let pred_name_str = Rewriter.ProgUtils.serialize pred_name_str in
+    Ident.make (Loc.dummy) (pred_name_str ^ "$Heap") 0
+
+  let pred_heap_name2 (pred_name: qual_ident) = 
+    let pred_name_str = QualIdent.to_string pred_name in
+    let pred_name_str = Rewriter.ProgUtils.serialize pred_name_str in
+    Ident.make (Loc.dummy) (pred_name_str ^ "$Heap2") 0
 
 
   let generate_inv_function (universal_quants: universal_quants) ((conds1, conds2): conditionals) (existential_quants: existential_quants) (expr: expr) (var: ident): qual_ident Rewriter.t =
@@ -1205,16 +1299,14 @@ module HeapsExplicitTrnsl = struct
     Rewriter.return ret_expr
 
 
-  let rewrite_add_field_utils (symbol: Module.symbol) : Module.symbol Rewriter.t =
+  let generate_utils_module (mod_ident: ident) (ra_qual_ident: qual_ident) (loc: location): Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
-    match symbol with
-    | FieldDef f ->
-      let* utils_module = 
-        (* 
+
+           (* 
         module f$utils {
           type T = f.field_type.T;
 
-          var id : T;
+          var id : T = f.field_type.id;
 
           func f$heapValid(h: Map[Ref, T]) returns (ret:Bool) {
             forall l: Ref :: T.valid(h[l])
@@ -1234,73 +1326,73 @@ module HeapsExplicitTrnsl = struct
         }
         *)
 
-        let fld_elem_type = match f.field_type with
+        (* let fld_elem_type = match f.field_type with
           | App (Fld, [tp_expr], _) -> tp_expr
           | _ -> Error.type_error f.field_loc "Expected field identifier." 
         
-        in
+        in *)
 
-        let mod_name = Rewriter.ProgUtils.field_utils_module_ident f.field_loc f.field_name in
+        let fld_elem_type = Rewriter.ProgUtils.get_ra_rep_type ra_qual_ident in
 
         let mod_decl = {
-          Module.mod_decl_name = mod_name;
+          Module.mod_decl_name = mod_ident;
           mod_decl_formals = [];
           mod_decl_returns = None;
           mod_decl_interfaces = Set.empty (module QualIdent);
           mod_decl_rep = None;
           mod_decl_is_ra = false;
           mod_decl_is_interface = false;
-          mod_decl_loc = f.field_loc;
+          mod_decl_loc = loc;
         } 
           
         in
 
         let* mod_def =
-          let type_ident = Ident.make f.field_loc "T" 0 in
-          let type_tp_expr = Type.mk_var f.field_loc (QualIdent.from_ident type_ident) in
+          let type_ident = Rewriter.ProgUtils.heap_utils_rep_type_ident loc in
+          let type_tp_expr = Type.mk_var loc (QualIdent.from_ident type_ident) in
 
           let type_def = {
             Module.type_def_name = type_ident;
             type_def_expr = Some fld_elem_type;
             type_def_rep = true;
-            type_def_loc = f.field_loc;
+            type_def_loc = loc;
           } in
 
           let var_def = {
             Stmt.var_decl = 
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Rewriter.ProgUtils.field_utils_id_ident f.field_loc) type_tp_expr;
-            var_init = Some (Expr.mk_var ~loc:f.field_loc ~typ:fld_elem_type (Rewriter.ProgUtils.field_get_ra_id f));
+              Type.mk_var_decl ~loc ~const:true (Rewriter.ProgUtils.heap_utils_id_ident loc) type_tp_expr;
+            var_init = Some (Expr.mk_var ~loc ~typ:fld_elem_type (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
           } in
 
           let heap_valid_fn_decl = {
             Callable.call_decl_kind = Func;
-            call_decl_name = Rewriter.ProgUtils.field_utils_valid_ident f.field_loc;
+            call_decl_name = Rewriter.ProgUtils.heap_utils_valid_ident loc;
             call_decl_formals = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "h") (Type.mk_map f.field_loc Type.ref type_tp_expr)
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "h") (Type.mk_map loc Type.ref type_tp_expr)
             ];
             call_decl_returns = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "ret") Type.bool
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool
             ];
             call_decl_locals = [];
             call_decl_precond = [];
             call_decl_postcond = [];
-            call_decl_is_free = false;
+            call_decl_is_free = true;
             call_decl_is_auto = false;
-            call_decl_loc = f.field_loc;
+            call_decl_loc = loc;
           } in
 
           let l_var_decl = 
-            Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "l") Type.ref
+            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "l") Type.ref
           in
 
-          let ra_valid_fn_qual_ident = Rewriter.ProgUtils.get_ra_valid_fn_qual_ident f in
+          let ra_valid_fn_qual_ident = Rewriter.ProgUtils.get_ra_valid_fn_qual_ident ra_qual_ident in
 
           let heap_valid_fn = {
             Callable.call_decl = heap_valid_fn_decl;
             call_def = FuncDef { func_body = Some (
-              Expr.mk_binder ~loc:f.field_loc ~typ:Type.bool Forall [l_var_decl] (
-                  Expr.mk_app ~loc:f.field_loc ~typ:Type.bool (Expr.Var ra_valid_fn_qual_ident) [
-                Expr.mk_maplookup ~loc:f.field_loc (Expr.from_var_decl (List.hd_exn heap_valid_fn_decl.call_decl_formals)) (Expr.from_var_decl l_var_decl)
+              Expr.mk_binder ~loc ~typ:Type.bool Forall [l_var_decl] (
+                  Expr.mk_app ~loc ~typ:Type.bool (Expr.Var ra_valid_fn_qual_ident) [
+                Expr.mk_maplookup ~loc (Expr.from_var_decl (List.hd_exn heap_valid_fn_decl.call_decl_formals)) (Expr.from_var_decl l_var_decl)
                 ]
               )
             )
@@ -1312,26 +1404,26 @@ module HeapsExplicitTrnsl = struct
 
           let heap_add_chunk_fn_decl = {
             Callable.call_decl_kind = Func;
-            call_decl_name = Rewriter.ProgUtils.field_utils_comp_chunk_ident f.field_loc;
+            call_decl_name = Rewriter.ProgUtils.heap_utils_comp_chunk_ident loc;
             call_decl_formals = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "x1") type_tp_expr;
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "x2") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
             ];
             call_decl_returns = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "ret") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr;
             ];
             call_decl_locals = [];
             call_decl_precond = [];
             call_decl_postcond = [];
-            call_decl_is_free = false;
+            call_decl_is_free = true;
             call_decl_is_auto = false;
-            call_decl_loc = f.field_loc;
+            call_decl_loc = loc;
           } in
 
           let heap_add_chunk_fn = {
             Callable.call_decl = heap_add_chunk_fn_decl;
             call_def = FuncDef { func_body = Some (
-              Expr.mk_app ~loc:f.field_loc ~typ:type_tp_expr (Expr.Var (Rewriter.ProgUtils.get_ra_comp_fn_qual_ident f)) [
+              Expr.mk_app ~loc ~typ:type_tp_expr (Expr.Var (Rewriter.ProgUtils.get_ra_comp_fn_qual_ident ra_qual_ident)) [
                 Expr.from_var_decl (List.hd_exn heap_add_chunk_fn_decl.call_decl_formals);
                 Expr.from_var_decl (List.nth_exn heap_add_chunk_fn_decl.call_decl_formals 1)
               ]
@@ -1344,26 +1436,26 @@ module HeapsExplicitTrnsl = struct
 
           let heap_sub_chunk_fn_decl = {
             Callable.call_decl_kind = Func;
-            call_decl_name = Rewriter.ProgUtils.field_utils_frame_chunk_ident f.field_loc;
+            call_decl_name = Rewriter.ProgUtils.heap_utils_frame_chunk_ident loc;
             call_decl_formals = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "x1") type_tp_expr;
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "x2") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
             ];
             call_decl_returns = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "ret") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr;
             ];
             call_decl_locals = [];
             call_decl_precond = [];
             call_decl_postcond = [];
-            call_decl_is_free = false;
+            call_decl_is_free = true;
             call_decl_is_auto = false;
-            call_decl_loc = f.field_loc;
+            call_decl_loc = loc;
           } in
 
           let heap_sub_chunk_fn = {
             Callable.call_decl = heap_sub_chunk_fn_decl;
             call_def = FuncDef { func_body = Some (
-              Expr.mk_app ~loc:f.field_loc ~typ:type_tp_expr (Expr.Var (Rewriter.ProgUtils.get_ra_frame_fn_qual_ident f)) [
+              Expr.mk_app ~loc ~typ:type_tp_expr (Expr.Var (Rewriter.ProgUtils.get_ra_frame_fn_qual_ident ra_qual_ident)) [
                 Expr.from_var_decl (List.hd_exn heap_sub_chunk_fn_decl.call_decl_formals);
                 Expr.from_var_decl (List.nth_exn heap_sub_chunk_fn_decl.call_decl_formals 1)
               ]
@@ -1375,20 +1467,20 @@ module HeapsExplicitTrnsl = struct
 
           let heapchunk_compare_fn_decl = {
             Callable.call_decl_kind = Func;
-            call_decl_name = Rewriter.ProgUtils.field_utils_heapchunk_compare_id f.field_loc;
+            call_decl_name = Rewriter.ProgUtils.heap_utils_heapchunk_compare_id loc;
             call_decl_formals = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "x1") type_tp_expr;
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "x2") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
             ];
             call_decl_returns = [
-              Type.mk_var_decl ~loc:f.field_loc ~const:true (Ident.fresh f.field_loc "ret") Type.bool;
+              Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool;
             ];
             call_decl_locals = [];
             call_decl_precond = [];
             call_decl_postcond = [];
-            call_decl_is_free = false;
+            call_decl_is_free = true;
             call_decl_is_auto = false;
-            call_decl_loc = f.field_loc;
+            call_decl_loc = loc;
           } in
 
 
@@ -1396,8 +1488,8 @@ module HeapsExplicitTrnsl = struct
           let heapchunk_compare_fn = {
             Callable.call_decl = heapchunk_compare_fn_decl;
             call_def = FuncDef { func_body = Some (
-              Expr.mk_app ~loc:f.field_loc ~typ:type_tp_expr (Expr.Var ra_valid_fn_qual_ident) [
-                Expr.mk_app ~loc:f.field_loc ~typ:type_tp_expr (Expr.Var (QualIdent.from_ident heap_sub_chunk_fn_decl.call_decl_name)) [
+              Expr.mk_app ~loc ~typ:type_tp_expr (Expr.Var ra_valid_fn_qual_ident) [
+                Expr.mk_app ~loc ~typ:type_tp_expr (Expr.Var (QualIdent.from_ident heap_sub_chunk_fn_decl.call_decl_name)) [
                   Expr.from_var_decl (List.hd_exn heapchunk_compare_fn_decl.call_decl_formals);
                   Expr.from_var_decl (List.nth_exn heapchunk_compare_fn_decl.call_decl_formals 1)
                 ]
@@ -1422,6 +1514,15 @@ module HeapsExplicitTrnsl = struct
         in
         
         Rewriter.return (Module.ModDef { mod_decl; mod_def; }) 
+
+  let rewrite_add_field_utils (symbol: Module.symbol) : Module.symbol Rewriter.t =
+    let open Rewriter.Syntax in
+    match symbol with
+    | FieldDef f ->
+      let* utils_module = 
+        let ra_qual_ident = Rewriter.ProgUtils.field_get_ra_qual_iden f in
+        let mod_ident = Rewriter.ProgUtils.field_utils_module_ident f.field_loc f.field_name in
+        generate_utils_module mod_ident ra_qual_ident f.field_loc
       
       in
         
@@ -1431,11 +1532,42 @@ module HeapsExplicitTrnsl = struct
 
   | _ -> Rewriter.return symbol
 
+  let rewrite_add_pred_utils (c: Callable.t) : Callable.t Rewriter.t = 
+    let open Rewriter.Syntax in
+    match c.call_decl.call_decl_kind with
+    | Pred -> 
+      let loc = c.call_decl.call_decl_loc in
+      let pred_ret_type = Type.mk_prod c.call_decl.call_decl_loc (List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> var_decl.var_type)) in
+
+      let* pred_ret_type_module = Rewriter.ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc ~f:Typing.process_symbol pred_ret_type in
+
+      let instantiated_pred_count_agree_ra = 
+        Module.ModInst {
+          mod_inst_name = Rewriter.ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name;
+          mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
+          mod_inst_def = Some (Predefs.lib_countAgreeRA_mod_qual_ident, [pred_ret_type_module]);
+          mod_inst_is_interface = false;
+          mod_inst_loc = loc;
+        } in
+
+      let* pred_count_agree_ra = Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol instantiated_pred_count_agree_ra in
+
+
+      let* utils_module = 
+        generate_utils_module (Ident.fresh loc ("$pred_" ^ (Ident.to_string c.call_decl.call_decl_name))) pred_count_agree_ra loc
+      in
+
+      let* _ = Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol utils_module in
+
+      Rewriter.return c
+
+    | _ -> Rewriter.return c
+
   let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list body : Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     (* TODO: Introduce variables of right types for predHeaps *)
 
-    let* (heap_var_defs) = Rewriter.List.map fields_list ~f:(fun field_name -> 
+    let* field_heap_var_defs = Rewriter.List.map fields_list ~f:(fun field_name -> 
       let* field_symbol = Rewriter.find_and_reify (Loc.dummy) field_name in
 
       let field_elem_type = match field_symbol with
@@ -1478,14 +1610,50 @@ module HeapsExplicitTrnsl = struct
       
     ) in
 
-    let* _ = Rewriter.List.iter heap_var_defs ~f:(fun (heap_var_decl, heap_var_decl2) -> 
+    let* pred_heap_var_defs = Rewriter.List.map preds_list ~f:(fun pred_name -> 
+      let* pred_symbol = Rewriter.find_and_reify (Loc.dummy) pred_name in
+
+      let* pred_heap_elem_type_qual_ident = Rewriter.ProgUtils.get_pred_utils_rep_type loc pred_name in
+
+      let pred_heap_elem_type = Type.mk_var loc pred_heap_elem_type_qual_ident in
+
+      let* pred_in_types = Rewriter.ProgUtils.pred_in_types pred_name in
+
+      (* Done so that Ident is aware of this name being used; prevents the same name from being generated again during SSA transform *)
+      let _ = Ident.fresh loc (pred_heap_name pred_name).ident_name in
+
+      let (heap_var_decl: var_decl) = {
+        var_name = pred_heap_name pred_name;
+        var_loc = loc;
+        var_type = Type.mk_map loc (Type.mk_prod loc pred_in_types) pred_heap_elem_type;
+        var_const = false;
+        var_ghost = true;
+        var_implicit = false;
+      } in
+
+      let _ = Ident.fresh loc (pred_heap_name2 pred_name).ident_name in
+
+      let (heap_var_decl2: var_decl) = {
+        var_name = pred_heap_name2 pred_name;
+        var_loc = loc;
+        var_type = Type.mk_map loc (Type.mk_prod loc pred_in_types) pred_heap_elem_type;
+        var_const = false;
+        var_ghost = true;
+        var_implicit = false;
+      } in
+
+      Rewriter.return Stmt.({ var_decl = heap_var_decl; var_init = None }, { var_decl = heap_var_decl2; var_init = None })
+      
+    ) in
+
+    let* _ = Rewriter.List.iter (field_heap_var_defs @ pred_heap_var_defs) ~f:(fun (heap_var_decl, heap_var_decl2) -> 
       Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.introduce_heaps_in_stmts: heap_var_decl: %a; heap_var_decl2: %a" Ident.pr heap_var_decl.var_decl.var_name Ident.pr heap_var_decl2.var_decl.var_name );
       let* _ = Rewriter.introduce_symbol (Module.VarDef heap_var_decl) in
       Rewriter.introduce_symbol (Module.VarDef heap_var_decl2)
     ) in
 
     Rewriter.return body
-  
+
 
   type expr_match = {
     var_decl: var_decl;
@@ -1852,139 +2020,259 @@ module HeapsExplicitTrnsl = struct
   
       | _ -> trnsl_inhale_a0 universal_quants conds expr
 
-      and trnsl_inhale_a0 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
-        let open Rewriter.Syntax in
+    and trnsl_inhale_a0 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+      let open Rewriter.Syntax in
 
-        let univ_quants_list = universal_quants.univ_vars in
-        (* creating list at the top to preserve order throughout *)
+      let univ_quants_list = universal_quants.univ_vars in
 
-        match expr with
-        | App (And, e_list, _) ->
-          let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a0 universal_quants conds e) in
-            
-          Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
-  
-    
-        | App (Own, [e1; e2; e3], _) -> begin    
-          (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
-    
-          ===>
-    
-          // asserting injectivity of functions
-          assert forall a, b, c, a', b', c' :: m1(a, b, c) && m1(a', b', c') ==> f1(a, b, c) == f1(a', b', c') ==> (a == a' && b == b' && c == c')
-    
-          havoc(field$Heap2);
-    
-          assert forall l: Ref :: 
-            forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
-                field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) :
-              field$Heap2[l] == field$Heap[l]
-    
-          field$Heap := field$Heap2
-          assume field.valid(field$Heap)
+      match expr with
+      | App (And, e_list, _) ->
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a0 universal_quants conds e) in
           
-          *)
+        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
 
-          let field_type = match Expr.to_type e2 with
-            | App (Fld, [tp_expr], _) -> tp_expr
-            | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
-          in
-    
-          let field_name = (Expr.to_qual_ident e2) in
-          let field_heap_name = field_heap_name field_name in
-          let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
-          let field_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap_qual_ident in
-    
-          let field_heap2_name = field_heap_name2 field_name in
-          let field_heap2_qual_ident = QualIdent.from_ident field_heap2_name in
-          let field_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap2_qual_ident in
-
-          let* (field_heapchunk_operator: qual_ident) = 
-            Rewriter.ProgUtils.get_field_utils_comp (Expr.to_loc e2) field_name
-          in
-
-          let* (field_heap_valid_fn: qual_ident) = 
-            Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
-          in
-
-          let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) field_heap2_qual_ident in
-          let assume_stmt = 
-            let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
-            var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
   
-            let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
-            
-            let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
+      | App (Own, [e1; e2; e3], _) -> begin    
+        (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
   
-            let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
+        ===>
+  
+        // asserting injectivity of functions
+        assert forall a, b, c, a', b', c' :: m1(a, b, c) && m1(a', b', c') ==> f1(a, b, c) == f1(a', b', c') ==> (a == a' && b == b' && c == c')
+  
+        havoc(field$Heap2);
+  
+        assert forall l: Ref :: 
+          forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
+              field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) :
+            field$Heap2[l] == field$Heap[l]
+  
+        field$Heap := field$Heap2
+        assume field.valid(field$Heap)
+        
+        *)
+
+        let field_type = match Expr.to_type e2 with
+          | App (Fld, [tp_expr], _) -> tp_expr
+          | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
+        in
+  
+        let field_name = (Expr.to_qual_ident e2) in
+        let field_heap_name = field_heap_name field_name in
+        let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
+        let field_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap_qual_ident in
+  
+        let field_heap2_name = field_heap_name2 field_name in
+        let field_heap2_qual_ident = QualIdent.from_ident field_heap2_name in
+        let field_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap2_qual_ident in
+
+        let* (field_heapchunk_operator: qual_ident) = 
+          Rewriter.ProgUtils.get_field_utils_comp (Expr.to_loc e2) field_name
+        in
+
+        let* (field_heap_valid_fn: qual_ident) = 
+          Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
+        in
+
+        let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) field_heap2_qual_ident in
+        let assume_stmt = 
+          let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
+          var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
+
+          let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
+          
+          let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
+
+          let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
+          
+          Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+          (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
+            (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+
+                (* m1(a,b,c) && l == f1(a, b, c) *)
+                Expr.mk_and ~loc:(Expr.to_loc expr) (l_eq_e1_expr :: conds);
+
+                (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr)
+                  (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:field_type 
+                    (Expr.Var field_heapchunk_operator)  [
+                      Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr;
+                      e3;
+                    ] );
+
             
-            Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
-            (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
-              (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
-                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
-
-                  (* m1(a,b,c) && l == f1(a, b, c) *)
-                  Expr.mk_and ~loc:(Expr.to_loc expr) (l_eq_e1_expr :: conds);
-
-                  (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                  Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr)
-                    (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:field_type 
-                      (Expr.Var field_heapchunk_operator)  [
-                        Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr;
-                        e3;
-                      ] );
-
-              
-                  (* field$Heap2[l] == field$Heap[l] *)
-                  Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr) 
-                    (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr);
-                ])
-              )
+                (* field$Heap2[l] == field$Heap[l] *)
+                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr) 
+                  (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr);
+              ])
             )
-          in
-  
-          (* field$Heap := field$Heap2 *)
-          let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [field_heap_expr] field_heap2_expr in
-          
-          (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-          let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-            (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
-  
-          in *)
+          )
+        in
 
-          let assume_heap_valid = Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
-            (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
-          
-          in
-  
-          let* injectivity_assertion = generate_injectivity_assertions universal_quants conds e1 in
+        (* field$Heap := field$Heap2 *)
+        let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [field_heap_expr] field_heap2_expr in
+        
+        (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
+        let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
+          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
 
-          let stmts_list = match univ_quants_list with
-          | [] -> []
-          | _ -> [injectivity_assertion]
+        in *)
 
-          in
+        let assume_heap_valid = Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
+        
+        in
 
-          let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid] in
+        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds e1 in
 
-          let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
-  
-          Rewriter.return stmt
-        end
+        let stmts_list = match univ_quants_list with
+        | [] -> []
+        | _ -> [injectivity_assertion]
 
-        (* TODO: Add support for predicates *)
+        in
 
-        | e ->
-          let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
-          if is_e_pure then
-            let body_expr = match conds with
-            | [] -> e
-            | _ -> Expr.mk_impl (Expr.mk_and conds) e 
-          in
-            let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
-            Rewriter.return (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assume_expr)
-          else
-           unsupported_expr_error expr
+        let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid] in
+
+        let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+
+        Rewriter.return stmt
+      end
+
+      (* TODO: Add support for predicates *)
+
+      | e ->
+        let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
+        if is_e_pure then
+          let body_expr = match conds with
+          | [] -> e
+          | _ -> Expr.mk_impl (Expr.mk_and conds) e 
+        in
+          let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
+          Rewriter.return (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assume_expr)
+        else
+          match e with
+          | App (Var qual_ident, args, _) ->
+            let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
+            begin match symbol with
+            | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred) ->
+
+
+
+              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
+            
+              in
+
+              let heap_elem_type = Type.mk_var (Expr.to_loc e) heap_elem_type_qual_iden in
+        
+              let pred_name = qual_ident in
+              let pred_heap_name = pred_heap_name pred_name in
+              let pred_heap_qual_ident = QualIdent.from_ident pred_heap_name in
+              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap_qual_ident in
+        
+              let pred_heap2_name = pred_heap_name2 pred_name in
+              let pred_heap2_qual_ident = QualIdent.from_ident pred_heap2_name in
+              let pred_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap2_qual_ident in
+        
+              let* (pred_heapchunk_operator: qual_ident) = 
+                Rewriter.ProgUtils.get_pred_utils_comp (Expr.to_loc e) pred_name
+              in
+
+              let* (pred_heap_valid_fn: qual_ident) = 
+                Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc e) pred_name
+              in
+
+              let* pred_in_types = Rewriter.ProgUtils.pred_in_types qual_ident in
+
+              let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
+
+              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
+
+              let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) pred_heap2_qual_ident in
+              let assume_stmt = 
+                let in_vars = List.map pred_in_types ~f:(fun tp -> 
+                  Type.{ var_name = Ident.fresh (Expr.to_loc e) "in"; var_loc = Expr.to_loc e; 
+                  var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
+                ) in
+
+                let in_vars_exprs = List.map in_vars ~f:(fun v -> Expr.from_var_decl v) in
+                let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
+                
+                
+                (* let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
+                var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in *)
+
+                (* let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in *)
+                
+                let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
+
+                let in_vars_eq_args = 
+                  List.map2_exn in_vars (List.take args (List.length pred_in_types)) ~f:(fun var_decl arg -> 
+                    Expr.mk_eq (Expr.from_var_decl var_decl) arg
+                  )
+                  
+                in
+
+                
+                let new_chunk = Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type (Expr.DataConstr pred_heapchunk_operator) [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))] in
+                
+                Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+                (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall in_vars 
+                  (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
+                    (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+
+                      (* m1(a,b,c) && l == f1(a, b, c) *)
+                      Expr.mk_and ~loc:(Expr.to_loc expr) (in_vars_eq_args @ conds);
+
+                      (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple)
+                        (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type 
+                          (Expr.Var pred_heapchunk_operator)  [
+                            Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple;
+                            new_chunk;
+                          ] );
+
+                  
+                      (* pred$Heap2[l] == pred$Heap[l] *)
+                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple) 
+                        (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple);
+                    ])
+                  )
+                )
+              in
+
+              (* pred$Heap := pred$Heap2 *)
+              let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [pred_heap_expr] pred_heap2_expr in
+              
+              (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
+              let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
+                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
+
+              in *)
+
+              let assume_heap_valid = Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
+              
+              in
+
+              let* injectivity_assertion = generate_injectivity_assertions universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
+
+              let stmts_list = match univ_quants_list with
+              | [] -> []
+              | _ -> [injectivity_assertion]
+
+              in
+
+              let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid] in
+
+              let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+
+              Rewriter.return stmt
+            | _ -> 
+              Error.error (Expr.to_loc e) "Expected a predicate definition"
+            end
+          | _ ->
+          unsupported_expr_error expr
   end
 
   module TrnslExhale = struct
@@ -2491,138 +2779,258 @@ module HeapsExplicitTrnsl = struct
   
       | _ -> trnsl_exhale_a0 universal_quants conds expr
 
-      and trnsl_exhale_a0 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
-        let open Rewriter.Syntax in
+    and trnsl_exhale_a0 (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+      let open Rewriter.Syntax in
 
-        let univ_quants_list = universal_quants.univ_vars in
-        (* creating list at the top to preserve order throughout *)
+      let univ_quants_list = universal_quants.univ_vars in
 
-        match expr with
-        | App (And, e_list, _) ->
-          let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a0 universal_quants conds e) in
+      match expr with
+      | App (And, e_list, _) ->
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a0 universal_quants conds e) in
 
-          Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)  
-    
-        | App (Own, [e1; e2; e3], _) -> begin    
-          (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
-    
-          ===>
-    
-          // asserting injectivity of functions
-          assert forall a, b, c, a', b', c' :: m1(a, b, c) && m1(a', b', c') ==> f1(a, b, c) == f1(a', b', c') ==> (a == a' && b == b' && c == c')
-    
-          havoc(field$Heap2);
-    
-          assert forall l: Ref :: 
-            forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
-                field$Heap2[l] == field.frame( field$Heap[l], f2(a, b, c) ) :
-              field$Heap2[l] == field$Heap[l]
-    
-          field$Heap := field$Heap2
-          assert field.valid(field$Heap)
+        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)  
+  
+      | App (Own, [e1; e2; e3], _) -> begin    
+        (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
+  
+        ===>
+  
+        // asserting injectivity of functions
+        assert forall a, b, c, a', b', c' :: m1(a, b, c) && m1(a', b', c') ==> f1(a, b, c) == f1(a', b', c') ==> (a == a' && b == b' && c == c')
+  
+        havoc(field$Heap2);
+  
+        assert forall l: Ref :: 
+          forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
+              field$Heap2[l] == field.frame( field$Heap[l], f2(a, b, c) ) :
+            field$Heap2[l] == field$Heap[l]
+  
+        field$Heap := field$Heap2
+        assert field.valid(field$Heap)
+        
+        *)
+
+        let field_type = match Expr.to_type e2 with
+          | App (Fld, [tp_expr], _) -> tp_expr
+          | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
+        in
+  
+        let field_name = (Expr.to_qual_ident e2) in
+        let field_heap_name = field_heap_name field_name in
+        let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
+        let field_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap_qual_ident in
+  
+        let field_heap2_name = field_heap_name2 field_name in
+        let field_heap2_qual_ident = QualIdent.from_ident field_heap2_name in
+        let field_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap2_qual_ident in
+  
+        let* (field_heapchunk_operator: qual_ident) = 
+          Rewriter.ProgUtils.get_field_utils_frame (Expr.to_loc e2) field_name
+        in
+
+        let* (field_heap_valid_fn: qual_ident) = 
+          Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
+        in
+
+        let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) field_heap2_qual_ident in
+        let assume_stmt = 
+          let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
+          var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
+
+          let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
           
-          *)
+          let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
 
-          let field_type = match Expr.to_type e2 with
-            | App (Fld, [tp_expr], _) -> tp_expr
-            | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
-          in
-    
-          let field_name = (Expr.to_qual_ident e2) in
-          let field_heap_name = field_heap_name field_name in
-          let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
-          let field_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap_qual_ident in
-    
-          let field_heap2_name = field_heap_name2 field_name in
-          let field_heap2_qual_ident = QualIdent.from_ident field_heap2_name in
-          let field_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e2) Type.ref field_type) field_heap2_qual_ident in
-    
-          let* (field_heapchunk_operator: qual_ident) = 
-            Rewriter.ProgUtils.get_field_utils_frame (Expr.to_loc e2) field_name
-          in
+          let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
+          
+          Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+          (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
+            (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
 
-          let* (field_heap_valid_fn: qual_ident) = 
-            Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
-          in
+                (* m1(a,b,c) && l == f1(a, b, c) *)
+                Expr.mk_and ~loc:(Expr.to_loc expr) (l_eq_e1_expr :: conds);
 
-          let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) field_heap2_qual_ident in
-          let assume_stmt = 
-            let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
-            var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
-  
-            let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
+                (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr)
+                  (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:field_type 
+                    (Expr.Var field_heapchunk_operator)  [
+                      Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr;
+                      e3;
+                    ] );
+
             
-            let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
-  
-            let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
-            
-            Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
-            (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
-              (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
-                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
-
-                  (* m1(a,b,c) && l == f1(a, b, c) *)
-                  Expr.mk_and ~loc:(Expr.to_loc expr) (l_eq_e1_expr :: conds);
-
-                  (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                  Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr)
-                    (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:field_type 
-                      (Expr.Var field_heapchunk_operator)  [
-                        Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr;
-                        e3;
-                      ] );
-
-              
-                  (* field$Heap2[l] == field$Heap[l] *)
-                  Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr) 
-                    (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr);
-                ])
-              )
+                (* field$Heap2[l] == field$Heap[l] *)
+                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr) 
+                  (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr);
+              ])
             )
-          in
-  
-          (* field$Heap := field$Heap2 *)
-          let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [field_heap_expr] field_heap2_expr in
-          
-          (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-          let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-            (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
-  
-          in *)
+          )
+        in
 
-          let assert_heap_valid = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-            (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
-          
-          in
-  
-          let* injectivity_assertion = generate_injectivity_assertions universal_quants conds e1 in
+        (* field$Heap := field$Heap2 *)
+        let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [field_heap_expr] field_heap2_expr in
+        
+        (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
+        let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
+          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
 
-          let stmts_list = match univ_quants_list with
-          | [] -> []
-          | _ -> [injectivity_assertion]
+        in *)
 
-          in
+        let assert_heap_valid = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
+          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
+        
+        in
 
-          let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid] in
+        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds e1 in
 
-          let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
-  
-          Rewriter.return stmt
-        end
+        let stmts_list = match univ_quants_list with
+        | [] -> []
+        | _ -> [injectivity_assertion]
 
-        (* TODO: Add support for predicates *)
+        in
 
-        | e ->
-          let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
-          if is_e_pure then
-            let assert_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
+        let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid] in
 
-            let assert_stmt = (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) assert_expr) in
-            (* let assume_stmt = (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assert_expr) in *)
-            (* Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc e) [assume_stmt; assert_stmt]) *)
-            Rewriter.return assert_stmt
-          else
-           unsupported_expr_error expr
+        let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+
+        Rewriter.return stmt
+      end
+
+      (* TODO: Add support for predicates *)
+
+      | e ->
+        let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
+        if is_e_pure then
+          let assert_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
+
+          let assert_stmt = (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) assert_expr) in
+          (* let assume_stmt = (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assert_expr) in *)
+          (* Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc e) [assume_stmt; assert_stmt]) *)
+          Rewriter.return assert_stmt
+        else
+          match e with
+          | App (Var qual_ident, args, _) ->
+            let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
+            begin match symbol with
+            | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred) ->
+
+
+
+              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
+            
+              in
+
+              let heap_elem_type = Type.mk_var (Expr.to_loc e) heap_elem_type_qual_iden in
+        
+              let pred_name = qual_ident in
+              let pred_heap_name = pred_heap_name pred_name in
+              let pred_heap_qual_ident = QualIdent.from_ident pred_heap_name in
+              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap_qual_ident in
+        
+              let pred_heap2_name = pred_heap_name2 pred_name in
+              let pred_heap2_qual_ident = QualIdent.from_ident pred_heap2_name in
+              let pred_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap2_qual_ident in
+        
+              let* (pred_heapchunk_operator: qual_ident) = 
+                Rewriter.ProgUtils.get_pred_utils_frame (Expr.to_loc e) pred_name
+              in
+
+              let* (pred_heap_valid_fn: qual_ident) = 
+                Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc e) pred_name
+              in
+
+              let* pred_in_types = Rewriter.ProgUtils.pred_in_types qual_ident in
+
+              let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
+
+              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
+
+              let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) pred_heap2_qual_ident in
+              let assume_stmt = 
+                let in_vars = List.map pred_in_types ~f:(fun tp -> 
+                  Type.{ var_name = Ident.fresh (Expr.to_loc e) "in"; var_loc = Expr.to_loc e; 
+                  var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
+                ) in
+
+                let in_vars_exprs = List.map in_vars ~f:(fun v -> Expr.from_var_decl v) in
+                let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
+                
+                
+                (* let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
+                var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in *)
+
+                (* let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in *)
+                
+                let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
+
+                let in_vars_eq_args = 
+                  List.map2_exn in_vars (List.take args (List.length pred_in_types)) ~f:(fun var_decl arg -> 
+                    Expr.mk_eq (Expr.from_var_decl var_decl) arg
+                  )
+                  
+                in
+
+                
+                let new_chunk = Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type (Expr.DataConstr pred_heapchunk_operator) [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))] in
+                
+                Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+                (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall in_vars 
+                  (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
+                    (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+
+                      (* m1(a,b,c) && l == f1(a, b, c) *)
+                      Expr.mk_and ~loc:(Expr.to_loc expr) (in_vars_eq_args @ conds);
+
+                      (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple)
+                        (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type 
+                          (Expr.Var pred_heapchunk_operator)  [
+                            Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple;
+                            new_chunk;
+                          ] );
+
+                  
+                      (* pred$Heap2[l] == pred$Heap[l] *)
+                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple) 
+                        (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple);
+                    ])
+                  )
+                )
+              in
+
+              (* pred$Heap := pred$Heap2 *)
+              let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [pred_heap_expr] pred_heap2_expr in
+              
+              (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
+              let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
+                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
+
+              in *)
+
+              let assert_heap_valid = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
+                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
+              
+              in
+
+              let* injectivity_assertion = generate_injectivity_assertions universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
+
+              let stmts_list = match univ_quants_list with
+              | [] -> []
+              | _ -> [injectivity_assertion]
+
+              in
+
+              let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid] in
+
+              let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+
+              Rewriter.return stmt
+            | _ -> 
+              Error.error (Expr.to_loc e) "Expected a predicate definition"
+            end
+          | _ ->
+          unsupported_expr_error expr
   end
 
   let rec rewrite_make_heaps_explicit (s: Stmt.t) : Stmt.t Rewriter.t =
@@ -2930,17 +3338,23 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_ret_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_ret_stmts m in
 
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_callable_pre_post_conds on module %a" Ident.pr m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_pre_post_conds m in
-
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_frac_field_types on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rec_rewrite_symbols ~f:rewrite_frac_field_types m in
   
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_own_expr_4_arg on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_own_expr_4_arg m in
   
+  (* Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_predicate_validity_lemmas on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_add_predicate_validity_lemmas m in *)
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_callable_pre_post_conds on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_pre_post_conds m in
+
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_field_utils on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rec_rewrite_symbols ~f:HeapsExplicitTrnsl.rewrite_add_field_utils m in
+
+  (* Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_pred_utils on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rec_rewrite_symbols ~f:HeapsExplicitTrnsl.rewrite_add_pred_utils m in *)
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_skolemize_inhale_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_inhale_stmts m in

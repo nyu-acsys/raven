@@ -1036,6 +1036,8 @@ module ProgUtils = struct
 
   let field_type_to_frac_mod_ident ~loc field_tp = Ident.make loc (serialize ("Frac$" ^ AstDef.Type.to_string field_tp)) 0
 
+  let pred_to_ra_mod_ident ~loc pred_ident = Ident.make loc (serialize ("PredCountAgreeRA$" ^ (Ident.to_string pred_ident))) 0
+
   let find_highest_valid_scope_qi loc (qi: qual_ident) : qual_ident t =
     
     let open Syntax in
@@ -1230,21 +1232,27 @@ module ProgUtils = struct
     | App (Var qual_iden, [], _) -> QualIdent.pop qual_iden
     | _ -> Error.error field.field_loc "Rewriter.ProgUtils.field_get_ra_module: Expected field type to be a variable"
 
-  let field_get_ra_id (field: AstDef.Module.field_def) : qual_ident =
-    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "id" 0)
+  let get_ra_rep_type (ra_qual_iden: qual_ident) : type_expr =
+    AstDef.Type.mk_var (QualIdent.to_loc ra_qual_iden) (QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "T" 0))
 
-  let get_ra_valid_fn_qual_ident (field: AstDef.Module.field_def) : qual_ident =
-    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "valid" 0)
+  let get_ra_id (ra_qual_iden: qual_ident) : qual_ident =
+    QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "id" 0)
 
-  let get_ra_comp_fn_qual_ident (field: AstDef.Module.field_def) : qual_ident =
-    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "comp" 0)
+  let get_ra_valid_fn_qual_ident (ra_qual_iden: qual_ident) : qual_ident =
+    QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "valid" 0)
 
-  let get_ra_frame_fn_qual_ident (field: AstDef.Module.field_def) : qual_ident =
-    QualIdent.append (field_get_ra_qual_iden field) (Ident.make field.field_loc "frame" 0)
+  let get_ra_comp_fn_qual_ident (ra_qual_iden: qual_ident) : qual_ident =
+    QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "comp" 0)
+
+  let get_ra_frame_fn_qual_ident (ra_qual_iden: qual_ident) : qual_ident =
+    QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "frame" 0)
 
 
   let field_utils_module_ident loc field_ident : ident =
     Ident.make loc (serialize ("FieldUtils$" ^ (Ident.to_string field_ident))) 0
+
+  let pred_utils_module_ident loc pred_ident : ident =
+    Ident.make loc (serialize ("PredUtils$" ^ (Ident.to_string pred_ident))) 0
 
   let get_field_utils_module loc field_name : qual_ident t =
     let open Syntax in
@@ -1252,27 +1260,60 @@ module ProgUtils = struct
 
     QualIdent.make field_fully_qual_name.qual_path (field_utils_module_ident loc field_fully_qual_name.qual_base)
 
+  let get_pred_utils_module loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_fully_qual_name = resolve loc pred_name in
 
-  let field_utils_comp_chunk_ident loc = Ident.make loc "heapChunkComp" 0
+    QualIdent.make pred_fully_qual_name.qual_path (pred_utils_module_ident loc pred_fully_qual_name.qual_base)
+
+  let heap_utils_rep_type_ident loc = Ident.make loc "T" 0
+  let get_field_utils_rep_type loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_utils_module = get_field_utils_module loc field_name in
+    QualIdent.append field_utils_module (heap_utils_rep_type_ident loc)
+  
+  let get_pred_utils_rep_type loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module (heap_utils_rep_type_ident loc)
+
+  let heap_utils_comp_chunk_ident loc = Ident.make loc "heapChunkComp" 0
   let get_field_utils_comp loc field_name : qual_ident t =
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
-    QualIdent.append field_utils_module (field_utils_comp_chunk_ident loc)
+    QualIdent.append field_utils_module (heap_utils_comp_chunk_ident loc)
 
-  let field_utils_frame_chunk_ident loc = Ident.make loc "heapChunkFrame" 0
+  let get_pred_utils_comp loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module (heap_utils_comp_chunk_ident loc)
+
+  let heap_utils_frame_chunk_ident loc = Ident.make loc "heapChunkFrame" 0
   let get_field_utils_frame loc field_name : qual_ident t =
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
-    QualIdent.append field_utils_module (field_utils_frame_chunk_ident loc)
+    QualIdent.append field_utils_module (heap_utils_frame_chunk_ident loc)
 
-  let field_utils_valid_ident loc = Ident.make loc "valid" 0
+  let get_pred_utils_frame loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module (heap_utils_comp_chunk_ident loc)
+
+
+
+  let heap_utils_valid_ident loc = Ident.make loc "valid" 0
   let get_field_utils_valid loc field_name : qual_ident t =
     let open Syntax in
     let+ field_utils_module = get_field_utils_module loc field_name in
-    QualIdent.append field_utils_module (field_utils_valid_ident loc)
+    QualIdent.append field_utils_module (heap_utils_valid_ident loc)
+
+  let get_pred_utils_valid loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module (heap_utils_valid_ident loc)
 
 
-  let field_utils_id_ident loc = Ident.make loc "id" 0
+  let heap_utils_id_ident loc = Ident.make loc "id" 0
   let get_field_utils_id loc field_name : expr t =
     let open Syntax in
     let* field_utils_module = get_field_utils_module loc field_name in
@@ -1289,13 +1330,63 @@ module ProgUtils = struct
       | _ -> Error.error loc "Rewriter.ProgUtils.get_field_utils_id: Expected field type"
     in
 
-    let id_qual_ident = QualIdent.append field_utils_module (field_utils_id_ident loc)
+    let id_qual_ident = QualIdent.append field_utils_module (heap_utils_id_ident loc)
 
     in
 
     return @@ AstDef.Expr.mk_var  ~loc id_qual_ident ~typ:field_elem_type
 
-  let field_utils_heapchunk_compare_id loc = Ident.make loc "heapChunkCompare" 0
+  (* let get_pred_utils_id loc pred_name : expr t =
+    let open Syntax in
+    let* pred_utils_module = get_pred_utils_module loc pred_name in
+
+    let* pred = find_and_reify loc pred_name in
+    let pred_type = 
+      match pred with
+      | AstDef.Module.predDef { pred_type; _ } -> pred_type
+      | _ -> Error.error loc "Rewriter.ProgUtils.get_pred_utils_id: Expected pred definition"
+    in
+
+    let pred_elem_type = match pred_type with
+      | App (Fld, [tp], _) -> tp
+      | _ -> Error.error loc "Rewriter.ProgUtils.get_pred_utils_id: Expected pred type"
+    in
+
+    let id_qual_ident = QualIdent.append pred_utils_module (pred_utils_id_ident loc)
+
+    in
+
+    return @@ AstDef.Expr.mk_var  ~loc id_qual_ident ~typ:pred_elem_type *)
+
+  let pred_ra_constr_qual_ident loc pred_name =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module AstDef.Predefs.lib_countAgreeRA_constr_ident
+
+  let pred_in_types pred_name =
+    let open Syntax in
+    let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
+
+    match pred with
+    | AstDef.Module.CallDef c when Poly.(c.call_decl.call_decl_kind = Pred)  ->
+      Base.List.map c.call_decl.call_decl_formals ~f:(fun var_decl -> var_decl.var_type)
+
+    | _ -> Error.error (AstDef.QualIdent.to_loc pred_name) "Rewriter.ProgUtils.pred_in_types: Expected pred definition"
+
+  let pred_out_types pred_name =
+    let open Syntax in
+    let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
+
+    match pred with
+    | AstDef.Module.CallDef c when Poly.(c.call_decl.call_decl_kind = Pred)  ->
+      Base.List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> var_decl.var_type)
+
+    | _ -> Error.error (AstDef.QualIdent.to_loc pred_name) "Rewriter.ProgUtils.pred_in_types: Expected pred definition"
+
+
+
+
+  let heap_utils_heapchunk_compare_id loc = Ident.make loc "heapChunkCompare" 0
 
   let rec is_expr_pure (expr: expr)  : (bool, 'a) t_ext =
     let open Syntax in

@@ -155,7 +155,7 @@ let rec pr_term ppf (term: term) = match term with
     | Empty, [] ->  fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)
     | Uminus, [t] -> fprintf ppf "@[<2>(* -1 @ %a)@]" pr_term t
     | Setenum, es ->
-      let empty_set = asprintf "((as const (Set %a)) false)" pr_sort (Expr.to_type term) in
+      let empty_set = asprintf "((as const %a) false)" pr_sort (Expr.to_type term) in
       let str = List.fold es ~init:empty_set ~f:(fun acc e -> asprintf "(store %s %a true)" acc pr_term e) in
       fprintf ppf "%s" str
 
