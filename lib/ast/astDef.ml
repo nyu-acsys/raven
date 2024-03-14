@@ -308,7 +308,7 @@ module Type = struct
     | App (Prod, ts, _) ->
       Stdlib.Format.fprintf ppf "(@[%a@])" (Print.pr_list_comma pr) ts
     | App (t1, ts, _) ->
-        Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr_constr t1
+        Stdlib.Format.fprintf ppf "%a[%a]" pr_constr t1
           (Print.pr_list_comma pr) ts
 
   and pr_var_decl ppf decl =
@@ -331,7 +331,7 @@ module Type = struct
 
 
   and pr_ident ppf (id, t) =
-    Stdlib.Format.fprintf ppf "%a:@ %a" Ident.pr id pr t
+    Stdlib.Format.fprintf ppf "%a: %a" Ident.pr id pr t
 
   and pr_arg_list ppf =
     Print.pr_list_comma
@@ -697,7 +697,7 @@ module Expr = struct
           _ ) ->
         let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
         let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
-        fprintf ppf "%a %a@ %a" pr_e1 e1 pr_constr c pr_e2 e2
+        fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
     | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
     | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
     | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
@@ -757,6 +757,7 @@ module Expr = struct
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
 
   let mk_int ?(loc = Loc.dummy) i = mk_app ~loc ~typ:Type.int (Int (Int64.of_int i)) []
+  let mk_real ?(loc = Loc.dummy) r = mk_app ~loc ~typ:Type.real (Real r) []
 
   let mk_tuple ?(loc = Loc.dummy) es = 
     match es with
@@ -1005,6 +1006,7 @@ module Stmt = struct
   type spec = {
     spec_form : expr;
     spec_atomic : bool;
+    spec_comment : string option;
     spec_error : (qual_ident -> string * string) option;
   }
 
@@ -1017,6 +1019,12 @@ module Stmt = struct
 
   type assign_desc = { assign_lhs : expr list; assign_rhs : expr }
   type bind_desc = { bind_lhs : expr list; bind_rhs : expr }
+
+  type field_read_desc = { 
+    field_read_lhs : qual_ident;
+    field_read_field : qual_ident;
+    field_read_ref : expr
+  }
 
   type call_desc = {
     call_lhs : qual_ident list;
@@ -1087,6 +1095,7 @@ module Stmt = struct
     | New of new_desc
     | Assign of assign_desc (* x *)
     | Bind of bind_desc (* x *)
+    | FieldRead of field_read_desc
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
@@ -1131,7 +1140,10 @@ module Stmt = struct
     function
     | [] -> ()
     | [ sf ] ->
-        fprintf ppf "%s%s %a"
+        fprintf ppf "%a%s%s %a"
+          (fun ppf cmnt -> match sf.spec_comment with
+          | Some c -> fprintf ppf "@\n /* %s */ @\n" c
+          | None -> ()) sf.spec_comment
           (if sf.spec_atomic then "atomic " else "")
           stype Expr.pr sf.spec_form
     | sf :: sfs ->
@@ -1155,7 +1167,7 @@ module Stmt = struct
       | es ->
           fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
           bstm.bind_rhs)
-
+    | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ FieldRead (%a.%a) @]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1237,32 +1249,60 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_assume_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_assume_spec ~loc spec : t = 
+  let mk_assume_spec ~loc ?(cmnt=None) spec : t = 
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_inhale_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_inhale_spec ~loc spec : t = 
+  let mk_inhale_spec ~loc ?(cmnt=None) spec : t = 
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_exhale_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_spec ~loc spec : t = 
+  let mk_exhale_spec ~loc ?(cmnt=None) spec : t = 
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_assert_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
-  let mk_assert_spec ~loc spec : t =
+  let mk_assert_spec ~loc ?(cmnt=None) spec : t =
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
 
@@ -1281,10 +1321,11 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?(error = None) e = 
+  let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = None) e = 
     {
       spec_form = e;
       spec_atomic = atomic;
+      spec_comment = cmnt;
       spec_error = error;
     }
 
@@ -1324,6 +1365,10 @@ module Stmt = struct
         
         | Bind bind_desc ->
           scan_expr_list accesses (bind_desc.bind_rhs :: bind_desc.bind_lhs)
+
+        | FieldRead fr_desc ->
+          let accesses = Set.add accesses fr_desc.field_read_lhs in
+          scan_expr_list accesses [fr_desc.field_read_ref]
             
         | Havoc x ->
           Set.add accesses x
@@ -1415,6 +1460,12 @@ module Stmt = struct
                 None
             | _ -> None
           )
+
+        | FieldRead fr_desc -> 
+          if List.is_empty fr_desc.field_read_lhs.qual_path then
+            [fr_desc.field_read_lhs.qual_base]
+          else
+            []
           
         | Havoc x ->
           if List.is_empty x.qual_path then 
@@ -1490,10 +1541,14 @@ module Stmt = struct
         | Bind bind_desc ->
           List.concat_map (bind_desc.bind_rhs :: bind_desc.bind_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
 
+        | FieldRead fr_desc -> 
+          [fr_desc.field_read_field]
+
         | Havoc _ ->
           []
 
         | Call call_desc ->
+          Logs.debug (fun m -> m "Call stmts should not exist in the AST during stmt_fields_accessed; found: %a" pr s);
           Error.internal_error s.stmt_loc "Call stmts should not exist in the AST during stmt_fields_accessed"
 
         | Return _ ->
@@ -1574,14 +1629,14 @@ module Callable = struct
     let pr_returns ppf = function
       | [] -> ()
       | rs ->
-          fprintf ppf "@\nreturns (@[<0>%a@])" Expr.pr_var_decl_list rs
+          fprintf ppf "@;returns (@[<0>%a@])" Expr.pr_var_decl_list rs
     in
     let pr_call_locals ppf = function
       | [] -> ()
       | ls ->
           fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
     in
-    fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a%a@]" 
+    fprintf ppf "@[%s %a(%a)@[%a%a%a@]@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
@@ -1932,6 +1987,7 @@ module Predefs = struct
   let lib_frac_chunk_constr_ident = Ident.make Loc.dummy "frac_chunk" 0
 
   let lib_frac_chunk_destr1_ident = Ident.make Loc.dummy "frac_proj1" 0
+  let lib_frac_chunk_destr2_ident = Ident.make Loc.dummy "frac_proj2" 0
 
   let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
 

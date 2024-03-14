@@ -154,7 +154,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       let* qual_ident, symbol = 
         Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
-      let _ = Logs.debug (fun m -> m !"ident: %{QualIdent}" qual_ident) in
+      let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in
       let* symbol = Rewriter.Symbol.reify symbol in
       begin match symbol with
         | ConstrDef _constr ->
@@ -361,7 +361,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
     | (Ite | MapUpdate), _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
 
     (* Ownership predicates *)
-    | Own, expr1 :: (App (Var qual_ident, [], expr_attr) as expr2) :: expr3 :: expr4_opt ->
+    | Own, expr1 :: (App (Var qual_ident, [], expr_attr') as expr2) :: expr3 :: expr4_opt ->
         let* expr1 = process_expr expr1 Type.ref
         and* expr2 = process_expr expr2 Type.any 
       
@@ -425,17 +425,17 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
 
     (* Read expressions *)
-    | Read, [expr1; App (Var qual_ident, [], expr_attr)] ->
+    | Read, [expr1; App (Var qual_ident, [], expr_attr')] ->
       let* qual_ident, symbol = 
           Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
-      let expr2 = Expr.App (Var qual_ident, [], expr_attr) in
       let* symbol = Rewriter.Symbol.reify symbol in
       begin match symbol with
       | DestrDef _ ->
           process_expr (App (DataDestr qual_ident, [expr1], expr_attr)) expected_typ
       | FieldDef { field_type = (App(Fld, [given_type], _) as tp) ; _ } -> 
         let* expr1 = process_expr expr1 Type.ref in
+        let expr2 = Expr.App (Var qual_ident, [], expr_attr') in
         let expr2 = Expr.set_type expr2 tp in
         let expr = Expr.App (Read, [expr1; expr2], expr_attr) in
         check_and_set expr given_type given_type expected_typ
@@ -591,6 +591,11 @@ module ProcessCallable = struct
       in
 
       var_decl, disam_tbl
+
+    let pr ppf disam_tbl =
+      let open Stdlib.Format in
+      fprintf ppf "%a"
+      (Fmt.Dump.list (Fmt.Dump.list (Fmt.Dump.pair Ident.pr Ident.pr)) ) (List.map disam_tbl ~f:(Map.to_alist))
   end
 
   let disambiguate_ident (qual_ident: qual_ident) (disam_tbl: DisambiguationTbl.t) : qual_ident Rewriter.t =
@@ -661,6 +666,7 @@ module ProcessCallable = struct
 
   let process_stmt ?(new_scope=true) (expected_return_type: Type.t) (stmt: Stmt.t) (disam_tbl: DisambiguationTbl.t) : (Stmt.t * DisambiguationTbl.t) Rewriter.t =
     let rec process_stmt ?(new_scope=true) stmt disam_tbl =
+      Logs.debug (fun m -> m "process_stmt: %a" Stmt.pr stmt);
     let open Rewriter.Syntax in
     let+ stmt_desc, disam_tbl =
     match stmt.Stmt.stmt_desc with
@@ -691,16 +697,25 @@ module ProcessCallable = struct
       | VarDef var_def -> 
         let* var_decl = ProcessTypeExpr.process_var_decl var_def.var_decl in
         let var_decl, disam_tbl' = DisambiguationTbl.add_var_decl var_decl disam_tbl in
-        let+ stmt =
+        let* _ = Rewriter.introduce_symbol (VarDef { var_decl; var_init = None }) in
+        let+ stmt, disam_tbl' =
           let var = QualIdent.from_ident var_decl.var_name in
           match var_def.var_init with
-          | None -> Rewriter.return @@ Stmt.Basic (Havoc var)
+          | None -> Rewriter.return @@ (Stmt.Basic (Havoc var), disam_tbl')
           | Some expr ->
-            let+ expr = disambiguate_process_expr expr var_decl.var_type disam_tbl in
-            let var_expr = Expr.App (Var var, [], {expr_loc = stmt.stmt_loc; expr_type = var_decl.var_type}) in
+            (* let* expr = disambiguate_process_expr expr var_decl.var_type disam_tbl in *)
+            let var_expr = (Expr.from_var_decl var_def.var_decl) in
+              
+              (* Expr.App (Var var, [], {expr_loc = stmt.stmt_loc; expr_type = var_decl.var_type}) in *)
             let assign_desc = Stmt.{ assign_lhs = [var_expr]; assign_rhs = expr } in
-            Stmt.Basic (Assign assign_desc)
-        and+ _ = Rewriter.introduce_symbol (VarDef { var_decl; var_init = None }) in
+
+            Logs.debug (fun m -> m "process_stmt: ST var_def: %a" Stmt.pr stmt);
+            Logs.debug (fun m -> m "process_stmt: disam_tbl: %a" DisambiguationTbl.pr disam_tbl');
+            let+ stmt, disam_tbl' = process_stmt {stmt_desc = (Stmt.Basic (Assign assign_desc)); stmt_loc = stmt.stmt_loc} disam_tbl' in
+            Logs.debug (fun m -> m "process_stmt: END var_def: %a" Stmt.pr stmt);
+
+            stmt.stmt_desc, disam_tbl'
+        in
         stmt, disam_tbl'
       | Spec (sk, spec) -> 
         let+ spec = process_stmt_spec disam_tbl spec in
@@ -715,8 +730,11 @@ module ProcessCallable = struct
         let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
         let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in*)
 
+        let* disam_assign_rhs = 
+          disambiguate_expr assign_desc.assign_rhs disam_tbl in
+
         let* is_assign_rhs_callable = 
-          match assign_desc.assign_rhs with
+          match disam_assign_rhs with
           | App (Var qual_ident, _, _) -> 
             let+ _, symbol, _ = Rewriter.find stmt.stmt_loc qual_ident in
             (match symbol with
@@ -820,10 +838,7 @@ module ProcessCallable = struct
             in
 
             let expected_return_type =
-              List.map assign_lhs ~f:Expr.to_type |> function
-              | [] -> Type.unit
-              | [t] -> t
-              | ts -> Type.mk_prod (Expr.to_loc assign_desc.assign_rhs) ts
+              Type.mk_prod (Expr.to_loc assign_desc.assign_rhs) (List.map assign_lhs ~f:Expr.to_type)
             in
             
             let+ call_expr = 
@@ -865,6 +880,26 @@ module ProcessCallable = struct
           let+ assign_rhs = 
             disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
           in
+
+          match assign_rhs with
+          | App (Read, [ref_expr; field_expr], _) -> 
+            Logs.debug (fun m -> m "process_stmt: read_assign_rhs: %a" Expr.pr assign_rhs);
+            let field_qual_ident = Expr.to_qual_ident field_expr in
+            let field_read_lhs = (match assign_lhs with
+            | [lhs] -> Expr.to_qual_ident lhs
+            | _ -> Error.type_error stmt.stmt_loc "Expected exactly one left-hand side of field read"
+            )
+
+            in
+
+            let field_read_desc = Stmt.{ 
+              field_read_lhs = field_read_lhs; 
+              field_read_field = field_qual_ident; 
+              field_read_ref = ref_expr 
+            } 
+            in
+            Stmt.Basic (FieldRead field_read_desc), disam_tbl
+          | _ ->
               
           let assign_desc =
             Stmt.{ 
@@ -894,6 +929,33 @@ module ProcessCallable = struct
           }
         in
         Rewriter.return (Stmt.Basic (Bind bind_desc), disam_tbl)
+
+      | FieldRead fr_desc ->
+        let* fr_var_qual_ident = disambiguate_ident fr_desc.field_read_lhs disam_tbl in
+        let* fr_var_qual_ident, symbol = Rewriter.resolve_and_find stmt.stmt_loc fr_var_qual_ident in
+        let* symbol = Rewriter.Symbol.reify symbol in
+        let* fr_type = 
+          match symbol with
+          | VarDef var_def -> 
+            let* var_type_expanded = ProcessTypeExpr.expand_type_expr var_def.var_decl.var_type in
+            Rewriter.return var_type_expanded
+          | _ -> Error.type_error stmt.stmt_loc "Expected variable identifier on left-hand side of field read"
+        in
+        let field_read_expr = 
+          Expr.App (Read, [fr_desc.field_read_ref; App (Var fr_desc.field_read_field, [], { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot })], { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot }) 
+        in
+
+        let+ field_read_expr = disambiguate_process_expr field_read_expr fr_type disam_tbl in
+
+        (match field_read_expr with
+        | App (Read, [field_read_ref; App (Var field_read_field, [], _)], _) -> 
+          let field_read_desc = Stmt.{ field_read_lhs = fr_var_qual_ident; field_read_field = field_read_field; field_read_ref = field_read_ref } 
+        
+          in
+          Stmt.Basic (FieldRead field_read_desc), disam_tbl
+
+        | _ -> failwith "Unexpected error during type checking.")
+        
 
       | Havoc qual_ident ->
         let* qual_ident = disambiguate_ident qual_ident disam_tbl in
@@ -994,7 +1056,7 @@ module ProcessCallable = struct
         
         let+ call_expr = 
           Expr.App (Var call_desc.call_name, call_desc.call_args, { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot }) |>
-          fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl (* TODO: <- replace this with the expected type *)
+          fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl
         in
 
         begin match call_expr with
@@ -1069,6 +1131,7 @@ module ProcessCallable = struct
 
   let process_callable (callable: Callable.t) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
+    Logs.debug (fun m -> m "Typing.process_callable: Start Processing callable: %a" Callable.pr callable);
     let* _ = Rewriter.enter_callable callable in
     let disam_tbl = (DisambiguationTbl.push []) in
     let call_decl = Callable.to_decl callable in
@@ -1084,9 +1147,17 @@ module ProcessCallable = struct
     let* disam_tbl, call_decl_formals = process_decls call_decl.call_decl_formals disam_tbl in
     let* disam_tbl, call_decl_returns = process_decls call_decl.call_decl_returns disam_tbl in
     let* disam_tbl, call_decl_locals = process_decls call_decl.call_decl_locals disam_tbl in
-    let* _ = Rewriter.add_locals call_decl_formals
-    and* _ = Rewriter.add_locals call_decl_returns
-    and* _ = Rewriter.add_locals call_decl_locals in
+    Logs.debug (fun m -> m "adding formals");
+    let* _ = Rewriter.add_locals call_decl_formals in
+
+    Logs.debug (fun m -> m "adding returns");
+    let* _ = Rewriter.add_locals call_decl_returns in
+    
+    Logs.debug (fun m -> m "adding locals");
+    let* _ = Rewriter.add_locals call_decl_locals in
+
+    Logs.debug (fun m -> m "done adding locals");
+
     let* call_decl_precond = Rewriter.List.map call_decl.call_decl_precond ~f:(process_stmt_spec disam_tbl)
     and* call_decl_postcond = Rewriter.List.map call_decl.call_decl_postcond ~f:(process_stmt_spec disam_tbl) in
     let call_decl =
@@ -1119,6 +1190,14 @@ module ProcessCallable = struct
       | ProcDef proc_def ->
         let expected_return_type = Callable.return_type call_decl in
         let+ proc_body = Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
+          (* Logs.debug (fun m -> m "Typing.process_callable: Processing stmt: %a" Stmt.pr stmt); *)
+
+          Logs.debug (fun m -> m "Typing.process_callable: Callable: %a" Ident.pr callable.call_decl.call_decl_name);
+
+          Logs.debug (fun m -> m "Typing.process_callable: DisamTbl: %a" 
+          (Fmt.Dump.list (Fmt.Dump.list (Fmt.Dump.pair Ident.pr Ident.pr)) ) (List.map disam_tbl ~f:(Map.to_alist)));
+          
+
           let+ stmt, _disam_tbl =
             process_stmt ~new_scope:false expected_return_type stmt disam_tbl
           in

@@ -169,7 +169,9 @@ let rec pr_term ppf (term: term) = match term with
       fprintf ppf "@[<2>(tuple_%i_%a@ %a@)@]" arity pr_term index pr_term tuple_expr
 
     | Tuple, es -> 
-      fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es
+      (match List.length es with
+      | 0 -> fprintf ppf "@[<2>$tuple_0 @]"
+      | _ -> fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es)
 
     | Diff, _
     | Read, _
@@ -278,7 +280,7 @@ let pr_command ppf = function
   | GetUnsatCore _ -> fprintf ppf "(get-unsat-core)@,"
   | Exit _ -> fprintf ppf "(exit)@,"
 
-let print_comment out_ch cmnt = fprintf (formatter_of_out_channel out_ch) "@[<v>; %s @,@]@?" cmnt
+let print_comment out_ch cmnt = fprintf (formatter_of_out_channel out_ch) "@[<v>; %s @,@]@?" (String.substr_replace_all cmnt ~pattern:"\n" ~with_:"\n; ")
 
 let rec pr_commands ppf = function
   | [] -> ()

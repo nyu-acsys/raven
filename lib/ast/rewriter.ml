@@ -23,24 +23,27 @@ module Syntax = struct
     let bind m ~f = fun sin ->
       let sout, res = m sin in
       f res sout
+    [@@inline always]
 
     let return = return
 
     let map m ~f = fun sin ->
       let sout, res = m sin in
       (sout, f res)
+    [@@inline always]
       
     let both m1 m2 = fun sin ->
       let s1, res1 = m1 sin in
       let s2, res2 = m2 s1 in
       (s2, (res1, res2))
+    [@@inline always]
   end
     
   open Let_syntax
   
-  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f
+  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f [@@inline always]
   let (and+) = both
-  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f
+  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f [@@inline always]
   let (and* ) = both
   
 end
@@ -132,7 +135,7 @@ let exit_module (mdef: Module.t) s =
 
 
 let exit_callable (call_def: Callable.t) s =
-  (* Logs.debug (fun m -> m "exit_callable: %a" Ident.pr (call_def.call_decl.call_decl_name)); *)
+  Logs.debug (fun m -> m "exit_callable: %a" Ident.pr (call_def.call_decl.call_decl_name));
   (* (match call_def.call_def with
    | Callable.FuncDef { func_body = Some _; _ } -> ()
    | Callable.ProcDef { proc_body = Some pp; _ } -> 
@@ -173,6 +176,8 @@ let exit_callable (call_def: Callable.t) s =
   call_def
 
 let enter symbol s =
+  Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Ident.pr (AstDef.Symbol.to_name symbol));
+  (* Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Symbol.pr (symbol)); *)
   let _ = match symbol with
     | Module.ModDef _ | CallDef _ -> ()
     | _ -> failwith "enter: expected module or callable symbol"
@@ -188,7 +193,9 @@ let enter symbol s =
 
 let enter_module mdef = enter (ModDef mdef)
 
-let enter_callable callable = enter (CallDef callable)
+let enter_callable callable = 
+  Logs.debug (fun m -> m "Rewriter.enter_callable: callable ");
+  enter (CallDef callable)
 
 let declare_symbol symbol : unit t = update_table (SymbolTbl.add_symbol symbol)
 
@@ -213,17 +220,26 @@ let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.s
   let current_scope = s.state_table.tbl_curr.scope_id in
   let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
 
-  let s, _ = declare_symbol symbol s in
+  let (s, _), already_defined = try 
+    (declare_symbol symbol s), false 
+  with
+  | _ -> (s, ()), true
+in
 
 
   (* if symbol is getting added to parent scope (see appropriate_scope in SymbolTbl.add_symbol, then we need to go to parent scope before calling `f` on `symbol`) *)
 
   (* let s, symbol = f symbol s in *)
-  let s, symbol = 
+  let (s, symbol), qual_ident = 
     match symbol with
     | VarDef _ -> 
-      f symbol s 
+      if not already_defined then
+        (f symbol s), qual_ident
+      else
+        (s, symbol), qual_ident
+
     | _ ->
+
       if s.state_table.tbl_curr.scope_is_local then
         let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
         let curr_scope_symbols = (List.hd_exn s.state_new_symbols) in
@@ -231,22 +247,29 @@ let introduce_typecheck_symbol ~loc ~(f: AstDef.Module.symbol -> AstDef.Module.s
         let empty_module = Module.{
             mod_decl = empty_decl;
             mod_def = [];
-          } (* using empty module to exit. Result of exit_module is thrown away, so it doesn't matter *)
+        } (* using empty module to exit. Result of exit_module is thrown away, so it doesn't matter *)
         
-          in
-          let s, _ = exit_module empty_module s in
+        in
+        let s, _ = exit_module empty_module s in
 
-          let s, symbol = f symbol s in
+        let s, symbol = 
+          if not already_defined then
+            (f symbol s)
+          else
+            (s, symbol)
+        in
 
-          let s = { 
-            s with
-            state_table = SymbolTbl.enter loc curr_scope_name s.state_table;
-            state_new_symbols = curr_scope_symbols :: s.state_new_symbols
-          } in
+        let qual_ident = QualIdent.append (s.state_table.tbl_curr.scope_id) (Symbol.to_name symbol) in
+
+        let s = { 
+          s with
+          state_table = SymbolTbl.enter loc curr_scope_name s.state_table;
+          state_new_symbols = curr_scope_symbols :: s.state_new_symbols
+        } in
         
-        s, symbol
+        (s, symbol), qual_ident
       else
-        f symbol s
+        (f symbol s), qual_ident
   
   in
 
@@ -645,6 +668,17 @@ module Stmt = struct
         let+ assign_rhs = Expr.rewrite_qual_idents ~f assign.assign_rhs
         and+ assign_lhs = List.map assign.assign_lhs ~f:(Expr.rewrite_qual_idents ~f) in
         { stmt with stmt_desc = Basic (Assign { assign_lhs; assign_rhs }); }
+
+      | Bind bind_desc ->
+        let+ bind_lhs = List.map bind_desc.bind_lhs ~f:(Expr.rewrite_qual_idents ~f)
+        and+ bind_rhs = Expr.rewrite_qual_idents ~f bind_desc.bind_rhs in
+        { stmt with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
+
+      | FieldRead field_read_desc ->
+        let field_read_lhs = f field_read_desc.field_read_lhs in
+        let field_read_field = f field_read_desc.field_read_field in
+        let+ field_read_ref = Expr.rewrite_qual_idents ~f field_read_desc.field_read_ref in
+        { stmt with stmt_desc = Basic (FieldRead { field_read_lhs; field_read_field; field_read_ref }) }
         
       | Return expr ->
         let+ expr = Expr.rewrite_qual_idents ~f expr in
@@ -942,7 +976,7 @@ end
 
 module Symbol = struct
   let reify (name, symbol, subst) =
-    (* Logs.debug (fun m -> m "Rewriter.Symbol.reify %a; %a" AstDef.Symbol.pr symbol (Print.pr_list_comma (fun ppf (q, i_l) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q (Print.pr_list_comma Ident.pr) i_l )) subst); *)
+    Logs.debug (fun m -> m "Rewriter.Symbol.reify %a; %a" AstDef.Symbol.pr symbol (Print.pr_list_comma (fun ppf (q, i_l) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q (Print.pr_list_comma Ident.pr) i_l )) subst);
 
     match subst with
     | [] -> return symbol
@@ -1232,6 +1266,13 @@ module ProgUtils = struct
     | App (Var qual_iden, [], _) -> QualIdent.pop qual_iden
     | _ -> Error.error field.field_loc "Rewriter.ProgUtils.field_get_ra_module: Expected field type to be a variable"
 
+  let pred_get_ra_qual_iden (pred_qual_iden) =
+    let open Syntax in
+    let+ pred_fully_qual_iden = resolve (QualIdent.to_loc pred_qual_iden) pred_qual_iden in
+
+    QualIdent.append (QualIdent.pop pred_fully_qual_iden) (pred_to_ra_mod_ident ~loc:(QualIdent.to_loc pred_qual_iden) (QualIdent.unqualify pred_fully_qual_iden))
+    
+
   let get_ra_rep_type (ra_qual_iden: qual_ident) : type_expr =
     AstDef.Type.mk_var (QualIdent.to_loc ra_qual_iden) (QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "T" 0))
 
@@ -1297,7 +1338,7 @@ module ProgUtils = struct
   let get_pred_utils_frame loc pred_name : qual_ident t =
     let open Syntax in
     let+ pred_utils_module = get_pred_utils_module loc pred_name in
-    QualIdent.append pred_utils_module (heap_utils_comp_chunk_ident loc)
+    QualIdent.append pred_utils_module (heap_utils_frame_chunk_ident loc)
 
 
 
@@ -1334,34 +1375,28 @@ module ProgUtils = struct
 
     in
 
-    return @@ AstDef.Expr.mk_var  ~loc id_qual_ident ~typ:field_elem_type
+    return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:field_elem_type
 
-  (* let get_pred_utils_id loc pred_name : expr t =
+  let get_pred_utils_id loc pred_name : expr t =
     let open Syntax in
     let* pred_utils_module = get_pred_utils_module loc pred_name in
 
     let* pred = find_and_reify loc pred_name in
-    let pred_type = 
-      match pred with
-      | AstDef.Module.predDef { pred_type; _ } -> pred_type
-      | _ -> Error.error loc "Rewriter.ProgUtils.get_pred_utils_id: Expected pred definition"
-    in
 
-    let pred_elem_type = match pred_type with
-      | App (Fld, [tp], _) -> tp
-      | _ -> Error.error loc "Rewriter.ProgUtils.get_pred_utils_id: Expected pred type"
-    in
+    let* pred_elem_type_name = get_pred_utils_rep_type loc pred_name in
+    
+    let pred_elem_type = AstDef.Type.mk_var loc pred_elem_type_name in
 
-    let id_qual_ident = QualIdent.append pred_utils_module (pred_utils_id_ident loc)
+    let id_qual_ident = QualIdent.append pred_utils_module (heap_utils_id_ident loc)
 
     in
 
-    return @@ AstDef.Expr.mk_var  ~loc id_qual_ident ~typ:pred_elem_type *)
+    return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:pred_elem_type
 
   let pred_ra_constr_qual_ident loc pred_name =
     let open Syntax in
-    let+ pred_utils_module = get_pred_utils_module loc pred_name in
-    QualIdent.append pred_utils_module AstDef.Predefs.lib_countAgreeRA_constr_ident
+    let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
+    QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_constr_ident
 
   let pred_in_types pred_name =
     let open Syntax in

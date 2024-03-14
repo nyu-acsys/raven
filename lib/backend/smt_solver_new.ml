@@ -205,7 +205,7 @@ let write cmd : unit t =
 
   (* SmtSession.write state.smt_env.session cmd *)
   
-let write_comment cmnt =
+let write_comment cmnt : unit t =
   let open Rewriter.Syntax in
   let* smt_env = Rewriter.current_user_state in
   let _ = SmtSession.write_comment smt_env.session cmnt in
@@ -323,7 +323,7 @@ let init () : smt_env =
     mk_declare_sort loc_ident 0;
   ] in
 
-  let list_of_cmds = list_of_cmds @ (Base.List.init 10 ~f:(fun i -> declare_tuple_sort (i+1))) in
+  let list_of_cmds = list_of_cmds @ (Base.List.init 11 ~f:(fun i -> declare_tuple_sort (i))) in
 
   let smt_env = {
     session = session;

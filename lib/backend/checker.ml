@@ -67,6 +67,12 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
   | Basic basic_stmt ->
     (match basic_stmt with
     | Spec (spec_kind, spec) ->
+      
+      let* _ = (match spec.spec_comment with
+      | None -> Rewriter.return ()
+      | Some c -> write_comment c 
+      ) in
+
       (match spec_kind with
       | Assume -> 
         assume_expr spec.spec_form

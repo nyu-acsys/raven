@@ -8,10 +8,10 @@ interface IArray {
   func first(r: Ref) returns (a: T)
   func second(r: Ref) returns (i: Int)
   
-  lemma all_diff()
+  auto lemma all_diff()
     ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
     
-  lemma len_nonneg()
+  auto lemma len_nonneg()
     ensures forall a:T :: len(a) >= 0
 }
 
@@ -35,6 +35,8 @@ module ArrayMax[M: IArray] {
     ensures  M.len(a) == 0 ? x == -1 : (0 <= x && x < M.len(a))
     ensures  is_max(x, m, M.len(a))
   {
+    M.all_diff();
+    M.len_nonneg();
     var z : Int;
     if (M.len(a) == 0) {
       x := -1;
@@ -53,6 +55,7 @@ module ArrayMax[M: IArray] {
                         ==> m[i] <= m[y])
                         )
       {
+        M.all_diff();
         unfold arr(a,m);
         
         var tmp1 : Int  = M.loc(a, x).value;

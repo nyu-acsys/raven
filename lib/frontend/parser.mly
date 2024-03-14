@@ -329,6 +329,7 @@ contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
+           spec_comment = None;
            spec_error = None;
          }
   in
@@ -338,6 +339,7 @@ contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
+           spec_comment = None;
            spec_error = None;
          }
   in
@@ -419,6 +421,7 @@ stmt_wo_trailing_substmt:
   let open Stmt in
   let spec = { spec_form = e;
                spec_atomic = false;
+               spec_comment = None;
                spec_error = None; }
   in
   Basic (Spec (sk, spec))
@@ -597,6 +600,7 @@ loop_contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = false;
+           spec_comment = None;
            spec_error = None;
          }
   in
