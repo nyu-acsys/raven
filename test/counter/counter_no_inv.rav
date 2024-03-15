@@ -40,8 +40,8 @@ proc incr(x: Ref, implicit ghost v)
 
 proc read(x: Ref, implicit ghost v: Int)
   atomic requires counter(x, v)
-  atomic ensures counter(x, v)
-  returns v
+  atomic ensures counter(x, v) && v2 == v
+  returns v2
 {
   var phi: AtomicToken := bindAU();
 
