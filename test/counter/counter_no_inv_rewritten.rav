@@ -1,0 +1,80 @@
+field c: Int
+
+pred counter(x: Ref; v: Int) {
+  own(x, c, v, 1.0)
+}
+
+proc incr(x: Ref, implicit ghost v: Int) 
+  // requires counter(x, v)
+  // ensures counter(x, v + 1)
+{
+  // var phi: AtomicToken := bindAU();
+
+  var v1: Int;
+
+  // ghost var v2: Int := openAU(phi);
+    var v2: Int;
+    inhale counter(x, v2);
+
+  unfold counter(x, v2);
+  v1 := x.c;
+  fold counter(x, v2);
+  
+  // abortAU(phi);
+    exhale counter(x, v2);
+  
+  var new_v1 : Int := v1 + 1;
+
+  // var v2: Int := openAU(phi);
+    var v3: Int;
+    inhale counter(x, v3);
+
+  unfold counter(x,v3);
+
+  // var res: Bool := CAS(x.c, v1, new_v1);
+
+    var res: Bool;
+    var curr_val: Int := x.c;
+
+    if (curr_val == v1) {
+      x.c := new_v1;
+      res := true;
+    } else {
+      res := false;
+    }
+  
+  // {! 
+    if (res) {
+      fold counter(x, new_v1);
+      // commitAU(phi);
+        exhale counter(x, new_v1);
+    } else {
+      fold counter(x, v3);
+      // abortAU(phi);
+        exhale counter(x, v3);
+    }
+  // !}
+
+  if (!res) incr(x);
+}
+
+proc read(x: Ref, implicit ghost v: Int)
+  returns (v2: Int)
+  // atomic requires counter(x, v)
+  // atomic ensures counter(x, v) && v2 == v
+  // ensures v2 == v
+
+{
+  // var phi: AtomicToken := bindAU();
+
+  // var v1: Int := openAU(phi);
+    var v1: Int;
+    inhale counter(x, v1);
+  unfold counter(x, v1);
+  var v3: Int := x.c;
+  fold counter(x, v1);
+  // commitAU(phi);
+    exhale counter(x, v1);
+
+  return v3;
+}

@@ -1398,6 +1398,16 @@ module ProgUtils = struct
     let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
     QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_constr_ident
 
+  let pred_ra_count_destr_qual_ident loc pred_name =
+    let open Syntax in
+    let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
+    QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_destr1_ident
+
+  let pred_ra_count_destr_qual_ident loc pred_name =
+    let open Syntax in
+    let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
+    QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_destr2_ident
+
   let pred_in_types pred_name =
     let open Syntax in
     let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
@@ -1418,7 +1428,13 @@ module ProgUtils = struct
 
     | _ -> Error.error (AstDef.QualIdent.to_loc pred_name) "Rewriter.ProgUtils.pred_in_types: Expected pred definition"
 
+  let pred_heap_type pred_name =
+    let open Syntax in
+    let* pred_in_types = pred_in_types pred_name in
 
+    let+ pred_rep_type = get_pred_utils_rep_type (QualIdent.to_loc pred_name) pred_name in
+    
+    AstDef.Type.mk_map (QualIdent.to_loc pred_name) (AstDef.Type.mk_prod (QualIdent.to_loc pred_name) pred_in_types) (AstDef.Type.mk_var (QualIdent.to_loc pred_name) pred_rep_type)
 
 
   let heap_utils_heapchunk_compare_id loc = Ident.make loc "heapChunkCompare" 0

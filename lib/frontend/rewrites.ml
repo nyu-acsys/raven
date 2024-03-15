@@ -479,7 +479,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
 let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
-  | Basic (Return ret_expr_list) ->
+  | Basic (Return ret_expr) ->
 
     let* callable_decl =
       let* curr_proc_name = Rewriter.current_scope_id in
@@ -496,9 +496,18 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
     
     in
 
+    let ret_expr_list = Expr.unfold_tuple ret_expr in
+
+    let renaming_map = List.fold2_exn callable_decl.call_decl_returns ret_expr_list ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr ->
+      Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+    ) in
+
     let postconds_spec = callable_decl.call_decl_postcond in
 
-    let postconds_exhale_stmts = List.map postconds_spec ~f:(fun spec -> Stmt.mk_exhale_spec ~loc:stmt.stmt_loc ~cmnt:(Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)) spec) in
+    let postconds_exhale_stmts = List.map postconds_spec ~f:(fun spec ->
+      let expr = Expr.alpha_renaming spec.spec_form renaming_map in
+      
+      Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)) expr) in
 
     let assume_false = Stmt.mk_assume_expr ~loc:stmt.stmt_loc (Expr.mk_bool ~loc:stmt.stmt_loc false) in
 
@@ -579,7 +588,7 @@ let rec rewrite_fold_unfold_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
     ) in 
 
     let renaming_map, fresh_dropped_args = 
-      let truncated_formal_args, dropped_formal_args = List.split_n pred_decl.call_decl_formals (List.length use_desc.use_args) in
+      (* let truncated_formal_args, dropped_formal_args = List.split_n pred_decl.call_decl_formals (List.length use_desc.use_args) in
 
       let fresh_dropped_args = List.map dropped_formal_args ~f:(fun var_decl -> 
         { var_decl with var_name = Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name; var_loc = stmt.stmt_loc; }
@@ -590,15 +599,19 @@ let rec rewrite_fold_unfold_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
       let renaming_map = List.fold2_exn (truncated_formal_args @ dropped_formal_args) (use_desc.use_args @ fresh_dropped_args_exprs) ~init:((Map.empty (module QualIdent))) ~f:(fun map var_decl arg_expr ->
         Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:arg_expr
       )
-      in
+      in *)
 
-      renaming_map, fresh_dropped_args
+      let renaming_map = List.fold2_exn (pred_decl.call_decl_formals @ pred_decl.call_decl_returns) (use_desc.use_args) ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl arg_expr -> Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:arg_expr) in
+
+      (* renaming_map, fresh_dropped_args *)
+      renaming_map, ()
     in
     
     let body_expr = 
       let new_body = Expr.alpha_renaming body renaming_map in
       
-      Expr.mk_binder ~loc:stmt.stmt_loc ~typ:Type.bool Exists fresh_dropped_args new_body 
+      (* Expr.mk_binder ~loc:stmt.stmt_loc ~typ:Type.bool Exists fresh_dropped_args new_body  *)
+      new_body
     in
 
     let pred_expr = Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.bool (Expr.Var use_desc.use_name) use_desc.use_args in
@@ -2133,8 +2146,11 @@ module HeapsExplicitTrnsl = struct
 
           let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
           
-          Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\ninhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
-          (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
+          Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^  "inhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+
+          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr]]
+          
+          ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
             (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
               (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
 
@@ -2576,7 +2592,6 @@ module HeapsExplicitTrnsl = struct
           let field_elem_type = (match Expr.to_type field_expr with
             | App (Fld, [tp_expr], _) -> tp_expr
             | _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier.")
-        
           in
 
           let field_heap_name = field_heap_name field_name in
@@ -2600,6 +2615,60 @@ module HeapsExplicitTrnsl = struct
           ) in
 
           Rewriter.return witness_map
+
+        | App (Var qual_ident, args, _) ->
+          let* symbol = Rewriter.find_and_reify (Expr.to_loc expr) qual_ident in
+
+          (match symbol with
+          | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred) ->
+            let pred_heap = pred_heap_name qual_ident in
+            let* pred_in_types = Rewriter.ProgUtils.pred_in_types qual_ident in
+            let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
+
+            let* pred_heap_type = Rewriter.ProgUtils.pred_heap_type qual_ident in
+            let pred_heap_expr = Expr.mk_var (QualIdent.from_ident pred_heap) ~typ:pred_heap_type in
+
+
+            let* pred_val_destr = Rewriter.ProgUtils.pred_ra_count_destr_qual_ident (Expr.to_loc expr) qual_ident in
+
+            let pred_heap_val = Expr.mk_app ~typ:(Type.mk_prod (Expr.to_loc expr) pred_out_types) (DataDestr pred_val_destr) [(Expr.mk_maplookup pred_heap_expr (Expr.mk_tuple (List.take args (List.length pred_in_types))))] in
+
+            let* pred_heap_expanded_type = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type pred_heap_val) in
+
+            Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: pred_heap_expanded_type: %a" Type.pr pred_heap_expanded_type);
+
+            let pred_heap_val_expanded_typ = Expr.set_type pred_heap_val (pred_heap_expanded_type)
+            
+            in
+
+            let concrete_exprs = List.mapi (List.drop args (List.length pred_in_types)) ~f:(fun i _ -> 
+              Expr.mk_tuple_lookup pred_heap_val_expanded_typ i  
+            ) in
+
+            let out_args_concrete_exprs = List.zip_exn (List.drop args (List.length pred_in_types)) concrete_exprs in
+            
+            let* witness_map = Rewriter.List.fold_left out_args_concrete_exprs ~init:witness_map ~f:(fun map (out_arg, concrete_expr) -> 
+              
+              let* witnesses = core_witness_comp exist_vars concrete_expr out_arg true in 
+            
+              let witness_map = List.fold exist_vars ~init:witness_map ~f:(fun witness_map var_decl -> 
+                let existing_val = Map.find_exn witness_map var_decl.var_name in  
+    
+                let new_val = (exist_conds, Map.find witnesses var_decl.var_name) :: existing_val in
+    
+                Map.set witness_map ~key:var_decl.var_name ~data:new_val
+                
+              ) in
+
+              Rewriter.return witness_map
+
+            ) in
+            
+            Rewriter.return witness_map
+
+          | _ -> 
+            Rewriter.return (Map.empty (module Ident))
+        )
 
 
         | _ -> 
@@ -2893,8 +2962,10 @@ module HeapsExplicitTrnsl = struct
           let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
           
           Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
-          ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
-          (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
+          ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^ "exhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr]]
+          
+          ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
             (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
               (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
 

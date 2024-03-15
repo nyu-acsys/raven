@@ -764,6 +764,16 @@ module Expr = struct
     | e :: [] -> e
     | _ -> mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
 
+  let mk_tuple_lookup ?(loc = Loc.dummy) e i = 
+    match (to_type e) with
+    | App (Prod, _, _) ->
+      mk_app ~loc ~typ:(Type.tuple_lookup (to_type e) i) TupleLookUp [e; mk_int ~loc i]
+    | _ ->
+      if i = 0 then 
+        e 
+      else
+        Error.error loc "Expected Tuple type"
+
   let mk_unit loc = mk_tuple ~loc []
   
   (** Constructor for conjunction.*)
@@ -833,6 +843,11 @@ module Expr = struct
     match expr with
     | App (Int i, _, _) -> Int.of_int64_exn i
     | _ -> Error.error (to_loc expr) "Expected Int expression"
+
+  let unfold_tuple expr =
+    match expr with
+    | App (Tuple, es, _) -> es
+    | _ -> [ expr ]
 
   (** Map all identifiers occuring in expression [e] to new identifiers according to function [fct] *)
   let map_idents fct e =
@@ -1629,14 +1644,14 @@ module Callable = struct
     let pr_returns ppf = function
       | [] -> ()
       | rs ->
-          fprintf ppf "@;returns (@[<0>%a@])" Expr.pr_var_decl_list rs
+          fprintf ppf "returns (@[<0>%a@])" Expr.pr_var_decl_list rs
     in
     let pr_call_locals ppf = function
       | [] -> ()
       | ls ->
           fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
     in
-    fprintf ppf "@[%s %a(%a)@[%a%a%a@]@]" 
+    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a@]@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
@@ -2005,5 +2020,8 @@ module Predefs = struct
   let lib_countAgreeRA_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CountAgreeRA" 0]
 
   let lib_countAgreeRA_constr_ident = Ident.make Loc.dummy "count_cons" 0
+
+  let lib_countAgreeRA_destr1_ident = Ident.make Loc.dummy "count" 0
+  let lib_countAgreeRA_destr2_ident = Ident.make Loc.dummy "value" 0
 
 end

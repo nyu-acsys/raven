@@ -783,58 +783,58 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
         )
     }
 
-        auto lemma frameCompInv()
-        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-    {}
-
-    auto lemma frameReflexive()
-        ensures forall a:T :: valid(a) ==> frame(a, a) == id
-    {}
-
     auto lemma idValid()
         ensures valid(id)
     {}
 
     auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+        ensures forall a:T, b:T, c:T :: { comp(comp(a, b), c) } {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
     {}
 
     auto lemma compCommute()
-        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
     {}
 
     auto lemma compId()
-        ensures forall a:T :: comp(a, id) == a
+        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
     {}
  
     auto lemma compValid()
-        ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+        ensures forall a:T, b:T :: {comp(a,b)} {valid(a), valid(b)} valid(comp(a, b)) ==> valid(a) && valid(b)
     {}
 
     auto lemma frameId()
-        ensures forall a:T :: frame(a, id) == a
+        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
     {}
     
     auto lemma compFrameInv()
-        ensures forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+        ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     {}
     
     auto lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: ((fpuAllowed(a,b) && valid(a) && 
+        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} ((fpuAllowed(a,b) && valid(a) && 
             // valid(b) && 
         valid(comp(a,c))) ==> valid(comp(b,c)))
     {}
     
     auto lemma fpuReflexive()
-        ensures (forall a:T :: valid(a) ==> fpuAllowed(a,a))
+        ensures (forall a:T :: {fpuAllowed(a,a)} valid(a) ==> fpuAllowed(a,a))
     {}
     
     auto lemma frameValid()
-        ensures forall a:T, b:T :: valid(frame(a,b)) ==> valid(a) && valid(b)
+        ensures forall a:T, b:T :: {frame(a,b)} {valid(a), valid(b)} valid(frame(a,b)) ==> valid(a) && valid(b)
     {}
     
     auto lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+        ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
+
+    auto lemma frameCompInv()
+        ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+    {}
+
+    auto lemma frameReflexive()
+        ensures forall a:T :: {frame(a,a)} {valid(a)} valid(a) ==> frame(a, a) == id
     {}
 
 }
