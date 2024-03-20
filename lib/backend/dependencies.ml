@@ -20,10 +20,12 @@ let root_dependencies (tbl: SymbolTbl.t) (mdef: Module.t) =
     | VarDef var_def ->
       let+ qid = Rewriter.resolve (Symbol.to_loc sym) (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Option.map var_def.var_init ~f:Expr.symbols |> Option.value ~default:empty in
+      let deps = Set.union deps (Type.symbols var_def.var_decl.var_type) in
       Graph.add_edges g qid deps
     | CallDef call_def -> 
       let+ qid = Rewriter.resolve (Symbol.to_loc sym) (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Callable.symbols call_def in
+      Logs.debug (fun m -> m "Dependencies.root_dependencies: Adding dependencies of callable %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
       Graph.add_edges g qid deps
     (*| ConstrDef cdef -> ???
       | DestrDef cdef -> ??? *)

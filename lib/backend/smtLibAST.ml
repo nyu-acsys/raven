@@ -155,7 +155,7 @@ let rec pr_term ppf (term: term) = match term with
     | Empty, [] ->  fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)
     | Uminus, [t] -> fprintf ppf "@[<2>(* -1 @ %a)@]" pr_term t
     | Setenum, es ->
-      let empty_set = asprintf "((as const (Set %a)) false)" pr_sort (Expr.to_type term) in
+      let empty_set = asprintf "((as const %a) false)" pr_sort (Expr.to_type term) in
       let str = List.fold es ~init:empty_set ~f:(fun acc e -> asprintf "(store %s %a true)" acc pr_term e) in
       fprintf ppf "%s" str
 
@@ -169,16 +169,20 @@ let rec pr_term ppf (term: term) = match term with
       fprintf ppf "@[<2>(tuple_%i_%a@ %a@)@]" arity pr_term index pr_term tuple_expr
 
     | Tuple, es -> 
-      fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es
+      (match List.length es with
+      | 0 -> fprintf ppf "@[<2>$tuple_0 @]"
+      | _ -> fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es)
 
     | Diff, _
     | Read, _
     | Own, _ | _ -> Error.smt_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
   end
 
-  | Binder (b, vs, f, _) ->
+  | Binder (b, vs, trgs, f, _) ->
     let vs = List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type)) in
-    fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
+    match trgs with
+    | [] -> fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f   
+    | _ -> fprintf ppf "@[(%s @[(%a)@,(! %a %a))@]" (Expr.binder_to_string b) pr_var_decls vs pr_term f pr_trgs trgs
 
 and pr_terms ppf = function
   | [] -> ()
@@ -197,6 +201,11 @@ and pr_let_decls ppf = function
   | [decl] -> pr_let_decl ppf decl
   | decl :: decls ->
       fprintf ppf "%a@ %a" pr_let_decl decl pr_let_decls decls
+
+and pr_trgs ppf = function
+| [] -> ()
+| [t] -> fprintf ppf "@[:pattern (%a)@]" pr_terms t
+| t :: ts -> fprintf ppf "@[:pattern (%a) @,%a@]" pr_terms t pr_trgs ts
         
 (* and pr_annot ppf (t, a) =
   match a with
@@ -271,7 +280,7 @@ let pr_command ppf = function
   | GetUnsatCore _ -> fprintf ppf "(get-unsat-core)@,"
   | Exit _ -> fprintf ppf "(exit)@,"
 
-let print_comment out_ch cmnt = fprintf (formatter_of_out_channel out_ch) "@[<v>; %s @,@]@?" cmnt
+let print_comment out_ch cmnt = fprintf (formatter_of_out_channel out_ch) "@[<v>; %s @,@]@?" (String.substr_replace_all cmnt ~pattern:"\n" ~with_:"\n; ")
 
 let rec pr_commands ppf = function
   | [] -> ()

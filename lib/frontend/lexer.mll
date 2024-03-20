@@ -17,6 +17,7 @@ let _ =
       ("assume", SPEC Stmt.Assume);
       ("atomic", ATOMIC);
       ("AtomicToken", ATOMICTOKEN);
+      ("auto", AUTO);
       ("Bool", BOOL);
       ("case", CASE);
       ("closeInv", USE Stmt.CloseInv);

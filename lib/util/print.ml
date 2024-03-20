@@ -11,7 +11,7 @@ let pr_list_sep sep pr_x ppf =
   pr_list 0 (fun ppf _ -> fprintf ppf sep) (fun _ -> pr_x) ppf
         
 let pr_list_comma pr_x ppf =
-  pr_list_sep ",@ " pr_x ppf 
+  pr_list_sep ", " pr_x ppf 
 
 let pr_list_nl pr_x ppf = 
   pr_list_sep "@\n" pr_x ppf 

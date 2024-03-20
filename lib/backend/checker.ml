@@ -67,13 +67,20 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
   | Basic basic_stmt ->
     (match basic_stmt with
     | Spec (spec_kind, spec) ->
+      
+      let* _ = (match spec.spec_comment with
+      | None -> Rewriter.return ()
+      | Some c -> write_comment c 
+      ) in
+
       (match spec_kind with
       | Assume -> 
         assume_expr spec.spec_form
       | Assert ->
         let* b = check_valid spec.spec_form in
         (match b with
-        | true -> Rewriter.return ()
+        | true -> assume_expr spec.spec_form
+        (* Rewriter.return () *)
         | false -> Error.smt_error stmt.stmt_loc "Assertion is not valid")
 
       | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
@@ -105,12 +112,14 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
 
       let post_cond_expr =  
+        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
+
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
           (Expr.mk_impl 
             (Expr.mk_eq 
-              (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+              (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
-              (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg)))
+              ret_tuple
             ) 
 
           (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
@@ -118,27 +127,50 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         ) in
       
       let* _ = write cmd in
-      assume_expr post_cond_expr
+      (match call_decl.call_decl_postcond with
+      | [] -> Rewriter.return ()
+      | _ -> assume_expr post_cond_expr)
 
   | FuncDef {func_body = Some expr} -> 
     if Poly.(call_decl.call_decl_kind = Pred || call_decl.call_decl_kind = Invariant) then
       Rewriter.return ()
     else
 
-      let cmd =
+      (* let cmd =
         SmtLibAST.mk_define_fun ~loc:call_decl.call_decl_loc fully_qual_name 
         (List.map call_decl.call_decl_formals ~f:(fun arg -> (QualIdent.from_ident arg.var_name, arg.var_type))) 
         (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) 
-        expr in
+        expr in *)
+
+      let cmd = 
+        SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name 
+        (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
+        (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
+
+      and spec_expr = 
+
+         (Expr.mk_binder Forall (call_decl.call_decl_formals) 
+          ~trigs: [[(Expr.mk_app ~typ:Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
+            (Expr.mk_eq 
+              (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+
+              expr
+            ) 
+        )
+
+      
+      
+      in
 
       let check_contract_expr = 
+        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns)
           (Expr.mk_impl 
             (Expr.mk_and 
               (
                 (Expr.mk_eq 
-                  (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg)))
-                  (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+                  ret_tuple
+                  (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
                 )
               :: List.map call_decl.call_decl_precond ~f:(fun pre -> pre.spec_form))
             )
@@ -148,12 +180,13 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       ) in
 
       let post_cond_expr = 
+        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
       (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
         (Expr.mk_impl 
           (Expr.mk_eq 
-            (Expr.mk_app (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+            (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
-            (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg)))
+            ret_tuple
           ) 
 
         (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
@@ -161,32 +194,61 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       ) in
 
       let* _ = write cmd in
+      let* _ = assume_expr spec_expr in
+
       let* b = check_valid check_contract_expr in
 
       (match b with
-      | true -> assume_expr post_cond_expr
+      | true -> (
+        match call_decl.call_decl_postcond with
+        | [] -> Rewriter.return ()
+        | _ -> assume_expr post_cond_expr
+        )
       | false -> Error.smt_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
 
-    
 
-  | ProcDef {proc_body = None} -> 
-    Rewriter.return ()
+  | ProcDef proc_def->
+    let* _ = match proc_def.proc_body with
+    | None -> Rewriter.return ()
+    | Some stmt -> 
+      let* _ = push in
+      let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
 
-  
-  | ProcDef {proc_body = Some stmt} -> 
-    let* _ = push in
-    let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
+      let* _ = Rewriter.List.iter (call_decl.call_decl_formals @ call_decl.call_decl_returns @ call_decl.call_decl_locals) ~f:(fun local -> 
+        write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type )
+      ) in
 
-    let* _ = Rewriter.List.iter (call_decl.call_decl_formals @ call_decl.call_decl_returns @ call_decl.call_decl_locals) ~f:(fun local -> 
-      write (mk_declare_const (QualIdent.from_ident local.var_name) local.var_type )
-    ) in
-
-    let* _ = check_stmt stmt in
-    
-    let* _ = pop in
+      let* _ = check_stmt stmt in
       
-    Rewriter.return ()
+      let* _ = pop in
+        
+      Rewriter.return ()
 
+    in
+
+    (* Rewriter.return () *)
+
+    begin 
+      match call_decl.call_decl_kind, call_decl.call_decl_is_auto with
+      | Lemma, true -> 
+        let* spec_is_pure = Rewriter.List.fold_left ~init:true (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~f:(fun acc spec -> 
+          let* is_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
+          Rewriter.return (acc && is_pure)
+        ) in
+        
+        if spec_is_pure && (List.is_empty (call_decl.call_decl_formals @ call_decl.call_decl_returns)) then
+          let* _ = write_comment (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr fully_qual_name) in
+          match call_decl.call_decl_precond with
+          | [] -> assume_expr (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form)))
+          | _ -> 
+            assume_expr (
+              Expr.mk_impl 
+              (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_form)))
+              (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form))))
+        else
+          Error.smt_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
+      | _ -> Rewriter.return ()
+    end
 
 
 let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
@@ -209,7 +271,7 @@ let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
         let* _ = write (mk_declare_const qual_name var_def.var_decl.var_type) in
         (match var_def.var_init with
         | None -> Rewriter.return ()
-        | Some expr -> assume_expr (Expr.mk_eq (Expr.mk_app (Var qual_name) []) expr))
+        | Some expr -> assume_expr (Expr.mk_eq (Expr.mk_app ~typ:(Expr.to_type expr) (Var qual_name) []) expr))
 
 
       | _ -> Error.unsupported_error (Loc.dummy) ("Unsupported symbol: " ^ Symbol.to_string symbol)

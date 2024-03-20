@@ -308,7 +308,7 @@ module Type = struct
     | App (Prod, ts, _) ->
       Stdlib.Format.fprintf ppf "(@[%a@])" (Print.pr_list_comma pr) ts
     | App (t1, ts, _) ->
-        Stdlib.Format.fprintf ppf "%a[@[%a@]]" pr_constr t1
+        Stdlib.Format.fprintf ppf "%a[%a]" pr_constr t1
           (Print.pr_list_comma pr) ts
 
   and pr_var_decl ppf decl =
@@ -331,7 +331,7 @@ module Type = struct
 
 
   and pr_ident ppf (id, t) =
-    Stdlib.Format.fprintf ppf "%a:@ %a" Ident.pr id pr t
+    Stdlib.Format.fprintf ppf "%a: %a" Ident.pr id pr t
 
   and pr_arg_list ppf =
     Print.pr_list_comma
@@ -563,10 +563,10 @@ module Expr = struct
     (* Application expressions *)
     | App of constr * t list * (expr_attr [@compare.ignore])
     (* Variable binder expressions *)
-    | Binder of binder * var_decl list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
+    | Binder of binder * var_decl list * (t list) list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
 
   let mk_attr loc t = { expr_loc = loc; expr_type = t }
-  let attr_of = function App (_, _, attr) | Binder (_, _, _, attr) -> attr
+  let attr_of = function App (_, _, attr) | Binder (_, _, _, _, attr) -> attr
   let to_loc t = t |> attr_of |> fun attr -> attr.expr_loc
   let to_type t = t |> attr_of |> fun attr -> attr.expr_type
 
@@ -575,7 +575,7 @@ module Expr = struct
     let attr = { attr with expr_type = tp } in
     match t with 
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
-    | Binder (b, v_l, expr, _expr_attr) -> Binder (b, v_l, expr, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
   (** Pretty printing expressions *)
 
@@ -640,8 +640,8 @@ module Expr = struct
 
   let to_prio = function
     | App (c, _, _) -> constr_to_prio c
-    | Binder (Compr, _, _, _) -> 0
-    | Binder ((Forall | Exists), _, _, _) -> 18
+    | Binder (Compr, _, _, _, _) -> 0
+    | Binder ((Forall | Exists), _, _, _, _) -> 18
 
   let binder_to_string = function
     | Exists -> "exists"
@@ -676,8 +676,8 @@ module Expr = struct
     | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
     | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
     | App (c, es, _) -> fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr (to_type e)
-    | Binder (b, vs, e1, _) ->
-        fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, e1, to_type e) Type.pr (to_type e)
+    | Binder (b, vs, trgs, e1, _) ->
+        fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, trgs, e1, to_type e) Type.pr (to_type e)
 
 
   and pr_compact ppf e =
@@ -697,12 +697,12 @@ module Expr = struct
           _ ) ->
         let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
         let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
-        fprintf ppf "%a %a@ %a" pr_e1 e1 pr_constr c pr_e2 e2
+        fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
     | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
     | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
     | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
-    | Binder (b, vs, e1, _) ->
-        fprintf ppf "%a" pr_binder (b, vs, e1, to_type e)
+    | Binder (b, vs, trgs, e1, _) ->
+        fprintf ppf "%a" pr_binder (b, vs, trgs, e1, to_type e)
 
   and pr ppf e = pr_compact ppf e
   (* and pr ppf e = pr_verbose ppf e *)
@@ -713,15 +713,21 @@ module Expr = struct
   and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
 
   and pr_binder ppf = function
-    | ((Forall | Exists) as b), vs, e, _ ->
-        Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a" (binder_to_string b)
-          pr_var_decl_list vs pr e
-    | Compr, vs, e, App (Set, _, _) ->
+    | ((Forall | Exists) as b), vs, trgs, e, _ ->
+      Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a %a" (binder_to_string b)
+      pr_var_decl_list vs pr_trgs trgs pr e
+    | Compr, vs, trgs, e, App (Set, _, _) ->
         Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs
           pr e
-    | Compr, vs, e, _ ->
+    | Compr, vs, trgs, e, _ ->
         Stdlib.Format.fprintf ppf "[|@ @[%a@ ::@ %a@]@ |]" pr_var_decl_list vs
           pr e
+
+  and pr_trgs ppf trgs = 
+    match trgs with
+    | [] -> ()
+    | trg :: trgs -> 
+      Stdlib.Format.fprintf ppf "{ @[%a@] } %a" (Print.pr_list_comma pr) trg pr_trgs trgs
 
   and pr_var_decl ppf vdecl =
     let open Type in
@@ -737,23 +743,36 @@ module Expr = struct
 
   (** Constructors *)
   
-  let mk_app ?(loc = Loc.dummy) ?(typ = Type.bot) c es =
+  let mk_app ?(loc = Loc.dummy) ~typ c es =
     App (c, es, mk_attr loc typ)
 
   let mk_var ?(loc = Loc.dummy) ~typ (qual_ident: qual_ident) = 
     mk_app ~loc ~typ (Var qual_ident) []
 
-  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) b vs e =
+  let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) ?(trigs = []) b vs e =
     match vs with 
     | [] -> e
-    | _ -> Binder (b, vs, e, mk_attr loc typ)
+    | _ -> Binder (b, vs, trigs, e, mk_attr loc typ)
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
+
+  let mk_int ?(loc = Loc.dummy) i = mk_app ~loc ~typ:Type.int (Int (Int64.of_int i)) []
+  let mk_real ?(loc = Loc.dummy) r = mk_app ~loc ~typ:Type.real (Real r) []
 
   let mk_tuple ?(loc = Loc.dummy) es = 
     match es with
     | e :: [] -> e
     | _ -> mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
+
+  let mk_tuple_lookup ?(loc = Loc.dummy) e i = 
+    match (to_type e) with
+    | App (Prod, _, _) ->
+      mk_app ~loc ~typ:(Type.tuple_lookup (to_type e) i) TupleLookUp [e; mk_int ~loc i]
+    | _ ->
+      if i = 0 then 
+        e 
+      else
+        Error.error loc "Expected Tuple type"
 
   let mk_unit loc = mk_tuple ~loc []
   
@@ -825,6 +844,11 @@ module Expr = struct
     | App (Int i, _, _) -> Int.of_int64_exn i
     | _ -> Error.error (to_loc expr) "Expected Int expression"
 
+  let unfold_tuple expr =
+    match expr with
+    | App (Tuple, es, _) -> es
+    | _ -> [ expr ]
+
   (** Map all identifiers occuring in expression [e] to new identifiers according to function [fct] *)
   let map_idents fct e =
   let rec sub = function
@@ -838,8 +862,9 @@ module Expr = struct
         | _ -> constr
       in
       App (constr, args, expr_attr)
-    | Binder (b, vars, e, expr_attr) ->
-      Binder (b, vars, sub e, expr_attr)
+    | Binder (b, vars, trgs, e, expr_attr) ->
+      let trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:sub) in
+      Binder (b, vars, trgs, sub e, expr_attr)
   in sub e
     
   (** Substitutes all identifiers in expression [e] with other identifiers according to substitution map [subst_map].
@@ -867,7 +892,7 @@ module Expr = struct
         | _ -> equal_constr constr1 constr2
       in
       b && List.for_all2 es1 es2 ~f:(eq sm) |> (function Ok b -> b | Unequal_lengths -> false)
-    | Binder (b1, vs1, e1, _), Binder (b2, vs2, e2, _)
+    | Binder (b1, vs1, trgs1, e1, _), Binder (b2, vs2, trgs2, e2, _)
       when Poly.(b1 = b2) ->
       let sm = List.fold2 vs1 vs2 ~init:sm ~f:(fun sm var_decl1 var_decl2 ->
           let var1 = QualIdent.from_ident var_decl1.Type.var_name in
@@ -901,10 +926,11 @@ module Expr = struct
 
     )
 
-  | Binder (binder, var_decl_list, expr, expr_attr) ->
+  | Binder (binder, var_decl_list, trgs, expr, expr_attr) ->
     (* TODO: Rename the var_decl to avoid clashing with variables in the map *)
     let expr = alpha_renaming expr map in
-    Binder (binder, var_decl_list, expr, expr_attr)
+    let trgs = List.map trgs ~f:(fun exprs -> List.map exprs ~f:(fun expr -> alpha_renaming expr map)) in
+    Binder (binder, var_decl_list, trgs, expr, expr_attr)
 
   (** Extends [acc] with the signature of the free variables occuring in expression [e]. *)
   let signature ?(acc = Map.empty (module QualIdent)) e = 
@@ -915,7 +941,7 @@ module Expr = struct
         else Map.set vars ~key:id ~data:attr.expr_type
       | App (_, ts, _) ->
 	List.fold_left ts ~f:(fv bv) ~init:vars
-      | Binder (_, vs, e, _) ->
+      | Binder (_, vs, trgs, e, _) ->
         let bv =
           List.fold_left vs
             ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
@@ -936,14 +962,15 @@ module Expr = struct
         List.fold_left [expr1; expr3] ~f:(symbols bv) ~init:syms
       | App (_, ts, _) ->
 	List.fold_left ts ~f:(symbols bv) ~init:syms
-      | Binder (_, vs, e, _) ->
+      | Binder (_, vs, trgs, e, _) ->
         let syms =
           List.fold_left vs
             ~init:syms ~f:(fun syms var_decl -> Type.symbols ~acc:syms var_decl.var_type)
         in
         let bv =
           List.fold_left vs
-            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name))
+            ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name)) in
+        let syms = List.fold_left trgs ~f:(fun syms exprs -> List.fold_left exprs ~f:(symbols bv) ~init:syms) ~init:syms
         in
         symbols bv syms e
     in 
@@ -981,7 +1008,7 @@ module Expr = struct
     | App (_constr, expr_list, _expr_attr) ->
       List.concat_map expr_list ~f:(fun expr -> expr_fields_accessed expr)
 
-    | Binder (_binder, var_decl_list, expr, _expr_attr) ->
+    | Binder (_binder, var_decl_list, trgs, expr, _expr_attr) ->
       expr_fields_accessed expr
 end
 
@@ -994,6 +1021,7 @@ module Stmt = struct
   type spec = {
     spec_form : expr;
     spec_atomic : bool;
+    spec_comment : string option;
     spec_error : (qual_ident -> string * string) option;
   }
 
@@ -1006,6 +1034,12 @@ module Stmt = struct
 
   type assign_desc = { assign_lhs : expr list; assign_rhs : expr }
   type bind_desc = { bind_lhs : expr list; bind_rhs : expr }
+
+  type field_read_desc = { 
+    field_read_lhs : qual_ident;
+    field_read_field : qual_ident;
+    field_read_ref : expr
+  }
 
   type call_desc = {
     call_lhs : qual_ident list;
@@ -1076,6 +1110,7 @@ module Stmt = struct
     | New of new_desc
     | Assign of assign_desc (* x *)
     | Bind of bind_desc (* x *)
+    | FieldRead of field_read_desc
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
@@ -1120,7 +1155,10 @@ module Stmt = struct
     function
     | [] -> ()
     | [ sf ] ->
-        fprintf ppf "%s%s %a"
+        fprintf ppf "%a%s%s %a"
+          (fun ppf cmnt -> match sf.spec_comment with
+          | Some c -> fprintf ppf "@\n /* %s */ @\n" c
+          | None -> ()) sf.spec_comment
           (if sf.spec_atomic then "atomic " else "")
           stype Expr.pr sf.spec_form
     | sf :: sfs ->
@@ -1144,7 +1182,7 @@ module Stmt = struct
       | es ->
           fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
           bstm.bind_rhs)
-
+    | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ FieldRead (%a.%a) @]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1226,32 +1264,60 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_assume_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_assume_spec ~loc spec : t = 
+  let mk_assume_spec ~loc ?(cmnt=None) spec : t = 
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_inhale_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_inhale_spec ~loc spec : t = 
+  let mk_inhale_spec ~loc ?(cmnt=None) spec : t = 
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_exhale_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_spec ~loc spec : t = 
+  let mk_exhale_spec ~loc ?(cmnt=None) spec : t = 
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_error = None } in
+  let mk_assert_expr ~loc ?(cmnt=None) expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
-  let mk_assert_spec ~loc spec : t =
+  let mk_assert_spec ~loc ?(cmnt=None) spec : t =
+    let cmnt = 
+      match cmnt, spec.spec_comment with
+      | None, _ -> spec.spec_comment
+      | _, None -> cmnt
+      | Some cmnt, Some c -> Some (cmnt ^ "\n" ^ c)
+    in
+    let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
 
@@ -1270,10 +1336,11 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?(error = None) e = 
+  let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = None) e = 
     {
       spec_form = e;
       spec_atomic = atomic;
+      spec_comment = cmnt;
       spec_error = error;
     }
 
@@ -1313,6 +1380,10 @@ module Stmt = struct
         
         | Bind bind_desc ->
           scan_expr_list accesses (bind_desc.bind_rhs :: bind_desc.bind_lhs)
+
+        | FieldRead fr_desc ->
+          let accesses = Set.add accesses fr_desc.field_read_lhs in
+          scan_expr_list accesses [fr_desc.field_read_ref]
             
         | Havoc x ->
           Set.add accesses x
@@ -1404,6 +1475,12 @@ module Stmt = struct
                 None
             | _ -> None
           )
+
+        | FieldRead fr_desc -> 
+          if List.is_empty fr_desc.field_read_lhs.qual_path then
+            [fr_desc.field_read_lhs.qual_base]
+          else
+            []
           
         | Havoc x ->
           if List.is_empty x.qual_path then 
@@ -1479,10 +1556,14 @@ module Stmt = struct
         | Bind bind_desc ->
           List.concat_map (bind_desc.bind_rhs :: bind_desc.bind_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
 
+        | FieldRead fr_desc -> 
+          [fr_desc.field_read_field]
+
         | Havoc _ ->
           []
 
         | Call call_desc ->
+          Logs.debug (fun m -> m "Call stmts should not exist in the AST during stmt_fields_accessed; found: %a" pr s);
           Error.internal_error s.stmt_loc "Call stmts should not exist in the AST during stmt_fields_accessed"
 
         | Return _ ->
@@ -1531,6 +1612,7 @@ module Callable = struct
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
+    call_decl_is_auto : bool;
     call_decl_loc : location;  (** source location of declaration *)
   }
 
@@ -1562,14 +1644,14 @@ module Callable = struct
     let pr_returns ppf = function
       | [] -> ()
       | rs ->
-          fprintf ppf "@\nreturns (@[<0>%a@])" Expr.pr_var_decl_list rs
+          fprintf ppf "returns (@[<0>%a@])" Expr.pr_var_decl_list rs
     in
     let pr_call_locals ppf = function
       | [] -> ()
       | ls ->
           fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
     in
-    fprintf ppf "@[<2>%s %a(@[<0>%a@])%a%a%a@]" 
+    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a@]@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
@@ -1627,6 +1709,7 @@ module Callable = struct
 
   (** Computes the set of all symbols occuring free in [callable]. *)
   let symbols callable =
+    (* Logs.debug (fun m -> m "Computing symbols for callable %a" pr callable); *)
     let symbols_w_locals =
       match callable.call_def with
       | FuncDef { func_body = Some e; _} ->
@@ -1916,6 +1999,29 @@ module Predefs = struct
 
   let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
 
+  let lib_frac_chunk_constr_ident = Ident.make Loc.dummy "frac_chunk" 0
 
+  let lib_frac_chunk_destr1_ident = Ident.make Loc.dummy "frac_proj1" 0
+  let lib_frac_chunk_destr2_ident = Ident.make Loc.dummy "frac_proj2" 0
+
+  let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
+
+  
+  let lib_auth_frag_constr_ident = Ident.make Loc.dummy "auth_frag" 0
+  
+  let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
+  
+  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Agree" 0]
+
+  let lib_agree_constr_ident = Ident.make Loc.dummy "agree_constr" 0
+
+  let lib_agree_destr1_ident = Ident.make Loc.dummy "agree_proj1" 0
+
+  let lib_countAgreeRA_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CountAgreeRA" 0]
+
+  let lib_countAgreeRA_constr_ident = Ident.make Loc.dummy "count_cons" 0
+
+  let lib_countAgreeRA_destr1_ident = Ident.make Loc.dummy "count" 0
+  let lib_countAgreeRA_destr2_ident = Ident.make Loc.dummy "value" 0
 
 end

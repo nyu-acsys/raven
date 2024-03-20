@@ -25,7 +25,7 @@ open Ast
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
-%token ATOMIC GHOST IMPLICIT REP  
+%token ATOMIC GHOST IMPLICIT REP AUTO 
 %token <bool> VAR
 %token <bool> MODULE  
 %token TYPE IMPORT
@@ -243,10 +243,16 @@ proc_decl:
 | k = PROC; decl = callable_decl {
   Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
 }
+| AUTO; k = PROC; decl = callable_decl {
+  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = true; }; call_def = ProcDef { proc_body = None } }
+}
 
 func_decl:
 | k = FUNC; decl = callable_decl {
   Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = FuncDef { func_body = None } }
+}
+| k = FUNC; decl = callable_decl_out_vars {
+  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
 }
 
 callable_decl:
@@ -261,10 +267,30 @@ callable_decl:
                call_decl_precond = precond;
                call_decl_postcond = postcond;
                call_decl_is_free = false;
+               call_decl_is_auto = false;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl
 }
+
+callable_decl_out_vars:
+  id = IDENT; LPAREN; formals = var_decls_with_modifiers; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
+  let precond, postcond = cs in
+  let decl =
+    Callable.{ call_decl_kind = Func;
+               call_decl_name = id;
+               call_decl_formals = formals;
+               call_decl_returns = returns;
+               call_decl_locals = [];
+               call_decl_precond = precond;
+               call_decl_postcond = postcond;
+               call_decl_is_free = false;
+               call_decl_is_auto = false;
+               call_decl_loc = Loc.make $startpos(id) $endpos(id);
+             }
+  in decl
+}
+
 
 return_params:
 | RETURNS; LPAREN; decls = var_decls_with_modifiers; RPAREN { decls }
@@ -303,6 +329,7 @@ contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
+           spec_comment = None;
            spec_error = None;
          }
   in
@@ -312,6 +339,7 @@ contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
+           spec_comment = None;
            spec_error = None;
          }
   in
@@ -393,6 +421,7 @@ stmt_wo_trailing_substmt:
   let open Stmt in
   let spec = { spec_form = e;
                spec_atomic = false;
+               spec_comment = None;
                spec_error = None; }
   in
   Basic (Spec (sk, spec))
@@ -571,6 +600,7 @@ loop_contract:
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = false;
+           spec_comment = None;
            spec_error = None;
          }
   in
@@ -586,7 +616,7 @@ ghost_block:
 (** Expressions *)
 
 primary:
-| c = CONSTVAL { Expr.(mk_app ~loc:(Loc.make $startpos $endpos) c []) }
+| c = CONSTVAL { Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) c []) }
 | LPAREN; e = expr; RPAREN { e }
 | e = compr_expr { e }
 | e = dot_expr { e }
@@ -596,7 +626,7 @@ primary:
 
 compr_expr:
 | LBRACEPIPE; es = separated_list(COMMA, expr); RBRACEPIPE {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Setenum es)
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Setenum es)
   }
 | LBRACEPIPE; v = bound_var; COLONCOLON; e = expr; RBRACEPIPE {
     Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~typ:Type.(mk_set (Loc.make $startpos $endpos) bot) Compr [v] e)
@@ -615,14 +645,14 @@ dot_expr:
       Base.Option.map c ~f:(fun c -> c, p :: es) |> 
       Base.Option.value ~default:(Expr.Var p_ident, es)
     in
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) constr args))
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) constr args))
   |> Base.Option.value ~default:p
 }
 ;
 
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Own es)
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Own es)
 }
 
 lookup_expr:
@@ -630,17 +660,17 @@ lookup_expr:
 
 lookup:
 | LBRACKET; e2 = expr; RBRACKET {
-  fun e1 -> Expr.(mk_app ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
+  fun e1 -> Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
 }     
 | n = HASH {
-  let e2 = Expr.(mk_app ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
-  fun e1 -> Expr.(mk_app ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
+  let e2 = Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
+  fun e1 -> Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
 }
     
 call_expr:
 | p = qual_ident_expr; ces = call {
   let _, es = ces in
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
 }
   
 call:
@@ -656,16 +686,16 @@ call_opt:
 qual_ident_expr:
 | x = qual_ident { x }
 | p = primary DOT x = qual_ident {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 | p = primary DOT LPAREN x = qual_ident RPAREN {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Read [p; x])
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 
 qual_ident:
 | x = ident { x }
 | m = mod_ident; DOT; x = IDENT {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
 }
     
 mod_ident:
@@ -674,32 +704,32 @@ mod_ident:
 
 ident: 
 | x = IDENT {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
   
 unary_expr:
 | e = primary { e }
 (*| e = ident { e }*)
 | MINUS; e = unary_expr {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
 | e = unary_expr_not_plus_minus { e }
 ;
 
 unary_expr_not_plus_minus:
-| NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $startpos $endpos) Expr.Not [e] }
+| NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.bot Expr.Not [e] }
 ;
 
 diff_expr:
 | e = unary_expr { e }
 | e1 = diff_expr; DIFF; e2 = unary_expr {
-  Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Diff [e1; e2])
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Diff [e1; e2])
 }
 ;
 
 mult_expr:
 | e = diff_expr { e }
 | e1 = mult_expr; op = MULTOP; e2 = diff_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
 
@@ -710,7 +740,7 @@ add_op:
 add_expr:
 | e = mult_expr { e }
 | e1 = add_expr; op = add_op; e2 = mult_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
   
@@ -721,10 +751,10 @@ rel_expr:
   | _, comps -> Expr.mk_and ~loc:(Loc.make $startpos $endpos) comps
 }
 | e1 = rel_expr; IN; e2 = add_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Elem [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Elem [e1; e2])
   } 
 | e1 = rel_expr; NOTIN; e2 = add_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Not [mk_app ~loc:(Loc.make $startpos $endpos) Elem [e1; e2]]) 
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Elem [e1; e2]]) 
   }
 ;
 
@@ -742,31 +772,31 @@ comp_seq:
   let e2, comps = cseq in
   let loc1 = Expr.to_loc e1 in
   let loc2 = Expr.to_loc e2 in
-  (e1, Expr.(mk_app ~loc:(Loc.merge loc1 loc2) op [e1; e2]) :: comps)
+  (e1, Expr.(mk_app ~typ:Type.bot ~loc:(Loc.merge loc1 loc2) op [e1; e2]) :: comps)
 }
 ;
   
 eq_expr:
 | e = rel_expr { e }
 | e1 = eq_expr; EQEQ; e2 = eq_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
   }
 | e1 = eq_expr; NEQ; e2 = eq_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Not [mk_app ~loc:(Loc.make $startpos $endpos) Eq [e1; e2]])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Eq [e1; e2]])
   }
 ;
 
 and_expr:
 | e = eq_expr { e }
 | e1 = and_expr; AND; e2 = eq_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) And [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) And [e1; e2])
   }
 ;
 
 or_expr:
 | e = and_expr { e }
 | e1 = or_expr; OR; e2 = and_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Or [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Or [e1; e2])
   }
 ;
 
@@ -775,21 +805,21 @@ or_expr:
 impl_expr:
 | e = or_expr { e }
 | e1 = or_expr; IMPLIES; e2 = impl_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Impl [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Impl [e1; e2])
   }
 ;
 
 iff_expr:
 | e = impl_expr { e }
 | e1 = iff_expr IFF e2 = iff_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
   }
 ;
 
 ite_expr:
 | e = iff_expr { e }
 | e1 = ite_expr; QMARK; e2 = iff_expr; COLON; e3 = iff_expr {
-    Expr.(mk_app ~loc:(Loc.make $startpos $endpos) Ite [e1; e2; e3])
+    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Ite [e1; e2; e3])
   }
 ;
     
@@ -870,10 +900,14 @@ quant_vars:
 
 quant_expr: 
 | e = ite_expr { e }
-| q = QUANT; vs = quant_vars; COLONCOLON; e = quant_expr {
-    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) q vs e)
+| q = QUANT; vs = quant_vars; COLONCOLON; trigs = patterns; e = quant_expr {
+    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~trigs q vs e)
   }
 ;
+
+patterns:
+| LBRACE; es = expr_list; RBRACE; trgs = patterns { es :: trgs }
+| /* empty */ { [] }
 
 expr:
 | e = quant_expr { e } 
