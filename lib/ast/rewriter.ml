@@ -583,6 +583,17 @@ module Stmt = struct
       let+ new_expr = f assign.assign_rhs in
       { stmt with stmt_desc = Basic (Assign { assign with assign_rhs = new_expr; }); }
 
+    | Bind bind_desc ->
+      let* bind_lhs = List.map bind_desc.bind_lhs ~f in
+      let+ bind_rhs = f bind_desc.bind_rhs in
+      { stmt with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
+
+    | FieldRead field_read_desc ->
+      let field_read_lhs = field_read_desc.field_read_lhs in
+      let field_read_field = field_read_desc.field_read_field in
+      let+ field_read_ref = f field_read_desc.field_read_ref in
+      { stmt with stmt_desc = Basic (FieldRead { field_read_lhs; field_read_field; field_read_ref }) }
+
     | Return expr ->
       let+ expr = f expr in
       { stmt with stmt_desc = Basic (Return expr); }
@@ -1070,7 +1081,7 @@ module ProgUtils = struct
 
   let field_type_to_frac_mod_ident ~loc field_tp = Ident.make loc (serialize ("Frac$" ^ AstDef.Type.to_string field_tp)) 0
 
-  let pred_to_ra_mod_ident ~loc pred_ident = Ident.make loc (serialize ("PredCountAgreeRA$" ^ (Ident.to_string pred_ident))) 0
+  let pred_to_ra_mod_ident ~loc pred_ident = Ident.make loc (serialize ("PredHeapRA$" ^ (Ident.to_string pred_ident))) 0
 
   let find_highest_valid_scope_qi loc (qi: qual_ident) : qual_ident t =
     
@@ -1184,7 +1195,7 @@ module ProgUtils = struct
     let mod_decl = begin
       let mod_name = 
         let mod_name_string = (AstDef.Type.to_string tp) ^ "$Type_Mod" in
-        Ident.make loc (serialize mod_name_string) 0
+        Ident.fresh loc (serialize mod_name_string)
       in
 
       {
@@ -1254,6 +1265,13 @@ module ProgUtils = struct
       )
     | _ -> return false
 
+  let rec does_type_implement_ra (tp: AstDef.type_expr) : bool t =
+    let open Syntax in
+    match tp with
+    | App (Var qi, [], _) -> 
+      let* symbol = find_and_reify (QualIdent.to_loc qi) (QualIdent.pop qi) in
+      does_symbol_implement_ra symbol
+    | _ -> return false
 
   let field_get_ra_qual_iden (field: AstDef.Module.field_def) = 
     let field_type = 
@@ -1395,25 +1413,53 @@ module ProgUtils = struct
 
   let pred_ra_constr_qual_ident loc pred_name =
     let open Syntax in
-    let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
-    QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_constr_ident
+    let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
+
+    let+ pred = find_and_reify loc pred_name in
+    match pred with
+    | AstDef.Module.CallDef c ->
+      (match c.call_decl.call_decl_kind with
+      | Pred ->
+        QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_constr_ident
+
+      | Invariant ->
+        QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_agree_constr_ident
+
+      | _ -> Error.error loc "Rewriter.ProgUtils.pred_ra_constr_qual_ident: Expected pred definition" 
+      )
+
+    | _ -> Error.error loc "Rewriter.ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
 
   let pred_ra_count_destr_qual_ident loc pred_name =
     let open Syntax in
     let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
     QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_destr1_ident
 
-  let pred_ra_count_destr_qual_ident loc pred_name =
+  let pred_ra_val_destr_qual_ident loc pred_name =
     let open Syntax in
-    let+ pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
-    QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_destr2_ident
+    let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
+
+    let+ pred = find_and_reify loc pred_name in
+    match pred with
+    | AstDef.Module.CallDef c ->
+      (match c.call_decl.call_decl_kind with
+      | Pred ->
+        QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_countAgreeRA_destr2_ident
+
+      | Invariant ->
+        QualIdent.append pred_ra_qual_iden AstDef.Predefs.lib_agree_destr1_ident
+
+      | _ -> Error.error loc "Rewriter.ProgUtils.pred_ra_constr_qual_ident: Expected pred definition" 
+      )
+
+    | _ -> Error.error loc "Rewriter.ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
 
   let pred_in_types pred_name =
     let open Syntax in
     let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
 
     match pred with
-    | AstDef.Module.CallDef c when Poly.(c.call_decl.call_decl_kind = Pred)  ->
+    | AstDef.Module.CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant)  ->
       Base.List.map c.call_decl.call_decl_formals ~f:(fun var_decl -> var_decl.var_type)
 
     | _ -> Error.error (AstDef.QualIdent.to_loc pred_name) "Rewriter.ProgUtils.pred_in_types: Expected pred definition"
@@ -1423,7 +1469,7 @@ module ProgUtils = struct
     let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
 
     match pred with
-    | AstDef.Module.CallDef c when Poly.(c.call_decl.call_decl_kind = Pred)  ->
+    | AstDef.Module.CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant)  ->
       Base.List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> var_decl.var_type)
 
     | _ -> Error.error (AstDef.QualIdent.to_loc pred_name) "Rewriter.ProgUtils.pred_in_types: Expected pred definition"

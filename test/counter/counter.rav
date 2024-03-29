@@ -33,19 +33,25 @@ proc incr(x: Ref, implicit ghost v)
 
     if (CAS(x.c, v1, new_v1)) {
       fold counter(x, new_v1);
-      commitAU(phi, new_v1);
+      commitAU(phi);
     } else {
       fold counter(x, v2);
       abortAU(phi);
     }
   !}
 
-  if (!res) incr();
+  if (!res) {
+    var v3: Int := openAU(phi);
+    incr();
+    commitAU(phi, v3);
+  }
 }
 
-proc read(x: Ref)
+proc read(x: Ref, implicit ghost v: Int)
+  returns v: Int
   requires counterInv(x)
   ensures counterInv(x)
+
 {
   unfold counterInv(x);
   var v: Int := x.c;

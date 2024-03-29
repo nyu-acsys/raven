@@ -321,6 +321,7 @@ let init () : smt_env =
 
   let list_of_cmds = [
     mk_declare_sort loc_ident 0;
+    mk_declare_const (QualIdent.from_ident (Ident.make Util.Loc.dummy "null" 0)) Type.ref
   ] in
 
   let list_of_cmds = list_of_cmds @ (Base.List.init 11 ~f:(fun i -> declare_tuple_sort (i))) in

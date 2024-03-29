@@ -523,7 +523,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
   and process_callable_args loc callable_decl args_list =
     let callable_formals = 
       match callable_decl.call_decl_kind with
-      | Pred -> callable_decl.call_decl_formals @ callable_decl.call_decl_returns
+      | Pred | Invariant -> callable_decl.call_decl_formals @ callable_decl.call_decl_returns
       | _ -> callable_decl.call_decl_formals
     in
 

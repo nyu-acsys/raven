@@ -5,8 +5,8 @@ pred counter(x: Ref; v: Int) {
 }
 
 proc incr(x: Ref, implicit ghost v: Int) 
-  // requires counter(x, v)
-  // ensures counter(x, v + 1)
+  // atomic requires counter(x, v)
+  // atomic ensures counter(x, v + 1)
 {
   // var phi: AtomicToken := bindAU();
 
@@ -55,7 +55,18 @@ proc incr(x: Ref, implicit ghost v: Int)
     }
   // !}
 
-  if (!res) incr(x);
+  if (!res) {
+    // var v4: Int := openAU(phi);
+      var v4: Int;
+      inhale counter(x, v4);
+    
+    // incr(x);
+      exhale counter(x, v4); // Here, v4 needs to actually be existentially quantified
+      inhale counter(x, v4+1);
+    
+    // commitAU(phi);
+      exhale counter(x, v4+1);
+  }
 }
 
 proc read(x: Ref, implicit ghost v: Int)

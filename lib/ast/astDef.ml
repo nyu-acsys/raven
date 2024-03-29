@@ -805,7 +805,16 @@ module Expr = struct
 
   let mk_eq ?(loc = Loc.dummy) e1 e2 =
     let typ_join = (Type.join (to_type e1) (to_type e2)) in
-    assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  );
+    Logs.debug (fun m -> m "Type of e1: %a" Type.pr (to_type e1));
+    Logs.debug (fun m -> m "Type of e2: %a" Type.pr (to_type e2));
+    assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  ||
+    (match (to_type e1), (to_type e2) with
+    | App (Data (qual_id1, _), _, _), App ((Var qual_id2), _, _) ->
+      QualIdent.equal qual_id1 qual_id2
+    | App ((Var qual_id1), _, _), App (Data (qual_id2, _), _, _) ->
+      QualIdent.equal qual_id1 qual_id2
+    | _ -> false;
+    ));
     (* let t = Type.join (to_type e1) (to_type e2) in *)
     App (Eq, [ e1; e2 ], mk_attr loc Type.bool)
 
@@ -1984,6 +1993,12 @@ end
 
 
 module Predefs = struct
+
+  let bindAU_ident = Ident.make Loc.dummy "bindAU" 0
+  let openAU_ident = Ident.make Loc.dummy "openAU" 0
+  let abortAU_ident = Ident.make Loc.dummy "abortAU" 0
+  let commitAU_ident = Ident.make Loc.dummy "commitAU" 0
+
   let lib_ident = (Ident.make Loc.dummy "Library" 0)
 
   let prog_ident = Ident.make Loc.dummy "$Program" 0
@@ -1996,6 +2011,8 @@ module Predefs = struct
   let lib_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "ResourceAlgebra" 0]
 
   let lib_cancellative_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CancellativeResourceAlgebra" 0]
+
+  let lib_lattice_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "LatticeResourceAlgebra" 0]
 
   let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
 
@@ -2011,7 +2028,7 @@ module Predefs = struct
   
   let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
   
-  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Agree" 0]
+  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "AgreeRA" 0]
 
   let lib_agree_constr_ident = Ident.make Loc.dummy "agree_constr" 0
 

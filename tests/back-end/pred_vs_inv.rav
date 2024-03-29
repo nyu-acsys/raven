@@ -1,0 +1,17 @@
+pred p1(x: Int, y: Int) {
+  true
+}
+
+inv i1(x: Int, y: Int) {
+  true
+}
+
+proc pr1() {
+  inhale p1(1, 2);
+  exhale p1(1, 2);
+  // exhale p1(1, 2);
+
+  inhale i1(1, 2);
+  exhale i1(1, 2);
+  exhale i1(1, 2);
+}

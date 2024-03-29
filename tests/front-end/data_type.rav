@@ -1,0 +1,9 @@
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+proc p1() {
+  var x: T1;
+  x := nil();
+}
