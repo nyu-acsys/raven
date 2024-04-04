@@ -481,9 +481,9 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
   | Basic (Return ret_expr) ->
 
-    let* callable_decl =
-      let* curr_proc_name = Rewriter.current_scope_id in
+    let* curr_proc_name = Rewriter.current_scope_id in
 
+    let* callable_decl =
       Logs.debug (fun m -> m "Rewrites.rewrite_ret_stmts: curr_proc_name: %a" QualIdent.pr curr_proc_name);
 
       let+ symbol = Rewriter.find_and_reify stmt.stmt_loc curr_proc_name in
@@ -504,10 +504,22 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
     let postconds_spec = callable_decl.call_decl_postcond in
 
-    let postconds_exhale_stmts = List.map postconds_spec ~f:(fun spec ->
-      let expr = Expr.alpha_renaming spec.spec_form renaming_map in
+    let postconds_exhale_stmts = 
+      if Callable.is_atomic callable_decl then
+        let atomic_token_var = Expr.mk_var ~loc:(Stmt.loc stmt) ~typ:Type.atomic_token (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc stmt) callable_decl.call_decl_name)) in
+
+        let concrete_args = List.filter callable_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
+        let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
+        
+        [Stmt.mk_exhale_expr ~cmnt:(Some "au_return_stmt") ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (Expr.AUPredCommit curr_proc_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr]))]
+
+      else
       
-      Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)) expr) in
+        List.map postconds_spec ~f:(fun spec ->
+        let expr = Expr.alpha_renaming spec.spec_form renaming_map in
+        
+        Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)) expr) 
+    in
 
     let assume_false = Stmt.mk_assume_expr ~loc:stmt.stmt_loc (Expr.mk_bool ~loc:stmt.stmt_loc false) in
 
@@ -719,16 +731,87 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
 
 let rewrite_callable_pre_post_conds (c: Callable.t) : Callable.t Rewriter.t =
+  let open Rewriter.Syntax in
   match c.call_def with
   | ProcDef proc ->
     (match proc.proc_body with
     | None -> Rewriter.return c
     | Some body ->
-      let pre_conds = List.map c.call_decl.call_decl_precond ~f:(fun spec -> Stmt.mk_inhale_spec ~cmnt:(Some ("precond: " ^ Expr.to_string spec.spec_form)) ~loc:(Expr.to_loc spec.spec_form) spec) 
-      and post_conds = List.map c.call_decl.call_decl_postcond ~f:(fun spec -> Stmt.mk_exhale_spec ~cmnt:(Some ("postcond: " ^ Expr.to_string spec.spec_form)) ~loc:(Expr.to_loc spec.spec_form) spec) in
+      let pre_conds = List.filter_map c.call_decl.call_decl_precond ~f:(fun spec ->
+        if spec.spec_atomic then 
+          None
+        else
+          Some (Stmt.mk_inhale_spec ~cmnt:(Some ("precond: " ^ Expr.to_string spec.spec_form)) ~loc:(Expr.to_loc spec.spec_form) spec))
+      and post_conds = List.filter_map c.call_decl.call_decl_postcond ~f:(fun spec -> 
+        if spec.spec_atomic then
+          None
+        else
+          Some (Stmt.mk_exhale_spec ~cmnt:(Some ("postcond: " ^ Expr.to_string spec.spec_form)) ~loc:(Expr.to_loc spec.spec_form) spec))
+      in
+
+      let* pre_conds, post_conds = 
+        if not (Callable.is_atomic c.call_decl) then
+          Rewriter.return (pre_conds, post_conds)
+        else
+          let* callable_fully_qual_name = Rewriter.current_scope_id in
+
+          let atomic_token_var = Expr.mk_var ~loc:(Stmt.loc body) ~typ:Type.atomic_token (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc body) c.call_decl.call_decl_name)) in
+
+          let concrete_args = List.filter c.call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
+          let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
+
+          let inhale_au = 
+            Stmt.mk_inhale_expr ~cmnt:(Some "au_precond")~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (atomic_token_var :: concrete_args_expr)) in
+
+          let exhale_au = 
+            let ret_vars = List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
+            let ret_expr = Expr.mk_tuple ~loc:(Stmt.loc body) ret_vars in
+            
+            Stmt.mk_exhale_expr ~cmnt:(Some "au_postcond") ~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPredCommit callable_fully_qual_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr])) in
+          
+          Rewriter.return (inhale_au :: pre_conds, exhale_au :: post_conds)
+      in
+
       let new_body = Stmt.mk_block_stmt ~loc:(Stmt.loc body) (pre_conds @ [body] @ post_conds) in
       let new_proc = Callable.{ call_decl = c.call_decl; call_def = ProcDef { proc_body = Some new_body } } in
       Rewriter.return new_proc
+    )
+  | FuncDef func ->
+    Rewriter.return c
+
+let rewrite_atomic_callable_token (c: Callable.t): Callable.t Rewriter.t = 
+  let open Rewriter.Syntax in
+  match c.call_def with
+  | ProcDef proc ->
+    (match proc.proc_body with
+    | None -> Rewriter.return c
+    | Some body ->
+      if not (Callable.is_atomic c.call_decl) then
+        Rewriter.return c
+      else
+        let atomic_token_var = 
+          { Type.var_name = Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc body) c.call_decl.call_decl_name;
+            var_loc = Stmt.loc body;
+            var_type = Type.atomic_token;
+            var_const = false;
+            var_ghost = true;
+            var_implicit = false;
+          }
+        in
+
+        let* _ = Rewriter.introduce_symbol (Module.VarDef {var_decl = atomic_token_var; var_init = None}) in
+
+        (* let* callable_fully_qual_name = Rewriter.current_scope_id in
+
+        let inhale_au = 
+          let concrete_args = List.filter c.call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
+          let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
+          
+          Stmt.mk_inhale_expr ~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (Expr.from_var_decl atomic_token_var :: concrete_args_expr)) in
+
+        let new_body = Stmt.mk_block_stmt ~loc:(Stmt.loc body) [inhale_au; body] in *)
+        (* let new_proc = Callable.{ c with call_def = ProcDef { proc_body = Some new_body } } in *)
+        Rewriter.return c
     )
   | FuncDef func ->
     Rewriter.return c
@@ -893,7 +976,6 @@ let rec rewrite_new_stmt_heap_arg (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmt_heap_arg
 
-
 let rec expr_preds_mentioned (expr: Expr.t) : (QualIdent.t list) Rewriter.t =
   let open Rewriter.Syntax in 
   match expr with
@@ -1039,6 +1121,443 @@ let rewrite_add_predicate_validity_lemmas (c: Callable.t) : Callable.t Rewriter.
   | _ -> Rewriter.return c
 
 
+
+
+module AtomicityAnalysis = struct
+  type au_token = { 
+  token: QualIdent.t; 
+  callable: QualIdent.t; 
+  callable_args: expr list; 
+  implicit_bound_vars: expr list; }
+
+  type invs = {
+    inv_name: QualIdent.t;
+    inv_args: Expr.t list;
+  }
+
+  type atomicity_check = {
+    au_opened: au_token list;
+    invs_opened: invs list;
+    atomic_step_taken: bool;
+  }
+
+  let take_atomic_step ~loc (state: atomicity_check) : atomicity_check =
+    if (List.is_empty state.au_opened) && (List.is_empty state.invs_opened) then
+      state
+    else
+      match state.atomic_step_taken with
+      | false -> { state with atomic_step_taken = true }
+      | true -> Error.error loc "Multiple atomic steps taken in a single atomic block"
+
+  let take_non_atomic_step ~loc (state: atomicity_check) : atomicity_check =
+    if (List.is_empty state.au_opened) && (List.is_empty state.invs_opened) then
+      state
+    else
+      Error.error loc "Cannot take a non-atomic step inside an atomic block"
+
+  let open_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
+    if List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal)) then
+      Error.error loc "Invariant already opened"
+    else
+    { atomicity_state with invs_opened = { inv_name; inv_args} :: atomicity_state.invs_opened }
+
+  let close_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
+    if not (List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) then
+      Error.error loc "Invariant not already opened"
+    else
+    let invs_opened = List.filter atomicity_state.invs_opened ~f:(fun inv -> not (QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) in
+
+    if List.is_empty invs_opened && List.is_empty atomicity_state.au_opened then
+      { atomicity_state with invs_opened; atomic_step_taken = false }
+    else
+      { atomicity_state with invs_opened }
+
+  let open_au ~loc (token, callable, callable_args, implicit_bound_vars) atomicity_state : atomicity_check =
+    if List.exists atomicity_state.au_opened ~f:(fun au -> QualIdent.(au.token = token)) then
+      Error.error loc "Atomic token already opened"
+    else
+    { atomicity_state with au_opened = { token; callable; callable_args; implicit_bound_vars } :: atomicity_state.au_opened }
+
+  let close_au ~loc token atomicity_state : atomicity_check =
+    if not (List.exists atomicity_state.au_opened ~f:(fun au -> QualIdent.(au.token = token))) then
+      Error.error loc "Atomic token not already opened"
+    else
+    let au_opened = List.filter atomicity_state.au_opened ~f:(fun au -> not (QualIdent.(au.token = token))) in
+
+    if List.is_empty au_opened && List.is_empty atomicity_state.invs_opened then
+      { atomicity_state with au_opened; atomic_step_taken = false }
+    else
+      { atomicity_state with au_opened }
+
+  let rec is_expr_atomic (expr: Expr.t) : bool =
+    match expr with
+    | App (constr, expr_args, _) ->
+      (match constr with
+      | Null | Int _ | Real _ | Bool _ -> true
+      | Var _ ->
+        (match expr_args with
+        | [] -> true
+        | _ -> false
+        )
+      | Read -> is_expr_atomic (List.hd_exn expr_args)
+      | _ -> false)
+
+    | _ -> false
+  
+
+  let rewrite_au_cmnds ~(ghost_block: bool) (stmt: Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
+    let open Rewriter.Syntax in
+
+    let rec rewrite_au_cmnds ~(ghost_block: bool) (stmt: Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =  
+      let* curr_callable_name = Rewriter.current_scope_id in
+      let* curr_callable = 
+        let* symbol = Rewriter.find_and_reify stmt.stmt_loc curr_callable_name in
+        (match symbol with
+        | CallDef c -> Rewriter.return c
+        | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        )
+      in
+
+      let concrete_args = List.filter curr_callable.call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
+      let implicit_args = List.filter curr_callable.call_decl.call_decl_formals ~f:(fun var_decl -> var_decl.var_implicit) in
+
+      Logs.debug (fun m -> m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a" QualIdent.pr curr_callable_name);
+
+      let loc = stmt.stmt_loc in
+
+      let* atomicity_state = Rewriter.current_user_state in
+
+      match stmt.stmt_desc with
+      | Basic (New new_desc) ->
+        let* new_lhs = 
+          let* symbol = Rewriter.find_and_reify stmt.stmt_loc new_desc.new_lhs in
+          (match symbol with
+          | VarDef v -> Rewriter.return v
+          | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+          )
+        in
+
+        if new_lhs.var_decl.var_ghost then
+          Rewriter.return stmt
+        else
+          (if ghost_block then
+            Error.error stmt.stmt_loc "Cannot allocate non-ghost variables in a ghost block"
+          else
+            let atomicity_state = take_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt)
+        
+      | Basic (Assign assign_desc) ->
+        let* is_assign_desc_lhs_ghost = (Rewriter.List.for_all assign_desc.assign_lhs ~f:(fun expr ->
+          match expr with
+          | App (Var qual_iden, [], _) ->
+            let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+            (match symbol with
+            | VarDef v -> Rewriter.return v.var_decl.var_ghost
+            | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+            )
+          
+          | App (Read, [loc_expr; field_expr], _) ->
+            Rewriter.return false
+
+          | _ -> Error.error stmt.stmt_loc "Expected a variable"
+        ))
+
+        in
+
+        if is_assign_desc_lhs_ghost then
+          Rewriter.return stmt
+        else if ghost_block then
+          Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block"
+        else if List.length assign_desc.assign_lhs > 1 then
+          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+        else if is_expr_atomic assign_desc.assign_rhs then
+          let atomicity_state = take_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+        else
+          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+
+      | Basic (Bind bind_desc) ->
+        let* is_bind_lhs_ghost = (Rewriter.List.for_all bind_desc.bind_lhs ~f:(fun expr ->
+          match expr with
+          | App (Var qual_iden, [], _) ->
+            let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+            (match symbol with
+            | VarDef v -> Rewriter.return v.var_decl.var_ghost
+            | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+            )
+
+          | _ -> Error.error stmt.stmt_loc "Expected a variable"
+        ))
+        in
+
+        if is_bind_lhs_ghost then
+          Rewriter.return stmt
+        else
+          Error.error stmt.stmt_loc "Cannot bind non-ghost variables"
+
+      | Basic (FieldRead field_read_desc) ->
+        let* symbol = Rewriter.find_and_reify stmt.stmt_loc field_read_desc.field_read_lhs in
+        (match symbol with
+        | VarDef v -> 
+          if v.var_decl.var_ghost then
+            Rewriter.return stmt
+          else
+            let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            Rewriter.return stmt
+        | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+        )
+        
+      | Basic (Havoc qual_iden) ->
+        let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+        (match symbol with
+        | VarDef v -> 
+          if v.var_decl.var_ghost then
+            Rewriter.return stmt
+          else if ghost_block then
+            Error.error stmt.stmt_loc "Cannot havoc non-ghost variables in a ghost block"
+          else
+            let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            Rewriter.return stmt
+        | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+        )
+
+      | Basic (Call call_desc) ->
+        let* symbol = Rewriter.find_and_reify stmt.stmt_loc call_desc.call_name in
+        let call_decl, call_def = (match symbol with
+          | CallDef c -> c.call_decl, c.call_def
+          | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        ) in
+
+        let* is_call_lhs_ghost = (Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
+          let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+          (match symbol with
+          | VarDef v -> Rewriter.return v.var_decl.var_ghost
+          | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+          )
+        ))
+        in
+
+        if is_call_lhs_ghost then
+          Rewriter.return stmt
+        else if ghost_block then
+          Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block"
+        else if Callable.is_atomic call_decl then
+          let atomicity_state = take_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+        else
+          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+
+      | Basic (Return return_expr) ->
+        if ghost_block then
+          Error.error stmt.stmt_loc "Cannot return in a ghost block"
+        else
+        if is_expr_atomic return_expr then
+          let atomicity_state = take_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+        else
+          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return stmt
+
+      | Basic (Use use_desc) ->
+        let* symbol = Rewriter.find_and_reify stmt.stmt_loc use_desc.use_name in
+        (match symbol with
+        | CallDef c -> 
+          (match c.call_decl.call_decl_kind with
+          | Pred ->
+            Rewriter.return stmt
+          | Invariant ->
+            
+            let atomicity_state = 
+              (match use_desc.use_kind with
+              | Unfold -> open_inv ~loc (use_desc.use_name, use_desc.use_args) atomicity_state 
+              | Fold -> close_inv ~loc (use_desc.use_name, use_desc.use_args) atomicity_state
+              | OpenInv | CloseInv -> Error.internal_error stmt.stmt_loc "Unsupported"
+              )
+              
+            in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            Rewriter.return stmt
+          | _ -> Error.error stmt.stmt_loc "Expected a pred or invariant")
+        | _ -> Error.error stmt.stmt_loc "Expected a call_def")    
+
+      | Basic (AUAction auaction_desc) ->
+        (match auaction_desc.auaction_kind with
+        | BindAU qual_iden ->
+          let* qual_iden_var =
+            let+ symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+            (match symbol with
+            | VarDef v ->
+              v
+            | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+            )
+          in
+
+          let* au_token_var = 
+            let+ symbol = Rewriter.find_and_reify stmt.stmt_loc (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc stmt) (QualIdent.unqualify curr_callable_name))) in
+            (match symbol with
+            | VarDef v ->
+              v 
+            | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+            )
+          in
+
+          let assign_stmt = Stmt.mk_assign ~loc:(Stmt.loc stmt) [Expr.from_var_decl qual_iden_var.var_decl] (Expr.from_var_decl au_token_var.var_decl) in
+
+          Rewriter.return assign_stmt
+
+        | OpenAU (token, callable, bound_vars) -> 
+          let exhale_stmt = Stmt.mk_exhale_expr ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (AUPred curr_callable_name) (Expr.mk_var ~typ:Type.atomic_token token :: (List.map concrete_args ~f:(Expr.from_var_decl)))) in
+
+          (match callable with
+          | Some _ -> Error.error stmt.stmt_loc "Unsupported to open another callable"
+          | None ->
+            let alpha_renaming_map = List.fold2_exn implicit_args bound_vars ~init:(Map.empty (module QualIdent)) ~f:(fun acc_map implicit_arg bound_var ->
+              Map.add_exn acc_map ~key:(QualIdent.from_ident implicit_arg.var_name) ~data:bound_var
+            ) in
+
+            let inhale_stmts = List.filter_map curr_callable.call_decl.call_decl_precond ~f:(fun spec ->
+              if not spec.spec_atomic then 
+                None
+              else
+                Some (Stmt.mk_inhale_expr ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
+            ) in
+
+            let atomicity_state = open_au ~loc (token, curr_callable_name, (List.map concrete_args ~f:(Expr.from_var_decl)), bound_vars) atomicity_state in
+            let* _ = Rewriter.set_user_state atomicity_state in
+
+            let new_stmt = Stmt.mk_block_stmt ~loc:(Stmt.loc stmt) (exhale_stmt :: inhale_stmts) in
+
+            Rewriter.return new_stmt
+          
+          )
+        | AbortAU token | CommitAU (token, _) ->
+          let opened_au_token = List.find atomicity_state.au_opened ~f:(fun au_token -> QualIdent.equal au_token.token token) in
+
+          let opened_au_token = (match opened_au_token with
+          | None ->
+            Error.error stmt.stmt_loc "No opened AU token found to abort"
+          | Some opened_au_token -> opened_au_token
+          ) in
+
+          let* callable_decl = 
+            let+ symbol = Rewriter.find_and_reify stmt.stmt_loc opened_au_token.callable in
+            (match symbol with
+            | CallDef c -> c.call_decl
+            | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+            )
+          in
+
+          let alpha_renaming_map = List.fold2_exn callable_decl.call_decl_formals (opened_au_token.callable_args @ opened_au_token.implicit_bound_vars) ~init:(Map.empty (module QualIdent)) ~f:(fun acc_map formal_arg actual_arg ->
+            Map.add_exn acc_map ~key:(QualIdent.from_ident formal_arg.var_name) ~data:actual_arg
+          ) in
+
+          let exhale_stmts, inhale_stmt, atomicity_state = (match auaction_desc.auaction_kind with
+          | AbortAU token ->
+            let exhale_stmts = List.filter_map callable_decl.call_decl_precond ~f:(fun spec ->
+              if not spec.spec_atomic then 
+                None
+              else
+                Some (Stmt.mk_exhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
+            ) in
+
+            let inhale_stmt = Stmt.mk_inhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (AUPred opened_au_token.callable) (Expr.mk_var ~typ:Type.atomic_token opened_au_token.token :: (opened_au_token.callable_args))) in
+
+            let atomicity_state = close_au ~loc token atomicity_state in
+
+            exhale_stmts, inhale_stmt, atomicity_state
+
+          | CommitAU (token, ret_exprs) ->
+            let alpha_renaming_map = List.fold2_exn callable_decl.call_decl_returns ret_exprs ~init:alpha_renaming_map ~f:(fun acc_map formal_arg actual_arg ->
+              Map.add_exn acc_map ~key:(QualIdent.from_ident formal_arg.var_name) ~data:actual_arg
+            ) in
+
+            let exhale_stmts = List.filter_map callable_decl.call_decl_postcond ~f:(fun spec ->
+              if not spec.spec_atomic then 
+                None
+              else
+                Some (Stmt.mk_exhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
+            ) in
+
+            let inhale_stmt = Stmt.mk_inhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (AUPredCommit opened_au_token.callable) (Expr.mk_var ~typ:Type.atomic_token opened_au_token.token :: opened_au_token.callable_args @ [(Expr.mk_tuple ret_exprs)])) in
+
+            let atomicity_state = close_au ~loc token atomicity_state in
+
+            exhale_stmts, inhale_stmt, atomicity_state
+
+          | _ -> assert false
+          ) in
+
+          let new_stmt = Stmt.mk_block_stmt ~loc:(Stmt.loc stmt) (exhale_stmts @ [inhale_stmt]) in
+
+          let* _ = Rewriter.set_user_state atomicity_state in
+
+          Rewriter.return new_stmt
+        )
+
+      | Block block_desc when block_desc.block_is_ghost -> 
+        Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block:true) 
+
+      | Block block_desc ->
+        Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block) 
+      
+      | Cond cond_desc ->
+        let* then_stmt = Rewriter.Stmt.descend cond_desc.cond_then ~f:(rewrite_au_cmnds ~ghost_block) in
+        let* then_atomicity_state = Rewriter.current_user_state in
+
+        let* _ = Rewriter.set_user_state atomicity_state in
+        let* else_stmt = Rewriter.Stmt.descend cond_desc.cond_else ~f:(rewrite_au_cmnds ~ghost_block) in
+        let* else_atomicity_state = Rewriter.current_user_state in
+
+        let if_else_atomicity_states_equal = 
+          if (List.length then_atomicity_state.invs_opened = List.length else_atomicity_state.invs_opened) && (List.length then_atomicity_state.au_opened = List.length else_atomicity_state.au_opened) then
+            List.for_all2_exn then_atomicity_state.invs_opened else_atomicity_state.invs_opened ~f:(fun inv1 inv2 -> QualIdent.equal inv1.inv_name inv2.inv_name && List.for_all2_exn inv1.inv_args inv2.inv_args ~f:(Expr.alpha_equal))
+            && List.for_all2_exn then_atomicity_state.au_opened else_atomicity_state.au_opened ~f:(fun au1 au2 -> QualIdent.equal au1.token au2.token && QualIdent.equal au1.callable au2.callable && List.for_all2_exn au1.callable_args au2.callable_args ~f:(Expr.alpha_equal) && List.for_all2_exn au1.implicit_bound_vars au2.implicit_bound_vars ~f:(Expr.alpha_equal))
+            && Bool.(then_atomicity_state.atomic_step_taken = else_atomicity_state.atomic_step_taken)
+          else
+            false
+
+        in
+
+        if if_else_atomicity_states_equal then
+          let new_stmt = {stmt with stmt_desc = (Cond { cond_desc with cond_then = then_stmt; cond_else = else_stmt }) } in
+
+          if ghost_block then
+            Rewriter.return new_stmt
+          else 
+            let atomicity_state = take_non_atomic_step ~loc else_atomicity_state in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            Rewriter.return new_stmt
+        else
+          Error.error stmt.stmt_loc "Inconsistent atomicity states in then and else branches"
+
+      | _ ->
+        Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block)
+
+    in
+
+    let* stmt = rewrite_au_cmnds ~ghost_block stmt in
+    let* atomicity_state = Rewriter.current_user_state in
+
+    if List.is_empty atomicity_state.au_opened && List.is_empty atomicity_state.invs_opened then
+      Rewriter.return stmt
+    else
+      Error.error stmt.stmt_loc "Unclosed AU token or invariant"
+
+end
+
 module HeapsExplicitTrnsl = struct
   (**
   
@@ -1118,6 +1637,16 @@ module HeapsExplicitTrnsl = struct
     let pred_name_str = QualIdent.to_string pred_name in
     let pred_name_str = Rewriter.ProgUtils.serialize pred_name_str in
     Ident.make (Loc.dummy) (pred_name_str ^ "$Heap2") 0
+
+  let au_heap_name (callable_name: qual_ident) = 
+    let callable_name_str = QualIdent.to_string callable_name in
+    let callable_name_str = Rewriter.ProgUtils.serialize callable_name_str in
+    Ident.make (Loc.dummy) (callable_name_str ^ "$AU_Heap") 0
+
+  let au_heap_name2 (callable_name: qual_ident) = 
+    let callable_name_str = QualIdent.to_string callable_name in
+    let callable_name_str = Rewriter.ProgUtils.serialize callable_name_str in
+    Ident.make (Loc.dummy) (callable_name_str ^ "$AU_Heap2") 0
 
 
   let generate_inv_function (universal_quants: universal_quants) ((conds1, conds2): conditionals) (existential_quants: existential_quants) (expr: expr) (var: ident): qual_ident Rewriter.t =
@@ -1649,7 +2178,51 @@ module HeapsExplicitTrnsl = struct
 
     | _ -> Rewriter.return c
 
-  let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list body : Stmt.t Rewriter.t =
+  let rewrite_add_atomics_utils (c: Callable.t) : Callable.t Rewriter.t = 
+    let open Rewriter.Syntax in
+    match c.call_decl.call_decl_kind with
+    | Proc ->
+      if not (Callable.is_atomic c.call_decl) then
+        Rewriter.return c
+      else
+        let loc = c.call_decl.call_decl_loc in
+
+        let proc_concrete_args_typ = Type.mk_prod c.call_decl.call_decl_loc (List.filter_map c.call_decl.call_decl_formals ~f:(fun var_decl -> if var_decl.var_implicit then None else Some var_decl.var_type)) in
+
+        let* proc_conrete_args_type_module = Rewriter.ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc ~f:Typing.process_symbol proc_concrete_args_typ in
+
+        let proc_ret_type = Type.mk_prod c.call_decl.call_decl_loc (List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> var_decl.var_type)) in
+
+        let* proc_ret_type_module = Rewriter.ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc ~f:Typing.process_symbol proc_ret_type in
+
+        let instantiated_au_proc_heap_ra = 
+          Module.ModInst {
+            mod_inst_name = Rewriter.ProgUtils.au_to_ra_mod_ident ~loc c.call_decl.call_decl_name;
+            mod_inst_type = Predefs.lib_ra_mod_qual_ident;
+            mod_inst_def = Some (Predefs.lib_atomic_token_ra_mod_qual_ident, [proc_conrete_args_type_module; proc_ret_type_module]);
+            mod_inst_is_interface = false;
+            mod_inst_loc = loc;
+          } in
+
+        let* au_proc_heap_ra = Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol instantiated_au_proc_heap_ra in
+
+        Logs.debug (fun m -> m "Generated au heap RA module: %a" Module.pr_symbol instantiated_au_proc_heap_ra);
+
+        let in_arg_typ = Type.atomic_token in
+
+        let* utils_module = 
+          generate_utils_module ~is_field:false (Rewriter.ProgUtils.au_utils_module_ident loc c.call_decl.call_decl_name) au_proc_heap_ra ~in_arg_typ loc
+        in
+
+        let* _ = Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol utils_module in
+
+        Rewriter.return c
+
+    | _ ->
+      Rewriter.return c
+
+
+  let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body : Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     (* TODO: Introduce variables of right types for predHeaps *)
 
@@ -1680,13 +2253,18 @@ module HeapsExplicitTrnsl = struct
       let* field_utils_id = Rewriter.ProgUtils.get_field_utils_id (Stmt.loc body) field_name in
 
       let assume_expr1 = 
-        let l_var = Type.{ var_name = Ident.fresh (Stmt.loc body) "l"; var_loc = (Stmt.loc body); 
-          var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
+        let l_var = Type.{ 
+          var_name = Ident.fresh (Stmt.loc body) "l"; 
+          var_loc = (Stmt.loc body); 
+          var_type = Type.ref; 
+          var_const = false; 
+          var_ghost = false; 
+          var_implicit = false; } 
+        in
 
-          let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
+        let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
         
         Expr.mk_binder Forall [l_var] (Expr.mk_eq 
-        
           (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl) l_expr)
           field_utils_id
         )
@@ -1704,13 +2282,18 @@ module HeapsExplicitTrnsl = struct
       } in
 
       let assume_expr2 = 
-        let l_var = { Type.var_name = Ident.fresh (Stmt.loc body) "l"; var_loc = loc; 
-          var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
+        let l_var = { 
+          Type.var_name = Ident.fresh (Stmt.loc body) "l"; 
+          var_loc = loc; 
+          var_type = Type.ref; 
+          var_const = false; 
+          var_ghost = false; 
+          var_implicit = false; } 
+        in
 
-          let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
+        let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
         
         Expr.mk_binder Forall [l_var] (Expr.mk_eq 
-        
           (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl2) l_expr)
           field_utils_id
         )
@@ -1721,8 +2304,6 @@ module HeapsExplicitTrnsl = struct
     ) in
 
     let* pred_heap_var_defs = Rewriter.List.map preds_list ~f:(fun pred_name -> 
-      let* pred_symbol = Rewriter.find_and_reify (Loc.dummy) pred_name in
-
       let* pred_heap_elem_type_qual_ident = Rewriter.ProgUtils.get_pred_utils_rep_type loc pred_name in
 
       let pred_heap_elem_type = Type.mk_var loc pred_heap_elem_type_qual_ident in
@@ -1744,10 +2325,16 @@ module HeapsExplicitTrnsl = struct
       let* pred_utils_id = Rewriter.ProgUtils.get_pred_utils_id (Stmt.loc body) pred_name in
 
       let assume_expr1 = 
-        let in_var = { Type.var_name = Ident.fresh (Stmt.loc body) "in"; var_loc = (Stmt.loc body); 
-          var_type = (Type.mk_prod loc pred_in_types); var_const = false; var_ghost = false; var_implicit = false; } in
+        let in_var = { 
+          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
+          var_loc = (Stmt.loc body); 
+          var_type = (Type.mk_prod loc pred_in_types); 
+          var_const = false; 
+          var_ghost = false; 
+          var_implicit = false; } 
+        in
 
-          let in_var_expr = Expr.mk_var ~typ:in_var.var_type (QualIdent.from_ident in_var.var_name) in
+        let in_var_expr = Expr.mk_var ~typ:in_var.var_type (QualIdent.from_ident in_var.var_name) in
         
         Expr.mk_binder Forall [in_var] (Expr.mk_eq 
         
@@ -1768,13 +2355,18 @@ module HeapsExplicitTrnsl = struct
       } in
 
       let assume_expr2 = 
-        let in_var = { Type.var_name = Ident.fresh (Stmt.loc body) "in"; var_loc = (Stmt.loc body); 
-          var_type = (Type.mk_prod loc pred_in_types); var_const = false; var_ghost = false; var_implicit = false; } in
+        let in_var = { 
+          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
+          var_loc = (Stmt.loc body); 
+          var_type = (Type.mk_prod loc pred_in_types); 
+          var_const = false; 
+          var_ghost = false; 
+          var_implicit = false; } 
+        in
 
-          let in_var_expr = Expr.mk_var ~typ:in_var.var_type (QualIdent.from_ident in_var.var_name) in
+        let in_var_expr = Expr.mk_var ~typ:in_var.var_type (QualIdent.from_ident in_var.var_name) in
         
         Expr.mk_binder Forall [in_var] (Expr.mk_eq 
-        
           (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl2) in_var_expr)
           pred_utils_id
         )
@@ -1784,7 +2376,78 @@ module HeapsExplicitTrnsl = struct
       
     ) in
 
-    let* init_assumes = Rewriter.List.fold_left ~init:[] (field_heap_var_defs @ pred_heap_var_defs) ~f:(fun assumes (heap_var_decl, heap_var_decl2, assume_stmt1, assume_stmt2) -> 
+    let* au_heap_var_defs = Rewriter.List.map au_preds_list ~f:(fun call_name -> 
+      let* au_heap_elem_type_qual_ident = Rewriter.ProgUtils.get_au_utils_rep_type loc call_name in
+
+      let au_heap_elem_type = Type.mk_var loc au_heap_elem_type_qual_ident in
+
+      (* Done so that Ident is aware of this name being used; prevents the same name from being generated again during SSA transform *)
+      let _ = Ident.fresh loc (au_heap_name call_name).ident_name in
+
+      let (heap_var_decl: var_decl) = {
+        var_name = au_heap_name call_name;
+        var_loc = loc;
+        var_type = Type.mk_map loc Type.atomic_token au_heap_elem_type;
+        var_const = false;
+        var_ghost = true;
+        var_implicit = false;
+      } in
+
+      let* au_utils_id = Rewriter.ProgUtils.get_au_utils_id (Stmt.loc body) call_name in
+
+      let assume_expr1 = 
+        let in_var = { 
+          Type.var_name = Ident.fresh (Stmt.loc body) "tok"; 
+          var_loc = (Stmt.loc body); 
+          var_type = Type.atomic_token; 
+          var_const = false; 
+          var_ghost = false; 
+          var_implicit = false; } 
+        
+        in
+
+        let in_var_expr = Expr.mk_var ~typ:in_var.var_type (QualIdent.from_ident in_var.var_name) in
+        
+        Expr.mk_binder Forall [in_var] (Expr.mk_eq 
+        
+          (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl) in_var_expr)
+          au_utils_id
+        )
+      in
+
+      let _ = Ident.fresh loc (au_heap_name2 call_name).ident_name in
+
+      let (heap_var_decl2: var_decl) = {
+        var_name = au_heap_name2 call_name;
+        var_loc = loc;
+        var_type = Type.mk_map loc Type.atomic_token au_heap_elem_type;
+        var_const = false;
+        var_ghost = true;
+        var_implicit = false;
+      } in
+
+      let assume_expr2 = 
+        let in_var = { 
+          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
+          var_loc = (Stmt.loc body); 
+          var_type = Type.atomic_token; 
+          var_const = false; var_ghost = false; 
+          var_implicit = false; } 
+        in
+
+        let in_var_expr = Expr.mk_var ~typ:in_var.var_type (QualIdent.from_ident in_var.var_name) in
+        
+        Expr.mk_binder Forall [in_var] (Expr.mk_eq 
+          (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl2) in_var_expr)
+          au_utils_id
+        )
+      in
+
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      
+    ) in
+
+    let* init_assumes = Rewriter.List.fold_left ~init:[] (field_heap_var_defs @ pred_heap_var_defs @ au_heap_var_defs) ~f:(fun assumes (heap_var_decl, heap_var_decl2, assume_stmt1, assume_stmt2) -> 
       Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.introduce_heaps_in_stmts: heap_var_decl: %a; heap_var_decl2: %a" Ident.pr heap_var_decl.var_decl.var_name Ident.pr heap_var_decl2.var_decl.var_name );
       let* _ = Rewriter.introduce_symbol (Module.VarDef heap_var_decl) in
       let+ _ = Rewriter.introduce_symbol (Module.VarDef heap_var_decl2) in
@@ -2085,40 +2748,40 @@ module HeapsExplicitTrnsl = struct
         let* () = Rewriter.set_user_state None in
         Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_binds_for_inhale
 
-    let rec trnsl_inhale_expr ?cmnt (expr: expr) : Stmt.t Rewriter.t =
-      trnsl_inhale_a ?cmnt [] expr
+    let rec trnsl_inhale_expr ?cmnt ~loc (expr: expr) : Stmt.t Rewriter.t =
+      trnsl_inhale_a ?cmnt ~loc [] expr
       
 
-    and trnsl_inhale_a ?cmnt (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_inhale_a ?cmnt ~loc (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
   
       match expr with
       | App (Ite, [c; e1; e2], _) ->
-        let* stmt1 = trnsl_inhale_a ?cmnt (c :: conds) e1 in
+        let* stmt1 = trnsl_inhale_a ?cmnt ~loc (c :: conds) e1 in
   
         let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-        let* stmt2 = trnsl_inhale_a ?cmnt (not_c :: conds) e2 in
+        let* stmt2 = trnsl_inhale_a ?cmnt ~loc (not_c :: conds) e2 in
         
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) [stmt1; stmt2])
+        Rewriter.return (Stmt.mk_block_stmt ~loc [stmt1; stmt2])
       | App (Impl, [c; e2], _) ->
-        trnsl_inhale_a (c :: conds) e2
+        trnsl_inhale_a ?cmnt ~loc (c :: conds) e2
   
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a ?cmnt conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a ?cmnt ~loc conds e) in
         
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
         
   
-      | _ -> trnsl_inhale_a2 ?cmnt {univ_vars = []; triggers = []} conds expr
+      | _ -> trnsl_inhale_a2 ?cmnt ~loc {univ_vars = []; triggers = []} conds expr
 
-    and trnsl_inhale_a2 ?cmnt (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_inhale_a2 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
   
       match expr with
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a2 ?cmnt universal_quants conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a2 ?cmnt ~loc universal_quants conds e) in
   
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
   
       | Binder (Forall, var_decls, trgs, e, _) ->
         let universal_quants = 
@@ -2134,36 +2797,36 @@ module HeapsExplicitTrnsl = struct
           (* List.fold var_decls ~init:universal_quants ~f:(fun map var_decl -> 
           Map.add_exn map ~key:var_decl.var_name ~data:var_decl
         ) in *)
-        let* stmt = trnsl_inhale_a2 ?cmnt universal_quants conds e in
+        let* stmt = trnsl_inhale_a2 ?cmnt ~loc universal_quants conds e in
   
         Rewriter.return stmt
   
-      | _ -> trnsl_inhale_a2' ?cmnt universal_quants conds expr
+      | _ -> trnsl_inhale_a2' ?cmnt ~loc universal_quants conds expr
 
 
-    and trnsl_inhale_a2' ?cmnt (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_inhale_a2' ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
   
       match expr with
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a2' ?cmnt universal_quants conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a2' ?cmnt ~loc universal_quants conds e) in
 
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
         
       | App (Impl, [c; e2], _) ->
-        trnsl_inhale_a2' ?cmnt universal_quants (c :: conds) e2
+        trnsl_inhale_a2' ?cmnt ~loc universal_quants (c :: conds) e2
       
       | App (Ite, [c; e1; e2], _) ->
-        let* stmt1 = trnsl_inhale_a2' ?cmnt universal_quants (c :: conds) e1 in
+        let* stmt1 = trnsl_inhale_a2' ?cmnt ~loc universal_quants (c :: conds) e1 in
   
         let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-        let* stmt2 = trnsl_inhale_a2' ?cmnt universal_quants (not_c :: conds) e2 in
+        let* stmt2 = trnsl_inhale_a2' ?cmnt ~loc universal_quants (not_c :: conds) e2 in
         
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) [stmt1; stmt2])
+        Rewriter.return (Stmt.mk_block_stmt ~loc [stmt1; stmt2])
   
-      | _ -> trnsl_inhale_a0 ?cmnt universal_quants conds expr
+      | _ -> trnsl_inhale_a0 ?cmnt ~loc universal_quants conds expr
 
-    and trnsl_inhale_a0 ?cmnt (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_inhale_a0 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
       let univ_quants_list = universal_quants.univ_vars in
@@ -2171,9 +2834,9 @@ module HeapsExplicitTrnsl = struct
 
       match expr with
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a0 ?cmnt universal_quants conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a0 ?cmnt ~loc universal_quants conds e) in
           
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
 
   
       | App (Own, [e1; e2; e3], _) -> begin    
@@ -2218,7 +2881,7 @@ module HeapsExplicitTrnsl = struct
           Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
-        let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) field_heap2_qual_ident in
+        let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
         let assume_stmt = 
           let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
           var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
@@ -2227,45 +2890,45 @@ module HeapsExplicitTrnsl = struct
 
           let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
           
-          Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^  "inhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+          Stmt.mk_assume_expr ~loc ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^  "inhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
 
-          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr]]
+          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc field_heap_expr l_expr]]
           
-          ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
-            (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
-              (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+          ~loc ~typ:Type.bool Forall [l_var] 
+            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                 (* m1(a,b,c) && l == f1(a, b, c) *)
-                Expr.mk_and ~loc:(Expr.to_loc expr) (l_eq_e1_expr :: conds);
+                Expr.mk_and ~loc (l_eq_e1_expr :: conds);
 
                 (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr)
-                  (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:field_type 
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
+                  (Expr.mk_app ~loc ~typ:field_type 
                     (Expr.Var field_heapchunk_operator)  [
-                      Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr;
+                      Expr.mk_maplookup ~loc field_heap_expr l_expr;
                       e3;
                     ] );
 
             
                 (* field$Heap2[l] == field$Heap[l] *)
-                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr) 
-                  (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr);
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr) 
+                  (Expr.mk_maplookup ~loc field_heap_expr l_expr);
               ])
             )
           )
         in
 
         (* field$Heap := field$Heap2 *)
-        let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [field_heap_expr] field_heap2_expr in
+        let eq_stmt = Stmt.mk_assign ~loc [field_heap_expr] field_heap2_expr in
         
         (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-        let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
+        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
 
         in *)
 
-        let assume_heap_valid = Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
-          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
+        let assume_heap_valid = Stmt.mk_assume_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
         
         in
 
@@ -2279,12 +2942,124 @@ module HeapsExplicitTrnsl = struct
 
         let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid] in
 
-        let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+        let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
         Rewriter.return stmt
       end
 
-      (* TODO: Add support for predicates *)
+      | App (AUPred call_qual_ident, token :: args, _) | App (AUPredCommit call_qual_ident, token :: args, _) ->
+        Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslInhale.trnsl_inhale_a0: expr: %a" Expr.pr expr);
+        let loc = Expr.to_loc expr in
+        let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident 
+            
+        in
+
+        let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
+  
+        let call_name = call_qual_ident in
+        let au_heap_name = au_heap_name call_name in
+        let au_heap_qual_ident = QualIdent.from_ident au_heap_name in
+        let au_heap_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) au_heap_qual_ident in
+  
+        let au_heap2_name = au_heap_name2 call_name in
+        let au_heap2_qual_ident = QualIdent.from_ident au_heap2_name in
+        let au_heap2_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) au_heap2_qual_ident in
+  
+        let* (au_heapchunk_operator: qual_ident) = 
+          Rewriter.ProgUtils.get_au_utils_comp loc call_name
+        in
+
+        let* (au_heap_valid_fn: qual_ident) = 
+          Rewriter.ProgUtils.get_au_utils_valid loc call_name
+        in
+
+        let* au_ra_uncommitted_constr = Rewriter.ProgUtils.au_ra_uncommitted_constr_qual_ident loc call_qual_ident in
+        let* au_ra_committed_constr = Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc call_qual_ident in
+
+        let havoc_stmt = Stmt.mk_havoc ~loc au_heap2_qual_ident in
+        let assume_stmt = 
+          let new_token_var = { Type.var_name = Ident.fresh loc "tok"; var_loc = loc; 
+          var_type = Type.atomic_token; var_const = false; var_ghost = false; var_implicit = false; } in
+
+          let new_token_expr = Expr.from_var_decl new_token_var in
+
+          let token_var_eq_given_token = Expr.mk_eq new_token_expr token in
+          
+          let new_chunk = 
+            (match expr with
+            | App (AUPred _, _ :: args, _) -> 
+              
+              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_uncommitted_constr) [Expr.mk_tuple args]
+
+            | App (AUPredCommit _, _ :: args, _) -> 
+              let ret_val = List.last_exn args in
+              let call_args = List.drop_last_exn args
+              
+              in
+              
+              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_committed_constr) [Expr.mk_tuple call_args; ret_val]
+
+            | _ -> Error.error loc "Internal error"
+            )
+          in
+          
+          Stmt.mk_assume_expr ~loc 
+          ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\ninhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+
+          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc au_heap2_expr new_token_expr]; [Expr.mk_maplookup ~loc au_heap_expr new_token_expr]]
+          
+          ~loc ~typ:Type.bool Forall [new_token_var] 
+            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
+
+                (* m1(a,b,c) && l == f1(a, b, c) *)
+                Expr.mk_and ~loc (token_var_eq_given_token :: conds);
+
+                (* au$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr)
+                  (Expr.mk_app ~loc ~typ:heap_elem_type 
+                    (Expr.Var au_heapchunk_operator)  [
+                      Expr.mk_maplookup ~loc au_heap_expr new_token_expr;
+                      new_chunk;
+                    ] );
+
+            
+                (* au$Heap2[l] == au$Heap[l] *)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr) 
+                  (Expr.mk_maplookup ~loc au_heap_expr new_token_expr);
+              ])
+            )
+          )
+        in
+
+        (* au$Heap := au$Heap2 *)
+        let eq_stmt = Stmt.mk_assign ~loc [au_heap_expr] au_heap2_expr in
+        
+        (* let* au_valid_fn = Rewriter.ProgUtils.get_au_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
+        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_valid_fn) [au_heap_expr])
+
+        in *)
+
+        let assume_heap_valid = Stmt.mk_assume_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn) [au_heap_expr]) 
+        
+        in
+
+        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds token in
+
+        let stmts_list = match univ_quants_list with
+        | [] -> []
+        | _ -> [injectivity_assertion]
+
+        in
+
+        let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid] in
+
+        let stmt = Stmt.mk_block_stmt ~loc stmts_list in
+
+        Rewriter.return stmt
+
 
       | e ->
         let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
@@ -2301,8 +3076,6 @@ module HeapsExplicitTrnsl = struct
             let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
             begin match symbol with
             | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
-
-
 
               let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
             
@@ -2333,7 +3106,7 @@ module HeapsExplicitTrnsl = struct
 
               let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
 
-              let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) pred_heap2_qual_ident in
+              let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
               let assume_stmt = 
                 let in_vars = List.map pred_in_types ~f:(fun tp -> 
                   Type.{ var_name = Ident.fresh (Expr.to_loc e) "in"; var_loc = Expr.to_loc e; 
@@ -2366,49 +3139,49 @@ module HeapsExplicitTrnsl = struct
 
                   in
                   
-                  Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr) new_chunk_expr_list 
+                  Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr) new_chunk_expr_list 
                 in
                 
-                Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+                Stmt.mk_assume_expr ~loc 
                 ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\ninhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
 
-                (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple]; [Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple]]
+                (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple]; [Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple]]
                 
-                ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall in_vars 
-                  (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
-                    (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+                ~loc ~typ:Type.bool Forall in_vars 
+                  (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+                    (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                       (* m1(a,b,c) && l == f1(a, b, c) *)
-                      Expr.mk_and ~loc:(Expr.to_loc expr) (in_vars_eq_args @ conds);
+                      Expr.mk_and ~loc (in_vars_eq_args @ conds);
 
                       (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple)
-                        (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type 
+                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple)
+                        (Expr.mk_app ~loc ~typ:heap_elem_type 
                           (Expr.Var pred_heapchunk_operator)  [
-                            Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple;
+                            Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple;
                             new_chunk;
                           ] );
 
                   
                       (* pred$Heap2[l] == pred$Heap[l] *)
-                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple) 
-                        (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple);
+                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple) 
+                        (Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple);
                     ])
                   )
                 )
               in
 
               (* pred$Heap := pred$Heap2 *)
-              let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [pred_heap_expr] pred_heap2_expr in
+              let eq_stmt = Stmt.mk_assign ~loc [pred_heap_expr] pred_heap2_expr in
               
               (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-              let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
+              let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
+                (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
 
               in *)
 
-              let assume_heap_valid = Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
-                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
+              let assume_heap_valid = Stmt.mk_assume_expr ~loc 
+                (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
               
               in
 
@@ -2422,7 +3195,7 @@ module HeapsExplicitTrnsl = struct
 
               let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid] in
 
-              let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+              let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
               Rewriter.return stmt
             | _ -> 
@@ -2923,38 +3696,38 @@ module HeapsExplicitTrnsl = struct
       | _ -> 
         Rewriter.Stmt.descend stmt ~f:rewriter_find_witness_elim_exists_from_exhale
     
-    let rec trnsl_exhale_expr ?cmnt (expr: expr) : Stmt.t Rewriter.t =
-      trnsl_exhale_a ?cmnt [] expr
+    let rec trnsl_exhale_expr ?cmnt ~loc (expr: expr) : Stmt.t Rewriter.t =
+      trnsl_exhale_a ?cmnt ~loc [] expr
       
-    and trnsl_exhale_a ?cmnt (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_exhale_a ?cmnt ~loc (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
   
       match expr with
       | App (Ite, [c; e1; e2], _) ->
-        let* stmt1 = trnsl_exhale_a ?cmnt (c :: conds) e1 in
+        let* stmt1 = trnsl_exhale_a ?cmnt ~loc (c :: conds) e1 in
   
         let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-        let* stmt2 = trnsl_exhale_a ?cmnt (not_c :: conds) e2 in
+        let* stmt2 = trnsl_exhale_a ?cmnt ~loc (not_c :: conds) e2 in
         
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) [stmt1; stmt2])
+        Rewriter.return (Stmt.mk_block_stmt ~loc [stmt1; stmt2])
       | App (Impl, [c; e2], _) ->
-        trnsl_exhale_a ?cmnt (c :: conds) e2
+        trnsl_exhale_a ?cmnt ~loc (c :: conds) e2
   
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a ?cmnt ~loc conds e) in
         
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
         
-      | _ -> trnsl_exhale_a2 ?cmnt {univ_vars = []; triggers = []} conds expr
+      | _ -> trnsl_exhale_a2 ?cmnt ~loc {univ_vars = []; triggers = []} conds expr
 
-    and trnsl_exhale_a2 ?cmnt (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_exhale_a2 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
   
       match expr with
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a2 ?cmnt universal_quants conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a2 ?cmnt ~loc universal_quants conds e) in
   
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
   
       | Binder (Forall, var_decls, trgs, e, _) ->
         let universal_quants = 
@@ -2970,36 +3743,36 @@ module HeapsExplicitTrnsl = struct
           (* List.fold var_decls ~init:universal_quants ~f:(fun map var_decl -> 
           Map.add_exn map ~key:var_decl.var_name ~data:var_decl
         ) in *)
-        let* stmt = trnsl_exhale_a2 ?cmnt universal_quants conds e in
+        let* stmt = trnsl_exhale_a2 ?cmnt ~loc universal_quants conds e in
   
         Rewriter.return stmt
   
-      | _ -> trnsl_exhale_a2' ?cmnt universal_quants conds expr
+      | _ -> trnsl_exhale_a2' ?cmnt ~loc universal_quants conds expr
 
 
-    and trnsl_exhale_a2' ?cmnt (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_exhale_a2' ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
   
       match expr with
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a2' ?cmnt universal_quants conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a2' ?cmnt ~loc universal_quants conds e) in
 
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
         
       | App (Impl, [c; e2], _) ->
-        trnsl_exhale_a2' ?cmnt universal_quants (c :: conds) e2
+        trnsl_exhale_a2' ?cmnt ~loc universal_quants (c :: conds) e2
       
       | App (Ite, [c; e1; e2], _) ->
-        let* stmt1 = trnsl_exhale_a2' ?cmnt universal_quants (c :: conds) e1 in
+        let* stmt1 = trnsl_exhale_a2' ?cmnt ~loc universal_quants (c :: conds) e1 in
   
         let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-        let* stmt2 = trnsl_exhale_a2' ?cmnt universal_quants (not_c :: conds) e2 in
+        let* stmt2 = trnsl_exhale_a2' ?cmnt ~loc universal_quants (not_c :: conds) e2 in
         
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) [stmt1; stmt2])
+        Rewriter.return (Stmt.mk_block_stmt ~loc [stmt1; stmt2])
   
-      | _ -> trnsl_exhale_a0 ?cmnt universal_quants conds expr
+      | _ -> trnsl_exhale_a0 ?cmnt ~loc universal_quants conds expr
 
-    and trnsl_exhale_a0 ?cmnt (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_exhale_a0 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
       let univ_quants_list = universal_quants.univ_vars in
@@ -3007,9 +3780,9 @@ module HeapsExplicitTrnsl = struct
 
       match expr with
       | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a0 ?cmnt universal_quants conds e) in
+        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a0 ?cmnt ~loc universal_quants conds e) in
 
-        Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list)  
+        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)  
   
       | App (Own, [e1; e2; e3], _) -> begin    
         (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
@@ -3053,7 +3826,7 @@ module HeapsExplicitTrnsl = struct
           Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
-        let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) field_heap2_qual_ident in
+        let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
         let assume_stmt = 
           let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
           var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
@@ -3062,45 +3835,45 @@ module HeapsExplicitTrnsl = struct
           
           let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
           
-          Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+          Stmt.mk_assume_expr ~loc 
           ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^ "exhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
-          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr]]
+          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc field_heap_expr l_expr]]
           
-          ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall [l_var] 
-            (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
-              (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+          ~loc ~typ:Type.bool Forall [l_var] 
+            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                 (* m1(a,b,c) && l == f1(a, b, c) *)
-                Expr.mk_and ~loc:(Expr.to_loc expr) (l_eq_e1_expr :: conds);
+                Expr.mk_and ~loc (l_eq_e1_expr :: conds);
 
                 (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr)
-                  (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:field_type 
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
+                  (Expr.mk_app ~loc ~typ:field_type 
                     (Expr.Var field_heapchunk_operator)  [
-                      Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr;
+                      Expr.mk_maplookup ~loc field_heap_expr l_expr;
                       e3;
                     ] );
 
             
                 (* field$Heap2[l] == field$Heap[l] *)
-                Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap2_expr l_expr) 
-                  (Expr.mk_maplookup ~loc:(Expr.to_loc expr) field_heap_expr l_expr);
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr) 
+                  (Expr.mk_maplookup ~loc field_heap_expr l_expr);
               ])
             )
           )
         in
 
         (* field$Heap := field$Heap2 *)
-        let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [field_heap_expr] field_heap2_expr in
+        let eq_stmt = Stmt.mk_assign ~loc [field_heap_expr] field_heap2_expr in
         
         (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-        let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
+        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
 
         in *)
 
-        let assert_heap_valid = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-          (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
+        let assert_heap_valid = Stmt.mk_assert_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
         
         in
 
@@ -3114,12 +3887,122 @@ module HeapsExplicitTrnsl = struct
 
         let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid] in
 
-        let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+        let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
         Rewriter.return stmt
       end
 
-      (* TODO: Add support for predicates *)
+      | App (AUPred call_qual_ident, token :: args, _) | App (AUPredCommit call_qual_ident, token :: args, _) ->
+        let loc = Expr.to_loc expr in
+        let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident  
+            
+        in
+
+        let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
+  
+        let call_name = call_qual_ident in
+        let au_heap_name = au_heap_name call_name in
+        let au_heap_qual_ident = QualIdent.from_ident au_heap_name in
+        let au_heap_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) au_heap_qual_ident in
+  
+        let au_heap2_name = au_heap_name2 call_name in
+        let au_heap2_qual_ident = QualIdent.from_ident au_heap2_name in
+        let au_heap2_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) au_heap2_qual_ident in
+  
+        let* (au_heapchunk_operator: qual_ident) = 
+          Rewriter.ProgUtils.get_au_utils_frame loc call_name
+        in
+
+        let* (au_heap_valid_fn: qual_ident) = 
+          Rewriter.ProgUtils.get_au_utils_valid loc call_name
+        in
+
+        let* au_ra_uncommitted_constr = Rewriter.ProgUtils.au_ra_uncommitted_constr_qual_ident loc call_qual_ident in
+        let* au_ra_committed_constr = Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc call_qual_ident in
+
+        let havoc_stmt = Stmt.mk_havoc ~loc au_heap2_qual_ident in
+        let assume_stmt = 
+          let new_token_var = { Type.var_name = Ident.fresh loc "tok"; var_loc = loc; 
+          var_type = Type.atomic_token; var_const = false; var_ghost = false; var_implicit = false; } in
+
+          let new_token_expr = Expr.from_var_decl new_token_var in
+
+          let token_var_eq_given_token = Expr.mk_eq new_token_expr token in
+            
+          let new_chunk = 
+            (match expr with
+            | App (AUPred _, _ :: args, _) -> 
+              
+              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_uncommitted_constr) [Expr.mk_tuple args]
+
+            | App (AUPredCommit _, _ :: args, _) -> 
+              let ret_val = List.last_exn args in
+              let call_args = List.drop_last_exn args
+              
+              in
+              
+              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_committed_constr) [Expr.mk_tuple call_args; ret_val]
+
+            | _ -> Error.error loc "Internal error"
+            )
+          in
+          
+          Stmt.mk_assume_expr ~loc 
+          ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+
+          (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc au_heap2_expr new_token_expr]; [Expr.mk_maplookup ~loc au_heap_expr new_token_expr]]
+          
+          ~loc ~typ:Type.bool Forall [new_token_var] 
+            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
+
+                (* m1(a,b,c) && l == f1(a, b, c) *)
+                Expr.mk_and ~loc (token_var_eq_given_token :: conds);
+
+                (* au$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr)
+                  (Expr.mk_app ~loc ~typ:heap_elem_type 
+                    (Expr.Var au_heapchunk_operator)  [
+                      Expr.mk_maplookup ~loc au_heap_expr new_token_expr;
+                      new_chunk;
+                    ] );
+
+            
+                (* pred$Heap2[l] == pred$Heap[l] *)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr) 
+                  (Expr.mk_maplookup ~loc au_heap_expr new_token_expr);
+              ])
+            )
+          )
+        in
+
+        (* pred$Heap := pred$Heap2 *)
+        let eq_stmt = Stmt.mk_assign ~loc [au_heap_expr] au_heap2_expr in
+        
+        (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
+        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
+
+        in *)
+
+        let assert_heap_valid = Stmt.mk_assert_expr ~loc 
+          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn) [au_heap_expr]) 
+        
+        in
+
+        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds token in
+
+        let stmts_list = match univ_quants_list with
+        | [] -> []
+        | _ -> [injectivity_assertion]
+
+        in
+
+        let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid] in
+
+        let stmt = Stmt.mk_block_stmt ~loc stmts_list in
+
+        Rewriter.return stmt
 
       | e ->
         let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
@@ -3136,8 +4019,6 @@ module HeapsExplicitTrnsl = struct
             let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
             begin match symbol with
             | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
-
-
 
               let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
             
@@ -3168,7 +4049,7 @@ module HeapsExplicitTrnsl = struct
 
               let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
 
-              let havoc_stmt = Stmt.mk_havoc ~loc:(Expr.to_loc expr) pred_heap2_qual_ident in
+              let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
               let assume_stmt = 
                 let in_vars = List.map pred_in_types ~f:(fun tp -> 
                   Type.{ var_name = Ident.fresh (Expr.to_loc e) "in"; var_loc = Expr.to_loc e; 
@@ -3201,49 +4082,49 @@ module HeapsExplicitTrnsl = struct
 
                   in
                   
-                  Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr) new_chunk_expr_list 
+                  Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr) new_chunk_expr_list 
                 in
                 
-                Stmt.mk_assume_expr ~loc:(Expr.to_loc expr) 
+                Stmt.mk_assume_expr ~loc 
                 ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
 
-                (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple]; [Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple]]
+                (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple]; [Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple]]
                 
-                ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall in_vars 
-                  (Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall univ_vars_list
-                    (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Ite [
+                ~loc ~typ:Type.bool Forall in_vars 
+                  (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+                    (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                       (* m1(a,b,c) && l == f1(a, b, c) *)
-                      Expr.mk_and ~loc:(Expr.to_loc expr) (in_vars_eq_args @ conds);
+                      Expr.mk_and ~loc (in_vars_eq_args @ conds);
 
                       (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple)
-                        (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:heap_elem_type 
+                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple)
+                        (Expr.mk_app ~loc ~typ:heap_elem_type 
                           (Expr.Var pred_heapchunk_operator)  [
-                            Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple;
+                            Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple;
                             new_chunk;
                           ] );
 
                   
                       (* pred$Heap2[l] == pred$Heap[l] *)
-                      Expr.mk_eq ~loc:(Expr.to_loc expr) (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap2_expr in_vars_tuple) 
-                        (Expr.mk_maplookup ~loc:(Expr.to_loc expr) pred_heap_expr in_vars_tuple);
+                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple) 
+                        (Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple);
                     ])
                   )
                 )
               in
 
               (* pred$Heap := pred$Heap2 *)
-              let eq_stmt = Stmt.mk_assign ~loc:(Expr.to_loc expr) [pred_heap_expr] pred_heap2_expr in
+              let eq_stmt = Stmt.mk_assign ~loc [pred_heap_expr] pred_heap2_expr in
               
               (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-              let heap_valid_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
+              let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
+                (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
 
               in *)
 
-              let assert_heap_valid = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) 
-                (Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
+              let assert_heap_valid = Stmt.mk_assert_expr ~loc 
+                (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
               
               in
 
@@ -3257,7 +4138,7 @@ module HeapsExplicitTrnsl = struct
 
               let stmts_list = stmts_list @ [havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid] in
 
-              let stmt = Stmt.mk_block_stmt ~loc:(Expr.to_loc expr) stmts_list in
+              let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
               Rewriter.return stmt
             | _ -> 
@@ -3278,13 +4159,13 @@ module HeapsExplicitTrnsl = struct
         | Inhale ->
           let expr = spec.spec_form in
 
-          let* stmt = TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment expr in
+          let* stmt = TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc expr in
           Rewriter.return stmt
 
         | Exhale ->
           let expr = spec.spec_form in
 
-          let* stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment expr in
+          let* stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc expr in
           Rewriter.return stmt
         | Assume -> 
           let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
@@ -3307,7 +4188,7 @@ module HeapsExplicitTrnsl = struct
 
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
-            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr spec.spec_form in
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc spec.spec_form in
             let assume_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {
@@ -3433,10 +4314,11 @@ let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
   | ProcDef {proc_body = Some body} -> 
     let* preds_list = stmt_preds_mentioned body in
     let fields_list = Stmt.stmt_fields_accessed body in
+    let au_preds_list = Set.to_list (Stmt.stmt_au_preds_referenced body) in
 
     Logs.debug (fun m -> m "Rewrites.rewrite_introduce_heaps: Predicates mentioned in the body");
 
-    let* body = HeapsExplicitTrnsl.introduce_heaps_in_stmts ~loc:c.call_decl.call_decl_loc ~fields_list ~preds_list body in
+    let* body = HeapsExplicitTrnsl.introduce_heaps_in_stmts ~loc:c.call_decl.call_decl_loc ~fields_list ~preds_list ~au_preds_list body in
 
     (* let* body = HeapsExplicitTrnsl.rewrite_make_heaps_explicit body in *)
 
@@ -3654,7 +4536,15 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_loops on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
 
-  
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_atomic_callable_token on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_atomic_callable_token m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_au_cmnds on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m =
+    Rewriter.eval_with_user_state ~init:{AtomicityAnalysis.au_opened = []; invs_opened = []; atomic_step_taken = false}
+    (Rewriter.Module.rewrite_stmts ~f:(AtomicityAnalysis.rewrite_au_cmnds ~ghost_block:false) m) 
+  in 
+
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_fold_unfold_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
 
@@ -3687,6 +4577,9 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_pred_utils on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:HeapsExplicitTrnsl.rewrite_add_pred_utils m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_add_atomics_utils on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:HeapsExplicitTrnsl.rewrite_add_atomics_utils m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_skolemize_inhale_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_inhale_stmts m in

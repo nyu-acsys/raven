@@ -20,7 +20,7 @@ open Ast
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
-%token HAVOC NEW RETURN OWN
+%token HAVOC NEW RETURN OWN AU
 %token IF ELSE WHILE
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
@@ -621,6 +621,7 @@ primary:
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
+| e = au_expr { e }
 | e = lookup_expr { e }
 ;
 
@@ -653,6 +654,11 @@ dot_expr:
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Own es)
+}
+
+au_expr:
+| AU; LPAREN; c = qual_ident; es = expr_list; RPAREN {
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident c)) es)
 }
 
 lookup_expr:

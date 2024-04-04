@@ -16,6 +16,7 @@ and adt_def = smt_ident * smt_ident list * (smt_ident * (smt_ident * sort) list)
 
 module PreambleConsts = struct
   let loc_ident = QualIdent.from_ident (Ident.make Util.Loc.dummy "$Loc" 0)
+  let atomic_token_ident = QualIdent.from_ident (Ident.make Util.Loc.dummy "$AtomicToken" 0)
   (* let loc_sort = FreeSort (loc_ident, []) *)
 end
 
@@ -103,8 +104,9 @@ let rec pr_sort ppf (sort: sort) =
   | App (Data (id, _), [], _) -> pr_ident ppf id
   | App (Prod, srts, _) -> 
     fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length srts) pr_sorts srts
+  | App (AtomicToken, [], _) -> pr_ident ppf PreambleConsts.atomic_token_ident
 
-  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) | App (AtomicToken, _, _) -> Error.smt_error (Type.to_loc sort) ("pr_sort: unexpected sort: " ^ (Type.to_string sort))
+  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) -> Error.smt_error (Type.to_loc sort) ("pr_sort: unexpected sort: " ^ (Type.to_string sort))
 
   | _ -> 
     Logs.debug (fun m -> m "pr_sort: unexpected sort %s" (Type.to_string sort));

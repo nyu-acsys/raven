@@ -1,0 +1,23 @@
+pred p1(x: Ref) {
+  true
+}
+
+proc p(x: Ref)
+  atomic requires p1(x)
+  atomic ensures p1(x) 
+{
+  var phi: AtomicToken;
+  phi := bindAU();
+  openAU(phi);
+  var m: Int = 5;
+  ghost var n: Int = 6;
+  {! 
+    ghost var k: Bool;
+    if (k) {
+      abortAU(phi);
+    } else {
+      commitAU(phi);
+    }
+  !}
+  // commitAU(phi);
+}

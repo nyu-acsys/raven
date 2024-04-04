@@ -15,6 +15,7 @@ let _ =
   List.iter (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
     ([("assert", SPEC Stmt.Assert);
       ("assume", SPEC Stmt.Assume);
+      ("au", AU);
       ("atomic", ATOMIC);
       ("AtomicToken", ATOMICTOKEN);
       ("auto", AUTO);

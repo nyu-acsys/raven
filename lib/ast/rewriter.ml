@@ -417,6 +417,16 @@ module List = struct
         if b then s, b else ex ys s
     in
     ex xs
+
+  let for_all xs ~f =
+    let rec ex xs s =
+      match xs with
+      | [] -> s, true
+      | x :: ys ->
+        let s, b = f x s in
+        if b then ex ys s else s, b
+    in
+    ex xs
 end
 
 module Option = struct
@@ -614,8 +624,9 @@ module Stmt = struct
       { stmt with stmt_desc = Basic (New { new_desc with new_args }) }
 
     | Fpu fpu_desc ->
-      let+ fpu_val = f fpu_desc.fpu_val in
-      { stmt with stmt_desc = Basic (Fpu { fpu_desc with fpu_val }) }
+      let* fpu_old_val = Option.map fpu_desc.fpu_old_val ~f in
+      let+ fpu_new_val = f fpu_desc.fpu_new_val in
+      { stmt with stmt_desc = Basic (Fpu { fpu_desc with fpu_old_val; fpu_new_val }) }
 
 
     (* TODO: add remaining *)
@@ -717,8 +728,9 @@ module Stmt = struct
       | Fpu fpu_desc ->
         let fpu_field = f fpu_desc.fpu_field in
         let+ fpu_ref = Expr.rewrite_qual_idents ~f fpu_desc.fpu_ref
-        and+ fpu_val = Expr.rewrite_qual_idents ~f fpu_desc.fpu_val in
-        { stmt with stmt_desc = Basic (Fpu { fpu_ref; fpu_field; fpu_val }) }
+        and+ fpu_old_val = Option.map fpu_desc.fpu_old_val ~f:(Expr.rewrite_qual_idents ~f)
+        and+ fpu_new_val = Expr.rewrite_qual_idents ~f fpu_desc.fpu_new_val in
+        { stmt with stmt_desc = Basic (Fpu { fpu_ref; fpu_field; fpu_old_val; fpu_new_val }) }
 
       (* TODO: add remaining *)
       | _ -> rewrite_expressions_top ~f:(Expr.rewrite_qual_idents ~f) ~c:(rewrite_qual_idents ~f) stmt
@@ -1083,6 +1095,10 @@ module ProgUtils = struct
 
   let pred_to_ra_mod_ident ~loc pred_ident = Ident.make loc (serialize ("PredHeapRA$" ^ (Ident.to_string pred_ident))) 0
 
+  let au_to_ra_mod_ident ~loc call_ident = Ident.make loc (serialize ("AtomicProcHeapRA$" ^ (Ident.to_string call_ident))) 0
+
+  let callable_au_token_ident ~loc callable_ident = Ident.make loc (serialize ("au_token$" ^ (Ident.to_string callable_ident))) 0
+
   let find_highest_valid_scope_qi loc (qi: qual_ident) : qual_ident t =
     
     let open Syntax in
@@ -1289,6 +1305,12 @@ module ProgUtils = struct
     let+ pred_fully_qual_iden = resolve (QualIdent.to_loc pred_qual_iden) pred_qual_iden in
 
     QualIdent.append (QualIdent.pop pred_fully_qual_iden) (pred_to_ra_mod_ident ~loc:(QualIdent.to_loc pred_qual_iden) (QualIdent.unqualify pred_fully_qual_iden))
+
+  let au_get_ra_qual_iden (call_qual_iden) =
+    let open Syntax in
+    let+ call_fully_qual_iden = resolve (QualIdent.to_loc call_qual_iden) call_qual_iden in
+
+    QualIdent.append (QualIdent.pop call_fully_qual_iden) (au_to_ra_mod_ident ~loc:(QualIdent.to_loc call_qual_iden) (QualIdent.unqualify call_fully_qual_iden))
     
 
   let get_ra_rep_type (ra_qual_iden: qual_ident) : type_expr =
@@ -1313,6 +1335,11 @@ module ProgUtils = struct
   let pred_utils_module_ident loc pred_ident : ident =
     Ident.make loc (serialize ("PredUtils$" ^ (Ident.to_string pred_ident))) 0
 
+  let au_utils_module_ident loc callable_ident : ident =
+    Ident.make loc (serialize ("AUUtils$" ^ (Ident.to_string callable_ident))) 0
+
+
+
   let get_field_utils_module loc field_name : qual_ident t =
     let open Syntax in
     let+ field_fully_qual_name = resolve loc field_name in
@@ -1325,6 +1352,14 @@ module ProgUtils = struct
 
     QualIdent.make pred_fully_qual_name.qual_path (pred_utils_module_ident loc pred_fully_qual_name.qual_base)
 
+  let get_au_utils_module loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_fully_qual_name = resolve loc call_name in
+
+    QualIdent.make call_fully_qual_name.qual_path (au_utils_module_ident loc call_fully_qual_name.qual_base)
+
+
+
   let heap_utils_rep_type_ident loc = Ident.make loc "T" 0
   let get_field_utils_rep_type loc field_name : qual_ident t =
     let open Syntax in
@@ -1335,6 +1370,13 @@ module ProgUtils = struct
     let open Syntax in
     let+ pred_utils_module = get_pred_utils_module loc pred_name in
     QualIdent.append pred_utils_module (heap_utils_rep_type_ident loc)
+
+  let get_au_utils_rep_type loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_utils_module = get_au_utils_module loc call_name in
+    QualIdent.append call_utils_module (heap_utils_rep_type_ident loc)
+
+
 
   let heap_utils_comp_chunk_ident loc = Ident.make loc "heapChunkComp" 0
   let get_field_utils_comp loc field_name : qual_ident t =
@@ -1347,6 +1389,13 @@ module ProgUtils = struct
     let+ pred_utils_module = get_pred_utils_module loc pred_name in
     QualIdent.append pred_utils_module (heap_utils_comp_chunk_ident loc)
 
+  let get_au_utils_comp loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_utils_module = get_au_utils_module loc call_name in
+    QualIdent.append call_utils_module (heap_utils_comp_chunk_ident loc)
+
+
+
   let heap_utils_frame_chunk_ident loc = Ident.make loc "heapChunkFrame" 0
   let get_field_utils_frame loc field_name : qual_ident t =
     let open Syntax in
@@ -1357,6 +1406,11 @@ module ProgUtils = struct
     let open Syntax in
     let+ pred_utils_module = get_pred_utils_module loc pred_name in
     QualIdent.append pred_utils_module (heap_utils_frame_chunk_ident loc)
+
+  let get_au_utils_frame loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_utils_module = get_au_utils_module loc call_name in
+    QualIdent.append call_utils_module (heap_utils_frame_chunk_ident loc)
 
 
 
@@ -1370,6 +1424,12 @@ module ProgUtils = struct
     let open Syntax in
     let+ pred_utils_module = get_pred_utils_module loc pred_name in
     QualIdent.append pred_utils_module (heap_utils_valid_ident loc)
+
+  let get_au_utils_valid loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_utils_module = get_au_utils_module loc call_name in
+    QualIdent.append call_utils_module (heap_utils_valid_ident loc)
+
 
 
   let heap_utils_id_ident loc = Ident.make loc "id" 0
@@ -1411,6 +1471,22 @@ module ProgUtils = struct
 
     return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:pred_elem_type
 
+  let get_au_utils_id loc call_name : expr t =
+    let open Syntax in
+    let* call_utils_module = get_au_utils_module loc call_name in
+
+    let* call = find_and_reify loc call_name in
+
+    let* call_elem_type_name = get_au_utils_rep_type loc call_name in
+    
+    let call_elem_type = AstDef.Type.mk_var loc call_elem_type_name in
+
+    let id_qual_ident = QualIdent.append call_utils_module (heap_utils_id_ident loc)
+
+    in
+
+    return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:call_elem_type
+
   let pred_ra_constr_qual_ident loc pred_name =
     let open Syntax in
     let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
@@ -1429,6 +1505,19 @@ module ProgUtils = struct
       )
 
     | _ -> Error.error loc "Rewriter.ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
+
+  let au_ra_uncommitted_constr_qual_ident loc call_name = 
+    let open Syntax in
+    let+ call_ra_qual_iden = au_get_ra_qual_iden call_name in
+
+    QualIdent.append call_ra_qual_iden AstDef.Predefs.lib_atomic_token_uncommitted_constr_ident
+
+  let au_ra_committed_constr_qual_ident loc call_name = 
+    let open Syntax in
+    let+ call_ra_qual_iden = au_get_ra_qual_iden call_name in
+
+    QualIdent.append call_ra_qual_iden AstDef.Predefs.lib_atomic_token_committed_constr_ident
+    
 
   let pred_ra_count_destr_qual_ident loc pred_name =
     let open Syntax in
@@ -1550,5 +1639,5 @@ module ProgUtils = struct
       )
 
     | _ -> Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a constructor definition"
-
+  
 end

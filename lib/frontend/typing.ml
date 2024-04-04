@@ -384,6 +384,66 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
     | Own, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments, and second argument is a field name."))
 
+    | AUPred call_name, token :: args_list ->
+      let loc = Expr.to_loc expr in
+      let* call_name, symbol = 
+        Rewriter.resolve_and_find loc call_name in
+
+      let* callable_decl =
+        let+ symbol = 
+          Rewriter.Symbol.reify symbol
+        in
+        begin match symbol with
+        | CallDef callable when Poly.(callable.call_decl.call_decl_kind = Proc) ->
+
+          callable.call_decl
+        | _ -> Error.type_error loc "Expected callable identifier"
+        end
+      in
+
+      if not (Callable.is_atomic callable_decl) then
+        Error.type_error loc "Expected procedure with atomic specification"
+      else
+        let* token = process_expr token Type.atomic_token in
+        let* args_list = process_callable_args loc callable_decl args_list in
+        let expr = Expr.App (AUPred call_name, token :: args_list, expr_attr) in
+        check_and_set expr Type.perm Type.perm expected_typ
+    
+    | AUPred _, [] ->
+      Error.type_error (Expr.to_loc expr) "AUPred takes at least one argument"
+
+    | AUPredCommit call_name, token :: args_list when (List.length args_list >= 1) ->
+      let loc = Expr.to_loc expr in
+      let* call_name, symbol = 
+        Rewriter.resolve_and_find loc call_name in
+      
+      let* callable_decl = 
+        let+ symbol = 
+          Rewriter.Symbol.reify symbol
+        in
+        match symbol with
+        | CallDef callable when Poly.(callable.call_decl.call_decl_kind = Proc) ->
+          callable.call_decl
+        | _ -> Error.type_error loc "Expected procedure identifier"
+      in
+
+      let ret_val = List.last_exn args_list in
+      let args_list = List.drop_last_exn args_list in
+
+      if not (Callable.is_atomic callable_decl) then
+        Error.type_error loc "Expected procedure with atomic specification"
+      else
+        let* token = process_expr token Type.atomic_token in
+        let* args_list = process_callable_args loc callable_decl args_list in
+        let* ret_val = process_expr ret_val (Type.mk_prod loc (List.map callable_decl.call_decl_returns ~f:(fun v -> v.var_type))) in
+        let expr = Expr.App (AUPred call_name, token :: args_list, expr_attr) in
+        check_and_set expr Type.perm Type.perm expected_typ
+
+
+    | AUPredCommit _, _ ->
+      Error.type_error (Expr.to_loc expr) "AUPredCommit takes at least two arguments"
+        
+
     (* Data constructor expressions *)
     | DataConstr constr_ident, args_list ->
       let loc = QualIdent.to_loc constr_ident in
@@ -602,6 +662,9 @@ module ProcessCallable = struct
     let open Rewriter.Syntax in
     if List.is_empty qual_ident.qual_path then
       let* base =
+        if Predefs.is_qual_ident_au_cmnd qual_ident then
+          Rewriter.return qual_ident.qual_base
+        else
         match DisambiguationTbl.find disam_tbl qual_ident.qual_base with
         | Some iden -> Rewriter.return iden
         | None ->
@@ -664,6 +727,137 @@ module ProcessCallable = struct
   (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
   () *)
 
+  let process_au_action_stmt (stmt: Stmt.stmt_desc) (loc: location) (disam_tbl: DisambiguationTbl.t) : (Stmt.stmt_desc * DisambiguationTbl.t) Rewriter.t = 
+    let open Rewriter.Syntax in
+    match stmt with
+    | Basic (Assign assign_desc) -> 
+      Logs.debug (fun m -> m "process_au_action_stmt: Assign: %a" Stmt.pr_basic_stmt (Assign assign_desc));
+      (match assign_desc.assign_rhs with
+      | App (Var qual_ident, args, expr_attr) -> begin
+        if QualIdent.(qual_ident = (QualIdent.from_ident Predefs.bindAU_ident)) then
+          (match args, assign_desc.assign_lhs with
+          | [], [token] ->
+            let+ token_expr = disambiguate_process_expr token Type.atomic_token disam_tbl in
+
+            (match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              Stmt.Basic (AUAction {auaction_kind = (BindAU token_qual_ident)}), disam_tbl
+            
+            | _ -> Error.type_error loc "bindAU token expected to be a variable"
+            )
+
+          | _ -> Error.type_error loc "bindAU takes exactly one argument"
+          )
+
+        else if QualIdent.(qual_ident = (QualIdent.from_ident Predefs.openAU_ident)) then (
+          let* bound_vars = Rewriter.List.map assign_desc.assign_lhs ~f:(fun expr -> 
+            let+ expr = disambiguate_process_expr expr Type.any disam_tbl in
+            match expr with
+            | App (Var qual_ident, [], _) -> expr
+            | _ -> Error.type_error loc "openAU bound_variables expected to be a variable"
+            )
+
+          in
+            
+          match args with
+          | [token] ->
+            let* token_expr = disambiguate_process_expr token Type.atomic_token disam_tbl in
+
+            (match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              let+ bound_vars = Rewriter.List.map bound_vars ~f:(fun var -> disambiguate_process_expr var Type.any disam_tbl) in
+              Stmt.Basic (AUAction {auaction_kind = (OpenAU (token_qual_ident, None, bound_vars))}), disam_tbl
+            | _ -> Error.type_error loc "openAU token expected to be a variable"
+            )
+
+          | [token; proc_name] ->
+            let* token_expr = disambiguate_process_expr token Type.atomic_token disam_tbl in
+            let+ proc_name_expr = disambiguate_process_expr proc_name Type.any disam_tbl in
+
+            (match token_expr, proc_name_expr with
+            | App (Var token_qual_ident, [], _), App (Var proc_qual_ident, [], _) ->
+              Stmt.Basic (AUAction {auaction_kind = (OpenAU (token_qual_ident, Some proc_qual_ident, bound_vars))}), disam_tbl
+            | _ -> Error.type_error loc "openAU token and process name expected to be a variable"
+            )
+          
+          | _ -> Error.type_error loc "openAU takes exactly one or two arguments"
+          )
+
+        else if QualIdent.(qual_ident = (QualIdent.from_ident Predefs.commitAU_ident)) then (
+          match args with
+          | token :: args ->
+            let* token_expr = disambiguate_process_expr token Type.atomic_token disam_tbl in
+
+            let+ args = Rewriter.List.map args ~f:(fun arg -> disambiguate_process_expr arg Type.any disam_tbl) in
+
+            (match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              Stmt.Basic (AUAction {auaction_kind = (CommitAU (token_qual_ident, args))}), disam_tbl
+            | _ -> Error.type_error loc "commitAU token expected to be a variable"
+            )
+
+          | _ -> Error.type_error loc "commitAU takes at least one argument"
+          )
+
+        else if QualIdent.(qual_ident = (QualIdent.from_ident Predefs.abortAU_ident)) then (
+          match args with
+          | [token] ->
+            let+ token_expr = disambiguate_process_expr token Type.atomic_token disam_tbl in
+
+            (match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              Stmt.Basic (AUAction {auaction_kind = (AbortAU token_qual_ident)}), disam_tbl
+            | _ -> Error.type_error loc "abortAU token expected to be a variable"
+            )
+
+          | _ -> Error.type_error loc "abortAU takes exactly one argument"
+          )
+
+        else if QualIdent.(qual_ident = (QualIdent.from_ident Predefs.fpu_ident)) then (
+          match args with
+          | [ref_expr; field_expr; old_val_expr; new_val_expr] ->
+            let* ref_expr = disambiguate_process_expr ref_expr Type.ref disam_tbl in
+            let* field_expr = disambiguate_process_expr field_expr Type.any disam_tbl in
+
+            (match field_expr with
+            | App (Var field_qual_ident, [], _) ->
+              let* field_symbol = Rewriter.find_and_reify (Expr.to_loc field_expr) field_qual_ident in
+              (match field_symbol with
+              | FieldDef { field_type = (App(Fld, [given_type], _)) ; _ } -> 
+                let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
+                let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in
+
+                Stmt.Basic (Fpu {
+                  fpu_ref = ref_expr;
+                  fpu_field = field_qual_ident;
+                  fpu_old_val = Some old_val_expr;
+                  fpu_new_val = new_val_expr;
+                  }), disam_tbl
+
+              | _ -> Error.type_error loc "fpu second argument expected to be a field name"
+              ) 
+              
+            | _ -> Error.type_error loc "fpu second argument expected to be a field name"
+            )
+
+          | _ -> Error.type_error loc "fpu takes exactly four arguments"
+          )
+        
+        else
+          Error.type_error loc "Unknown AU action"
+        end
+
+
+
+      | _ -> Error.error loc "Internal error: process_au_action_stmt called with non-callable expression"
+      )
+
+
+
+
+    | _ -> Error.error loc "Internal error: process_au_action_stmt called with non-assignment statement"
+
+
   let process_stmt ?(new_scope=true) (expected_return_type: Type.t) (stmt: Stmt.t) (disam_tbl: DisambiguationTbl.t) : (Stmt.t * DisambiguationTbl.t) Rewriter.t =
     let rec process_stmt ?(new_scope=true) stmt disam_tbl =
       Logs.debug (fun m -> m "process_stmt: %a" Stmt.pr stmt);
@@ -709,10 +903,7 @@ module ProcessCallable = struct
               (* Expr.App (Var var, [], {expr_loc = stmt.stmt_loc; expr_type = var_decl.var_type}) in *)
             let assign_desc = Stmt.{ assign_lhs = [var_expr]; assign_rhs = expr } in
 
-            Logs.debug (fun m -> m "process_stmt: ST var_def: %a" Stmt.pr stmt);
-            Logs.debug (fun m -> m "process_stmt: disam_tbl: %a" DisambiguationTbl.pr disam_tbl');
             let+ stmt, disam_tbl' = process_stmt {stmt_desc = (Stmt.Basic (Assign assign_desc)); stmt_loc = stmt.stmt_loc} disam_tbl' in
-            Logs.debug (fun m -> m "process_stmt: END var_def: %a" Stmt.pr stmt);
 
             stmt.stmt_desc, disam_tbl'
         in
@@ -722,146 +913,71 @@ module ProcessCallable = struct
         Stmt.Basic (Spec (sk, spec)), disam_tbl
 
       | Assign assign_desc ->
-        (* THIS IS WHERE the RHS needs to be examined; *)
+        (
 
-        ((*(let open_au_call = QualIdent.from_ident (Ident.make "openAU" 0) in
-        let commit_au_call = QualIdent.from_ident (Ident.make "commitAU" 0) in
-        let bind_au_call = QualIdent.from_ident (Ident.make "bindAU" 0) in
-        let abort_au_call = QualIdent.from_ident (Ident.make "abortAU" 0) in
-        let fpu_call = QualIdent.from_ident (Ident.make "fpu" 0) in*)
-
+        Logs.debug (fun m -> m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt (Assign assign_desc));
         let* disam_assign_rhs = 
           disambiguate_expr assign_desc.assign_rhs disam_tbl in
+
+        Logs.debug (fun m -> m "process_stmt: disam_assign_rhs: %a" Expr.pr disam_assign_rhs);
 
         let* is_assign_rhs_callable = 
           match disam_assign_rhs with
           | App (Var qual_ident, _, _) -> 
-            let+ _, symbol, _ = Rewriter.find stmt.stmt_loc qual_ident in
-            (match symbol with
-            | CallDef _ -> true
-            | _ -> false)
+              if Predefs.is_qual_ident_au_cmnd qual_ident then
+                Rewriter.return true
+              else
+              let+ _, symbol, _ = 
+                Logs.debug (fun m -> m "process_stmt: disam_find: assign_rhs_qual_ident: %a" QualIdent.pr qual_ident);
+                Rewriter.find stmt.stmt_loc qual_ident 
+              in
+              (match symbol with
+              | CallDef _ -> true
+              | _ -> false)
           | _ -> Rewriter.return false
         in
 
         begin match is_assign_rhs_callable with
         | true ->
 
-        (* begin match assign_desc.assign_rhs with
-        | App (Var proc_qual_ident, ((_ :: _) as args), expr_attr) -> *)
-          (* TODO: there is a lot of duplicated code below that can be factored out.
-             Also, add comments that indicate which kind of assignment statement is handled in each case
-           *)
-          (*if QualIdent.(proc_qual_ident = open_au_call) then
-            match args with
-            | [ token ] ->
-              let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
-              let au_token = Expr.to_ident token_expr in
-
-              begin match assign_desc.assign_lhs with
-              | [] -> 
-                let open_au = au_token in
-
-                Stmt.Basic (OpenAU open_au), disam_tbl
-              | _ -> Error.type_error stmt.stmt_loc ("openAU does not take arguments")
-              end
-
-            | _ ->
-                Error.error (Stmt.loc stmt) ("openAU() called with incorrect number of arguments")
-
-          else if QualIdent.(proc_qual_ident = commit_au_call) then
-            match args with
-            | token :: [] -> (
-                match assign_desc.assign_lhs with
-                | [] ->
-                    let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
-                    let au_token = Expr.to_ident token_expr in
-                      
-                    Stmt.Basic (CommitAU au_token), disam_tbl
-
-                | _ ->
-                    Error.error (Stmt.loc stmt) ("incorrect number of LHS args to commitAU()")
-                )
-            | _ ->
-                Error.error (Stmt.loc stmt) ("commitAU() called with incorrect number of arguments")
-
-          else if QualIdent.(proc_qual_ident = bind_au_call) then
-            match args with
-            | [] -> 
-              (match assign_desc.assign_lhs with
-              | [ token ] ->
-                let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
-                Stmt.Basic (BindAU (Expr.to_ident token_expr)), disam_tbl
-              | _ ->
-                Error.error (Stmt.loc stmt) ("incorrect number of bound_args to bindAU()")
-              )
-
-            | _ ->
-              Error.error (Stmt.loc stmt) ("bindAU() called with incorrect number of arguments")
-
-          else if QualIdent.(proc_qual_ident = abort_au_call) then
-            match args with
-            | [ token ] -> (
-                match assign_desc.assign_lhs with
-                | [] -> 
-                  let+ token_expr = disambiguate_process_expr token Type.any (* TODO: make expected type more precise *) disam_tbl in
-                  Stmt.Basic (Stmt.AbortAU (Expr.to_ident token_expr)), disam_tbl
-                | _ ->
-                  Error.error (Stmt.loc stmt) "incorrect number of bound_args to abortAU()")
-            | _ -> Error.error (Stmt.loc stmt)  "abortAU() called without token"
-
-          else if QualIdent.(proc_qual_ident = fpu_call) then
-            match assign_desc.assign_lhs, args with
-            | [], [ref_expr; field_expr; val_expr] -> 
-                let* ref_expr = disambiguate_process_expr ref_expr Type.ref disam_tbl
-                and* field_expr = disambiguate_process_expr field_expr Type.any disam_tbl in
-                let field_type = match Expr.to_type field_expr with
-                  | App (Fld, [tp_expr], _) -> tp_expr
-                  | _ -> Error.type_error (Expr.to_loc field_expr) "Expected field identifier."
-                in
-                let+ val_expr = disambiguate_process_expr val_expr field_type disam_tbl in
-                let field_qual_ident = Expr.to_qual_ident field_expr in
-                let fpu_desc = {
-                  Stmt.fpu_ref = ref_expr;
-                  fpu_field = field_qual_ident;
-                  fpu_val = val_expr;
-                } in
-                Stmt.Basic (Stmt.Fpu fpu_desc), disam_tbl
-            | _ ->
-              Error.error (Stmt.loc stmt) "fpu() called incorrectly"
-
-          else*)
-
           begin match assign_desc.assign_rhs with
           | App (Var proc_qual_ident, args, expr_attr) ->
-            let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
-                ~f:(fun expr -> disambiguate_process_expr expr Type.any disam_tbl)
-            in
+            Logs.debug (fun m -> m "process_stmt: assign_rhs_qual_ident: %a; %b" QualIdent.pr proc_qual_ident (QualIdent.(proc_qual_ident = (QualIdent.from_ident Predefs.bindAU_ident))));
+            if Predefs.is_qual_ident_au_cmnd proc_qual_ident then
+                process_au_action_stmt stmt.stmt_desc stmt.stmt_loc disam_tbl
+            else begin
 
-            let expected_return_type =
-              Type.mk_prod (Expr.to_loc assign_desc.assign_rhs) (List.map assign_lhs ~f:Expr.to_type)
-            in
-            
-            let+ call_expr = 
-              Expr.App (Var proc_qual_ident, args, expr_attr) |>
-              fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl (* TODO: <- replace this with the expected type *)
-            in
-
-            begin match call_expr with
-
-            | App (Var proc_qual_ident, args, _expr_attr) ->
-
-              let (call_desc : Stmt.call_desc) =
-                {
-                  call_lhs =
-                    List.map assign_lhs ~f:Expr.to_qual_ident;
-                  call_name = proc_qual_ident;
-                  call_args = args;
-                }
+              let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
+                  ~f:(fun expr -> disambiguate_process_expr expr Type.any disam_tbl)
               in
 
-              Stmt.Basic (Call call_desc), disam_tbl
+              let expected_return_type =
+                Type.mk_prod (Expr.to_loc assign_desc.assign_rhs) (List.map assign_lhs ~f:Expr.to_type)
+              in
+              
+              let+ call_expr = 
+                Expr.App (Var proc_qual_ident, args, expr_attr) |>
+                fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl (* TODO: <- replace this with the expected type *)
+              in
 
-            | _ -> failwith "Unexpected error during type checking."
+              begin match call_expr with
+
+              | App (Var proc_qual_ident, args, _expr_attr) ->
+
+                let (call_desc : Stmt.call_desc) =
+                  {
+                    call_lhs =
+                      List.map assign_lhs ~f:Expr.to_qual_ident;
+                    call_name = proc_qual_ident;
+                    call_args = args;
+                  }
+                in
+
+                Stmt.Basic (Call call_desc), disam_tbl
+            
+
+              | _ -> failwith "Unexpected error during type checking."
+              end
             end
           
           | _ -> failwith "Unexpected error during type checking."
@@ -978,7 +1094,8 @@ module ProcessCallable = struct
         let pred_decl =
           match symbol, use_desc.use_kind with
           | CallDef { call_decl = ({call_decl_kind = Pred; _} as pred_decl); _ }, (Fold | Unfold) -> pred_decl
-          | CallDef { call_decl = ({call_decl_kind = Invariant; _} as pred_decl); _ }, (OpenInv | CloseInv) -> pred_decl
+          | CallDef { call_decl = ({call_decl_kind = Invariant; _} as pred_decl); _ }, (Fold | Unfold) -> pred_decl
+          (* | CallDef { call_decl = ({call_decl_kind = Invariant; _} as pred_decl); _ }, (OpenInv | CloseInv) -> pred_decl *)
           | _, (Fold | Unfold) ->
             Error.type_error stmt.stmt_loc ("Expected predicate identifier, but found " ^ QualIdent.to_string use_name)
           | _ ->
