@@ -549,6 +549,8 @@ module Expr = struct
     (* Ternary operators *)
     | Ite
     | Own
+    | AUPred of QualIdent.t
+    | AUPredCommit of QualIdent.t
     (* Variable arity operators *)
     | Setenum
     | Tuple
@@ -621,12 +623,14 @@ module Expr = struct
     | Var id -> QualIdent.to_string id
     (* ownership predicates *)
     | Own -> "own"
+    | AUPred id -> "AU_" ^ QualIdent.to_string id
+    | AUPredCommit id -> "AU_commit_" ^ QualIdent.to_string id
     
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Own | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
+    | Setenum | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
@@ -805,7 +809,16 @@ module Expr = struct
 
   let mk_eq ?(loc = Loc.dummy) e1 e2 =
     let typ_join = (Type.join (to_type e1) (to_type e2)) in
-    assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  );
+    Logs.debug (fun m -> m "Type of e1: %a" Type.pr (to_type e1));
+    Logs.debug (fun m -> m "Type of e2: %a" Type.pr (to_type e2));
+    assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  ||
+    (match (to_type e1), (to_type e2) with
+    | App (Data (qual_id1, _), _, _), App ((Var qual_id2), _, _) ->
+      QualIdent.equal qual_id1 qual_id2
+    | App ((Var qual_id1), _, _), App (Data (qual_id2, _), _, _) ->
+      QualIdent.equal qual_id1 qual_id2
+    | _ -> false;
+    ));
     (* let t = Type.join (to_type e1) (to_type e2) in *)
     App (Eq, [ e1; e2 ], mk_attr loc Type.bool)
 
@@ -1010,6 +1023,13 @@ module Expr = struct
 
     | Binder (_binder, var_decl_list, trgs, expr, _expr_attr) ->
       expr_fields_accessed expr
+
+  let rec au_preds (expr: t) : QualIdentSet.t =
+    match expr with
+    | App (AUPred id, _, _) -> Set.singleton (module QualIdent) id
+    | App (AUPredCommit id, _, _) -> Set.singleton (module QualIdent) id
+    | App (_, es, _) -> Set.union_list (module QualIdent) (List.map es ~f:au_preds)
+    | Binder (_, _, _, e, _) -> au_preds e
 end
 
 type expr = Expr.t
@@ -1053,7 +1073,8 @@ module Stmt = struct
   type fpu_desc = {
     fpu_ref : expr;
     fpu_field : qual_ident;
-    fpu_val : expr
+    fpu_old_val: expr option;
+    fpu_new_val : expr
   }
 
   type spec_kind =
@@ -1090,15 +1111,15 @@ module Stmt = struct
 
   type auaction_kind =
     | BindAU of qual_ident
-    | OpenAU of qual_ident
-    | AbortAU
-    | CommitAU
+    | OpenAU of (qual_ident * qual_ident option * expr list)
+    | AbortAU of qual_ident
+    | CommitAU of qual_ident * expr list
 
   let auaction_kind_to_string = function
     | BindAU _ -> "bindAU"
     | OpenAU _ -> "openAU"
-    | AbortAU -> "abortAU"
-    | CommitAU -> "commitAU"
+    | AbortAU _ -> "abortAU"
+    | CommitAU _ -> "commitAU"
 
   type auaction_desc = {
     auaction_kind : auaction_kind;
@@ -1209,11 +1230,11 @@ module Stmt = struct
               cstm.call_args)
     | AUAction { auaction_kind = BindAU token} ->
       fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
-    | AUAction { auaction_kind = OpenAU token} ->
-      fprintf ppf "@[<2>%s(%a)@]" (auaction_kind_to_string (OpenAU token)) QualIdent.pr token
+    | AUAction { auaction_kind = OpenAU (token, proc, bound_vars)} ->
+      fprintf ppf "@[<2>%s(%a)@]" (auaction_kind_to_string (OpenAU (token, proc, bound_vars))) QualIdent.pr token
     | AUAction { auaction_kind; _} ->
       fprintf ppf "@[<2>%s()@]" (auaction_kind_to_string auaction_kind)
-    | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field Expr.pr fpu_desc.fpu_val
+    | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
 
   let rec pr ppf stmt =
     let open Stdlib.Format in
@@ -1406,7 +1427,9 @@ module Stmt = struct
         | AUAction _ -> accesses
 
         | Fpu fpu_desc ->
-          scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_val]
+          (match fpu_desc.fpu_old_val with
+          | None -> scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_new_val]
+          | Some e -> scan_expr_list accesses [fpu_desc.fpu_ref; e; fpu_desc.fpu_new_val])
         end
 
       | Loop l ->
@@ -1593,6 +1616,37 @@ module Stmt = struct
     let heaps_accessed = stmt_fields_accessed s in
     let heaps_accessed = List.dedup_and_sort heaps_accessed ~compare:QualIdent.compare in
     heaps_accessed
+
+  let stmt_au_preds_referenced (s: t) : QualIdentSet.t = 
+    let rec stmt_au_preds_referenced (s: t): QualIdentSet.t =
+      (* Returns all AU predicates referenced in s. *)
+
+      match s.stmt_desc with
+      | Block b ->
+        Set.union_list (module QualIdent) (List.map b.block_body ~f:(fun s -> stmt_au_preds_referenced s))
+
+      | Basic s1 -> 
+        begin match s1 with
+        | Spec (_, s) ->
+          Expr.au_preds s.spec_form
+
+        | _ -> Set.empty (module QualIdent)
+
+        end
+
+      | Loop l ->
+        let au_preds_referenced_prebody = stmt_au_preds_referenced l.loop_prebody in
+        let au_preds_referenced_postbody = stmt_au_preds_referenced l.loop_postbody in
+        Set.union au_preds_referenced_prebody au_preds_referenced_postbody
+
+      | Cond c ->
+        let au_preds_referenced_then = stmt_au_preds_referenced c.cond_then in
+        let au_preds_referenced_else = stmt_au_preds_referenced c.cond_else in
+        Set.union au_preds_referenced_then au_preds_referenced_else
+
+    in
+
+    stmt_au_preds_referenced s
 end
 
 
@@ -1734,6 +1788,9 @@ module Callable = struct
   (** Change the given symbol to one whose correctness is assumed *)
   let make_free call_def = 
     { call_def with call_decl = { (to_decl call_def) with call_decl_is_free = true } }
+
+  let is_atomic c =
+    List.exists (c.call_decl_precond @ c.call_decl_postcond) ~f:(fun spec -> spec.spec_atomic)
 end
 
 
@@ -1984,6 +2041,20 @@ end
 
 
 module Predefs = struct
+  let bindAU_ident = Ident.make Loc.dummy "bindAU" 0
+  let openAU_ident = Ident.make Loc.dummy "openAU" 0
+  let abortAU_ident = Ident.make Loc.dummy "abortAU" 0
+  let commitAU_ident = Ident.make Loc.dummy "commitAU" 0
+  let fpu_ident = Ident.make Loc.dummy "fpu" 0
+
+  let is_qual_ident_au_cmnd qi =
+    QualIdent.(qi = (QualIdent.from_ident bindAU_ident) 
+      || qi = (QualIdent.from_ident openAU_ident)
+      || qi = (QualIdent.from_ident abortAU_ident)
+      || qi = (QualIdent.from_ident commitAU_ident)
+      || qi = (QualIdent.from_ident fpu_ident))
+
+
   let lib_ident = (Ident.make Loc.dummy "Library" 0)
 
   let prog_ident = Ident.make Loc.dummy "$Program" 0
@@ -1996,6 +2067,8 @@ module Predefs = struct
   let lib_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "ResourceAlgebra" 0]
 
   let lib_cancellative_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CancellativeResourceAlgebra" 0]
+
+  let lib_lattice_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "LatticeResourceAlgebra" 0]
 
   let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
 
@@ -2011,7 +2084,7 @@ module Predefs = struct
   
   let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
   
-  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Agree" 0]
+  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "AgreeRA" 0]
 
   let lib_agree_constr_ident = Ident.make Loc.dummy "agree_constr" 0
 
@@ -2023,5 +2096,20 @@ module Predefs = struct
 
   let lib_countAgreeRA_destr1_ident = Ident.make Loc.dummy "count" 0
   let lib_countAgreeRA_destr2_ident = Ident.make Loc.dummy "value" 0
+
+  let lib_atomic_token_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "AtomicTokenRA" 0]
+
+  let lib_atomic_token_uncommitted_constr_ident = Ident.make Loc.dummy "au_uncommitted" 0
+
+  let lib_atomic_token_uncommitted_destr_ident = Ident.make Loc.dummy "au_uncommit_proj1" 0
+
+  let lib_atomic_token_committed_constr_ident = Ident.make Loc.dummy "au_committed" 0
+
+  let lib_atomic_token_committed_destr1_ident = Ident.make Loc.dummy "au_commit_proj1" 0
+
+  let lib_atomic_token_committed_destr2_ident = Ident.make Loc.dummy "au_commit_proj2" 0
+
+
+
 
 end

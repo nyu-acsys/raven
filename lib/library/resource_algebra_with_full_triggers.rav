@@ -362,11 +362,11 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     }
 
     auto lemma frameCompInv()
-        ensures forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {}
 
     auto lemma frameReflexive()
-        ensures forall a:T :: valid(a) ==> frame(a, a) == id
+        ensures forall a:T :: {frame(a,a)} valid(a) ==> frame(a, a) == id
     {}
 
     auto lemma idValid()
@@ -374,21 +374,19 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     {}
 
     auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: (comp(comp(a, b), c) == comp(a, comp(b, c)))
+        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
     {}
 
     auto lemma compCommute()
-        ensures forall a:T, b:T :: comp(a, b) == comp(b, a)
+        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
     {}
 
     auto lemma compId()
-        ensures forall a:T :: comp(a, id) == a
+        ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
     {}
  
     auto lemma compValid()
-        // ensures forall a:T, b:T :: {comp(a,b)} {valid(a), valid(b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-        ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-        // ensures forall a:T, b:T :: valid(comp(a, b)) ==> valid(a) && valid(b)
+        ensures forall a:T, b:T :: {comp(a,b)} {valid(a), valid(b)} valid(comp(a, b)) ==> valid(a) && valid(b)
     {}
 
     auto lemma frameId()
@@ -944,10 +942,10 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
             (a == au_uncommitted(a.au_uncommit_proj1) ? au_top() :
                 (b == au_uncommitted(b.au_uncommit_proj1) ? au_top() :
                     (
-                        a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == au_committed(b.au_commit_proj1, b.au_commit_proj2) ?
-                        (a.au_commit_proj1 == b.au_commit_proj1 && a.au_commit_proj2 == b.au_commit_proj2 ? a : au_top()) :
-                        au_top()
-                        // a == b ? a : au_top()
+                        // a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == au_committed(b.au_commit_proj1, b.au_commit_proj2) ?
+                        // (a.au_commit_proj1 == b.au_commit_proj1 && a.au_commit_proj2 == b.au_commit_proj2 ? a : au_top()) :
+                        // au_top()
+                        a == b ? a : au_top()
                     )
                 )
             )
