@@ -1277,7 +1277,7 @@ module Stmt = struct
 
   let mk_block ?(ghost=false) stmts = 
     let stmts = List.concat_map stmts ~f:(function
-      | { stmt_desc = Block { block_body; block_is_ghost }; _ } -> block_body
+      | { stmt_desc = Block { block_body; block_is_ghost = false }; _ } -> block_body
       | s -> [s]) in
 
     Block { block_body = stmts; block_is_ghost = ghost }

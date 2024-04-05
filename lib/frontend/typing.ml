@@ -671,7 +671,8 @@ module ProcessCallable = struct
           let* is_local = Rewriter.is_local (qual_ident.qual_base.ident_loc) qual_ident in
           if is_local then
             (* if variable is local and it doesn't exist in DisambiguationTbl, then it is not defined in scope *)
-            error (QualIdent.to_loc qual_ident) @@ Printf.sprintf "Identifier %s unbound in scope" (Ident.to_string qual_ident.qual_base)
+            (Logs.debug (fun m -> m "disambiguate_ident: %a" DisambiguationTbl.pr disam_tbl);
+            error (QualIdent.to_loc qual_ident) @@ Printf.sprintf "Identifier %s unbound in scope" (Ident.to_string qual_ident.qual_base))
           else
             Rewriter.return qual_ident.qual_base;
       in
@@ -765,8 +766,7 @@ module ProcessCallable = struct
 
             (match token_expr with
             | App (Var token_qual_ident, [], _) ->
-              let+ bound_vars = Rewriter.List.map bound_vars ~f:(fun var -> disambiguate_process_expr var Type.any disam_tbl) in
-              Stmt.Basic (AUAction {auaction_kind = (OpenAU (token_qual_ident, None, bound_vars))}), disam_tbl
+              Rewriter.return (Stmt.Basic (AUAction {auaction_kind = (OpenAU (token_qual_ident, None, bound_vars))}), disam_tbl)
             | _ -> Error.type_error loc "openAU token expected to be a variable"
             )
 

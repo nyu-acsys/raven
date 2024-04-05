@@ -19,6 +19,6 @@ proc p(implicit ghost x: Int)
   fold p1(x1 + 4);
   commitAU(phi, x1 + 4);
   // y := x1 + 4;
-  // return x1+2;
+  return x1+2;
 
 }

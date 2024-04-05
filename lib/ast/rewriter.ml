@@ -1430,6 +1430,22 @@ module ProgUtils = struct
     let+ call_utils_module = get_au_utils_module loc call_name in
     QualIdent.append call_utils_module (heap_utils_valid_ident loc)
 
+  let heap_utils_heapchunk_compare_ident loc = Ident.make loc "heapChunkCompare" 0
+  let get_field_utils_heapchunk_compare loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_utils_module = get_field_utils_module loc field_name in
+    QualIdent.append field_utils_module (heap_utils_heapchunk_compare_ident loc)
+
+  let get_pred_utils_heapchunk_compare loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module (heap_utils_heapchunk_compare_ident loc)
+
+  let get_au_utils_heapchunk_compare loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_utils_module = get_au_utils_module loc call_name in
+    QualIdent.append call_utils_module (heap_utils_heapchunk_compare_ident loc)
+
 
 
   let heap_utils_id_ident loc = Ident.make loc "id" 0
@@ -1570,9 +1586,6 @@ module ProgUtils = struct
     let+ pred_rep_type = get_pred_utils_rep_type (QualIdent.to_loc pred_name) pred_name in
     
     AstDef.Type.mk_map (QualIdent.to_loc pred_name) (AstDef.Type.mk_prod (QualIdent.to_loc pred_name) pred_in_types) (AstDef.Type.mk_var (QualIdent.to_loc pred_name) pred_rep_type)
-
-
-  let heap_utils_heapchunk_compare_id loc = Ident.make loc "heapChunkCompare" 0
 
   let rec is_expr_pure (expr: expr)  : (bool, 'a) t_ext =
     let open Syntax in
