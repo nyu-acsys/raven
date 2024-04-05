@@ -1552,14 +1552,10 @@ module AtomicityAnalysis = struct
         )
 
       | Block block_desc when block_desc.block_is_ghost -> 
-        Logs.debug
-          (fun m -> m "Rewrites.rewrite_au_cmnds: ghost_block: %a" Stmt.pr stmt);
-        Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block:true) 
+                Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block:true) 
 
       | Block block_desc ->
-        Logs.debug
-          (fun m -> m "Rewrites.rewrite_au_cmnds: non-ghost_block: %a" Stmt.pr stmt);
-        Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block) 
+                Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block) 
       
       | Cond cond_desc ->
         let* then_stmt = Rewriter.Stmt.descend cond_desc.cond_then ~f:(rewrite_au_cmnds ~ghost_block) in

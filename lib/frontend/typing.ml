@@ -671,8 +671,7 @@ module ProcessCallable = struct
           let* is_local = Rewriter.is_local (qual_ident.qual_base.ident_loc) qual_ident in
           if is_local then
             (* if variable is local and it doesn't exist in DisambiguationTbl, then it is not defined in scope *)
-            (Logs.debug (fun m -> m "disambiguate_ident: %a" DisambiguationTbl.pr disam_tbl);
-            error (QualIdent.to_loc qual_ident) @@ Printf.sprintf "Identifier %s unbound in scope" (Ident.to_string qual_ident.qual_base))
+            error (QualIdent.to_loc qual_ident) @@ Printf.sprintf "Identifier %s unbound in scope" (Ident.to_string qual_ident.qual_base)
           else
             Rewriter.return qual_ident.qual_base;
       in
