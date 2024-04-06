@@ -45,7 +45,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
     var xs1: IntList;
     inhale is_stack(s, xs1);
 
-  var hd1: Ref;
+  ghost var hd1: Ref;
   unfold is_stack(s, xs1);
   hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
   
@@ -143,7 +143,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
     var xs1: IntList;
     inhale is_stack(s, xs1);
 
-  var hd1: Ref;
+  ghost var hd1: Ref;
   unfold is_stack(s, xs1);
   hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
   // var res := cas(s.head, hd, hd_next);
