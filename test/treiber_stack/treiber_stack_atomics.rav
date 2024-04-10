@@ -3,7 +3,7 @@ type IntOption = data {
   case some(i: Int)
 }
 
-field head: RefOption
+field head: Ref
 field next: Ref
 field value: Int
 
@@ -15,34 +15,56 @@ type IntList = data {
 pred is_list(hd: Ref; xs: IntList) {
   hd == null ? 
     xs == nil() : 
-    (exists tl: Ref, q:Real ::  q > 0 && (own(hd, value, xs.elem, q) && own(hd, next, tl, q) && is_list(tl, xs.tl)))
+    (xs != nil() && (exists tl0: Ref, q:Real ::  q > 0.0 && (own(hd, value, xs.elem, q) && own(hd, next, tl0, q) && is_list(tl0, xs.tl))))
 }
 
 pred is_stack(s: Ref; xs: IntList) {
-  exists hd: Ref :: own(s, head, hd, 1.0) && is_list(hd, xs)
+  exists hd: Ref :: (is_list(hd, xs) && own(s, head, hd, 1.0))
 }
 
-proc push(s: Ref, x: Int, implicit ghost xs: IntList, implicit ghost phi: AtomicToken)
+proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   atomic requires is_stack(s, xs)
   atomic ensures is_stack(s, cons(x, xs))
 {
+  var phi: AtomicToken := bindAU();
   var xs0: IntList := openAU(phi);
+
   unfold is_stack(s, xs0);
-  var hd: Ref := s.(head);
+  var hd: Ref := s.head;
   fold is_stack(s, xs0);
+
   abortAU(phi);
 
-  var s0 : Ref := new(value: x, next: hd);
+  var s0 : Ref;
+  s0 := new(value: x, next: hd);
 
   var xs1: IntList := openAU(phi);
+
+  ghost var hd1: Ref;
   unfold is_stack(s, xs1);
-  var hd1: Ref :| own(s, head, hd1, 1.0) && is_list(hd1, xs);
+  hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
   
-  var res := cas(s.head, hd, s0);
+  // var res := cas(s.head, hd, s0);
+    ghost var res: Bool;
+    {!
+      ghost var curr_val: Ref := s.head;
+
+      if (curr_val == hd) {
+        s.head := s0;
+        res := true;
+      } else {
+        res := false;
+      }
+    !}
 
   {!
     if (res) {
-      fold is_list(hd1, cons(x, xs1)); 
+      assert   
+        (s0 == null ? 
+          cons(x, xs1) == nil() : 
+          (cons(x,xs1) != nil() && (1.0 > 0.0 && (own(s0, value, cons(x, xs1).elem, 1.0) && own(s0, next, hd1, 1.0) && is_list(hd1, cons(x, xs1).tl)))));
+
+      fold is_list(s0, cons(x, xs1)); 
       fold is_stack(s, cons(x, xs1));
       commitAU(phi);
     } else {
@@ -51,40 +73,50 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList, implicit ghost phi: Atomic
     }
   !}
 
-  if (!res) push(s, x, phi);
+  if (!res) { 
+    var xs2: IntList := openAU(phi);
+    assert is_stack(s, xs2);
+    push(s, x);
+    commitAU(phi);
+  }
+
+  // assert false;
 }
 
-proc pop(s: Stack, implicit ghost xs: IntList, implicit ghost phi: AtomicToken)
-  returns result: IntOption
+proc pop(s: Ref, implicit ghost xs: IntList)
+  returns (result: IntOption)
   atomic requires is_stack(s, xs)
   atomic ensures 
     xs == nil() ? 
-      is_stack(s, xs) && result == none() : 
-      is_stack(s, xs.tl) && result == some(xs.elem)
+      (is_stack(s, xs) && result == none()) : 
+      (is_stack(s, xs.tl) && result == some(xs.elem))
 {
-
+  var phi: AtomicToken := bindAU();
   var xs0: IntList := openAU(phi);
+
   unfold is_stack(s, xs0);
 
   var hd: Ref := s.(head);
   
   {!
     if (hd == null) {
+      unfold is_list(hd, xs0);
+      fold is_list(hd, xs0);
       fold is_stack(s, xs0);
       commitAU(phi, none());
     } else {
       ghost var q:Real;
-      ghost var tl: Ref;
+      ghost var tl0: Ref;
       unfold is_list(hd, xs0);
 
-      tl, q :| 
+      tl0, q :| 
         hd == null ? 
         xs0 == nil() : 
-        (q > 0 && (own(hd, value, xs0.elem, q) && own(hd, next, tl, q) && is_list(tl, xs0.tl)))
+        (xs0 != nil() && (q > 0.0 && (own(hd, value, xs0.elem, q) && own(hd, next, tl0, q) && is_list(tl0, xs0.tl))));
       
       assert hd == null ? 
         xs0 == nil() : 
-        (q/2 > 0 && (own(hd, value, xs0.elem, q/2) && own(hd, next, tl, q/2) && is_list(tl, xs0.tl)))
+        (xs0 != nil() && (q/2.0 > 0.0 && (own(hd, value, xs0.elem, q/2.0) && own(hd, next, tl0, q/2.0) && is_list(tl0, xs0.tl))));
       
       fold is_list(hd, xs0);
       fold is_stack(s, xs0);
@@ -97,17 +129,35 @@ proc pop(s: Stack, implicit ghost xs: IntList, implicit ghost phi: AtomicToken)
   }
 
   var hd_next: Ref := hd.next;
+  var hd_value: Int := hd.value;
 
-  var xs1 := openAU(phi);
+  var xs1: IntList := openAU(phi);
+
+  ghost var hd1: Ref;
   unfold is_stack(s, xs1);
-  var hd1 :| own(s, head, hd1, 1.0) && is_list(hd1, xs)
-  var res := cas(s.head, hd, hd_next);
+  hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
+
+  // var res := cas(s.head, hd, hd_next);
+    ghost var res: Bool;
+    {!
+      ghost var curr_val: Ref := s.head;
+
+      if (curr_val == hd) {
+        s.head := hd_next;
+        res := true;
+      } else {
+        res := false;
+      }
+    !}
+
 
   {!
     if (res) {
       unfold is_list(hd1, xs1);
+      assert hd1 != null;
+      assert xs1 != nil();
       fold is_stack(s, xs1.tl);
-      commitAU(phi, some(hd.value));
+      commitAU(phi, some(hd_value));
     } else {
       fold is_stack(s, xs1);
       abortAU(phi);
@@ -115,7 +165,18 @@ proc pop(s: Stack, implicit ghost xs: IntList, implicit ghost phi: AtomicToken)
 
   !}
 
-  if (!res) pop(s, phi);
+  if (res) {
+    // assert false;
 
-  else return some(hd.(value));
+    return some(hd_value);
+  } else { 
+    var xs2: IntList := openAU(phi);
+    assert is_stack(s, xs2);
+    var ret: IntOption := pop(s);
+    commitAU(phi, ret);
+
+    // assert false;
+
+    return ret;
+  }
 }

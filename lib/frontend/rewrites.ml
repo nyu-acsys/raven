@@ -2520,11 +2520,14 @@ module HeapsExplicitTrnsl = struct
             vars: [b]
     *)
 
+    Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a" Expr.pr expr1 Expr.pr expr2);
+
     let rec match_up_expr (expr1: expr) (expr2: expr) (var_map: expr_match ident_map) : (expr_match ident_map) option  =
 
-    if Type.((Expr.to_type expr1) <> (Expr.to_type expr2)) then
-      None
-    else
+    (* if Type.((Expr.to_type expr1) <> (Expr.to_type expr2)) then
+      (Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: Type mismatch: %a; %a" Type.pr (Expr.to_type expr1) Type.pr (Expr.to_type expr2));
+      None)
+    else *)
 
     match expr1, expr2 with
     | Binder (Compr, v_d1, _, e1, _), Binder (Compr, v_d2, _, e2, _)
@@ -2581,6 +2584,8 @@ module HeapsExplicitTrnsl = struct
 
       | _ -> 
         if Expr.equal_constr constr1 constr2 then
+          (
+            (* Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a" Expr.pr expr1 Expr.pr expr2); *)
           if List.length exprs1 <> List.length exprs2 then
             None
           else
@@ -2588,10 +2593,12 @@ module HeapsExplicitTrnsl = struct
               Option.flat_map var_map_optn ~f:(fun var_map -> match_up_expr e1 e2 var_map)
             ) in
 
-            var_map_optn
+            var_map_optn)
         
         else
-          None
+          (
+            (* Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.match_up_expr: Constructor mismatch: %a; %a" Expr.pr expr1 Expr.pr expr2); *)
+          None)
       end
 
 
@@ -3613,8 +3620,34 @@ module HeapsExplicitTrnsl = struct
         end
 
       | Basic (Spec (Assert, spec)) ->
+        let* prev_expr = Rewriter.current_user_state in
+
         let* () = Rewriter.set_user_state (Some spec.spec_form) in
-        Rewriter.return stmt
+
+        let assert_expr = spec.spec_form in
+        begin match prev_expr with
+        | None -> 
+          Rewriter.return stmt
+        | Some prev_expr ->
+          Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales (assert): prev_expr: %a; assert_expr: %a" Expr.pr prev_expr Expr.pr assert_expr);
+            let existential_vars = find_existentials assert_expr in 
+            
+              match match_up_expr spec.spec_form prev_expr existential_vars with
+              | None -> 
+                Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales (assert): No match up");
+                Rewriter.return stmt
+
+              | Some var_map ->
+                let subst_map = Map.map var_map ~f:(fun (var_decl, expr) -> expr) in
+                let subst_map = (Map.map_keys_exn (module QualIdent)) subst_map ~f:(fun ident -> QualIdent.from_ident ident) in
+                let spec_form = subst_existentials assert_expr subst_map in
+
+                Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales (assert): spec_form: %a" Expr.pr spec_form);
+
+                let spec = { spec with spec_form } in
+
+                Rewriter.return {stmt with stmt_desc = Basic (Spec (Assert, spec))}
+        end
 
       | Basic _ ->
         let* () = Rewriter.set_user_state None in
@@ -4534,8 +4567,15 @@ module HeapsExplicitTrnsl = struct
               cond_then = Stmt.mk_block_stmt ~loc:s.stmt_loc [exhale_stmt; assume_false_stmt];
               cond_else = Stmt.mk_block_stmt ~loc:s.stmt_loc []} in
 
+            let nondet_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
 
-            Rewriter.return Stmt.{stmt_desc = cond_stmt; stmt_loc = s.stmt_loc}
+            let new_stmt = Stmt.mk_block_stmt ~loc:s.stmt_loc [
+              Stmt.{stmt_desc = cond_stmt; stmt_loc = s.stmt_loc}; 
+              nondet_false_stmt
+            ] in
+
+
+            Rewriter.return new_stmt
         end
 
       | FieldRead fr_desc ->

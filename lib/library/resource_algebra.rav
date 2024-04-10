@@ -1013,7 +1013,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    {}
+    { assert forall a:T, b:T :: (a == au_uncommitted(a.au_uncommit_proj1)) ==> (valid(frame(a, b)) ==> comp(frame(a, b), b) == a); }
     
     auto lemma fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} ((fpuAllowed(a,b) && valid(a) && 

@@ -6,3 +6,4 @@ formalism/formalism.synctex.gz
 .directory
 log*.smt
 .vscode
+front_end_processed_output.log
