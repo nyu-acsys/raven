@@ -966,9 +966,9 @@ let rec rewrite_own_expr_4_arg (expr: Expr.t) : Expr.t Rewriter.t =
 
   | _ -> Rewriter.Expr.descend expr ~f:rewrite_own_expr_4_arg
 
-let rec rewrite_new_stmt_heap_arg (stmt: Stmt.t) : Stmt.t Rewriter.t =
+let rec rewrite_new_fpu_stmt_heap_arg (stmt: Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
-  (* Logs.debug (fun m -> m "Rewrites.rewrite_new_stmt_heap_arg: stmt: %a" Stmt.pr stmt); *)
+  (* Logs.debug (fun m -> m "Rewrites.rewrite_new_fpu_stmt_heap_arg: stmt: %a" Stmt.pr stmt); *)
 
   match stmt.stmt_desc with
   | Basic (New new_desc) ->
@@ -977,48 +977,103 @@ let rec rewrite_new_stmt_heap_arg (stmt: Stmt.t) : Stmt.t Rewriter.t =
       | None -> Rewriter.return (field_name, expr_optn)
 
       | Some expr ->
-        let expr_typ = Expr.to_type expr in
-        let* is_expr_typ_ra = Rewriter.ProgUtils.does_type_implement_ra expr_typ in
+        let* expr_typ = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type expr) in
+        
+        let* field_elem_type = 
+          let+ field_symbol = Rewriter.find_and_reify (Expr.to_loc expr) field_name in
 
-        Logs.debug (fun m -> m "Rewrites.rewrite_new_stmt_heap_arg: expr_typ_is_ra: %a -> %b" Type.pr expr_typ is_expr_typ_ra);
+          match field_symbol with
+          | FieldDef f -> 
+            (match f.field_type with
+            | App (Fld, [tp_expr], _) -> tp_expr
+            | _ -> Error.type_error (Expr.to_loc expr) "Expected field identifier.")
+              
+          | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+        in
 
-        if is_expr_typ_ra then
+        let* field_elem_typ_expanded = Typing.ProcessTypeExpr.expand_type_expr field_elem_type in
+
+        if Type.(expr_typ = field_elem_typ_expanded) then
           Rewriter.return (field_name, expr_optn)
         else
-          let* field_symbol = Rewriter.find_and_reify (Expr.to_loc expr) field_name in
-
-          let* field_type = 
-            match field_symbol with
-            | FieldDef f -> Rewriter.return f.field_type
-            | _ -> Error.error stmt.stmt_loc "Expected a field_def"
-          in
-
-          let frac_mod_name = match field_type with
-          | App (Fld, [tp_expr], _) -> 
-            (match tp_expr with
+          let frac_mod_name = match field_elem_type with
             | App (Var qual_iden, _, _) ->
               QualIdent.pop qual_iden
             | _ -> Error.type_error (Expr.to_loc expr) "Expected field identifier."
-            )
-          | _ -> Error.type_error (Expr.to_loc expr) "Expected field identifier."
           
           in
 
-          Logs.debug (fun m -> m "Rewrites.rewrite_new_stmt_heap_arg: field_type: %a" Type.pr field_type);
-
           let frac_type = Type.mk_var (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "T" 0)) in
-          (* let frac_constr = Rewriter.find_and_reify (Expr.to_loc expr) (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0)) in *)
           let new_expr = Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:frac_type (Expr.DataConstr (QualIdent.append frac_mod_name (Ident.make (Expr.to_loc expr) "frac_chunk" 0))) [expr; Expr.mk_real 1.0] in
 
           Rewriter.return (field_name, Some new_expr)
-      
     )
 
     in
 
     Rewriter.return ({stmt with stmt_desc = (Basic (New { new_desc with new_args }))} )
 
-  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmt_heap_arg
+  | Basic (Fpu fpu_desc) -> 
+    let compute_new_expr old_expr field_name =
+      let loc = Expr.to_loc old_expr in
+      let* expr_typ = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type old_expr) in
+
+      let* field_elem_type = 
+        let+ field_symbol = Rewriter.find_and_reify loc field_name in
+
+        match field_symbol with
+        | FieldDef f -> 
+          (match f.field_type with
+          | App (Fld, [tp_expr], _) -> tp_expr
+          | _ -> Error.type_error loc "Expected field identifier.")
+            
+        | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+      in
+
+      let* field_elem_typ_expanded = Typing.ProcessTypeExpr.expand_type_expr field_elem_type in
+
+      if Type.(expr_typ = field_elem_typ_expanded) then
+        Rewriter.return old_expr
+      else
+        let* field_type = 
+          let+ field_symbol = Rewriter.find_and_reify loc field_name in
+
+          match field_symbol with
+          | FieldDef f -> f.field_type
+          | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+        in
+
+        let frac_mod_name = match field_elem_type with
+            | App (Var qual_iden, _, _) ->
+              QualIdent.pop qual_iden
+            | _ -> Error.type_error loc "Expected field identifier."
+          
+        in
+
+        let frac_type = Type.mk_var loc (QualIdent.append frac_mod_name (Ident.make loc "T" 0)) in
+        let new_expr = Expr.mk_app ~loc ~typ:frac_type (Expr.DataConstr (QualIdent.append frac_mod_name (Ident.make loc "frac_chunk" 0))) [old_expr; Expr.mk_real 1.0] in
+
+        Rewriter.return new_expr
+
+    in
+
+    let* fpu_old_val = match fpu_desc.fpu_old_val with
+    | None -> Rewriter.return None
+    | Some expr -> 
+      let+ new_expr = (compute_new_expr expr fpu_desc.fpu_field) in
+      Some new_expr
+    
+    in
+
+    let* fpu_new_val = compute_new_expr fpu_desc.fpu_new_val fpu_desc.fpu_field
+
+    in
+
+    let new_fpu_desc = { fpu_desc with fpu_old_val; fpu_new_val } in
+
+    Rewriter.return ({stmt with stmt_desc = (Basic (Fpu new_fpu_desc))} )
+  
+  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_fpu_stmt_heap_arg
 
 let rec expr_preds_mentioned (expr: Expr.t) : (QualIdent.t list) Rewriter.t =
   let open Rewriter.Syntax in 
@@ -5012,8 +5067,8 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_own_expr_4_arg on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_own_expr_4_arg m in
 
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_new_stmt_heap_arg on module %a" Ident.pr m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_new_stmt_heap_arg m in
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_new_fpu_stmt_heap_arg on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_new_fpu_stmt_heap_arg m in
   
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_new_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_new_stmts m in
