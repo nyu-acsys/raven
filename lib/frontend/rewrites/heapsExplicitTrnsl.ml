@@ -1319,12 +1319,6 @@ end
       let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
 
       match expr with
-      | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_inhale_a0 ?cmnt ~loc universal_quants conds e) in
-          
-        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
-
-  
       | App (Own, [e1; e2; e3], _) -> begin    
         (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
   
@@ -1699,13 +1693,7 @@ end
       let univ_quants_list = universal_quants.univ_vars in
       let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
 
-      match expr with
-      | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_assume_a0 ?cmnt ~loc universal_quants conds e) in
-          
-        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
-
-  
+      match expr with  
       | App (Own, [e1; e2; e3], _) -> begin    
         (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
   
@@ -2440,11 +2428,6 @@ end
       let univ_vars_list = List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl) in
 
       match expr with
-      | App (And, e_list, _) ->
-        let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> trnsl_exhale_a0 ?cmnt ~loc universal_quants conds e) in
-
-        Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)  
-  
       | App (Own, [e1; e2; e3], _) -> begin    
         (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
   
