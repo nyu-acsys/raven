@@ -22,6 +22,11 @@ let pr_option pr_x ppf x =
   | Some x' -> pr_x ppf x'
 
 let pr_null ppf _ = fprintf ppf "..."
+
+(* Print.pr_map ~key:QualIdent.pr ~value:Expr.pr) quant_renaming_map *)
+let pr_map ~key ~value ppf map =
+  let pr_binding ppf (k, v) = fprintf ppf "%a -> %a" key k value v in
+  fprintf ppf "{ %a }" (pr_list_comma pr_binding) (Base.Map.to_alist map)
             
 let print_of_format pr x out_ch = fprintf (formatter_of_out_channel out_ch) "%a@?" pr x
        

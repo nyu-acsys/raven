@@ -734,7 +734,8 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
       let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Assert stmt for Call: " ^ Stmt.to_string stmt)) 
         (Expr.mk_binder ~loc:stmt.stmt_loc Exists quant_dropped_args (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> Expr.alpha_renaming spec.spec_form quant_renaming_map) ))) in
 
-      let assume_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Assume stmt for Call: " ^ Stmt.to_string stmt)) 
+      let bind_stmt = Stmt.mk_bind ~loc:stmt.stmt_loc 
+        (List.map new_dropped_args ~f:(Expr.from_var_decl)) 
         (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> Expr.alpha_renaming spec.spec_form new_renaming_map) )) in
 
       let exhale_stmt = Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Exhale stmt for Call: " ^ Stmt.to_string stmt)) 
@@ -751,7 +752,7 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
           (if (List.is_empty new_dropped_args) then 
             [exhale_stmt; inhale_stmt]
           else
-            [assert_stmt; assume_stmt; exhale_stmt; inhale_stmt]
+            [assert_stmt; bind_stmt; exhale_stmt; inhale_stmt]
           (* ) *)
         ) in
       
@@ -2503,6 +2504,72 @@ module HeapsExplicitTrnsl = struct
     Rewriter.return body
 
 
+  let rec rewrite_fpu (stmt: Stmt.t) : Stmt.t Rewriter.t = 
+    let open Rewriter.Syntax in
+    match stmt.stmt_desc with
+    | Basic (Fpu fpu_desc) ->
+      let* field_symbol = 
+        let* symbol = Rewriter.find_and_reify (Stmt.loc stmt) fpu_desc.fpu_field in
+        match symbol with
+        | FieldDef f -> Rewriter.return f
+        | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+      in
+  
+      let field_expr = Expr.mk_var ~loc:stmt.stmt_loc ~typ:field_symbol.field_type fpu_desc.fpu_field in
+  
+      let fpu_allowed_qual_iden =
+        let field_ra = Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol in
+        Rewriter.ProgUtils.get_ra_fpu_allowed_qual_ident field_ra 
+      in
+
+      let* old_val = match fpu_desc.fpu_old_val with
+        | Some expr -> Rewriter.return expr
+        | None -> 
+          let* field_heap_symbol = 
+            let* symbol = Rewriter.find_and_reify (Stmt.loc stmt) (QualIdent.from_ident (field_heap_name fpu_desc.fpu_field)) in
+            match symbol with
+            | VarDef v -> Rewriter.return v.var_decl
+            | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+          in
+
+          Rewriter.return @@ Expr.mk_maplookup ~loc:stmt.stmt_loc (Expr.from_var_decl field_heap_symbol) fpu_desc.fpu_ref
+      
+      in
+  
+      let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) (
+        Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.bool (Expr.Var fpu_allowed_qual_iden) [old_val; fpu_desc.fpu_new_val]
+      )
+
+      in 
+
+      let exhale_stmt = Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) (
+        Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.perm Expr.Own [fpu_desc.fpu_ref; field_expr; old_val;]
+      )
+  
+      in
+  
+      let inhale_stmt = Stmt.mk_inhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) (
+        Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.perm Expr.Own [fpu_desc.fpu_ref; field_expr; fpu_desc.fpu_new_val;]
+      )
+  
+      in
+  
+      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [assert_stmt; exhale_stmt; inhale_stmt] in
+  
+      Rewriter.return new_stmt
+  
+    | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_fpu
+
+
+  let rec rewrite_binds (stmt: Stmt.t) : Stmt.t Rewriter.t =
+    match stmt.stmt_desc with
+    | Basic (Bind bind_desc) ->
+      let assume_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt)) bind_desc.bind_rhs in
+
+      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [assume_stmt] in
+      Rewriter.return new_stmt
+    | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_binds
+  
   type expr_match = {
     var_decl: var_decl;
     expr: expr option;
@@ -2761,6 +2828,10 @@ module HeapsExplicitTrnsl = struct
       let open Rewriter.Syntax in
       match stmt.stmt_desc with
       | Basic (Spec (Inhale, spec)) ->
+        let* () = Rewriter.set_user_state (Some spec.spec_form) in
+        Rewriter.return stmt
+
+      | Basic (Spec (Assert, spec)) ->
         let* () = Rewriter.set_user_state (Some spec.spec_form) in
         Rewriter.return stmt
 
@@ -4559,7 +4630,7 @@ module HeapsExplicitTrnsl = struct
 
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
-            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc spec.spec_form in
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc:s.stmt_loc spec.spec_form in
             let assume_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {
@@ -4698,8 +4769,6 @@ let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
 
     let* body = HeapsExplicitTrnsl.introduce_heaps_in_stmts ~loc:c.call_decl.call_decl_loc ~fields_list ~preds_list ~au_preds_list body in
 
-    (* let* body = HeapsExplicitTrnsl.rewrite_make_heaps_explicit body in *)
-
     Rewriter.return { c with call_def = ProcDef { proc_body = Some body; } }
   
 
@@ -4767,7 +4836,6 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
         Rewriter.return s
     
     | Bind bind_stmt -> 
-      let bind_rhs = Expr.alpha_renaming bind_stmt.bind_rhs subst_map in
       let* bind_lhs = Rewriter.List.map bind_stmt.bind_lhs ~f:(fun lhs_expr -> 
         if Expr.is_ident lhs_expr then
           let local_var = Expr.to_ident lhs_expr in
@@ -4788,6 +4856,12 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
       ) 
       
       in
+
+      let* var_map = Rewriter.current_user_state in
+      let subst_map = Map.map var_map ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
+      let subst_map = (Map.map_keys_exn (module QualIdent)) subst_map ~f:(fun ident -> QualIdent.from_ident ident) in
+
+      let bind_rhs = Expr.alpha_renaming bind_stmt.bind_rhs subst_map in
 
       Rewriter.return Stmt.{ s with stmt_desc = Basic (Bind { bind_lhs; bind_rhs; }) }
   
@@ -4962,11 +5036,6 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_skolemize_inhale_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_inhale_stmts m in
 
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_eliminate_binds_for_inhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
-  let* m = 
-    Rewriter.eval_with_user_state ~init:None
-    (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale m) in
-
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_user_annot_elim_exists_from_exhales on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = 
     Rewriter.eval_with_user_state ~init:None
@@ -4977,6 +5046,15 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_find_witness_elim_exists_from_exhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_find_witness_elim_exists_from_exhale m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_eliminate_binds_for_inhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = 
+    Rewriter.eval_with_user_state ~init:None
+    (Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale m) in
+
+  let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_fpu m in
+
+  let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_binds m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_make_heaps_explicit on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m in

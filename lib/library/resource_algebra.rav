@@ -248,7 +248,7 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
     auto lemma compId()
         ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
     { M.compCommute(); M.compId(); }
- 
+
     auto lemma compValid()
         ensures forall a:T, b:T :: {comp(a,b)} {valid(a), valid(b)} valid(comp(a, b)) ==> valid(a) && valid(b)
     { M.compValid(); M.compAssoc(); M.frameCompInv(); M.compFrameInv(); }
@@ -256,18 +256,15 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
     auto lemma frameId()
         ensures forall a:T :: {frame(a,id)} frame(a, id) == a
     {}
-    
+
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-    M.compCommute(); 
-    M.compId(); 
-    M.compValid(); 
-    // M.compAssoc(); 
-    M.frameCompInv(); 
-    M.compFrameInv();
-
-        // frameId(); 
+        M.compCommute(); 
+        M.compId(); 
+        M.compValid(); 
+        M.frameCompInv(); 
+        M.compFrameInv();
     }
     
     auto lemma fpuValid()
@@ -300,11 +297,6 @@ module Auth [M: CancellativeResourceAlgebra] : ResourceAlgebra {
     }
 
 }
-
-// Agree(X)
-// Frac-Agree(X)
-// Map(X,M)
-
 
 module Frac[X: Type] : CancellativeResourceAlgebra {
     rep type T = data {

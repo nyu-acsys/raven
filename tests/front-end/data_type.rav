@@ -6,4 +6,6 @@ type T1 = data {
 proc p1() {
   var x: T1;
   x := nil();
+
+  assert(x == nil());
 }

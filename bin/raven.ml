@@ -53,7 +53,7 @@ let parse_and_check_all file_names =
   let front_end_out_chan = Stdio.Out_channel.create front_end_processed_output_log in
   
   (* Parse and check standard library *)
-  let lib_file = "lib/library/resource_algebra.rav" in
+  let lib_file = Stdlib.Filename.dirname (Sys.get_argv ()).(0) ^ "/../lib/library/resource_algebra.rav" in
   let tbl = SymbolTbl.create () in
   let smtEnv, tbl = parse_and_check_cu ~tbl smtEnv Predefs.lib_ident lib_file front_end_out_chan in
   
@@ -102,10 +102,17 @@ let input_file =
   let doc = "Input file." in
   Arg.(value & (pos_all non_dir_file []) & info [] ~docv:"INPUT" ~doc)
 
+let no_greeting = 
+  let doc = "Suppress greeting." in
+  Arg.(value & flag & info ["shh"] ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files = 
-  Logs.app (fun m -> m "%s" greeting);
+let main () input_files no_greeting = 
+  (if not no_greeting then
+    Logs.app (fun m -> m "%s" greeting)
+  else
+    ());
   try `Ok (parse_and_check_all input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
       Logs.err (fun m -> m "%s" s);
@@ -119,6 +126,6 @@ let main () input_files =
 
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
-  Cmd.v info Term.(ret (const main $ setup_config $ input_file))
+  Cmd.v info Term.(ret (const main $ setup_config $ input_file $ no_greeting))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

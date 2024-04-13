@@ -1331,6 +1331,9 @@ module ProgUtils = struct
   let get_ra_frame_fn_qual_ident (ra_qual_iden: qual_ident) : qual_ident =
     QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "frame" 0)
 
+  let get_ra_fpu_allowed_qual_ident (ra_qual_iden: qual_ident) : qual_ident =
+    QualIdent.append ra_qual_iden (Ident.make (QualIdent.to_loc ra_qual_iden) "fpuAllowed" 0)
+
 
   let field_utils_module_ident loc field_ident : ident =
     Ident.make loc (serialize ("FieldUtils$" ^ (Ident.to_string field_ident))) 0

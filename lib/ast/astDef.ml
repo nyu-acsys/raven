@@ -1355,6 +1355,9 @@ module Stmt = struct
 
   let mk_return ~loc e = { stmt_desc = Basic (Return e); stmt_loc = loc }
 
+  let mk_bind ~loc lhs rhs =
+    { stmt_desc = Basic (Bind { bind_lhs = lhs; bind_rhs = rhs }); stmt_loc = loc }
+
   (** Auxiliary functions *)
 
   let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = None) e = 

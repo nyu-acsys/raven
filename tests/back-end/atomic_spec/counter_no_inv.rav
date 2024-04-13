@@ -1,0 +1,69 @@
+field c: Int
+
+pred counter(x: Ref; v: Int) {
+  own(x, c, v, 1.0)
+}
+
+proc incr(x: Ref, implicit ghost v: Int) 
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v + 1)
+{
+  var phi: AtomicToken := bindAU();
+
+  
+  ghost var v0: Int := openAU(phi);
+  unfold counter(x, v0);
+  var v1: Int := x.c;
+  fold counter(x, v0);
+  abortAU(phi);
+  var new_v1 : Int := v1 + 1;
+
+  ghost var v2: Int := openAU(phi);
+  unfold counter(x,v2);
+
+  // var res: Bool := cas(x.c, v1, new_v1);
+  ghost var res: Bool;
+  {!
+  
+  ghost var curr_val: Int := x.c;
+
+  if (curr_val == v1) {
+    x.c := new_v1;
+    res := true;
+  } else {
+    res := false;
+  }
+  !}
+  
+  {! 
+    if (res) {
+      fold counter(x, new_v1);
+      commitAU(phi);
+    } else {
+      fold counter(x, v2);
+      abortAU(phi);
+    }
+  !}
+
+  if (!res) {
+    var v3: Int := openAU(phi);
+    incr(x);
+    commitAU(phi);
+  }
+}
+
+proc read(x: Ref, implicit ghost v: Int)
+  returns (v2: Int)
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v) && v2 == v
+{
+  var phi: AtomicToken := bindAU();
+
+  ghost var v0: Int := openAU(phi);
+  unfold counter(x, v0);
+  var v1: Int := x.c;
+  fold counter(x, v0);
+  commitAU(phi, v1);
+
+  return v1;
+}
