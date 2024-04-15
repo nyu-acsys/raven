@@ -1,587 +1,317 @@
-(* open Base
+open Base
 open Unix
 open Util__Error
 open SmtLibAST
 open Ast
+(* open Rewriter *)
 
-module SmtEnv = struct
-  type field_trnsl = {
-    field_heap : term;
-    field_sort : sort;
-    field_heap_valid: smt_ident;
-    field_heap_add_chunk: smt_ident;
-    field_heap_subtract_chunk: smt_ident;
-    heapchunk_compare : smt_ident;
-    field_fpu : smt_ident option;
-    (* heapchunk_compare chunk1 chunk2 should return true if chunk1 <= chunk2 *)
+
+module SmtSession = struct
+  let num_of_sat_queries = ref 0
+
+  type solver_state = 
+    { out_chan: Stdio.Out_channel.t;
+      in_chan: Stdio.In_channel.t;
+      (* pid: int; *)
+      mutable response_count: int;
+    }
+
+  type session = { 
+    log_file_name: string;
+    log_out_chan: Stdio.Out_channel.t;
+    mutable assert_count: int;
+    mutable response_count: int;
+    (* mutable sat_checked: (solver_state option * response) option; *)
+    stack_height: int;
+    (* signature: (arity list SymbolMap.t) option; *)
+    (* user_sorts: sort IdMap.t; *)
+    (* named_clauses: (string, form) Hashtbl.t option; *)
+    solver_state: solver_state
   }
 
-  type pred_trnsl = {
-    pred_heap : term;
-    pred_sort: sort;
-    pred_args: sort list;
-    pred_heap_sort: sort;
-    pred_constr : smt_ident;
-    pred_def : Callable.call_def;
-  }
+  let start_solver () = 
+    (*let in_read, in_write = Unix.pipe () in
+    let out_read, out_write = Unix.pipe () in
+    let pid = Unix.create_process "z3" [| "smt2"; "-in" |] out_read in_write in_write in
 
-  type var_trnsl = {
-    var_symbol : term;
-    var_sort : sort;
-  }
+    close out_read;
+    close in_write;*)
 
-  type func_trnsl = {
-    func_symbol : smt_ident;
-    func_args : sort list;
-    func_return : sort;
-  }
+    let in_chan, out_chan = Unix.open_process_args "z3" [| "smt2"; "-in" |] in
+    
+    let solver_state = {
+      (*in_chan = in_channel_of_descr in_read;
+      out_chan = out_channel_of_descr out_write;
+        pid = pid;*)
+      in_chan = in_chan;
+      out_chan = out_chan;
+      response_count = 0;
+    } in
 
-  type data_constr = {
-    constr : smt_ident
-  }
+    let log_file_name = "log.smt" in
 
-  type data_destr = {
-    destr : smt_ident
-  }
+    {
+      log_file_name = log_file_name;
+      log_out_chan = Stdio.Out_channel.create log_file_name;
+      assert_count = 0;
+      response_count = 0;
+      stack_height = 0;
+      solver_state = solver_state;
+    }
 
-  type smt_trnsl =
-  | Field of field_trnsl
-  | Type of sort
-  | Var of var_trnsl
-  | Pred of pred_trnsl
-  | Func of func_trnsl
-  | DataConstr of data_constr 
-  | DataDestr of data_destr
+  let write session cmd =
+    SmtLibAST.print_command session.log_out_chan cmd;
+    SmtLibAST.print_command session.solver_state.out_chan cmd
 
-  type t = (smt_trnsl qual_ident_map) list * (Ident.t list)
+  let stop_solver session = 
+    write session @@ mk_exit ();
+    Stdio.Out_channel.flush session.solver_state.out_chan;
+    (* clean up resources *)
+    (*Stdio.Out_channel.close_no_err session.solver_state.out_chan;
+    Stdio.In_channel.close session.solver_state.in_chan;
+    (try Unix.kill state.pid Sys.sigkill with Unix.Unix_error _ -> ())
+      if solver.solver_state.pid <> 0 then ignore (Unix.waitpid [] state.pid))*)
+    ignore @@ Unix.close_process (session.solver_state.in_chan, session.solver_state.out_chan)
 
-  let push (tbl, stk) : t = (Map.empty (module QualIdent) :: tbl), stk
 
-  let pop (tbl, stk) =
-    match tbl with [] -> raise (Failure "Empty symbol table") | _ :: ts -> (ts, stk)
+  (* let read_from_chan session chan =
+    let lexbuf = Lexing.from_channel chan in
+    SmtLibLexer.set_file_name lexbuf session.log_file_name; 
+    try
+      SmtLibParser.output SmtLibLexer.token lexbuf
+    with ProgError.Prog_error (pos, _) ->
+      let tok = Lexing.lexeme lexbuf in
+      let tail = SmtLibLexer.ruleTail "" lexbuf in
+      let msg = 
+        "failed to parse SMT solver response while parsing: " ^ tok ^ tail
+      in
+      ProgError.syntax_error pos (Some msg) *)
 
-  let add (tbl,stk : t) name elem : t =
-    match tbl with
-    | [] -> raise (Failure "Empty symbol table")
-    | map :: ts -> 
-      match Map.find map name with
-      | None -> (Map.add_exn map ~key:name ~data:elem) :: ts, stk
-      | Some _ ->
-        Logs.debug (fun m -> m "Overriding %s" (QualIdent.to_string name));
-        (Map.set map ~key:name ~data:elem) :: ts, stk
+  let write_comment session cmnt =
+    SmtLibAST.print_comment session.log_out_chan cmnt;
+    SmtLibAST.print_comment session.solver_state.out_chan cmnt
 
-  let find_local tbl name =
-    match tbl with [] -> None | map :: _ -> Map.find name map
+  let read session = 
+    let in_descr = 
+      descr_of_in_channel session.solver_state.in_chan
+        
+    in
 
-  let rec find (tbl, stk : t) name =
-    match tbl with
-    | [] -> None
-    | map :: ts -> (
-        match Map.find map name with None -> find (ts, stk) name | Some id -> Some id
+    Stdio.Out_channel.flush session.solver_state.out_chan;
+    (* let rec loop () = *)
+      let ready, _, _ = Unix.select [in_descr] [] [] (-1.) in
+
+      let in_descr = Base.List.hd ready in
+      match in_descr with
+      | Some in_descr -> (
+      let in_chan = in_channel_of_descr in_descr in
+      let result = In_channel.input_line in_chan in
+      match result with
+      | None -> raise (Generic_Error "Read from SMT Solver returned nothing")
+      | Some str -> str
       )
+      | None -> raise (Generic_Error "Read from SMT Solver returned nothing")
+      (* state.response_count <- state.response_count + 1; *)
+      (* if state.response_count > session.response_count
+      then begin
+        session.response_count <- session.response_count + 1;
+        Some state, result
+      end *)
+      (* else () *)
+    (* in
+    loop ()
+    *)
 
-  let find_term_exn env name = 
-    match find env name with
-    | Some (Field field_trnsl) -> field_trnsl.field_heap
-    | Some (Var var_trnsl) -> var_trnsl.var_symbol
-    | Some (Pred pred_trnsl) -> pred_trnsl.pred_heap
-    | Some _ -> error_simple "find_term failed; found something in env which is not a term"
-    | None -> error_simple "find_term failed; elem not found in env"
-
-  let push_ident (tbl, stk) ident : t = (tbl, ident :: stk)
-  let pop_ident (tbl, stk) : t = match stk with | _ :: tl -> (tbl, tl) | [] -> raise (Failure "Empty ident stack")
-
-  let stack_name (_tbl, stk) : string = 
-    List.fold stk ~init:"" ~f:(fun str ident -> (Ident.to_string ident) ^ "." ^ str)
-
-  let mk_qual_ident (_tbl, stk) iden : qual_ident =
-    QualIdent.make (List.rev stk) iden
-
-  let mk_qual_ident_qi (_tbl, stk) qual_iden : qual_ident =
-    QualIdent.(make (List.rev stk @ qual_iden.qual_path) qual_iden.qual_base)
-
-  let flatten_env (tbl, _) : (smt_trnsl qual_ident_map) =
-    (* Used to compress all the lists in the tbl into one list. This function is only used to find all heaps to reset them for while loops. In particular the output of this function should not be propagated forward. *)
-
-    let rec compress_env_helper tbl mp : (smt_trnsl qual_ident_map) =
-      match tbl with
-      | [] -> mp
-      | t :: ts -> 
-        let mp = 
-          List.fold (Map.to_alist t) ~init:mp ~f:(fun mp (quant_iden, smt_trnsl) ->
-            match Map.find mp quant_iden with
-            | None -> Map.add_exn mp ~key:quant_iden ~data:smt_trnsl
-            | Some _ ->
-              mp
-          )
-        in
-        compress_env_helper ts mp
-
-    in
-
-    compress_env_helper tbl (Map.empty (module QualIdent))
+  let is_sat session = 
+    Int.incr num_of_sat_queries;
+    write session (mk_check_sat ());
+    match (read session) with
+    | "sat" -> true
+    | "unsat" -> false
+    | "unknown" -> false
+    | str -> raise (Generic_Error ("Unexpected solver output: " ^ str))
 
 
+  let is_unsat session = 
+    Int.incr num_of_sat_queries;
+    write session (mk_check_sat ());
+    match (read session) with
+    | "unsat" -> true
+    | "sat" -> false
+    | "unknown" -> false
+    | str -> raise (Generic_Error ("Unexpected solver output: " ^ str))
 
-  let trnsl_to_string (smt_trnsl: smt_trnsl) : string = 
-    match smt_trnsl with
-    | Field field_trnsl -> "Field: " ^ (Util.Print.string_of_format pr_term field_trnsl.field_heap) ^ " : " ^ (Util.Print.string_of_format pr_sort field_trnsl.field_sort)
-    | Type sort -> "Type: " ^ (Util.Print.string_of_format pr_sort sort)
-    | Var var_trnsl -> (Printf.sprintf "Var: %s; sort: %s" (Util.Print.string_of_format pr_term var_trnsl.var_symbol) (Util.Print.string_of_format pr_sort var_trnsl.var_sort))
-    | Pred pred_trnsl -> "Pred: " ^ (Util.Print.string_of_format pr_term pred_trnsl.pred_heap)
-    | Func func_trnsl -> "Func: " ^ (Util.Print.string_of_format pr_ident func_trnsl.func_symbol)
-    | DataConstr data_constr -> "DataConstr: " ^ (Util.Print.string_of_format pr_ident data_constr.constr)
-    | DataDestr data_destr -> "DataDestr: " ^ (Util.Print.string_of_format pr_ident data_destr.destr)
+  let push session = 
+    write session (mk_push 1);
+    let new_session = { session with stack_height = session.stack_height + 1 } in
+    new_session
 
-  let rec to_string (tbl, stk : t) =
-    let rec list_to_string t =
-      match t with
-      | [] -> " "
-      | (k, v) :: ms ->
-          (QualIdent.to_string k ^ " -> " ^ trnsl_to_string v ^ "\n")
-          ^ list_to_string ms
-    in
+  let pop session = 
+    if session.stack_height <= 0 then error_simple "pop on empty stack" else
+    write session (mk_pop 1);
+    let new_session = { session with stack_height = session.stack_height - 1 } in
+    new_session
 
-    (match stk with
-    | [] -> ""
-    | _ -> stack_name (tbl, stk)
-    ) ^
-
-    (match tbl with
-    | [] -> "end\n\n"
-    | t :: ts ->
-        " :: [ "
-        ^ list_to_string (Map.to_alist t)
-        ^ " ]\n" ^ to_string (ts, []))
-
-  (* let trnsl_to_smt_ident (smt_trnsl: smt_trnsl) : smt_ident = *)
+  let assert_expr session expr =
+    write session (mk_assert expr)
 
 
+  let check_valid session expr =
+    let session = push session in
+    assert_expr session (Ast.Expr.mk_not expr);
+
+    let res = is_unsat session in
+    let session = pop session in
+    res, session
+    (* if is_unsat session then 
+      let session = pop session in
+      true, session
+    else smt_error (Ast.Expr.to_loc expr) @@ (Printf.sprintf "Exhaling following expression failed:\n'%s'" (Util.Print.string_of_format Ast.Expr.pr expr)) *)
 end
 
-type smt_env = SmtEnv.t
 
-let num_of_sat_queries = ref 0
-
-type solver_state = 
-  { out_chan: Stdio.Out_channel.t;
-    in_chan: Stdio.In_channel.t;
-    (* pid: int; *)
-    mutable response_count: int;
-  }
-
-type session = { 
-  log_file_name: string;
-  log_out_chan: Stdio.Out_channel.t;
-	mutable assert_count: int;
-  mutable response_count: int;
-	(* mutable sat_checked: (solver_state option * response) option; *)
-	stack_height: int;
-  (* signature: (arity list SymbolMap.t) option; *)
-  (* user_sorts: sort IdMap.t; *)
-  (* named_clauses: (string, form) Hashtbl.t option; *)
-  solver_state: solver_state
+type smt_env = {
+  (* smtTbl: SmtEnv.smt_trnsl qual_ident_map; *)
+  session: SmtSession.session;
+  path_conditions: term list;
 }
 
-let start_solver () = 
-  (*let in_read, in_write = Unix.pipe () in
-  let out_read, out_write = Unix.pipe () in
-  let pid = Unix.create_process "z3" [| "smt2"; "-in" |] out_read in_write in_write in
+(* type state = {
+  tbl: SymbolTbl.t;
+  smt_env: smt_env;
+} *)
 
-  close out_read;
-  close in_write;*)
+type 'a t = ('a, smt_env) Rewriter.t_ext
 
-  let in_chan, out_chan = Unix.open_process_args "z3" [| "smt2"; "-in" |] in
+(* let smt_env_to_string (smt_env: smt_env) : string =
+  Printf.sprintf "path_conditions: %a" 
+    (* (QualIdentMap.iter (fun key value -> Printf.sprintf "%d --> %d\n" key value) smt_env.smtTbl) *)
+    (Util.Print.pr_list_comma Expr.pr) smt_env.path_conditions
+
+let to_string (state: state) : string =
+  smt_env_to_string state.smt_env *)
+
+let write cmd : unit t =
+  let open Rewriter.Syntax in
+  match cmd with
+  | Assert _ -> Util.Error.internal_error (Util.Loc.dummy) "Cannot write assert command directly; use assume_expr instead"
+  | _ ->
+    let* smt_env = Rewriter.current_user_state in
+    let _ = SmtSession.write smt_env.session cmd in
+
+    Rewriter.return ()
+
+
+
+  (* SmtSession.write state.smt_env.session cmd *)
   
-  let solver_state = {
-    (*in_chan = in_channel_of_descr in_read;
-    out_chan = out_channel_of_descr out_write;
-      pid = pid;*)
-    in_chan = in_chan;
-    out_chan = out_chan;
-    response_count = 0;
-  } in
+let write_comment cmnt : unit t =
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+  let _ = SmtSession.write_comment smt_env.session cmnt in
 
-  let log_file_name = "log.smt" in
+  Rewriter.return ()
 
-  {
-    log_file_name = log_file_name;
-    log_out_chan = Stdio.Out_channel.create log_file_name;
-    assert_count = 0;
-    response_count = 0;
-    stack_height = 0;
-    solver_state = solver_state;
-  }
+let push = 
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
 
-let write session cmd =
-  SmtLibAST.print_command session.log_out_chan cmd;
-  SmtLibAST.print_command session.solver_state.out_chan cmd
+  let session = SmtSession.push smt_env.session in
+  let* _ = Rewriter.set_user_state { smt_env with session = session } in
 
-let stop_solver session = 
-  write session @@ mk_exit ();
-  Stdio.Out_channel.flush session.solver_state.out_chan;
-  (* clean up resources *)
-  (*Stdio.Out_channel.close_no_err session.solver_state.out_chan;
-  Stdio.In_channel.close session.solver_state.in_chan;
-  (try Unix.kill state.pid Sys.sigkill with Unix.Unix_error _ -> ())
-    if solver.solver_state.pid <> 0 then ignore (Unix.waitpid [] state.pid))*)
-  ignore @@ Unix.close_process (session.solver_state.in_chan, session.solver_state.out_chan)
+  Rewriter.return ()
 
+let pop = 
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
 
-(* let read_from_chan session chan =
-  let lexbuf = Lexing.from_channel chan in
-  SmtLibLexer.set_file_name lexbuf session.log_file_name; 
-  try
-    SmtLibParser.output SmtLibLexer.token lexbuf
-  with ProgError.Prog_error (pos, _) ->
-    let tok = Lexing.lexeme lexbuf in
-    let tail = SmtLibLexer.ruleTail "" lexbuf in
-    let msg = 
-      "failed to parse SMT solver response while parsing: " ^ tok ^ tail
-    in
-    ProgError.syntax_error pos (Some msg) *)
+  let session = SmtSession.pop smt_env.session in
+  let* _ = Rewriter.set_user_state { smt_env with session = session } in
 
-let write_comment session cmnt =
-  SmtLibAST.print_comment session.log_out_chan cmnt;
-  SmtLibAST.print_comment session.solver_state.out_chan cmnt
+  Rewriter.return ()
 
-let read session = 
-  let in_descr = 
-    descr_of_in_channel session.solver_state.in_chan
-       
+let push_path_condn (term: term) = 
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+
+  let path_conditions = term :: smt_env.path_conditions in
+  let* _ = Rewriter.set_user_state { smt_env with path_conditions = path_conditions } in
+
+  Rewriter.return ()
+
+let pop_path_condn = 
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+
+  let path_conditions = Base.List.tl_exn smt_env.path_conditions in
+  let* _ = Rewriter.set_user_state { smt_env with path_conditions = path_conditions } in
+
+  Rewriter.return ()
+
+let is_sat : bool t =
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+
+  Rewriter.return @@ SmtSession.is_sat smt_env.session
+
+let is_unsat : bool t = 
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+
+  Rewriter.return @@ SmtSession.is_unsat smt_env.session
+
+let assume_expr (expr: term) : unit t = 
+  (* Externally facing command to assume expressions. Takes path_condns into account *)
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+
+  let expr = match smt_env.path_conditions with
+    | [] -> expr
+    | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr 
   in
 
-  Stdio.Out_channel.flush session.solver_state.out_chan;
-  (* let rec loop () = *)
-    let ready, _, _ = Unix.select [in_descr] [] [] (-1.) in
+  let cmd = mk_assert expr in
+  let _ = SmtSession.write smt_env.session cmd in
 
-    let in_descr = List.hd ready in
-    match in_descr with
-    | Some in_descr -> (
-    let in_chan = in_channel_of_descr in_descr in
-    let result = In_channel.input_line in_chan in
-    match result with
-    | None -> raise (Generic_Error "Read from SMT Solver returned nothing")
-    | Some str -> str
-    )
-    | None -> raise (Generic_Error "Read from SMT Solver returned nothing")
-    (* state.response_count <- state.response_count + 1; *)
-    (* if state.response_count > session.response_count
-    then begin
-      session.response_count <- session.response_count + 1;
-      Some state, result
-    end *)
-    (* else () *)
-  (* in
-  loop ()
-   *)
+  Rewriter.return ()
 
-let is_sat session = 
-  Int.incr num_of_sat_queries;
-  write session (mk_check_sat ());
-  match (read session) with
-  | "sat" -> true
-  | "unsat" -> false
-  | "unknown" -> false
-  | str -> raise (Generic_Error ("Unexpected solver output: " ^ str))
+let check_valid (expr: term) : bool t = 
+  let open Rewriter.Syntax in
+  let* smt_env = Rewriter.current_user_state in
+  Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);
 
-
-let is_unsat session = 
-  Int.incr num_of_sat_queries;
-  write session (mk_check_sat ());
-  match (read session) with
-  | "unsat" -> true
-  | "sat" -> false
-  | "unknown" -> false
-  | str -> raise (Generic_Error ("Unexpected solver output: " ^ str))
-(* in
-  session.sat_checked <- Some response;
-  match snd response with
-  | Sat -> Some true
-  | Unsat -> Some false
-  | Unknown -> None
-  | Error e -> fail session e
-  | _ -> fail session "unexpected response from prover" *)
+  let expr = match smt_env.path_conditions with
+    | [] -> expr
+    | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
+  in
   
-(* let add_preamble () =
-  let ic = open_in "./preamble.smt2" in
-  try
-    let line = Stdio.In_channel.input_line ic in
-    (* read line, discard \n *)
-    Stdio.print_endline line;
-    (* write the result to stdout *)
-    (* flush stdout; *)
-    (* write on the underlying device now *)
-    close_in ic
-    (* close the input channel *)
-  with e ->
-    (* some unexpected exception occurs *)
-    close_in_noerr ic;
-    (* emergency closing *)
-    raise e
+  let res, session = SmtSession.check_valid smt_env.session expr in
 
-  () *)
+  let* _ = Rewriter.set_user_state  { smt_env with session = session } in
 
-let push session = 
-  write session (mk_push 1);
-  let new_session = { session with stack_height = session.stack_height + 1 } in
-  new_session
+  Rewriter.return res
 
-let pop session = 
-  if session.stack_height <= 0 then error_simple "pop on empty stack" else
-  write session (mk_pop 1);
-  let new_session = { session with stack_height = session.stack_height - 1 } in
-  new_session
-
-let assert_expr session expr =
-  write session (mk_assert expr)
-
-
-let assert_not session expr =
-  let session = push session in
-
-  assert_expr session (mk_app Not [expr]);
-
-  if is_unsat session then 
-    let session = pop session in
-    session
-  else smt_error @@ (Printf.sprintf "Exhaling following expression failed:\n'%s'" (Util.Print.string_of_format pr_term expr))
 
 (* --- *)
 
-module PreambleConsts = struct
-  let loc_ident = SMTIdent.make "$Loc"
-  let loc_sort = FreeSort (loc_ident, [])
 
-  let frac_heapchunk_sort_ident = SMTIdent.make "$FracHeapChunk"
-  let frac_heap_null_ident = SMTIdent.make "$FracHeapNull"
-  let frac_heap_null = mk_const (Ident frac_heap_null_ident)
-  let frac_chunk_constr_ident = SMTIdent.make "$FracChunkConstr"
-  let frac_heap_top_ident = SMTIdent.make "$FracHeapTop"
-  let frac_heap_top = mk_const (Ident frac_heap_top_ident)
-  let frac_val_destr_ident = SMTIdent.make "$FracVal"
+let declare_tuple_sort (arity:int) : command =
+  let tuple_sort_name = QualIdent.from_ident (Ident.make Util.Loc.dummy ("$tuple_" ^ (Int.to_string arity)) 0) in
 
-  let frac_own_destr_ident = SMTIdent.make "$FracOwn"
+  let params =
+    Base.List.init arity ~f:(fun i -> QualIdent.from_ident (Ident.make Util.Loc.dummy ("X" ^ (Int.to_string i)) 0))
+  in
 
-  (* let heap_chunk_ident = SMTIdent.make "$HeapChunk"
-  let heap_null_ident = SMTIdent.make "$HeapNull"
-  let heap_chunk_constr_ident = SMTIdent.make "$ChunkConstr" *)
+  let constr = tuple_sort_name in
+  let destrs = Base.List.init arity ~f:(fun i -> QualIdent.from_ident (Ident.make Util.Loc.dummy ("$tuple_" ^ (Int.to_string arity) ^ "_" ^ (Int.to_string i)) 0)) in
+
+  let destrs_sorts = Base.List.map2_exn destrs params ~f:(fun destr param -> (destr, Ast.Type.mk_var Util.Loc.dummy param)) in
+
+  mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
 
 
-  let heap_sort_ident = SMTIdent.make "$OwnHeap"
-  (* let heap_sort_ident = SMTIdent.make "$OwnHeap" *)
-
-  let pred_heap_sort_ident = SMTIdent.make "$PredHeap"
-
-  let int_frac_chunk_add_ident = SMTIdent.make "$IntFracChunkAdd"
-  let int_frac_chunk_subtract_ident = SMTIdent.make "$IntFracChunkSubtract"
-  let int_frac_heap_valid_ident = SMTIdent.make "$IntFracHeapValid"
-
-  let int_heapchunk_compare_ident = SMTIdent.make "$IntHeapChunkCompare"
-
-  let bool_frac_chunk_add_ident = SMTIdent.make "$BoolFracChunkAdd"
-  let bool_frac_chunk_subtract_ident = SMTIdent.make "$BoolFracChunkSubtract"
-  let bool_frac_heap_valid_ident = SMTIdent.make "$BoolFracHeapValid"
-  let bool_heapchunk_compare_ident = SMTIdent.make "$BoolHeapChunkCompare"
-
-  let loc_frac_chunk_add_ident = SMTIdent.make "$LocFracChunkAdd"
-  let loc_frac_chunk_subtract_ident = SMTIdent.make "$LocFracChunkSubtract"
-  let loc_frac_heap_valid_ident = SMTIdent.make "$LocFracHeapValid"
-  let loc_heapchunk_compare_ident = SMTIdent.make "$LocHeapChunkCompare"
-
-end
-
-let mk_frac_heapchunk_sort field_sort : sort = FreeSort (PreambleConsts.frac_heapchunk_sort_ident, [field_sort])
-
-let mk_own_heap_sort field_sort : sort = FreeSort (PreambleConsts.heap_sort_ident, [field_sort])
-
-let mk_frac_own_heap_sort field_sort : sort = mk_own_heap_sort (mk_frac_heapchunk_sort field_sort)
-
-let mk_pred_heap_sort pred_sort : sort = FreeSort (PreambleConsts.pred_heap_sort_ident , [pred_sort])
-
-let frac_chunk_constr v_term r_term : term = mk_app (Ident PreambleConsts.frac_chunk_constr_ident) [v_term; r_term]
-
-let declare_new_fieldheap (field_trnsl: SmtEnv.field_trnsl) (new_heap_name: smt_ident) (session: session) : unit =
-  write session (mk_declare_const new_heap_name (mk_own_heap_sort field_trnsl.field_sort));
-  write session (mk_assert (mk_app (Ident field_trnsl.field_heap_valid) [mk_const (Ident new_heap_name)]));
-  ()
-
-let declare_new_predheap (pred_trnsl: SmtEnv.pred_trnsl) (new_heap_name: smt_ident) (session: session) : unit =
-  write session (mk_declare_const new_heap_name pred_trnsl.pred_heap_sort);
-
-  let index_ident = SMTIdent.make "$index" in
-
-  let index_term = mk_const (Ident index_ident) in
-
-
-
-  write session (mk_assert (mk_forall [index_ident, pred_trnsl.pred_sort]
-    (mk_geq (mk_select (mk_const (Ident new_heap_name)) index_term) (mk_const (IntConst 0)))
-  ));
-  ()
-
-
-
-let add_frac_field_heap_functions field_sort field_heap_valid field_heap_add_chunk field_heap_subtract_chunk heapchunk_compare session : unit =
-  let open PreambleConsts in
-  let field_heap_sort = mk_frac_own_heap_sort field_sort in
-
-  let heap_ident = SMTIdent.make "heap" in
-  let l_ident = SMTIdent.make "l" in
-
-  let heap_term = mk_app (Ident heap_ident) [] in
-  let l_term = mk_app (Ident l_ident) [] in
-
-  let i_term = term_of_string "i" in
-  let r_term = term_of_string "r" in
-
-  let annot_frac_heap_top = (mk_annot (frac_heap_top) (As (mk_frac_heapchunk_sort field_sort))) in
-
-  write session 
-  (mk_declare_fun field_heap_valid [field_heap_sort] BoolSort);
-
-  write session
-  (mk_assert (mk_binder Forall 
-    [(heap_ident, field_heap_sort); 
-    (l_ident, PreambleConsts.loc_sort)] 
-    
-    (mk_impl 
-        (mk_app (Ident field_heap_valid) [heap_term])
-
-        (mk_match (mk_select heap_term l_term)
-          [(frac_heap_null, mk_const (BoolConst true));
-          (frac_chunk_constr i_term r_term, mk_and [(mk_leq (mk_const (IntConst 0)) r_term); (mk_geq (mk_const (IntConst 1)) r_term)]);
-          (frac_heap_top, mk_const (BoolConst false));
-          ]
-        )
-    )
-  ));
-
-  let x1_arg = SMTIdent.make "x1" in
-  let x2_arg = SMTIdent.make "x2" in
-
-  let v1_term = term_of_string "v1" in
-  let v2_term = term_of_string "v2" in
-  let r1_term = term_of_string "r1" in
-  let r2_term = term_of_string "r2" in
-
-  write session
-  (mk_define_fun field_heap_add_chunk [(x1_arg, mk_frac_heapchunk_sort field_sort); (x2_arg, mk_frac_heapchunk_sort field_sort)] (mk_frac_heapchunk_sort field_sort) 
-  
-    (mk_match (mk_const (Ident x1_arg))
-      [
-        (frac_heap_null, mk_const (Ident x2_arg));
-        (frac_chunk_constr v1_term r1_term, 
-          (mk_match (mk_const (Ident x2_arg))
-            [
-              (frac_heap_null, mk_const (Ident x1_arg));
-              (
-                frac_chunk_constr v2_term r2_term,
-                (mk_ite 
-                  (mk_eq v1_term v2_term) 
-                  (frac_chunk_constr v1_term (mk_app Plus [r1_term; r2_term]))
-                  annot_frac_heap_top
-                )
-              );
-              (frac_heap_top, annot_frac_heap_top);
-            ]
-          )
-        );
-        (frac_heap_top, annot_frac_heap_top);
-      ]
-    )
-  );
-
-  write session
-  (mk_define_fun field_heap_subtract_chunk [(x1_arg, mk_frac_heapchunk_sort field_sort); (x2_arg, mk_frac_heapchunk_sort field_sort)] (mk_frac_heapchunk_sort field_sort)
-
-    (mk_match (mk_const (Ident x2_arg))
-      [
-        (frac_heap_null, mk_const (Ident x1_arg));
-        (frac_chunk_constr v2_term r2_term, 
-          (mk_match (mk_const (Ident x1_arg))
-            [
-              (frac_heap_null, (mk_annot (frac_heap_top) (As (mk_frac_heapchunk_sort field_sort))));
-              (
-                frac_chunk_constr v1_term r1_term,
-                (mk_ite (mk_eq v1_term v2_term)
-                  (mk_ite (mk_eq r1_term r2_term)
-                    (mk_annot (frac_heap_null) (As (mk_frac_heapchunk_sort field_sort)))
-                    (mk_ite (mk_gt r1_term r2_term)
-                      (frac_chunk_constr v1_term (mk_app Minus [r1_term; r2_term]))
-                      annot_frac_heap_top
-                    )
-                  )
-                  annot_frac_heap_top
-                )
-              );
-              (frac_heap_top, annot_frac_heap_top);
-            ]
-          )
-        );
-        (frac_heap_top, annot_frac_heap_top)
-      ]
-    )
-  );
-
-  write session
-  (mk_define_fun heapchunk_compare [(x1_arg, mk_frac_heapchunk_sort field_sort); (x2_arg, mk_frac_heapchunk_sort field_sort)] BoolSort
-
-    (mk_match (mk_const (Ident x1_arg))
-      [
-        (frac_heap_null, mk_const (BoolConst true));
-
-        (frac_chunk_constr v1_term r1_term, 
-          (mk_match (mk_const (Ident x2_arg))
-            [
-              (frac_heap_null, mk_const (BoolConst false));
-
-              (
-                frac_chunk_constr v2_term r2_term,
-                (mk_ite (mk_eq v1_term v2_term)
-                  (mk_leq r1_term r2_term)
-                  (mk_const (BoolConst false))
-                )
-              );
-              (frac_heap_top, (mk_const (BoolConst false)));
-            ]
-          )
-        );
-        (frac_heap_top, (mk_const (BoolConst false)))
-      ]
-    )
-  );
-
-  ()
-
-let add_ra_field_heap_functions field_sort field_heap_valid field_valid heapchunk_compare field_heap_subtract_chunk session : unit = 
-  let field_heap_sort = mk_own_heap_sort field_sort in
-
-  let heap_ident = SMTIdent.make "heap" in
-  let l_ident = SMTIdent.make "l" in
-
-  let heap_term = mk_app (Ident heap_ident) [] in
-  let l_term = mk_app (Ident l_ident) [] in
-
-  write session
-  (mk_define_fun field_heap_valid [(heap_ident, field_heap_sort)] BoolSort
-    (mk_binder Forall [l_ident, PreambleConsts.loc_sort]
-      (mk_app (Ident field_valid) [(mk_select heap_term l_term)])
-    )
-  );
-
-  let x1_arg = SMTIdent.make "x1" in
-  let x2_arg = SMTIdent.make "x2" in
-
-  write session
-  (mk_define_fun heapchunk_compare [(x1_arg, field_sort); (x2_arg, field_sort)] BoolSort
-    (mk_app (Ident field_valid) [(mk_app (Ident field_heap_subtract_chunk) [mk_const (Ident x2_arg); mk_const (Ident x1_arg)])]
-    )
-  );
-  ()
-
-
-let init () : session =
+let init () : smt_env =
+  let open SmtSession in
   let session = start_solver () in
   let open PreambleConsts in
 
@@ -589,39 +319,61 @@ let init () : session =
     SetOption  (":timeout", "2000", None);
   ] in
 
-  let list_of_cmds = 
-    let t_param_ident = SMTIdent.make "T" in
-    let t_param_sort = FreeSort (t_param_ident, []) in
-    
-    [
+  let list_of_cmds = [
     mk_declare_sort loc_ident 0;
-    
-    
-    mk_declare_datatype (frac_heapchunk_sort_ident, [t_param_ident], [
-      (frac_heap_null_ident, []); 
-      (frac_chunk_constr_ident, [frac_val_destr_ident, t_param_sort; frac_own_destr_ident, RealSort]);
-      (frac_heap_top_ident, []);
-    ]);
-
-    (* ownHeap *)
-
-    mk_define_sort heap_sort_ident [t_param_ident] (ArraySort (loc_sort, t_param_sort));
-
-    mk_define_sort pred_heap_sort_ident [t_param_ident] (ArraySort (t_param_sort, IntSort))
-
+    mk_declare_const (QualIdent.from_ident (Ident.make Util.Loc.dummy "null" 0)) Type.ref;
+    mk_declare_sort atomic_token_ident 0;
   ] in
 
-  (* preamble *)
-  List.iter options_list ~f:(write session);
-  List.iter list_of_cmds ~f:(write session);
+  let list_of_cmds = list_of_cmds @ (Base.List.init 11 ~f:(fun i -> declare_tuple_sort (i))) in
 
-  
-  add_frac_field_heap_functions IntSort int_frac_heap_valid_ident int_frac_chunk_add_ident int_frac_chunk_subtract_ident int_heapchunk_compare_ident session;
-  add_frac_field_heap_functions BoolSort bool_frac_heap_valid_ident bool_frac_chunk_add_ident bool_frac_chunk_subtract_ident bool_heapchunk_compare_ident session;
-  add_frac_field_heap_functions loc_sort loc_frac_heap_valid_ident loc_frac_chunk_add_ident loc_frac_chunk_subtract_ident loc_heapchunk_compare_ident session;
+  let smt_env = {
+    session = session;
+    path_conditions = [];
+  } in
+
+  (* preamble *)
+  Base.List.iter options_list ~f:(write session);
+  Base.List.iter list_of_cmds ~f:(write session);
 
   write_comment session "End of Preamble";
   write_comment session "";
   write_comment session "";
 
-  session *)
+  smt_env
+
+
+
+
+
+(* --- *)
+
+(* module Syntax = struct
+  let return a = fun s -> (s, a)
+
+  module Let_syntax = struct
+    let bind m ~f = fun sin ->
+      let sout, res = m sin in
+      f res sout
+
+    let return = return
+
+    let map m ~f = fun sin ->
+      let sout, res = m sin in
+      (sout, f res)
+      
+    let both m1 m2 = fun sin ->
+      let s1, res1 = m1 sin in
+      let s2, res2 = m2 s1 in
+      (s2, (res1, res2))
+  end
+    
+  open Let_syntax
+  
+  let (let+) (m: state -> state * 'a) (f: 'a -> 'b) : (state -> state * 'b) = map m ~f
+  let (and+) = both
+  let (let* ) (m: state -> state * 'a) (f: 'a -> state -> state * 'b) : (state -> state * 'b) = bind m ~f
+  let (and* ) = both
+end
+
+let lft_smtEnv (f: smt_env -> smt_env) : state -> state = fun s -> { s with smt_env = f s.smt_env } *)

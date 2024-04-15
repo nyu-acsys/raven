@@ -2,7 +2,6 @@ open Base
 open Util
 open Ast
 open Frontend
-(*open Backend*)
 
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_cu top_level_md_ident file_name =
@@ -47,7 +46,7 @@ let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident file
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all file_names =
   (* Start backend solver session *)
-  let smtEnv = Backend.Smt_solver_new.init () in
+  let smtEnv = Backend.Smt_solver.init () in
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan = Stdio.Out_channel.create front_end_processed_output_log in

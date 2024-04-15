@@ -1,4 +1,4 @@
-open Smt_solver_new
+open Smt_solver
 open Ast
 open Base
 (* open Frontend *)
