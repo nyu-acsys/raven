@@ -189,7 +189,7 @@ open Frontend
 
   
 
-  let generate_injectivity_assertions (universal_quants: universal_quants) (conditions: conditions) (expr: expr) : Stmt.t Rewriter.t =
+  let generate_injectivity_assertions ~loc (universal_quants: universal_quants) (conditions: conditions) (expr: expr) : Stmt.t Rewriter.t =
     (* Running example : 
         Say we have:
         forall a, b :: p1(a, b) && p2(a, b) ==> f(a, b) 
@@ -208,7 +208,7 @@ open Frontend
 
     (* [a', b'] *)
     let dup_vars = List.map univ_quants_list ~f:(fun (_, var_decl) -> {var_decl with 
-      var_name = Ident.fresh (Expr.to_loc expr) var_decl.var_name.ident_name}) in
+      var_name = Ident.fresh loc var_decl.var_name.ident_name}) in
     
     let alpha_renaming_map = List.fold2_exn univ_vars dup_vars ~init:(Map.empty (module QualIdent)) ~f:(fun map old_var_decl new_var_decl ->
       Map.add_exn map ~key:(QualIdent.from_ident old_var_decl.var_name) ~data:(Expr.mk_var ~typ:new_var_decl.var_type (QualIdent.from_ident new_var_decl.var_name))
@@ -231,7 +231,7 @@ open Frontend
          f(a, b) == f(a', b') && p1(a, b) && p2(a, b) && p1(a', b') && p2(a', b')  ==>
           a == a' && b == b'
          *)
-    Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall (univ_vars @ dup_vars)
+    Expr.mk_binder ~loc ~typ:Type.bool Forall (univ_vars @ dup_vars)
       (Expr.mk_impl 
         (Expr.mk_and (expr_eq :: conditions @ renamed_conditions ))
 
@@ -239,7 +239,7 @@ open Frontend
 
     in
 
-    let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc expr) assert_expr
+    let assert_stmt = Stmt.mk_assert_expr ~loc ~spec_error:(Stmt.mk_const_spec_error "Could not prove injectivity of iterated separating conjunction.") assert_expr
 
     in
       
@@ -935,13 +935,17 @@ open Frontend
       
       in
   
-      let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) (
+      let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) 
+        ~spec_error:(Stmt.mk_const_spec_error "Could not prove validity of fpu.")
+      (
         Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.bool (Expr.Var fpu_allowed_qual_iden) [old_val; fpu_desc.fpu_new_val]
       )
 
       in 
 
-      let exhale_stmt = Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) (
+      let exhale_stmt = Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) 
+        ~spec_error:(Stmt.mk_const_spec_error "Could not exhale fpu pre-value.")
+      (
         Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.perm Expr.Own [fpu_desc.fpu_ref; field_expr; old_val;]
       )
   
@@ -1084,22 +1088,22 @@ open Frontend
     | None -> None
   
 module ParseAssertionLang = struct
-  let rec parse_a ?cmnt ~loc ?(universal_quants: universal_quants = {univ_vars = []; triggers = []}) (conds: conditions) (expr: expr) ~(parse_a0): Stmt.t Rewriter.t =
+  let rec parse_a ?cmnt ?spec_error ~loc ?(universal_quants: universal_quants = {univ_vars = []; triggers = []}) (conds: conditions) (expr: expr) ~(parse_a0): Stmt.t Rewriter.t =
         let open Rewriter.Syntax in
-        let parse_a = parse_a ~parse_a0 in
+        let parse_a = parse_a ?cmnt ~loc ?spec_error ~parse_a0 in
         match expr with
         | App (Ite, [c; e1; e2], expr_attr) ->
-          let* stmt1 = parse_a ?cmnt ~loc ~universal_quants (c :: conds) e1 in
+          let* stmt1 = parse_a ~universal_quants (c :: conds) e1 in
     
           let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-          let* stmt2 = parse_a ?cmnt ~loc ~universal_quants (not_c :: conds) e2 in
+          let* stmt2 = parse_a ~universal_quants (not_c :: conds) e2 in
           
           Rewriter.return (Stmt.mk_block_stmt ~loc [stmt1; stmt2])
         | App (Impl, [c; e2], expr_attr) ->
-          parse_a ?cmnt ~loc  ~universal_quants (c :: conds) e2
+          parse_a  ~universal_quants (c :: conds) e2
     
         | App (And, e_list, expr_attr) ->
-          let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> parse_a ?cmnt ~loc ~universal_quants conds e) in
+          let* stmts_list = Rewriter.List.map e_list ~f:(fun e -> parse_a ~universal_quants conds e) in
         
           Rewriter.return (Stmt.mk_block_stmt ~loc stmts_list)
 
@@ -1114,12 +1118,12 @@ module ParseAssertionLang = struct
             }  
           in
 
-          let* stmt = parse_a ?cmnt ~loc ~universal_quants conds e in
+          let* stmt = parse_a ~universal_quants conds e in
   
           Rewriter.return stmt
           
     
-        | _ -> parse_a0 ?cmnt ~loc universal_quants conds expr
+        | _ -> parse_a0 ?cmnt ?spec_error  ~loc universal_quants conds expr
 end
 
   module TrnslInhale = struct 
@@ -1308,11 +1312,11 @@ end
         let* () = Rewriter.set_user_state None in
         Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_binds_for_inhale
 
-    let rec trnsl_inhale_expr ?cmnt ~loc (expr: expr) : Stmt.t Rewriter.t =
+    let rec trnsl_inhale_expr ?cmnt ?spec_error ~loc (expr: expr) : Stmt.t Rewriter.t =
       
-      ParseAssertionLang.parse_a ?cmnt ~loc [] expr ~parse_a0:trnsl_inhale_a0
+      ParseAssertionLang.parse_a ?cmnt ?spec_error ~loc [] expr ~parse_a0:trnsl_inhale_a0
 
-    and trnsl_inhale_a0 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_inhale_a0 ?cmnt ?spec_error ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
       let univ_quants_list = universal_quants.univ_vars in
@@ -1400,19 +1404,13 @@ end
 
         (* field$Heap := field$Heap2 *)
         let eq_stmt = Stmt.mk_assign ~loc [field_heap_expr] field_heap2_expr in
-        
-        (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
-          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
-
-        in *)
 
         let assume_heap_valid = Stmt.mk_assume_expr ~loc 
           (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
         
         in
 
-        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds e1 in
+        let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds e1 in
 
         let stmts_list = match univ_quants_list with
         | [] -> []
@@ -1514,19 +1512,13 @@ end
 
         (* au$Heap := au$Heap2 *)
         let eq_stmt = Stmt.mk_assign ~loc [au_heap_expr] au_heap2_expr in
-        
-        (* let* au_valid_fn = Rewriter.ProgUtils.get_au_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
-          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_valid_fn) [au_heap_expr])
-
-        in *)
 
         let assume_heap_valid = Stmt.mk_assume_expr ~loc 
           (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn) [au_heap_expr]) 
         
         in
 
-        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds token in
+        let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds token in
 
         let stmts_list = match univ_quants_list with
         | [] -> []
@@ -1651,19 +1643,13 @@ end
 
               (* pred$Heap := pred$Heap2 *)
               let eq_stmt = Stmt.mk_assign ~loc [pred_heap_expr] pred_heap2_expr in
-              
-              (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-              let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
-                (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
-
-              in *)
 
               let assume_heap_valid = Stmt.mk_assume_expr ~loc 
                 (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
               
               in
 
-              let* injectivity_assertion = generate_injectivity_assertions universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
+              let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
 
               let stmts_list = match univ_quants_list with
               | [] -> []
@@ -1683,11 +1669,11 @@ end
           unsupported_expr_error expr
 
 
-    let rec trnsl_assume_expr ?cmnt ~loc (expr: expr) : Stmt.t Rewriter.t =
-      ParseAssertionLang.parse_a ?cmnt ~loc [] expr ~parse_a0:trnsl_assume_a0
+    let rec trnsl_assume_expr ?cmnt ?spec_error ~loc (expr: expr) : Stmt.t Rewriter.t =
+      ParseAssertionLang.parse_a ?cmnt ?spec_error  ~loc [] expr ~parse_a0:trnsl_assume_a0
       (* trnsl_assume_a ?cmnt ~loc [] expr *)
 
-    and trnsl_assume_a0 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_assume_a0 ?cmnt ?spec_error ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
       let univ_quants_list = universal_quants.univ_vars in
@@ -2418,10 +2404,10 @@ end
       | _ -> 
         Rewriter.Stmt.descend stmt ~f:rewriter_find_witness_elim_exists_from_exhale
     
-    let rec trnsl_exhale_expr ?cmnt ~loc (expr: expr) : Stmt.t Rewriter.t =
-      ParseAssertionLang.parse_a ?cmnt ~loc [] expr ~parse_a0:trnsl_exhale_a0
+    let rec trnsl_exhale_expr ?cmnt ?spec_error ~loc (expr: expr) : Stmt.t Rewriter.t =
+      ParseAssertionLang.parse_a ?cmnt ?spec_error ~loc [] expr ~parse_a0:trnsl_exhale_a0
       
-    and trnsl_exhale_a0 ?cmnt ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_exhale_a0 ?cmnt ?spec_error ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
       let univ_quants_list = universal_quants.univ_vars in
@@ -2509,19 +2495,14 @@ end
 
         (* field$Heap := field$Heap2 *)
         let eq_stmt = Stmt.mk_assign ~loc [field_heap_expr] field_heap2_expr in
-        
-        (* let* field_valid_fn = Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
-          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_valid_fn) [field_heap_expr])
-
-        in *)
 
         let assert_heap_valid = Stmt.mk_assert_expr ~loc 
+          ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale stmt."))
           (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
         
         in
 
-        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds e1 in
+        let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds e1 in
 
         let stmts_list = match univ_quants_list with
         | [] -> []
@@ -2622,19 +2603,14 @@ end
 
         (* pred$Heap := pred$Heap2 *)
         let eq_stmt = Stmt.mk_assign ~loc [au_heap_expr] au_heap2_expr in
-        
-        (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-        let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
-          (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
-
-        in *)
 
         let assert_heap_valid = Stmt.mk_assert_expr ~loc 
+          ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale atomic update predicate."))
           (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn) [au_heap_expr]) 
         
         in
 
-        let* injectivity_assertion = generate_injectivity_assertions universal_quants conds token in
+        let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds token in
 
         let stmts_list = match univ_quants_list with
         | [] -> []
@@ -2653,7 +2629,9 @@ end
         if is_e_pure then
           let assert_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
 
-          let assert_stmt = (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr))))) assert_expr) in
+          let assert_stmt = (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+          ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale pure_stmt."))
+          assert_expr) in
           (* let assume_stmt = (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assert_expr) in *)
           (* Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc e) [assume_stmt; assert_stmt]) *)
           Rewriter.return assert_stmt
@@ -2758,19 +2736,14 @@ end
 
               (* pred$Heap := pred$Heap2 *)
               let eq_stmt = Stmt.mk_assign ~loc [pred_heap_expr] pred_heap2_expr in
-              
-              (* let* pred_valid_fn = Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc expr) (Expr.to_qual_ident e2) in
-              let heap_valid_stmt = Stmt.mk_assert_expr ~loc 
-                (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_valid_fn) [pred_heap_expr])
-
-              in *)
 
               let assert_heap_valid = Stmt.mk_assert_expr ~loc 
+                ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale predicate."))
                 (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
               
               in
 
-              let* injectivity_assertion = generate_injectivity_assertions universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
+              let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
 
               let stmts_list = match univ_quants_list with
               | [] -> []
@@ -2801,18 +2774,18 @@ end
         | Inhale ->
           let expr = spec.spec_form in
 
-          let* stmt = TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc expr in
+          let* stmt = TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment ?spec_error:spec.spec_error ~loc:s.stmt_loc expr in
           Rewriter.return stmt
 
         | Exhale ->
           let expr = spec.spec_form in
 
-          let* stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc expr in
+          let* stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ?spec_error:spec.spec_error ~loc:s.stmt_loc expr in
           Rewriter.return stmt
         | Assume -> 
           let expr = spec.spec_form in
 
-          let* stmt = TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment ~loc:s.stmt_loc expr in
+          let* stmt = TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment ?spec_error:spec.spec_error ~loc:s.stmt_loc expr in
           Rewriter.return stmt
         | Assert ->
           let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
@@ -2884,7 +2857,8 @@ end
             Expr.mk_real 0.
           ] in
           
-          let assert_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc assert_expr in
+          let assert_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc ~spec_error:(Stmt.mk_const_spec_error "Could not assert sufficient permissions for field-read.") assert_expr in
+          
           let assign_stmt = Stmt.mk_assign ~loc:s.stmt_loc 
             [Expr.from_var_decl lhs_var] 
             (Expr.mk_app ~typ:lhs_var.var_type (DataDestr field_val_destr) [(Expr.mk_maplookup field_heap_expr fr_desc.field_read_ref)]) 
@@ -2927,7 +2901,7 @@ end
 
           let new_val = Expr.mk_app ~typ:field_ra_type (DataConstr field_frac_constr) [assign_rhs; Expr.mk_real 1.] in
           
-          let assert_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc assert_expr in
+          let assert_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc ~spec_error:(Stmt.mk_const_spec_error "Could not assert sufficient permissions for field_write.") assert_expr in
           let assign_stmt = Stmt.mk_assign ~loc:s.stmt_loc 
             [field_heap_expr] 
             (Expr.mk_app ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type) MapUpdate  [field_heap_expr; ref_expr; new_val]) 

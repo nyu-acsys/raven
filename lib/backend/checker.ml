@@ -81,7 +81,14 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
         (match b with
         | true -> assume_expr spec.spec_form
         (* Rewriter.return () *)
-        | false -> Error.smt_error stmt.stmt_loc "Assertion is not valid")
+        | false -> 
+          let* curr_callable = Rewriter.current_scope_id in
+          Error.smt_error stmt.stmt_loc (Option.value (Stmt.spec_error_msg spec curr_callable) ~default:"Assertion is not valid")
+          (* match (Stmt.spec_error_msg spec curr_callable) with
+          | None -> Error.smt_error stmt.stmt_loc "Assertion is not valid"
+          | Some e -> 
+            Error.smt_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
+        )
 
       | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
 

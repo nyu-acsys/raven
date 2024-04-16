@@ -2,5 +2,5 @@
   [Error] File "./simple.rav", line 9, columns 10-16:
   9 |   ensures x == 5
                 ^^^^^^
-  SMT Error: Assertion is not valid
+  Verification Error: Could not exhale pure_stmt.
   [1]
