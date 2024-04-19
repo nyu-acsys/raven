@@ -1540,48 +1540,48 @@ end
           | [] -> e
           | _ -> Expr.mk_impl (Expr.mk_and conds) e 
         in
-          let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
-          Rewriter.return (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\ninhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr))))) assume_expr)
+          let assume_expr = Expr.mk_binder ~loc ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
+          Rewriter.return (Stmt.mk_assume_expr ~loc ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\ninhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr))))) assume_expr)
         else
           match e with
           | App (Var qual_ident, args, _) ->
-            let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
+            let* symbol = Rewriter.find_and_reify loc qual_ident in
             begin match symbol with
             | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
 
-              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
+              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type loc qual_ident 
             
               in
 
-              let heap_elem_type = Type.mk_var (Expr.to_loc e) heap_elem_type_qual_iden in
+              let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
         
               let pred_name = qual_ident in
               let pred_heap_name = pred_heap_name pred_name in
               let pred_heap_qual_ident = QualIdent.from_ident pred_heap_name in
-              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap_qual_ident in
+              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) pred_heap_qual_ident in
         
               let pred_heap2_name = pred_heap_name2 pred_name in
               let pred_heap2_qual_ident = QualIdent.from_ident pred_heap2_name in
-              let pred_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap2_qual_ident in
+              let pred_heap2_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) pred_heap2_qual_ident in
         
               let* (pred_heapchunk_operator: qual_ident) = 
-                Rewriter.ProgUtils.get_pred_utils_comp (Expr.to_loc e) pred_name
+                Rewriter.ProgUtils.get_pred_utils_comp loc pred_name
               in
 
               let* (pred_heap_valid_fn: qual_ident) = 
-                Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc e) pred_name
+                Rewriter.ProgUtils.get_pred_utils_valid loc pred_name
               in
 
               let* pred_in_types = Rewriter.ProgUtils.pred_in_types qual_ident in
 
               let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
 
-              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
+              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident in
 
               let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
               let assume_stmt = 
                 let in_vars = List.map pred_in_types ~f:(fun tp -> 
-                  Type.{ var_name = Ident.fresh (Expr.to_loc e) "in"; var_loc = Expr.to_loc e; 
+                  { Type.var_name = Ident.fresh loc "in"; var_loc = Expr.to_loc e; 
                   var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
                 ) in
 
@@ -1605,7 +1605,7 @@ end
                   let new_chunk_expr_list = match c.call_decl.call_decl_kind with 
                   | Pred -> [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))]
                   | Invariant -> [Expr.mk_tuple (List.drop args (List.length pred_in_types))]
-                  | _ -> Error.error (Expr.to_loc e) "Internal error: Expected a predicate or invariant"
+                  | _ -> Error.error loc "Internal error: Expected a predicate or invariant"
 
                   in
                   
@@ -1663,7 +1663,7 @@ end
 
               Rewriter.return stmt
             | _ -> 
-              Error.error (Expr.to_loc e) "Expected a predicate definition"
+              Error.error loc "Expected a predicate definition"
             end
           | _ ->
           unsupported_expr_error expr
@@ -1806,35 +1806,35 @@ end
           | [] -> e
           | _ -> Expr.mk_impl (Expr.mk_and conds) e 
         in
-          let assume_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
-          Rewriter.return (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\nassume: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr))))) assume_expr)
+          let assume_expr = Expr.mk_binder ~loc ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) body_expr in
+          Rewriter.return (Stmt.mk_assume_expr ~loc ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^  "\nassume: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr))))) assume_expr)
         else
           match e with
           | App (Var qual_ident, args, _) ->
-            let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
+            let* symbol = Rewriter.find_and_reify loc qual_ident in
             begin match symbol with
             | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
 
-              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
+              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type loc qual_ident 
             
               in
 
-              let heap_elem_type = Type.mk_var (Expr.to_loc e) heap_elem_type_qual_iden in
+              let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
         
               let pred_name = qual_ident in
               let pred_heap_name = pred_heap_name pred_name in
               let pred_heap_qual_ident = QualIdent.from_ident pred_heap_name in
-              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap_qual_ident in
+              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) pred_heap_qual_ident in
         
               let* (pred_heapchunk_operator: qual_ident) = 
-                Rewriter.ProgUtils.get_pred_utils_heapchunk_compare (Expr.to_loc e) pred_name
+                Rewriter.ProgUtils.get_pred_utils_heapchunk_compare loc pred_name
               in
 
               let* pred_in_types = Rewriter.ProgUtils.pred_in_types qual_ident in
 
               let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
 
-              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
+              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident in
 
               let assume_stmt =                   
                 (* let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
@@ -1846,7 +1846,7 @@ end
                   let new_chunk_expr_list = match c.call_decl.call_decl_kind with 
                   | Pred -> [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))]
                   | Invariant -> [Expr.mk_tuple (List.drop args (List.length pred_in_types))]
-                  | _ -> Error.error (Expr.to_loc e) "Internal error: Expected a predicate or invariant"
+                  | _ -> Error.error loc "Internal error: Expected a predicate or invariant"
 
                   in
                   
@@ -1875,7 +1875,7 @@ end
 
               Rewriter.return assume_stmt
             | _ -> 
-              Error.error (Expr.to_loc e) "Expected a predicate definition"
+              Error.error loc "Expected a predicate definition"
             end
           | _ ->
           unsupported_expr_error expr
@@ -2627,54 +2627,54 @@ end
       | e ->
         let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
         if is_e_pure then
-          let assert_expr = Expr.mk_binder ~loc:(Expr.to_loc e) ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
+          let assert_expr = Expr.mk_binder ~loc ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
 
-          let assert_stmt = (Stmt.mk_assert_expr ~loc:(Expr.to_loc e) ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
+          let assert_stmt = (Stmt.mk_assert_expr ~loc ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
           ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale pure_stmt."))
           assert_expr) in
-          (* let assume_stmt = (Stmt.mk_assume_expr ~loc:(Expr.to_loc e) assert_expr) in *)
-          (* Rewriter.return (Stmt.mk_block_stmt ~loc:(Expr.to_loc e) [assume_stmt; assert_stmt]) *)
+          (* let assume_stmt = (Stmt.mk_assume_expr ~loc assert_expr) in *)
+          (* Rewriter.return (Stmt.mk_block_stmt ~loc [assume_stmt; assert_stmt]) *)
           Rewriter.return assert_stmt
         else
           match e with
           | App (Var qual_ident, args, _) ->
-            let* symbol = Rewriter.find_and_reify (Expr.to_loc e) qual_ident in
+            let* symbol = Rewriter.find_and_reify loc qual_ident in
             begin match symbol with
             | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
 
-              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type (Expr.to_loc e) qual_ident 
+              let* heap_elem_type_qual_iden = Rewriter.ProgUtils.get_pred_utils_rep_type loc qual_ident 
             
               in
 
-              let heap_elem_type = Type.mk_var (Expr.to_loc e) heap_elem_type_qual_iden in
+              let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
         
               let pred_name = qual_ident in
               let pred_heap_name = pred_heap_name pred_name in
               let pred_heap_qual_ident = QualIdent.from_ident pred_heap_name in
-              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap_qual_ident in
+              let pred_heap_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) pred_heap_qual_ident in
         
               let pred_heap2_name = pred_heap_name2 pred_name in
               let pred_heap2_qual_ident = QualIdent.from_ident pred_heap2_name in
-              let pred_heap2_expr = Expr.mk_var ~typ:(Type.mk_map (Expr.to_loc e) Type.ref heap_elem_type) pred_heap2_qual_ident in
+              let pred_heap2_expr = Expr.mk_var ~typ:(Type.mk_map loc Type.ref heap_elem_type) pred_heap2_qual_ident in
         
               let* (pred_heapchunk_operator: qual_ident) = 
-                Rewriter.ProgUtils.get_pred_utils_frame (Expr.to_loc e) pred_name
+                Rewriter.ProgUtils.get_pred_utils_frame loc pred_name
               in
 
               let* (pred_heap_valid_fn: qual_ident) = 
-                Rewriter.ProgUtils.get_pred_utils_valid (Expr.to_loc e) pred_name
+                Rewriter.ProgUtils.get_pred_utils_valid loc pred_name
               in
 
               let* pred_in_types = Rewriter.ProgUtils.pred_in_types qual_ident in
 
               let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
 
-              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident (Expr.to_loc e) qual_ident in
+              let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident in
 
               let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
               let assume_stmt = 
                 let in_vars = List.map pred_in_types ~f:(fun tp -> 
-                  Type.{ var_name = Ident.fresh (Expr.to_loc e) "in"; var_loc = Expr.to_loc e; 
+                  { Type.var_name = Ident.fresh loc "in"; var_loc = Expr.to_loc e; 
                   var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
                 ) in
 
@@ -2698,7 +2698,7 @@ end
                   let new_chunk_expr_list = match c.call_decl.call_decl_kind with 
                   | Pred -> [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))]
                   | Invariant -> [Expr.mk_tuple (List.drop args (List.length pred_in_types))]
-                  | _ -> Error.error (Expr.to_loc e) "Internal error: Expected a predicate or invariant"
+                  | _ -> Error.error loc "Internal error: Expected a predicate or invariant"
 
                   in
                   
@@ -2757,7 +2757,7 @@ end
 
               Rewriter.return stmt
             | _ -> 
-              Error.error (Expr.to_loc e) "Expected a predicate definition"
+              Error.error loc "Expected a predicate definition"
             end
           | _ ->
           unsupported_expr_error expr

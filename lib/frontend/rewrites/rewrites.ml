@@ -671,7 +671,7 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
     ) in
 
     let* new_lhs_list = Rewriter.List.map lhs_list ~f:(fun lhs ->
-      let new_var_name = Ident.fresh stmt.stmt_loc lhs.var_name.ident_name in
+      let new_var_name = Ident.fresh stmt.stmt_loc (lhs.var_name.ident_name ^ "$ret") in
       let new_var_decl = { lhs with var_name = new_var_name } in
       let* _ = Rewriter.introduce_symbol (Module.VarDef { var_decl = new_var_decl; var_init = None; }) in
 
@@ -709,6 +709,8 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
       Rewriter.return (renaming_map, fresh_dropped_args, renaming_map2, fresh_dropped_args2)
     in
+
+    Logs.debug (fun m -> m "Rewrites.rewrite_call_stmts: new_renaming_map: %a" (Util.Print.pr_map ~key:QualIdent.pr ~value:Expr.pr) new_renaming_map);
 
     (match call_def with
     | ProcDef _ -> 
@@ -1730,12 +1732,14 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
     | Assign assign_stmt ->
       let assign_rhs = Expr.alpha_renaming assign_stmt.assign_rhs subst_map in
       let* assign_lhs = Rewriter.List.map assign_stmt.assign_lhs ~f:(fun lhs_expr -> 
+        let* var_map = Rewriter.current_user_state in
+        
         if Expr.is_ident lhs_expr then
           let local_var = Expr.to_ident lhs_expr in
 
           Logs.debug (fun m -> m "Rewrites.rewrite_ssa_stmts: Assigning to local variable %a; for stmt %a" Ident.pr local_var Stmt.pr s);
           let old_var_decl = Map.find_exn var_map local_var in
-          let new_var_decl = { old_var_decl with var_name = Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name } in
+          let new_var_decl = Type.{ old_var_decl with var_name = Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name } in
 
           let* _ = Rewriter.introduce_symbol (VarDef { var_decl = new_var_decl; var_init = None }) in
 
@@ -1748,7 +1752,7 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
         else
           Rewriter.return lhs_expr
       ) 
-      
+
       in
 
       Rewriter.return Stmt.{ s with stmt_desc = Basic (Assign { assign_lhs; assign_rhs; }) }
@@ -1774,11 +1778,13 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
     
     | Bind bind_stmt -> 
       let* bind_lhs = Rewriter.List.map bind_stmt.bind_lhs ~f:(fun lhs_expr -> 
+        let* var_map = Rewriter.current_user_state in
+
         if Expr.is_ident lhs_expr then
           let local_var = Expr.to_ident lhs_expr in
 
           let old_var_decl = Map.find_exn var_map local_var in
-          let new_var_decl = { old_var_decl with var_name = Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name } in
+          let new_var_decl = Type.{ old_var_decl with var_name = Ident.fresh old_var_decl.var_loc old_var_decl.var_name.ident_name } in
 
           let* _ = Rewriter.introduce_symbol (VarDef { var_decl = new_var_decl; var_init = None }) in
 
@@ -1839,7 +1845,6 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
       | `Left _ | `Right _ -> Error.error s.stmt_loc "Mismatched variable declarations in then and else branches."
     
     ) in
-
 
     let* new_var_map = Rewriter.List.fold_left updated_vals ~init:var_map ~f:(fun map var -> 
       let old_var_decl = Map.find_exn var_map var in
