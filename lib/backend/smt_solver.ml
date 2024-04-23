@@ -317,6 +317,7 @@ let init () : smt_env =
 
   let options_list = [
     SetOption  (":timeout", "2000", None);
+    SetOption  (":produce-unsat-cores", "true", None);
   ] in
 
   let list_of_cmds = [

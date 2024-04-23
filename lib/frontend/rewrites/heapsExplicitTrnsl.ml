@@ -93,102 +93,6 @@ open Frontend
     Ident.make (Loc.dummy) (callable_name_str ^ "$AU_Heap2") 0
 
 
-  let generate_inv_function (universal_quants: universal_quants) ((conds1, conds2): conditionals) (existential_quants: existential_quants) (expr: expr) (var: ident): qual_ident Rewriter.t =
-    let open Rewriter.Syntax in
-
-    let inv_fn_ident = Ident.fresh (Expr.to_loc expr) ("$inv_" ^ (Ident.to_string var)) in
-
-
-    let arg_ident = Ident.fresh (Expr.to_loc expr) "res" in
-    let arg_type = Expr.to_type expr in
-    let formal_var_decls = [
-      { 
-        Type.var_name = arg_ident; 
-        var_loc = Expr.to_loc expr; 
-        var_type = arg_type; 
-        var_const = true; 
-        var_ghost = false; 
-        var_implicit = false; }
-    ] in
-
-    let ret_type =
-      let exist_var = match Map.find existential_quants var with
-        | Some { var_decl; _ } -> var_decl
-        | None -> Error.error (Loc.dummy) "Expected to find existential quant record" in
-      exist_var.var_type
-
-    in
-    let ret_var_decl = {
-      Type.var_name = Ident.fresh (Expr.to_loc expr) ("ret_" ^ (Ident.to_string var));
-      var_loc = Expr.to_loc expr;
-      var_type = ret_type;
-      var_const = true;
-      var_ghost = false;
-      var_implicit = false;
-    } in
-
-    (*       ensures forall a, b, c, d, e, f :: m1(a,b,c) && m2(a, b, c, d, e, f) && v == f2(a, b, c, d, e, f) ==> d == ret *)
-    let postcond =
-      let spec_form = 
-        let var_decls_forall = (List.map universal_quants.univ_vars ~f:(fun (var, var_decl) -> var_decl)) in
-        let var_decls_existentials = (List.map (Map.to_alist existential_quants) ~f:(fun (var, { var_decl; _ }) -> var_decl)) in
-        let var_decls = var_decls_forall @ var_decls_existentials in
-
-
-        let eq_expr = Expr.mk_eq
-          (Expr.mk_var ~typ:arg_type (QualIdent.from_ident arg_ident))    
-          expr
-        in
-
-        Expr.mk_binder ~loc:(Expr.to_loc expr) ~typ:Type.bool Forall var_decls (
-          Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.bool Expr.Impl [
-            Expr.mk_and ~loc:(Expr.to_loc expr) ( eq_expr :: conds1 @ conds2);
-
-            Expr.mk_eq ~loc:(Expr.to_loc expr) 
-              (Expr.mk_var ~typ:ret_type (QualIdent.from_ident ret_var_decl.var_name)) 
-              (Expr.mk_var ~typ:ret_type (QualIdent.from_ident var))
-          ]
-        )
-
-    in
-      
-    Stmt.mk_spec spec_form
-
-    in
-
-    let call_decl = {
-      Callable.call_decl_kind = Func;
-      call_decl_name = inv_fn_ident;
-      call_decl_formals = formal_var_decls;
-      call_decl_returns = [ret_var_decl];
-      call_decl_locals = [];
-      call_decl_precond = [];
-      call_decl_postcond = [postcond];
-      call_decl_is_free = false;
-      call_decl_is_auto = false;
-      call_decl_loc = Expr.to_loc expr;
-    }
-      
-    in
-
-    let* inv_fn_qual_ident = 
-      let+ module_qual_ident = Rewriter.current_module_name in
-
-      QualIdent.append module_qual_ident inv_fn_ident
-
-    in
-
-    let fn_def = Module.CallDef (Callable.{ call_decl; call_def = FuncDef { func_body = None;} }) in
-    
-
-    let+ _ = Rewriter.introduce_symbol fn_def in
-    
-    inv_fn_qual_ident
-
-
-
-  
-
   let generate_injectivity_assertions ~loc (universal_quants: universal_quants) (conditions: conditions) (expr: expr) : Stmt.t Rewriter.t =
     (* Running example : 
         Say we have:
@@ -246,6 +150,131 @@ open Frontend
     Rewriter.return assert_stmt
 
 
+  let generate_inv_function ~loc (universal_quants: universal_quants) (conds: conditions) (inv_expr: expr) ~(arg_expr: expr) : expr Rewriter.t =
+    assert (Type.(Expr.to_type inv_expr = Expr.to_type arg_expr));
+
+    let open Rewriter.Syntax in
+
+    let inv_fn_ident = Ident.fresh loc ("$inv_" ^ (Rewriter.ProgUtils.serialize (Expr.to_string inv_expr))) in
+
+    let* env_local_var_decls = 
+      let symbols = List.fold (inv_expr :: conds) ~init:(Set.empty (module QualIdent)) ~f:(fun symbols cond ->
+        Expr.symbols cond
+      ) in
+
+      let locals = Set.filter symbols ~f:(fun s -> (QualIdent.is_local s) && not (List.exists universal_quants.univ_vars ~f:(fun (i, _) -> Ident.(i = QualIdent.unqualify s))))
+
+      in
+
+      let locals = Set.to_list locals in
+
+      let+ local_var_decls = Rewriter.List.map locals ~f:(fun qual_ident ->
+        let+ symbol = Rewriter.find_and_reify loc qual_ident in
+                    match symbol with
+                    | VarDef v -> v.var_decl
+                    | _ -> Error.error loc "Expected a variable declaration"
+      )
+
+      in
+
+      local_var_decls
+    in
+
+    let arg_type = Expr.to_type inv_expr in
+
+    let arg_var_decl = 
+      let arg_ident = Ident.fresh loc "res" in
+      { 
+        Type.var_name = arg_ident; 
+        var_loc = loc; 
+        var_type = arg_type; 
+        var_const = true; 
+        var_ghost = false; 
+        var_implicit = false; 
+      } 
+    in
+
+    let formal_var_decls = arg_var_decl :: env_local_var_decls in
+
+    let ret_type =
+      Type.mk_prod loc (List.map universal_quants.univ_vars ~f:(fun (_, var_decl) -> var_decl.var_type)) 
+    in
+
+    let ret_var_decl = {
+      Type.var_name = Ident.fresh loc ("$ret");
+      var_loc = loc;
+      var_type = ret_type;
+      var_const = true;
+      var_ghost = false;
+      var_implicit = false;
+    } in
+
+    let univ_vars_exprs = List.mapi universal_quants.univ_vars ~f:(fun index (var, var_decl) -> 
+      Expr.mk_tuple_lookup (Expr.from_var_decl ret_var_decl) index
+    ) in
+
+    let* precond =
+      let+ assert_stmt = generate_injectivity_assertions ~loc universal_quants conds inv_expr in
+      match assert_stmt.stmt_desc with
+      | Basic (Spec (Assert, spec)) ->
+        spec
+      | _ -> Error.error loc "Expected an assertion statement"
+      
+    in
+
+    let postcond =
+      let spec_form = 
+        let var_decls_forall = (List.map universal_quants.univ_vars ~f:(fun (var, var_decl) -> var_decl)) in
+        let var_decls = var_decls_forall in
+
+        let eq_expr = Expr.mk_eq
+          (Expr.from_var_decl arg_var_decl)    
+          inv_expr
+        in
+
+        Expr.mk_binder ~loc ~typ:Type.bool Forall var_decls (
+          Expr.mk_impl ~loc 
+            (Expr.mk_and ~loc (eq_expr :: conds))
+
+            (Expr.mk_and (List.map2_exn universal_quants.univ_vars univ_vars_exprs ~f:(fun (_, var_decl) expr -> 
+              Expr.mk_eq ~loc (Expr.from_var_decl var_decl) expr)))
+        )
+
+    in
+      
+    Stmt.mk_spec spec_form
+
+    in
+
+    let call_decl = {
+      Callable.call_decl_kind = Func;
+      call_decl_name = inv_fn_ident;
+      call_decl_formals = formal_var_decls;
+      call_decl_returns = [ret_var_decl];
+      call_decl_locals = [];
+      call_decl_precond = [precond];
+      call_decl_postcond = [postcond];
+      call_decl_is_free = false;
+      call_decl_is_auto = false;
+      call_decl_loc = loc;
+    }
+      
+    in
+
+    let* inv_fn_qual_ident = 
+      let+ module_qual_ident = Rewriter.current_module_name in
+
+      QualIdent.append module_qual_ident inv_fn_ident
+
+    in
+
+    let fn_def = Module.CallDef (Callable.{ call_decl; call_def = FuncDef { func_body = None;} }) in
+    
+
+    let+ _ = Rewriter.introduce_symbol fn_def in
+    
+    Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident) (arg_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl)
+  
   let generate_skolem_function (universal_quants: universal_quants) (var_decl: var_decl) ?(postconds: expr list = []) ?(optn_args: (var_decl * expr) list = []) ~loc : expr Rewriter.t = 
     let open Rewriter.Syntax in
     let univ_quants_list = universal_quants.univ_vars in
@@ -899,8 +928,7 @@ open Frontend
 
     ) in
 
-    (* Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [body])) *)
-    Rewriter.return body
+    Rewriter.return (Stmt.mk_block_stmt ~loc (init_assumes @ [body]))
 
 
   let rec rewrite_fpu (stmt: Stmt.t) : Stmt.t Rewriter.t = 
@@ -1365,32 +1393,47 @@ end
           Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
+        let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
+        var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
+
+        let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
+
+        let* inv_fn_expr = generate_inv_function ~loc universal_quants conds e1 ~arg_expr:l_expr in
+
+        let inv_exprs = List.mapi univ_vars_list ~f:(fun index var_decl -> 
+          Expr.mk_tuple_lookup inv_fn_expr index
+        ) in
+
+        let alpha_renaming_map = List.fold2_exn univ_vars_list inv_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+          Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+        ) in
+
+        let e1_subst = Expr.alpha_renaming e1 alpha_renaming_map in
+        let e3_subst = Expr.alpha_renaming e3 alpha_renaming_map in
+
+        let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+
         let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
         let assume_stmt = 
-          let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
-          var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
-
-          let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
-
-          let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
+          
+          let l_eq_e1_expr = (Expr.mk_eq l_expr e1_subst) in
           
           Stmt.mk_assume_expr ~loc ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^  "inhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
 
           (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc field_heap_expr l_expr]]
           
           ~loc ~typ:Type.bool Forall [l_var] 
-            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
               (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                 (* m1(a,b,c) && l == f1(a, b, c) *)
-                Expr.mk_and ~loc (l_eq_e1_expr :: conds);
+                Expr.mk_and ~loc (l_eq_e1_expr :: conds_subst);
 
                 (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
                 Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
                   (Expr.mk_app ~loc ~typ:field_type 
                     (Expr.Var field_heapchunk_operator)  [
                       Expr.mk_maplookup ~loc field_heap_expr l_expr;
-                      e3;
+                      e3_subst;
                     ] );
 
             
@@ -1399,7 +1442,6 @@ end
                   (Expr.mk_maplookup ~loc field_heap_expr l_expr);
               ])
             )
-          )
         in
 
         (* field$Heap := field$Heap2 *)
@@ -2456,32 +2498,47 @@ end
           Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
+        let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
+        var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
+
+        let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
+
+        let* inv_fn_expr = generate_inv_function ~loc universal_quants conds e1 ~arg_expr:l_expr in
+
+        let inv_exprs = List.mapi univ_vars_list ~f:(fun index var_decl -> 
+          Expr.mk_tuple_lookup inv_fn_expr index
+        ) in
+
+        let alpha_renaming_map = List.fold2_exn univ_vars_list inv_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+          Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+        ) in
+
+        let e1_subst = Expr.alpha_renaming e1 alpha_renaming_map in
+        let e3_subst = Expr.alpha_renaming e3 alpha_renaming_map in
+
+        let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+
         let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
         let assume_stmt = 
-          let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
-          var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in
-
-          let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in
           
-          let l_eq_e1_expr = (Expr.mk_eq l_expr e1) in
+          let l_eq_e1_expr = (Expr.mk_eq l_expr e1_subst) in
           
           Stmt.mk_assume_expr ~loc 
           ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> (cmnt ^ "\n")) ^ "exhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
           (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc field_heap2_expr l_expr]; [Expr.mk_maplookup ~loc field_heap_expr l_expr]]
           
           ~loc ~typ:Type.bool Forall [l_var] 
-            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
               (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                 (* m1(a,b,c) && l == f1(a, b, c) *)
-                Expr.mk_and ~loc (l_eq_e1_expr :: conds);
+                Expr.mk_and ~loc (l_eq_e1_expr :: conds_subst);
 
                 (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
                 Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
                   (Expr.mk_app ~loc ~typ:field_type 
                     (Expr.Var field_heapchunk_operator)  [
                       Expr.mk_maplookup ~loc field_heap_expr l_expr;
-                      e3;
+                      e3_subst;
                     ] );
 
             
@@ -2490,7 +2547,6 @@ end
                   (Expr.mk_maplookup ~loc field_heap_expr l_expr);
               ])
             )
-          )
         in
 
         (* field$Heap := field$Heap2 *)

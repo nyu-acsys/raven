@@ -39,25 +39,27 @@ module DutchFlag[Arr: IArray] {
         m2 := m;
 
         while (unsorted < blue)
-            invariant access(a, m2)
+            invariant access(a, m)
             invariant 0 <= white && white <= unsorted && unsorted <= blue && blue <= Arr.len(a)
-            invariant forall i: Int :: 0 <= i && i < Arr.len(a) ==> m2[i] == 0 || m2[i] == 1 || m2[i] == 2
-            invariant forall i : Int :: 0 <= i && i < white ==> m2[i] == 0
-            invariant forall i : Int :: white <= i && i < unsorted ==> m2[i] == 1
-            invariant forall i : Int :: blue <= i && i < Arr.len(a) ==> m2[i] == 2
+            // invariant forall i: Int :: 0 <= i && i < Arr.len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
+            // invariant forall i : Int :: 0 <= i && i < white ==> m[i] == 0
+            // invariant forall i : Int :: white <= i && i < unsorted ==> m[i] == 1
+            // invariant forall i : Int :: blue <= i && i < Arr.len(a) ==> m[i] == 2
         {
 
             Arr.all_diff();
             // Arr.len_nonneg();
-            unfold access(a, m2);
+            unfold access(a, m);
             // assert false;
             var tmp : Int := Arr.loc(a,unsorted).value;
-            // assert false;
+            assert false;
 
 
             if (tmp == 1) {
                 unsorted := unsorted + 1;
             } else if (tmp == 0) {
+                assert false;
+
                 var tmp1 : Int := Arr.loc(a,white).value;
                 Arr.loc(a,unsorted).value := tmp1;
                 var tmp2 : Int = Arr.loc(a,white).value;
@@ -69,6 +71,8 @@ module DutchFlag[Arr: IArray] {
                 white := white + 1;
                 unsorted := unsorted + 1;
             } else {
+                assert false;
+
                 var tmp1 : Int = Arr.loc(a,blue - 1).value;
                 Arr.loc(a,unsorted).value := tmp1;
 
@@ -79,11 +83,12 @@ module DutchFlag[Arr: IArray] {
                 Arr.loc(a,blue).value := tmp;
                 m2 := m2[blue := tmp ];
             }
-            fold access(a, m2);
+            assert false;
+            fold access(a, m);
         }
 
-        fold ordered(m2, Arr.len(a));
-        // assume false;
+        assume false;
+        fold ordered(m, Arr.len(a));
     }
 
     proc test1(x: Ref, y: Ref)

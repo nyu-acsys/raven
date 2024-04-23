@@ -280,7 +280,7 @@ let pr_command ppf = function
   (* | DefineFunsRec (defs, _) ->
       fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@," pr_list_pair_of_terms defs *)
   | Assert (t, _) ->
-      fprintf ppf "@[<4>(assert@ %a)@]@," pr_term t
+      fprintf ppf "@[<4>(assert@ (! %a :named %a))@]@," pr_term t Ident.pr (Ident.fresh Loc.dummy "$hyp$")
   | Push (n, _) -> fprintf ppf "@[<6>(push@ %d)@]@," n
   | Pop (n, _) -> fprintf ppf "@[<5>(pop@ %d)@]@," n
   | CheckSat _ -> fprintf ppf "@[(check-sat)@]@."
