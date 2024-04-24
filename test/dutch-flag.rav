@@ -57,10 +57,10 @@ module DutchFlag[Arr: IArray] {
                 var tmp1 : Int := Arr.loc(a,white).value;
                 Arr.loc(a,unsorted).value := tmp1;
                 var tmp2 : Int = Arr.loc(a,white).value;
-                m2[unsorted] := tmp2;
+                m2 := m2[unsorted := tmp2];
 
                 Arr.loc(a,white).value := tmp;
-                m2[white] := tmp;
+                m2 := m2[white := tmp];
 
                 white := white + 1;
                 unsorted := unsorted + 1;
@@ -69,11 +69,11 @@ module DutchFlag[Arr: IArray] {
                 Arr.loc(a,unsorted).value := tmp1;
 
                 var tmp2 : Int = Arr.loc(a,blue - 1).value;
-                m2[unsorted] := tmp2;
+                m2 := m2[unsorted := tmp2];
 
                 blue := blue - 1;
                 Arr.loc(a,blue).value := tmp;
-                m2[blue] := tmp;
+                m2 := m2[blue := tmp ];
             }
 
             fold access(a, m);

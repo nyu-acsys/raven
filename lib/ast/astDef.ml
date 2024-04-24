@@ -579,6 +579,13 @@ module Expr = struct
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
+  let set_loc t loc =
+    let attr = attr_of t in
+    let attr = { attr with expr_loc = loc } in
+    match t with 
+    | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
+
   (** Pretty printing expressions *)
 
   let constr_to_string = function
@@ -1045,6 +1052,16 @@ module Stmt = struct
     spec_error : (qual_ident -> string * string) option;
   }
 
+  let mk_const_spec_error (err_str: string) = (fun id -> (err_str, QualIdent.to_string id))
+
+  let spec_error_msg spec call_id =
+    match spec.spec_error with
+    | None -> None
+    | Some f -> 
+      let s1, s2 = (f call_id) in
+      (* Some (s1 ^ "\nIn callable:" ^ s2) *)
+      Some (s1)
+
   type var_def = { var_decl : var_decl; var_init : expr option }
 
   type new_desc = {
@@ -1277,7 +1294,7 @@ module Stmt = struct
 
   let mk_block ?(ghost=false) stmts = 
     let stmts = List.concat_map stmts ~f:(function
-      | { stmt_desc = Block { block_body; block_is_ghost }; _ } -> block_body
+      | { stmt_desc = Block { block_body; block_is_ghost = false }; _ } -> block_body
       | s -> [s]) in
 
     Block { block_body = stmts; block_is_ghost = ghost }
@@ -1285,8 +1302,8 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc ?(cmnt=None) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
+  let mk_assume_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
   let mk_assume_spec ~loc ?(cmnt=None) spec : t = 
@@ -1299,11 +1316,11 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc ?(cmnt=None) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
+  let mk_inhale_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_inhale_spec ~loc ?(cmnt=None) spec : t = 
+  let mk_inhale_spec ~loc ?(cmnt = None) spec : t = 
     let cmnt = 
       match cmnt, spec.spec_comment with
       | None, _ -> spec.spec_comment
@@ -1313,11 +1330,11 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc ?(cmnt=None) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
+  let mk_exhale_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_spec ~loc ?(cmnt=None) spec : t = 
+  let mk_exhale_spec ~loc ?(cmnt = None) spec : t = 
     let cmnt = 
       match cmnt, spec.spec_comment with
       | None, _ -> spec.spec_comment
@@ -1327,11 +1344,11 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc ?(cmnt=None) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = None } in
+  let mk_assert_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
-  let mk_assert_spec ~loc ?(cmnt=None) spec : t =
+  let mk_assert_spec ~loc ?(cmnt = None) spec : t =
     let cmnt = 
       match cmnt, spec.spec_comment with
       | None, _ -> spec.spec_comment
@@ -1354,6 +1371,9 @@ module Stmt = struct
     { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs }); stmt_loc = loc }
 
   let mk_return ~loc e = { stmt_desc = Basic (Return e); stmt_loc = loc }
+
+  let mk_bind ~loc lhs rhs =
+    { stmt_desc = Basic (Bind { bind_lhs = lhs; bind_rhs = rhs }); stmt_loc = loc }
 
   (** Auxiliary functions *)
 
@@ -1667,6 +1687,7 @@ module Callable = struct
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
     call_decl_is_auto : bool;
+    call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
     call_decl_loc : location;  (** source location of declaration *)
   }
 
@@ -1705,13 +1726,20 @@ module Callable = struct
       | ls ->
           fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
     in
-    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a@]@]" 
+    let pr_call_mask ppf = function
+      | None -> 
+        fprintf ppf "\nmask: (@[\<none\>@])" 
+      | Some mask ->
+          fprintf ppf "\nmask: (@[<0>%a@])" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
+    in
+    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a%a@]@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
       pr_returns call_decl.call_decl_returns 
       pr_call_decl_specs call_decl
       pr_call_locals call_decl.call_decl_locals
+      pr_call_mask call_decl.call_decl_mask
 
   let pr ppf def =
     let open Stdlib.Format in

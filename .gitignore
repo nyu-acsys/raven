@@ -7,3 +7,4 @@ formalism/formalism.synctex.gz
 log*.smt
 .vscode
 .DS_Store
+front_end_processed_output.log

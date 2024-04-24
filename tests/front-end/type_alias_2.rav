@@ -1,0 +1,12 @@
+module M {
+  type T = Int
+}
+
+module N {
+  type T = Int
+}
+
+proc p() {
+  var x: N.T;
+  var y: M.T := x;
+}

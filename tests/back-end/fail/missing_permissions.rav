@@ -1,0 +1,17 @@
+module M {
+  field f: Int
+
+  proc q(x: Ref) 
+    requires exists v:Int :: own(x, f, v, 0.1)
+    // ensures exists v:Int :: own(x, f, v, 0.1)
+  {
+
+  }
+
+  proc p(x: Ref)
+    requires exists v:Int :: own(x, f, v, 1.0)
+    ensures exists v:Int :: own(x, f, v, 1.0)
+  {
+    q(x);
+  }
+}

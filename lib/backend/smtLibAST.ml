@@ -147,10 +147,16 @@ let term_constr_to_string loc (constr: Expr.constr)  : string = match constr wit
 let rec pr_term ppf (term: term) = match term with
   | App (constr, expr_list, _) -> begin
     match constr, expr_list with
-    | (Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq | Leq | Union | Inter | Subseteq | And | Or | Impl | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _) as sym, ts -> 
+    | (Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq | Leq | Union | Inter | Subseteq | And | Or | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _) as sym, ts -> 
       (match expr_list with
       | [] -> fprintf ppf "@[%s@]" (term_constr_to_string (Expr.to_loc term) sym)
       | _ -> fprintf ppf "@[<2>(%s@ %a)@]" (term_constr_to_string (Expr.to_loc term) sym) pr_terms ts)
+
+    | Impl, [t1; t2] -> 
+      if (Expr.alpha_equal t1 (Expr.mk_bool true)) then
+        fprintf ppf "%a" pr_term t2
+      else
+        fprintf ppf "@[<2>(=>@ %a@ %a)@]" pr_term t1 pr_term t2
     | Elem, [t; s] -> fprintf ppf "@[<2>(select@ %a@ %a)@]" pr_term s pr_term t
     
     | Null, [] -> fprintf ppf "null"
@@ -274,7 +280,7 @@ let pr_command ppf = function
   (* | DefineFunsRec (defs, _) ->
       fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@," pr_list_pair_of_terms defs *)
   | Assert (t, _) ->
-      fprintf ppf "@[<4>(assert@ %a)@]@," pr_term t
+      fprintf ppf "@[<4>(assert@ (! %a :named %a))@]@," pr_term t Ident.pr (Ident.fresh Loc.dummy "$hyp$")
   | Push (n, _) -> fprintf ppf "@[<6>(push@ %d)@]@," n
   | Pop (n, _) -> fprintf ppf "@[<5>(pop@ %d)@]@," n
   | CheckSat _ -> fprintf ppf "@[(check-sat)@]@."

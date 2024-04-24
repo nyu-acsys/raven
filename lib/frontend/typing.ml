@@ -317,7 +317,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         let expected_typ3 =
           match constr with
           | Ite -> expected_typ2
-          | MapUpdate -> Type.map_codom typ2
+          | MapUpdate -> Type.map_codom typ1
           | _ -> assert false
         in
         let* expr3 = process_expr expr3 expected_typ3 in
@@ -765,8 +765,7 @@ module ProcessCallable = struct
 
             (match token_expr with
             | App (Var token_qual_ident, [], _) ->
-              let+ bound_vars = Rewriter.List.map bound_vars ~f:(fun var -> disambiguate_process_expr var Type.any disam_tbl) in
-              Stmt.Basic (AUAction {auaction_kind = (OpenAU (token_qual_ident, None, bound_vars))}), disam_tbl
+              Rewriter.return (Stmt.Basic (AUAction {auaction_kind = (OpenAU (token_qual_ident, None, bound_vars))}), disam_tbl)
             | _ -> Error.type_error loc "openAU token expected to be a variable"
             )
 
@@ -815,7 +814,7 @@ module ProcessCallable = struct
 
         else if QualIdent.(qual_ident = (QualIdent.from_ident Predefs.fpu_ident)) then (
           match args with
-          | [ref_expr; field_expr; old_val_expr; new_val_expr] ->
+          | ref_expr :: field_expr :: fpu_exprs ->
             let* ref_expr = disambiguate_process_expr ref_expr Type.ref disam_tbl in
             let* field_expr = disambiguate_process_expr field_expr Type.any disam_tbl in
 
@@ -824,13 +823,21 @@ module ProcessCallable = struct
               let* field_symbol = Rewriter.find_and_reify (Expr.to_loc field_expr) field_qual_ident in
               (match field_symbol with
               | FieldDef { field_type = (App(Fld, [given_type], _)) ; _ } -> 
-                let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
-                let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in
+                let+ fpu_exprs = Rewriter.List.map fpu_exprs ~f:(fun fpu_expr -> disambiguate_process_expr fpu_expr given_type disam_tbl) in
+                (* let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
+                let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in *)
+
+                let old_val_expr, new_val_expr = 
+                  match fpu_exprs with
+                  | [old_val_expr; new_val_expr] -> Some old_val_expr, new_val_expr
+                  | [new_val_expr] -> None, new_val_expr
+                  | _ -> Error.type_error loc "fpu takes exactly three or four arguments"
+                in
 
                 Stmt.Basic (Fpu {
                   fpu_ref = ref_expr;
                   fpu_field = field_qual_ident;
-                  fpu_old_val = Some old_val_expr;
+                  fpu_old_val = old_val_expr;
                   fpu_new_val = new_val_expr;
                   }), disam_tbl
 
@@ -840,7 +847,7 @@ module ProcessCallable = struct
             | _ -> Error.type_error loc "fpu second argument expected to be a field name"
             )
 
-          | _ -> Error.type_error loc "fpu takes exactly four arguments"
+          | _ -> Error.type_error loc "fpu takes exactly three or four arguments"
           )
         
         else
@@ -914,6 +921,14 @@ module ProcessCallable = struct
 
       | Assign assign_desc ->
         (
+        List.iter assign_desc.assign_lhs ~f:(fun expr -> 
+          match expr with
+          | App (Var qual_ident, [], _) -> 
+            ()
+          | App (Read, [ref_expr; field_expr], _) -> 
+            ()
+          | _ -> Error.type_error stmt.stmt_loc "Expected variables or var.field on left-hand side of assignment"
+        );
 
         Logs.debug (fun m -> m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt (Assign assign_desc));
         let* disam_assign_rhs = 

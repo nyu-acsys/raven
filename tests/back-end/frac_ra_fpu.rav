@@ -1,0 +1,18 @@
+module Main {
+
+    module M1: Library.Type {
+        rep type T = Int
+    }
+
+    module M2 = Library.Frac[M1]
+
+    field f : M2
+
+    proc test(x: Ref)
+        // requires own(x, f, M2.frac_chunk(4, 1/2))
+        requires own(x, f, M2.frac_chunk(4, 1.0))
+    {
+        // var y: Ref = new(f);
+        fpu(x, f, M2.frac_chunk(4, 1.0), M2.frac_chunk(5, 1.0));
+    }
+}

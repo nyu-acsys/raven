@@ -1,4 +1,4 @@
-open Smt_solver_new
+open Smt_solver
 open Ast
 open Base
 (* open Frontend *)
@@ -81,7 +81,14 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
         (match b with
         | true -> assume_expr spec.spec_form
         (* Rewriter.return () *)
-        | false -> Error.smt_error stmt.stmt_loc "Assertion is not valid")
+        | false -> 
+          let* curr_callable = Rewriter.current_scope_id in
+          Error.smt_error stmt.stmt_loc (Option.value (Stmt.spec_error_msg spec curr_callable) ~default:"Assertion is not valid")
+          (* match (Stmt.spec_error_msg spec curr_callable) with
+          | None -> Error.smt_error stmt.stmt_loc "Assertion is not valid"
+          | Some e -> 
+            Error.smt_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
+        )
 
       | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
 
@@ -116,11 +123,13 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
 
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
           (Expr.mk_impl 
-            (Expr.mk_eq 
-              (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+            (Expr.mk_and 
+              ((Expr.mk_eq 
+                (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
-              ret_tuple
-            ) 
+                ret_tuple
+              ) :: (List.map call_decl.call_decl_precond ~f:(fun post -> post.spec_form)))
+            )
 
           (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
         )

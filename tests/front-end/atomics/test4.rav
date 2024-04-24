@@ -1,0 +1,17 @@
+pred p1(x: Int) {
+  x % 2 == 0
+}
+
+inv p2(x: Int) {
+  x % 2 == 0
+}
+
+proc p(implicit ghost x: Int)
+  returns (y: Int)
+  requires p2(2)
+{
+  unfold p2(2);
+  unfold p2(1+1);
+  fold p2(2);
+  fold p2(1+1);
+}

@@ -1,0 +1,12 @@
+(library
+  (name rewrites)
+  ; (modules rewrites)
+  (libraries base ast util frontend)
+  (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
+
+; (library
+;   (name heap_explicit_trnsl)
+;   (modules heap_explicit_trnsl)
+;   (libraries base ast util typing)
+;   (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let))  
+; )
