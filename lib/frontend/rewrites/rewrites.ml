@@ -3,6 +3,10 @@ open Ast
 open Util
 open Frontend
 
+
+let rec rewrite_expand_types (tp_expr: type_expr) : type_expr Rewriter.t = 
+  Typing.ProcessTypeExpr.expand_type_expr tp_expr
+
 let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
@@ -920,7 +924,8 @@ let rec rewrite_frac_field_types (symbol: Module.symbol) : Module.symbol Rewrite
     if is_field_an_ra then
       Rewriter.return symbol
     else
-      let field_underlying_tp = match f.field_type with
+      let* field_type = Typing.ProcessTypeExpr.expand_type_expr f.field_type in
+      let field_underlying_tp = match field_type with
         | App (Fld, [tp_expr], _) -> tp_expr
         | _ -> Error.type_error f.field_loc "Expected field identifier."
       in 
@@ -930,7 +935,7 @@ let rec rewrite_frac_field_types (symbol: Module.symbol) : Module.symbol Rewrite
 
       let instantiated_frac_module = 
         Module.ModInst {
-          mod_inst_name = Rewriter.ProgUtils.field_type_to_frac_mod_ident ~loc:f.field_loc f.field_type;
+          mod_inst_name = Rewriter.ProgUtils.field_type_to_frac_mod_ident ~loc:f.field_loc field_type;
           mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
           mod_inst_def = Some (Predefs.lib_frac_mod_qual_ident, [tp_module]);
           mod_inst_is_interface = false;
@@ -973,6 +978,7 @@ let rec rewrite_own_expr_4_arg (expr: Expr.t) : Expr.t Rewriter.t =
     in *)
 
     let field_type = Expr.to_type expr2 in
+    let* field_type = Typing.ProcessTypeExpr.expand_type_expr field_type in
 
     let+ expr3 =
       begin 
@@ -1877,7 +1883,6 @@ let rec rewrite_assign_stmts (s: Stmt.t) : Stmt.t Rewriter.t =
   
     Rewriter.return s
     
-
 let rec rewrites_phase_1 (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m -> m "Rewrites.all_rewrites: Starting rewrites");
@@ -1918,7 +1923,7 @@ let rec rewrites_phase_2 (m: Module.t) : Module.t Rewriter.t =
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_new_fpu_stmt_heap_arg on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_new_fpu_stmt_heap_arg m in
-  
+
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_new_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_new_stmts m in
 
@@ -1962,6 +1967,9 @@ let rec rewrites_phase_2 (m: Module.t) : Module.t Rewriter.t =
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_make_heaps_explicit on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m in
+
+  let* m = Rewriter.Module.rewrite_types ~f:rewrite_expand_types m in
+
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_ssa_transform on module %a: %a" Ident.pr m.mod_decl.mod_decl_name Module.pr m);
   let* m = 

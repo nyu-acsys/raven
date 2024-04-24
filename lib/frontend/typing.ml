@@ -51,10 +51,10 @@ module ProcessTypeExpr = struct
   
     | App ((Set | Fld) as constr, tp_list, tp_attr) ->
       (match tp_list with
-       | [tp_arg] ->
+        | [tp_arg] ->
          let+ tp_arg' = process_type_expr tp_arg in
          App (constr, [tp_arg'], tp_attr)
-      | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) constr 1
+        | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) constr 1
       )
 
     | App (Map, tp_list, tp_attr) ->
@@ -86,15 +86,21 @@ module ProcessTypeExpr = struct
     let open Rewriter.Syntax in
     match tp_expr with
     | App (constr, tp_expr_list, tp_attr) ->
-      match constr with
-      | Var qual_iden ->
+      match constr, tp_expr_list with
+      | Var qual_iden, [] ->
         (* Var types with args not supported. Polymorphic types need to be instantiated as separate modules before using. *)
         let* qual_ident, symbol = Rewriter.resolve_and_find (Type.to_loc tp_expr) qual_iden in
         let* qual_ident_def = Rewriter.Symbol.reify_type_def (Type.loc tp_expr) symbol in
         begin match qual_ident_def with
-          | None -> Rewriter.return @@ Type.App (Var qual_ident, tp_expr_list, tp_attr)
+          | None -> 
+            Rewriter.return @@ Type.App (Var qual_ident, tp_expr_list, tp_attr)
+          | Some (App (Data _, _, _)) -> 
+            Rewriter.return @@ Type.App (Var qual_ident, tp_expr_list, tp_attr)
           | Some tp_expr -> expand_type_expr tp_expr
         end
+      | Var qual_iden, _ ->
+        unexpected_functor_error tp_attr.type_loc
+
       | _ ->
         let+ expanded_tp_expr_list = Rewriter.List.map tp_expr_list ~f:expand_type_expr in
         Type.App (constr, expanded_tp_expr_list, tp_attr)

@@ -1728,9 +1728,9 @@ module Callable = struct
     in
     let pr_call_mask ppf = function
       | None -> 
-        fprintf ppf "\nmask: (@[\<none\>@])" 
+        fprintf ppf "@\nmask: (@[ <none> @])" 
       | Some mask ->
-          fprintf ppf "\nmask: (@[<0>%a@])" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
+          fprintf ppf "@\nmask: (@[<0>%a@])" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
     in
     fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a%a@]@]" 
       kind 

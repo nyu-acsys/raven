@@ -590,8 +590,9 @@ module Stmt = struct
       { stmt with stmt_desc = Basic (Spec (sk, { spec with spec_form = new_spec_form; })); }
 
     | Assign assign ->
+      let* new_lhs = List.map assign.assign_lhs ~f in
       let+ new_expr = f assign.assign_rhs in
-      { stmt with stmt_desc = Basic (Assign { assign with assign_rhs = new_expr; }); }
+      { stmt with stmt_desc = Basic (Assign { assign_lhs = new_lhs; assign_rhs = new_expr; }); }
 
     | Bind bind_desc ->
       let* bind_lhs = List.map bind_desc.bind_lhs ~f in
@@ -908,7 +909,7 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rewrite_types ~f mdef : (Module.t, 'a) t_ext =
+  let rec rewrite_types ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
     let rewrite_symbol : Module.symbol -> Module.symbol t =
       let open Module in
@@ -938,6 +939,11 @@ module Module = struct
         let+ new_call_def = exit_callable new_call_def in
         
         CallDef new_call_def
+
+      | ModDef mod_def ->
+        let+ new_mod_def = rewrite_types ~f mod_def in
+        ModDef new_mod_def
+        
       | mem_def -> return mem_def
     in
     rewrite_symbols ~f:rewrite_symbol mdef
