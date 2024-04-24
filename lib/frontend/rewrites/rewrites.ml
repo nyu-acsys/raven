@@ -98,6 +98,7 @@ let rec rewrite_compr_expr (expr: expr) : expr Rewriter.t =
       call_decl_postcond = [postcond];
       call_decl_is_free = true;
       call_decl_is_auto = false;
+      call_decl_mask = None;
       call_decl_loc = Expr.to_loc expr;
     }
       
@@ -238,6 +239,7 @@ let rec rewrite_set_diff_expr (expr: expr) : expr Rewriter.t =
       call_decl_postcond = [postcond];
       call_decl_is_free = true;
       call_decl_is_auto = false;
+      call_decl_mask = None;
       call_decl_loc = Expr.to_loc expr;
     }
       
@@ -402,6 +404,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
         call_decl_postcond = loop_postcond;
         call_decl_is_free = false;
         call_decl_is_auto = false;
+        call_decl_mask = None;
         call_decl_loc = stmt.stmt_loc;
       }
     in
@@ -1101,73 +1104,6 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt: Stmt.t) : Stmt.t Rewriter.t =
   
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_fpu_stmt_heap_arg
 
-let rec expr_preds_mentioned (expr: Expr.t) : (QualIdent.t list) Rewriter.t =
-  let open Rewriter.Syntax in 
-  match expr with
-  | App (Var qual_ident, _, _) ->
-    let+ _, (_, symbol, _) = Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident in
-
-    (match symbol with
-    | CallDef c -> 
-      (match c.call_decl.call_decl_kind with
-      | Pred | Invariant -> [qual_ident]
-      | _ -> []
-      )
-    | _ -> []
-    )
-  | App (_, expr_list, _) ->
-    Rewriter.List.fold_right expr_list ~init:([]) ~f:(fun expr acc ->
-      let+ expr_predicates = expr_preds_mentioned expr in
-      (acc @ expr_predicates)
-    )
-
-  | Binder (_, _, _, expr, _) ->
-    expr_preds_mentioned expr
-
-let stmt_preds_mentioned (s: Stmt.t) : (QualIdent.t list) Rewriter.t = 
-  let open Rewriter.Syntax in
-  let rec stmt_preds_mentioned (s: Stmt.t) : (QualIdent.t list) Rewriter.t =
-    match s.stmt_desc with
-    | Block b -> 
-      let* block_preds = Rewriter.List.map b.block_body ~f:stmt_preds_mentioned in
-
-      Rewriter.return (List.concat block_preds)
-    
-    | Loop l ->
-      let* prebody_preds = stmt_preds_mentioned l.loop_prebody in
-      (* let* test_preds = expr_preds_mentioned l.loop_test in *)
-      let* postbody_preds = stmt_preds_mentioned l.loop_postbody in
-
-      (* Rewriter.return (prebody_preds @ test_preds @ postbody_preds) *)
-      Rewriter.return (prebody_preds @ postbody_preds)
-
-    | Cond c ->
-      (* let* test_preds = expr_preds_mentioned c.cond_test in *)
-      let* then_preds = stmt_preds_mentioned c.cond_then in
-      let* else_preds = stmt_preds_mentioned c.cond_else in
-
-      (* Rewriter.return (test_preds @ then_preds @ else_preds) *)
-      Rewriter.return (then_preds @ else_preds)
-
-    | Basic s ->
-      begin match s with
-      | Spec (_, sp) -> 
-        expr_preds_mentioned sp.spec_form
-      
-      | Use u ->
-        Rewriter.return [u.use_name]
-      
-      | _ -> Rewriter.return []
-      end
-
-    in
-
-  let* preds_list = stmt_preds_mentioned s in
-  let preds_list = List.dedup_and_sort preds_list ~compare:QualIdent.compare in
-
-  Rewriter.return preds_list
-
-
 let rewrite_add_predicate_validity_lemmas (c: Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
 
@@ -1224,6 +1160,7 @@ let rewrite_add_predicate_validity_lemmas (c: Callable.t) : Callable.t Rewriter.
         call_decl_postcond = [postcond];
         call_decl_is_free = false;
         call_decl_is_auto = false;
+        call_decl_mask = None;
         call_decl_loc = c.call_decl.call_decl_loc;
       }
 
@@ -1246,13 +1183,11 @@ let rewrite_add_predicate_validity_lemmas (c: Callable.t) : Callable.t Rewriter.
   | _ -> Rewriter.return c
 
 
-
-
 module AtomicityAnalysis = struct
   type au_token = { 
     token: QualIdent.t; 
     callable: QualIdent.t; 
-    callable_args: expr list; 
+    callable_args: expr list;
     implicit_bound_vars: expr list; 
   }
 
@@ -1265,6 +1200,7 @@ module AtomicityAnalysis = struct
     au_opened: au_token list;
     invs_opened: invs list;
     atomic_step_taken: bool;
+    mask: QualIdentSet.t;
   }
 
   let take_atomic_step ~loc (state: atomicity_check) : atomicity_check =
@@ -1282,10 +1218,16 @@ module AtomicityAnalysis = struct
       Error.error loc "Cannot take a non-atomic step inside an atomic block"
 
   let open_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
-    if List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal)) then
+    if 
+      List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal)) ||
+      not (Set.exists atomicity_state.mask ~f:(fun mask -> QualIdent.(mask = inv_name)))
+    then
       Error.error loc "Invariant already opened"
     else
-    { atomicity_state with invs_opened = { inv_name; inv_args} :: atomicity_state.invs_opened }
+      { atomicity_state with 
+        invs_opened = { inv_name; inv_args} :: atomicity_state.invs_opened; 
+        mask = Set.remove atomicity_state.mask inv_name
+      }
 
   let close_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
     if not (List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) then
@@ -1293,10 +1235,12 @@ module AtomicityAnalysis = struct
     else
     let invs_opened = List.filter atomicity_state.invs_opened ~f:(fun inv -> not (QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) in
 
+    let mask = Set.add atomicity_state.mask inv_name in
+
     if List.is_empty invs_opened && List.is_empty atomicity_state.au_opened then
-      { atomicity_state with invs_opened; atomic_step_taken = false }
+      { atomicity_state with invs_opened; mask; atomic_step_taken = false }
     else
-      { atomicity_state with invs_opened }
+      { atomicity_state with invs_opened; mask }
 
   let open_au ~loc (token, callable, callable_args, implicit_bound_vars) atomicity_state : atomicity_check =
     if List.exists atomicity_state.au_opened ~f:(fun au -> QualIdent.(au.token = token)) then
@@ -1462,27 +1406,32 @@ module AtomicityAnalysis = struct
           | _ -> Error.error stmt.stmt_loc "Expected a call_def"
         ) in
 
-        let* is_call_lhs_ghost = (Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
-          let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
-          (match symbol with
-          | VarDef v -> Rewriter.return v.var_decl.var_ghost
-          | _ -> Error.error stmt.stmt_loc "Expected a var_def"
-          )
-        ))
-        in
+        if not (Set.is_subset (Option.value_exn call_decl.call_decl_mask) ~of_:atomicity_state.mask) then
+          Error.error stmt.stmt_loc "Cannot call callable; invariant mask not satisfied"
 
-        if is_call_lhs_ghost then
-          Rewriter.return stmt
-        else if ghost_block then
-          Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block"
-        else if Callable.is_atomic call_decl then
-          let atomicity_state = take_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in
-          Rewriter.return stmt
         else
-          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in
-          Rewriter.return stmt
+
+          (let* is_call_lhs_ghost = (Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
+            let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+            (match symbol with
+            | VarDef v -> Rewriter.return v.var_decl.var_ghost
+            | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+            )
+          ))
+          in
+
+          if is_call_lhs_ghost then
+            Rewriter.return stmt
+          else if ghost_block then
+            Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block"
+          else if Callable.is_atomic call_decl then
+            let atomicity_state = take_atomic_step ~loc atomicity_state in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            Rewriter.return stmt
+          else
+            let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            Rewriter.return stmt)
 
       | Basic (Return return_expr) ->
         if ghost_block then
@@ -1686,6 +1635,21 @@ module AtomicityAnalysis = struct
     else
       Error.error stmt.stmt_loc "Unclosed AU token or invariant"
 
+
+  let rewrite_atomicity_analysis (c: Callable.t) : Callable.t Rewriter.t =
+    let open Rewriter.Syntax in
+    let* scope_id = Rewriter.current_scope_id in
+    Logs.debug (fun m -> m "Rewrites.rewrite_atomicity_analysis: Rewriting atomicity analysis for callable: %a" QualIdent.pr scope_id);
+    let+ c = Rewriter.eval_with_user_state ~init: {
+      au_opened = []; 
+      invs_opened = []; 
+      atomic_step_taken = false; 
+      mask = (Option.value c.call_decl.call_decl_mask ~default:(Set.empty (module QualIdent)))
+    }
+      (Rewriter.Callable.rewrite_stmts ~f:(rewrite_au_cmnds ~ghost_block:false) c) 
+    in 
+
+    c
 end
 
 
@@ -1700,7 +1664,7 @@ let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
     Rewriter.return c
   
   | ProcDef {proc_body = Some body} -> 
-    let* preds_list = stmt_preds_mentioned body in
+    let* preds_list = Rewriter.ProgUtils.stmt_preds_mentioned body in
     let fields_list = Stmt.stmt_fields_accessed body in
     let au_preds_list = Set.to_list (Stmt.stmt_au_preds_referenced body) in
 
@@ -1710,9 +1674,6 @@ let rewrite_introduce_heaps (c: Callable.t) : Callable.t Rewriter.t =
 
     Rewriter.return { c with call_def = ProcDef { proc_body = Some body; } }
   
-
-    
-
 let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_ext =
   let open Rewriter.Syntax in
 
@@ -1917,7 +1878,7 @@ let rec rewrite_assign_stmts (s: Stmt.t) : Stmt.t Rewriter.t =
     Rewriter.return s
     
 
-let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
+let rec rewrites_phase_1 (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m -> m "Rewrites.all_rewrites: Starting rewrites");
 
@@ -1930,14 +1891,15 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_loops on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
 
+  Rewriter.return m
+
+let rec rewrites_phase_2 (m: Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_atomic_callable_token on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_atomic_callable_token m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_au_cmnds on module %a" Ident.pr m.mod_decl.mod_decl_name);
-  let* m =
-    Rewriter.eval_with_user_state ~init:{AtomicityAnalysis.au_opened = []; invs_opened = []; atomic_step_taken = false}
-    (Rewriter.Module.rewrite_stmts ~f:(AtomicityAnalysis.rewrite_au_cmnds ~ghost_block:false) m) 
-  in 
+  let* m = Rewriter.Module.rewrite_callables ~f:AtomicityAnalysis.rewrite_atomicity_analysis m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_fold_unfold_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
@@ -2009,17 +1971,19 @@ let rec all_rewrites (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_assign_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_assign_stmts m in
 
-
-  (* TODO: havoc return vars before inhaling *)
-
   let* tbl = Rewriter.get_table in
   (* Logs.debug (fun m -> m "Rewrites.all_rewrites: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
 
   Rewriter.return m
 
-
-
 let process_module ?(tbl = SymbolTbl.create ()) (m: Module.t) = 
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  Rewriter.eval (all_rewrites m) tbl
+
+  let tbl, m = Rewriter.eval (rewrites_phase_1 m) tbl in
+
+  let tbl, m = Rewriter.eval (Masks.compute_masks m) tbl in
+
+  let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
+
+  tbl, m

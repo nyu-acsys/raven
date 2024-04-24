@@ -11,7 +11,11 @@ Atomic Commands Test
   Verification successful.
 
   $ dune exec -- ../../../bin/raven.exe --shh ./test4.rav
-  Verification successful.
+  [Error] File "./test4.rav", line 14, columns 2-17:
+  14 |   unfold p2(1+1);
+         ^^^^^^^^^^^^^^^
+  Error: Invariant already opened
+  [1]
 
   $ dune exec -- ../../../bin/raven.exe --shh ./fail/fail1.rav
   [Error] File "./fail/fail1.rav", line 8, column 0 to line 23, column 1:

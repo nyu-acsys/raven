@@ -257,6 +257,7 @@ open Frontend
       call_decl_is_free = false;
       call_decl_is_auto = false;
       call_decl_loc = loc;
+      call_decl_mask = Some (Set.empty (module QualIdent));
     }
       
     in
@@ -335,6 +336,8 @@ open Frontend
       call_decl_loc = loc;
       call_decl_is_free = false;
       call_decl_is_auto = false;
+      call_decl_mask = Some (Set.empty (module QualIdent));
+
     }
 
     in
@@ -444,6 +447,7 @@ open Frontend
             call_decl_is_free = true;
             call_decl_is_auto = false;
             call_decl_loc = loc;
+            call_decl_mask = Some (Set.empty (module QualIdent));
           } in
 
           let l_var_decl = 
@@ -496,6 +500,7 @@ open Frontend
             call_decl_is_free = true;
             call_decl_is_auto = false;
             call_decl_loc = loc;
+            call_decl_mask = Some (Set.empty (module QualIdent));
           } in
 
           let heap_add_chunk_fn = {
@@ -527,6 +532,7 @@ open Frontend
             call_decl_postcond = [];
             call_decl_is_free = true;
             call_decl_is_auto = false;
+            call_decl_mask = Some (Set.empty (module QualIdent));
             call_decl_loc = loc;
           } in
 
@@ -558,6 +564,7 @@ open Frontend
             call_decl_postcond = [];
             call_decl_is_free = true;
             call_decl_is_auto = false;
+            call_decl_mask = Some (Set.empty (module QualIdent));
             call_decl_loc = loc;
           } in
 

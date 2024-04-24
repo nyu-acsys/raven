@@ -772,9 +772,17 @@ module Callable = struct
 
   let rewrite_scoped ~f callable =
     let open Syntax in
-    let* _ = enter_callable callable in
+    Logs.debug (fun m -> m "Rewriter.Callable.rewrite_scoped: callable = %a" Callable.pr callable);
+    (* rewrite_scoped assumes the callable will always be opened BEFORE any Callable.rewrite_ call. 
+       This is ensured in all the Module.rewrite_ methods.
+
+       Therefore, no need to call enter_callable or exit_callable here.
+    *)
+    
+    Logs.debug (fun m -> m "Rewriter.Callable.rewrite_scoped: entered callable");
     let* callable = f callable in
-    exit_callable callable    
+
+    return callable
   
   let rewrite_expressions ~f callable =
     rewrite_scoped ~f:(rewrite_expressions_top ~fe:f ~fs:(Stmt.rewrite_expressions ~f)) callable
@@ -869,7 +877,11 @@ module Module = struct
         let+ new_var_init = Option.map var_def.var_init ~f in
         VarDef { var_def with var_init = new_var_init }
       | CallDef call_def ->
-        let+ new_call_def = Callable.rewrite_expressions ~f call_def in
+        let* _ = enter_callable call_def in
+
+        let* new_call_def = Callable.rewrite_expressions ~f call_def in
+        let+ new_call_def = exit_callable new_call_def in
+
         CallDef new_call_def
       | ModDef mod_def ->
         let+ new_mod_def = rewrite_expressions ~f mod_def in
@@ -883,7 +895,11 @@ module Module = struct
     let open Module in
     let rewrite_symbol = function
       | CallDef call_def ->
-        let+ new_call_def = Callable.rewrite_stmts ~f call_def in
+        let* _ = enter_callable call_def in
+
+        let* new_call_def = Callable.rewrite_stmts ~f call_def in
+        let+ new_call_def = exit_callable new_call_def in
+
         CallDef new_call_def
       | ModDef mod_def ->
         let+ new_mod_def = rewrite_stmts ~f mod_def in
@@ -916,7 +932,11 @@ module Module = struct
         let+ field_type = f field_def.field_type in
         FieldDef { field_def with field_type }
       | CallDef call_def ->
-        let+ new_call_def = Callable.rewrite_types ~f call_def in
+        let* _ = enter_callable call_def in
+
+        let* new_call_def = Callable.rewrite_types ~f call_def in
+        let+ new_call_def = exit_callable new_call_def in
+        
         CallDef new_call_def
       | mem_def -> return mem_def
     in
@@ -972,7 +992,11 @@ module Module = struct
         let+ field_type = Type.rewrite_qual_idents ~f field_def.field_type in
         FieldDef { field_def with field_type }
       | CallDef call_def ->
-        let+ new_call_def = Callable.rewrite_qual_idents ~f call_def in
+        let* _ = enter_callable call_def in
+
+        let* new_call_def = Callable.rewrite_qual_idents ~f call_def in
+        let+ new_call_def = exit_callable new_call_def in
+
         CallDef new_call_def
       | ModDef mod_def ->
         let+ new_mod_def = rewrite_qual_idents ~f mod_def in
@@ -1658,5 +1682,72 @@ module ProgUtils = struct
       )
 
     | _ -> Error.error (AstDef.QualIdent.to_loc qual_ident) "Rewriter.ProgUtils.get_data_destrs_from_constr: Expected a constructor definition"
+
+
+  let rec expr_preds_mentioned (expr: AstDef.Expr.t) : ((QualIdent.t list), 'a) t_ext =
+  let open Syntax in 
+  match expr with
+  | App (Var qual_ident, _, _) ->
+    let+ _, (_, symbol, _) = resolve_and_find (AstDef.Expr.to_loc expr) qual_ident in
+
+    (match symbol with
+    | CallDef c -> 
+      (match c.call_decl.call_decl_kind with
+      | Pred | Invariant -> [qual_ident]
+      | _ -> []
+      )
+    | _ -> []
+    )
+  | App (_, expr_list, _) ->
+    List.fold_right expr_list ~init:([]) ~f:(fun expr acc ->
+      let+ expr_predicates = expr_preds_mentioned expr in
+      (acc @ expr_predicates)
+    )
+
+  | Binder (_, _, _, expr, _) ->
+    expr_preds_mentioned expr
   
+  let stmt_preds_mentioned (s: AstDef.Stmt.t) : ((QualIdent.t list), 'a) t_ext = 
+    let open Syntax in
+    let rec stmt_preds_mentioned (s: AstDef.Stmt.t) : (QualIdent.t list) t =
+      match s.stmt_desc with
+      | Block b -> 
+        let* block_preds = List.map b.block_body ~f:stmt_preds_mentioned in
+  
+        return (Base.List.concat block_preds)
+      
+      | Loop l ->
+        let* prebody_preds = stmt_preds_mentioned l.loop_prebody in
+        (* let* test_preds = expr_preds_mentioned l.loop_test in *)
+        let* postbody_preds = stmt_preds_mentioned l.loop_postbody in
+  
+        (* return (prebody_preds @ test_preds @ postbody_preds) *)
+        return (prebody_preds @ postbody_preds)
+  
+      | Cond c ->
+        (* let* test_preds = expr_preds_mentioned c.cond_test in *)
+        let* then_preds = stmt_preds_mentioned c.cond_then in
+        let* else_preds = stmt_preds_mentioned c.cond_else in
+  
+        (* return (test_preds @ then_preds @ else_preds) *)
+        return (then_preds @ else_preds)
+  
+      | Basic s ->
+        begin match s with
+        | Spec (_, sp) -> 
+          expr_preds_mentioned sp.spec_form
+        
+        | Use u ->
+          return [u.use_name]
+        
+        | _ -> return []
+        end
+  
+      in
+  
+    let* preds_list = stmt_preds_mentioned s in
+    let preds_list = Base.List.dedup_and_sort preds_list ~compare:QualIdent.compare in
+  
+    return preds_list
+    
 end

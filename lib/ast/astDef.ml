@@ -1687,6 +1687,7 @@ module Callable = struct
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
     call_decl_is_auto : bool;
+    call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
     call_decl_loc : location;  (** source location of declaration *)
   }
 
@@ -1725,13 +1726,20 @@ module Callable = struct
       | ls ->
           fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
     in
-    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a@]@]" 
+    let pr_call_mask ppf = function
+      | None -> 
+        fprintf ppf "\nmask: (@[\<none\>@])" 
+      | Some mask ->
+          fprintf ppf "\nmask: (@[<0>%a@])" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
+    in
+    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a%a@]@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
       pr_returns call_decl.call_decl_returns 
       pr_call_decl_specs call_decl
       pr_call_locals call_decl.call_decl_locals
+      pr_call_mask call_decl.call_decl_mask
 
   let pr ppf def =
     let open Stdlib.Format in
