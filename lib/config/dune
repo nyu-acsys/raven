@@ -1,3 +1,3 @@
 (library
-  (name config)
-  (libraries base logs))
+ (name config)
+ (libraries base logs))

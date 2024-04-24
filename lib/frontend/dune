@@ -1,7 +1,8 @@
 (library
-  (name frontend)
-  (libraries base ast)
-  (preprocess (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
+ (name frontend)
+ (libraries base ast)
+ (preprocess
+  (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
 
 ; (library
 ;   (name rewrites)
@@ -9,7 +10,8 @@
 ; )
 
 (ocamllex
-  (modules lexer))
-(menhir (modules parser)
-  (flags --explain)
-  )
+ (modules lexer))
+
+(menhir
+ (modules parser)
+ (flags --explain))
