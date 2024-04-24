@@ -549,6 +549,7 @@ module Expr = struct
     (* Ternary operators *)
     | Ite
     | Own
+    | Cas
     | AUPred of QualIdent.t
     | AUPredCommit of QualIdent.t
     (* Variable arity operators *)
@@ -599,6 +600,7 @@ module Expr = struct
     | DataDestr id -> QualIdent.to_string id
     (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
     | Read -> "read"
+    | Cas -> "cas"
     | Uminus -> "-"
     | TupleLookUp -> "tuple_lookup"
     | MapLookUp -> "map_lookup"
@@ -637,7 +639,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
+    | Setenum | Tuple | Read | Cas | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
@@ -715,8 +717,8 @@ module Expr = struct
     | Binder (b, vs, trgs, e1, _) ->
         fprintf ppf "%a" pr_binder (b, vs, trgs, e1, to_type e)
 
-  and pr ppf e = pr_compact ppf e
-  (* and pr ppf e = pr_verbose ppf e *)
+  (* and pr ppf e = pr_compact ppf e *)
+  and pr ppf e = pr_verbose ppf e
 
   and pr_list ppf = Print.pr_list_comma pr ppf
 

@@ -21,7 +21,7 @@ open Ast
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
 %token HAVOC NEW RETURN OWN AU
-%token IF ELSE WHILE
+%token IF ELSE WHILE CAS
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
@@ -623,6 +623,7 @@ primary:
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
+| e = cas_expr { e }
 | e = au_expr { e }
 | e = lookup_expr { e }
 ;
@@ -656,6 +657,11 @@ dot_expr:
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Own es)
+}
+
+cas_expr:
+| CAS; LPAREN; es = expr_list; RPAREN {
+  Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Cas es)
 }
 
 au_expr:

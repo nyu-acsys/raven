@@ -482,7 +482,35 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       check_and_set expr given_typ given_typ expected_typ
 
     | DataDestr _, _ -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly one argument"))
-
+    
+    (* Cas expressions *)
+    | Cas, [expr1; expr2; expr3] ->
+      begin match expr1 with
+      | App(Read, [expr11; App (Var qual_ident, [], expr_attr')], expr_attr'') ->
+        let* qual_ident, symbol = 
+          Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
+        in
+        let* symbol = Rewriter.Symbol.reify symbol in
+        begin match symbol with
+        | FieldDef { field_type = (App(Fld, [given_type], _) as tp) ; _ } ->
+          let* expanded_type = ProcessTypeExpr.expand_type_expr given_type in 
+          if Type.(expanded_type = int || expanded_type = bool || expanded_type = ref) then  
+            let* expr11 = process_expr expr11 Type.ref in
+            let expr12 = Expr.App (Var qual_ident, [], expr_attr') in
+            let expr12 = Expr.set_type expr12 tp in
+            let* expr2 = process_expr expr2 given_type in
+            let* expr3 = process_expr expr3 given_type in
+            let expr1 = Expr.App(Read, [expr11; expr12], expr_attr'') in
+            let expr1 = Expr.set_type expr1 given_type in
+            let expr = Expr.App(Cas, [expr1; expr2; expr3], expr_attr) in
+            check_and_set expr Type.bool Type.bool expected_typ 
+          else Error.type_error (Expr.to_loc expr) ("CAS only allowed over int, bool and ref; but found " ^ Type.to_string given_type)
+        | _ -> Error.type_error (Expr.to_loc expr) ("Expected field identifier, but found " ^ QualIdent.to_string qual_ident)
+        end
+      | _ -> Error.type_error (Expr.to_loc expr) ("Incorrect type in the first argument of " ^ Expr.constr_to_string constr)
+      end
+    
+    | Cas, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes exactly three arguments"))
 
     (* Read expressions *)
     | Read, [expr1; App (Var qual_ident, [], expr_attr')] ->

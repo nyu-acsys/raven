@@ -1,6 +1,7 @@
 open Smt_solver
 open Ast
 open Base
+open Ast
 (* open Frontend *)
 open SmtLibAST
 open Util
