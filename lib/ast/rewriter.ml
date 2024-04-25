@@ -590,8 +590,9 @@ module Stmt = struct
       { stmt with stmt_desc = Basic (Spec (sk, { spec with spec_form = new_spec_form; })); }
 
     | Assign assign ->
+      let* new_lhs = List.map assign.assign_lhs ~f in
       let+ new_expr = f assign.assign_rhs in
-      { stmt with stmt_desc = Basic (Assign { assign with assign_rhs = new_expr; }); }
+      { stmt with stmt_desc = Basic (Assign { assign_lhs = new_lhs; assign_rhs = new_expr; }); }
 
     | Bind bind_desc ->
       let* bind_lhs = List.map bind_desc.bind_lhs ~f in
@@ -812,12 +813,19 @@ module Callable = struct
     rewrite_scoped ~f:(rewrite_expressions_top ~fe:id_expr_rewriter ~fs:f) callable 
 
   let rewrite_qual_idents ~f callable =
-    rewrite_scoped
+    let open Syntax in
+    let* callable = rewrite_scoped
       ~f:(rewrite_types_top
             ~ft:(Type.rewrite_qual_idents ~f)
             ~fe:(Expr.rewrite_qual_idents ~f)
             ~fs:(Stmt.rewrite_qual_idents ~f))
       callable
+
+    in
+
+    let call_decl_masks = Base.Option.map callable.call_decl.call_decl_mask ~f:((Base.Set.map (module QualIdent)) ~f) in
+    let callable = { callable with call_decl = { callable.call_decl with call_decl_mask = call_decl_masks } } in
+    return callable
 end
 
 module Module = struct
@@ -908,7 +916,7 @@ module Module = struct
     in
     rewrite_symbols ~f:rewrite_symbol mdef
 
-  let rewrite_types ~f mdef : (Module.t, 'a) t_ext =
+  let rec rewrite_types ~f mdef : (Module.t, 'a) t_ext =
     let open Syntax in
     let rewrite_symbol : Module.symbol -> Module.symbol t =
       let open Module in
@@ -938,6 +946,11 @@ module Module = struct
         let+ new_call_def = exit_callable new_call_def in
         
         CallDef new_call_def
+
+      | ModDef mod_def ->
+        let+ new_mod_def = rewrite_types ~f mod_def in
+        ModDef new_mod_def
+        
       | mem_def -> return mem_def
     in
     rewrite_symbols ~f:rewrite_symbol mdef

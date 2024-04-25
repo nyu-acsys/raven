@@ -1,0 +1,12 @@
+module M {
+  type T = Int
+
+  field f: T
+
+
+  proc p(x: T) {
+    var y: Ref;
+    y := new(f: 1);
+    x := 1;
+  }
+}
