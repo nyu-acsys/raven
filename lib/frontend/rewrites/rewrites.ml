@@ -582,7 +582,7 @@ let rec rewrite_new_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
 
 
-(** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. Need to ensure that atomicity checks have been done before calling this rewrite *)
+(** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. *)
 let rec rewrite_fold_unfold_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
@@ -1228,7 +1228,7 @@ module AtomicityAnalysis = struct
       List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal)) ||
       not (Set.exists atomicity_state.mask ~f:(fun mask -> QualIdent.(mask = inv_name)))
     then
-      Error.error loc "Invariant already opened"
+      Error.error loc "Cannot open invariant; invariant already opened or not in mask."
     else
       { atomicity_state with 
         invs_opened = { inv_name; inv_args} :: atomicity_state.invs_opened; 

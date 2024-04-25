@@ -813,12 +813,19 @@ module Callable = struct
     rewrite_scoped ~f:(rewrite_expressions_top ~fe:id_expr_rewriter ~fs:f) callable 
 
   let rewrite_qual_idents ~f callable =
-    rewrite_scoped
+    let open Syntax in
+    let* callable = rewrite_scoped
       ~f:(rewrite_types_top
             ~ft:(Type.rewrite_qual_idents ~f)
             ~fe:(Expr.rewrite_qual_idents ~f)
             ~fs:(Stmt.rewrite_qual_idents ~f))
       callable
+
+    in
+
+    let call_decl_masks = Base.Option.map callable.call_decl.call_decl_mask ~f:((Base.Set.map (module QualIdent)) ~f) in
+    let callable = { callable with call_decl = { callable.call_decl with call_decl_mask = call_decl_masks } } in
+    return callable
 end
 
 module Module = struct

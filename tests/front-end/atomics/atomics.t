@@ -14,7 +14,7 @@ Atomic Commands Test
   [Error] File "./test4.rav", line 14, columns 2-17:
   14 |   unfold p2(1+1);
          ^^^^^^^^^^^^^^^
-  Error: Invariant already opened
+  Error: Cannot open invariant; invariant already opened or not in mask.
   [1]
 
   $ dune exec -- ../../../bin/raven.exe --shh ./fail/fail1.rav
