@@ -1049,18 +1049,13 @@ module Stmt = struct
     spec_form : expr;
     spec_atomic : bool;
     spec_comment : string option;
-    spec_error : (qual_ident -> string * string) option;
+    spec_error : (qual_ident -> Error.t) list;
   }
 
-  let mk_const_spec_error (err_str: string) = (fun id -> (err_str, QualIdent.to_string id))
+  let mk_const_spec_error error = (fun _ -> error)
 
   let spec_error_msg spec call_id =
-    match spec.spec_error with
-    | None -> None
-    | Some f -> 
-      let s1, s2 = (f call_id) in
-      (* Some (s1 ^ "\nIn callable:" ^ s2) *)
-      Some (s1)
+    List.map ~f:(fun msg -> msg call_id) spec.spec_error
 
   type var_def = { var_decl : var_decl; var_init : expr option }
 
@@ -1302,7 +1297,7 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_assume_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
@@ -1316,7 +1311,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_inhale_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
@@ -1330,7 +1325,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_exhale_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
@@ -1344,7 +1339,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_assert_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
@@ -1377,7 +1372,7 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = None) e = 
+  let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = []) e = 
     {
       spec_form = e;
       spec_atomic = atomic;

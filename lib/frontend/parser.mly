@@ -67,7 +67,7 @@ module_def:
   | ModInst ma ->
   (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
-        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) (Some "Expected {")
+        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
       else
         let mod_inst_type =
           match decl.mod_decl_returns, ma.mod_inst_def with
@@ -75,7 +75,7 @@ module_def:
         | None, Some (mod_inst_type, _) -> mod_inst_type
         | None, None ->
             Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
-              (Some "Expected specification of interface implemented by this module")
+              ("Expected specification of interface implemented by this module")
         in
         ModInst { ma with
                   mod_inst_type;
@@ -332,7 +332,7 @@ contract:
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
-           spec_error = None;
+           spec_error = [];
          }
   in
   ([spec], [])
@@ -342,7 +342,7 @@ contract:
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
-           spec_error = None;
+           spec_error = [];
          }
   in
   ([], [spec])
@@ -399,7 +399,7 @@ stmt_wo_trailing_substmt:
   | Basic (New new_descr) ->
       (match es with
       | [Expr.App(Expr.Var x, _, _)] -> Basic (New { new_descr with new_lhs = x })
-      | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) (Some "Result of allocation must be assigned to a single variable"))
+      | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) ("Result of allocation must be assigned to a single variable"))
   | Basic (Assign assign) ->
       Basic (Assign { assign with assign_lhs = es })
   | _ -> assert false
@@ -424,7 +424,7 @@ stmt_wo_trailing_substmt:
   let spec = { spec_form = e;
                spec_atomic = false;
                spec_comment = None;
-               spec_error = None; }
+               spec_error = []; }
   in
   Basic (Spec (sk, spec))
 }
@@ -599,11 +599,20 @@ loop_contract_list:
 
 loop_contract:
 | INVARIANT; e = expr {
+  (*let loc = Expr.to_loc e in
+  let msg caller =
+    Error.Verification,
+    loc,
+    if caller = proc_name then
+      "This loop invariant may not hold on loop entry"
+    else 
+      "This loop invariant may not be maintained by the loop"
+  in*)
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = false;
            spec_comment = None;
-           spec_error = None;
+           spec_error = [];
          }
   in
   spec

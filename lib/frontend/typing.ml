@@ -125,7 +125,7 @@ let check_and_set (expr: expr) (given_typ_lb: type_expr) (given_typ_ub: type_exp
     try
       ProcessTypeExpr.expand_type_expr given_typ_lb
     with
-    | Msg(lbl, _loc, msg) -> Error.fail ?lbl (Expr.to_loc expr) msg
+    | Msg msgs -> Error.fail_with (List.map msgs ~f:(fun (lbl, _loc, msg) -> lbl, Expr.to_loc expr, msg))
   and+ given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub
   and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ in
   let typ = Type.meet given_typ_ub expected_typ in
@@ -1439,7 +1439,6 @@ module ProcessModule = struct
           type_def_expr = Some tp_expr;
         }
       in
-
       Module.TypeDef type_def
 
   let process_field (field: Module.field_def) : Module.symbol Rewriter.t=
@@ -1463,7 +1462,6 @@ module ProcessModule = struct
       in
 
       let field = { field with field_type = tp_expr } in
-
       Module.(FieldDef field)
 
   
@@ -1801,7 +1799,7 @@ module ProcessModule = struct
               Option.map_or_else 
                 ~m:(fun _ ->
                     Error.syntax_error type_def.type_def_loc
-                      (Some (Printf.sprintf !"Found more than one rep type in module %{Ident}" m.mod_decl.mod_decl_name)))
+                      (Printf.sprintf !"Found more than one rep type in module %{Ident}" m.mod_decl.mod_decl_name))
                 ~e:(fun () -> Some type_def.type_def_name) () rep_type
             | _ -> rep_type)
     in

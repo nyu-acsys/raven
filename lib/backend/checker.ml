@@ -83,7 +83,7 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
         (* Rewriter.return () *)
         | false -> 
           let* curr_callable = Rewriter.current_scope_id in
-          Error.smt_error stmt.stmt_loc (Option.value (Stmt.spec_error_msg spec curr_callable) ~default:"Assertion is not valid")
+          Error.fail_with (Stmt.spec_error_msg spec curr_callable)
           (* match (Stmt.spec_error_msg spec curr_callable) with
           | None -> Error.smt_error stmt.stmt_loc "Assertion is not valid"
           | Some e -> 
@@ -116,7 +116,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let cmd = 
         SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name 
         (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
-        (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
+        (Ast.Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
 
       let post_cond_expr =  
         let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
@@ -154,12 +154,12 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let cmd = 
         SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name 
         (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
-        (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
+        (Ast.Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
 
       and spec_expr = 
 
          (Expr.mk_binder Forall (call_decl.call_decl_formals) 
-          ~trigs: [[(Expr.mk_app ~typ:Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
+          ~trigs: [[(Expr.mk_app ~typ:Ast.Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
             (Expr.mk_eq 
               (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
@@ -273,7 +273,7 @@ let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
       let* symbol = Rewriter.find_and_reify (Loc.dummy) qual_name in
       begin match symbol with
       | CallDef callable -> 
-        check_callable qual_name callable
+        check_callable qual_name callable 
       | TypeDef typ -> 
         define_type qual_name typ
       | VarDef var_def ->

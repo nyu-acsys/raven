@@ -143,7 +143,7 @@ rule token = parse
     { try
       Hashtbl.find operator_table op
     with Not_found ->
-      lexical_error lexbuf (Some("Unknown operator: " ^ op))
+      lexical_error lexbuf ("Unknown operator: " ^ op)
   }
 | '#' (digit_char+ as num) { HASH(Int64.of_string num) }
 | ident as name '^' (digit_char+ as num) { IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num)) }
@@ -162,7 +162,7 @@ rule token = parse
 | digits as num { CONSTVAL (Expr.Int (Int64.of_string num)) }
 | float as num { CONSTVAL (Expr.Real (Float.of_string num)) }
 | eof { EOF }
-| _ { lexical_error lexbuf None }
+| _ { lexical_error lexbuf "Unexpected character" }
 
 and comments level = parse
 | "*/" { if level = 0 then token lexbuf

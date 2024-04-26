@@ -13,7 +13,7 @@ let parse_cu top_level_md_ident file_name =
     with Parser.Error ->
       Stdio.In_channel.close inchan;
       let err_pos = lexbuf.lex_curr_p in
-      Error.syntax_error (Loc.make err_pos err_pos) None
+      Error.syntax_error (Loc.make err_pos err_pos) "Parse error"
   in
   Stdio.In_channel.close inchan;
   Ast.Module.set_name md top_level_md_ident
@@ -117,8 +117,8 @@ let main () input_files no_greeting =
       Logs.err (fun m -> m "%s" s);
       Logs.debug (fun m -> m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
       Stdlib.exit 1 (* `Error (false, s) <- duplicates error output *)
-  | Error.Msg e ->
-      Logs.err (fun m -> m !"%{Error}" e);
+  | Error.Msg es ->
+      List.iter es ~f:(fun e -> Logs.err (fun m -> m !"%{Error}" e));
       Logs.debug (fun m -> m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
       Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
 

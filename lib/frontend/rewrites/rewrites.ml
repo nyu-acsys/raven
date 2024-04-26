@@ -3,6 +3,66 @@ open Ast
 open Util
 open Frontend
 
+let rec rewrite_stmt_error_msg call_id (stmt: Stmt.t): Stmt.t Rewriter.t =
+  match stmt.stmt_desc with
+  | Basic (Spec ((Assert | Exhale as kind), spec)) ->
+    let error =
+      Error.Verification,
+      Expr.to_loc spec.spec_form, 
+      match kind with
+      | Assert -> "This assertion may be violated"
+      | _ -> "Possibly insufficient permissions to exhale this assertion"
+    in
+    let spec_error = [Stmt.mk_const_spec_error error] in
+    Rewriter.return { stmt with stmt_desc = Basic (Spec (kind, { spec with spec_error })) }
+  | Loop loop_desc ->
+    let loop_contract =
+      List.map loop_desc.loop_contract ~f:(fun spec ->
+          let error callee =
+            Error.Verification, Expr.to_loc spec.spec_form,
+            if Ident.(QualIdent.unqualify callee = call_id) then
+              "This loop invariant may not hold upon loop entry"
+            else 
+              "This loop invariant may not be maintained"
+          in
+          { spec with spec_error = [error] }
+        )
+    in
+    let stmt = { stmt with stmt_desc = Loop { loop_desc with loop_contract } } in
+    Rewriter.Stmt.descend ~f:(rewrite_stmt_error_msg call_id) stmt
+  | _ -> Rewriter.Stmt.descend ~f:(rewrite_stmt_error_msg call_id) stmt
+
+let rewrite_callable_error_msg (call: Callable.t): Callable.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let call_decl = call |> Callable.to_decl in
+  let call_decl_postcond =
+    List.map call_decl.call_decl_postcond
+      ~f:(fun spec ->
+          let error =
+            Error.RelatedLoc, spec.spec_form |> Expr.to_loc,
+            "This is the postcondition that may not hold"
+          in
+          { spec with spec_error = [Stmt.mk_const_spec_error error] }
+        )
+  in
+  let call_decl_precond =
+    List.map call_decl.call_decl_precond
+      ~f:(fun spec ->
+          let error =
+            Error.RelatedLoc, spec.spec_form |> Expr.to_loc,
+            "This is the precondition that may not hold"
+          in
+          { spec with spec_error = [Stmt.mk_const_spec_error error] }
+        )
+  in
+  let call_decl = { call_decl with call_decl_postcond; call_decl_precond } in
+  let+ call_def = match call.call_def with
+    | ProcDef { proc_body = Some stmt } ->
+      let+ body = rewrite_stmt_error_msg call_decl.call_decl_name stmt in
+      Callable.ProcDef { proc_body = Some body }
+    | _ -> Rewriter.return call.call_def
+  in
+  Callable.{ call_decl; call_def }
 
 let rec rewrite_expand_types (tp_expr: type_expr) : type_expr Rewriter.t = 
   Typing.ProcessTypeExpr.expand_type_expr tp_expr
@@ -518,14 +578,22 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
         let concrete_args = List.filter callable_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
         let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
+
+        let error =
+          Error.Verification, stmt.stmt_loc, "The atomic specification may not have been committed before reaching this return point"
+        in
         
-        [Stmt.mk_exhale_expr ~cmnt:(Some "au_return_stmt") ~loc:(Stmt.loc stmt) ~spec_error:(Stmt.mk_const_spec_error "Could not prove atomic postcondition at return stmt.") (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (Expr.AUPredCommit curr_proc_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr]))]
+        [Stmt.mk_exhale_expr ~cmnt:(Some "au_return_stmt") ~loc:(Stmt.loc stmt) ~spec_error:[Stmt.mk_const_spec_error error] (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (Expr.AUPredCommit curr_proc_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr]))]
 
       else
         List.map postconds_spec ~f:(fun spec ->
         let expr = Expr.alpha_renaming spec.spec_form renaming_map in
+
+        let error =
+          Error.Verification, stmt.stmt_loc, "A postcondition may not hold at this return point"
+        in
         
-        Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)) ~spec_error:(Stmt.mk_const_spec_error "Could not prove postconditions at return stmt.") expr) 
+        Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)) ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error) expr)
     in
 
     let assume_false = Stmt.mk_assume_expr ~loc:stmt.stmt_loc (Expr.mk_bool ~loc:stmt.stmt_loc false) in
@@ -639,13 +707,18 @@ let rec rewrite_fold_unfold_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
     let new_stmt = 
       let inhale_stmt, exhale_stmt =
         match use_desc.use_kind with
-        | Fold -> 
+        | Fold ->
           Stmt.mk_inhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("fold : " ^ Expr.to_string pred_expr)) pred_expr, 
-          Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("fold : " ^ Expr.to_string pred_expr)) ~spec_error:(Stmt.mk_const_spec_error "Could not prove predicate body for fold stmt.") body_expr
+          let error =
+            Error.Verification, stmt.stmt_loc, "Failed to fold predicate. The body of the predicate may not hold at this point"
+          in
+          Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("fold : " ^ Expr.to_string pred_expr)) ~spec_error:[Stmt.mk_const_spec_error error] body_expr
         | Unfold -> 
           Stmt.mk_inhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("unfold : " ^ Expr.to_string pred_expr)) body_expr,
-          Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("unfold : " ^ Expr.to_string pred_expr)) ~spec_error:(Stmt.mk_const_spec_error "Could not exhale predicate for unfold stmt.") pred_expr 
-
+          let error =
+            Error.Verification, stmt.stmt_loc, "Failed to unfold predicate. The predicate may not hold at this point"
+          in
+          Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("unfold : " ^ Expr.to_string pred_expr)) ~spec_error:[Stmt.mk_const_spec_error error] pred_expr 
         | _ -> assert false
       in
 
@@ -748,17 +821,25 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
         { spec with spec_form }
       in *)
 
+      let error =
+        Error.Verification, stmt.stmt_loc, "A precondition may not hold for this call"
+      in
+
       let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Assert stmt for Call: " ^ Stmt.to_string stmt))
-        ~spec_error:(Stmt.mk_const_spec_error "Could not assert callable preconditions for call stmt.")
+        ~spec_error:[Stmt.mk_const_spec_error error] (* TODO: can we preserve the error messages for the individual preconditions here? *)
         (Expr.mk_binder ~loc:stmt.stmt_loc Exists quant_dropped_args (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> Expr.alpha_renaming spec.spec_form quant_renaming_map) ))) in
 
       let bind_stmt = Stmt.mk_bind ~loc:stmt.stmt_loc 
         (List.map new_dropped_args ~f:(Expr.from_var_decl)) 
         (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> Expr.alpha_renaming spec.spec_form new_renaming_map) )) in
 
-      let exhale_stmt = Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Exhale stmt for Call: " ^ Stmt.to_string stmt)) 
-        ~spec_error:(Stmt.mk_const_spec_error "Could not exhale callable preconditions for call stmt.")
-        (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> Expr.alpha_renaming spec.spec_form new_renaming_map) )) in
+      let exhale_stmts =
+        List.map call_decl.call_decl_precond ~f:(fun spec ->
+            Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Exhale stmt for Call: " ^ Stmt.to_string stmt)) 
+              ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
+              (Expr.alpha_renaming spec.spec_form new_renaming_map)
+          )
+      in
 
       let inhale_stmt = Stmt.mk_inhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Inhale stmt for Call: " ^ Stmt.to_string stmt)) 
         (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> Expr.alpha_renaming spec.spec_form new_renaming_map) )) in
@@ -771,11 +852,10 @@ let rec rewrite_call_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
           (* [inhale_stmt] *)
         (* else *)
         (match new_dropped_args, lhs_list with
-        | [], [] -> [exhale_stmt; inhale_stmt]
-        | [], _ -> [exhale_stmt; inhale_stmt; reassign_lhs_stmt]
-        | _, [] -> [assert_stmt; bind_stmt; exhale_stmt; inhale_stmt]
-        | _, _ -> [assert_stmt; bind_stmt; exhale_stmt; inhale_stmt; reassign_lhs_stmt])
-        
+        | [], [] -> exhale_stmts @ [inhale_stmt]
+        | [], _ -> exhale_stmts @ [inhale_stmt; reassign_lhs_stmt]
+        | _, [] -> assert_stmt :: bind_stmt :: exhale_stmts @ [inhale_stmt]
+        | _, _ -> assert_stmt :: bind_stmt :: exhale_stmts @ [inhale_stmt; reassign_lhs_stmt])
       in
       
       Rewriter.return new_stmt
@@ -821,6 +901,10 @@ let rewrite_callable_pre_post_conds (c: Callable.t) : Callable.t Rewriter.t =
         if spec.spec_atomic then
           None
         else
+          let error =
+            Error.Verification, (Stmt.loc body |> Loc.to_end), "A postcondition may not hold at this return point"
+          in
+          let spec = { spec with spec_error = Stmt.mk_const_spec_error error :: spec.spec_error } in
           Some (Stmt.mk_exhale_spec ~cmnt:(Some ("postcond: " ^ Expr.to_string spec.spec_form)) ~loc:(Expr.to_loc spec.spec_form) spec))
       in
 
@@ -836,14 +920,16 @@ let rewrite_callable_pre_post_conds (c: Callable.t) : Callable.t Rewriter.t =
           let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
 
           let inhale_au = 
-            Stmt.mk_inhale_expr ~cmnt:(Some "au_precond")~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (atomic_token_var :: concrete_args_expr)) in
+            Stmt.mk_inhale_expr ~cmnt:(Some "au_precond") ~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (atomic_token_var :: concrete_args_expr)) in
 
           let exhale_au = 
             let ret_vars = List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
             let ret_expr = Expr.mk_tuple ~loc:(Stmt.loc body) ret_vars in
-            
+            let error =
+              Error.Verification, (Stmt.loc body |> Loc.to_end), "The atomic specification may not have been committed before reaching this return point"
+            in
             Stmt.mk_exhale_expr ~cmnt:(Some "au_postcond") ~loc:(Stmt.loc body) 
-            ~spec_error:(Stmt.mk_const_spec_error "Could not prove that atomic update has been committed.")
+            ~spec_error:[Stmt.mk_const_spec_error error]
             (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPredCommit callable_fully_qual_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr])) in
           
           Rewriter.return (inhale_au :: pre_conds, exhale_au :: post_conds)
@@ -1551,8 +1637,11 @@ module AtomicityAnalysis = struct
               if not spec.spec_atomic then 
                 None
               else
+                let error =
+                  Error.Verification, Stmt.loc stmt, "An atomic precondition may no longer hold when aborting the atomic update."
+                in
                 Some (Stmt.mk_exhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) 
-                ~spec_error:(Stmt.mk_const_spec_error "Could not prove preconditions for abortAU.")
+                ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
                 (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
             ) in
 
@@ -1571,8 +1660,11 @@ module AtomicityAnalysis = struct
               if not spec.spec_atomic then 
                 None
               else
+                let error =
+                  Error.Verification, Stmt.loc stmt, "An atomic postcondition may not hold at this commit point."
+                in
                 Some (Stmt.mk_exhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) 
-                ~spec_error:(Stmt.mk_const_spec_error "Could not prove postconditions for commitAU.")
+                ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
                 (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
             ) in
 
@@ -1886,6 +1978,9 @@ let rec rewrite_assign_stmts (s: Stmt.t) : Stmt.t Rewriter.t =
 let rec rewrites_phase_1 (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m -> m "Rewrites.all_rewrites: Starting rewrites");
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_callable_error_msg on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_error_msg m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_compr_expr on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in

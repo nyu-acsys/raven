@@ -22,7 +22,7 @@ module Syntax = struct
   module Let_syntax = struct 
     let bind m ~f = fun sin ->
       let sout, res = m sin in
-      f res sout
+      f res sout |> Sys.opaque_identity
     [@@inline always]
 
     let return = return
