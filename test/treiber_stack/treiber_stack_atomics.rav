@@ -38,7 +38,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   var s0 : Ref;
   s0 := new(value: x, next: hd);
 
-  var xs1: IntList := openAU(phi);
+  ghost var xs1: IntList := openAU(phi);
 
   ghost var hd1: Ref;
   unfold is_stack(s, xs1);
@@ -91,12 +91,12 @@ proc pop(s: Ref, implicit ghost xs: IntList)
       (is_stack(s, xs) && result == none()) : 
       (is_stack(s, xs.tl) && result == some(xs.elem))
 {
-  var phi: AtomicToken := bindAU();
-  var xs0: IntList := openAU(phi);
+  ghost var phi: AtomicToken := bindAU();
+  ghost var xs0: IntList := openAU(phi);
 
   unfold is_stack(s, xs0);
 
-  var hd: Ref := s.(head);
+  var hd: Ref := s.head;
   
   {!
     if (hd == null) {
@@ -105,7 +105,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
       fold is_stack(s, xs0);
       commitAU(phi, none());
     } else {
-      ghost var q:Real;
+      ghost var q: Real;
       ghost var tl0: Ref;
       unfold is_list(hd, xs0);
 

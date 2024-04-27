@@ -1,56 +1,73 @@
-module Lock {
-  rep type Rep = struct {
-    var bit: Bool
-  }
+interface Lock {
+  field bit: Bool
   
-  var l = true
+  pred lockResource(l: Ref)
 
-  pred lockR(l: t, b: Bool) {
-    own(l.bit, b)
+  pred lockR(l: Ref, implicit ghost b: Bool) {
+    own(l, bit, b, 1.0) && 
+    (b ? true : lockResource(l))
   }
+
+  proc allocResource(l: Ref)
+    ensures lockResource(l)
 
   proc create()
-    returns (l: t)
+    returns (l: Ref)
     ensures lockR(l, false)
   {
-    l := new t;
-    l.bit := false;
+    l := new (bit: false);
+    allocResource(l);
+    fold lockR(l, false);
   }
 
-  /* How to prove following spec? Lob induction? */ 
-  
-  proc acquire(l: t, implicit ghost b: Bool)
+  /* How to prove following spec? Lob induction? */
+  proc acquire(l: Ref, implicit ghost b: Bool)
     atomic requires lockR(l, b)
-    atomic ensures lockR(l, true)
+    atomic ensures lockR(l, true) && lockResource(l)
   {
-    /* val phi = openAtom() */
-    val res = true;
-
-    if (l.bit) {
-        res := false;
-     }
+    ghost val phi: AtomicToken = bindAU();
     
-    else {
-        res := true;
-    
-}
+    ghost var b1 : Bool;
+    b1 := openAU(phi);
+    unfold lockR(l, b1);
+    // var res := cas(l.bit, false, true);
+    ghost var res: Bool;
     {!
-      if (res) commit(phi);
-      else abort(phi);
+      ghost var curr_val: Bool := l.bit;
+
+      if (curr_val == false) {
+        l.bit := true;
+        res := true;
+      } else {
+        res := false;
+      }
     !}
 
-    /* Have to formalize the ghost code language. */
-
-    if (!res) acquire(l);
+    if (res) {
+      l.bit := true;
+      fold lockR(l, true);
+      commitAU(phi);
+      return;
+    } else {
+      fold lockR(l, b1);
+      abortAU(phi);
+    }
+    b1 := openAU(phi);
+    assert lockR(l, b1);
+    acquire(l);
+    commitAU(phi);
   }
 
-  proc release(l: Lock)
-    atomic requires lockR(l, true)
+  proc release(l: Ref)
+    atomic requires lockR(l, true) && lockResource(l)
     atomic ensures lockR(l, false)
   {
+    ghost val phi: AtomicToken = bindAU();  
+    openAU(phi);
+    unfold lockR(l, true);
     l.bit := false;
-
-    /* Presumably the atomic open etc can be automatically inferred for such a simple case? */
+    fold lockR(l, false);
+    commitAU(phi);
   }
 }
 

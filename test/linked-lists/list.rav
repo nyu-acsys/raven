@@ -1,0 +1,21 @@
+module List {
+
+  field next: Ref
+
+  pred lseg(x: Ref, y: Ref) {
+    x == y ? true :
+    (exists z: Ref :: own(x, next, z, 1.0) && lseg(z, y))
+  }
+
+  proc traverse(x: Ref)
+    requires lseg(x, null)
+    ensures lseg(x, null)
+  {
+    var curr: Ref = x;
+    while (x != null)
+      invariant lseg(x, curr) && lseg(curr, null)
+    {
+      curr := curr.next;
+    }
+  }
+}
