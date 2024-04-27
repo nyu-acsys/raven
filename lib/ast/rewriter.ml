@@ -22,7 +22,7 @@ module Syntax = struct
   module Let_syntax = struct 
     let bind m ~f = fun sin ->
       let sout, res = m sin in
-      f res sout |> Sys.opaque_identity
+      f res sout
     [@@inline always]
 
     let return = return
@@ -651,7 +651,7 @@ module Stmt = struct
     }
 
   | Cond cond_desc ->
-    let+ new_test = f cond_desc.cond_test
+    let+ new_test = Option.map ~f:f cond_desc.cond_test
     and+ new_then_branch = c cond_desc.cond_then
     and+ new_else_branch = c cond_desc.cond_else in
 

@@ -731,12 +731,13 @@ open Frontend
         var_implicit = false;
       } in
 
-      let* field_utils_id = Rewriter.ProgUtils.get_field_utils_id (Stmt.loc body) field_name in
+      let loc = Stmt.to_loc body in
+      let* field_utils_id = Rewriter.ProgUtils.get_field_utils_id loc field_name in
 
       let assume_expr1 = 
         let l_var = Type.{ 
-          var_name = Ident.fresh (Stmt.loc body) "l"; 
-          var_loc = (Stmt.loc body); 
+          var_name = Ident.fresh loc "l"; 
+          var_loc = loc; 
           var_type = Type.ref; 
           var_const = false; 
           var_ghost = false; 
@@ -764,7 +765,7 @@ open Frontend
 
       let assume_expr2 = 
         let l_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "l"; 
+          Type.var_name = Ident.fresh loc "l"; 
           var_loc = loc; 
           var_type = Type.ref; 
           var_const = false; 
@@ -780,7 +781,7 @@ open Frontend
         )
       in
 
-      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc assume_expr2)
 
     ) in
 
@@ -803,12 +804,13 @@ open Frontend
         var_implicit = false;
       } in
 
-      let* pred_utils_id = Rewriter.ProgUtils.get_pred_utils_id (Stmt.loc body) pred_name in
+      let loc = Stmt.to_loc body in
+      let* pred_utils_id = Rewriter.ProgUtils.get_pred_utils_id loc pred_name in
 
       let assume_expr1 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "in"; 
+          var_loc = loc; 
           var_type = (Type.mk_prod loc pred_in_types); 
           var_const = false; 
           var_ghost = false; 
@@ -835,10 +837,11 @@ open Frontend
         var_implicit = false;
       } in
 
+      let loc = Stmt.to_loc body in
       let assume_expr2 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "in"; 
+          var_loc = loc; 
           var_type = (Type.mk_prod loc pred_in_types); 
           var_const = false; 
           var_ghost = false; 
@@ -853,7 +856,7 @@ open Frontend
         )
       in
 
-      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc assume_expr2)
       
     ) in
 
@@ -874,12 +877,12 @@ open Frontend
         var_implicit = false;
       } in
 
-      let* au_utils_id = Rewriter.ProgUtils.get_au_utils_id (Stmt.loc body) call_name in
+      let* au_utils_id = Rewriter.ProgUtils.get_au_utils_id loc call_name in
 
       let assume_expr1 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "tok"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "tok"; 
+          var_loc = loc; 
           var_type = Type.atomic_token; 
           var_const = false; 
           var_ghost = false; 
@@ -909,8 +912,8 @@ open Frontend
 
       let assume_expr2 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "in"; 
+          var_loc = loc; 
           var_type = Type.atomic_token; 
           var_const = false; var_ghost = false; 
           var_implicit = false; } 
@@ -924,7 +927,7 @@ open Frontend
         )
       in
 
-      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc assume_expr2)
       
     ) in
 
@@ -943,8 +946,9 @@ open Frontend
     let open Rewriter.Syntax in
     match stmt.stmt_desc with
     | Basic (Fpu fpu_desc) ->
+      let loc = Stmt.to_loc stmt in
       let* field_symbol = 
-        let* symbol = Rewriter.find_and_reify (Stmt.loc stmt) fpu_desc.fpu_field in
+        let* symbol = Rewriter.find_and_reify loc fpu_desc.fpu_field in
         match symbol with
         | FieldDef f -> Rewriter.return f
         | _ -> Error.error stmt.stmt_loc "Expected a field_def"
@@ -961,7 +965,7 @@ open Frontend
         | Some expr -> Rewriter.return expr
         | None -> 
           let* field_heap_symbol = 
-            let* symbol = Rewriter.find_and_reify (Stmt.loc stmt) (QualIdent.from_ident (field_heap_name fpu_desc.fpu_field)) in
+            let* symbol = Rewriter.find_and_reify loc (QualIdent.from_ident (field_heap_name fpu_desc.fpu_field)) in
             match symbol with
             | VarDef v -> Rewriter.return v.var_decl
             | _ -> Error.error stmt.stmt_loc "Expected a var_def"
@@ -2863,28 +2867,28 @@ end
             (* The corresponding assume stmt is being added in backend/checker.ml *)
             Rewriter.return s
           else
-            let nondet_var = Type.{ var_name = Ident.fresh s.stmt_loc "$nondet"; var_loc = s.stmt_loc; 
+            let loc = Stmt.to_loc s in
+            let nondet_var = Type.{ var_name = Ident.fresh loc "$nondet"; var_loc = loc; 
               var_type = Type.bool; var_const = true; var_ghost = false; var_implicit = false; } in
 
             let (nondet_var_def: Module.symbol) = VarDef {var_decl = nondet_var; var_init = None} in
 
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
-            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc:s.stmt_loc spec.spec_form in
-            let assume_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc spec.spec_form in
+            let assume_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {
-              cond_test = Expr.from_var_decl nondet_var; 
-              cond_then = Stmt.mk_block_stmt ~loc:s.stmt_loc [exhale_stmt; assume_false_stmt];
-              cond_else = Stmt.mk_block_stmt ~loc:s.stmt_loc []} in
+              cond_test = Some (Expr.from_var_decl nondet_var);
+              cond_then = Stmt.mk_block_stmt ~loc [exhale_stmt; assume_false_stmt];
+              cond_else = Stmt.mk_block_stmt ~loc []} in
 
-            let nondet_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
+            let nondet_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
 
-            let new_stmt = Stmt.mk_block_stmt ~loc:s.stmt_loc [
-              Stmt.{stmt_desc = cond_stmt; stmt_loc = s.stmt_loc}; 
+            let new_stmt = Stmt.mk_block_stmt ~loc [
+              Stmt.{stmt_desc = cond_stmt; stmt_loc = loc}; 
               nondet_false_stmt
             ] in
-
 
             Rewriter.return new_stmt
         end

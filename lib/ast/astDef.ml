@@ -255,7 +255,7 @@ module Type = struct
   include Comparable.Make (T)
     
   let attr_of = function App (_, _, attr) -> attr
-  let loc t = t |> attr_of |> fun attr -> attr.type_loc
+  let to_loc t = t |> attr_of |> fun attr -> attr.type_loc
 
 
   (** Pretty printing types *)
@@ -1161,7 +1161,7 @@ module Stmt = struct
     loop_postbody : t;  (** the actual loop body *)
   }
 
-  and cond_desc = { cond_test : expr; cond_then : t; cond_else : t }
+  and cond_desc = { cond_test : expr option; cond_then : t; cond_else : t }
   and block_desc = { block_body : t list; block_is_ghost: bool }
 
   and stmt_desc =
@@ -1259,13 +1259,17 @@ module Stmt = struct
           ldesc.loop_prebody Expr.pr ldesc.loop_test (pr_spec_list "invariant")
           ldesc.loop_contract pr ldesc.loop_postbody
     | Cond cdesc -> (
-        match cdesc.cond_else.stmt_desc with
-        | Block { block_body = []; _ } ->
-            fprintf ppf "if (@[%a@]) %a" Expr.pr cdesc.cond_test pr
+        match cdesc.cond_test, cdesc.cond_else.stmt_desc with
+        | Some test, Block { block_body = []; _ } ->
+            fprintf ppf "if (@[%a@]) %a" Expr.pr test pr
               cdesc.cond_then
-        | _ ->
-            fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr cdesc.cond_test pr
-              cdesc.cond_then pr cdesc.cond_else)
+        | Some test, _ ->
+            fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr test pr
+              cdesc.cond_then pr cdesc.cond_else
+        | None, _ ->
+          fprintf ppf "choose %a@ or@ %a"
+            pr cdesc.cond_then pr cdesc.cond_else          
+      )
     | Block { block_body = stmts; block_is_ghost = false } -> 
         begin match stmts with
           | [] -> fprintf ppf "{ }"
@@ -1380,7 +1384,7 @@ module Stmt = struct
       spec_error = error;
     }
 
-  let loc s = s.stmt_loc
+  let to_loc s = s.stmt_loc
 
   (** Extends [accessed] with the set of all symbols occuring free in [s] *)
   (** Assumes that all var_decl stmts are abstracted away during type-checking. *)  
@@ -1453,7 +1457,7 @@ module Stmt = struct
         symbols accesses_prebody l.loop_postbody
 
       | Cond c ->
-        let accesses = Expr.symbols ~acc:accesses c.cond_test in
+        let accesses = Option.fold ~f:(fun accesses test -> Expr.symbols ~acc:accesses test) ~init:accesses c.cond_test in
         let accesses_then = symbols accesses c.cond_then in
         symbols accesses_then c.cond_else
     in

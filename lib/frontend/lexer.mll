@@ -65,6 +65,7 @@ let _ =
       ("unfold", USE (Stmt.Unfold));
       ("val", VAR true);
       ("var", VAR false);
+      ("with", WITH);
       ("while", WHILE);
     ])
 

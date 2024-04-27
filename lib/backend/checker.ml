@@ -53,16 +53,19 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
     let* _ = Rewriter.List.iter block_desc.block_body ~f:check_stmt in
     Rewriter.return ()
 
-  | Cond cond_desc -> 
-    let* _ = push_path_condn cond_desc.cond_test in
+  | Cond ({ cond_test = Some test; _} as cond_desc)  -> 
+    let* _ = push_path_condn test in
     let* _ = check_stmt cond_desc.cond_then in
     let* _ = pop_path_condn in
 
-    let* _ = push_path_condn (Expr.mk_not cond_desc.cond_test) in
+    let* _ = push_path_condn (Expr.mk_not test) in
     let* _ = check_stmt cond_desc.cond_else in
     let* _ = pop_path_condn in
 
     Rewriter.return ()
+
+  | Cond (cond_desc)  ->
+    Error.unsupported_error (Stmt.to_loc stmt) "Non-deterministic choice is currently not supported."
 
   | Basic basic_stmt ->
     (match basic_stmt with

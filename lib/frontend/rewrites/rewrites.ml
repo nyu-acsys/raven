@@ -372,7 +372,8 @@ let rewrite_compr_modules (tbl: SymbolTbl.t) (m: Module.t) =
 let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
-  | Loop loop ->    
+  | Loop loop ->
+    let loc = Stmt.to_loc stmt in
     Logs.debug (fun m -> m "Rewrites.rewrite_loops: loop: %a" Stmt.pr stmt); 
   
     let* loop_arg_var_decls, loop_arg_renaming_map, loop_arg_renaming_qual_ident_map, curr_loop_arg_var_decls = 
@@ -476,7 +477,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
     let* loop_body =
       begin
         let set_ret_vals_to_initial_args = List.map (Map.to_alist loop_ret_renaming_map) ~f:(fun (old_var, new_expr) ->
-          Stmt.mk_assign ~loc:(Stmt.loc stmt) [new_expr] (Map.find_exn loop_arg_renaming_map old_var)
+          Stmt.mk_assign ~loc [new_expr] (Map.find_exn loop_arg_renaming_map old_var)
         ) in
 
         let recurse_call =
@@ -484,7 +485,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
           let args_list = List.map loop_arg_var_decls ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
 
-          Stmt.mk_call ~loc:(Stmt.loc stmt) ~lhs:lhs_list (QualIdent.from_ident loop_proc_name) args_list in
+          Stmt.mk_call ~loc ~lhs:lhs_list (QualIdent.from_ident loop_proc_name) args_list in
 
         (* TODO: Rename variables from curr_vars to loop_vars in loop body *)
         let* loop_body = Rewriter.Stmt.rewrite_qual_idents  loop.loop_postbody ~f:(fun qual_ident -> 
@@ -492,11 +493,11 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
         ) in
 
         let cond_stmt = 
-          let test = (Expr.alpha_renaming loop.loop_test loop_arg_renaming_map) in
-          let then_stmt = Stmt.mk_block_stmt ~loc:(Stmt.loc stmt) [loop_body; recurse_call] in
-          let else_stmt = Stmt.mk_skip ~loc:(Stmt.loc stmt) in
+          let test = Some (Expr.alpha_renaming loop.loop_test loop_arg_renaming_map) in
+          let then_stmt = Stmt.mk_block_stmt ~loc [loop_body; recurse_call] in
+          let else_stmt = Stmt.mk_skip ~loc in
           
-          Stmt.mk_cond ~loc:(Stmt.loc stmt) test then_stmt else_stmt 
+          Stmt.mk_cond ~loc test then_stmt else_stmt 
         in
 
         let ret_stmt = 
@@ -531,7 +532,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
       let lhs_list = List.map curr_loop_ret_var_decls ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name) in
       let args_list = List.map curr_loop_arg_var_decls ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
 
-      Stmt.mk_call ~loc:(Stmt.loc stmt) ~lhs:lhs_list (QualIdent.from_ident loop_proc_name) args_list in
+      Stmt.mk_call ~loc ~lhs:lhs_list (QualIdent.from_ident loop_proc_name) args_list in
 
 
     Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
@@ -548,6 +549,7 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (Return ret_expr) ->
+    let loc = Stmt.to_loc stmt in
 
     let* curr_proc_name = Rewriter.current_scope_id in
 
@@ -574,7 +576,7 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
     let postconds_exhale_stmts = 
       if Callable.is_atomic callable_decl then
-        let atomic_token_var = Expr.mk_var ~loc:(Stmt.loc stmt) ~typ:Type.atomic_token (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc stmt) callable_decl.call_decl_name)) in
+        let atomic_token_var = Expr.mk_var ~loc ~typ:Type.atomic_token (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc callable_decl.call_decl_name)) in
 
         let concrete_args = List.filter callable_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
         let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
@@ -582,8 +584,9 @@ let rec rewrite_ret_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
         let error =
           Error.Verification, stmt.stmt_loc, "The atomic specification may not have been committed before reaching this return point"
         in
-        
-        [Stmt.mk_exhale_expr ~cmnt:(Some "au_return_stmt") ~loc:(Stmt.loc stmt) ~spec_error:[Stmt.mk_const_spec_error error] (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (Expr.AUPredCommit curr_proc_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr]))]
+
+        let loc = Stmt.to_loc stmt in
+        [Stmt.mk_exhale_expr ~cmnt:(Some "au_return_stmt") ~loc ~spec_error:[Stmt.mk_const_spec_error error] (Expr.mk_app ~loc ~typ:Type.perm (Expr.AUPredCommit curr_proc_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr]))]
 
       else
         List.map postconds_spec ~f:(fun spec ->
@@ -670,7 +673,7 @@ let rec rewrite_fold_unfold_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
           | FuncDef { func_body = Some e} -> e
         ) in
 
-        c.call_decl, (Expr.set_loc spec (Stmt.loc stmt))
+        c.call_decl, (Expr.set_loc spec (Stmt.to_loc stmt))
 
       | _ -> Error.error stmt.stmt_loc "Expected a call_def"
     ) in 
@@ -892,6 +895,7 @@ let rewrite_callable_pre_post_conds (c: Callable.t) : Callable.t Rewriter.t =
     (match proc.proc_body with
     | None -> Rewriter.return c
     | Some body ->
+      let loc = Stmt.to_loc body in
       let pre_conds = List.filter_map c.call_decl.call_decl_precond ~f:(fun spec ->
         if spec.spec_atomic then 
           None
@@ -902,7 +906,7 @@ let rewrite_callable_pre_post_conds (c: Callable.t) : Callable.t Rewriter.t =
           None
         else
           let error =
-            Error.Verification, (Stmt.loc body |> Loc.to_end), "A postcondition may not hold at this return point"
+            Error.Verification, (loc |> Loc.to_end), "A postcondition may not hold at this return point"
           in
           let spec = { spec with spec_error = Stmt.mk_const_spec_error error :: spec.spec_error } in
           Some (Stmt.mk_exhale_spec ~cmnt:(Some ("postcond: " ^ Expr.to_string spec.spec_form)) ~loc:(Expr.to_loc spec.spec_form) spec))
@@ -914,28 +918,28 @@ let rewrite_callable_pre_post_conds (c: Callable.t) : Callable.t Rewriter.t =
         else
           let* callable_fully_qual_name = Rewriter.current_scope_id in
 
-          let atomic_token_var = Expr.mk_var ~loc:(Stmt.loc body) ~typ:Type.atomic_token (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc body) c.call_decl.call_decl_name)) in
+          let atomic_token_var = Expr.mk_var ~loc ~typ:Type.atomic_token (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc c.call_decl.call_decl_name)) in
 
           let concrete_args = List.filter c.call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
           let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
 
           let inhale_au = 
-            Stmt.mk_inhale_expr ~cmnt:(Some "au_precond") ~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (atomic_token_var :: concrete_args_expr)) in
+            Stmt.mk_inhale_expr ~cmnt:(Some "au_precond") ~loc (Expr.mk_app ~loc ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (atomic_token_var :: concrete_args_expr)) in
 
           let exhale_au = 
             let ret_vars = List.map c.call_decl.call_decl_returns ~f:(fun var_decl -> Expr.from_var_decl var_decl) in
-            let ret_expr = Expr.mk_tuple ~loc:(Stmt.loc body) ret_vars in
+            let ret_expr = Expr.mk_tuple ~loc ret_vars in
             let error =
-              Error.Verification, (Stmt.loc body |> Loc.to_end), "The atomic specification may not have been committed before reaching this return point"
+              Error.Verification, (loc |> Loc.to_end), "The atomic specification may not have been committed before reaching this return point"
             in
-            Stmt.mk_exhale_expr ~cmnt:(Some "au_postcond") ~loc:(Stmt.loc body) 
+            Stmt.mk_exhale_expr ~cmnt:(Some "au_postcond") ~loc 
             ~spec_error:[Stmt.mk_const_spec_error error]
-            (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPredCommit callable_fully_qual_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr])) in
+            (Expr.mk_app ~loc ~typ:Type.perm (Expr.AUPredCommit callable_fully_qual_name) ((atomic_token_var :: concrete_args_expr) @ [ret_expr])) in
           
           Rewriter.return (inhale_au :: pre_conds, exhale_au :: post_conds)
       in
 
-      let new_body = Stmt.mk_block_stmt ~loc:(Stmt.loc body) (pre_conds @ [body] @ post_conds) in
+      let new_body = Stmt.mk_block_stmt ~loc (pre_conds @ [body] @ post_conds) in
       let new_proc = Callable.{ call_decl = c.call_decl; call_def = ProcDef { proc_body = Some new_body } } in
       Rewriter.return new_proc
     )
@@ -949,12 +953,13 @@ let rewrite_atomic_callable_token (c: Callable.t): Callable.t Rewriter.t =
     (match proc.proc_body with
     | None -> Rewriter.return c
     | Some body ->
+      let loc = Stmt.to_loc body in
       if not (Callable.is_atomic c.call_decl) then
         Rewriter.return c
       else
         let atomic_token_var = 
-          { Type.var_name = Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc body) c.call_decl.call_decl_name;
-            var_loc = Stmt.loc body;
+          { Type.var_name = Rewriter.ProgUtils.callable_au_token_ident ~loc c.call_decl.call_decl_name;
+            var_loc = loc;
             var_type = Type.atomic_token;
             var_const = false;
             var_ghost = true;
@@ -1563,6 +1568,7 @@ module AtomicityAnalysis = struct
       | Basic (AUAction auaction_desc) ->
         (match auaction_desc.auaction_kind with
         | BindAU qual_iden ->
+          let loc = Stmt.to_loc stmt in
           let* qual_iden_var =
             let+ symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
             (match symbol with
@@ -1573,7 +1579,7 @@ module AtomicityAnalysis = struct
           in
 
           let* au_token_var = 
-            let+ symbol = Rewriter.find_and_reify stmt.stmt_loc (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc:(Stmt.loc stmt) (QualIdent.unqualify curr_callable_name))) in
+            let+ symbol = Rewriter.find_and_reify stmt.stmt_loc (QualIdent.from_ident (Rewriter.ProgUtils.callable_au_token_ident ~loc (QualIdent.unqualify curr_callable_name))) in
             (match symbol with
             | VarDef v ->
               v 
@@ -1581,12 +1587,12 @@ module AtomicityAnalysis = struct
             )
           in
 
-          let assign_stmt = Stmt.mk_assign ~loc:(Stmt.loc stmt) [Expr.from_var_decl qual_iden_var.var_decl] (Expr.from_var_decl au_token_var.var_decl) in
+          let assign_stmt = Stmt.mk_assign ~loc [Expr.from_var_decl qual_iden_var.var_decl] (Expr.from_var_decl au_token_var.var_decl) in
 
           Rewriter.return assign_stmt
 
         | OpenAU (token, callable, bound_vars) -> 
-          let exhale_stmt = Stmt.mk_exhale_expr ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (AUPred curr_callable_name) (Expr.mk_var ~typ:Type.atomic_token token :: (List.map concrete_args ~f:(Expr.from_var_decl)))) in
+          let exhale_stmt = Stmt.mk_exhale_expr ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt)) ~loc (Expr.mk_app ~loc ~typ:Type.perm (AUPred curr_callable_name) (Expr.mk_var ~typ:Type.atomic_token token :: (List.map concrete_args ~f:(Expr.from_var_decl)))) in
 
           (match callable with
           | Some _ -> Error.error stmt.stmt_loc "Unsupported to open another callable"
@@ -1599,13 +1605,13 @@ module AtomicityAnalysis = struct
               if not spec.spec_atomic then 
                 None
               else
-                Some (Stmt.mk_inhale_expr ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
+                Some (Stmt.mk_inhale_expr ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt)) ~loc (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
             ) in
 
             let atomicity_state = open_au ~loc (token, curr_callable_name, (List.map concrete_args ~f:(Expr.from_var_decl)), bound_vars) atomicity_state in
             let* _ = Rewriter.set_user_state atomicity_state in
 
-            let new_stmt = Stmt.mk_block_stmt ~loc:(Stmt.loc stmt) (exhale_stmt :: inhale_stmts) in
+            let new_stmt = Stmt.mk_block_stmt ~loc (exhale_stmt :: inhale_stmts) in
 
             Rewriter.return new_stmt
           
@@ -1633,25 +1639,29 @@ module AtomicityAnalysis = struct
 
           let exhale_stmts, inhale_stmt, atomicity_state = (match auaction_desc.auaction_kind with
           | AbortAU token ->
+            let loc = Stmt.to_loc stmt in
+              
             let exhale_stmts = List.filter_map callable_decl.call_decl_precond ~f:(fun spec ->
               if not spec.spec_atomic then 
                 None
               else
                 let error =
-                  Error.Verification, Stmt.loc stmt, "An atomic precondition may no longer hold when aborting the atomic update."
+                  Error.Verification, loc, "An atomic precondition may no longer hold when aborting the atomic update."
                 in
-                Some (Stmt.mk_exhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) 
+                Some (Stmt.mk_exhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc 
                 ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
                 (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
             ) in
 
-            let inhale_stmt = Stmt.mk_inhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (AUPred opened_au_token.callable) (Expr.mk_var ~typ:Type.atomic_token opened_au_token.token :: (opened_au_token.callable_args))) in
+            let inhale_stmt = Stmt.mk_inhale_expr ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt)) ~loc (Expr.mk_app ~loc ~typ:Type.perm (AUPred opened_au_token.callable) (Expr.mk_var ~typ:Type.atomic_token opened_au_token.token :: (opened_au_token.callable_args))) in
 
             let atomicity_state = close_au ~loc token atomicity_state in
 
             exhale_stmts, inhale_stmt, atomicity_state
 
           | CommitAU (token, ret_exprs) ->
+            let loc = Stmt.to_loc stmt in
+
             let alpha_renaming_map = List.fold2_exn callable_decl.call_decl_returns ret_exprs ~init:alpha_renaming_map ~f:(fun acc_map formal_arg actual_arg ->
               Map.add_exn acc_map ~key:(QualIdent.from_ident formal_arg.var_name) ~data:actual_arg
             ) in
@@ -1661,14 +1671,14 @@ module AtomicityAnalysis = struct
                 None
               else
                 let error =
-                  Error.Verification, Stmt.loc stmt, "An atomic postcondition may not hold at this commit point."
+                  Error.Verification, loc, "An atomic postcondition may not hold at this commit point."
                 in
-                Some (Stmt.mk_exhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) 
+                Some (Stmt.mk_exhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc 
                 ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
                 (Expr.alpha_renaming spec.spec_form alpha_renaming_map))
             ) in
 
-            let inhale_stmt = Stmt.mk_inhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc:(Stmt.loc stmt) (Expr.mk_app ~loc:(Stmt.loc stmt) ~typ:Type.perm (AUPredCommit opened_au_token.callable) (Expr.mk_var ~typ:Type.atomic_token opened_au_token.token :: opened_au_token.callable_args @ [(Expr.mk_tuple ret_exprs)])) in
+            let inhale_stmt = Stmt.mk_inhale_expr ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt)) ~loc (Expr.mk_app ~loc ~typ:Type.perm (AUPredCommit opened_au_token.callable) (Expr.mk_var ~typ:Type.atomic_token opened_au_token.token :: opened_au_token.callable_args @ [(Expr.mk_tuple ret_exprs)])) in
 
             let atomicity_state = close_au ~loc token atomicity_state in
 
@@ -1677,7 +1687,7 @@ module AtomicityAnalysis = struct
           | _ -> assert false
           ) in
 
-          let new_stmt = Stmt.mk_block_stmt ~loc:(Stmt.loc stmt) (exhale_stmts @ [inhale_stmt]) in
+          let new_stmt = Stmt.mk_block_stmt ~loc (exhale_stmts @ [inhale_stmt]) in
 
           let* _ = Rewriter.set_user_state atomicity_state in
 
@@ -1882,7 +1892,7 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
 
   
   | Cond cond_stmt -> 
-    let cond_test = Expr.alpha_renaming cond_stmt.cond_test subst_map in
+    let cond_test = Option.map ~f:(fun test -> Expr.alpha_renaming test subst_map) cond_stmt.cond_test in
 
     let* cond_then = rewrite_ssa_stmts cond_stmt.cond_then in
 

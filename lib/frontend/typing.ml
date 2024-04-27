@@ -23,7 +23,7 @@ module ProcessTypeExpr = struct
   let rec process_type_expr (tp_expr: type_expr) : type_expr Rewriter.t =
     let open Type in
     let open Rewriter.Syntax in
-    let loc = Type.loc tp_expr in
+    let loc = Type.to_loc tp_expr in
     match tp_expr with
     | App (Var qual_ident, [], tp_attr) ->
       let+ fully_qualified_qual_ident, symbol = Rewriter.resolve_and_find loc qual_ident in
@@ -68,7 +68,7 @@ module ProcessTypeExpr = struct
 
     | App (Data _, _tp_list, _tp_attr) ->
       (* The parser should prevent this from happening. *)
-      Error.internal_error (Type.loc tp_expr) "Data types can only be defined as new types, not used inline."
+      Error.internal_error (Type.to_loc tp_expr) "Data types can only be defined as new types, not used inline."
 
     | App (Prod, tp_list, tp_attr) ->
       let+ tp_list = Rewriter.List.map tp_list ~f:process_type_expr in
@@ -79,7 +79,7 @@ module ProcessTypeExpr = struct
 
     | App (constr, _tp_list, _tp_attr) ->
       (* The parser should prevent this from happening. *)
-      Error.internal_error (Type.loc tp_expr) (Type.to_name constr ^ " types don't take arguments")
+      Error.internal_error (Type.to_loc tp_expr) (Type.to_name constr ^ " types don't take arguments")
 
 
   let rec expand_type_expr (tp_expr: type_expr) : Type.t Rewriter.t = 
@@ -90,7 +90,7 @@ module ProcessTypeExpr = struct
       | Var qual_iden, [] ->
         (* Var types with args not supported. Polymorphic types need to be instantiated as separate modules before using. *)
         let* qual_ident, symbol = Rewriter.resolve_and_find (Type.to_loc tp_expr) qual_iden in
-        let* qual_ident_def = Rewriter.Symbol.reify_type_def (Type.loc tp_expr) symbol in
+        let* qual_ident_def = Rewriter.Symbol.reify_type_def (Type.to_loc tp_expr) symbol in
         begin match qual_ident_def with
           | None -> 
             Rewriter.return @@ Type.App (Var qual_ident, tp_expr_list, tp_attr)
@@ -1214,9 +1214,9 @@ module ProcessCallable = struct
         end
 
       | AUAction _au_action_kind ->
-        internal_error (Stmt.loc stmt) "Did not expect AU action stmts in AST at this stage."
+        internal_error (Stmt.to_loc stmt) "Did not expect AU action stmts in AST at this stage."
       | Fpu _fpu_desc -> 
-        internal_error (Stmt.loc stmt) "Did not expect Fpu stmts in AST at this stage."
+        internal_error (Stmt.to_loc stmt) "Did not expect Fpu stmts in AST at this stage."
     end
     | Loop loop_desc -> 
       let* loop_contract = Rewriter.List.map loop_desc.loop_contract ~f:(process_stmt_spec disam_tbl) in
@@ -1243,7 +1243,7 @@ module ProcessCallable = struct
       Stmt.Loop loop_desc, disam_tbl
 
     | Cond cond_desc ->
-      let* cond_test = disambiguate_process_expr cond_desc.cond_test Type.bool disam_tbl in
+      let* cond_test = Rewriter.Option.map ~f:(fun test -> disambiguate_process_expr test Type.bool disam_tbl) cond_desc.cond_test in
 
       let disam_tbl = DisambiguationTbl.push disam_tbl in
       let* cond_then, disam_tbl = process_stmt cond_desc.cond_then disam_tbl in
@@ -1447,7 +1447,7 @@ module ProcessModule = struct
         match field.field_type with
         | App (Var qual_ident, [], tp_attr) ->
           let* fully_qualified_qual_ident, symbol =
-            Rewriter.resolve_and_find (Type.loc field.field_type) qual_ident
+            Rewriter.resolve_and_find (Type.to_loc field.field_type) qual_ident
           in
           (match Rewriter.Symbol.orig_symbol symbol with
           | ModDef { mod_decl = { mod_decl_is_ra = true; _ }; _ } ->

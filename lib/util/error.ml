@@ -43,7 +43,7 @@ let to_string (kind, (loc: Loc.t), msg) =
   else
     (*if !Config.flycheck_mode 
           then Printf.sprintf "%s:%s" (flycheck_string_of_src_pos pos) msg*)
-    Printf.sprintf !"%{Loc}%{String}%{String}" loc label msg
+    Printf.sprintf !"%{Loc}%{String}%{String}." loc label msg
     
 (** Predefined error messags *)
 
@@ -62,6 +62,6 @@ let type_error loc msg = fail loc ~lbl:Type msg
 let syntax_error loc msg = fail loc ~lbl:Syntax msg
 
 let redeclaration_error loc name =
-  error loc (Printf.sprintf !"Identifier %{String} has already been declared in this scope." name)
+  error loc (Printf.sprintf !"Identifier %{String} has already been declared in this scope" name)
 
 let smt_error loc msg = fail loc ~lbl:Verification msg

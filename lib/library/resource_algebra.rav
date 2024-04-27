@@ -791,7 +791,13 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
 
     auto lemma frameCompInv()
         ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-    {}
+    {
+      assert forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
+        //if (valid(comp(a, b))) {
+          //assert comp(a,b).ks_proj1 == a.ks_proj1 ++ b.ks_proj1;
+        //}
+      }
+    }
 
     auto lemma frameReflexive()
         ensures forall a:T :: {frame(a,a)} {valid(a)} valid(a) ==> frame(a, a) == id
