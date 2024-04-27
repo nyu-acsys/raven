@@ -2,5 +2,5 @@
   [Error] File "./masks_1.rav", line 28, columns 2-10:
   28 |   q(x, v);
          ^^^^^^^^
-  Error: Cannot call callable; invariant mask not satisfied
+  Error: Cannot call q. The invariant inv1 required by q is not available in the current mask.
   [1]

@@ -2,5 +2,5 @@
   [Error] File "./fpu_fail.rav", line 7, columns 2-15:
   7 |   fpu(x, f, 4);
         ^^^^^^^^^^^^^
-  Verification Error: Could not prove validity of fpu.
+  Verification Error: This update may not be frame-preserving.
   [1]

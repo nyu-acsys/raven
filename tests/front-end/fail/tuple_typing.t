@@ -2,7 +2,7 @@
   [Error] File "tuple_typing1.rav", line 4, columns 7-16:
   4 |   x := (1, 2, 3);
              ^^^^^^^^^
-  Type Error: Expected tuple with 2 arguments components.
+  Type Error: Expected tuple with 2 components.
   [1]
 
   $ dune exec -- ../../../bin/raven.exe --shh tuple_typing2.rav
@@ -12,7 +12,7 @@
   Type Error: Expected an expression of type
     Int
   but found an expression of type
-    Bool
+    Bool.
   [1]
 
   $ dune exec -- ../../../bin/raven.exe --shh tuple_typing3.rav
@@ -22,5 +22,5 @@
   Type Error: Expected an expression of type
     Bool
   but found an expression of type
-    Int
+    Int.
   [1]

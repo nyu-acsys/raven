@@ -11,13 +11,13 @@ let arguments_to_string d =
   if d = 1 then "one argument" else Printf.sprintf "%d arguments" d
 
 let tuple_arg_mismatch_error loc expected =
-  Error.type_error loc (Printf.sprintf "Expected tuple with %s components." (arguments_to_string expected))
+  Error.type_error loc (Printf.sprintf "Expected tuple with %d components" expected)
 
 let module_arg_mismatch_error loc typ_constr expected =
   Error.type_error loc (Printf.sprintf "Module %s expects %s." (Type.to_name typ_constr) (arguments_to_string expected))
 
 let unexpected_functor_error loc =
-  Error.type_error loc ("A functor cannot be instantiated in this context.")
+  Error.type_error loc ("A functor cannot be instantiated in this context")
     
 module ProcessTypeExpr = struct
   let rec process_type_expr (tp_expr: type_expr) : type_expr Rewriter.t =

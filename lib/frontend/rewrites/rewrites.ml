@@ -1306,20 +1306,20 @@ module AtomicityAnalysis = struct
     else
       match state.atomic_step_taken with
       | false -> { state with atomic_step_taken = true }
-      | true -> Error.error loc "Multiple atomic steps taken in a single atomic block"
+      | true -> Error.verification_error loc "Attempting to take more than one atomic step with an open invariant or atomic update"
 
   let take_non_atomic_step ~loc (state: atomicity_check) : atomicity_check =
     if (List.is_empty state.au_opened) && (List.is_empty state.invs_opened) then
       state
     else
-      Error.error loc "Cannot take a non-atomic step inside an atomic block"
+      Error.verification_error loc "Cannot take a non-atomic step inside an atomic block"
 
   let open_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
     if 
       List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal)) ||
-      not (Set.exists atomicity_state.mask ~f:(fun mask -> QualIdent.(mask = inv_name)))
+      not (Set.mem atomicity_state.mask inv_name)
     then
-      Error.error loc "Cannot open invariant; invariant already opened or not in mask."
+      Error.verification_error loc (Printf.sprintf !"Cannot open invariant %{Ident}. Invariant already opened or not in mask" (inv_name |> QualIdent.unqualify))
     else
       { atomicity_state with 
         invs_opened = { inv_name; inv_args} :: atomicity_state.invs_opened; 
@@ -1504,7 +1504,19 @@ module AtomicityAnalysis = struct
         ) in
 
         if not (Set.is_subset (Option.value_exn call_decl.call_decl_mask) ~of_:atomicity_state.mask) then
-          Error.error stmt.stmt_loc "Cannot call callable; invariant mask not satisfied"
+          let msg =
+            let missing_inv =
+              Set.choose
+                (Set.diff
+                   (Option.value_exn call_decl.call_decl_mask)
+                   atomicity_state.mask)
+              |> Option.value_exn
+              |> QualIdent.unqualify
+            in
+            let call_id = call_desc.call_name |> QualIdent.unqualify in
+            Printf.sprintf !"Cannot call %{Ident}. The invariant %{Ident} required by %{Ident} is not available in the current mask" call_id missing_inv call_id
+          in
+          Error.error stmt.stmt_loc msg
 
         else
 

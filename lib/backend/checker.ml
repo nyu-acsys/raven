@@ -88,18 +88,18 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
           let* curr_callable = Rewriter.current_scope_id in
           Error.fail_with (Stmt.spec_error_msg spec curr_callable)
           (* match (Stmt.spec_error_msg spec curr_callable) with
-          | None -> Error.smt_error stmt.stmt_loc "Assertion is not valid"
+          | None -> Error.verification_error stmt.stmt_loc "Assertion is not valid"
           | Some e -> 
-            Error.smt_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
+            Error.verification_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
         )
 
-      | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
+      | _ -> Error.verification_error stmt.stmt_loc "Unexpected spec kind")
 
     | _ -> 
-      Error.smt_error stmt.stmt_loc ("Unexpected basic stmt: " ^ (Stmt.to_string stmt))
+      Error.verification_error stmt.stmt_loc ("Unexpected basic stmt: " ^ (Stmt.to_string stmt))
     )
 
-  | _ -> Error.smt_error stmt.stmt_loc "Unexpected stmt"
+  | _ -> Error.verification_error stmt.stmt_loc "Unexpected stmt"
     
     
 
@@ -216,7 +216,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         | [] -> Rewriter.return ()
         | _ -> assume_expr post_cond_expr
         )
-      | false -> Error.smt_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
+      | false -> Error.verification_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
 
 
   | ProcDef proc_def->
@@ -258,7 +258,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
               (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_form)))
               (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form))))
         else
-          Error.smt_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
+          Error.verification_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
       | _ -> Rewriter.return ()
     end
 

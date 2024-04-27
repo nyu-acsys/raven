@@ -64,4 +64,4 @@ let syntax_error loc msg = fail loc ~lbl:Syntax msg
 let redeclaration_error loc name =
   error loc (Printf.sprintf !"Identifier %{String} has already been declared in this scope" name)
 
-let smt_error loc msg = fail loc ~lbl:Verification msg
+let verification_error loc msg = fail loc ~lbl:Verification msg
