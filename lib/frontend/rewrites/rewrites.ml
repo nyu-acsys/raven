@@ -1516,7 +1516,7 @@ module AtomicityAnalysis = struct
             let call_id = call_desc.call_name |> QualIdent.unqualify in
             Printf.sprintf !"Cannot call %{Ident}. The invariant %{Ident} required by %{Ident} is not available in the current mask" call_id missing_inv call_id
           in
-          Error.error stmt.stmt_loc msg
+          Error.verification_error stmt.stmt_loc msg
 
         else
 
