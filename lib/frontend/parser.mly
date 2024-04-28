@@ -164,7 +164,7 @@ type_def:
 
 type_def_expr:
 | t = type_expr { t }
-| DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl) RBRACE {
+| DATA; LBRACE; decls = separated_list(option(SEMICOLON), variant_decl) RBRACE {
   Type.mk_data (QualIdent.from_ident (Ident.make Loc.dummy "" 0)) decls (Loc.make $startpos $endpos)
 }
 

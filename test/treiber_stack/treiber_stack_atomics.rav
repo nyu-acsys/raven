@@ -2,14 +2,14 @@ import Library.Type
 
 module Option[E: Type] {
   rep type T = data {
-    case none;
+    case none
     case some(x: E)
   }
 }
 
 module List[E: Type] {
   rep type T = data {
-    case nil;
+    case nil
     case cons(hd: E, tl: T) 
   }
 }
