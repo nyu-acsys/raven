@@ -415,7 +415,7 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
         n == agree_constr(n.agree_proj1) || n == agree_null()
     }
 
-    func comp(a:T, b:T) returns (ret:T) {
+    func comp(a:T, b:T) returns (ret: T) {
         a == agree_null() ? b :
         (b == agree_null() ? a :
         (a == agree_constr(a.agree_proj1) && b == agree_constr(b.agree_proj1) ? 
@@ -425,7 +425,7 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
         )
     }
 
-    func frame(a:T, b:T) returns (ret:T) {
+    func frame(a:T, b:T) returns (ret: T) {
         b == agree_null() ? a :
 
         (a == agree_constr(a.agree_proj1) && b == agree_constr(a.agree_proj1) ? 
@@ -441,7 +441,7 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
         // )
     }
 
-    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+    func fpuAllowed(a:T, b:T) returns (ret: Bool) {
         a == b ? true : false
     }
 
@@ -450,66 +450,66 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     {}
 
     auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+        ensures forall a: T, b: T, c: T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
     {}
 
     auto lemma compCommute()
-        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+        ensures forall a: T, b: T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
     {
-        assert forall a:T, b:T :: (a == agree_constr(a.agree_proj1)) ==> (comp(a, b) == comp(b, a));
+        assert forall a: T, b: T :: (a == agree_constr(a.agree_proj1)) ==> (comp(a, b) == comp(b, a));
     }
 
     auto lemma compId()
-        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
+        ensures forall a: T :: {comp(a, id)} comp(a, id) == a
     {}
  
     auto lemma compValid()
-        ensures forall a:T, b:T :: {comp(a,b)} {valid(a), valid(b)} valid(comp(a, b)) ==> valid(a) && valid(b)
+        ensures forall a: T, b: T :: {comp(a,b)} {valid(a), valid(b)} valid(comp(a, b)) ==> valid(a) && valid(b)
     {}
 
     auto lemma frameId()
-        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
+        ensures forall a: T :: {frame(a,id)} frame(a, id) == a
     {}
     
     auto lemma compFrameInv()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+        ensures forall a: T, b: T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-        assert forall a:T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
+        assert forall a: T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
     }
     
     auto lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
+        ensures forall a: T, b: T, c: T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
     {}
     
     auto lemma fpuReflexive()
-        ensures forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
+        ensures forall a: T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
     {}
     
     auto lemma frameValid()
-        ensures forall a:T, b:T :: {frame(a,b)} {valid(a), valid(b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+        ensures forall a: T, b: T :: {frame(a,b)} {valid(a), valid(b)} valid(frame(a,b)) ==> valid(a) && valid(b)
     {}
     
     auto lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+        ensures forall a: T, b: T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {}
 
     auto lemma frameCompInv()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> frame(a, b) == a
+        ensures forall a: T, b: T :: {frame(a,b)} valid(frame(a, b)) ==> frame(a, b) == a
     {}
     
     auto lemma frameCompInv0()
-        ensures forall a:T, b:T :: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
+        ensures forall a: T, b: T :: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
     {}
     
     auto lemma frameCompInv2()
-        ensures forall a:T, b:T :: {comp(a,b), frame(a,b)} comp(a, b) == a && valid(a) ==> frame(a, b) == a
+        ensures forall a: T, b: T :: {comp(a,b), frame(a,b)} comp(a, b) == a && valid(a) ==> frame(a, b) == a
     {}
     
     auto lemma frame_comp_inv()
-        ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
+        ensures forall a: T, b: T, c: T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
     { 
-        assert forall a:T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
+        assert forall a: T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
     }
 
 }
@@ -527,7 +527,7 @@ module CountAgreeRA[X: Type] : CancellativeResourceAlgebra {
         n == count_null() || (n == count_cons(n.count, n.value) && n.count > 0)
     }
 
-    func comp(a:T, b:T) returns (ret:T) {
+    func comp(a: T, b: T) returns (ret:T) {
         a == count_null() ? b :
         (b == count_null() ? a :
         (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
@@ -537,7 +537,7 @@ module CountAgreeRA[X: Type] : CancellativeResourceAlgebra {
         )
     }
 
-    func frame(a:T, b:T) returns (ret:T) {
+    func frame(a: T, b: T) returns (ret:T) {
         b == count_null() ? a :
 
         (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
@@ -549,7 +549,7 @@ module CountAgreeRA[X: Type] : CancellativeResourceAlgebra {
         )
     }
 
-    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+    func fpuAllowed(a: T, b: T) returns (ret:Bool) {
         a == b ? true : 
 
         (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
