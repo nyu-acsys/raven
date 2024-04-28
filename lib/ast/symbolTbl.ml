@@ -5,7 +5,7 @@ open AstDef
 open Util
 
 let unknown_ident_error loc id =
-  Error.error loc ("Unknown identifier " ^ QualIdent.to_string id ^ ".")
+  Error.error loc ("Unknown identifier " ^ QualIdent.to_string id)
 
 type entry =
   | Symbol of QualIdent.t
@@ -351,8 +351,8 @@ let rec import import_instr (tbl : t) : t =
   let unresolved_imported_ident = import_instr.import_name in
   let _, imported_ident, symbol, _ = resolve_and_find_exn import_loc unresolved_imported_ident tbl in
   let curr_scope = tbl.tbl_curr in
-  let _ = match symbol with
-    | ModDef { mod_def ; _ } ->
+  let _ = match symbol, import_instr.import_all with
+    | ModDef { mod_def ; _ }, true ->
       List.iter mod_def ~f:(function
         | SymbolDef symbol ->
           let symbol_name = Symbol.to_name symbol in

@@ -218,8 +218,17 @@ module_param:
 }
 
 import_dir:
-| IMPORT; id = qual_ident { { import_name = Expr.to_qual_ident id; import_loc = Loc.make $startpos $endpos } }
-| IMPORT; id = mod_ident { { import_name = id; import_loc = Loc.make $startpos $endpos } }
+| IMPORT; id = qual_ident {
+  let ident = Expr.to_qual_ident id in
+  let import_all =
+    ident |> QualIdent.unqualify |> Ident.name |> String.equal "_"
+  in
+  let import_name =
+    if import_all then QualIdent.pop ident else ident
+  in
+  { import_name; import_all; import_loc = Loc.make $startpos $endpos }
+}
+| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_loc = Loc.make $startpos $endpos } }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {

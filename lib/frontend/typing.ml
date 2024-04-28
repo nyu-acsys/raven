@@ -34,7 +34,7 @@ module ProcessTypeExpr = struct
             | None ->
               Logs.debug (fun mm -> mm "%a" Ident.pr m.mod_decl.mod_decl_name);
               Error.type_error tp_attr.type_loc
-                ("Module " ^ QualIdent.to_string qual_ident ^ " does not have a rep type. It cannot be used in a context expecting a type.")
+                ("Module " ^ QualIdent.to_string qual_ident ^ " does not have a rep type. It cannot be used in a context expecting a type")
                 
             | Some rep_ident ->
               let rep_fully_qualified_qual_ident = QualIdent.append fully_qualified_qual_ident rep_ident in
@@ -68,7 +68,7 @@ module ProcessTypeExpr = struct
 
     | App (Data _, _tp_list, _tp_attr) ->
       (* The parser should prevent this from happening. *)
-      Error.internal_error (Type.to_loc tp_expr) "Data types can only be defined as new types, not used inline."
+      Error.internal_error (Type.to_loc tp_expr) "Data types can only be defined as new types, not used inline"
 
     | App (Prod, tp_list, tp_attr) ->
       let+ tp_list = Rewriter.List.map tp_list ~f:process_type_expr in

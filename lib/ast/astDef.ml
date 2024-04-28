@@ -1872,6 +1872,7 @@ module Module = struct
 
   type import_directive = {
     import_name : qual_ident;
+    import_all : bool; (* indicate whether all members of the module should be imported *)
     import_loc : location
   }
 
@@ -1918,7 +1919,8 @@ module Module = struct
     let open Stdlib.Format in
     function
     | SymbolDef symbol -> pr_symbol ppf symbol
-    | Import { import_name = qid; _ } -> fprintf ppf "@[<2>import@ %a@]" QualIdent.pr qid
+    | Import { import_name = qid; import_all = all; _ } ->
+      fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
 
   and pr_instr_list ppf ms = Print.pr_list_sep "@\n@\n" pr_instr ppf ms
 

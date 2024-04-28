@@ -1049,13 +1049,19 @@ module Symbol = struct
       (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
       symbol1
 
-  let reify_type_def loc (_name, symbol, subst) : (AstDef.Type.t Base.Option.t, 'a) t_ext =
+  let reify_type_def loc (name, symbol, subst) : (AstDef.Type.t Base.Option.t, 'a) t_ext =
     let open Syntax in
     match symbol with
     | AstDef.Module.TypeDef { type_def_expr = None; _ } ->
       return None
     | TypeDef { type_def_expr = Some tp_expr; _ } -> 
       let+ tp_expr = Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr in
+      Some tp_expr
+    | ModDef { mod_decl = { mod_decl_rep = Some rep_id; _ }; _} ->
+      let+ tp_expr =
+        AstDef.Type.mk_var (QualIdent.to_loc name) (QualIdent.append name rep_id)
+        |> Type.rewrite_qual_idents ~f:(QualIdent.requalify subst)
+      in
       Some tp_expr
     | _ -> Error.error loc "Expected type identifier"
 
