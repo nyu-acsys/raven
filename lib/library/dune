@@ -1,0 +1,6 @@
+(library
+ (name resource_algebra)
+ (preprocessor_deps
+  (file resource_algebra.rav))
+ (preprocess
+  (pps ppx_blob)))

@@ -1,4 +1,4 @@
-  $ dune exec -- ../../../../bin/raven.exe --shh ./missing_permissions.rav
+  $ dune exec -- raven --shh ./missing_permissions.rav
   [Error] File "./missing_permissions.rav", line 16, columns 3-3:
   16 |   }
           ^

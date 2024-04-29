@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./tuple.rav
+  $ dune exec -- raven --shh ./tuple.rav
   Verification successful.

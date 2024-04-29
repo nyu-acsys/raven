@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./anti-aliasing.rav
+  $ dune exec -- raven --shh ./anti-aliasing.rav
   Verification successful.

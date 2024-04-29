@@ -1,4 +1,4 @@
-  $ dune exec -- ../../../../bin/raven.exe --shh ./dutch-flag_unsound.rav
+  $ dune exec -- raven --shh ./dutch-flag_unsound.rav
   [Error] File "./dutch-flag_unsound.rav", line 55, columns 19-24:
   55 |             assert false;
                           ^^^^^

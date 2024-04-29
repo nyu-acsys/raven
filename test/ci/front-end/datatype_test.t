@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./datatype_test.rav
+  $ dune exec -- raven --shh ./datatype_test.rav
   Verification successful.

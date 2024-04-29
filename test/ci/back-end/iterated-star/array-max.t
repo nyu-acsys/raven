@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../../bin/raven.exe --shh ./array-max.rav
+  $ dune exec -- raven --shh ./array-max.rav
   Verification successful.

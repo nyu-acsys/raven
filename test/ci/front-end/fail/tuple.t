@@ -1,3 +1,3 @@
-  $ dune exec -- ../../../../bin/raven.exe --shh ./tuple.rav
+  $ dune exec -- raven --shh ./tuple.rav
   [Error] Index out of bounds
   [1]

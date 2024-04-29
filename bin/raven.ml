@@ -3,64 +3,73 @@ open Util
 open Ast
 open Frontend
 
-(** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-let parse_cu top_level_md_ident file_name =
+
+let stream_of_file file_name =
   let inchan = Stdio.In_channel.create file_name in
   let lexbuf = Lexing.from_channel inchan in
   let _ = Lexer.set_file_name lexbuf file_name in
+  inchan, lexbuf
+
+(** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
+let parse_cu top_level_md_ident lexbuf =
   let md =
     try Parser.main Lexer.token lexbuf
     with Parser.Error ->
-      Stdio.In_channel.close inchan;
       let err_pos = lexbuf.lex_curr_p in
       Error.syntax_error (Loc.make err_pos err_pos) "Parse error"
   in
-  Stdio.In_channel.close inchan;
   Ast.Module.set_name md top_level_md_ident
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smtEnv top_level_md_ident file_name front_end_out_chan =
-  Logs.info (fun m -> m "Processing file %s." file_name);
+let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smt_env top_level_md_ident lexbuf front_end_out_chan =
   (* let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in *)
-  let md = parse_cu top_level_md_ident file_name in
+  let md = parse_cu top_level_md_ident lexbuf in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl md in
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
-  let tbl, processed_md = Rewrites.process_module (*Rewrites.Rewriting.process_module*) ~tbl processed_md in
+  let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
 
   Logs.debug (fun m -> m "SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr")))));
 
-  (*Logs.debug (fun m -> m "SymbolTbl: \n%s\n" (SymbolTbl.to_string tbl));*)
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
 
   Stdlib.Format.fprintf (Stdlib.Format.formatter_of_out_channel front_end_out_chan) "%a\n" Ast.Module.pr processed_md;
 
-  let smtEnv = Backend.Checker.check_module processed_md tbl smtEnv in
-  Logs.info (fun m -> m "Verification of file %s successful." file_name);
-  smtEnv, tbl
+  let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
+  smt_env, tbl
 
 
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all file_names =
   (* Start backend solver session *)
-  let smtEnv = Backend.Smt_solver.init () in
+  let smt_env = Backend.Smt_solver.init () in
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan = Stdio.Out_channel.create front_end_processed_output_log in
   
   (* Parse and check standard library *)
-  let lib_file = Stdlib.Filename.dirname (Sys.get_argv ()).(0) ^ "/../lib/library/resource_algebra.rav" in
   let tbl = SymbolTbl.create () in
-  let smtEnv, tbl = parse_and_check_cu ~tbl smtEnv Predefs.lib_ident lib_file front_end_out_chan in
+  let resource_algebra_lexbuf = Lexing.from_string Resource_algebra.resource_algebra in
+  let _ = Lexer.set_file_name resource_algebra_lexbuf "resource_algebra.rav" in
+  let smt_env, tbl = parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf front_end_out_chan in
   
   (* Parse and check actual input program *)
   let _ =
-    List.fold_left file_names ~init:(smtEnv, tbl)
-      ~f:(fun (smtEnv, tbl) file_name ->
-          parse_and_check_cu ~tbl smtEnv Predefs.prog_ident file_name front_end_out_chan)
+    List.fold_left file_names ~init:(smt_env, tbl)
+      ~f:(fun (smt_env, tbl) file_name ->
+        let inchan, lexbuf = stream_of_file file_name in  
+        
+        Logs.info (fun m -> m "Processing file %s." file_name);
+        let smt_env, tbl = parse_and_check_cu ~tbl smt_env Predefs.prog_ident lexbuf front_end_out_chan in
+        
+        Stdio.In_channel.close inchan;
+        Logs.info (fun m -> m "Verification of file %s successful." file_name);
+
+        smt_env, tbl
+        )
   in
 
   (*Checker.stop_session session;*)

@@ -1,6 +1,6 @@
 (executable
  (name raven)
- ; (public_name raven)
+ (public_name raven)
  (libraries
   base
   cmdliner
@@ -15,7 +15,8 @@
   ast
   frontend
   rewrites
-  backend)
+  backend
+  resource_algebra)
  (preprocess
   (pps ppx_custom_printf))
  (modes byte exe))

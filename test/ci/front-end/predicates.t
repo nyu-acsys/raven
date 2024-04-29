@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./predicates.rav
+  $ dune exec -- raven --shh ./predicates.rav
   Verification successful.

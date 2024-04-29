@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh adt.rav
+  $ dune exec -- raven --shh adt.rav
   Verification successful.

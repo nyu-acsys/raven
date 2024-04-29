@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../../bin/raven.exe --shh ./counter_no_inv.rav
+  $ dune exec -- raven --shh ./counter_no_inv.rav
   Verification successful.

@@ -1,4 +1,4 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./simple.rav
+  $ dune exec -- raven --shh ./simple.rav
   [Error] File "./simple.rav", line 13, columns 1-1:
   13 | }
         ^

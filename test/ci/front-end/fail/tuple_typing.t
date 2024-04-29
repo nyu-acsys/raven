@@ -1,11 +1,11 @@
-  $ dune exec -- ../../../../bin/raven.exe --shh tuple_typing1.rav
+  $ dune exec -- raven --shh tuple_typing1.rav
   [Error] File "tuple_typing1.rav", line 4, columns 7-16:
   4 |   x := (1, 2, 3);
              ^^^^^^^^^
   Type Error: Expected tuple with 2 components.
   [1]
 
-  $ dune exec -- ../../../../bin/raven.exe --shh tuple_typing2.rav
+  $ dune exec -- raven --shh tuple_typing2.rav
   [Error] File "tuple_typing2.rav", line 4, columns 11-15:
   4 |   x := (1, true);
                  ^^^^
@@ -15,7 +15,7 @@
     Bool.
   [1]
 
-  $ dune exec -- ../../../../bin/raven.exe --shh tuple_typing3.rav
+  $ dune exec -- raven --shh tuple_typing3.rav
   [Error] File "tuple_typing3.rav", line 4, columns 18-20:
   4 |   var y: Bool := x#0;
                         ^^

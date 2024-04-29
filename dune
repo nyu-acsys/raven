@@ -1,8 +1,9 @@
 (env
-  (dev
-    (flags (:standard -warn-error -A -w -39 -w -27 -w -32)))
-  (debug
-    (flags (:standard -warn-error -A -w -39 -w -27 -w -32))
-    (ocamlopt_flags (:standard -g -Oclassic -inline 0))))
-(copy_files "lib/library/*")
-
+ (dev
+  (flags
+   (:standard -warn-error -A -w -39 -w -27 -w -32)))
+ (debug
+  (flags
+   (:standard -warn-error -A -w -39 -w -27 -w -32))
+  (ocamlopt_flags
+   (:standard -g -Oclassic -inline 0))))

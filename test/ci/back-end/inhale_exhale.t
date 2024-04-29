@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./inhale_exhale.rav
+  $ dune exec -- raven --shh ./inhale_exhale.rav
   Verification successful.

@@ -1,2 +1,2 @@
-  $ dune exec -- ../../../bin/raven.exe --shh ./nat_ra_fpu.rav
+  $ dune exec -- raven --shh ./nat_ra_fpu.rav
   Verification successful.
