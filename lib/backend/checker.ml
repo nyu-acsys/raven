@@ -208,7 +208,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let* _ = write cmd in
       let* _ = assume_expr spec_expr in
 
-      let* b = check_valid check_contract_expr in
+      let* b = if callable.call_decl.call_decl_is_free then Rewriter.return true else check_valid check_contract_expr in
 
       (match b with
       | true -> (
@@ -221,8 +221,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
 
   | ProcDef proc_def->
     let* _ = match proc_def.proc_body with
-    | None -> Rewriter.return ()
-    | Some stmt -> 
+    | Some stmt when not callable.call_decl.call_decl_is_free -> 
       let* _ = push in
       let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
 
@@ -235,7 +234,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let* _ = pop in
         
       Rewriter.return ()
-
+    | _ -> Rewriter.return ()
     in
 
     (* Rewriter.return () *)
