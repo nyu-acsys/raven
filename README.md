@@ -40,5 +40,7 @@ Link to the Google Doc: https://docs.google.com/document/d/1AvU88AoWAMsv9lBCK980
 
 - ppx_let >= 0.16.0
 
+- ppx_blob >= 0.7.2
 
-opam install ocaml dune z3 ocamlformat base stdio logs fmt cmdliner ppx_custom_printf ppx_compare ppx_hash ppx_sexp_conv ppx_let
+
+opam install ocaml dune z3 ocamlformat base stdio logs fmt cmdliner ppx_custom_printf ppx_compare ppx_hash ppx_sexp_conv ppx_let ppx_blob

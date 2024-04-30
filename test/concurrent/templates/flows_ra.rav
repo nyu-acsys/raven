@@ -1,0 +1,168 @@
+import Library.Type
+import Library.CancellativeResourceAlgebra
+
+interface CCM : Type {
+  val id: T
+  func comp(a:T, b:T) returns (ret:T)
+  
+  func frame(a:T, b:T) returns (ret:T)
+
+  func valid(a:T) returns (ret: Bool)
+
+  auto lemma idValid()
+    ensures valid(id)
+
+  auto lemma compAssoc()
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+
+  auto lemma compCommute()
+    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+
+  auto lemma compId()
+    ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
+
+  auto lemma compValid()
+    ensures forall a:T, b:T :: {comp(a,b)} valid(a) && valid(b) ==> valid(comp(a, b)) 
+
+  auto lemma frameCompInv()
+    ensures forall a:T, b:T:: {comp(a,b)} frame(comp(a, b), b) == a
+        
+  lemma frameId()
+    ensures forall a:T :: {frame(a,id)} frame(a, id) == a
+  {
+  }
+
+  lemma compFrameInv(a: T, b: T)
+    ensures a == frame(comp(a, b), b)
+  {
+  }
+
+  //auto lemma compFrameInv()
+  //  ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+
+  //auto lemma frameValid()
+  //  ensures forall a:T, b:T :: {frame(a,b)} {valid(a), valid(b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+
+}
+
+
+
+interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourceAlgebra {
+  rep type T = data {
+    case int(inf: Map[Ref, M], out: Map[Ref, M], dom: Set[Ref])
+    case top
+  }
+
+  /* The "all-zero" flow map */
+  val zeroFlow: Map[Ref, M] = {| n: Ref :: M.id |}
+
+   
+  /* The empty flow interface */
+  val id: T = int(zeroFlow, zeroFlow, {||})
+
+  func valid(i: T) 
+    returns (ret: Bool)
+  {
+    // not undefined
+    i != top
+    // Inflow and outflow properly defined
+    && (forall n: Ref :: i.inf[n] != M.id ==> n in i.dom)
+    && (forall n: Ref :: i.out[n] != M.id ==> n !in i.dom)
+    // Inflow and outflow are valid
+    && (forall n: Ref :: n in i.dom ==> M.valid(i.inf[n]))
+    && (forall n: Ref :: n !in i.dom ==> M.valid(i.out[n]))
+    // Empty domain ==> no outflow
+    && (i.dom == {||} ==> i.out == zeroFlow)
+  }
+
+  // Condition ensuring that two flow interfaces compose
+  func intComposable(i1: T, i2: T) 
+    returns (ret: Bool)
+  {
+    valid(i1) && valid(i2) && i1.dom ** i2.dom == {||}
+    && (forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i2.out[n], M.frame(i1.inf[n], i2.out[n])))
+    && (forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i1.out[n], M.frame(i2.inf[n], i1.out[n])))
+    && (forall n: Ref :: n in i1.dom ==> M.valid(M.frame(i1.inf[n], i2.out[n])))
+    && (forall n: Ref :: n in i2.dom ==> M.valid(M.frame(i2.inf[n], i1.out[n])))
+  }
+
+  // Interface composition
+  func comp(i1: T, i2: T) returns (i: T)
+  {
+    intComposable(i1, i2) ?
+      int({| n: Ref :: n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) :
+             (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) : M.id) |},
+          {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
+          i1.dom ++ i2.dom) :
+      (i1 == id ? i2 : (i2 == id ? i1 : top))
+  }
+
+  // Domain of interface composition is union of its component domains
+  auto lemma intComp_dom()
+    ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> comp(i1, i2).dom == i1.dom ++ i2.dom
+  {
+    /*assert forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> comp(i1, i2).dom == i1.dom ++ i2.dom with {
+      if (valid(comp(i1, i2))) {
+        assert i1 == id || i2 == id || intComposable(i1, i2);
+        if (i1 == id) {
+          assert comp(i1, i2).dom == i2.dom;
+          assert comp(i1, i2).dom == i1.dom ++ i2.dom;
+        }
+        if (i2 == id && !(intComposable(i1, i2))) {
+          //assert comp(i1, i2) == i1;
+          //assert i2.dom == {||};
+          //assert i1.dom == i1.dom ++ {||};
+        }
+      }
+    }*/
+  }
+
+  // Domains of composit interfaces must be disjoint
+  auto lemma intComp_disjoint()
+    ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> i1.dom ** i2.dom == {||}
+  {}
+
+  // Valid interfaces are defined
+  auto lemma intValid_defined()
+    ensures forall i: T :: valid(i) ==> i != top 
+  {}
+
+  // The empty interface is valid */
+  auto lemma idValid()
+    ensures valid(id)
+  {
+    M.idValid();
+  }
+
+  // top is an absorbing element
+  auto lemma intComp_undef_op()
+    ensures forall i: T :: {comp(top, i)} comp(top, i) == top
+  {}
+
+  // The empty interface is the unit of interface composition
+  auto lemma compId()
+    ensures forall i: T :: {comp(i, id)} comp(i, id) == i
+  {
+  
+    M.compCommute(); //idComposable();
+    M.compId();
+    M.frameId();
+  }
+
+  auto lemma compValid()
+    ensures forall i1: T, i2: T :: {comp(i1,i2)} valid(comp(i1, i2)) ==> valid(i1) && valid(i2)
+  {}
+
+  auto lemma compCommute()
+    ensures forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)} comp(i1, i2) == comp(i2, i1)
+  {
+    M.compCommute();
+  }
+
+  auto lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+  {
+    // TODO
+    assume false;
+  }
+}

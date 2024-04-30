@@ -54,16 +54,19 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
     let* _ = Rewriter.List.iter block_desc.block_body ~f:check_stmt in
     Rewriter.return ()
 
-  | Cond cond_desc -> 
-    let* _ = push_path_condn cond_desc.cond_test in
+  | Cond ({ cond_test = Some test; _} as cond_desc)  -> 
+    let* _ = push_path_condn test in
     let* _ = check_stmt cond_desc.cond_then in
     let* _ = pop_path_condn in
 
-    let* _ = push_path_condn (Expr.mk_not cond_desc.cond_test) in
+    let* _ = push_path_condn (Expr.mk_not test) in
     let* _ = check_stmt cond_desc.cond_else in
     let* _ = pop_path_condn in
 
     Rewriter.return ()
+
+  | Cond (cond_desc)  ->
+    Error.unsupported_error (Stmt.to_loc stmt) "Non-deterministic choice is currently not supported."
 
   | Basic basic_stmt ->
     (match basic_stmt with
@@ -84,20 +87,20 @@ let rec check_stmt (stmt: Stmt.t) : unit t =
         (* Rewriter.return () *)
         | false -> 
           let* curr_callable = Rewriter.current_scope_id in
-          Error.smt_error stmt.stmt_loc (Option.value (Stmt.spec_error_msg spec curr_callable) ~default:"Assertion is not valid")
+          Error.fail_with (Stmt.spec_error_msg spec curr_callable)
           (* match (Stmt.spec_error_msg spec curr_callable) with
-          | None -> Error.smt_error stmt.stmt_loc "Assertion is not valid"
+          | None -> Error.verification_error stmt.stmt_loc "Assertion is not valid"
           | Some e -> 
-            Error.smt_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
+            Error.verification_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
         )
 
-      | _ -> Error.smt_error stmt.stmt_loc "Unexpected spec kind")
+      | _ -> Error.verification_error stmt.stmt_loc "Unexpected spec kind")
 
     | _ -> 
-      Error.smt_error stmt.stmt_loc ("Unexpected basic stmt: " ^ (Stmt.to_string stmt))
+      Error.verification_error stmt.stmt_loc ("Unexpected basic stmt: " ^ (Stmt.to_string stmt))
     )
 
-  | _ -> Error.smt_error stmt.stmt_loc "Unexpected stmt"
+  | _ -> Error.verification_error stmt.stmt_loc "Unexpected stmt"
     
     
 
@@ -117,7 +120,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let cmd = 
         SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name 
         (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
-        (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
+        (Ast.Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type))) in
 
       let post_cond_expr =  
         let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
@@ -155,12 +158,12 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let cmd = 
         SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name 
         (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type)) 
-        (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
+        (Ast.Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
 
       and spec_expr = 
 
          (Expr.mk_binder Forall (call_decl.call_decl_formals) 
-          ~trigs: [[(Expr.mk_app ~typ:Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
+          ~trigs: [[(Expr.mk_app ~typ:Ast.Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
             (Expr.mk_eq 
               (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
@@ -206,7 +209,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let* _ = write cmd in
       let* _ = assume_expr spec_expr in
 
-      let* b = check_valid check_contract_expr in
+      let* b = if callable.call_decl.call_decl_is_free then Rewriter.return true else check_valid check_contract_expr in
 
       (match b with
       | true -> (
@@ -214,13 +217,12 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         | [] -> Rewriter.return ()
         | _ -> assume_expr post_cond_expr
         )
-      | false -> Error.smt_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
+      | false -> Error.verification_error call_decl.call_decl_loc (Printf.sprintf "Contract is not valid"))
 
 
   | ProcDef proc_def->
     let* _ = match proc_def.proc_body with
-    | None -> Rewriter.return ()
-    | Some stmt -> 
+    | Some stmt when not callable.call_decl.call_decl_is_free -> 
       let* _ = push in
       let* _ = write_comment (Stdlib.Format.asprintf "Checking %a" QualIdent.pr fully_qual_name) in
 
@@ -233,7 +235,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
       let* _ = pop in
         
       Rewriter.return ()
-
+    | _ -> Rewriter.return ()
     in
 
     (* Rewriter.return () *)
@@ -256,7 +258,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
               (Expr.mk_and (List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_form)))
               (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form))))
         else
-          Error.smt_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
+          Error.verification_error call_decl.call_decl_loc "Auto lemmas must have pure preconditions and postconditions, and no arguments or return values"
       | _ -> Rewriter.return ()
     end
 
@@ -274,7 +276,7 @@ let check_members (mod_name: ident) (deps: QualIdent.t list list): smt_env t =
       let* symbol = Rewriter.find_and_reify (Loc.dummy) qual_name in
       begin match symbol with
       | CallDef callable -> 
-        check_callable qual_name callable
+        check_callable qual_name callable 
       | TypeDef typ -> 
         define_type qual_name typ
       | VarDef var_def ->

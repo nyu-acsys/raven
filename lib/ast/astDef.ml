@@ -255,7 +255,7 @@ module Type = struct
   include Comparable.Make (T)
     
   let attr_of = function App (_, _, attr) -> attr
-  let loc t = t |> attr_of |> fun attr -> attr.type_loc
+  let to_loc t = t |> attr_of |> fun attr -> attr.type_loc
 
 
   (** Pretty printing types *)
@@ -1051,18 +1051,13 @@ module Stmt = struct
     spec_form : expr;
     spec_atomic : bool;
     spec_comment : string option;
-    spec_error : (qual_ident -> string * string) option;
+    spec_error : (qual_ident -> Error.t) list;
   }
 
-  let mk_const_spec_error (err_str: string) = (fun id -> (err_str, QualIdent.to_string id))
+  let mk_const_spec_error error = (fun _ -> error)
 
   let spec_error_msg spec call_id =
-    match spec.spec_error with
-    | None -> None
-    | Some f -> 
-      let s1, s2 = (f call_id) in
-      (* Some (s1 ^ "\nIn callable:" ^ s2) *)
-      Some (s1)
+    List.map ~f:(fun msg -> msg call_id) spec.spec_error
 
   type var_def = { var_decl : var_decl; var_init : expr option }
 
@@ -1168,7 +1163,7 @@ module Stmt = struct
     loop_postbody : t;  (** the actual loop body *)
   }
 
-  and cond_desc = { cond_test : expr; cond_then : t; cond_else : t }
+  and cond_desc = { cond_test : expr option; cond_then : t; cond_else : t }
   and block_desc = { block_body : t list; block_is_ghost: bool }
 
   and stmt_desc =
@@ -1266,13 +1261,17 @@ module Stmt = struct
           ldesc.loop_prebody Expr.pr ldesc.loop_test (pr_spec_list "invariant")
           ldesc.loop_contract pr ldesc.loop_postbody
     | Cond cdesc -> (
-        match cdesc.cond_else.stmt_desc with
-        | Block { block_body = []; _ } ->
-            fprintf ppf "if (@[%a@]) %a" Expr.pr cdesc.cond_test pr
+        match cdesc.cond_test, cdesc.cond_else.stmt_desc with
+        | Some test, Block { block_body = []; _ } ->
+            fprintf ppf "if (@[%a@]) %a" Expr.pr test pr
               cdesc.cond_then
-        | _ ->
-            fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr cdesc.cond_test pr
-              cdesc.cond_then pr cdesc.cond_else)
+        | Some test, _ ->
+            fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr test pr
+              cdesc.cond_then pr cdesc.cond_else
+        | None, _ ->
+          fprintf ppf "choose %a@ or@ %a"
+            pr cdesc.cond_then pr cdesc.cond_else          
+      )
     | Block { block_body = stmts; block_is_ghost = false } -> 
         begin match stmts with
           | [] -> fprintf ppf "{ }"
@@ -1304,7 +1303,7 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_assume_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
@@ -1318,7 +1317,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_inhale_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
@@ -1332,7 +1331,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_exhale_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
@@ -1346,7 +1345,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc ?(cmnt = None) ?spec_error expr : t = 
+  let mk_assert_expr ~loc ?(cmnt = None) ?(spec_error = []) expr : t = 
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
@@ -1379,7 +1378,7 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = None) e = 
+  let mk_spec ?(atomic = false) ?(cmnt=None) ?(error = []) e = 
     {
       spec_form = e;
       spec_atomic = atomic;
@@ -1387,7 +1386,7 @@ module Stmt = struct
       spec_error = error;
     }
 
-  let loc s = s.stmt_loc
+  let to_loc s = s.stmt_loc
 
   (** Extends [accessed] with the set of all symbols occuring free in [s] *)
   (** Assumes that all var_decl stmts are abstracted away during type-checking. *)  
@@ -1460,7 +1459,7 @@ module Stmt = struct
         symbols accesses_prebody l.loop_postbody
 
       | Cond c ->
-        let accesses = Expr.symbols ~acc:accesses c.cond_test in
+        let accesses = Option.fold ~f:(fun accesses test -> Expr.symbols ~acc:accesses test) ~init:accesses c.cond_test in
         let accesses_then = symbols accesses c.cond_then in
         symbols accesses_then c.cond_else
     in
@@ -1875,6 +1874,7 @@ module Module = struct
 
   type import_directive = {
     import_name : qual_ident;
+    import_all : bool; (* indicate whether all members of the module should be imported *)
     import_loc : location
   }
 
@@ -1921,7 +1921,8 @@ module Module = struct
     let open Stdlib.Format in
     function
     | SymbolDef symbol -> pr_symbol ppf symbol
-    | Import { import_name = qid; _ } -> fprintf ppf "@[<2>import@ %a@]" QualIdent.pr qid
+    | Import { import_name = qid; import_all = all; _ } ->
+      fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
 
   and pr_instr_list ppf ms = Print.pr_list_sep "@\n@\n" pr_instr ppf ms
 

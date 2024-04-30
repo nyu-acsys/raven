@@ -25,7 +25,7 @@ open Ast
 %token <Ast.Callable.call_kind> FUNC
 %token <Ast.Callable.call_kind> PROC
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
-%token ATOMIC GHOST IMPLICIT REP AUTO 
+%token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
 %token <bool> MODULE  
 %token TYPE IMPORT
@@ -67,7 +67,7 @@ module_def:
   | ModInst ma ->
   (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
-        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) (Some "Expected {")
+        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
       else
         let mod_inst_type =
           match decl.mod_decl_returns, ma.mod_inst_def with
@@ -75,7 +75,7 @@ module_def:
         | None, Some (mod_inst_type, _) -> mod_inst_type
         | None, None ->
             Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
-              (Some "Expected specification of interface implemented by this module")
+              ("Expected specification of interface implemented by this module")
         in
         ModInst { ma with
                   mod_inst_type;
@@ -164,7 +164,7 @@ type_def:
 
 type_def_expr:
 | t = type_expr { t }
-| DATA; LBRACE; decls = separated_list(SEMICOLON, variant_decl) RBRACE {
+| DATA; LBRACE; decls = separated_list(option(SEMICOLON), variant_decl) RBRACE {
   Type.mk_data (QualIdent.from_ident (Ident.make Loc.dummy "" 0)) decls (Loc.make $startpos $endpos)
 }
 
@@ -218,8 +218,17 @@ module_param:
 }
 
 import_dir:
-| IMPORT; id = qual_ident { { import_name = Expr.to_qual_ident id; import_loc = Loc.make $startpos $endpos } }
-| IMPORT; id = mod_ident { { import_name = id; import_loc = Loc.make $startpos $endpos } }
+| IMPORT; id = qual_ident {
+  let ident = Expr.to_qual_ident id in
+  let import_all =
+    ident |> QualIdent.unqualify |> Ident.name |> String.equal "_"
+  in
+  let import_name =
+    if import_all then QualIdent.pop ident else ident
+  in
+  { import_name; import_all; import_loc = Loc.make $startpos $endpos }
+}
+| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_loc = Loc.make $startpos $endpos } }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {
@@ -332,7 +341,7 @@ contract:
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
-           spec_error = None;
+           spec_error = [];
          }
   in
   ([spec], [])
@@ -342,7 +351,7 @@ contract:
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
-           spec_error = None;
+           spec_error = [];
          }
   in
   ([], [spec])
@@ -399,7 +408,7 @@ stmt_wo_trailing_substmt:
   | Basic (New new_descr) ->
       (match es with
       | [Expr.App(Expr.Var x, _, _)] -> Basic (New { new_descr with new_lhs = x })
-      | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) (Some "Result of allocation must be assigned to a single variable"))
+      | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) ("Result of allocation must be assigned to a single variable"))
   | Basic (Assign assign) ->
       Basic (Assign { assign with assign_lhs = es })
   | _ -> assert false
@@ -419,14 +428,8 @@ stmt_wo_trailing_substmt:
 }
 
 (* assume / assert / inhale / exhale *)
-| sk = SPEC; e = expr; SEMICOLON {
-  let open Stmt in
-  let spec = { spec_form = e;
-               spec_atomic = false;
-               spec_comment = None;
-               spec_error = None; }
-  in
-  Basic (Spec (sk, spec))
+| sk = SPEC; e = expr; mk_spec = with_clause {
+  mk_spec sk e
 }
 (*| contract_mods ASSERT expr with_clause {
   $4 (fst $1) $3 (mk_position (if $1 <> (false, false) then 1 else 2) 4) None
@@ -450,6 +453,56 @@ stmt_wo_trailing_substmt:
 }
 ;
 
+with_clause:
+| SEMICOLON { 
+  fun sk e ->
+    let open Stmt in
+    let spec = { spec_form = e;
+                 spec_atomic = false;
+                 spec_comment = None;
+                 spec_error = []; }
+    in
+    Basic (Spec (sk, spec))
+}
+| WITH b = block; {
+  let open Stmt in
+  function
+    | Assert -> fun e ->
+        let vs, e1 = match e with
+        | Expr.Binder (Expr.Forall, vs, _, e1, _) ->
+            vs, e1
+        | _ -> [], e
+        in
+        let loc : location = Expr.to_loc e in
+        let nondet_var =
+          Type.{ var_name = Ident.fresh loc "$nondet";
+                 var_loc = loc; 
+                 var_type = Type.bool;
+                 var_const = true;
+                 var_ghost = false;
+                 var_implicit = false; }
+        in
+
+        let nondet_var_def = VarDef {var_decl = nondet_var; var_init = None} in
+
+        let checks =
+          let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) e1 in
+          let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
+          List.map (fun decl -> { stmt_desc = Basic (VarDef { var_decl = decl; var_init = None }); stmt_loc = decl.var_loc } ) vs @
+          [{ stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) }; assert_stmt; assume_false]
+        in
+        let assume_e = Stmt.mk_assume_expr ~loc e in
+        let cond_stmt =
+          Cond {
+            cond_test = Some (Expr.from_var_decl nondet_var);
+            cond_then = assume_e;
+            cond_else = (Stmt.mk_block_stmt ~loc checks)
+        }
+        in
+        mk_block [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]
+    | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
+}
+  
 new_or_expr:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   let new_descr = Stmt.{
@@ -523,7 +576,7 @@ assign_lhs:
 if_then_stmt:
 | IF; LPAREN; e = expr; RPAREN; st = stmt  {
   let cond =
-    Stmt.{ cond_test = e;
+    Stmt.{ cond_test = Some e;
            cond_then = st;
            cond_else = mk_skip ~loc:(Loc.make $endpos $endpos);
          }
@@ -535,7 +588,7 @@ if_then_stmt:
 if_then_else_stmt:
 | IF; LPAREN; e = expr; RPAREN; st = stmt_no_short_if; ELSE; se = stmt { 
   let cond =
-    Stmt.{ cond_test = e;
+    Stmt.{ cond_test = Some e;
            cond_then = st;
            cond_else = se;
          }
@@ -547,7 +600,7 @@ if_then_else_stmt:
 if_then_else_stmt_no_short_if:
 | IF; LPAREN; e = expr; RPAREN; st = stmt_no_short_if; ELSE; se = stmt_no_short_if { 
   let cond =
-    Stmt.{ cond_test = e;
+    Stmt.{ cond_test = Some e;
            cond_then = st;
            cond_else = se;
          }
@@ -599,11 +652,20 @@ loop_contract_list:
 
 loop_contract:
 | INVARIANT; e = expr {
+  (*let loc = Expr.to_loc e in
+  let msg caller =
+    Error.Verification,
+    loc,
+    if caller = proc_name then
+      "This loop invariant may not hold on loop entry"
+    else 
+      "This loop invariant may not be maintained by the loop"
+  in*)
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = false;
            spec_comment = None;
-           spec_error = None;
+           spec_error = [];
          }
   in
   spec

@@ -106,7 +106,7 @@ let rec pr_sort ppf (sort: sort) =
     fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length srts) pr_sorts srts
   | App (AtomicToken, [], _) -> pr_ident ppf PreambleConsts.atomic_token_ident
 
-  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) -> Error.smt_error (Type.to_loc sort) ("pr_sort: unexpected sort: " ^ (Type.to_string sort))
+  | App (Num, _, _) | App (Perm, _, _) | App (Bot, _, _) | App (Any, _, _) | App (Fld, _, _) -> Error.internal_error (Type.to_loc sort) ("pr_sort: unexpected sort: " ^ (Type.to_string sort))
 
   | _ -> 
     Logs.debug (fun m -> m "pr_sort: unexpected sort %s" (Type.to_string sort));
@@ -141,7 +141,7 @@ let term_constr_to_string loc (constr: Expr.constr)  : string = match constr wit
 | Impl -> "=>"
 | Var id -> QualIdent.to_string id
 | Ite -> "ite"
-| _ -> Error.smt_error loc ("term_constr_to_string: unexpected constr" ^ (Expr.constr_to_string constr))
+| _ -> Error.internal_error loc ("term_constr_to_string: unexpected constr" ^ (Expr.constr_to_string constr))
 
 
 let rec pr_term ppf (term: term) = match term with
@@ -171,7 +171,7 @@ let rec pr_term ppf (term: term) = match term with
       let arity =
         match Expr.to_type tuple_expr with
         | App (Prod, ts, _) -> List.length ts
-        | _ -> Error.smt_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
+        | _ -> Error.internal_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
       in
 
       fprintf ppf "@[<2>(tuple_%i_%a@ %a@)@]" arity pr_term index pr_term tuple_expr
@@ -183,7 +183,7 @@ let rec pr_term ppf (term: term) = match term with
 
     | Diff, _
     | Read, _
-    | Own, _ | _ -> Error.smt_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
+    | Own, _ | _ -> Error.internal_error (Expr.to_loc term) ("pr_term: unexpected term" ^ (Expr.to_string term))
   end
 
   | Binder (b, vs, trgs, f, _) ->

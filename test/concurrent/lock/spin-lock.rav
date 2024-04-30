@@ -1,0 +1,74 @@
+interface Lock {
+  field bit: Bool
+  
+  pred lockResource(l: Ref)
+
+  pred lockR(l: Ref, implicit ghost b: Bool) {
+    own(l, bit, b, 1.0) && 
+    (b ? true : lockResource(l))
+  }
+
+  proc allocResource(l: Ref)
+    ensures lockResource(l)
+
+  proc create()
+    returns (l: Ref)
+    ensures lockR(l, false)
+  {
+    l := new (bit: false);
+    allocResource(l);
+    fold lockR(l, false);
+  }
+
+  /* How to prove following spec? Lob induction? */
+  proc acquire(l: Ref, implicit ghost b: Bool)
+    atomic requires lockR(l, b)
+    atomic ensures lockR(l, true) && lockResource(l)
+  {
+    ghost val phi: AtomicToken = bindAU();
+    
+    ghost var b1 : Bool;
+    b1 := openAU(phi);
+    unfold lockR(l, b1);
+    // var res := cas(l.bit, false, true);
+    ghost var res: Bool;
+    {!
+      ghost var curr_val: Bool := l.bit;
+
+      if (curr_val == false) {
+        l.bit := true;
+        res := true;
+      } else {
+        res := false;
+      }
+    !}
+
+    if (res) {
+      l.bit := true;
+      fold lockR(l, true);
+      commitAU(phi);
+      return;
+    } else {
+      fold lockR(l, b1);
+      abortAU(phi);
+    }
+    b1 := openAU(phi);
+    assert lockR(l, b1);
+    acquire(l);
+    commitAU(phi);
+  }
+
+  proc release(l: Ref)
+    atomic requires lockR(l, true) && lockResource(l)
+    atomic ensures lockR(l, false)
+  {
+    ghost val phi: AtomicToken = bindAU();  
+    openAU(phi);
+    unfold lockR(l, true);
+    l.bit := false;
+    fold lockR(l, false);
+    commitAU(phi);
+  }
+}
+
+

@@ -9,3 +9,4 @@ log*.smt
 .DS_Store
 front_end_processed_output.log
 smt-encodings/*
+Raven.opam

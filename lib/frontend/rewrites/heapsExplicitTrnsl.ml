@@ -143,8 +143,9 @@ open Frontend
 
     in
 
-    let assert_stmt = Stmt.mk_assert_expr ~loc ~spec_error:(Stmt.mk_const_spec_error "Could not prove injectivity of iterated separating conjunction.") assert_expr
-
+    let assert_stmt =
+      let error = Error.Verification, loc, "Could not prove the injectivity of the index expression for this iterated separating conjunction" in
+      Stmt.mk_assert_expr ~loc ~spec_error:[Stmt.mk_const_spec_error error] assert_expr
     in
       
     Rewriter.return assert_stmt
@@ -730,12 +731,13 @@ open Frontend
         var_implicit = false;
       } in
 
-      let* field_utils_id = Rewriter.ProgUtils.get_field_utils_id (Stmt.loc body) field_name in
+      let loc = Stmt.to_loc body in
+      let* field_utils_id = Rewriter.ProgUtils.get_field_utils_id loc field_name in
 
       let assume_expr1 = 
         let l_var = Type.{ 
-          var_name = Ident.fresh (Stmt.loc body) "l"; 
-          var_loc = (Stmt.loc body); 
+          var_name = Ident.fresh loc "l"; 
+          var_loc = loc; 
           var_type = Type.ref; 
           var_const = false; 
           var_ghost = false; 
@@ -763,7 +765,7 @@ open Frontend
 
       let assume_expr2 = 
         let l_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "l"; 
+          Type.var_name = Ident.fresh loc "l"; 
           var_loc = loc; 
           var_type = Type.ref; 
           var_const = false; 
@@ -779,7 +781,7 @@ open Frontend
         )
       in
 
-      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc assume_expr2)
 
     ) in
 
@@ -802,12 +804,13 @@ open Frontend
         var_implicit = false;
       } in
 
-      let* pred_utils_id = Rewriter.ProgUtils.get_pred_utils_id (Stmt.loc body) pred_name in
+      let loc = Stmt.to_loc body in
+      let* pred_utils_id = Rewriter.ProgUtils.get_pred_utils_id loc pred_name in
 
       let assume_expr1 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "in"; 
+          var_loc = loc; 
           var_type = (Type.mk_prod loc pred_in_types); 
           var_const = false; 
           var_ghost = false; 
@@ -834,10 +837,11 @@ open Frontend
         var_implicit = false;
       } in
 
+      let loc = Stmt.to_loc body in
       let assume_expr2 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "in"; 
+          var_loc = loc; 
           var_type = (Type.mk_prod loc pred_in_types); 
           var_const = false; 
           var_ghost = false; 
@@ -852,7 +856,7 @@ open Frontend
         )
       in
 
-      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc assume_expr2)
       
     ) in
 
@@ -873,12 +877,12 @@ open Frontend
         var_implicit = false;
       } in
 
-      let* au_utils_id = Rewriter.ProgUtils.get_au_utils_id (Stmt.loc body) call_name in
+      let* au_utils_id = Rewriter.ProgUtils.get_au_utils_id loc call_name in
 
       let assume_expr1 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "tok"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "tok"; 
+          var_loc = loc; 
           var_type = Type.atomic_token; 
           var_const = false; 
           var_ghost = false; 
@@ -908,8 +912,8 @@ open Frontend
 
       let assume_expr2 = 
         let in_var = { 
-          Type.var_name = Ident.fresh (Stmt.loc body) "in"; 
-          var_loc = (Stmt.loc body); 
+          Type.var_name = Ident.fresh loc "in"; 
+          var_loc = loc; 
           var_type = Type.atomic_token; 
           var_const = false; var_ghost = false; 
           var_implicit = false; } 
@@ -923,7 +927,7 @@ open Frontend
         )
       in
 
-      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc:(Stmt.loc body) assume_expr2)
+      Rewriter.return ({ Stmt.var_decl = heap_var_decl; var_init = None }, { Stmt.var_decl = heap_var_decl2; var_init = None }, Stmt.mk_assume_expr ~loc assume_expr1, Stmt.mk_assume_expr ~loc assume_expr2)
       
     ) in
 
@@ -942,8 +946,9 @@ open Frontend
     let open Rewriter.Syntax in
     match stmt.stmt_desc with
     | Basic (Fpu fpu_desc) ->
+      let loc = Stmt.to_loc stmt in
       let* field_symbol = 
-        let* symbol = Rewriter.find_and_reify (Stmt.loc stmt) fpu_desc.fpu_field in
+        let* symbol = Rewriter.find_and_reify loc fpu_desc.fpu_field in
         match symbol with
         | FieldDef f -> Rewriter.return f
         | _ -> Error.error stmt.stmt_loc "Expected a field_def"
@@ -960,7 +965,7 @@ open Frontend
         | Some expr -> Rewriter.return expr
         | None -> 
           let* field_heap_symbol = 
-            let* symbol = Rewriter.find_and_reify (Stmt.loc stmt) (QualIdent.from_ident (field_heap_name fpu_desc.fpu_field)) in
+            let* symbol = Rewriter.find_and_reify loc (QualIdent.from_ident (field_heap_name fpu_desc.fpu_field)) in
             match symbol with
             | VarDef v -> Rewriter.return v.var_decl
             | _ -> Error.error stmt.stmt_loc "Expected a var_def"
@@ -970,16 +975,20 @@ open Frontend
       
       in
   
-      let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) 
-        ~spec_error:(Stmt.mk_const_spec_error "Could not prove validity of fpu.")
+      let assert_stmt =
+        let error = Error.Verification, stmt.stmt_loc, "This update may not be frame-preserving" in
+        Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) 
+          ~spec_error:[Stmt.mk_const_spec_error error]
       (
         Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.bool (Expr.Var fpu_allowed_qual_iden) [old_val; fpu_desc.fpu_new_val]
       )
 
       in 
 
-      let exhale_stmt = Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) 
-        ~spec_error:(Stmt.mk_const_spec_error "Could not exhale fpu pre-value.")
+      let exhale_stmt =
+        let error = Error.Verification, stmt.stmt_loc, "This update may not be frame-preserving" in
+        Stmt.mk_exhale_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt)) 
+        ~spec_error:[Stmt.mk_const_spec_error error]
       (
         Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.perm Expr.Own [fpu_desc.fpu_ref; field_expr; old_val;]
       )
@@ -2396,7 +2405,7 @@ end
                 let* destr_symbol = Rewriter.find_and_reify (Expr.to_loc given_expr) destr in
                 match destr_symbol with
                 | DestrDef destr -> Rewriter.return destr.destr_return_type
-                | _ -> Error.error (Expr.to_loc given_expr) "Expected a destr definition"
+                | _ -> Error.error (Expr.to_loc given_expr) "Expected a destructor definition"
               in
 
               destr, destr_ret_type
@@ -2456,7 +2465,7 @@ end
     let rec trnsl_exhale_expr ?cmnt ?spec_error ~loc (expr: expr) : Stmt.t Rewriter.t =
       ParseAssertionLang.parse_a ?cmnt ?spec_error ~loc [] expr ~parse_a0:trnsl_exhale_a0
       
-    and trnsl_exhale_a0 ?cmnt ?spec_error ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
+    and trnsl_exhale_a0 ?cmnt ?(spec_error=[]) ~loc (universal_quants: universal_quants) (conds: conditions) (expr: expr): Stmt.t Rewriter.t =
       let open Rewriter.Syntax in
 
       let univ_quants_list = universal_quants.univ_vars in
@@ -2560,7 +2569,7 @@ end
         let eq_stmt = Stmt.mk_assign ~loc [field_heap_expr] field_heap2_expr in
 
         let assert_heap_valid = Stmt.mk_assert_expr ~loc 
-          ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale stmt."))
+          ~spec_error
           (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn) [field_heap_expr]) 
         
         in
@@ -2668,7 +2677,7 @@ end
         let eq_stmt = Stmt.mk_assign ~loc [au_heap_expr] au_heap2_expr in
 
         let assert_heap_valid = Stmt.mk_assert_expr ~loc 
-          ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale atomic update predicate."))
+          ~spec_error
           (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn) [au_heap_expr]) 
         
         in
@@ -2693,7 +2702,7 @@ end
           let assert_expr = Expr.mk_binder ~loc ~typ:Type.bool ~trigs:(universal_quants.triggers) Forall (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d)) (Expr.mk_impl (Expr.mk_and conds) e) in
 
           let assert_stmt = (Stmt.mk_assert_expr ~loc ~cmnt:(Some ((match cmnt with | None -> "" | Some cmnt -> cmnt) ^ "\nexhale: " ^ (Stdlib.Format.asprintf "%a" Expr.pr (Expr.mk_binder Forall univ_vars_list (Expr.mk_impl (Expr.mk_and conds) expr)))))
-          ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale pure_stmt."))
+          ~spec_error
           assert_expr) in
           (* let assume_stmt = (Stmt.mk_assume_expr ~loc assert_expr) in *)
           (* Rewriter.return (Stmt.mk_block_stmt ~loc [assume_stmt; assert_stmt]) *)
@@ -2801,7 +2810,7 @@ end
               let eq_stmt = Stmt.mk_assign ~loc [pred_heap_expr] pred_heap2_expr in
 
               let assert_heap_valid = Stmt.mk_assert_expr ~loc 
-                ~spec_error:(Option.value spec_error ~default:(Stmt.mk_const_spec_error "Could not exhale predicate."))
+                ~spec_error:(Stmt.mk_const_spec_error (Error.RelatedLoc, loc, "This predicate may not hold") :: spec_error)
                 (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var pred_heap_valid_fn) [pred_heap_expr]) 
               
               in
@@ -2837,18 +2846,18 @@ end
         | Inhale ->
           let expr = spec.spec_form in
 
-          let* stmt = TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment ?spec_error:spec.spec_error ~loc:s.stmt_loc expr in
+          let* stmt = TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment ~spec_error:spec.spec_error ~loc:s.stmt_loc expr in
           Rewriter.return stmt
 
         | Exhale ->
           let expr = spec.spec_form in
 
-          let* stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ?spec_error:spec.spec_error ~loc:s.stmt_loc expr in
+          let* stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment ~spec_error:spec.spec_error ~loc:s.stmt_loc expr in
           Rewriter.return stmt
         | Assume -> 
           let expr = spec.spec_form in
 
-          let* stmt = TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment ?spec_error:spec.spec_error ~loc:s.stmt_loc expr in
+          let* stmt = TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment ~spec_error:spec.spec_error ~loc:s.stmt_loc expr in
           Rewriter.return stmt
         | Assert ->
           let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
@@ -2858,28 +2867,28 @@ end
             (* The corresponding assume stmt is being added in backend/checker.ml *)
             Rewriter.return s
           else
-            let nondet_var = Type.{ var_name = Ident.fresh s.stmt_loc "$nondet"; var_loc = s.stmt_loc; 
+            let loc = Stmt.to_loc s in
+            let nondet_var = Type.{ var_name = Ident.fresh loc "$nondet"; var_loc = loc; 
               var_type = Type.bool; var_const = true; var_ghost = false; var_implicit = false; } in
 
             let (nondet_var_def: Module.symbol) = VarDef {var_decl = nondet_var; var_init = None} in
 
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
-            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc:s.stmt_loc spec.spec_form in
-            let assume_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_bool false) in
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc spec.spec_form in
+            let assume_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {
-              cond_test = Expr.from_var_decl nondet_var; 
-              cond_then = Stmt.mk_block_stmt ~loc:s.stmt_loc [exhale_stmt; assume_false_stmt];
-              cond_else = Stmt.mk_block_stmt ~loc:s.stmt_loc []} in
+              cond_test = Some (Expr.from_var_decl nondet_var);
+              cond_then = Stmt.mk_block_stmt ~loc [exhale_stmt; assume_false_stmt];
+              cond_else = Stmt.mk_block_stmt ~loc []} in
 
-            let nondet_false_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
+            let nondet_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
 
-            let new_stmt = Stmt.mk_block_stmt ~loc:s.stmt_loc [
-              Stmt.{stmt_desc = cond_stmt; stmt_loc = s.stmt_loc}; 
+            let new_stmt = Stmt.mk_block_stmt ~loc [
+              Stmt.{stmt_desc = cond_stmt; stmt_loc = loc}; 
               nondet_false_stmt
             ] in
-
 
             Rewriter.return new_stmt
         end
@@ -2920,7 +2929,11 @@ end
             Expr.mk_real 0.
           ] in
           
-          let assert_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc ~spec_error:(Stmt.mk_const_spec_error "Could not assert sufficient permissions for field-read.") assert_expr in
+          let assert_stmt =
+            let error = Error.Verification, s.stmt_loc, "Could not assert sufficient permissions to access this field" in
+            Stmt.mk_assert_expr ~loc:s.stmt_loc
+              ~spec_error:[Stmt.mk_const_spec_error error] assert_expr
+          in
           
           let assign_stmt = Stmt.mk_assign ~loc:s.stmt_loc 
             [Expr.from_var_decl lhs_var] 
@@ -2964,7 +2977,10 @@ end
 
           let new_val = Expr.mk_app ~typ:field_ra_type (DataConstr field_frac_constr) [assign_rhs; Expr.mk_real 1.] in
           
-          let assert_stmt = Stmt.mk_assert_expr ~loc:s.stmt_loc ~spec_error:(Stmt.mk_const_spec_error "Could not assert sufficient permissions for field_write.") assert_expr in
+          let assert_stmt =
+            let error = Error.Verification, s.stmt_loc, "Could not assert sufficient permissions to assign this field" in
+            Stmt.mk_assert_expr ~loc:s.stmt_loc ~spec_error:[Stmt.mk_const_spec_error error] assert_expr
+          in
           let assign_stmt = Stmt.mk_assign ~loc:s.stmt_loc 
             [field_heap_expr] 
             (Expr.mk_app ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type) MapUpdate  [field_heap_expr; ref_expr; new_val]) 
