@@ -509,7 +509,7 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     auto lemma frame_comp_inv()
         ensures forall a: T, b: T, c: T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
     { 
-        //assert forall a: T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
+        assert forall a: T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
     }
 
 }
@@ -784,7 +784,7 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-        assert forall a:T, b:T ::  (a == ksPair(a.keyset, a.contents)) ==>  (valid(frame(a, b)) ==> comp(frame(a, b), b) == a); 
+        assert forall a:T, b:T ::  (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents)) ==>  (valid(frame(a, b)) ==> comp(frame(a, b), b) == a); 
     }
     
     auto lemma fpuValid()
