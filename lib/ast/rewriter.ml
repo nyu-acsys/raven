@@ -23,27 +23,27 @@ module Syntax = struct
     let bind m ~f = fun sin ->
       let sout, res = m sin in
       f res sout
-    [@@inline always]
+    
 
     let return = return
 
     let map m ~f = fun sin ->
       let sout, res = m sin in
       (sout, f res)
-    [@@inline always]
+    
       
     let both m1 m2 = fun sin ->
       let s1, res1 = m1 sin in
       let s2, res2 = m2 s1 in
       (s2, (res1, res2))
-    [@@inline always]
+    
   end
     
   open Let_syntax
   
-  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f [@@inline always]
+  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f 
   let (and+) = both
-  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f [@@inline always]
+  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f 
   let (and* ) = both
   
 end

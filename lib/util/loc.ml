@@ -99,9 +99,19 @@ let context loc =
       in_channel_line ic (line_num-1)
     end
   in
-  let ic = Stdio.In_channel.create (file_name loc) in
-  let ctx = in_channel_line ic (start_line loc - 1) in
-  let _ = Stdio.In_channel.close ic in
+  let ctx = 
+    if String.(file_name loc = "resource_algebra.rav") then
+      let resource_algebra_str = String.split_lines Resource_algebra.resource_algebra in
+      let ctx = List.nth_exn resource_algebra_str (start_line loc - 1) in
+      ctx
+    else
+      
+      let ic = Stdio.In_channel.create (file_name loc) in
+      let ctx = in_channel_line ic (start_line loc - 1) in
+      let _ = Stdio.In_channel.close ic in
+      ctx
+  in
+
   let highlight_prefix_len =
     1 + String.length (Int.to_string @@ start_line loc) + 2 + (start_col loc)
   in
