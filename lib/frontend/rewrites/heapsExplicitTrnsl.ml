@@ -1015,9 +1015,22 @@ open Frontend
   let rec rewrite_binds (stmt: Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
     | Basic (Bind bind_desc) ->
+      let exis_vars = List.map bind_desc.bind_lhs ~f:(fun e -> Type.mk_var_decl ~loc:stmt.stmt_loc (Ident.fresh stmt.stmt_loc "$bind") (Expr.to_type e)) in
+
+      let alpha_renaming_map = List.fold2_exn bind_desc.bind_lhs exis_vars ~init:(Map.empty (module QualIdent)) ~f:(fun renam_map e1 e2 ->
+        Map.add_exn renam_map ~key:(Expr.to_qual_ident e1) ~data:(Expr.from_var_decl e2)
+      ) in
+
+      let error = Error.Verification, stmt.stmt_loc, "The body of bind stmt could not be shown" in
+      let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt)) ~spec_error:[Stmt.mk_const_spec_error error]
+      
+      (Expr.mk_binder Exists ~loc:stmt.stmt_loc exis_vars (Expr.alpha_renaming bind_desc.bind_rhs alpha_renaming_map) )
+    
+      in
+
       let assume_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt)) bind_desc.bind_rhs in
 
-      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [assume_stmt] in
+      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [assert_stmt; assume_stmt] in
       Rewriter.return new_stmt
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_binds
   
@@ -2086,6 +2099,10 @@ end
       and elim_a (universal_quants: universal_quants) (conds: conditions) (expr: expr): expr Rewriter.t =
         let open Rewriter.Syntax in
 
+        if%bind Rewriter.ProgUtils.is_expr_pure expr then
+          Rewriter.return expr
+        else
+          
         match expr with
         | App (Ite, [c; e1; e2], expr_attr) ->
           let* e1 = elim_a universal_quants (c :: conds) e1 in
@@ -2930,7 +2947,7 @@ end
 
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
-            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc spec.spec_form in
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~spec_error:spec.spec_error ~loc spec.spec_form in
             let assume_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {

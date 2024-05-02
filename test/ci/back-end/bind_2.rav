@@ -1,0 +1,4 @@
+proc p() {
+  ghost var x: Int;
+  x :| x < 7 && 10 < x;
+}

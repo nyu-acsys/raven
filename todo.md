@@ -1,12 +1,11 @@
-1. ghost fields
-1. bind existentials using assert , or `:|`?
-1. How to tie single-node.rav to Resource_algebra.rav
-1. Process implicit callable args appropriately.
-1. Add spawn/join functions. Add process identifier types, etc.
-1. Do obligations checks, in terms of type checking for now.
+Type-checking:
+  - Ensure that return variables are not allowed in pre-conditions
+  - Check that openAU, commitAU having right number of arguments
+  - Check that assertion expressions having the right format -- conditionals in ternary expr being pure, etc
+  - Ensure that return variables of functions are not used in the function body
+  - Ensure that predicates don't have implicit ghost args
 
-
-Questions:
-2. Would it be better for Own expr to take three args instead of two? Presently difficult to distinguish an `x.f` expr from `x` expr.
-3. What is the purpose of Stmt.spec.spec_error? The parser sets them all to None initially.
-
+- Implement mask computation to check interface <-> module compatibility
+- Improve expression matching algorithm
+- Revamp witness computation code
+- Extend module system to allow parametrised modules as return types / parameters

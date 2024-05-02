@@ -1,0 +1,275 @@
+module Lock {
+
+  field bit: Bool
+  
+  pred lock(l: Ref, b: Bool) {
+    own(l, bit, b, 1.0) 
+  }
+
+  proc create()
+    returns (l: Ref)
+    ensures lock(l, false)
+  {
+    l := new(bit:false);
+    
+    {! 
+      fold lock(l, false);
+    !}
+  }
+
+  proc acquire(l: Ref, implicit ghost b: Bool)
+    atomic requires lock(l, b)
+    atomic ensures lock(l, true) && b == false
+  {
+    val phi: AtomicToken := bindAU();
+    val b1: Bool;
+    b1 := openAU(phi);
+    unfold lock(l, b1); 
+
+   	// val res = cas(l.bit, false, true); 
+    ghost var res: Bool;
+    {!
+      ghost var curr_val: Bool := l.bit;
+
+      if (curr_val == false) {
+        l.bit := true;
+        res := true;
+      } else {
+        res := false;
+      }
+    !}
+
+    {!
+      if (res) {
+        fold lock(l, true);
+        commitAU(phi);
+        
+      } else {
+        fold lock(l, b1);
+        // fold lock(l, false); // <-- this is not working
+        abortAU(phi);
+      }	
+    !}
+
+    if (!res) {
+      val b2: Bool;
+      b2 := openAU(phi);
+			assert lock(l, b2);
+			acquire(l);
+			commitAU(phi);
+    }	
+  }
+
+  proc release(l: Ref)
+    atomic requires lock(l, true)
+    atomic ensures lock(l, false)
+  {
+    val phi: AtomicToken;
+    {! 
+      phi := bindAU();
+      openAU(phi);
+      unfold lock(l, true);
+    !}
+ 
+    l.(Lock.bit) := false;
+    
+    {!
+      fold lock(l, false);
+      commitAU(phi);
+    !}
+  }
+}
+
+// interface Keyspace {
+//   rep type T
+
+//   val keyset: Set[T]
+// }
+
+// module IntKeyspace : Keyspace {
+//   rep type T = Int
+
+//   val keyset: Set[T] = {| k: Int :: true |}
+// }
+
+interface SearchStructureSpec {
+  type K
+  val keyset: Set[K]
+
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
+
+	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+    op == searchOp() ? 
+      c_in == c_out && res == (k in c_in) :
+    op == insertOp() ?
+      c_out == c_in ++ {| k |} && res == (k !in c_in) :
+      c_out == c_in -- {| k |} && res == (k in c_in)
+	}
+}
+
+interface NodeImpl {
+
+  module Spec : SearchStructureSpec
+  // import Spec
+  import Spec.K
+  import Spec.Op
+  import Spec.opSpec
+  import Spec.keyset
+
+  pred nodeR(n: Ref; c: Set[K])
+
+  proc create()
+    returns (n: Ref)
+    ensures nodeR(n, {||})
+
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+    requires k in keyset 
+    requires nodeR(n, c)
+    ensures nodeR(n, c1) && opSpec(dop, k, c, c1, res)
+
+  lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K])
+    requires nodeR(n, c1) && nodeR(n, c2)
+    ensures false
+}
+
+interface SearchStructure {
+
+  module Spec: SearchStructureSpec
+  import Spec.K
+  import Spec.Op
+  import Spec.opSpec
+  import Spec.keyset
+
+  pred cssR(r: Ref, c: Set[K])
+
+  // inv cssInv(r: Ref)
+
+  proc create()
+    returns (r: Ref)
+    ensures cssR(r, {||})
+
+  // proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+  //   returns (res: Bool, implicit ghost c1: Set[K])
+  //   requires k in keyset
+  //   // requires cssInv(r)
+  //   atomic requires cssR(r, c)
+  //   atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
+}
+
+interface SingleNodeTemplate[Node: NodeImpl] {
+  field lock: Bool
+
+  // module KeyMod : Library.Type {
+  //   rep type T = Set[Node.Spec.K]
+  // }
+
+  // module FracSK = Node.Spec.K
+
+  field frac: Set[Node.Spec.K];
+
+  module Spec: SearchStructureSpec = Node.Spec
+
+  import Node.Spec.K
+  import Node.Spec.Op
+  import Node.Spec.opSpec
+  import Node.Spec.keyset
+
+  // import Spec.K
+  // import Spec.Op
+  // import Spec.opSpec
+  // import Spec.keyset
+
+  pred cssR(r: Ref, c: Set[K]) {
+      exists b: Bool :: own(r, frac, c, 0.5) && own(r, lock, b, 1.0) && 
+      (b ? true : (Node.nodeR(r, c) && own(r, frac, c, 0.5)))
+  }
+
+
+  proc lockNode(n: Ref, implicit ghost b: Bool)
+    atomic requires own(n, lock, b, 1.0)
+    atomic ensures own(n, lock, true, 1.0) && b == false
+
+  proc unlockNode(n: Ref)
+    atomic requires own(n, lock, true, 1.0)
+    atomic ensures own(n, lock, false, 1.0)
+
+
+  proc create()
+    returns (r: Ref)
+    ensures cssR(r, {||})
+  {
+    r := Node.create();
+    r := new(lock:false, frac:{||});
+    assert own(r, frac, {||}, 0.5) && own(r, lock, false, 1.0) && 
+      (false ? true : (Node.nodeR(r, {||}) && own(r, frac, {||}, 0.5)));
+    // assert own(r, lock, false, 1.0) && (false ? true : Node.nodeR(r, {||}));
+    fold cssR(r, {||});
+  }
+
+  proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c_ret: Set[K])
+    requires k in keyset
+    atomic requires cssR(r, c)
+    atomic ensures cssR(r, c_ret) && opSpec(dop, k, c, c_ret, res)
+  {
+    var phi: AtomicToken := bindAU();
+
+    var c0: Set[K];
+    ghost var b: Bool;
+
+    c0 := openAU(phi);
+    unfold cssR(r, c0);
+    b :| own(r, frac, c, 0.5) && own(r, lock, b, 1.0) && (b ? true : (Node.nodeR(r, c0) && own(r, frac, c, 0.5)));
+    lockNode(r, b);
+    assert b == false;
+    assert own(r, frac, c0, 0.5) && own(r, lock, true, 1.0) && 
+      (true ? true : (Node.nodeR(r, c0) && own(r, frac, c0, 0.5)));
+
+    fold cssR(r, c0);
+    assert Node.nodeR(r, c0) && own(r, frac, c0, 0.5);
+    abortAU(phi);
+
+    var res1: Bool;
+    var c1: Set[K];
+
+    res1, c1 := Node.decisiveOp(dop, r, k, c0);
+
+    ghost var b2: Bool;
+    var c2: Set[K] := openAU(phi);
+
+    unfold cssR(r, c2);
+    b2 :| own(r, frac, c2, 0.5) && own(r, lock, b2, 1.0) && 
+      (b2 ? true : (Node.nodeR(r, c2) && own(r, frac, c2, 0.5)));
+
+
+    assert !b2 ==> Node.nodeR(r, c1) && Node.nodeR(r, c2);
+
+    {!
+      if (!b2) {
+        Node.nodeSepStar(r, c1, c2);
+        assert false;
+      } else {
+        assert b2 == true;
+      }
+    !}
+
+    assert b2 == true;
+    assert c2 == c0;
+
+    fpu(r, frac, c2, c1);
+
+    unlockNode(r);
+
+    assert own(r, frac, c1, 0.5) && own(r, lock, false, 1.0) && 
+      (false ? true : (Node.nodeR(r, c1) && own(r, frac, c1, 0.5)));
+    fold cssR(r, c1);
+    
+    commitAU(phi, res1, c1);
+
+    // assert false;
+
+    return res1, c1;
+
+  }
+}

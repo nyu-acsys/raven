@@ -285,7 +285,7 @@ let resolve_and_find_exn loc name (tbl : t) =
   resolve_and_find name tbl |>
 
   Option.lazy_value ~default:(fun () -> 
-    Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
+    Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: %a fail: tbl_curr: %a" QualIdent.pr name QualIdent.pr (tbl.tbl_curr.scope_id));
     (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
     unknown_ident_error loc name)
 
