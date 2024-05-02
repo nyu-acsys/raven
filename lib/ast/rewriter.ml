@@ -605,6 +605,14 @@ module Stmt = struct
       let+ field_read_ref = f field_read_desc.field_read_ref in
       { stmt with stmt_desc = Basic (FieldRead { field_read_lhs; field_read_field; field_read_ref }) }
 
+    | Cas cas_desc ->
+      let cas_lhs = cas_desc.cas_lhs in
+      let cas_field = cas_desc.cas_field in
+      let* cas_ref = f cas_desc.cas_ref in
+      let* cas_old_val = f cas_desc.cas_old_val in
+      let+ cas_new_val = f cas_desc.cas_new_val in
+      { stmt with stmt_desc = Basic (Cas { cas_lhs; cas_field; cas_ref; cas_old_val; cas_new_val }) }
+
     | Return expr ->
       let+ expr = f expr in
       { stmt with stmt_desc = Basic (Return expr); }
@@ -702,7 +710,15 @@ module Stmt = struct
         let field_read_field = f field_read_desc.field_read_field in
         let+ field_read_ref = Expr.rewrite_qual_idents ~f field_read_desc.field_read_ref in
         { stmt with stmt_desc = Basic (FieldRead { field_read_lhs; field_read_field; field_read_ref }) }
-        
+
+      | Cas cas_desc ->
+        let cas_lhs = f cas_desc.cas_lhs in
+        let cas_field = f cas_desc.cas_field in
+        let* cas_ref = Expr.rewrite_qual_idents ~f cas_desc.cas_ref in
+        let* cas_old_val = Expr.rewrite_qual_idents ~f cas_desc.cas_old_val in
+        let+ cas_new_val = Expr.rewrite_qual_idents ~f cas_desc.cas_new_val in
+        { stmt with stmt_desc = Basic (Cas { cas_lhs; cas_field; cas_ref; cas_old_val; cas_new_val }) }
+
       | Return expr ->
         let+ expr = Expr.rewrite_qual_idents ~f expr in
         { stmt with stmt_desc = Basic (Return expr); }

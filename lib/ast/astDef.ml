@@ -1075,6 +1075,14 @@ module Stmt = struct
     field_read_ref : expr
   }
 
+  type cas_desc = { 
+    cas_lhs : qual_ident;
+    cas_field : qual_ident;
+    cas_ref : expr;
+    cas_old_val : expr;
+    cas_new_val : expr;
+  }
+
   type call_desc = {
     call_lhs : qual_ident list;
     call_name : qual_ident;
@@ -1146,6 +1154,7 @@ module Stmt = struct
     | Assign of assign_desc (* x *)
     | Bind of bind_desc (* x *)
     | FieldRead of field_read_desc
+    | Cas of cas_desc
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
@@ -1218,6 +1227,7 @@ module Stmt = struct
           fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
           bstm.bind_rhs)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ FieldRead (%a.%a) @]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
+    | Cas cs -> fprintf ppf "@[<2>%a@ :=@ Cas (%a.%a, %a, %a) @]" QualIdent.pr cs.cas_lhs Expr.pr cs.cas_ref QualIdent.pr cs.cas_field Expr.pr cs.cas_old_val Expr.pr cs.cas_new_val 
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1359,6 +1369,7 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
+  let mk_field_read ~loc lhs field ref = { stmt_desc = Basic (FieldRead {field_read_lhs = lhs; field_read_field = field; field_read_ref = ref}); stmt_loc = loc }
 
   let mk_havoc ~loc x = { stmt_desc = Basic (Havoc x); stmt_loc = loc }
 
@@ -1426,6 +1437,10 @@ module Stmt = struct
         | FieldRead fr_desc ->
           let accesses = Set.add accesses fr_desc.field_read_lhs in
           scan_expr_list accesses [fr_desc.field_read_ref]
+
+        | Cas cs_desc ->
+          let accesses = Set.add accesses cs_desc.cas_lhs in
+          scan_expr_list accesses [cs_desc.cas_ref; cs_desc.cas_old_val; cs_desc.cas_new_val]
             
         | Havoc x ->
           Set.add accesses x
@@ -1525,7 +1540,13 @@ module Stmt = struct
             [fr_desc.field_read_lhs.qual_base]
           else
             []
-          
+
+        | Cas cs_desc -> 
+          if List.is_empty cs_desc.cas_lhs.qual_path then
+            [cs_desc.cas_lhs.qual_base]
+          else
+            []
+            
         | Havoc x ->
           if List.is_empty x.qual_path then 
             [x.qual_base]
@@ -1603,6 +1624,9 @@ module Stmt = struct
         | FieldRead fr_desc -> 
           [fr_desc.field_read_field]
 
+        | Cas cs_desc -> 
+          [cs_desc.cas_field]
+            
         | Havoc _ ->
           []
 

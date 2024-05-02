@@ -1064,6 +1064,26 @@ module ProcessCallable = struct
             } 
             in
             Stmt.Basic (FieldRead field_read_desc), disam_tbl
+          | App (Cas, [App (Read, [ref_expr; field_expr], _); old_val_expr; new_val_expr], _) ->
+            Logs.debug (fun m -> m "process_stmt: cas_assign_rhs: %a" Expr.pr assign_rhs);
+            let field_qual_ident = Expr.to_qual_ident field_expr in
+            let cas_lhs = (match assign_lhs with
+            | [lhs] -> Expr.to_qual_ident lhs
+            | _ -> Error.type_error stmt.stmt_loc "Expected exactly one left-hand side of cas"
+            )
+
+            in
+
+            let cas_desc = Stmt.{ 
+              cas_lhs = cas_lhs; 
+              cas_field = field_qual_ident; 
+              cas_ref = ref_expr;
+              cas_old_val = old_val_expr;
+              cas_new_val = new_val_expr
+            }
+            in
+            Stmt.Basic (Cas cas_desc), disam_tbl 
+
           | _ ->
               
           let assign_desc =
@@ -1115,10 +1135,33 @@ module ProcessCallable = struct
         (match field_read_expr with
         | App (Read, [field_read_ref; App (Var field_read_field, [], _)], _) -> 
           let field_read_desc = Stmt.{ field_read_lhs = fr_var_qual_ident; field_read_field = field_read_field; field_read_ref = field_read_ref } 
-        
-          in
-          Stmt.Basic (FieldRead field_read_desc), disam_tbl
+        in
+        Stmt.Basic (FieldRead field_read_desc), disam_tbl
+        | _ -> failwith "Unexpected error during type checking.")
 
+      | Cas cs_desc ->
+        let* cs_var_qual_ident = disambiguate_ident cs_desc.cas_lhs disam_tbl in
+        let* cs_var_qual_ident, symbol = Rewriter.resolve_and_find stmt.stmt_loc cs_var_qual_ident in
+        let* symbol = Rewriter.Symbol.reify symbol in
+        let* cs_type = 
+          match symbol with
+          | VarDef var_def -> 
+            let* var_type_expanded = ProcessTypeExpr.expand_type_expr var_def.var_decl.var_type in
+            Rewriter.return var_type_expanded
+          | _ -> Error.type_error stmt.stmt_loc "Expected variable identifier on left-hand side of CAS"
+        in
+        let expr_attr = {Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot} in
+        let cas_expr = 
+          Expr.App (Cas, [App (Read, [cs_desc.cas_ref; App (Var cs_desc.cas_field, [], expr_attr)], expr_attr); cs_desc.cas_old_val; cs_desc.cas_new_val], { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bool }) 
+        in
+
+        let+ cas_expr = disambiguate_process_expr cas_expr cs_type disam_tbl in
+
+        (match cas_expr with
+        | App (Cas, [App (Read, [cas_ref; App (Var cas_field, [], _)], _); cas_old_val; cas_new_val], _) ->
+          let cas_desc = Stmt.{ cas_lhs = cs_var_qual_ident; cas_field = cas_field; cas_ref = cas_ref; cas_old_val = cas_old_val; cas_new_val = cas_new_val }
+          in
+          Stmt.Basic (Cas cas_desc), disam_tbl
         | _ -> failwith "Unexpected error during type checking.")
         
 

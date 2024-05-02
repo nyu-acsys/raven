@@ -652,6 +652,44 @@ let rec rewrite_new_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
 
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
 
+(** Replaces a `b := CAS(x.f, v1, v2)` stmt with `v := x.f; if (v == v1) { b := true; x.f := v2 } else { b := false }`. *)
+let rec rewrite_cas_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match stmt.stmt_desc with
+  | Basic (Cas cas_desc) ->
+    
+    let new_var_name = Ident.fresh stmt.stmt_loc (QualIdent.to_string cas_desc.cas_lhs ^ "$cas") in
+    let new_var_decl = Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true new_var_name (Expr.to_type cas_desc.cas_old_val) in
+    let* _ = Rewriter.introduce_symbol (Module.VarDef { var_decl = new_var_decl; var_init = None; }) in
+    let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
+    let read_stmt = Stmt.mk_field_read ~loc:stmt.stmt_loc new_var_qualident cas_desc.cas_field cas_desc.cas_ref in
+    let test_ = Some (Expr.mk_eq ~loc:stmt.stmt_loc (Expr.from_var_decl new_var_decl) cas_desc.cas_old_val) in
+    let* symbol = Rewriter.find_and_reify stmt.stmt_loc cas_desc.cas_lhs in
+    let lhs_var_decl = match symbol with
+      | VarDef v -> v.var_decl
+      | _ -> Error.error stmt.stmt_loc ("Expected a variable (3); found " ^ (Symbol.to_string symbol)) in
+    let lhs_expr = Expr.from_var_decl lhs_var_decl in
+    let then1_ = Stmt.mk_assign ~loc:stmt.stmt_loc [lhs_expr] (Expr.mk_bool true) in
+    let* field_symbol = Rewriter.find_and_reify stmt.stmt_loc cas_desc.cas_field in
+    let field_type, field_underlying_type = match field_symbol with
+          | FieldDef f -> 
+            (match f.field_type with
+            | App (Fld, [tp_expr], _) -> f.field_type, tp_expr
+            | _ -> Error.type_error stmt.stmt_loc "Expected field identifier.")
+          | _ -> Error.error stmt.stmt_loc "Expected a field_def" in
+    let expr_attr = Expr.mk_attr stmt.stmt_loc field_underlying_type in
+    let field_expr_attr = Expr.mk_attr stmt.stmt_loc field_type in
+    let read_expr = Expr.App (Read, [cas_desc.cas_ref; Expr.App (Var cas_desc.cas_field, [], field_expr_attr)], expr_attr) in
+    let then2_ = Stmt.mk_assign ~loc:stmt.stmt_loc [read_expr] cas_desc.cas_new_val in
+    let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [then1_; then2_] in
+    let else_ = Stmt.mk_assign ~loc:stmt.stmt_loc [lhs_expr] (Expr.mk_bool false) in
+    let ite_stmt = Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_ in
+    let new_stmts = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [read_stmt; ite_stmt] in
+
+    Rewriter.return new_stmts 
+
+  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_cas_stmts
+
 
 (** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. *)
 let rec rewrite_fold_unfold_stmts (stmt: Stmt.t) : Stmt.t Rewriter.t =
@@ -1366,7 +1404,7 @@ module AtomicityAnalysis = struct
         | [] -> true
         | _ -> false
         )
-      | Read -> is_expr_atomic (List.hd_exn expr_args)
+      | Read | Cas -> is_expr_atomic (List.hd_exn expr_args)
       | _ -> false)
 
     | _ -> false
@@ -2022,6 +2060,9 @@ let rec rewrites_phase_2 (m: Module.t) : Module.t Rewriter.t =
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_au_cmnds on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:AtomicityAnalysis.rewrite_atomicity_analysis m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_cas on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_cas_stmts m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_fold_unfold_stmts on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in

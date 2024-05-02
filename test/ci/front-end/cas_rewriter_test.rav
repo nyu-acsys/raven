@@ -1,0 +1,17 @@
+field f: Int
+
+inv my_inv(x: Ref) {
+  true
+}
+
+proc p(x:Ref) 
+  requires my_inv(x)
+  requires own(x, f, 1, 1.0)
+{
+  x.f := 0;
+  unfold my_inv(x);
+  var b : Bool := CAS(x.f, 0, 5);
+  // var b: Int := x.f;
+  fold my_inv(x);
+  // assert (b == true);
+}
