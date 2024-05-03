@@ -1518,6 +1518,11 @@ module AtomicityAnalysis = struct
             Rewriter.return stmt
         | _ -> Error.error stmt.stmt_loc "Expected a var_def"
         )
+
+      | Basic (Cas cas_desc) ->
+        let atomicity_state = take_atomic_step ~loc atomicity_state in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return stmt
         
       | Basic (Havoc qual_iden) ->
         let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
