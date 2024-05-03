@@ -267,7 +267,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
           | MapLookUp -> Type.map_codom typ1
           | Diff | Union | Inter
           | Plus | Minus | Mult | Div | Mod -> typ2
-          | And | Or | Impl -> Type.perm
+          | And | Or | Impl ->  expected_typ
           | Subseteq | Eq | Gt | Lt | Geq | Leq
           | Elem -> Type.bool
           | _ -> assert false
@@ -289,7 +289,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
               typ, typ
           | And | Or | Impl ->
               let typ = expr1 |> Expr.to_type in
-            Type.bool, Type.join typ typ2
+            Type.join typ typ2, Type.join typ typ2
           | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq ->
               Type.bool, Type.bool
           | _ -> assert false
@@ -387,7 +387,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         (* Reconstruct and check expr *)
         let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
         check_and_set expr Type.perm Type.perm expected_typ
-
+          
     | Own, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments, and second argument is a field name."))
 
     | AUPred call_name, token :: args_list ->
