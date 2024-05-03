@@ -8,4 +8,3 @@ Type-checking:
 - Implement mask computation to check interface <-> module compatibility
 - Improve expression matching algorithm
 - Revamp witness computation code
-- Extend module system to allow parametrised modules as return types / parameters
