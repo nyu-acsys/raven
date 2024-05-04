@@ -160,7 +160,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       let* qual_ident, symbol = 
         Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
-      let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in
+      (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
       let* symbol = Rewriter.Symbol.reify symbol in
       begin match symbol with
         | ConstrDef _constr ->
@@ -557,12 +557,13 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
     match binder with
     | Forall | Exists ->
-      let* inner_expr = process_expr inner_expr Type.perm in
+      let* inner_expr = process_expr inner_expr expected_typ in
       let* trgs = Rewriter.List.map trgs ~f:(fun trg -> Rewriter.List.map trg ~f:(fun expr -> process_expr expr Type.any)) in
       
       (* TODO: Add additional checks for triggers *)
+      let inner_typ = Expr.to_type inner_expr in
       let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
-      check_and_set expr Type.bool Type.perm expected_typ
+      check_and_set expr Type.bool Type.perm inner_typ
 
     | Compr ->
       let var_decl = 
