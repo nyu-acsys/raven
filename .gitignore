@@ -8,4 +8,3 @@ log*.smt
 .vscode
 front_end_processed_output.log
 smt-encodings/*
-Raven.opam
