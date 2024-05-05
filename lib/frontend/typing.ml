@@ -1671,7 +1671,7 @@ module ProcessModule = struct
     let open Rewriter.Syntax in
     let _ = Logs.debug (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m))) in
     
-    let* sc = Rewriter.current_scope_children in
+    let __ret_val__ = (let* sc = Rewriter.current_scope_children in
     Logs.debug (fun mm -> 
       
       mm !"Processing module %{Ident}: scope_children: %a" (Symbol.to_name (ModDef m)) (Print.pr_list_comma Ident.pr) (Hashtbl.keys sc)
@@ -1862,7 +1862,9 @@ module ProcessModule = struct
     in
     let _ = Logs.debug (fun mm -> mm !"Done with processing module %{Ident}" (Symbol.to_name (ModDef m))) in
     
-    Module.{ mod_decl; mod_def }    
+    Module.{ mod_decl; mod_def }    ) |> (Sys.opaque_identity) in
+
+    Sys.opaque_identity __ret_val__
 end
 
 let process_module ?(tbl = SymbolTbl.create ()) (m: Module.t) = 

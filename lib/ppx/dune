@@ -1,0 +1,4 @@
+(library
+ (name ppx_opaque_monadic)
+ (kind ppx_rewriter)
+ (libraries ppxlib))
