@@ -1,0 +1,10 @@
+module M {
+  type T = data {
+    case x;
+    case y
+  }
+}
+
+module N : M {
+
+}

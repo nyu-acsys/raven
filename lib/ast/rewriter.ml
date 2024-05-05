@@ -733,6 +733,10 @@ module Stmt = struct
         and+ fpu_new_val = Expr.rewrite_qual_idents ~f fpu_desc.fpu_new_val in
         { stmt with stmt_desc = Basic (Fpu { fpu_ref; fpu_field; fpu_old_val; fpu_new_val }) }
 
+      | Havoc qual_iden ->
+        let qual_iden = f qual_iden in
+        return { stmt with stmt_desc = (Basic (Havoc qual_iden))}
+
       (* TODO: add remaining *)
       | _ -> rewrite_expressions_top ~f:(Expr.rewrite_qual_idents ~f) ~c:(rewrite_qual_idents ~f) stmt
       end
@@ -1133,6 +1137,7 @@ module ProgUtils = struct
         | '(' -> '*'
         | ')' -> '*'
         | ' ' -> '_'
+        (* | '\'' -> '#' *)
         | c -> c)
     in
     s

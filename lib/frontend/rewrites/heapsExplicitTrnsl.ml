@@ -152,13 +152,22 @@ open Frontend
 
 
   let generate_inv_function ~loc (universal_quants: universal_quants) (conds: conditions) (inv_expr: expr) ~(arg_expr: expr) : expr Rewriter.t =
-    assert (Type.(Expr.to_type inv_expr = Expr.to_type arg_expr));
+    (* Logs.debug (fun m -> m "heapsExplicitTrnsl.generate_inv_function: Generating inv function for %a" Expr.pr inv_expr);
+    Logs.debug (fun m -> m "arg_expr: %a" Expr.pr arg_expr);
+    Logs.debug (fun m -> m "inv_expr_type: %a; arg_expr_type: %a" Type.pr (Expr.to_type inv_expr) Type.pr (Expr.to_type arg_expr)); *)
+
+    let open Rewriter.Syntax in
+
+    let* tp1 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type inv_expr)
+    and* tp2 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type arg_expr) in
+
+    assert (Type.(tp1 = tp2));
 
     if List.is_empty universal_quants.univ_vars then
       Rewriter.return inv_expr
     else
 
-    let open Rewriter.Syntax in
+
 
     let inv_fn_ident = Ident.fresh loc ("$inv_" ^ (Rewriter.ProgUtils.serialize (Expr.to_string inv_expr))) in
 

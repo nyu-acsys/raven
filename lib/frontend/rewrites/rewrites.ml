@@ -379,7 +379,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
     let* loop_arg_var_decls, loop_arg_renaming_map, loop_arg_renaming_qual_ident_map, curr_loop_arg_var_decls = 
       begin
         (* Local variables accessed from loop body become arguments for loop procedure *)
-        let curr_loop_args = Stmt.local_vars_accessed loop.loop_postbody |> Set.to_list in
+        let curr_loop_args = Set.union (Stmt.local_vars_accessed loop.loop_postbody) (Expr.local_vars loop.loop_test) |> Set.to_list in
         let+ curr_loop_arg_var_decls = Rewriter.List.map curr_loop_args ~f:(fun var -> 
           let+ symbol = Rewriter.find_and_reify var.ident_loc (QualIdent.from_ident var) in
           

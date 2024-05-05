@@ -1,0 +1,9 @@
+field f: Int
+
+proc p()
+
+{
+  var x: Ref;
+  var b: Bool;
+  inhale own(x, f, 1, 1.0) && b ? true : false;
+}
