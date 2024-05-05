@@ -1,0 +1,3 @@
+func t() returns (ret:Bool) {
+  (forall x: Int :: true) && true
+}
