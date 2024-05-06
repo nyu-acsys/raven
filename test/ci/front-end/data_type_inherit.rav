@@ -3,6 +3,11 @@ module M {
     case x;
     case y
   }
+
+  func is_x(t: T) returns (ret:Bool) {
+    t == x()
+  }
+  
 }
 
 module N : M {

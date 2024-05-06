@@ -1365,6 +1365,7 @@ module ProcessModule = struct
 
   let process_type_def (type_def: Module.type_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
+    Logs.debug (fun m -> m "Typing.process_type_def: Start processing type_def: %a" Ident.pr type_def.type_def_name);
     match type_def.type_def_expr with
     | None ->
       Rewriter.return Module.(TypeDef type_def)
@@ -1766,6 +1767,7 @@ module ProcessModule = struct
         Set.add (interface.mod_decl.mod_decl_interfaces) qual_interface_ident,
         interface_ident,
         List.fold interface.mod_def ~init:([], Map.empty (module Ident)) ~f:(fun (inherited, to_check) -> function
+            | Module.SymbolDef ( ConstrDef _ | DestrDef _) -> inherited, to_check
             | Module.SymbolDef symbol ->
               let ident = Symbol.to_name symbol in
               if Set.mem defined_symbols ident
@@ -1786,6 +1788,8 @@ module ProcessModule = struct
         in
         None, interfaces, mod_ident, ([], Map.empty (module Ident))
     in
+
+    let inherited_symbols = List.rev inherited_symbols in
 
     let mod_def = inherited_symbols @ mod_def in
     let* _ = Rewriter.List.map mod_def ~f:(function

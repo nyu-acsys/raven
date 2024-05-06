@@ -60,9 +60,9 @@ module Ident = struct
         Hashtbl.find used_names name |> Option.value ~default:(-1)
       in
       let new_max = Int.max (last_index + 1) id in
-      Logs.debug (fun m -> m "Keyset: %d" (List.count (Hashtbl.keys used_names) ~f:(fun _ -> true)));
-      Logs.debug (fun m -> m "old id %s -> %d" name last_index);
-      Logs.debug (fun m -> m "fresh id %s -> %d" name new_max);
+      (* Logs.debug (fun m -> m "Keyset: %d" (List.count (Hashtbl.keys used_names) ~f:(fun _ -> true))); *)
+      (* Logs.debug (fun m -> m "old id %s -> %d" name last_index); *)
+      (* Logs.debug (fun m -> m "fresh id %s -> %d" name new_max); *)
       Hashtbl.set used_names ~key:name ~data:new_max;
       make loc name new_max
 end
