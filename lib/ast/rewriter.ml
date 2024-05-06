@@ -404,6 +404,14 @@ module List = struct
             (s, acc), y)
     in
     s, (acc, ys)
+
+  let fold2 (xs: 'a list) (ys: 'b list) ~(init: 'acc) ~f : ('acc Base.List.Or_unequal_lengths.t, 'c) t_ext = fun s ->
+    match List.zip xs ys with
+    | Ok xs_ys ->
+      let s, res = List.fold_left xs_ys ~init:(s, init) ~f:(fun (s, acc) (x, y) -> f acc x y s) in
+      s, Base.List.Or_unequal_lengths.Ok res
+    | Unequal_lengths -> s, Unequal_lengths
+  
   
   let iter xs ~f = fun s ->
     List.fold_left xs ~init:s ~f:(fun s x -> let res, () = f x s in res), ()
@@ -438,6 +446,11 @@ module Option = struct
     | Some v ->
       let+ res = f v in
       Some res
+
+  let iter (x: 'a option) ~(f: 'a -> (unit, 'c) t_ext): (unit, 'c) t_ext = 
+    match x with
+    | None -> return ()
+    | Some v -> f v
 
 end
 
