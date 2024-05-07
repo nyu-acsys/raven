@@ -1472,8 +1472,8 @@ module AtomicityAnalysis = struct
 
         if is_assign_desc_lhs_ghost then
           Rewriter.return stmt
-        (* else if ghost_block then
-          Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block" *)
+        else if ghost_block then
+          Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block"
         else if List.length assign_desc.assign_lhs > 1 then
           let atomicity_state = take_non_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
