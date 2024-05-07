@@ -1,18 +1,18 @@
-module KeysetRA[K: Library.Type] : Library.ResourceAlgebra {
+module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
     rep type T = data {
-        case prodKS(inset: Set[K], contents: Set[K]);
+        case prodKS(keyset: Set[K], contents: Set[K]);
         case topKS
     }
 
     val id: T = prodKS({||}, {||});
 
     func valid(n:T) returns (ret:Bool) {
-        n == prodKS(n.inset, n.contents) && n.contents subseteq n.inset
+        n == prodKS(n.keyset, n.contents) && n.contents subseteq n.keyset
     }
 
 
     func ks_composable(a:T, b:T) returns (ret:Bool) {
-        valid(a) && valid(b) && a.inset ** b.inset == {||}
+        valid(a) && valid(b) && a.keyset ** b.keyset == {||}
     }
 
     func comp(a:T, b:T) returns (ret:T) {
@@ -21,19 +21,19 @@ module KeysetRA[K: Library.Type] : Library.ResourceAlgebra {
             (b == id ? 
                 a :
                 (ks_composable(a, b) ?
-                    prodKS(a.inset ++ b.inset, a.contents ++ b.contents) : topKS())
+                    prodKS(a.keyset ++ b.keyset, a.contents ++ b.contents) : topKS())
             )
     }
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
-        (valid(a) && valid(b) && b.inset subseteq a.inset && b.contents subseteq a.contents ?
-            prodKS(a.inset -- b.inset, a.contents -- b.contents) : topKS())
+        (valid(a) && valid(b) && b.keyset subseteq a.keyset && b.contents subseteq a.contents ?
+            prodKS(a.keyset -- b.keyset, a.contents -- b.contents) : topKS())
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
         a == b ? true : 
-        (valid(a) && valid(b) && b.inset subseteq a.inset ?
+        (valid(a) && valid(b) && b.keyset subseteq a.keyset ?
             true : false)
     }
 
@@ -81,5 +81,9 @@ module KeysetRA[K: Library.Type] : Library.ResourceAlgebra {
     
     auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
+
+    auto lemma frameCompInv()
+        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {}
 }
