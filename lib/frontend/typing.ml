@@ -1518,12 +1518,12 @@ module ProcessModule = struct
         if Type.(var_def.var_decl.var_type <> orig_var_def_var_type) then
         Error.type_error loc
           (Printf.sprintf !"%s %{Ident} must have type %{Type} according to interface %{QualIdent}"
-             (Symbol.kind symbol |> String.uppercase) ident orig_var_def.var_decl.var_type interface_ident)
+             (Symbol.kind symbol |> String.capitalize) ident orig_var_def.var_decl.var_type interface_ident)
       else begin match var_def.var_init, orig_var_def.var_init with
         | _, Some _ ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
         | _ -> Rewriter.return ()
       end
     | CallDef call_def, CallDef orig_call_def ->
@@ -1587,14 +1587,16 @@ module ProcessModule = struct
       | FuncDef { func_body = Some _; _ }, FuncDef { func_body = Some _; _ } ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
       | ProcDef { proc_body = None; _ }, ProcDef { proc_body = Some _; _ }
       | FuncDef { func_body = None; _ }, FuncDef { func_body = Some _; _ } ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
       | _ -> Rewriter.return ()
       end
+    (*| ModDef mod_def, ModInst { mod_inst_def = Some (mod_inst_def_id, []); _ } ->
+      let *)
     | ModDef mod_def, ModInst orig_mod_inst ->
       if mod_def.mod_decl.mod_decl_is_interface && not orig_mod_inst.mod_inst_is_interface then
           Error.type_error loc
@@ -1604,26 +1606,26 @@ module ProcessModule = struct
           (Printf.sprintf !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module" ident interface_ident)
       else
         let _ = match mod_def.mod_decl.mod_decl_returns, orig_mod_inst.mod_inst_type with
-        | Some mod_typ, orig_mod_typ when QualIdent.(mod_typ <> orig_mod_typ) ->
-          Error.type_error loc
-            (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
-        | None, _ ->
-          Error.type_error loc
-            (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
-        | _ -> ()
+          | Some mod_typ, orig_mod_typ when QualIdent.(mod_typ <> orig_mod_typ) ->
+            Error.type_error loc
+              (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+                 (Symbol.kind symbol |> String.capitalize) ident orig_mod_inst.mod_inst_type interface_ident)
+          | None, _ ->
+            Error.type_error loc
+              (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+                 (Symbol.kind symbol |> String.capitalize) ident orig_mod_inst.mod_inst_type interface_ident)
+          | _ -> ()
         in
         if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} cannot have module parameters."
-               (Symbol.kind symbol |> String.uppercase) ident)
+               (Symbol.kind symbol |> String.capitalize) ident)
         else
           begin match orig_mod_inst.mod_inst_def with
             | Some _ ->
               Error.type_error loc
                 (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-                   (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+                   (Symbol.kind symbol |> String.capitalize) ident interface_ident)
             | _ -> Rewriter.return ()
           end 
     | ModInst mod_inst, ModInst orig_mod_inst ->
@@ -1634,24 +1636,25 @@ module ProcessModule = struct
         Error.type_error loc
           (Printf.sprintf !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module" ident interface_ident)
       else if QualIdent.(mod_inst.mod_inst_type <> orig_mod_inst.mod_inst_type) then
+        let _ = Logs.info (fun m -> m !"here: %{QualIdent} %{QualIdent}" mod_inst.mod_inst_type orig_mod_inst.mod_inst_type) in
         Error.type_error loc
           (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
-             (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
+             (Symbol.kind symbol |> String.capitalize) ident orig_mod_inst.mod_inst_type interface_ident)
       else begin match mod_inst.mod_inst_def, orig_mod_inst.mod_inst_def with
         | Some _, Some _ ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
         | None, Some _ ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
         | _ -> Rewriter.return ()
       end
     | ModDef _mod_def, ModDef _orig_mod_def ->
       Error.type_error loc
         (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-           (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+           (Symbol.kind symbol |> String.capitalize) ident interface_ident)
     | _ ->
       Error.type_error loc
         (Printf.sprintf !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s."
