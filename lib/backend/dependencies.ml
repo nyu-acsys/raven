@@ -63,6 +63,11 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t): QualIdent.t list list =
             Callable.symbols call_def
           | _ -> Graph.empty_vertex_set
           end
+        | VarDef var_def ->
+          Logs.debug (fun m -> m "Dependencies.analyze: Analyzing dependencies of variable %a" Symbol.pr sym);
+          let deps = Option.map var_def.var_init ~f:Expr.symbols |> Option.value ~default:Graph.empty_vertex_set in
+          let deps = Set.union deps (Type.symbols var_def.var_decl.var_type) in
+          deps
         | _ -> Graph.empty_vertex_set
       in
       Logs.debug (fun m -> m "Dependencies.analyze: Adding dependencies of %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));

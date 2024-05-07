@@ -1,0 +1,31 @@
+interface Test {
+  pred p(x: Ref, y: Int) {
+    true
+  }
+
+  field f: Int
+
+  func lookup(x:Ref, y: Int)
+    returns (ret: Ref)
+
+  auto lemma all_diff()
+    ensures forall a:Ref, b:Ref, i1: Int, i2: Int :: lookup(a, i1) == lookup(b, i2) ==> a == b && i1 == i2
+
+  proc q() {
+    inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> p(lookup(x, y), y);
+    exhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> p(lookup(x, y), y);
+
+    inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y), f, y, 1.0);
+    exhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y), f, y, 1.0);
+
+    var x: Ref;
+    var y: Int;
+
+    inhale own(x, f, y, 1.0);
+    exhale own(x, f, y, 1.0);
+
+    inhale own(x, f, y, 1.0) && p(x, y);
+    exhale own(x, f, y, 1.0) && p(x, y);
+
+  }
+}

@@ -152,9 +152,22 @@ open Frontend
 
 
   let generate_inv_function ~loc (universal_quants: universal_quants) (conds: conditions) (inv_expr: expr) ~(arg_expr: expr) : expr Rewriter.t =
-    assert (Type.(Expr.to_type inv_expr = Expr.to_type arg_expr));
+    (* Logs.debug (fun m -> m "heapsExplicitTrnsl.generate_inv_function: Generating inv function for %a" Expr.pr inv_expr);
+    Logs.debug (fun m -> m "arg_expr: %a" Expr.pr arg_expr);
+    Logs.debug (fun m -> m "inv_expr_type: %a; arg_expr_type: %a" Type.pr (Expr.to_type inv_expr) Type.pr (Expr.to_type arg_expr)); *)
 
     let open Rewriter.Syntax in
+
+    let* tp1 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type inv_expr)
+    and* tp2 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type arg_expr) in
+
+    assert (Type.(tp1 = tp2));
+
+    if List.is_empty universal_quants.univ_vars then
+      Rewriter.return inv_expr
+    else
+
+
 
     let inv_fn_ident = Ident.fresh loc ("$inv_" ^ (Rewriter.ProgUtils.serialize (Expr.to_string inv_expr))) in
 
@@ -1011,9 +1024,22 @@ open Frontend
   let rec rewrite_binds (stmt: Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
     | Basic (Bind bind_desc) ->
+      let exis_vars = List.map bind_desc.bind_lhs ~f:(fun e -> Type.mk_var_decl ~loc:stmt.stmt_loc (Ident.fresh stmt.stmt_loc "$bind") (Expr.to_type e)) in
+
+      let alpha_renaming_map = List.fold2_exn bind_desc.bind_lhs exis_vars ~init:(Map.empty (module QualIdent)) ~f:(fun renam_map e1 e2 ->
+        Map.add_exn renam_map ~key:(Expr.to_qual_ident e1) ~data:(Expr.from_var_decl e2)
+      ) in
+
+      let error = Error.Verification, stmt.stmt_loc, "The body of bind stmt could not be shown" in
+      let assert_stmt = Stmt.mk_assert_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt)) ~spec_error:[Stmt.mk_const_spec_error error]
+      
+      (Expr.mk_binder Exists ~loc:stmt.stmt_loc exis_vars (Expr.alpha_renaming bind_desc.bind_rhs alpha_renaming_map) )
+    
+      in
+
       let assume_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt)) bind_desc.bind_rhs in
 
-      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [assume_stmt] in
+      let new_stmt = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [assert_stmt; assume_stmt] in
       Rewriter.return new_stmt
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_binds
   
@@ -1330,7 +1356,7 @@ end
           Rewriter.return stmt
 
         | Some prev_expr ->
-          (* Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: bind_desc: %a; prev_expr: %a" Stmt.pr stmt Expr.pr prev_expr); *)
+          Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: bind_desc: %a; prev_expr: %a" Stmt.pr stmt Expr.pr prev_expr);
 
           let* bind_lhs_var_decls = Rewriter.List.map bind_desc.bind_lhs ~f:(fun var -> 
             let* symbol = Rewriter.find_and_reify (Expr.to_loc bind_desc.bind_rhs) (Expr.to_qual_ident var) in
@@ -1340,8 +1366,11 @@ end
           ) in
 
           match match_up_expr bind_desc.bind_rhs prev_expr bind_lhs_var_decls with
-          | None -> Rewriter.return stmt
+          | None -> 
+            Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: Could not match up expressions");
+            Rewriter.return stmt
           | Some var_map ->
+            Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: var_map: %a" (Util.Print.pr_map ~key:Ident.pr ~value:Type.pr_var_decl) (Map.map ~f:Stdlib.fst var_map));
             let assign_stmts = List.map bind_lhs_var_decls ~f:(fun var_decl -> 
               let _, rhs = Map.find_exn var_map (var_decl.var_name) in
 
@@ -1378,9 +1407,9 @@ end
         havoc(field$Heap2);
   
         assert forall l: Ref :: 
-          forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
-              field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) :
-            field$Heap2[l] == field$Heap[l]
+          m1(inv(l)#0, inv(l)#1, inv(l)#2) && l == f1(inv(l)#0, inv(l)#1, inv(l)#2) ?
+            field$Heap2[l] == field.comp( field$Heap[l], f2(inv(l)#0, inv(l)#1, inv(l)#2) ) :
+          field$Heap2[l] == field$Heap[l]
   
         field$Heap := field$Heap2
         assume field.valid(field$Heap)
@@ -1426,7 +1455,6 @@ end
 
         let e1_subst = Expr.alpha_renaming e1 alpha_renaming_map in
         let e3_subst = Expr.alpha_renaming e3 alpha_renaming_map in
-
         let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
 
         let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
@@ -1513,23 +1541,39 @@ end
         let* au_ra_committed_constr = Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc call_qual_ident in
 
         let havoc_stmt = Stmt.mk_havoc ~loc au_heap2_qual_ident in
+
+        let new_token_var = { Type.var_name = Ident.fresh loc "tok"; var_loc = loc; 
+        var_type = Type.atomic_token; var_const = false; var_ghost = false; var_implicit = false; } in
+
+        let new_token_expr = Expr.from_var_decl new_token_var in
+
+        let* inv_fn_expr = generate_inv_function ~loc universal_quants conds token ~arg_expr:new_token_expr in
+
+        let inv_exprs = List.mapi univ_vars_list ~f:(fun index var_decl -> 
+          Expr.mk_tuple_lookup inv_fn_expr index
+        ) in
+
+        let alpha_renaming_map = List.fold2_exn univ_vars_list inv_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+          Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+        ) in
+
+        let token_subst = Expr.alpha_renaming token alpha_renaming_map in
+        let args_subst = List.map args ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+        let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+
         let assume_stmt = 
-          let new_token_var = { Type.var_name = Ident.fresh loc "tok"; var_loc = loc; 
-          var_type = Type.atomic_token; var_const = false; var_ghost = false; var_implicit = false; } in
 
-          let new_token_expr = Expr.from_var_decl new_token_var in
-
-          let token_var_eq_given_token = Expr.mk_eq new_token_expr token in
+          let token_var_eq_given_token = Expr.mk_eq new_token_expr token_subst in
           
           let new_chunk = 
             (match expr with
-            | App (AUPred _, _ :: args, _) -> 
+            | App (AUPred _, _, _) -> 
               
-              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_uncommitted_constr) [Expr.mk_tuple args]
+              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_uncommitted_constr) [Expr.mk_tuple args_subst]
 
-            | App (AUPredCommit _, _ :: args, _) -> 
-              let ret_val = List.last_exn args in
-              let call_args = List.drop_last_exn args
+            | App (AUPredCommit _, _, _) -> 
+              let ret_val = List.last_exn args_subst in
+              let call_args = List.drop_last_exn args_subst
               
               in
               
@@ -1545,11 +1589,10 @@ end
           (Expr.mk_binder ~trigs:[[Expr.mk_maplookup ~loc au_heap2_expr new_token_expr]; [Expr.mk_maplookup ~loc au_heap_expr new_token_expr]]
           
           ~loc ~typ:Type.bool Forall [new_token_var] 
-            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
               (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                 (* m1(a,b,c) && l == f1(a, b, c) *)
-                Expr.mk_and ~loc (token_var_eq_given_token :: conds);
+                Expr.mk_and ~loc (token_var_eq_given_token :: conds_subst);
 
                 (* au$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
                 Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr)
@@ -1564,7 +1607,6 @@ end
                 Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr) 
                   (Expr.mk_maplookup ~loc au_heap_expr new_token_expr);
               ])
-            )
           )
         in
 
@@ -1635,25 +1677,40 @@ end
               let* pred_out_types = Rewriter.ProgUtils.pred_out_types qual_ident in
 
               let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident in
+              
+              let in_vars = List.map pred_in_types ~f:(fun tp -> 
+                { Type.var_name = Ident.fresh loc "in"; var_loc = Expr.to_loc e; 
+                var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
+              ) in
+
+              let in_vars_exprs = List.map in_vars ~f:(fun v -> Expr.from_var_decl v) in
+              let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
+
+              let actual_arg_in_exprs = List.take args (List.length pred_in_types) in
+              let actual_arg_out_exprs = List.drop args (List.length pred_in_types) in
+              
+
+              let* inv_fn_expr = generate_inv_function ~loc universal_quants conds (Expr.mk_tuple actual_arg_in_exprs) ~arg_expr:in_vars_tuple in
+
+              let inv_exprs = List.mapi univ_vars_list ~f:(fun index var_decl -> 
+                Expr.mk_tuple_lookup inv_fn_expr index
+              ) in
+
+              let alpha_renaming_map = List.fold2_exn univ_vars_list inv_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+                Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+              ) in
+
+              let actual_arg_in_exprs_subst = List.map actual_arg_in_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+              let actual_arg_out_exprs_subst = List.map actual_arg_out_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+              let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
 
               let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
+
+
               let assume_stmt = 
-                let in_vars = List.map pred_in_types ~f:(fun tp -> 
-                  { Type.var_name = Ident.fresh loc "in"; var_loc = Expr.to_loc e; 
-                  var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
-                ) in
-
-                let in_vars_exprs = List.map in_vars ~f:(fun v -> Expr.from_var_decl v) in
-                let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
-                
-                
-                (* let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
-                var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in *)
-
-                (* let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in *)
 
                 let in_vars_eq_args = 
-                  List.map2_exn in_vars (List.take args (List.length pred_in_types)) ~f:(fun var_decl arg -> 
+                  List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg -> 
                     Expr.mk_eq (Expr.from_var_decl var_decl) arg
                   )
                   
@@ -1661,8 +1718,8 @@ end
                 
                 let new_chunk = 
                   let new_chunk_expr_list = match c.call_decl.call_decl_kind with 
-                  | Pred -> [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))]
-                  | Invariant -> [Expr.mk_tuple (List.drop args (List.length pred_in_types))]
+                  | Pred -> [Expr.mk_int 1; Expr.mk_tuple actual_arg_out_exprs_subst]
+                  | Invariant -> [Expr.mk_tuple actual_arg_out_exprs_subst]
                   | _ -> Error.error loc "Internal error: Expected a predicate or invariant"
 
                   in
@@ -1680,7 +1737,7 @@ end
                     (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                       (* m1(a,b,c) && l == f1(a, b, c) *)
-                      Expr.mk_and ~loc (in_vars_eq_args @ conds);
+                      Expr.mk_and ~loc (in_vars_eq_args @ conds_subst);
 
                       (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
                       Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple)
@@ -1707,7 +1764,7 @@ end
               
               in
 
-              let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
+              let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds (Expr.mk_tuple actual_arg_in_exprs) in
 
               let stmts_list = match univ_quants_list with
               | [] -> []
@@ -1743,18 +1800,8 @@ end
   
         ===>
   
-        // asserting injectivity of functions
-        assert forall a, b, c, a', b', c' :: m1(a, b, c) && m1(a', b', c') ==> f1(a, b, c) == f1(a', b', c') ==> (a == a' && b == b' && c == c')
-  
-        havoc(field$Heap2);
-  
-        assert forall l: Ref :: 
-          forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
-              field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) :
-            field$Heap2[l] == field$Heap[l]
-  
-        field$Heap := field$Heap2
-        assume field.valid(field$Heap)
+        assert forall a, b, c :: m1(a,b,c) ==>
+              heapChunkCompare ( field$Heap[l], f2(a, b, c) ) 
         
         *)
 
@@ -2061,6 +2108,10 @@ end
       and elim_a (universal_quants: universal_quants) (conds: conditions) (expr: expr): expr Rewriter.t =
         let open Rewriter.Syntax in
 
+        if%bind Rewriter.ProgUtils.is_expr_pure expr then
+          Rewriter.return expr
+        else
+          
         match expr with
         | App (Ite, [c; e1; e2], expr_attr) ->
           let* e1 = elim_a universal_quants (c :: conds) e1 in
@@ -2286,7 +2337,7 @@ end
               let* witnesses = core_witness_comp exist_vars concrete_expr out_arg true in 
             
               let witness_map = List.fold exist_vars ~init:witness_map ~f:(fun witness_map var_decl -> 
-                let existing_val = Map.find_exn witness_map var_decl.var_name in  
+                let existing_val = Option.value (Map.find witness_map var_decl.var_name) ~default:[] in  
     
                 let new_val = (exist_conds, Map.find witnesses var_decl.var_name) :: existing_val in
     
@@ -2483,7 +2534,7 @@ end
         havoc(field$Heap2);
   
         assert forall l: Ref :: 
-          forall a, b, c :: m1(a,b,c) && l == f1(a, b, c) ?
+          m1(inv(l)#0, inv(l)#1, inv(l)#2) && l == f1(inv(l)#0, inv(l)#1, inv(l)#2) ?
               field$Heap2[l] == field.frame( field$Heap[l], f2(a, b, c) ) :
             field$Heap2[l] == field$Heap[l]
   
@@ -2618,23 +2669,39 @@ end
         let* au_ra_committed_constr = Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc call_qual_ident in
 
         let havoc_stmt = Stmt.mk_havoc ~loc au_heap2_qual_ident in
+
+        let new_token_var = { Type.var_name = Ident.fresh loc "tok"; var_loc = loc; 
+        var_type = Type.atomic_token; var_const = false; var_ghost = false; var_implicit = false; } in
+
+        let new_token_expr = Expr.from_var_decl new_token_var in
+
+        let* inv_fn_expr = generate_inv_function ~loc universal_quants conds token ~arg_expr:new_token_expr in
+
+        let inv_exprs = List.mapi univ_vars_list ~f:(fun index var_decl -> 
+          Expr.mk_tuple_lookup inv_fn_expr index
+        ) in
+
+        let alpha_renaming_map = List.fold2_exn univ_vars_list inv_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+          Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+        ) in
+
+        let token_subst = Expr.alpha_renaming token alpha_renaming_map in
+        let args_subst = List.map args ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+        let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+
         let assume_stmt = 
-          let new_token_var = { Type.var_name = Ident.fresh loc "tok"; var_loc = loc; 
-          var_type = Type.atomic_token; var_const = false; var_ghost = false; var_implicit = false; } in
 
-          let new_token_expr = Expr.from_var_decl new_token_var in
-
-          let token_var_eq_given_token = Expr.mk_eq new_token_expr token in
+          let token_var_eq_given_token = Expr.mk_eq new_token_expr token_subst in
             
           let new_chunk = 
             (match expr with
-            | App (AUPred _, _ :: args, _) -> 
+            | App (AUPred _, _, _) -> 
               
-              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_uncommitted_constr) [Expr.mk_tuple args]
+              Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr au_ra_uncommitted_constr) [Expr.mk_tuple args_subst]
 
-            | App (AUPredCommit _, _ :: args, _) -> 
-              let ret_val = List.last_exn args in
-              let call_args = List.drop_last_exn args
+            | App (AUPredCommit _, _, _) -> 
+              let ret_val = List.last_exn args_subst in
+              let call_args = List.drop_last_exn args_subst
               
               in
               
@@ -2654,7 +2721,7 @@ end
               (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                 (* m1(a,b,c) && l == f1(a, b, c) *)
-                Expr.mk_and ~loc (token_var_eq_given_token :: conds);
+                Expr.mk_and ~loc (token_var_eq_given_token :: conds_subst);
 
                 (* au$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
                 Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr)
@@ -2743,24 +2810,38 @@ end
 
               let* pred_ra_constr = Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident in
 
+              let in_vars = List.map pred_in_types ~f:(fun tp -> 
+                { Type.var_name = Ident.fresh loc "in"; var_loc = Expr.to_loc e; 
+                var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
+              ) in
+
+              let in_vars_exprs = List.map in_vars ~f:(fun v -> Expr.from_var_decl v) in
+              let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
+
+              let actual_arg_in_exprs = List.take args (List.length pred_in_types) in
+              let actual_arg_out_exprs = List.drop args (List.length pred_in_types) in
+              
+
+              let* inv_fn_expr = generate_inv_function ~loc universal_quants conds (Expr.mk_tuple actual_arg_in_exprs) ~arg_expr:in_vars_tuple in
+
+              let inv_exprs = List.mapi univ_vars_list ~f:(fun index var_decl -> 
+                Expr.mk_tuple_lookup inv_fn_expr index
+              ) in
+
+              let alpha_renaming_map = List.fold2_exn univ_vars_list inv_exprs ~init:(Map.empty (module QualIdent)) ~f:(fun map var_decl expr -> 
+                Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
+              ) in
+
+              let actual_arg_in_exprs_subst = List.map actual_arg_in_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+              let actual_arg_out_exprs_subst = List.map actual_arg_out_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+              let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+
               let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
+
               let assume_stmt = 
-                let in_vars = List.map pred_in_types ~f:(fun tp -> 
-                  { Type.var_name = Ident.fresh loc "in"; var_loc = Expr.to_loc e; 
-                  var_type = tp; var_const = false; var_ghost = false; var_implicit = false; }
-                ) in
-
-                let in_vars_exprs = List.map in_vars ~f:(fun v -> Expr.from_var_decl v) in
-                let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
-                
-                
-                (* let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr; 
-                var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in *)
-
-                (* let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in *)
 
                 let in_vars_eq_args = 
-                  List.map2_exn in_vars (List.take args (List.length pred_in_types)) ~f:(fun var_decl arg -> 
+                  List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg -> 
                     Expr.mk_eq (Expr.from_var_decl var_decl) arg
                   )
                   
@@ -2768,8 +2849,8 @@ end
 
                 let new_chunk = 
                   let new_chunk_expr_list = match c.call_decl.call_decl_kind with 
-                  | Pred -> [Expr.mk_int 1; Expr.mk_tuple (List.drop args (List.length pred_in_types))]
-                  | Invariant -> [Expr.mk_tuple (List.drop args (List.length pred_in_types))]
+                  | Pred -> [Expr.mk_int 1; Expr.mk_tuple actual_arg_out_exprs_subst]
+                  | Invariant -> [Expr.mk_tuple actual_arg_out_exprs_subst]
                   | _ -> Error.error loc "Internal error: Expected a predicate or invariant"
 
                   in
@@ -2787,7 +2868,7 @@ end
                     (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                       (* m1(a,b,c) && l == f1(a, b, c) *)
-                      Expr.mk_and ~loc (in_vars_eq_args @ conds);
+                      Expr.mk_and ~loc (in_vars_eq_args @ conds_subst);
 
                       (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
                       Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple)
@@ -2815,7 +2896,7 @@ end
               
               in
 
-              let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds (Expr.mk_tuple (List.take args (List.length pred_in_types))) in
+              let* injectivity_assertion = generate_injectivity_assertions ~loc universal_quants conds (Expr.mk_tuple actual_arg_in_exprs) in
 
               let stmts_list = match univ_quants_list with
               | [] -> []
@@ -2875,7 +2956,7 @@ end
 
             let* _ = Rewriter.introduce_symbol nondet_var_def in
 
-            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~loc spec.spec_form in
+            let* exhale_stmt = TrnslExhale.trnsl_exhale_expr ?cmnt:(Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment)) ~spec_error:spec.spec_error ~loc spec.spec_form in
             let assume_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_bool false) in
 
             let cond_stmt = Stmt.Cond {

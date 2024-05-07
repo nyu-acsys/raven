@@ -419,20 +419,13 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     func comp(a:T, b:T) returns (ret: T) {
         a == id ? b :
         (b == id ? a :
-        (a == agree_constr(a.agree_proj1) && b == agree_constr(b.agree_proj1) ? 
-            (a.agree_proj1 == b.agree_proj1 ? a : agree_top) :
-            agree_top
-        )
-        )
+        (a == agree_constr(a.agree_proj1) && b == a ? a : agree_top))
     }
 
     func frame(a:T, b:T) returns (ret: T) {
         b == agree_null ? a :
 
-        (a == agree_constr(a.agree_proj1) && b == agree_constr(a.agree_proj1) ? 
-            agree_constr(a.agree_proj1) : 
-            agree_top
-        )
+        (a == b ? a : agree_top)
         // (a == agree_constr(a.agree_proj1) && b == agree_constr(b.agree_proj1) ? 
         //     (a.agree_proj1 == b.agree_proj1 ? 
         //         agree_constr(a.agree_proj1) : 
@@ -729,24 +722,18 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
     func comp(a:T, b:T) returns (ret:T) {
         a == id ? b :
         (b == id ? a :
-        (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents) ?
-            (valid(a) && valid(b) && (a.keyset ** b.keyset == {||}) ?
+        (valid(a) && valid(b) && (a.keyset ** b.keyset == {||}) ?
                 ksPair(a.keyset ++ b.keyset, a.contents ++ b.contents) : 
-                ksTop()
-            ) :
-            ksTop()
-        )
+                ksTop
+            )
         )
     }
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
-        (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents) ? 
-            (valid(a) && valid(b) && b.keyset subseteq a.keyset && b.contents subseteq a.contents ?
-                ksPair(a.keyset -- b.keyset, a.contents -- b.contents) :
-                ksTop()
-            ) :
-            ksTop()
+        (valid(a) && valid(b) && b.keyset subseteq a.keyset && b.contents subseteq a.contents ?
+            ksPair(a.keyset -- b.keyset, a.contents -- b.contents) :
+            ksTop
         )
     }
 
@@ -784,7 +771,7 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-        assert forall a:T, b:T ::  (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents)) ==>  (valid(frame(a, b)) ==> comp(frame(a, b), b) == a); 
+        //assert forall a:T, b:T ::  (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents)) ==>  (valid(frame(a, b)) ==> comp(frame(a, b), b) == a); 
     }
     
     auto lemma fpuValid()
@@ -808,9 +795,9 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
         ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {
       assert forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
-        //if (valid(comp(a, b))) {
-          //assert comp(a,b).keyset == a.keyset ++ b.keyset;
-        //}
+        if (valid(comp(a, b))) {
+          assert comp(a,b).keyset == a.keyset ++ b.keyset;
+        }
       }
     }
 
@@ -914,12 +901,8 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
         (b == id ? a :
             (a == au_uncommitted(a.au_uncommit_proj1) ? au_top :
                 (b == au_uncommitted(b.au_uncommit_proj1) ? au_top :
-                    (
-                        a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == au_committed(b.au_commit_proj1, b.au_commit_proj2) ?
-                        (a.au_commit_proj1 == b.au_commit_proj1 && a.au_commit_proj2 == b.au_commit_proj2 ? a : au_top()) :
-                        au_top
+                    (a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == a ? a : au_top)
                         // a == b ? a : au_top()
-                    )
                 )
             )
         )
@@ -1019,31 +1002,17 @@ module InvRA[X: Type] : ResourceAlgebra {
     func comp(a:T, b:T) returns (ret:T) {
         a == id ? b :
         (b == id ? a :
-        (a == inv_closed(a.inv_closed_proj1) && b == inv_closed(b.inv_closed_proj1) ? 
-            (a.inv_closed_proj1 == b.inv_closed_proj1 ? inv_closed(a.inv_closed_proj1) : inv_top()) :
-        (a == inv_open(a.inv_open_proj1) && b == inv_open(b.inv_open_proj1) ? 
-            inv_top() :
-        (a == inv_closed(a.inv_closed_proj1) && b == inv_open(b.inv_open_proj1) ? 
-            (a.inv_closed_proj1 == b.inv_open_proj1 ? inv_open(b.inv_open_proj1) : inv_top()) :
-        (a == inv_open(a.inv_open_proj1) && b == inv_closed(b.inv_closed_proj1) ? 
-            (a.inv_open_proj1 == b.inv_closed_proj1 ? inv_open(a.inv_open_proj1) : inv_top()) :
-        inv_top()
-        ))))
-        )
+        (a == inv_closed(a.inv_closed_proj1) && b == a ? a :
+        (a == inv_closed(a.inv_closed_proj1) && b == inv_open(a.inv_closed_proj1) ? b :
+        (a == inv_open(a.inv_open_proj1) && b == inv_closed(a.inv_open_proj1) ? a : inv_top))))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
-        (a == inv_closed(a.inv_closed_proj1) && b == inv_closed(b.inv_closed_proj1) ? 
-            (a.inv_closed_proj1 == b.inv_closed_proj1 ? inv_closed(a.inv_closed_proj1) : inv_top()) :
-        (a == inv_open(a.inv_open_proj1) && b == inv_open(b.inv_open_proj1) ? 
-            (a.inv_open_proj1 == b.inv_open_proj1 ? id : inv_top()) :
-        (a == inv_closed(a.inv_closed_proj1) && b == inv_open(b.inv_open_proj1) ? 
-            inv_top() :
-        (a == inv_open(a.inv_open_proj1) && b == inv_closed(b.inv_closed_proj1) ? 
-            (a.inv_open_proj1 == b.inv_closed_proj1 ? inv_open(a.inv_open_proj1) : inv_top()) :
-        inv_top()
-        ))))
+        (a == inv_closed(a.inv_closed_proj1) && a == b ? a :
+        (a == inv_open(a.inv_open_proj1) && a == b ? id :
+        (a == inv_open(a.inv_open_proj1) && b == inv_closed(a.inv_open_proj1) ? 
+            inv_open(a.inv_open_proj1) : inv_top())))
     }
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool) {

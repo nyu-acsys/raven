@@ -111,7 +111,8 @@ module ProcessTypeExpr = struct
     let open Rewriter.Syntax in
     if (not (Type.equal var_decl.var_type (Type.any)))
     then
-      let+ var_type = process_type_expr var_decl.var_type in
+      let* var_type = process_type_expr var_decl.var_type in
+      let+ var_type = expand_type_expr var_type in
       { var_decl with var_type }
     else
       Error.error (var_decl.var_loc) @@ Printf.sprintf "Type annotation missing for variable '%s'" (Ident.to_string var_decl.var_name)
@@ -160,7 +161,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
       let* qual_ident, symbol = 
         Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
       in
-      let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in
+      (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
       let* symbol = Rewriter.Symbol.reify symbol in
       begin match symbol with
         | ConstrDef _constr ->
@@ -267,7 +268,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
           | MapLookUp -> Type.map_codom typ1
           | Diff | Union | Inter
           | Plus | Minus | Mult | Div | Mod -> typ2
-          | And | Or | Impl -> Type.perm
+          | And | Or | Impl ->  expected_typ
           | Subseteq | Eq | Gt | Lt | Geq | Leq
           | Elem -> Type.bool
           | _ -> assert false
@@ -289,7 +290,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
               typ, typ
           | And | Or | Impl ->
               let typ = expr1 |> Expr.to_type in
-            Type.bool, Type.join typ typ2
+            Type.join typ typ2, Type.join typ typ2
           | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq ->
               Type.bool, Type.bool
           | _ -> assert false
@@ -387,7 +388,7 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         (* Reconstruct and check expr *)
         let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
         check_and_set expr Type.perm Type.perm expected_typ
-
+          
     | Own, _expr_list -> Error.type_error (Expr.to_loc expr) ((Expr.constr_to_string constr ^ " takes either three or four arguments, and second argument is a field name."))
 
     | AUPred call_name, token :: args_list ->
@@ -585,12 +586,13 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
 
     match binder with
     | Forall | Exists ->
-      let* inner_expr = process_expr inner_expr Type.perm in
+      let* inner_expr = process_expr inner_expr expected_typ in
       let* trgs = Rewriter.List.map trgs ~f:(fun trg -> Rewriter.List.map trg ~f:(fun expr -> process_expr expr Type.any)) in
       
       (* TODO: Add additional checks for triggers *)
+      let inner_typ = Expr.to_type inner_expr in
       let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
-      check_and_set expr Type.bool Type.perm expected_typ
+      check_and_set expr Type.bool Type.perm inner_typ
 
     | Compr ->
       let var_decl = 
@@ -1435,6 +1437,7 @@ module ProcessModule = struct
 
   let process_type_def (type_def: Module.type_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
+    Logs.debug (fun m -> m "Typing.process_type_def: Start processing type_def: %a" Ident.pr type_def.type_def_name);
     match type_def.type_def_expr with
     | None ->
       Rewriter.return Module.(TypeDef type_def)
@@ -1545,7 +1548,8 @@ module ProcessModule = struct
 
     Module.(VarDef var)
 
-  let check_implements_symbol interface_ident (symbol : Symbol.t) (orig_symbol : Symbol.t) =
+  let check_implements_symbol interface_ident (symbol : Symbol.t) (orig_symbol : Symbol.t) : unit Rewriter.t =
+    let open Rewriter.Syntax in
     let loc = Symbol.to_loc symbol in
     let ident = Symbol.to_name symbol in
     match symbol, orig_symbol with
@@ -1562,7 +1566,7 @@ module ProcessModule = struct
           Logs.debug (fun m -> m !"orig: %{Type}" _orig_tp);
           Error.type_error loc
             (Printf.sprintf !"Type %{Ident} was already defined in interface %{QualIdent}" ident interface_ident)
-        | _ -> ()
+        | _ -> Rewriter.return ()
       end
     | VarDef var_def, VarDef orig_var_def ->
       if var_def.var_decl.var_const && not orig_var_def.var_decl.var_const then
@@ -1579,37 +1583,42 @@ module ProcessModule = struct
         Error.type_error loc
           (Printf.sprintf !"Cannot redeclare ghost %s %{Ident} from interface %{QualIdent} as non-ghost"
              (Symbol.kind symbol) ident interface_ident)
-      else if Type.(var_def.var_decl.var_type <> orig_var_def.var_decl.var_type) then
+      else 
+        let* orig_var_def_var_type = ProcessTypeExpr.expand_type_expr orig_var_def.var_decl.var_type in
+
+        if Type.(var_def.var_decl.var_type <> orig_var_def_var_type) then
         Error.type_error loc
           (Printf.sprintf !"%s %{Ident} must have type %{Type} according to interface %{QualIdent}"
-             (Symbol.kind symbol |> String.uppercase) ident orig_var_def.var_decl.var_type interface_ident)
+             (Symbol.kind symbol |> String.capitalize) ident orig_var_def.var_decl.var_type interface_ident)
       else begin match var_def.var_init, orig_var_def.var_init with
         | _, Some _ ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
-        | _ -> ()
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
+        | _ -> Rewriter.return ()
       end
     | CallDef call_def, CallDef orig_call_def ->
       let make_subst decls odecls sm =
-        List.fold2 decls odecls ~init:sm
+        Rewriter.List.fold2 decls odecls ~init:sm
         ~f:(fun sm (var_decl: var_decl) (ovar_decl: var_decl) ->
+              let+ ovar_decl_var_type = ProcessTypeExpr.expand_type_expr ovar_decl.var_type in
              if
                Bool.(var_decl.var_const <> ovar_decl.var_const) ||
                Bool.(var_decl.var_implicit <> ovar_decl.var_implicit) ||
                Bool.(var_decl.var_ghost <> ovar_decl.var_ghost) ||
-               Type.(var_decl.var_type <> ovar_decl.var_type)
+               Type.(var_decl.var_type <> ovar_decl_var_type)
              then
                Error.type_error loc
                  (Printf.sprintf !"Formal parameter %{Ident} of %s %{Ident} does not match parameter %{Ident} of %{Ident} in interface %{QualIdent}."
                     var_decl.var_name (Symbol.kind symbol) ident ovar_decl.var_name ident interface_ident)
              else Map.add_exn sm ~key:(QualIdent.from_ident ovar_decl.var_name) ~data:(QualIdent.from_ident var_decl.var_name)) |>
-        function
-          | Ok sm -> sm
-          | Unequal_lengths ->
-              Error.type_error loc
-                (Printf.sprintf !"%s %{Ident} does not have the same number of parameters as %{Ident} in interface %{QualIdent}."
-                    (Symbol.kind symbol) ident ident interface_ident)
+             fun ret_val ->
+              match%bind ret_val with
+              | Ok sm -> Rewriter.return sm
+              | Unequal_lengths ->
+                  Error.type_error loc
+                    (Printf.sprintf !"%s %{Ident} does not have the same number of parameters as %{Ident} in interface %{QualIdent}."
+                        (Symbol.kind symbol) ident ident interface_ident)
             
       in
       if Poly.(call_def.call_decl.call_decl_kind <> orig_call_def.call_decl.call_decl_kind) then
@@ -1617,7 +1626,7 @@ module ProcessModule = struct
           (Printf.sprintf !"Cannot redeclare %s %{Ident} from %{QualIdent} as %s."
              (Symbol.kind orig_symbol) ident interface_ident (Symbol.kind symbol))
       else 
-      let sm = make_subst call_def.call_decl.call_decl_formals orig_call_def.call_decl.call_decl_formals (Map.empty (module QualIdent)) in
+      let* sm = make_subst call_def.call_decl.call_decl_formals orig_call_def.call_decl.call_decl_formals (Map.empty (module QualIdent)) in
       let pre_ok =
         List.for_all2 call_def.call_decl.call_decl_precond orig_call_def.call_decl.call_decl_precond ~f:(fun spec orig_spec ->
             Bool.(spec.spec_atomic = orig_spec.spec_atomic) && Expr.alpha_equal ~sm spec.spec_form orig_spec.spec_form)
@@ -1629,7 +1638,7 @@ module ProcessModule = struct
             (Printf.sprintf !"%s %{Ident} does not have the same precondition as %{Ident} in interface %{QualIdent}."
              (Symbol.kind symbol) ident ident interface_ident)
       in
-      let sm = make_subst call_def.call_decl.call_decl_returns orig_call_def.call_decl.call_decl_returns sm in
+      let* sm = make_subst call_def.call_decl.call_decl_returns orig_call_def.call_decl.call_decl_returns sm in
       let post_ok =
         List.for_all2 call_def.call_decl.call_decl_postcond orig_call_def.call_decl.call_decl_postcond ~f:(fun spec orig_spec ->
             let post_ok =
@@ -1649,14 +1658,16 @@ module ProcessModule = struct
       | FuncDef { func_body = Some _; _ }, FuncDef { func_body = Some _; _ } ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
       | ProcDef { proc_body = None; _ }, ProcDef { proc_body = Some _; _ }
       | FuncDef { func_body = None; _ }, FuncDef { func_body = Some _; _ } ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
-      | _ -> ()
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
+      | _ -> Rewriter.return ()
       end
+    (*| ModDef mod_def, ModInst { mod_inst_def = Some (mod_inst_def_id, []); _ } ->
+      let *)
     | ModDef mod_def, ModInst orig_mod_inst ->
       if mod_def.mod_decl.mod_decl_is_interface && not orig_mod_inst.mod_inst_is_interface then
           Error.type_error loc
@@ -1666,27 +1677,27 @@ module ProcessModule = struct
           (Printf.sprintf !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module" ident interface_ident)
       else
         let _ = match mod_def.mod_decl.mod_decl_returns, orig_mod_inst.mod_inst_type with
-        | Some mod_typ, orig_mod_typ when QualIdent.(mod_typ <> orig_mod_typ) ->
-          Error.type_error loc
-            (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
-        | None, _ ->
-          Error.type_error loc
-            (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
-        | _ -> ()
+          | Some mod_typ, orig_mod_typ when QualIdent.(mod_typ <> orig_mod_typ) ->
+            Error.type_error loc
+              (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+                 (Symbol.kind symbol |> String.capitalize) ident orig_mod_inst.mod_inst_type interface_ident)
+          | None, _ ->
+            Error.type_error loc
+              (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
+                 (Symbol.kind symbol |> String.capitalize) ident orig_mod_inst.mod_inst_type interface_ident)
+          | _ -> ()
         in
         if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} cannot have module parameters."
-               (Symbol.kind symbol |> String.uppercase) ident)
+               (Symbol.kind symbol |> String.capitalize) ident)
         else
           begin match orig_mod_inst.mod_inst_def with
             | Some _ ->
               Error.type_error loc
                 (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-                   (Symbol.kind symbol |> String.uppercase) ident interface_ident)
-            | _ -> ()
+                   (Symbol.kind symbol |> String.capitalize) ident interface_ident)
+            | _ -> Rewriter.return ()
           end 
     | ModInst mod_inst, ModInst orig_mod_inst ->
       if mod_inst.mod_inst_is_interface && not orig_mod_inst.mod_inst_is_interface then
@@ -1696,24 +1707,25 @@ module ProcessModule = struct
         Error.type_error loc
           (Printf.sprintf !"Cannot redeclare interface %{Ident} from interface %{QualIdent} as module" ident interface_ident)
       else if QualIdent.(mod_inst.mod_inst_type <> orig_mod_inst.mod_inst_type) then
+        let _ = Logs.info (fun m -> m !"here: %{QualIdent} %{QualIdent}" mod_inst.mod_inst_type orig_mod_inst.mod_inst_type) in
         Error.type_error loc
           (Printf.sprintf !"%s %{Ident} must implement interface %{QualIdent} according to interface %{QualIdent}"
-             (Symbol.kind symbol |> String.uppercase) ident orig_mod_inst.mod_inst_type interface_ident)
+             (Symbol.kind symbol |> String.capitalize) ident orig_mod_inst.mod_inst_type interface_ident)
       else begin match mod_inst.mod_inst_def, orig_mod_inst.mod_inst_def with
         | Some _, Some _ ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
         | None, Some _ ->
           Error.type_error loc
             (Printf.sprintf !"%s %{Ident} cannot be redeclared as abstract. It was already defined in interface %{QualIdent}"
-               (Symbol.kind symbol |> String.uppercase) ident interface_ident)
-        | _ -> ()
+               (Symbol.kind symbol |> String.capitalize) ident interface_ident)
+        | _ -> Rewriter.return ()
       end
     | ModDef _mod_def, ModDef _orig_mod_def ->
       Error.type_error loc
         (Printf.sprintf !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be redefined."
-           (Symbol.kind symbol |> String.uppercase) ident interface_ident)
+           (Symbol.kind symbol |> String.capitalize) ident interface_ident)
     | _ ->
       Error.type_error loc
         (Printf.sprintf !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s."
@@ -1836,6 +1848,7 @@ module ProcessModule = struct
         Set.add (interface.mod_decl.mod_decl_interfaces) qual_interface_ident,
         interface_ident,
         List.fold interface.mod_def ~init:([], Map.empty (module Ident)) ~f:(fun (inherited, to_check) -> function
+            | Module.SymbolDef ( ConstrDef _ | DestrDef _) -> inherited, to_check
             | Module.SymbolDef symbol ->
               let ident = Symbol.to_name symbol in
               if Set.mem defined_symbols ident
@@ -1856,6 +1869,8 @@ module ProcessModule = struct
         in
         None, interfaces, mod_ident, ([], Map.empty (module Ident))
     in
+
+    let inherited_symbols = List.rev inherited_symbols in
 
     let mod_def = inherited_symbols @ mod_def in
     let* _ = Rewriter.List.map mod_def ~f:(function
@@ -1903,14 +1918,15 @@ module ProcessModule = struct
     in
 
     (* Check and rewrite all symbols *)
-    let+ mod_def = Rewriter.List.map (inherited_symbols @ m.mod_def) ~f:process_instr in
-
+    let* mod_def = Rewriter.List.map (inherited_symbols @ m.mod_def) ~f:process_instr in
+    
     (* Check symbols against interface *)
-    let _ = List.iter mod_def ~f:(function SymbolDef symbol ->
+    let+ _ = Rewriter.List.iter mod_def ~f:(function SymbolDef symbol ->
         let ident = Symbol.to_name symbol in
         Map.find symbols_to_check ident |>
-        Option.iter ~f:(fun orig_symbol -> check_implements_symbol interface_ident symbol orig_symbol)
-      | _ -> ())
+        Rewriter.Option.iter ~f:(fun orig_symbol -> 
+          check_implements_symbol interface_ident symbol orig_symbol)
+      | _ -> Rewriter.return ())
     in
 
     (* Check whether modules are indeed modules *)

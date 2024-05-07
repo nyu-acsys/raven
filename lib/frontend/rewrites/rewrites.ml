@@ -379,7 +379,7 @@ let rec rewrite_loops (stmt: Stmt.t) : Stmt.t Rewriter.t =
     let* loop_arg_var_decls, loop_arg_renaming_map, loop_arg_renaming_qual_ident_map, curr_loop_arg_var_decls = 
       begin
         (* Local variables accessed from loop body become arguments for loop procedure *)
-        let curr_loop_args = Stmt.local_vars_accessed loop.loop_postbody |> Set.to_list in
+        let curr_loop_args = Set.union (Stmt.local_vars_accessed loop.loop_postbody) (Expr.local_vars loop.loop_test) |> Set.to_list in
         let+ curr_loop_arg_var_decls = Rewriter.List.map curr_loop_args ~f:(fun var -> 
           let+ symbol = Rewriter.find_and_reify var.ident_loc (QualIdent.from_ident var) in
           
@@ -1572,7 +1572,7 @@ module AtomicityAnalysis = struct
           ))
           in
 
-          if is_call_lhs_ghost then
+          if (is_call_lhs_ghost && (not (List.is_empty call_desc.call_lhs))) || Poly.(call_decl.call_decl_kind = Lemma) then
             Rewriter.return stmt
           else if ghost_block then
             Error.error stmt.stmt_loc "Cannot assign to non-ghost variables in a ghost block"
@@ -2116,9 +2116,6 @@ let rec rewrites_phase_2 (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_introduce_heaps on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_callables ~f:rewrite_introduce_heaps m in
 
-  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_find_witness_elim_exists_from_exhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_find_witness_elim_exists_from_exhale m in
-
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_eliminate_binds_for_inhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = 
     Rewriter.eval_with_user_state ~init:None
@@ -2127,6 +2124,9 @@ let rec rewrites_phase_2 (m: Module.t) : Module.t Rewriter.t =
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_fpu m in
 
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_binds m in
+
+  Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewriter_find_witness_elim_exists_from_exhale on module %a" Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.TrnslExhale.rewriter_find_witness_elim_exists_from_exhale m in
 
   Logs.debug (fun m1 -> m1 "Rewrites.all_rewrites: Starting rewrite_make_heaps_explicit on module %a" Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m in

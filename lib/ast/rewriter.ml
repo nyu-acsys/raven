@@ -23,27 +23,27 @@ module Syntax = struct
     let bind m ~f = fun sin ->
       let sout, res = m sin in
       f res sout
-    [@@inline always]
+    
 
     let return = return
 
     let map m ~f = fun sin ->
       let sout, res = m sin in
       (sout, f res)
-    [@@inline always]
+    
       
     let both m1 m2 = fun sin ->
       let s1, res1 = m1 sin in
       let s2, res2 = m2 s1 in
       (s2, (res1, res2))
-    [@@inline always]
+    
   end
     
   open Let_syntax
   
-  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f [@@inline always]
+  let (let+) (m: 'c state -> 'c state * 'a) (f: 'a -> 'b) : ('c state -> 'c state * 'b) = map m ~f 
   let (and+) = both
-  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f [@@inline always]
+  let (let* ) (m: 'c state -> 'c state * 'a) (f: 'a -> 'c state -> 'c state * 'b) : ('c state -> 'c state * 'b) = bind m ~f 
   let (and* ) = both
   
 end
@@ -404,6 +404,14 @@ module List = struct
             (s, acc), y)
     in
     s, (acc, ys)
+
+  let fold2 (xs: 'a list) (ys: 'b list) ~(init: 'acc) ~f : ('acc Base.List.Or_unequal_lengths.t, 'c) t_ext = fun s ->
+    match List.zip xs ys with
+    | Ok xs_ys ->
+      let s, res = List.fold_left xs_ys ~init:(s, init) ~f:(fun (s, acc) (x, y) -> f acc x y s) in
+      s, Base.List.Or_unequal_lengths.Ok res
+    | Unequal_lengths -> s, Unequal_lengths
+  
   
   let iter xs ~f = fun s ->
     List.fold_left xs ~init:s ~f:(fun s x -> let res, () = f x s in res), ()
@@ -438,6 +446,11 @@ module Option = struct
     | Some v ->
       let+ res = f v in
       Some res
+
+  let iter (x: 'a option) ~(f: 'a -> (unit, 'c) t_ext): (unit, 'c) t_ext = 
+    match x with
+    | None -> return ()
+    | Some v -> f v
 
 end
 
@@ -748,6 +761,10 @@ module Stmt = struct
         and+ fpu_old_val = Option.map fpu_desc.fpu_old_val ~f:(Expr.rewrite_qual_idents ~f)
         and+ fpu_new_val = Expr.rewrite_qual_idents ~f fpu_desc.fpu_new_val in
         { stmt with stmt_desc = Basic (Fpu { fpu_ref; fpu_field; fpu_old_val; fpu_new_val }) }
+
+      | Havoc qual_iden ->
+        let qual_iden = f qual_iden in
+        return { stmt with stmt_desc = (Basic (Havoc qual_iden))}
 
       (* TODO: add remaining *)
       | _ -> rewrite_expressions_top ~f:(Expr.rewrite_qual_idents ~f) ~c:(rewrite_qual_idents ~f) stmt
@@ -1149,6 +1166,7 @@ module ProgUtils = struct
         | '(' -> '*'
         | ')' -> '*'
         | ' ' -> '_'
+        (* | '\'' -> '#' *)
         | c -> c)
     in
     s
