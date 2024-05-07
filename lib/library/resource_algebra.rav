@@ -429,10 +429,7 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     func frame(a:T, b:T) returns (ret: T) {
         b == agree_null ? a :
 
-        (a == agree_constr(a.agree_proj1) && b == agree_constr(a.agree_proj1) ? 
-            agree_constr(a.agree_proj1) : 
-            agree_top
-        )
+        (a == b ? a : agree_top)
         // (a == agree_constr(a.agree_proj1) && b == agree_constr(b.agree_proj1) ? 
         //     (a.agree_proj1 == b.agree_proj1 ? 
         //         agree_constr(a.agree_proj1) : 
@@ -729,24 +726,18 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
     func comp(a:T, b:T) returns (ret:T) {
         a == id ? b :
         (b == id ? a :
-        (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents) ?
-            (valid(a) && valid(b) && (a.keyset ** b.keyset == {||}) ?
+        (valid(a) && valid(b) && (a.keyset ** b.keyset == {||}) ?
                 ksPair(a.keyset ++ b.keyset, a.contents ++ b.contents) : 
-                ksTop()
-            ) :
-            ksTop()
-        )
+                ksTop
+            )
         )
     }
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
-        (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents) ? 
-            (valid(a) && valid(b) && b.keyset subseteq a.keyset && b.contents subseteq a.contents ?
-                ksPair(a.keyset -- b.keyset, a.contents -- b.contents) :
-                ksTop()
-            ) :
-            ksTop()
+        (valid(a) && valid(b) && b.keyset subseteq a.keyset && b.contents subseteq a.contents ?
+            ksPair(a.keyset -- b.keyset, a.contents -- b.contents) :
+            ksTop
         )
     }
 
@@ -1034,16 +1025,10 @@ module InvRA[X: Type] : ResourceAlgebra {
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
-        (a == inv_closed(a.inv_closed_proj1) && b == inv_closed(b.inv_closed_proj1) ? 
-            (a.inv_closed_proj1 == b.inv_closed_proj1 ? inv_closed(a.inv_closed_proj1) : inv_top()) :
-        (a == inv_open(a.inv_open_proj1) && b == inv_open(b.inv_open_proj1) ? 
-            (a.inv_open_proj1 == b.inv_open_proj1 ? id : inv_top()) :
-        (a == inv_closed(a.inv_closed_proj1) && b == inv_open(b.inv_open_proj1) ? 
-            inv_top() :
-        (a == inv_open(a.inv_open_proj1) && b == inv_closed(b.inv_closed_proj1) ? 
-            (a.inv_open_proj1 == b.inv_closed_proj1 ? inv_open(a.inv_open_proj1) : inv_top()) :
-        inv_top()
-        ))))
+        (a == inv_closed(a.inv_closed_proj1) && a == b ? a :
+        (a == inv_open(a.inv_open_proj1) && a == b ? id :
+        (a == inv_open(a.inv_open_proj1) && b == inv_closed(a.inv_open_proj1) ? 
+            inv_open(a.inv_open_proj1) : inv_top())))
     }
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool) {
