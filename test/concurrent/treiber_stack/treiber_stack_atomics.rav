@@ -58,18 +58,7 @@ module Stack[T: Type] {
     unfold is_stack(s, xs1);
     top1 :| is_list(top1, xs1) && own(s, head, top1, 1.0);
   
-    // var res := cas(s.head, top, s0);
-    ghost var res: Bool;
-    {!
-      ghost var curr_val: Ref := s.head;
-
-      if (curr_val == top) {
-        s.head := s0;
-        res := true;
-      } else {
-        res := false;
-      }
-    !}
+    var res: Bool := CAS(s.head, top, s0);
 
     {!
       if (res) {
@@ -148,19 +137,7 @@ module Stack[T: Type] {
     unfold is_stack(s, xs1);
     top1 :| is_list(top1, xs1) && own(s, head, top1, 1.0);
 
-    // var res := cas(s.head, top, top_next);
-      ghost var res: Bool;
-      {!
-        ghost var curr_val: Ref := s.head;
-
-        if (curr_val == top) {
-          s.head := top_next;
-          res := true;
-        } else {
-          res := false;
-        }
-      !}
-
+    var res: Bool := CAS(s.head, top, top_next);
 
     {!
       if (res) {
