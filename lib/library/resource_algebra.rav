@@ -419,11 +419,7 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     func comp(a:T, b:T) returns (ret: T) {
         a == id ? b :
         (b == id ? a :
-        (a == agree_constr(a.agree_proj1) && b == agree_constr(b.agree_proj1) ? 
-            (a.agree_proj1 == b.agree_proj1 ? a : agree_top) :
-            agree_top
-        )
-        )
+        (a == agree_constr(a.agree_proj1) && b == a ? a : agree_top))
     }
 
     func frame(a:T, b:T) returns (ret: T) {
@@ -799,9 +795,9 @@ module KeySetRA[X: Type] : CancellativeResourceAlgebra {
         ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {
       assert forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
-        //if (valid(comp(a, b))) {
-          //assert comp(a,b).keyset == a.keyset ++ b.keyset;
-        //}
+        if (valid(comp(a, b))) {
+          assert comp(a,b).keyset == a.keyset ++ b.keyset;
+        }
       }
     }
 
@@ -905,12 +901,8 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
         (b == id ? a :
             (a == au_uncommitted(a.au_uncommit_proj1) ? au_top :
                 (b == au_uncommitted(b.au_uncommit_proj1) ? au_top :
-                    (
-                        a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == au_committed(b.au_commit_proj1, b.au_commit_proj2) ?
-                        (a.au_commit_proj1 == b.au_commit_proj1 && a.au_commit_proj2 == b.au_commit_proj2 ? a : au_top()) :
-                        au_top
+                    (a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == a ? a : au_top)
                         // a == b ? a : au_top()
-                    )
                 )
             )
         )
