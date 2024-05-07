@@ -717,8 +717,8 @@ module Expr = struct
     | Binder (b, vs, trgs, e1, _) ->
         fprintf ppf "%a" pr_binder (b, vs, trgs, e1, to_type e)
 
-  (* and pr ppf e = pr_compact ppf e *)
-  and pr ppf e = pr_verbose ppf e
+  and pr ppf e = pr_compact ppf e
+  (* and pr ppf e = pr_verbose ppf e *)
 
   and pr_list ppf = Print.pr_list_comma pr ppf
 
