@@ -45,9 +45,7 @@ interface CCM : Type {
 
 }
 
-
-
-interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourceAlgebra {
+interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
   rep type T = data {
     case int(inf: Map[Ref, M], out: Map[Ref, M], dom: Set[Ref])
     case top
@@ -76,7 +74,7 @@ interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourc
   }
 
   // Condition ensuring that two flow interfaces compose
-  func intComposable(i1: T, i2: T) 
+  func composable(i1: T, i2: T) 
     returns (ret: Bool)
   {
     valid(i1) && valid(i2) && i1.dom ** i2.dom == {||}
@@ -89,7 +87,7 @@ interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourc
   // Interface composition
   func comp(i1: T, i2: T) returns (i: T)
   {
-    intComposable(i1, i2) ?
+    composable(i1, i2) ?
       int({| n: Ref :: n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) :
              (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) : M.id) |},
           {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
@@ -98,32 +96,17 @@ interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourc
   }
 
   // Domain of interface composition is union of its component domains
-  auto lemma intComp_dom()
+  auto lemma compDom()
     ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> comp(i1, i2).dom == i1.dom ++ i2.dom
-  {
-    /*assert forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> comp(i1, i2).dom == i1.dom ++ i2.dom with {
-      if (valid(comp(i1, i2))) {
-        assert i1 == id || i2 == id || intComposable(i1, i2);
-        if (i1 == id) {
-          assert comp(i1, i2).dom == i2.dom;
-          assert comp(i1, i2).dom == i1.dom ++ i2.dom;
-        }
-        if (i2 == id && !(intComposable(i1, i2))) {
-          //assert comp(i1, i2) == i1;
-          //assert i2.dom == {||};
-          //assert i1.dom == i1.dom ++ {||};
-        }
-      }
-    }*/
-  }
+  {}
 
   // Domains of composit interfaces must be disjoint
-  auto lemma intComp_disjoint()
+  auto lemma compDisjoint()
     ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> i1.dom ** i2.dom == {||}
   {}
 
   // Valid interfaces are defined
-  auto lemma intValid_defined()
+  auto lemma validDefined()
     ensures forall i: T :: valid(i) ==> i != top 
   {}
 
@@ -135,7 +118,7 @@ interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourc
   }
 
   // top is an absorbing element
-  auto lemma intComp_undef_op()
+  auto lemma compTop()
     ensures forall i: T :: {comp(top, i)} comp(top, i) == top
   {}
 
@@ -159,10 +142,105 @@ interface FlowRA[M: CCM] : CancellativeResourceAlgebra { //: CancellativeResourc
     M.compCommute();
   }
 
+  //  The empty interface composes with valid interfaces
+  lemma idComposable()
+    ensures forall i: T :: {valid(i)} valid(i) ==> composable(i, id)
+  {
+    M.compCommute();
+    M.compId();
+    M.frameId();
+  }
+
+  // Folds definition of interface composition, avoiding M.frame
+  lemma compFold(i1: T, i2: T, i: T)
+    requires i != top
+    requires i.dom == i1.dom ++ i2.dom
+    requires i1.dom ** i2.dom == {||}
+    requires valid(i1) && valid(i2)
+    requires forall n: Ref :: n in i.dom ==> M.valid(i.inf[n])
+    requires forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i.inf[n], i2.out[n])
+    requires forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i.inf[n], i1.out[n])
+    requires forall n: Ref :: n !in i.dom ==> i.inf[n] == M.id
+    requires forall n: Ref :: n !in i.dom ==> i.out[n] == M.comp(i1.out[n], i2.out[n])
+    requires forall n: Ref :: n in i.dom ==> i.out[n] == M.id
+    ensures comp(i1, i2) == i 
+  {
+    M.frameCompInv();
+    M.compCommute();
+  }
+
+  // Unfolds definition of interface composition, avoiding M.frame
+  lemma compUnfold(i1: T, i2: T)
+    requires valid(comp(i1, i2))
+    ensures comp(i1, i2).dom == i1.dom ++ i2.dom
+    ensures i1.dom ** i2.dom == {||} 
+    ensures valid(i1) && valid(i2)
+    ensures forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
+    ensures forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
+    ensures forall n: Ref :: n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
+  {
+    idComposable();
+    M.compCommute();
+  }
+
+
+  // Auxiliary lemma to prove that interface composition is associative
+  lemma compAssocValid(i1: T, i2: T, i3: T)
+    requires valid(comp(i1, comp(i2, i3)))
+    ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
+  {
+    M.compId();
+    M.frameId();
+    M.compAssoc();
+    M.compCommute();
+    M.idValid();
+    M.compValid();
+  
+    val i23: T := comp(i2, i3);
+    val i: T := comp(i1, i23);
+  
+    compUnfold(i1, i23);
+    compUnfold(i2, i3);
+  
+    val i12: T := int({| n: Ref :: n in i1.dom ++ i2.dom ? M.comp(i.inf[n], i3.out[n]) : M.id |},
+                      {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
+                      i1.dom ++ i2.dom);
+  
+    compFold(i1, i2, i12);
+    compFold(i12, i3, i);
+  }
+
   auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
   {
-    // TODO
-    assume false;
+    M.compCommute();
+    M.compId();
+    M.frameId();
+    M.idValid();
+    M.compValid();
+    assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
+      if (valid(comp(i1, comp(i2, i3)))) {
+        compAssocValid(i1, i2, i3);
+      } else if (valid(comp(comp(i1, i2), i3))) {
+        compAssocValid(i3, i2, i1);
+      }    
+    }
   }
+
+  // Interface frame
+  /*func frame(i1: T, i2: T) returns (i: T)
+  {
+    i1 != top && i2 != top ?
+      int({| n: Ref :: n in i1.dom && n !in i2.dom ? M.comp(i1.inf[n], i2.out[n]) : M.id |},
+          {| n: Ref :: n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : i1.out[n] |},
+          i1.dom -- i2.dom) :
+      top
+  }
+
+  auto lemma frameId()
+    ensures forall a:T :: {frame(a,id)} frame(a, id) == a
+  {
+    M.frameId();
+    M.frameCompInv();
+  }*/
 }
