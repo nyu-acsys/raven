@@ -600,7 +600,14 @@ let rec process_expr (expr: expr) (expected_typ: type_expr) : expr Rewriter.t =
         | [v] -> v
         | _ -> Error.type_error (Expr.to_loc expr) "Map/Set compr only take one quantified variable"
       in
-      let* inner_expr = process_expr inner_expr Type.any in
+
+      let inner_expr_expected_typ = match expected_typ with
+        | App (Set, [tp], _) -> Type.bool
+        | App (Map, [_; tp], _) -> tp
+        | _tp -> Error.type_error (Expr.to_loc expr) ("Expected set or map type; found " ^ Type.to_string _tp)
+      in
+
+      let* inner_expr = process_expr inner_expr inner_expr_expected_typ in
       let inner_expr_type = Expr.to_type inner_expr in
 
       let expr_typ = 
