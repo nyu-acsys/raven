@@ -44,7 +44,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   unfold is_stack(s, xs1);
   hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
   
-  var res : Bool := CAS(s.head, hd, s0);
+  var res : Bool := cas(s.head, hd, s0);
 
   {!
     if (res) {
@@ -126,7 +126,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
   unfold is_stack(s, xs1);
   hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
 
-  var res : Bool := CAS(s.head, hd, hd_next);
+  var res : Bool := cas(s.head, hd, hd_next);
 
   {!
     if (res) {

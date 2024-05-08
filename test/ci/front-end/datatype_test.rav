@@ -10,8 +10,8 @@ module M {
   module M1 = Library.Frac[N1]
   module M2 = Library.Frac[N2]
   
-  var x : Int
-  var y : M2.T = M2.frac_chunk(x, 0.75)
+  val x : Int = 3
+  val y : M2.T = M2.frac_chunk(x, 0.75)
 
   proc p() {
     var y : M2.T = M2.frac_chunk(x, 0.75);

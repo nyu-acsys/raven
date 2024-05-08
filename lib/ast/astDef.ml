@@ -1066,7 +1066,7 @@ module Stmt = struct
     new_args : (qual_ident * expr option) list;
   }
 
-  type assign_desc = { assign_lhs : expr list; assign_rhs : expr }
+  type assign_desc = { assign_lhs : expr list; assign_rhs : expr; assign_is_init : bool }
   type bind_desc = { bind_lhs : expr list; bind_rhs : expr }
 
   type field_read_desc = { 
@@ -1380,7 +1380,7 @@ module Stmt = struct
     { stmt_desc = Basic (Call { call_lhs = lhs; call_name = name; call_args = args }); stmt_loc = loc }
 
   let mk_assign ~loc lhs rhs =
-    { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs }); stmt_loc = loc }
+    { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs; assign_is_init = false }); stmt_loc = loc }
 
   let mk_return ~loc e = { stmt_desc = Basic (Return e); stmt_loc = loc }
 

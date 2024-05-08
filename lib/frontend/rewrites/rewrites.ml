@@ -20,7 +20,7 @@ let rec rewrite_stmt_error_msg call_id (stmt: Stmt.t): Stmt.t Rewriter.t =
       List.map loop_desc.loop_contract ~f:(fun spec ->
           let error callee =
             Error.Verification, Expr.to_loc spec.spec_form,
-            if Ident.(QualIdent.unqualify callee = call_id) then
+            if Ident.(QualIdent.unqualify callee <> call_id) then
               "This loop invariant may not hold upon loop entry"
             else 
               "This loop invariant may not be maintained"
@@ -1879,7 +1879,7 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
 
       in
 
-      Rewriter.return Stmt.{ s with stmt_desc = Basic (Assign { assign_lhs; assign_rhs; }) }
+      Rewriter.return Stmt.{ s with stmt_desc = Basic (Assign { assign_stmt with assign_lhs; assign_rhs; }) }
       
     | Havoc qual_iden ->
       if QualIdent.is_local qual_iden then

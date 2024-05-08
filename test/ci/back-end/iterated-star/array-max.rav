@@ -22,7 +22,7 @@ module ArrayMax[M: IArray] {
     forall j: Int :: 0 <= j < M.len(a) ==> own(M.loc(a, j), value, m[j], 1.0)
   }
   
-  var x: Int := 4
+  val x: Int := 4
   
   pred is_max(i: Int, m: Map[Int, Int], u: Int) {
     forall j: Int :: 0 <= j && j < u ==> m[j] <= m[i]

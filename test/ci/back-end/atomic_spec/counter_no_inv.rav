@@ -21,7 +21,7 @@ proc incr(x: Ref, implicit ghost v: Int)
   ghost var v2: Int := openAU(phi);
   unfold counter(x,v2);
 
-  var res: Bool := CAS(x.c, v1, new_v1);
+  var res: Bool := cas(x.c, v1, new_v1);
   
   {! 
     if (res) {

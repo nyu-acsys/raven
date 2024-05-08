@@ -3026,7 +3026,7 @@ end
         else
           Error.type_error s.stmt_loc "Expected a FracRA type."
 
-      | Assign {assign_lhs = [Expr.App (Read, [ref_expr; field_expr], _)]; assign_rhs} ->
+      | Assign {assign_lhs = [Expr.App (Read, [ref_expr; field_expr], _)]; assign_rhs; _} ->
         let field_name = Expr.to_qual_ident field_expr in
 
         let* field_symbol = Rewriter.find_and_reify s.stmt_loc field_name in

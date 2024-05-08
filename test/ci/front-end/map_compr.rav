@@ -1,6 +1,6 @@
 field f: Int
 
-var y: Bool
+val y: Bool = true
 
 proc p() {
 

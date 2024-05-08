@@ -128,10 +128,10 @@ module Stack[T: Type] {
       return none;
     }
 
-    var top_next: Ref := top.next;
-    var top_value: T := top.value;
+    val top_next: Ref := top.next;
+    val top_value: T := top.value;
 
-    var xs1: TList := openAU(phi);
+    ghost val xs1: TList := openAU(phi);
 
     ghost val top1: Ref;
     unfold is_stack(s, xs1);
@@ -154,8 +154,8 @@ module Stack[T: Type] {
     if (res) {
       return some(top_value);
     } else { 
-      ghost var xs2: TList := openAU(phi);
-      var ret: TOption := pop(s);
+      ghost val xs2: TList := openAU(phi);
+      val ret: TOption := pop(s);
       commitAU(phi, ret);
 
       return ret;

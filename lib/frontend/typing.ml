@@ -944,7 +944,7 @@ module ProcessCallable = struct
             let var_expr = (Expr.from_var_decl var_def.var_decl) in
               
               (* Expr.App (Var var, [], {expr_loc = stmt.stmt_loc; expr_type = var_decl.var_type}) in *)
-            let assign_desc = Stmt.{ assign_lhs = [var_expr]; assign_rhs = expr } in
+            let assign_desc = Stmt.{ assign_lhs = [var_expr]; assign_rhs = expr; assign_is_init = true } in
 
             let+ stmt, disam_tbl' = process_stmt {stmt_desc = (Stmt.Basic (Assign assign_desc)); stmt_loc = stmt.stmt_loc} disam_tbl' in
 
@@ -956,15 +956,26 @@ module ProcessCallable = struct
         Stmt.Basic (Spec (sk, spec)), disam_tbl
 
       | Assign assign_desc ->
-        (
-        List.iter assign_desc.assign_lhs ~f:(fun expr -> 
+        let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
+            ~f:(fun expr -> disambiguate_process_expr expr Type.any disam_tbl)
+        in
+
+        let* _ = Rewriter.List.iter assign_lhs ~f:(fun expr -> 
           match expr with
           | App (Var qual_ident, [], _) -> 
-            ()
-          | App (Read, [ref_expr; field_expr], _) -> 
-            ()
-          | _ -> Error.type_error stmt.stmt_loc "Expected assignable expression on left-hand side of assignment"
-        );
+            let+ _, symbol = Rewriter.resolve_and_find stmt.stmt_loc qual_ident in
+            begin match Rewriter.Symbol.orig_symbol symbol with
+              | VarDef { var_decl = { var_const = true; _ }; _} when not assign_desc.assign_is_init ->
+                Error.type_error (Expr.to_loc expr) "Cannot assign to val"
+              | VarDef _ -> ()
+              | _ ->
+                Error.type_error (Expr.to_loc expr) "Expected assignable expression on left-hand side of assignment"
+            end
+            | App (Read, [ref_expr; field_expr], _) -> 
+              Rewriter.return ()
+            | _ -> Error.type_error (Expr.to_loc expr) "Expected assignable expression on left-hand side of assignment"
+          )
+        in
 
         Logs.debug (fun m -> m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt (Assign assign_desc));
         let* disam_assign_rhs = 
@@ -998,9 +1009,6 @@ module ProcessCallable = struct
                 process_au_action_stmt stmt.stmt_desc stmt.stmt_loc disam_tbl
             else begin
 
-              let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
-                  ~f:(fun expr -> disambiguate_process_expr expr Type.any disam_tbl)
-              in
 
               let expected_return_type =
                 Type.mk_prod (Expr.to_loc assign_desc.assign_rhs) (List.map assign_lhs ~f:Expr.to_type)
@@ -1035,11 +1043,7 @@ module ProcessCallable = struct
           end
 
         | false ->
-          let* assign_lhs = Rewriter.List.map assign_desc.assign_lhs 
-            ~f:(fun expr -> 
-                 disambiguate_process_expr expr Type.any disam_tbl)
-          in
-
+          
           let expected_type =
             Type.mk_prod stmt.stmt_loc (List.map assign_lhs ~f:Expr.to_type)
           in
@@ -1089,15 +1093,15 @@ module ProcessCallable = struct
           | _ ->
               
           let assign_desc =
-            Stmt.{ 
-              assign_lhs = assign_lhs;
-              assign_rhs = assign_rhs;
+            Stmt.{
+              assign_desc with
+              assign_lhs;
+              assign_rhs;
             }
           in
           
           Stmt.Basic (Assign assign_desc), disam_tbl
         end
-        )
       
       | Bind bind_desc ->
         let* bind_lhs = Rewriter.List.map bind_desc.bind_lhs ~f:(fun e -> 

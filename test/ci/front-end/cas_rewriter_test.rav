@@ -14,8 +14,8 @@ proc p(x:Ref)
 {
   // x.f := 0;
   unfold my_inv(x);
-  ghost var b : Bool := CAS(x.f, 0, 5);
-  // var b1 : Bool := CAS(g(x).f, 0, 5);
+  ghost var b : Bool := cas(x.f, 0, 5);
+  // var b1 : Bool := cas(g(x).f, 0, 5);
   // var b: Int := g(x).f;
   // var b1: Int := x.f;
   fold my_inv(x);

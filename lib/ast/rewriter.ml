@@ -603,9 +603,9 @@ module Stmt = struct
       { stmt with stmt_desc = Basic (Spec (sk, { spec with spec_form = new_spec_form; })); }
 
     | Assign assign ->
-      let* new_lhs = List.map assign.assign_lhs ~f in
-      let+ new_expr = f assign.assign_rhs in
-      { stmt with stmt_desc = Basic (Assign { assign_lhs = new_lhs; assign_rhs = new_expr; }); }
+      let* assign_lhs = List.map assign.assign_lhs ~f in
+      let+ assign_rhs = f assign.assign_rhs in
+      { stmt with stmt_desc = Basic (Assign { assign with assign_lhs; assign_rhs; }); }
 
     | Bind bind_desc ->
       let* bind_lhs = List.map bind_desc.bind_lhs ~f in
@@ -711,7 +711,7 @@ module Stmt = struct
       | Assign assign ->
         let+ assign_rhs = Expr.rewrite_qual_idents ~f assign.assign_rhs
         and+ assign_lhs = List.map assign.assign_lhs ~f:(Expr.rewrite_qual_idents ~f) in
-        { stmt with stmt_desc = Basic (Assign { assign_lhs; assign_rhs }); }
+        { stmt with stmt_desc = Basic (Assign { assign with assign_lhs; assign_rhs }); }
 
       | Bind bind_desc ->
         let+ bind_lhs = List.map bind_desc.bind_lhs ~f:(Expr.rewrite_qual_idents ~f)

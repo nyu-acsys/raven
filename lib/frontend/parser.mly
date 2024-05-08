@@ -131,7 +131,12 @@ mod_inst_args:
 | { [] }
     
 member_def_list_opt:
-| m = member_def; ms = member_def_list_opt { m :: ms }
+| m = member_def; ms = member_def_list_opt {
+  match m with
+  | Module.SymbolDef (VarDef { var_decl = { var_loc = loc; var_const = false; _}; _ }) ->
+      Error.syntax_error loc "Modules and interfaces cannot have var members"
+  | _ -> m :: ms
+}
 | m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
@@ -397,6 +402,7 @@ stmt_wo_trailing_substmt:
   let assign =
     Stmt.{ assign_lhs = [];
            assign_rhs = e;
+           assign_is_init = false;
          }
   in
   Stmt.(Basic (Assign assign))
@@ -516,6 +522,7 @@ new_or_expr:
   let assign =
     Stmt.{ assign_lhs = [];
            assign_rhs = e;
+           assign_is_init = false
          }
   in
   Stmt.(Basic (Assign assign))
