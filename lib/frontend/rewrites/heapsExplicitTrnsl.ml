@@ -173,7 +173,7 @@ open Frontend
 
     let* env_local_var_decls = 
       let symbols = List.fold (inv_expr :: conds) ~init:(Set.empty (module QualIdent)) ~f:(fun symbols cond ->
-        Expr.symbols cond
+        Expr.symbols ~acc:symbols cond
       ) in
 
       let locals = Set.filter symbols ~f:(fun s -> (QualIdent.is_local s) && not (List.exists universal_quants.univ_vars ~f:(fun (i, _) -> Ident.(i = QualIdent.unqualify s))))
@@ -2158,17 +2158,15 @@ end
           ) in
           let* witnesses = elim_a0 univ_vars var_decls (univ_conds, []) e init_map in
 
-          Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: witnesses:");
-
-          List.iter (Map.to_alist witnesses) ~f:(fun (id, witns) ->
-            List.iter witns ~f:(fun (conds, e) ->
-                Logs.debug (fun m -> m "id: %a, conds: %a, e: %a" Ident.pr id (Fmt.Dump.list Expr.pr) conds (Fmt.Dump.option Expr.pr) e)
-            )
-          );
+          Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: witness_map: %a" 
+            (Fmt.Dump.list (fun ppf (i, e)  -> Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i (Fmt.Dump.list (fun ppf (c, e) -> Stdlib.Format.fprintf ppf "%a -> %a" (Util.Print.pr_list_comma Expr.pr) c (Fmt.Dump.option Expr.pr) e)) e)) (Map.to_alist witnesses));
 
           let* skolemized_exprs = Rewriter.List.map var_decls ~f:(fun var_decl ->
               let* postconds, optn_args = (match Map.find witnesses var_decl.var_name with
-                | None -> Rewriter.return ([], [])
+                | None | Some [] -> 
+                  let error = (Error.Verification, Expr.to_loc expr, "No witnesses could be computed for: " ^ (Ident.to_string var_decl.var_name)) in
+                  Logs.warn (fun m -> m "%s" (Error.to_string error));
+                  Rewriter.return ([], [])
                 | Some witness_list -> 
                   let witness_list = List.filter witness_list ~f:(fun (conds, e) -> Option.is_some e) in
 
@@ -2233,6 +2231,7 @@ end
           ) in
 
           let e = Expr.alpha_renaming e renaming_map in
+          let* e = elim_a univ_vars univ_conds e in
 
           Rewriter.return e
           
@@ -2332,7 +2331,7 @@ end
 
             let out_args_concrete_exprs = List.zip_exn (List.drop args (List.length pred_in_types)) concrete_exprs in
             
-            let* witness_map = Rewriter.List.fold_left out_args_concrete_exprs ~init:witness_map ~f:(fun map (out_arg, concrete_expr) -> 
+            let* witness_map = Rewriter.List.fold_left out_args_concrete_exprs ~init:witness_map ~f:(fun witness_map (out_arg, concrete_expr) -> 
               
               let* witnesses = core_witness_comp exist_vars concrete_expr out_arg true in 
             
@@ -2348,16 +2347,19 @@ end
               Rewriter.return witness_map
 
             ) in
+
+            Logs.debug (fun m -> m "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: witness_map: %a" 
+            (Fmt.Dump.list (fun ppf (i, e)  -> Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i (Fmt.Dump.list (fun ppf (c, e) -> Stdlib.Format.fprintf ppf "%a -> %a" (Util.Print.pr_list_comma Expr.pr) c (Fmt.Dump.option Expr.pr) e)) e)) (Map.to_alist witness_map));
             
             Rewriter.return witness_map
 
           | _ -> 
-            Rewriter.return (Map.empty (module Ident))
+            Rewriter.return witness_map
         )
 
 
         | _ -> 
-          Rewriter.return (Map.empty (module Ident))
+          Rewriter.return witness_map
 
 
       and core_witness_comp (exists: var_decl list) (concrete_expr: expr) (given_expr: expr) (exact: bool) : (expr ident_map) Rewriter.t = 
