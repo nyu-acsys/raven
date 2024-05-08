@@ -227,10 +227,13 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
         a == b ? true :
 
-        (a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) ?
+        (a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && valid(a) && valid(b) ?
             (M.valid(M.frame(b.af_proj1, a.af_proj1)) && 
             // M.valid(M.frame(M.frame(b.af_proj1, b.af_proj2), M.frame(a.af_proj1, a.af_proj2)))
-            M.valid(M.frame(a.af_proj2, b.af_proj2))
+            (
+                M.frame(b.af_proj1, a.af_proj1) == M.frame(b.af_proj2, a.af_proj2) || 
+                M.valid(M.frame(a.af_proj2, b.af_proj2))
+            )
             )
              
             :
@@ -282,6 +285,17 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     { 
         M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
         M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv();
+
+        assert forall a:T, b:T, c:T :: 
+            ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == auth_frag(c.af_proj1, c.af_proj2)) ==>
+            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c));
+
+        assert forall a:T, b:T, c:T :: 
+            ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1)) ==>
+            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c));
+
+        
+
     }
     
     
