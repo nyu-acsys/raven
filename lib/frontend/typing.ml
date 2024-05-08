@@ -963,7 +963,7 @@ module ProcessCallable = struct
             ()
           | App (Read, [ref_expr; field_expr], _) -> 
             ()
-          | _ -> Error.type_error stmt.stmt_loc "Expected variables or var.field on left-hand side of assignment"
+          | _ -> Error.type_error stmt.stmt_loc "Expected assignable expression on left-hand side of assignment"
         );
 
         Logs.debug (fun m -> m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt (Assign assign_desc));

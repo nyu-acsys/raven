@@ -1,4 +1,4 @@
-interface List {
+module List {
 
   field next: Ref
 
@@ -29,7 +29,6 @@ interface List {
     ensures lseg(x, null)
   {
     var curr: Ref = x;
-    assert x == curr ? true : (exists z1: Ref :: own(x, next, z1, 1.0) && lseg(z1, curr));
     fold lseg(x, curr);
     while (curr != null)
       invariant lseg(x, curr) && lseg(curr, null)

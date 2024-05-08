@@ -20,7 +20,7 @@ let _ =
       ("AtomicToken", ATOMICTOKEN);
       ("auto", AUTO);
       ("Bool", BOOL);
-      ("CAS", CAS);
+      ("cas", CAS);
       ("case", CASE);
       ("closeInv", USE Stmt.CloseInv);
       ("data", DATA);

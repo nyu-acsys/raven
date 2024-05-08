@@ -183,9 +183,13 @@ let resolve name (tbl : t) : (QualIdent.t * QualIdent.t * QualIdent.subst) optio
         (* let target_qual_ident = QualIdent.requalify subst qual_ident in *)
         let target_qual_ident = qual_ident in
         let new_path = QualIdent.requalify_path subst1 (QualIdent.to_list target_qual_ident @ ids1) in
+        let target_subst =
+          match subst1 with
+          (*| [] -> subst*)
+          | _ -> (target_qual_ident, fully_qualify first_id scope tbl |> QualIdent.to_list) :: subst
+        in
         let subst =
-          subst1 @ 
-          (target_qual_ident, fully_qualify first_id scope tbl |> QualIdent.to_list) :: subst
+          subst1 @ target_subst          
         in
         let new_inst_scopes =
           if is_abstract then inst_scopes else Set.add inst_scopes target_qual_ident
