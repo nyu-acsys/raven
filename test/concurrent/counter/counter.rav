@@ -1,61 +1,51 @@
 field c: Int
 
-pred counter(x: Ref; v: Int) {
-  own(x, c, v, 0.5)
-}
-
 inv counterInv(x: Ref) { 
-  exists v: Int :: own(x, c, v, 0.5)
+  exists v: Int :: own(x, c, v, 1.0)
 }
 
-proc incr(x: Ref, implicit ghost v) 
+proc incr(x: Ref) 
   requires counterInv(x)
-  atomic requires counter(x, v)
   ensures counterInv(x)
-  atomic ensures counter(x, v + 1)
 {
-  var phi: AtomicToken := bindAU();
-
   var v1: Int;
+
   unfold counterInv(x);
   v1 := x.c;
   fold counterInv(x);
-  var new_v1 : Int := v1 + 1;
-
-  var v2: Int := openAU(phi);
-  unfold counter(x,v2);
-  unfold counterInv(x);
-
-  var res: Bool := CAS(x.c, v1, new_v1);
   
-  {! 
-    fold counterInv(x);
+  var new_v1 : Int := v1 + 1;
+  var res: Bool;
 
-    if (CAS(x.c, v1, new_v1)) {
-      fold counter(x, new_v1);
-      commitAU(phi);
-    } else {
-      fold counter(x, v2);
-      abortAU(phi);
-    }
-  !}
-
+  unfold counterInv(x);
+  ghost var v2: Int;
+  v2 :| own(x, c, v2, 1.0);
+  assert v1 <= v2;
+  res := cas(x.c, v1, new_v1);
+  fold counterInv(x);
+  
   if (!res) {
-    var v3: Int := openAU(phi);
-    incr();
-    commitAU(phi, v3);
-  }
+    incr(x); // retry
+  } 
 }
 
-proc read(x: Ref, implicit ghost v: Int)
-  returns v: Int
+proc read(x: Ref)
+  returns (v: Int)
   requires counterInv(x)
   ensures counterInv(x)
-
 {
   unfold counterInv(x);
-  var v: Int := x.c;
+  v := x.c;
   fold counterInv(x);
 
   return v;
+}
+
+proc make()
+  returns (x: Ref)
+  ensures counterInv(x)
+{
+  x := new(c: 0);
+  // fold counterInv(x);
+  assume false;
 }

@@ -1,0 +1,151 @@
+import Library.Auth
+
+module MaxNat : Library.LatticeResourceAlgebra {
+    rep type T = Int
+
+    val id: T = 0
+
+    func valid(n:T)
+      returns (ret:Bool)
+      { n >= 0 }
+
+    func comp(a:T, b:T) returns (ret:T) { 
+      a == id ? b : (b == id ? a :
+      (valid(a) && valid(b) ? (a > b ? a : b) : -1))
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+      b == id ? a :
+      (valid(a) && valid(b) && a >= b ? a : -1)
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+      valid(a) && valid(b) && a <= b
+    }
+
+    auto lemma idValid()
+        ensures valid(id)
+    {}
+
+    auto lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    {
+      assert forall a:T, b:T, c:T :: comp(comp(a, b), c) == comp(a, comp(b, c)) with {}
+    }
+
+    auto lemma compCommute()
+        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+    {
+      assert forall a:T, b:T, c:T :: comp(a, b) == comp(b, a) with {}
+    }
+
+    auto lemma compId()
+        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
+    {}
+ 
+    auto lemma compValid()
+        ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
+    {}
+
+    auto lemma frameId()
+        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
+    {}
+    
+    auto lemma compFrameInv()
+        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {}
+    
+    auto lemma fpuValid()
+        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
+            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
+    {}
+    
+    auto lemma fpuReflexive()
+        ensures forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
+    {}
+    
+    auto lemma frameValid()
+        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+    {}
+    
+    auto lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {}
+
+    auto lemma frameCompInv()
+        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> frame(a, b) == a
+    {}
+    
+    auto lemma frameCompInv0()
+        ensures forall a:T, b:T :: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
+    {}
+    
+    auto lemma frameCompInv2()
+        ensures forall a:T, b:T :: {comp(a,b), frame(a,b)} comp(a, b) == a && valid(a) ==> frame(a, b) == a
+    {}
+    
+    auto lemma frame_comp_inv()
+        ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
+    {}
+}
+
+field c: Int
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+field h: AuthMaxNat
+
+inv counterInv(x: Ref) { 
+  exists v: Int :: own(x, h, auth_frag(v,v)) && own(x, c, v, 1.0)
+}
+
+proc incr(x: Ref, implicit ghost v: Int) 
+  requires counterInv(x)
+  ensures counterInv(x)
+{
+  var v1: Int;
+
+  unfold counterInv(x);
+  v1 := x.c;
+  fold counterInv(x);
+  
+  var new_v1 : Int := v1 + 1;
+  var res: Bool;
+
+  ghost var v2: Int;
+  unfold counterInv(x);
+  v2 :| own(x, c, v2, 1.0);
+  assert v1 <= v2;
+  res := cas(x.c, v1, new_v1);
+    
+  if (!res) {
+    fold counterInv(x);
+    incr(x);
+  } else {
+    // Frame preserving update of ghost resource x.h
+    fpu(x, h, auth_frag(v1,v1), auth_frag(new_v1,new_v1));
+    fold counterInv(x);
+  }
+}
+
+proc read(x: Ref)
+  returns (v: Int)
+  requires counterInv(x)
+  ensures counterInv(x)
+{
+  unfold counterInv(x);
+  v := x.c;
+  fold counterInv(x);
+
+  return v;
+}
+
+proc make()
+  returns (x: Ref)
+  ensures counterInv(x)
+{
+  x := new(c: 0);
+  // fold counterInv(x);
+  assume false;
+}
