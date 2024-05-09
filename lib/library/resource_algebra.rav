@@ -182,12 +182,12 @@ module Nat : CancellativeResourceAlgebra {
 
 module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
-        case frag(f_proj1: M);
-        case auth_frag(af_proj1: M, af_proj2: M);
+        case frag(f_proj1: M)
+        case auth_frag(af_proj1: M, af_proj2: M)
         case top
     }
     
-    val id: T = frag(M.id);
+    val id: T = frag(M.id)
 
     func valid(n:T) returns (ret:Bool) {
         (n == frag(n.f_proj1) ?
@@ -206,8 +206,7 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
             auth_frag(b.af_proj1, M.comp(a.f_proj1, b.af_proj2)) :
         ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
             auth_frag(a.af_proj1, M.comp(b.f_proj1, a.af_proj2)) :
-
-            top()))
+            top))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
@@ -215,12 +214,12 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
         ((a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
             (frag(M.frame(a.f_proj1, b.f_proj1))) :
         ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
-            top() :
+            top :
         ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == frag(b.f_proj1)) ? 
             auth_frag(a.af_proj1, M.frame(a.af_proj2, b.f_proj1)) :
         ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == auth_frag(b.af_proj1, b.af_proj2) ? 
-            (a.af_proj1 == b.af_proj1 ? frag(M.frame(a.af_proj2, b.af_proj2)) : top()) :
-            top()
+            (a.af_proj1 == b.af_proj1 ? frag(M.frame(a.af_proj2, b.af_proj2)) : top) :
+            top
         )))))
     }
 
