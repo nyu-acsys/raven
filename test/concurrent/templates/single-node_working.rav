@@ -101,9 +101,9 @@ interface SearchStructureSpec {
 	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
     op == searchOp() ? 
       c_in == c_out && res == (k in c_in) :
-    op == insertOp() ?
+    (op == insertOp() ?
       c_out == c_in ++ {| k |} && res == (k !in c_in) :
-      c_out == c_in -- {| k |} && res == (k in c_in)
+      c_out == c_in -- {| k |} && res == (k in c_in))
 	}
 }
 
@@ -283,75 +283,23 @@ module IntSearchStructureSpec : SearchStructureSpec {
   val keyset : Set[K] = {| k: Int :: k >= 0 |}
 }
 
-interface IntNodeImpl : NodeImpl {
+
+module IntSetNodeImpl : NodeImpl {
   module Spec: SearchStructureSpec = IntSearchStructureSpec
-  
+
   import Spec._
-  // import Spec.K
-  // import Spec.Op
-  // import Spec.opSpec
-  // import Spec.keyset
 
-  field value: K
-  field next: Ref
-
-  pred lseg(n1: Ref, n2: Ref, c: Set[K]) {
-    n1 == n2 ? 
-      c == {||} : 
-      
-      (exists n0: Ref, v: K :: lseg(n0, n2, c -- {| v |}) && own(n1, value, v, 1.0) && own(n1, next, n0, 1.0) &&
-        (forall v1: K :: v1 in c ==> v1 > v)
-      )
-  }
-
-  lemma lseg_chain(n1: Ref, n2: Ref, c1: Set[K], c2: Set[K])
-    requires lseg(n1, n2, c1) && lseg(n2, null, c2)
-    ensures lseg(n1, null, c1 ++ c2)
-  {
-    if (n1 == n2) {
-
-    } else {
-    ghost var n0: Ref;
-    ghost var v: K;
-    unfold lseg(n1, n2, c1);
-    n0, v :| n1 != n2 ==> (lseg(n0, n2, c1 -- {|v|}) && own(n1, value, v, 1.0) && own(n1, next, n0, 1.0));
-
-    assert lseg(n0, n2, c1 -- {|v|});
-    assert lseg(n2, null, c2);
-    lseg_chain(n0, n2, c1 -- {|v|}, c2);
-
-    assert n1 != null;
-    assert lseg(n0, null, c1 -- {|v|} ++ c2);
-    assert (lseg(n0, null, c1 -- {|v|} ++ c2) && own(n1, value, v, 1.0) && own(n1, next, n0, 1.0));
-    assert (n1 == null ? 
-      c1 ++ c2 == {||} : 
-      
-      (lseg(n0, null, c1 ++ c2 -- {|v|}) && own(n1, value, v, 1.0) && own(n1, next, n0, 1.0)));
-
-
-
-    fold lseg(n1, null, c1 ++ c2);
-    }
-    // lseg_chain
-    // assert n1 != n2;
-    // assert n2 != n3;
-    // assert n1 != n3;
-    // assert exists n0: Ref, v: K :: lseg(n0, n2, c -- {| v |}) && own(n1, value, v, 1.0) && own(n1, next, n0, 1.0);
-    // assert exists n0: Ref, v: K :: lseg(n0, n3, c -- {| v |}) && own(n2, value, v, 1.0) && own(n2, next, n0, 1.0);
-    // assert exists n0: Ref, v: K :: lseg(n0, n3, c -- {| v |}) && own(n1, value, v, 1.0) && own(n1, next, n0, 1.0);
-  }
+  field value: Set[K]
 
   pred nodeR(n: Ref; c: Set[K]) {
-    exists n1: Ref :: lseg(n1, null, c) && own(n, next, n1, 1.0)
+    own(n, value, c, 1.0)
   }
 
   proc create()
     returns (n: Ref)
     ensures nodeR(n, {||})
   {
-    n := new(value:0, next:null);
-    fold lseg(null, null, {||});
-    assert own(n, next, null, 1.0) && lseg(null, null, {||});
+    n := new(value:{||});
     fold nodeR(n, {||});
   }
 
@@ -361,115 +309,26 @@ interface IntNodeImpl : NodeImpl {
     requires nodeR(n, c)
     ensures nodeR(n, c_ret) && opSpec(dop, k, c, c_ret, res)
   {
-
     unfold nodeR(n, c);
-    ghost var n0: Ref;
-    n0 :| lseg(n0, null, c) && own(n, next, n0, 1.0);
-    var n1: Ref := n0;
-    var c0: Set[K] := {||};
-
-
-    fold lseg(n0, n1, c0);
-    unfold lseg(n1, null, c);
-
-    var ll: Bool := true;
+    var v: Set[K] = n.value;
     
-    var n2: Ref;
-    var v: Int;
-
-    if (n1 == null) {
-      // Completely empty list
-      assume false;
+    if (dop == searchOp()) {
+      res := (k in v);
+      c_ret := c;
+    } else {
+      if (dop == insertOp()) {
+        res := (k !in c);
+        c_ret := c ++ {| k |};
+        n.value := c_ret;
+      } else {
+        res := (k in c);
+        c_ret := c -- {| k |};
+        n.value := c_ret;
+      }
     }
 
-    else {
-
-      n2 := n1.next;
-      v := n1.value;
-      var c1: Set[K] := c -- {| v |};
-
-      while (n2 != null && v < k) 
-        invariant lseg(n0, n1, c0)
-        invariant own(n1, value, v, 1.0) && own(n1, next, n2, 1.0) 
-        invariant lseg(n2, null, c1)
-      {
-        ghost var n3: Ref;
-        ghost var v3: K;
-        unfold lseg(n1, null, c1);
-        n3, v3 :| 
-          n1 != null ==>
-          (own(n1, value, v3, 1.0) && own(n1, next, n3, 1.0) && lseg(n3, null, c -- {| v3 |}));
-
-        c0 := c0 ++ {| v3 |};
-        c1 := c1 -- {| v3 |};
-        n1 := n2;
-        n2 := n3;
-        v := v3;
-
-        fold lseg(n0, n1, c0);
-        fold lseg(n2, null, c1);
-      }
-
-      if (n2 == null) {
-        if (dop == searchOp()) {
-          res := false;
-          c_ret := c0;
-
-          assert lseg(n0, n1, c_ret);
-          assert own(n1, next, null, 1.0);
-          assert own(n1, value, v, 1.0);
-
-          fold lseg(n0, null, c_ret);
-          fold nodeR(n, c_ret);
-          fold opSpec(dop, k, c, c_ret, res);
-          return res, c_ret;
-
-        } else {
-          if (dop == insertOp()) {
-            var new_n: Ref;
-            new_n := new(value:k, next:null);
-            c_ret := c ++ {| k |};
-            res := true;
-          
-            fold nodeR(n, c_ret);
-            fold opSpec(dop, k, c, c_ret, res);
-            // assert false;
-            return res, c_ret;
-          } else {
-            res := false;
-            c_ret := c;
-
-            fold nodeR(n, c_ret);
-            fold opSpec(dop, k, c, c_ret, res);
-            return res, c_ret;
-          }
-        }
-      }
-
-    }
-
-    // var v: K;
-    // var n1: Ref;
-    // v := open(n, value);
-    // n1 := open(n, next);
-    // if (dop == searchOp()) {
-    //   res := (v == k);
-    //   c1 := c;
-    // } else {
-    //   var res1: Bool;
-    //   var c1_1: Set[K];
-    //   res1, c1_1 := decisiveOp(dop, n1, k, c -- {| v |});
-    //   if (res1) {
-    //     if (dop == insertOp()) {
-    //       c1 := c ++ {| v |};
-    //     } else {
-    //       c1 := c -- {| v |};
-    //     }
-    //   } else {
-    //     c1 := c;
-    //   }
-    //   res := res1;
-    // }
+    fold opSpec(dop, k, c, c_ret, res);
+    fold nodeR(n, c_ret);
   }
 
   lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K])

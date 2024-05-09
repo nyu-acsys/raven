@@ -818,8 +818,8 @@ module Expr = struct
 
   let mk_eq ?(loc = Loc.dummy) e1 e2 =
     let typ_join = (Type.join (to_type e1) (to_type e2)) in
-    Logs.debug (fun m -> m "Type of e1: %a" Type.pr (to_type e1));
-    Logs.debug (fun m -> m "Type of e2: %a" Type.pr (to_type e2));
+    (* Logs.debug (fun m -> m "Type of e1: %a" Type.pr (to_type e1)); *)
+    (* Logs.debug (fun m -> m "Type of e2: %a" Type.pr (to_type e2)); *)
     assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  ||
     (match (to_type e1), (to_type e2) with
     | App (Data (qual_id1, _), _, _), App ((Var qual_id2), _, _) ->
@@ -1829,12 +1829,16 @@ module Callable = struct
         ~init:symbols_w_locals
         (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
     in
+
     List.fold ~f:(fun syms var_decl ->
-          let qi = QualIdent.from_ident var_decl.var_name in
-          (* Remove qi if it occurs but add all symbols from its type *)
-          if Set.mem syms qi
-          then Type.symbols ~acc:(Set.remove syms qi) var_decl.var_type
-          else syms)
+      let qi = QualIdent.from_ident var_decl.var_name in
+      (* Remove qi if it occurs but add all symbols from its type *)
+      (* if Set.mem syms qi *)
+      (* then (Logs.debug (fun m -> m "Removing %a from symbols" QualIdent.pr qi); *)
+      (* Type.symbols ~acc:(Set.remove syms qi) var_decl.var_type) *)
+      (* else (Logs.debug (fun m -> m "Adding %a to symbols" QualIdent.pr qi); *)
+      Type.symbols ~acc:(Set.remove syms qi) var_decl.var_type)
+      (* ) *)
       ~init:symbols_w_locals_and_spec
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
 

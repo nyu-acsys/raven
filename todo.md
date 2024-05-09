@@ -8,3 +8,7 @@ Type-checking:
 - Implement mask computation to check interface <-> module compatibility
 - Improve expression matching algorithm
 - Revamp witness computation code
+
+- Fix `return proc()` stmts
+- Allow parsing of `map[m1][m2]` expressions
+- Allow passing multiple files to Raven
