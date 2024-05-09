@@ -45,7 +45,7 @@ interface CCM : Type {
 
 }
 
-interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
+interface FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   rep type T = data {
     case int(inf: Map[Ref, M], out: Map[Ref, M], dom: Set[Ref])
     case top
@@ -136,10 +136,15 @@ interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
     ensures forall i1: T, i2: T :: {comp(i1,i2)} valid(comp(i1, i2)) ==> valid(i1) && valid(i2)
   {}
 
+
   auto lemma compCommute()
     ensures forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)} comp(i1, i2) == comp(i2, i1)
   {
     M.compCommute();
+
+    assert forall i1: T, i2: T ::
+      (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
+      comp(i1, i2).inf == comp(i2, i1).inf;
   }
 
   //  The empty interface composes with valid interfaces
@@ -167,6 +172,13 @@ interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
   {
     M.frameCompInv();
     M.compCommute();
+
+    assert i == int({| n: Ref :: 
+                        n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) : 
+                        (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) :
+                          M.id) |},
+                    {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
+                    i1.dom ++ i2.dom);
   }
 
   // Unfolds definition of interface composition, avoiding M.frame
@@ -207,6 +219,15 @@ interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
                       i1.dom ++ i2.dom);
   
     compFold(i1, i2, i12);
+    assert (forall n: Ref :: i12.inf[n] != M.id ==> n in i12.dom);
+    assert (forall n: Ref :: i12.out[n] != M.id ==> n !in i12.dom);
+    assert (forall n: Ref :: n in i12.dom ==> M.valid(i12.inf[n]));
+    assert (forall n: Ref :: n !in i12.dom ==> M.valid(i12.out[n]));
+    // assert (i12.dom == {||} ==> i12.out == zeroFlow);
+    assert valid(i12);
+    assert valid(i3);
+
+    assert forall n: Ref :: n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
     compFold(i12, i3, i);
   }
 
@@ -228,13 +249,14 @@ interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
   }
 
   // Interface frame
-  /*func frame(i1: T, i2: T) returns (i: T)
+  func frame(i1: T, i2: T) returns (i: T)
   {
-    i1 != top && i2 != top ?
+    i2 == id ? i1 :
+    (i1 != top && i2 != top ?
       int({| n: Ref :: n in i1.dom && n !in i2.dom ? M.comp(i1.inf[n], i2.out[n]) : M.id |},
           {| n: Ref :: n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : i1.out[n] |},
           i1.dom -- i2.dom) :
-      top
+      top)
   }
 
   auto lemma frameId()
@@ -242,5 +264,45 @@ interface FlowsRA[M: CCM] { //: CancellativeResourceAlgebra {
   {
     M.frameId();
     M.frameCompInv();
-  }*/
+  }
+
+  func contextualExt(i1: T, i2: T) returns (ret: Bool) {
+    valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
+    (forall n: Ref :: n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
+    (forall n: Ref :: n !in i2.dom ==> i1.out[n] == i2.out[n])
+  }
+
+  func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
+  {
+    i1 == i2 
+    // contextualExt(i1, i2) 
+  }
+
+  // auto lemma compFrameInv()
+  //   ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+  // {
+  //   M.frameCompInv();
+  // }
+
+  //   auto lemma fpuValid()
+  //       ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
+  //           (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
+  //           {}
+
+  //   auto lemma fpuReflexive()
+  //       ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
+  //       {}
+
+  //   auto lemma frameValid()
+  //       ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+  //       {}
+
+  //   auto lemma weak_frameCompInv()
+  //       ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+  //       {}
+
+
+  //   auto lemma frameCompInv()
+  //       ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+  //       {}
 }
