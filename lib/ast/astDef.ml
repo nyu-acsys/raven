@@ -1731,14 +1731,14 @@ module Callable = struct
     fprintf ppf "%a%a" (pr_specs "requires") call_decl.call_decl_precond
       (pr_specs "ensures") call_decl.call_decl_postcond
 
-  let pr_call_decl ppf call_decl =
+  let pr_call_decl has_body ppf call_decl =
     let open Stdlib.Format in
     let kind =
       match call_decl.call_decl_kind with
       | Pred -> "pred"
       | Func -> "func"
       | Proc -> "proc"
-      | Lemma -> "lemma"
+      | Lemma -> if has_body then "lemma" else "axiom"
       | Invariant -> "inv"
     in
     let pr_returns ppf = function
@@ -1778,13 +1778,12 @@ module Callable = struct
       | Some e -> fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body' e
       | None -> fprintf ppf "@\n"
     in
-
     match def with
     | { call_decl; call_def = FuncDef fdef} ->
-        fprintf ppf "%a%a" pr_call_decl call_decl (pr_fn_body Expr.pr)
+        fprintf ppf "%a%a" (pr_call_decl (Option.is_some fdef.func_body)) call_decl  (pr_fn_body Expr.pr)
           fdef.func_body
     | { call_decl; call_def = ProcDef pdef} ->
-        fprintf ppf "%a%a" pr_call_decl call_decl (pr_proc_body Stmt.pr)
+        fprintf ppf "%a%a" (pr_call_decl (Option.is_some pdef.proc_body)) call_decl (pr_proc_body Stmt.pr)
           pdef.proc_body
 
   (** Auxiliary functions *)

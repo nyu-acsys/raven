@@ -1580,13 +1580,7 @@ module ProcessModule = struct
         | _ -> Rewriter.return ()
       end
     | VarDef var_def, VarDef orig_var_def ->
-      if var_def.var_decl.var_const && not orig_var_def.var_decl.var_const then
-          Error.type_error loc
-            (Printf.sprintf !"Cannot redeclare variable %{Ident} from interface %{QualIdent} as value" ident interface_ident)
-      else if not var_def.var_decl.var_const && orig_var_def.var_decl.var_const then
-        Error.type_error loc
-          (Printf.sprintf !"Cannot redeclare value %{Ident} from interface %{QualIdent} as variable" ident interface_ident)
-      else if var_def.var_decl.var_ghost && not orig_var_def.var_decl.var_ghost then
+      if var_def.var_decl.var_ghost && not orig_var_def.var_decl.var_ghost then
           Error.type_error loc
             (Printf.sprintf !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as ghost"
                (Symbol.kind symbol) ident interface_ident)

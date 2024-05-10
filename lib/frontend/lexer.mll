@@ -17,6 +17,7 @@ let _ =
       ("assume", SPEC Stmt.Assume);
       ("au", AU);
       ("atomic", ATOMIC);
+      ("axiom", AXIOM);
       ("AtomicToken", ATOMICTOKEN);
       ("auto", AUTO);
       ("Bool", BOOL);
@@ -43,7 +44,7 @@ let _ =
       ("invariant", INVARIANT);
       ("import", IMPORT);
       ("implicit", IMPLICIT);
-      ("lemma", PROC(Lemma));
+      ("lemma", LEMMA);
       ("rep", REP);
       ("Map", MAP);
       ("module", MODULE false);
@@ -53,7 +54,7 @@ let _ =
       ("own", OWN);
       ("Perm", PERM);
       ("pred", FUNC (Pred));
-      ("proc", PROC (Proc));
+      ("proc", PROC);
       ("Ref", REF);
       ("Real", REAL);
       ("requires", REQUIRES);

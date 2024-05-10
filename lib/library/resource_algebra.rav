@@ -15,44 +15,44 @@ interface ResourceAlgebra : Type {
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool)
 
-    auto lemma idValid()
+    auto axiom idValid()
         ensures valid(id)
 
-    auto lemma compAssoc()
+    auto axiom compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
-    auto lemma compCommute()
+    auto axiom compCommute()
         ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
 
-    auto lemma compId()
+    auto axiom compId()
         ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
 
-    auto lemma compValid()
+    auto axiom compValid()
         ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
 
-    auto lemma frameId()
+    auto axiom frameId()
         ensures forall a:T :: {frame(a,id)} frame(a, id) == a
 
-    auto lemma compFrameInv()
+    auto axiom compFrameInv()
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
 
-    auto lemma fpuValid()
+    auto axiom fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
 
-    auto lemma fpuReflexive()
+    auto axiom fpuReflexive()
         ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
 
-    auto lemma frameValid()
+    auto axiom frameValid()
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
 
-    auto lemma weak_frameCompInv()
+    auto axiom weak_frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
 
 }
 
 interface CancellativeResourceAlgebra : ResourceAlgebra {
-    auto lemma frameCompInv()
+    auto axiom frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
 
     lemma frameReflexive()
@@ -79,16 +79,16 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
 }
 
 interface LatticeResourceAlgebra : ResourceAlgebra {
-    auto lemma frameCompInv()
+    auto axiom frameCompInv()
         ensures forall a:T, b:T :: valid(frame(a, b)) ==> frame(a, b) == a
 
-    auto lemma frameCompInv0()
+    auto axiom frameCompInv0()
         ensures forall a:T, b:T :: valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
 
-    auto lemma frameCompInv2()
+    auto axiom frameCompInv2()
         ensures forall a:T, b:T :: comp(a, b) == a && valid(a) ==> frame(a, b) == a
 
-    auto lemma frame_comp_inv()
+    auto axiom frame_comp_inv()
         ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
 }
 
