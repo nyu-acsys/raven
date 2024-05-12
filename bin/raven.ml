@@ -43,7 +43,7 @@ let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smt_env top_level_md_ident lex
 
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all file_names =
+let parse_and_check_all no_library file_names =
   (* Start backend solver session *)
   let smt_env = Backend.Smt_solver.init () in
 
@@ -52,9 +52,12 @@ let parse_and_check_all file_names =
   
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
-  let resource_algebra_lexbuf = Lexing.from_string Resource_algebra.resource_algebra in
-  let _ = Lexer.set_file_name resource_algebra_lexbuf "resource_algebra.rav" in
-  let smt_env, tbl = parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf front_end_out_chan in
+  let smt_env, tbl =
+    if no_library then (smt_env, tbl) else
+      let resource_algebra_lexbuf = Lexing.from_string Resource_algebra.resource_algebra in
+      let _ = Lexer.set_file_name resource_algebra_lexbuf "resource_algebra.rav" in
+      parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf front_end_out_chan
+  in
   
   (* Parse and check actual input program *)
   let _ =
@@ -114,14 +117,18 @@ let no_greeting =
   let doc = "Suppress greeting." in
   Arg.(value & flag & info ["shh"] ~doc)
 
+let no_library =
+  let doc = "Skip standard library." in
+  Arg.(value & flag & info ["nostdlib"] ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files no_greeting = 
+let main () input_files no_greeting no_library = 
   (if not no_greeting then
     Logs.app (fun m -> m "%s" greeting)
   else
     ());
-  try `Ok (parse_and_check_all input_files) with
+  try `Ok (parse_and_check_all no_library input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
       Logs.err (fun m -> m "%s" s);
       Logs.debug (fun m -> m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
@@ -134,6 +141,6 @@ let main () input_files no_greeting =
 
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
-  Cmd.v info Term.(ret (const main $ setup_config $ input_file $ no_greeting))
+  Cmd.v info Term.(ret (const main $ setup_config $ input_file $ no_greeting $ no_library))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)
