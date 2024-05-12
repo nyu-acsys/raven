@@ -4,7 +4,6 @@ open Util
 open Ast
 (*open Base*)
 
-
 %}
 
 %token <Ast.Ident.t> IDENT MODIDENT
@@ -23,7 +22,7 @@ open Ast
 %token HAVOC NEW RETURN OWN AU
 %token IF ELSE WHILE CAS
 %token <Ast.Callable.call_kind> FUNC
-%token <Ast.Callable.call_kind> PROC
+%token PROC AXIOM LEMMA
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
@@ -187,14 +186,28 @@ variant_args:
 
     
 proc_def:
-| def = proc_decl; body = option(block) {
+| k = proc_kind; def = proc_decl; body = option(block) {
   let open Callable in
+  let call_decl_kind, is_axiom, call_decl_is_auto = k in
+  let _  =
+    match is_axiom, body with
+    | true, Some _ ->
+        let loc = Loc.make $startpos(body) $endpos(body) in
+        Error.syntax_error loc "Axiom declarations cannot have bodies. Did you mean to declare a lemma?"
+    | _ -> () 
+  in
+  let def = { def with call_decl = { def.call_decl with call_decl_kind; call_decl_is_auto } } in
   let proc_body = Option.map body ~f:(fun s ->
     Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(body) $endpos(body) })
   in
   { def with call_def = ProcDef { proc_body } }
 }
 
+proc_kind:
+| PROC { (Callable.Proc, false, false) }
+| is_auto = option(AUTO); LEMMA { (Callable.Lemma, false, is_auto <> None) }
+| is_auto = option(AUTO); AXIOM { (Callable.Lemma, true, is_auto <> None) }
+    
 func_def:
 | def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {
   let open Callable in
@@ -254,11 +267,8 @@ type_mod:
 ;
 
 proc_decl:
-| k = PROC; decl = callable_decl {
-  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
-}
-| AUTO; k = PROC; decl = callable_decl {
-  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = true; }; call_def = ProcDef { proc_body = None } }
+| decl = callable_decl {
+  Callable.{ call_decl = { decl with call_decl_kind = Proc }; call_def = ProcDef { proc_body = None } }
 }
 
 func_decl:
