@@ -307,6 +307,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   auto lemma compFrameInv()
     ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
   {
+    // assume false;
     M.frameCompInv();
     // M.compCommute();
     M.compFrameInv();
@@ -361,4 +362,55 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
       assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
     }
+
+    lemma replacement_theorem(i1: T, i2: T, j1: T)
+      requires valid(comp(i1, i2))
+      requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
+      requires forall n: Ref :: n in j1.dom -- i1.dom ==> i2.out[n] == M.id
+      ensures comp(j1, i2) != top
+      ensures contextualExt(comp(i1, i2), comp(j1, i2))
+    {
+      var i: T := comp(i1, i2);
+      var j: T := int(
+        {| n: Ref :: n in i.dom ?
+          (n in i1.dom ? M.comp(i.inf[n], M.frame(j1.inf[n], i1.inf[n]))
+            : i.inf[n]) : j1.inf[n] |},
+        {| n: Ref :: n !in j1.dom && n !in i2.dom ?
+          M.comp(j1.out[n], i2.out[n]) : M.id |},
+        j1.dom ++ i2.dom);
+
+      compUnfold(i1, i2);
+        
+      assert forall n: Ref :: n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
+        if (n in i1.dom) {
+          M.compId();
+          M.frameInv();
+        } else if (n in j1.dom) {
+          M.compId();
+        }
+      }
+
+      assert forall n: Ref ::
+        n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
+
+      compValid();
+      assert forall n: Ref :: n in j.dom ==> M.valid(j.inf[n]) with {
+        if (n in j.dom && n in i.dom && n in i1.dom) {
+          M.frameCompInv();
+        }
+      }
+    
+      compFold(j1, i2, j);
+
+      assert forall n: Ref :: n !in j.dom ==> i.out[n] == j.out[n];
+
+      assert forall n: Ref :: n in i.dom ==> M.valid(M.frame(j.inf[n], i.inf[n])) with
+      {
+        M.frameId();
+        M.idValid();
+        M.frameFrame();
+      }
+
+      // assert false;
+    }  
 }
