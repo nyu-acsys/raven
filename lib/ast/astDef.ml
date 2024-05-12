@@ -298,7 +298,7 @@ module Type = struct
     | Map | Fld | Prod ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data (id, decls) ->
-      Stdlib.Format.fprintf ppf "data %a {@\n  @[<2>%a@]@\n}"
+      Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
         QualIdent.pr id
         pr_variant_decl_list decls
 
@@ -313,7 +313,7 @@ module Type = struct
 
   and pr_var_decl ppf decl =
     let open Stdlib.Format in
-    fprintf ppf "%s%s @[<2>%a@ :@ %a@]"
+    fprintf ppf "%s%s @[<2>%a:@ %a@]"
       (if decl.var_ghost then "ghost " else "")
       (if decl.var_const then "val" else "var")
       Ident.pr decl.var_name pr decl.var_type
@@ -1749,15 +1749,15 @@ module Callable = struct
     let pr_call_locals ppf = function
       | [] -> ()
       | ls ->
-          fprintf ppf "@\nlocals (@[<0>%a@])" Expr.pr_var_decl_list ls
+          fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
     in
     let pr_call_mask ppf = function
       | None -> 
-        fprintf ppf "@\nmask: (@[ <none> @])" 
+        fprintf ppf "@\n/* mask: <none> */" 
       | Some mask ->
-          fprintf ppf "@\nmask: (@[<0>%a@])" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
+          fprintf ppf "@\n/* mask: (@[<0>%a@]) */" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
     in
-    fprintf ppf "@[%s %a(%a)@;@[<1>%a%a%a%a@]@]" 
+    fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a@]" 
       kind 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
@@ -1795,6 +1795,11 @@ module Callable = struct
   let to_loc (call: t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_loc
 
   let kind (call: t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_kind
+
+  let is_abstract = function
+    | { call_def = FuncDef { func_body = None; _ }; _ }
+    | { call_def = ProcDef { proc_body = None; _ }; _ } -> true
+    | _ -> false
   
   let return_decls call_decl = 
     call_decl.call_decl_returns
@@ -1965,7 +1970,7 @@ module Module = struct
             | Some (t, ts) -> fprintf ppf " =@ %a[%a]" QualIdent.pr t QualIdent.pr_list ts)
           ma.mod_inst_def
     | TypeDef ta ->
-        fprintf ppf "%stype %a%a"
+        fprintf ppf "@[%stype %a%a@]"
           (if ta.type_def_rep then "rep " else "")
           Ident.pr ta.type_def_name
           (fun ppf -> function
@@ -1973,12 +1978,12 @@ module Module = struct
             | Some t -> fprintf ppf " = %a" Type.pr t)
           ta.type_def_expr
     | ConstrDef cdef ->
-      fprintf ppf "/* constr %a(%a): %a */"
+      fprintf ppf "@[/* constr %a(%a): %a */@]"
         Ident.pr cdef.constr_name
         Type.pr_list (List.map cdef.constr_args ~f:(fun var_decl -> var_decl.var_type))
         Type.pr cdef.constr_return_type
     | DestrDef def ->
-      fprintf ppf "/* destr %a(%a): %a */"
+      fprintf ppf "@[/* destr %a(%a): %a */@]"
         Ident.pr def.destr_name
         Type.pr def.destr_arg
         Type.pr def.destr_return_type
@@ -1987,7 +1992,7 @@ module Module = struct
         | App (Fld, [typ], _) -> typ
         | typ -> typ
       in
-      fprintf ppf "field %a: %a" Ident.pr field_def.field_name Type.pr
+      fprintf ppf "@[field %a: %a@]" Ident.pr field_def.field_name Type.pr
         field_type
     | VarDef vdef -> Stmt.pr_var_def ppf vdef
     | CallDef cdef -> Callable.pr ppf cdef
