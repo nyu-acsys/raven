@@ -49,7 +49,7 @@ interface CCM : Type {
 
 }
 
-interface FlowsRA[M: CCM] : CancellativeResourceAlgebra {
+module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   rep type T = data {
     case int(inf: Map[Ref, M], out: Map[Ref, M], dom: Set[Ref])
     case top
