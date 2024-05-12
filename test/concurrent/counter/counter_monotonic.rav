@@ -53,7 +53,16 @@ module MaxNat : Library.LatticeResourceAlgebra {
     
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    {}
+    {
+      assert forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a with {
+        if (valid(frame(a,b))) {
+          if (b != id) {
+            assert frame(a,b) == a && comp(a, b) == a;
+          }
+        }
+
+      }
+    }
     
     auto lemma fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
@@ -100,7 +109,7 @@ inv counterInv(x: Ref) {
   exists v: Int :: own(x, h, auth_frag(v,v)) && own(x, c, v, 1.0)
 }
 
-proc incr(x: Ref, implicit ghost v: Int) 
+proc incr(x: Ref) 
   requires counterInv(x)
   ensures counterInv(x)
 {

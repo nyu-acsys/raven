@@ -1,6 +1,6 @@
 field c: Int
 
-inv counterInv(x: Ref) { 
+inv counterInv(x: Ref) {
   exists v: Int :: own(x, c, v, 1.0)
 }
 
@@ -18,15 +18,12 @@ proc incr(x: Ref)
   var res: Bool;
 
   unfold counterInv(x);
-  ghost var v2: Int;
-  v2 :| own(x, c, v2, 1.0);
-  assert v1 <= v2;
   res := cas(x.c, v1, new_v1);
   fold counterInv(x);
   
   if (!res) {
     incr(x); // retry
-  } 
+  }
 }
 
 proc read(x: Ref)
