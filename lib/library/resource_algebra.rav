@@ -809,9 +809,10 @@ module KeysetRA[X: Type] : CancellativeResourceAlgebra {
     auto lemma frameCompInv()
         ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {
-      assert forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
+      assert forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
         if (valid(comp(a, b))) {
           assert comp(a,b).keyset == a.keyset ++ b.keyset;
+          assert comp(a,b).contents == a.contents ++ b.contents;
         }
       }
     }
