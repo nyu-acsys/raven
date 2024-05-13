@@ -140,13 +140,7 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
           ~trigs: [[(Expr.mk_app ~typ:Ast.Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
           (Expr.mk_impl 
             (Expr.mk_and 
-              (
-                (* (Expr.mk_eq 
-                (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
-
-                ret_tuple
-              ) ::  *)
-              (List.map call_decl.call_decl_precond ~f:(fun pre -> Expr.alpha_renaming pre.spec_form alpha_renaming_map)))
+              (List.map call_decl.call_decl_precond ~f:(fun pre -> Expr.alpha_renaming pre.spec_form alpha_renaming_map))
             )
 
           (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> Expr.alpha_renaming post.spec_form alpha_renaming_map)))  
@@ -175,22 +169,31 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
         (Ast.Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
 
       and spec_expr = 
-
-         (Expr.mk_binder Forall (call_decl.call_decl_formals) 
+        (Expr.mk_binder Forall (call_decl.call_decl_formals) 
           ~trigs: [[(Expr.mk_app ~typ:Ast.Type.bot (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg)))] ]
-            (Expr.mk_eq 
-              (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+          (Expr.mk_eq 
+            (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
 
-              expr
-            ) 
+            expr
+          ) 
         )
-
-      
       
       in
 
+      let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
+
+      let alpha_renaming_map = 
+        let fn_call_expr = (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) in
+
+        if List.length call_decl.call_decl_returns = 1 then
+          Map.singleton (module QualIdent) (QualIdent.from_ident (List.hd_exn call_decl.call_decl_returns).var_name) fn_call_expr
+        else 
+          List.foldi call_decl.call_decl_returns ~init:(Map.empty (module QualIdent)) ~f:(fun i acc arg -> 
+            Map.set acc ~key:(QualIdent.from_ident arg.var_name) ~data:(Expr.mk_tuple_lookup fn_call_expr i)
+          )
+      in
+
       let check_contract_expr = 
-        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
         (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns)
           (Expr.mk_impl 
             (Expr.mk_and 
@@ -203,22 +206,21 @@ let check_callable (fully_qual_name: qual_ident) (callable: Ast.Callable.t) : un
             )
 
             (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
-        )
-      ) in
+          )
+        ) 
+      in
 
       let post_cond_expr = 
-        let ret_tuple = (Expr.mk_tuple (List.map call_decl.call_decl_returns ~f:(fun arg -> Expr.from_var_decl arg))) in
-      (Expr.mk_binder Forall (call_decl.call_decl_formals @ call_decl.call_decl_returns) 
-        (Expr.mk_impl 
-          (Expr.mk_eq 
-            (Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name) (List.map call_decl.call_decl_formals ~f:(fun arg -> Expr.from_var_decl arg))) 
+        (Expr.mk_binder Forall (call_decl.call_decl_formals) 
+          (Expr.mk_impl 
+            (Expr.mk_and 
+              (List.map call_decl.call_decl_precond ~f:(fun pre -> Expr.alpha_renaming pre.spec_form alpha_renaming_map))
+            )
 
-            ret_tuple
-          ) 
-
-        (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> post.spec_form)))  
-      )
-      ) in
+            (Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun post -> Expr.alpha_renaming post.spec_form alpha_renaming_map)))
+          )
+        ) 
+      in
 
       let* _ = write cmd in
       let* _ = assume_expr spec_expr in

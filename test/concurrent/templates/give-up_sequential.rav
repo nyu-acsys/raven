@@ -358,6 +358,8 @@ module GiveUpTemplate[Node: NodeImpl] {
 
       var contents1: Map[Ref, Set[K]] := contents[n := c_n];
 
+      assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c1 )));
+
       fold globalRes(r, c1, fp, inset);
       fold nodePred(r, n, contents1[n], inset[n], outset[n]);
       fold cssR(r, c1, fp, contents1, inset, outset);

@@ -236,6 +236,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     assert (forall n: Ref :: n !in i12.dom ==> M.valid(i12.out[n]));
     assert (i12.dom == {||} ==> i12.out == zeroFlow);
     assert i12 != top;
+    assert valid(i12);
     assert valid(i3);
 
     assert forall n: Ref :: n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
@@ -318,99 +319,102 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     assert forall a:T, b:T :: a != id ==> b != id ==> valid(frame(a,b)) ==> comp(frame(a,b), b).dom == a.dom;
   }
 
-    auto lemma fpuValid()
-      ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)}
-        (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}
+  auto lemma fpuValid()
+    ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)}
+      (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
+  {}
 
-    auto lemma fpuReflexive()
-      ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
-    {}
+  auto lemma fpuReflexive()
+    ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
+  {}
 
-    auto lemma frameValid()
-      ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    {}
+  auto lemma frameValid()
+    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+  {}
 
-    auto lemma weak_frameCompInv()
-      ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-    {
-      M.frameCompInv();
-      M.compCommute();
-      // M.frameFrame();
-      M.compFrameInv();
-      // compId();
-      M.frameInv();
-      // assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
-      // assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
+  auto lemma weak_frameCompInv()
+    ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+  {
+    M.frameCompInv();
+    M.compCommute();
+    // M.frameFrame();
+    M.compFrameInv();
+    // compId();
+    M.frameInv();
+    // assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
+    // assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
+  }
+
+  auto lemma frameCompInv()
+    ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+  {
+    M.frameCompInv();
+    M.compFrameInv();
+    M.frameInv();
+    M.frameFrame();
+    frameInv();
+    // assume forall a: M, b: M :: M.valid(M.frame(a, b)) ==> M.frame(a, M.frame(a,b)) == b;
+    assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
+    assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
+    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
+    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
+    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
+    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
+    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> valid(comp(a, b)) ==> comp(a, b).out[n] == M.comp(a.out[n], b.out[n]);
+    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
+    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
+  }
+
+  lemma replacement_theorem(i1: T, i2: T, j1: T)
+    requires valid(comp(i1, i2))
+    requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
+    requires forall n: Ref :: n in j1.dom -- i1.dom ==> i2.out[n] == M.id
+    ensures comp(j1, i2) != top
+    ensures contextualExt(comp(i1, i2), comp(j1, i2))
+  {
+    var i: T := comp(i1, i2);
+    var j: T := int(
+      {| n: Ref :: n in i.dom ?
+        (n in i1.dom ? M.comp(i.inf[n], M.frame(j1.inf[n], i1.inf[n]))
+          : i.inf[n]) : j1.inf[n] |},
+      {| n: Ref :: n !in j1.dom && n !in i2.dom ?
+        M.comp(j1.out[n], i2.out[n]) : M.id |},
+      j1.dom ++ i2.dom);
+
+    compUnfold(i1, i2);
+      
+    assert forall n: Ref :: n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
+      if (n in i1.dom) {
+        M.compId();
+        M.frameInv();
+      } else if (n in j1.dom) {
+        M.compId();
+      }
     }
 
-    auto lemma frameCompInv()
-      ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-    {
-      M.frameCompInv();
-      M.compFrameInv();
-      M.frameInv();
-      M.frameFrame();
-      frameInv();
-      // assume forall a: M, b: M :: M.valid(M.frame(a, b)) ==> M.frame(a, M.frame(a,b)) == b;
-      assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
-      assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
-      assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-      assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-      assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
-      assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
-      assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
-      assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
+    assert forall n: Ref ::
+      n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
+
+    compValid();
+    assert forall n: Ref :: n in j.dom ==> M.valid(j.inf[n]) with {
+      if (n in j.dom && n in i.dom && n in i1.dom) {
+        M.frameCompInv();
+      }
     }
+  
+    compFold(j1, i2, j);
 
-    lemma replacement_theorem(i1: T, i2: T, j1: T)
-      requires valid(comp(i1, i2))
-      requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
-      requires forall n: Ref :: n in j1.dom -- i1.dom ==> i2.out[n] == M.id
-      ensures comp(j1, i2) != top
-      ensures contextualExt(comp(i1, i2), comp(j1, i2))
-    {
-      var i: T := comp(i1, i2);
-      var j: T := int(
-        {| n: Ref :: n in i.dom ?
-          (n in i1.dom ? M.comp(i.inf[n], M.frame(j1.inf[n], i1.inf[n]))
-            : i.inf[n]) : j1.inf[n] |},
-        {| n: Ref :: n !in j1.dom && n !in i2.dom ?
-          M.comp(j1.out[n], i2.out[n]) : M.id |},
-        j1.dom ++ i2.dom);
+    assert forall n: Ref :: n !in j.dom ==> i.out[n] == j.out[n];
 
-      compUnfold(i1, i2);
-        
-      assert forall n: Ref :: n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
-        if (n in i1.dom) {
-          M.compId();
-          M.frameInv();
-        } else if (n in j1.dom) {
-          M.compId();
-        }
-      }
+    assert forall n: Ref :: n in i.dom ==> j.inf[n] == i.inf[n];
 
-      assert forall n: Ref ::
-        n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
+    // assert forall n: Ref :: n in i.dom ==> M.valid(M.frame(j.inf[n], i.inf[n])) with
+    // {
+    //   M.frameId();
+    //   M.idValid();
+    //   M.frameFrame();
+    // }
 
-      compValid();
-      assert forall n: Ref :: n in j.dom ==> M.valid(j.inf[n]) with {
-        if (n in j.dom && n in i.dom && n in i1.dom) {
-          M.frameCompInv();
-        }
-      }
-    
-      compFold(j1, i2, j);
-
-      assert forall n: Ref :: n !in j.dom ==> i.out[n] == j.out[n];
-
-      assert forall n: Ref :: n in i.dom ==> M.valid(M.frame(j.inf[n], i.inf[n])) with
-      {
-        M.frameId();
-        M.idValid();
-        M.frameFrame();
-      }
-
-      // assert false;
-    }  
+    // assert false;
+  }  
 }
