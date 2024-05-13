@@ -22,22 +22,10 @@ module Lock {
     atomic ensures lock(l, true) && b == false
   {
     val phi: AtomicToken := bindAU();
-    val b1: Bool;
-    b1 := openAU(phi);
+    val b1: Bool := openAU(phi);
     unfold lock(l, b1); 
 
-   	// val res = cas(l.bit, false, true); 
-    ghost var res: Bool;
-    {!
-      ghost var curr_val: Bool := l.bit;
-
-      if (curr_val == false) {
-        l.bit := true;
-        res := true;
-      } else {
-        res := false;
-      }
-    !}
+   	val res: Bool = cas(l.bit, false, true); 
 
     {!
       if (res) {
@@ -52,8 +40,7 @@ module Lock {
     !}
 
     if (!res) {
-      val b2: Bool;
-      b2 := openAU(phi);
+      val b2: Bool := openAU(phi);
 			assert lock(l, b2);
 			acquire(l);
 			commitAU(phi);
@@ -64,7 +51,7 @@ module Lock {
     atomic requires lock(l, true)
     atomic ensures lock(l, false)
   {
-    val phi: AtomicToken;
+    var phi: AtomicToken;
     {! 
       phi := bindAU();
       openAU(phi);
@@ -160,27 +147,9 @@ interface SearchStructure {
 interface SingleNodeTemplate[Node: NodeImpl] {
   field lock: Bool
 
-  // module KeyMod : Library.Type {
-  //   rep type T = Set[Node.Spec.K]
-  // }
-
-  // module FracSK = Node.Spec.K
-
-
   module Spec: SearchStructureSpec = Node.Spec
 
-  // import Node.Spec.K
-  // import Node.Spec.Op
-  // import Node.Spec.opSpec
-  // import Node.Spec.keyset
-
-  // import Spec._
   import Node.Spec._
-
-  // import Spec.K
-  // import Spec.Op
-  // import Spec.opSpec
-  // import Spec.keyset
 
   field frac: Set[K];
 
@@ -207,7 +176,6 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     r := new(lock:false, frac:{||});
     assert own(r, frac, {||}, 0.5) && own(r, lock, false, 1.0) && 
       (false ? true : (Node.nodeR(r, {||}) && own(r, frac, {||}, 0.5)));
-    // assert own(r, lock, false, 1.0) && (false ? true : Node.nodeR(r, {||}));
     fold cssR(r, {||});
   }
 

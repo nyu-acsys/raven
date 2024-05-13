@@ -34,7 +34,7 @@ module List {
       invariant lseg(x, curr) && lseg(curr, null)
     {
       unfold lseg(curr, null);
-      ghost val old_curr: Ref := curr;
+      ghost var old_curr: Ref := curr;
       curr := curr.next;
       append_tail(x, old_curr, curr);
     }

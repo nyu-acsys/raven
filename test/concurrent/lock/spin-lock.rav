@@ -20,38 +20,31 @@ interface Lock {
     fold lockR(l, false);
   }
 
-  /* How to prove following spec? Lob induction? */
   proc acquire(l: Ref, implicit ghost b: Bool)
     atomic requires lockR(l, b)
     atomic ensures lockR(l, true) && lockResource(l)
   {
     ghost val phi: AtomicToken = bindAU();
     
-    ghost var b1 : Bool;
-    b1 := openAU(phi);
+    ghost var b1 : Bool := openAU(phi);
     unfold lockR(l, b1);
-    // var res := cas(l.bit, false, true);
-    ghost var res: Bool;
-    {!
-      ghost var curr_val: Bool := l.bit;
 
-      if (curr_val == false) {
-        l.bit := true;
-        res := true;
+    val res: Bool := cas(l.bit, false, true);
+
+    {!
+      if (res) {
+        fold lockR(l, true);
+        commitAU(phi);
       } else {
-        res := false;
+        fold lockR(l, b1);
+        abortAU(phi);
       }
     !}
 
     if (res) {
-      l.bit := true;
-      fold lockR(l, true);
-      commitAU(phi);
       return;
-    } else {
-      fold lockR(l, b1);
-      abortAU(phi);
     }
+
     b1 := openAU(phi);
     assert lockR(l, b1);
     acquire(l);

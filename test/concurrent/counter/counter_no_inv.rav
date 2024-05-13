@@ -1,24 +1,66 @@
-module IntTp : Library.Type {
-  rep type T = Int
-}
-
-module IntSetRA = Library.SetRA[IntTp]
-
-type T = Int
-
-field c: T
-
-type Something = data { case onething(a: Int); case nothing } 
+field c: Int
 
 pred counter(x: Ref; v: Int) {
-  own(x, c, 0, 1.0)
+  own(x, c, v, 1.0)
 }
 
-proc incr(x: Ref) 
-  requires counter(x, 0)
-  ensures counter(x, 1)
+proc incr(x: Ref, implicit ghost v: Int) 
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v + 1)
 {
-  var v: Something = onething(5);
-  // var res: Bool := CAS(x.c, IntSetRA.set_constr({||}), IntSetRA.set_constr({||}));
-  var res: Bool := CAS(x.c, 0, 1);
+  var phi: AtomicToken := bindAU();
+
+  var v1: Int;
+
+  ghost var v2: Int := openAU(phi);
+
+  unfold counter(x, v2);
+  v1 := x.c;
+  fold counter(x, v2);
+  
+  abortAU(phi);
+  
+  var new_v1 : Int := v1 + 1;
+
+  var v3: Int := openAU(phi);
+
+  unfold counter(x,v3);
+
+  var res: Bool := cas(x.c, v1, new_v1);
+  
+  {! 
+    if (res) {
+      fold counter(x, new_v1);
+      commitAU(phi);
+    } else {
+      fold counter(x, v3);
+      abortAU(phi);
+    }
+  !}
+
+  if (!res) {
+    var v4: Int := openAU(phi);
+    incr(x);
+    commitAU(phi);
+  }
+}
+
+proc read(x: Ref, implicit ghost v: Int)
+  returns (v2: Int)
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v) && v2 == v
+  ensures v2 == v
+
+{
+  var phi: AtomicToken := bindAU();
+
+  var v1: Int := openAU(phi);
+  unfold counter(x, v1);
+
+  var v3: Int := x.c;
+  
+  fold counter(x, v1);
+  commitAU(phi, v3);
+
+  return v3;
 }
