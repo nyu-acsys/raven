@@ -1023,7 +1023,7 @@ module ProcessCallable = struct
               
               let+ call_expr = 
                 Expr.App (Var proc_qual_ident, args, expr_attr) |>
-                fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl (* TODO: <- replace this with the expected type *)
+                fun expr -> disambiguate_process_expr expr expected_return_type disam_tbl 
               in
 
               begin match call_expr with
