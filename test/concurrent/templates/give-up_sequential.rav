@@ -19,9 +19,9 @@ interface SearchStructureSpec {
   type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
 	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
-    op == searchOp() ? 
+    op == searchOp ? 
       c_in == c_out && res == (k in c_in) :
-    (op == insertOp() ?
+    (op == insertOp ?
       c_out == c_in ++ {| k |} && res == (k !in c_in) :
       c_out == c_in -- {| k |} && res == (k in c_in))
 	}
@@ -284,17 +284,19 @@ module GiveUpTemplate[Node: NodeImpl] {
   {
     unfold opSpec(dop, k, c_n, c_n1, res);
 
-    if (dop == searchOp() || !res) {
+    if (dop == searchOp || !res) {
       c1 := c;
+      assert dop == deleteOp ==> (k in c) == (k in (c1 -- {|k|}));
       fold opSpec(dop, k, c, c1, res);
     } else {
-      if (dop == insertOp()) {
+      if (dop == insertOp) {
         c1 := c ++ {| k |};
 
+        assert k !in c_n;
         assert k !in c;        
         
         fold opSpec(dop, k, c, c1, res);
-        
+        assert c_n1 subseteq c1;
         fpu(r, authKS, 
         AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
 
@@ -302,8 +304,11 @@ module GiveUpTemplate[Node: NodeImpl] {
         
       } else {
         c1 := c -- {| k |};
+        assert k in c_n;
+        //assert k in c;
         fold opSpec(dop, k, c, c1, res);
         
+        assert c_n1 subseteq c1;
         fpu(r, authKS, 
         AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
 

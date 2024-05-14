@@ -729,9 +729,8 @@ module KeysetRA[X: Type] : CancellativeResourceAlgebra {
     val id: T = ksPair({||}, {||})
 
     func valid(n:T) returns (ret: Bool) {
-        n == ksPair(n.keyset, n.contents) ? 
-            n.contents subseteq n.keyset : 
-            false 
+        n == ksPair(n.keyset, n.contents) &&
+        n.contents subseteq n.keyset
     }
 
     func comp(a:T, b:T) returns (ret:T) {
@@ -792,7 +791,10 @@ module KeysetRA[X: Type] : CancellativeResourceAlgebra {
     auto lemma fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}
+    {
+        assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
+            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c)) with {}
+    }
     
     auto lemma fpuReflexive()
         ensures forall a:T :: {fpuAllowed(a,a)} valid(a) ==> fpuAllowed(a,a)
@@ -811,8 +813,14 @@ module KeysetRA[X: Type] : CancellativeResourceAlgebra {
     {
       assert forall a:T, b:T:: valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
         if (valid(comp(a, b))) {
-          assert comp(a,b).keyset == a.keyset ++ b.keyset;
-          assert comp(a,b).contents == a.contents ++ b.contents;
+          if (a != id && b != id) {
+            assert comp(a,b) == ksPair(a.keyset ++ b.keyset, a.contents ++ b.contents);
+            assert (a.keyset ++ b.keyset) -- b.keyset == a.keyset;
+            assert frame(comp(a, b), b) == a;
+          } else if (a == id) {
+            assert {||} ++ b.keyset == b.keyset;
+            assert {||} ++ b.contents == b.contents;
+          }
         }
       }
     }
@@ -935,7 +943,6 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
 
     func valid(a:T) returns (ret: Bool) {
         a != au_top
-        //a == au_uncommitted(a.au_uncommit_proj1) || a == au_committed(a.au_commit_proj1, a.au_commit_proj2) || a == au_null()
     }
 
 
@@ -947,19 +954,25 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
         )
     }
 
-    auto lemma idValid()
+    /*auto lemma idValid()
         ensures valid(id)
     {}
 
     auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-    {}
+    {}*/
 
     auto lemma compCommute()
         ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    {}
+    {
+        assert forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a) with {
+            if (a == au_committed(a.au_commit_proj1, a.au_commit_proj2)) {
+                assert comp(a,b) == comp(b,a);
+            } //else if(a == au_uncommitted(a.au_uncommit_proj1) || b == au_uncommitted(b.au_uncommit_proj1)) {}
+        }
+    }
 
-    auto lemma compId()
+    /*auto lemma compId()
         ensures forall a:T :: {comp(a, id)} comp(a, id) == a
     {}
  
@@ -969,7 +982,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
 
     auto lemma frameId()
         ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-    {}
+    {}*/
     
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
@@ -981,7 +994,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
         }
     }
     
-    auto lemma fpuValid()
+    /*auto lemma fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
     {}
@@ -996,7 +1009,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     
     auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-    {}
+    {}*/
 }
 
 // module InvRA[X: Type] : ResourceAlgebra {

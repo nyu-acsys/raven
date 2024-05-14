@@ -236,6 +236,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     assert (forall n: Ref :: n !in i12.dom ==> M.valid(i12.out[n]));
     assert (i12.dom == {||} ==> i12.out == zeroFlow);
     assert i12 != top;
+    compValid();
     assert valid(i12);
     assert valid(i3);
 
@@ -354,17 +355,24 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.frameFrame();
     frameInv();
     // assume forall a: M, b: M :: M.valid(M.frame(a, b)) ==> M.frame(a, M.frame(a,b)) == b;
-    assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
-    assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> valid(comp(a, b)) ==> comp(a, b).out[n] == M.comp(a.out[n], b.out[n]);
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
+    assert forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
+      if (valid(comp(a, b))) {
+        assert a == id || b == id ==> frame(comp(a, b), b) == a;
+        assert a != id ==> b != id ==> frame(comp(a, b), b).dom == a.dom;
+        assert forall n: Ref :: frame(comp(a, b), b).out[n] == a.out[n];
+        assert forall n: Ref :: a != id ==> b != id ==> n in a.dom ==> frame(comp(a, b), b).inf[n] == a.inf[n];
+        assert forall n: Ref :: a != id ==> b != id ==> n !in a.dom ==> frame(comp(a, b), b).inf[n] == a.inf[n];
+        assert frame(comp(a, b), b).inf == a.inf;
+        assert forall n: Ref :: a != id ==> b != id ==> n in a.dom ==> frame(comp(a, b), b).out[n] == a.out[n];
+        //assert forall n: Ref :: a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> comp(a, b).out[n] == M.comp(a.out[n], b.out[n]);
+        assert forall n: Ref :: a != id ==> b != id ==> n !in a.dom ==> frame(comp(a, b), b).out[n] == a.out[n] with {
+          assert a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> frame(comp(a, b), b).out[n] == M.frame(comp(a,b).out[n], b.out[n]);
+        }
+        assert a != id ==> b != id ==> frame(comp(a, b), b).out == a.out;
+      }
+    }
   }
-
+  
   lemma replacement_theorem(i1: T, i2: T, j1: T)
     requires valid(comp(i1, i2))
     requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
