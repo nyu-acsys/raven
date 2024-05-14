@@ -750,6 +750,7 @@ au_expr:
 
 lookup_expr:
 | e1 = qual_ident_expr; e_fn = lookup; { e_fn e1 }
+| LPAREN; e1 = expr; RPAREN; e_fn = lookup; { e_fn e1 }
 
 lookup:
 | LBRACKET; e2 = expr; RBRACKET {
