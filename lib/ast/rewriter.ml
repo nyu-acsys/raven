@@ -1123,6 +1123,9 @@ module Symbol = struct
   let add_subst s (name, symbol, subst) = (name, symbol, s :: subst)
   
   type t = QualIdent.t * AstDef.Module.symbol * QualIdent.subst
+
+  let pr ppf (name, symbol, subst) =
+    Stdlib.Format.fprintf ppf "%a -> %a [%a]" QualIdent.pr name AstDef.Symbol.pr symbol (Print.pr_list_comma (fun ppf (q, i_l) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q (Print.pr_list_comma Ident.pr) i_l )) subst
                                  
 end
 
@@ -1149,6 +1152,7 @@ let find loc name : (Symbol.t, 'a) t_ext =
 let find_and_reify loc name : (AstDef.Module.symbol, 'a) t_ext =
   let open Syntax in
    let* symbol = find loc name in
+   Logs.debug (fun m -> m "Rewriter.find_and_reify: symbol = %a" Symbol.pr symbol);
    Symbol.reify symbol
 
 let is_local loc qual_ident s =
