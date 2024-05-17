@@ -318,6 +318,8 @@ let init () : smt_env =
   let options_list = [
     SetOption  (":timeout", "2000", None);
     SetOption  (":produce-unsat-cores", "true", None);
+    SetOption  (":smt.mbqi", "false", None);
+    SetOption (":auto-config", "false", None);
   ] in
 
   let list_of_cmds = [

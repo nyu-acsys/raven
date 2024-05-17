@@ -1473,7 +1473,7 @@ end
                 Expr.mk_and ~loc (l_eq_e1_expr :: conds_subst);
 
                 (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr e1_subst)
                   (Expr.mk_app ~loc ~typ:field_type 
                     (Expr.Var field_heapchunk_operator)  [
                       Expr.mk_maplookup ~loc field_heap_expr l_expr;
@@ -1595,7 +1595,7 @@ end
                 Expr.mk_and ~loc (token_var_eq_given_token :: conds_subst);
 
                 (* au$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr token_subst)
                   (Expr.mk_app ~loc ~typ:heap_elem_type 
                     (Expr.Var au_heapchunk_operator)  [
                       Expr.mk_maplookup ~loc au_heap_expr new_token_expr;
@@ -1687,6 +1687,7 @@ end
               let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
 
               let actual_arg_in_exprs = List.take args (List.length pred_in_types) in
+              let actual_arg_in_tuple = Expr.mk_tuple actual_arg_in_exprs in
               let actual_arg_out_exprs = List.drop args (List.length pred_in_types) in
               
 
@@ -1700,7 +1701,7 @@ end
                 Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
               ) in
 
-              let actual_arg_in_exprs_subst = List.map actual_arg_in_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+              (* let actual_arg_in_exprs_subst = List.map actual_arg_in_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in *)
               let actual_arg_out_exprs_subst = List.map actual_arg_out_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
               let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
 
@@ -1710,9 +1711,10 @@ end
               let assume_stmt = 
 
                 let in_vars_eq_args = 
-                  List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg -> 
+                  Expr.mk_eq in_vars_tuple actual_arg_in_tuple
+                  (* List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg -> 
                     Expr.mk_eq (Expr.from_var_decl var_decl) arg
-                  )
+                  ) *)
                   
                 in
                 
@@ -1737,10 +1739,10 @@ end
                     (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                       (* m1(a,b,c) && l == f1(a, b, c) *)
-                      Expr.mk_and ~loc (in_vars_eq_args @ conds_subst);
+                      Expr.mk_and ~loc (in_vars_eq_args :: conds_subst);
 
                       (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple)
+                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr actual_arg_in_tuple)
                         (Expr.mk_app ~loc ~typ:heap_elem_type 
                           (Expr.Var pred_heapchunk_operator)  [
                             Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple;
@@ -2603,7 +2605,7 @@ end
                 Expr.mk_and ~loc (l_eq_e1_expr :: conds_subst);
 
                 (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc field_heap2_expr e1_subst)
                   (Expr.mk_app ~loc ~typ:field_type 
                     (Expr.Var field_heapchunk_operator)  [
                       Expr.mk_maplookup ~loc field_heap_expr l_expr;
@@ -2726,7 +2728,7 @@ end
                 Expr.mk_and ~loc (token_var_eq_given_token :: conds_subst);
 
                 (* au$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr new_token_expr)
+                Expr.mk_eq ~loc (Expr.mk_maplookup ~loc au_heap2_expr token_subst)
                   (Expr.mk_app ~loc ~typ:heap_elem_type 
                     (Expr.Var au_heapchunk_operator)  [
                       Expr.mk_maplookup ~loc au_heap_expr new_token_expr;
@@ -2821,6 +2823,7 @@ end
               let in_vars_tuple = Expr.mk_tuple in_vars_exprs in
 
               let actual_arg_in_exprs = List.take args (List.length pred_in_types) in
+              let actual_arg_in_tuple = Expr.mk_tuple actual_arg_in_exprs in
               let actual_arg_out_exprs = List.drop args (List.length pred_in_types) in
               
 
@@ -2834,7 +2837,7 @@ end
                 Map.set map ~key:(QualIdent.from_ident var_decl.var_name) ~data:expr
               ) in
 
-              let actual_arg_in_exprs_subst = List.map actual_arg_in_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
+              (* let actual_arg_in_exprs_subst = List.map actual_arg_in_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in *)
               let actual_arg_out_exprs_subst = List.map actual_arg_out_exprs ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
               let conds_subst = List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map) in
 
@@ -2843,9 +2846,10 @@ end
               let assume_stmt = 
 
                 let in_vars_eq_args = 
-                  List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg -> 
+                  Expr.mk_eq in_vars_tuple actual_arg_in_tuple
+                  (* List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg -> 
                     Expr.mk_eq (Expr.from_var_decl var_decl) arg
-                  )
+                  ) *)
                   
                 in
 
@@ -2870,10 +2874,10 @@ end
                     (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite [
 
                       (* m1(a,b,c) && l == f1(a, b, c) *)
-                      Expr.mk_and ~loc (in_vars_eq_args @ conds_subst);
+                      Expr.mk_and ~loc (in_vars_eq_args :: conds_subst);
 
                       (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr in_vars_tuple)
+                      Expr.mk_eq ~loc (Expr.mk_maplookup ~loc pred_heap2_expr actual_arg_in_tuple)
                         (Expr.mk_app ~loc ~typ:heap_elem_type 
                           (Expr.Var pred_heapchunk_operator)  [
                             Expr.mk_maplookup ~loc pred_heap_expr in_vars_tuple;
