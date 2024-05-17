@@ -268,12 +268,12 @@ module GiveUpTemplate[Node: NodeImpl] {
     
   }
 
-
-  lemma opSpecLift(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
+  lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
     returns (c1: Set[K])
     requires opSpec(dop, k, c_n, c_n1, res)
     requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c)))
     requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n)))
+    // requires own(r, authFlow, AuthFlow_K.auth(g_i))requires own(r, authFlow, AuthFlow_K.frag(g_i))
     requires c_n1 subseteq k_n
     requires k in k_n
     requires k in keyspace
@@ -282,41 +282,67 @@ module GiveUpTemplate[Node: NodeImpl] {
     ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c1)))
     ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n1)))
   {
+    // autoLemmas();
+
     unfold opSpec(dop, k, c_n, c_n1, res);
 
-    if (dop == searchOp || !res) {
+    if (dop == searchOp() || !res) {
       c1 := c;
-      assert dop == deleteOp ==> (k in c) == (k in (c1 -- {|k|}));
+      assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert c_n subseteq c;
       fold opSpec(dop, k, c, c1, res);
     } else {
-      if (dop == insertOp) {
+      if (dop == insertOp()) {
         c1 := c ++ {| k |};
 
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
         assert k !in c_n;
-        assert k !in c;        
+        assert k !in c;
+
+        // assert false;
         
         fold opSpec(dop, k, c, c1, res);
-        assert c_n1 subseteq c1;
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+        ) with {
+          assume forall k: Keyset_K ::
+            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
+            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+        }
+        
         fpu(r, authKS, 
-        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)),
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
 
         // assert false;
         
       } else {
         c1 := c -- {| k |};
+
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
         assert k in c_n;
-        //assert k in c;
-        fold opSpec(dop, k, c, c1, res);
+        assert k in c;
         
-        assert c_n1 subseteq c1;
+        fold opSpec(dop, k, c, c1, res);
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+        );
+        
         fpu(r, authKS, 
-        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
 
         // assert false;
       }
     }
-
-
   }
 
   proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
@@ -359,7 +385,7 @@ module GiveUpTemplate[Node: NodeImpl] {
       unfold opSpec(dop, k, contents[n], c_n, res1);
       fold opSpec(dop, k, contents[n], c_n, res1);
 
-      c1 := opSpecLift(r, dop, k, contents[n], c_n, c, res1, keyset(inset[n], outset[n]));
+      c1 := keyset_theorem(r, dop, k, contents[n], c_n, c, res1, keyset(inset[n], outset[n]));
 
       var contents1: Map[Ref, Set[K]] := contents[n := c_n];
 
