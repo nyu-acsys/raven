@@ -10,20 +10,62 @@ let stream_of_file file_name =
   let _ = Lexer.set_file_name lexbuf file_name in
   inchan, lexbuf
 
+
+let normalizeFilename base_dir file_name =
+  let fullname =
+    if Stdlib.Filename.is_relative file_name then
+      base_dir ^ Stdlib.Filename.dir_sep ^ file_name
+    else
+      file_name
+  in
+  let sep = Str.regexp_string Stdlib.Filename.dir_sep in
+  let parts = Str.split_delim sep fullname in
+  let remaining =
+    List.fold_left
+      ~f:(fun acc -> function
+        | "" when not (List.is_empty acc) -> acc
+        | "." -> acc
+        | ".." -> List.tl_exn acc
+        | x -> x :: acc
+      )
+      ~init:[]
+      parts
+  in
+  String.concat ~sep:Stdlib.Filename.dir_sep (List.rev remaining)
+
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_cu top_level_md_ident lexbuf =
-  let md =
+  let incls, md =
     try Parser.main Lexer.token lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
       Error.syntax_error (Loc.make err_pos err_pos) "Parse error"
   in
-  Ast.Module.set_name md top_level_md_ident
+
+  incls, Ast.Module.set_name md top_level_md_ident
+
+let check_cu tbl smt_env md front_end_out_chan =
+  let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
+  let tbl, processed_md = Typing.process_module ~tbl md in
+  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  Logs.info (fun m -> m "Type-checking successful.");
+
+  let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
+
+  Logs.debug (fun m -> m "SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr")))));
+
+  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  Logs.info (fun m -> m "Front-end processing successful.");
+
+  Stdlib.Format.fprintf (Stdlib.Format.formatter_of_out_channel front_end_out_chan) "%a\n" Ast.Module.pr processed_md;
+
+  let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
+  smt_env, tbl
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_and_check_cu ?(tbl=SymbolTbl.create ()) smt_env top_level_md_ident lexbuf front_end_out_chan =
   (* let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in *)
-  let md = parse_cu top_level_md_ident lexbuf in
+  let _, md = parse_cu top_level_md_ident lexbuf in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl md in
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
@@ -60,7 +102,44 @@ let parse_and_check_all no_library file_names =
   in
   
   (* Parse and check actual input program *)
-  let _ =
+
+  let rec parse_prog parsed to_parse prog = 
+    match to_parse with
+    | [] -> prog
+    | (file_name, is_free) :: to_parse1 ->
+      if not (Set.mem parsed file_name) then (
+        Logs.debug (fun m -> m "raven.parse_prog: Parsing file %s." file_name);
+        let inchan, lexbuf = stream_of_file file_name in
+        let includes, md = parse_cu Predefs.prog_ident lexbuf in
+        Stdio.In_channel.close inchan;
+
+        let md = if is_free then
+          let md = Ast.Module.set_free md in
+          md
+        else
+          md in
+
+        let parsed = Set.add parsed file_name in
+
+        let to_parse2 = List.fold_left includes ~init:to_parse1 ~f:(fun acc incl -> 
+          let incl = normalizeFilename (Stdlib.Filename.dirname file_name) incl in
+          acc @ [(incl, true)]) in
+        parse_prog parsed to_parse2 (merge_prog md prog)
+      )
+      else (
+        Logs.debug (fun m -> m "raven.parse_prog: Skipping file %s." file_name);
+        parse_prog parsed to_parse1 prog
+      )
+  in
+
+
+  let md = parse_prog (Set.empty (module String)) (List.map ~f:(fun f -> (f, false))(List.rev file_names)) empty_prog in
+
+  let _ = check_cu tbl smt_env md front_end_out_chan in
+
+  (* Check all files *)
+
+  (* let _ =
     List.fold_left file_names ~init:(smt_env, tbl)
       ~f:(fun (smt_env, tbl) file_name ->
         let inchan, lexbuf = stream_of_file file_name in  
@@ -73,7 +152,7 @@ let parse_and_check_all no_library file_names =
 
         smt_env, tbl
         )
-  in
+  in *)
 
   (*Checker.stop_session session;*)
 

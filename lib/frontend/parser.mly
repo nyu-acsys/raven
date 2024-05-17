@@ -26,8 +26,9 @@ open Ast
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
-%token <bool> MODULE  
-%token TYPE IMPORT
+%token <bool> MODULE
+%token <string> STRINGVAL
+%token TYPE IMPORT INCLUDE
 %token RETURNS REQUIRES ENSURES INVARIANT
 %token EOF
 
@@ -36,24 +37,29 @@ open Ast
 %nonassoc EQEQ NEQ 
 
 %start main
-%type <Ast.Module.t> main
+%type <string list * Ast.Module.t> main
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
 
 main:
-| ms = member_def_list_opt; EOF {
+| files = includes; ms = member_def_list_opt; EOF {
   let open Module in
   let decl =
     { empty_decl with
       mod_decl_name = Ident.make (Loc.make $startpos(ms) $endpos(ms)) "$Program" 0;
     }
   in
+  files,
   { mod_decl = decl;
     mod_def = ms;
   }
 }
 ;
+
+includes:
+| INCLUDE s = STRINGVAL; files = includes { s :: files }
+| /* empty */ { [] }
 
 (** Member Definitions *)
 

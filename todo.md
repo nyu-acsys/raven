@@ -16,4 +16,5 @@ Type-checking:
 - Add support for include cmnds
 - Fix creation of invariants
 - Parse field reads/writes / cas / fpu separately
-- Fix dependancy analysis wrt auto lemmas
+- Fix dependency analysis wrt auto lemmas
+- Investigate spurious "unknown"s in the middle of log files

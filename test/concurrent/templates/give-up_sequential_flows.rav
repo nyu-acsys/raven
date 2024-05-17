@@ -1,487 +1,11 @@
+include "./flows_ra.rav"
+include "./ccm_instances.rav"
+
 import Library.KeysetRA
 
 
 import Library.Type
 import Library.CancellativeResourceAlgebra
-
-interface CCM : Type {
-  val id: T
-  func comp(a:T, b:T) returns (ret:T)
-  
-  func frame(a:T, b:T) returns (ret:T)
-
-  func valid(a:T) returns (ret: Bool)
-
-  auto lemma idValid()
-    ensures valid(id)
-
-  auto lemma compAssoc()
-    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-
-  auto lemma compCommute()
-    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-
-  auto lemma compId()
-    ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
-
-  auto lemma compValid()
-    ensures forall a:T, b:T :: {comp(a,b)} valid(a) && valid(b) ==> valid(comp(a, b)) 
-
-  auto lemma frameCompInv()
-    ensures forall a:T, b:T:: {comp(a,b)} frame(comp(a, b), b) == a
-        
-  lemma frameId()
-    ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-  {}
-
-  // Better name?
-  lemma frameInv()
-    ensures forall a:T :: frame(a, a) == id
-  {}
-
-  auto lemma compFrameInv()
-   ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-
-  lemma frameFrame()
-    ensures forall a:T, b:T :: {valid(frame(a, b))} valid(frame(a, b)) ==> frame(a, frame(a, b)) == b
-  {}
-
-
-  //auto lemma frameValid()
-  //  ensures forall a:T, b:T :: {frame(a,b)} {valid(a), valid(b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-
-}
-
-module Multiset[K: Type]: CCM {
-  rep type T = Map[K, Int]
-
-  val id: T := {| k: K :: 0 |}
-
-  func comp(a:T, b:T) returns (ret:T)
-  { 
-    {| k: K :: a[k] + b[k] |} 
-  }
-  
-  func frame(a:T, b:T) returns (ret:T)
-  {  
-    {| k: K :: a[k] - b[k] |}
-  }
-
-  func valid(a:T) returns (ret: Bool)
-  {
-    forall k: K :: a[k] >= 0
-  }
-
-  auto lemma idValid()
-    ensures valid(id)
-  {}
-
-  auto lemma compAssoc()
-    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-  {}
-
-  auto lemma compCommute()
-    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-  {}
-
-  auto lemma compId()
-    ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
-  {}
-
-  auto lemma compValid()
-    ensures forall a:T, b:T :: {comp(a,b)} valid(a) && valid(b) ==> valid(comp(a, b)) 
-  {}
-
-  auto lemma frameCompInv()
-    ensures forall a:T, b:T:: {comp(a,b)} frame(comp(a, b), b) == a
-  {}
-
-  auto lemma compFrameInv()
-   ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-  {}
-
-  func fromSet(s: Set[K]) returns (ret:T)
-  {
-    {| k: K :: k in s ? 1 : 0 |}
-  }
-
-  func elem(m: T, k: K) returns (ret: Bool)
-  {
-    m[k] > 0
-  }
-}
-
-module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
-  rep type T = data {
-    case int(inf: Map[Ref, M], out: Map[Ref, M], dom: Set[Ref])
-    case top
-  }
-
-  /* The "all-zero" flow map */
-  val zeroFlow: Map[Ref, M] = {| n: Ref :: M.id |}
-
-   
-  /* The empty flow interface */
-  val id: T = int(zeroFlow, zeroFlow, {||})
-
-  func valid(i: T) 
-    returns (ret: Bool)
-  {
-    // not undefined
-    i != top
-    // Inflow and outflow properly defined
-    && (forall n: Ref :: i.inf[n] != M.id ==> n in i.dom)
-    && (forall n: Ref :: i.out[n] != M.id ==> n !in i.dom)
-    // Inflow and outflow are valid
-    && (forall n: Ref :: n in i.dom ==> M.valid(i.inf[n]))
-    && (forall n: Ref :: n !in i.dom ==> M.valid(i.out[n]))
-    // Empty domain ==> no outflow
-    && (i.dom == {||} ==> i.out == zeroFlow)
-  }
-
-  // Condition ensuring that two flow interfaces compose
-  func composable(i1: T, i2: T) 
-    returns (ret: Bool)
-  {
-    valid(i1) && valid(i2) && i1.dom ** i2.dom == {||}
-    // && (forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i2.out[n], M.frame(i1.inf[n], i2.out[n])))
-    // && (forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i1.out[n], M.frame(i2.inf[n], i1.out[n])))
-    && (forall n: Ref :: n in i1.dom ==> M.valid(M.frame(i1.inf[n], i2.out[n])))
-    && (forall n: Ref :: n in i2.dom ==> M.valid(M.frame(i2.inf[n], i1.out[n])))
-  }
-
-  // Interface composition
-  func comp(i1: T, i2: T) returns (i: T)
-  {
-    composable(i1, i2) ?
-      int({| n: Ref :: n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) :
-             (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) : M.id) |},
-          {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
-          i1.dom ++ i2.dom) :
-      (i1 == id ? i2 : (i2 == id ? i1 : top))
-  }
-
-  // Domain of interface composition is union of its component domains
-  auto lemma compDom()
-    ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> comp(i1, i2).dom == i1.dom ++ i2.dom
-  {}
-
-  // Domains of composit interfaces must be disjoint
-  auto lemma compDisjoint()
-    ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> i1.dom ** i2.dom == {||}
-  {}
-
-  // Valid interfaces are defined
-  auto lemma validDefined()
-    ensures forall i: T :: valid(i) ==> i != top 
-  {}
-
-  // The empty interface is valid */
-  auto lemma idValid()
-    ensures valid(id)
-  {
-    M.idValid();
-  }
-
-  // top is an absorbing element
-  auto lemma compTop()
-    ensures forall i: T :: {comp(top, i)} comp(top, i) == top
-  {}
-
-  // The empty interface is the unit of interface composition
-  auto lemma compId()
-    ensures forall i: T :: {comp(i, id)} comp(i, id) == i
-  {
-  
-    M.compCommute(); //idComposable();
-    M.compId();
-    M.frameId();
-  }
-
-  auto lemma compValid()
-    ensures forall i1: T, i2: T :: {comp(i1,i2)} valid(comp(i1, i2)) ==> valid(i1) && valid(i2)
-  {}
-
-
-  auto lemma compCommute()
-    ensures forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)} comp(i1, i2) == comp(i2, i1)
-  {
-    M.compCommute();
-
-    assert forall i1: T, i2: T ::
-      (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
-      comp(i1, i2).inf == comp(i2, i1).inf;
-    
-    assert forall i1: T, i2: T ::
-      (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
-      comp(i1, i2).out == comp(i2, i1).out;
-  }
-
-  //  The empty interface composes with valid interfaces
-  lemma idComposable()
-    ensures forall i: T :: {valid(i)} valid(i) ==> composable(i, id)
-  {
-    M.compCommute();
-    M.compId();
-    M.frameId();
-  }
-
-  // Folds definition of interface composition, avoiding M.frame
-  lemma compFold(i1: T, i2: T, i: T)
-    requires i != top
-    requires i.dom == i1.dom ++ i2.dom
-    requires i1.dom ** i2.dom == {||}
-    requires valid(i1) && valid(i2)
-    requires forall n: Ref :: n in i.dom ==> M.valid(i.inf[n])
-    requires forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i.inf[n], i2.out[n])
-    requires forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i.inf[n], i1.out[n])
-    requires forall n: Ref :: n !in i.dom ==> i.inf[n] == M.id
-    requires forall n: Ref :: n !in i.dom ==> i.out[n] == M.comp(i1.out[n], i2.out[n])
-    requires forall n: Ref :: n in i.dom ==> i.out[n] == M.id
-    ensures comp(i1, i2) == i 
-  {
-    // assume false;
-    M.frameCompInv();
-    M.compCommute();
-
-    assert i == int({| n: Ref :: 
-                        n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) : 
-                        (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) :
-                          M.id) |},
-                    {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
-                    i1.dom ++ i2.dom);
-    assert comp(i1, i2).inf == i.inf;
-  }
-
-  // Unfolds definition of interface composition, avoiding M.frame
-  lemma compUnfold(i1: T, i2: T)
-    requires valid(comp(i1, i2))
-    ensures comp(i1, i2).dom == i1.dom ++ i2.dom
-    ensures i1.dom ** i2.dom == {||} 
-    ensures valid(i1) && valid(i2)
-    ensures forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
-    ensures forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
-    ensures forall n: Ref :: n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
-  {
-    idComposable();
-    M.compCommute();
-    M.compFrameInv();
-  }
-
-
-  // Auxiliary lemma to prove that interface composition is associative
-  lemma compAssocValid(i1: T, i2: T, i3: T)
-    requires valid(comp(i1, comp(i2, i3)))
-    ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
-  {
-    M.compId();
-    M.frameId();
-    M.compAssoc();
-    M.compCommute();
-    M.idValid();
-    M.compValid();
-  
-    val i23: T := comp(i2, i3);
-    val i: T := comp(i1, i23);
-  
-    compUnfold(i1, i23);
-    compUnfold(i2, i3);
-  
-    val i12: T := int({| n: Ref :: n in i1.dom ++ i2.dom ? M.comp(i.inf[n], i3.out[n]) : M.id |},
-                      {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
-                      i1.dom ++ i2.dom);
-  
-    compFold(i1, i2, i12);
-    assert (forall n: Ref :: i12.inf[n] != M.id ==> n in i12.dom);
-    assert (forall n: Ref :: i12.out[n] != M.id ==> n !in i12.dom);
-    assert (forall n: Ref :: n in i12.dom ==> M.valid(i12.inf[n]));
-    assert (forall n: Ref :: n !in i12.dom ==> M.valid(i12.out[n]));
-    assert (i12.dom == {||} ==> i12.out == zeroFlow);
-    assert i12 != top;
-    // assert valid(i12);
-    assume valid(i12);
-    assert valid(i3);
-
-    assert forall n: Ref :: n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
-    compFold(i12, i3, i);
-  }
-
-  auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-  {
-    M.compCommute();
-    M.compId();
-    M.frameId();
-    M.idValid();
-    M.compValid();
-    assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
-      if (valid(comp(i1, comp(i2, i3)))) {
-        compAssocValid(i1, i2, i3);
-      } else if (valid(comp(comp(i1, i2), i3))) {
-        compAssocValid(i3, i2, i1);
-      }    
-    }
-  }
-
-  // Interface frame
-  func frame(i1: T, i2: T) returns (i: T)
-  {
-    i2 == id ? i1 :
-    (valid(i1) && valid(i2) && i2.dom subseteq i1.dom?
-      int({| n: Ref :: n in i1.dom && n !in i2.dom ? M.comp(i1.inf[n], i2.out[n]) : M.id |},
-          {| n: Ref :: n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : 
-              (n in i1.dom ? M.id : M.frame(i1.out[n], i2.out[n])) |},
-          i1.dom -- i2.dom) :
-      top)
-  }
-
-  auto lemma frameId()
-    ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-  {
-    M.frameId();
-    M.frameCompInv();
-  }
-  
-  lemma frameInv()
-    ensures forall a:T :: valid(a) ==> frame(a, a) == id
-  {
-    M.frameCompInv();
-    M.compFrameInv();
-    M.frameInv();
-    M.frameFrame();
-    assert forall a: T :: a == id ==> frame(a,a) == id;
-    assert forall a: T :: a != id ==> valid(a) ==> frame(a,a).dom == id.dom;
-    assert forall a: T :: a != id ==> valid(a) ==> frame(a,a).inf == id.inf;
-    assert forall a: T :: a != id ==> valid(a) ==> frame(a,a) == id;
-  }
-
-
-  func contextualExt(i1: T, i2: T) returns (ret: Bool) {
-    valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
-    (forall n: Ref :: n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
-    (forall n: Ref :: n !in i2.dom ==> i1.out[n] == i2.out[n])
-  }
-
-  func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
-  {
-    i1 == i2 
-    // contextualExt(i1, i2) 
-  }
-
-  auto lemma compFrameInv()
-    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-  {
-    // assume false;
-    M.frameCompInv();
-    // M.compCommute();
-    M.compFrameInv();
-    M.frameInv();
-    M.frameFrame();
-    frameInv();
-    assert forall a:T, b:T :: a == id || b == id ==> valid(frame(a,b)) ==> comp(frame(a,b), b) == a;
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(frame(a,b)) ==> comp(frame(a,b), b).dom == a.dom;
-  }
-
-  auto lemma fpuValid()
-    ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)}
-      (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-  {}
-
-  auto lemma fpuReflexive()
-    ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
-  {}
-
-  auto lemma frameValid()
-    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-  {}
-
-  auto lemma weak_frameCompInv()
-    ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-  {
-    M.frameCompInv();
-    M.compCommute();
-    // M.frameFrame();
-    M.compFrameInv();
-    // compId();
-    M.frameInv();
-    // assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
-    // assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
-  }
-
-  auto lemma frameCompInv()
-    ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-  {
-    M.frameCompInv();
-    M.compFrameInv();
-    M.frameInv();
-    M.frameFrame();
-    frameInv();
-    // assume forall a: M, b: M :: M.valid(M.frame(a, b)) ==> M.frame(a, M.frame(a,b)) == b;
-    assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
-    assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> valid(comp(a, b)) ==> comp(a, b).out[n] == M.comp(a.out[n], b.out[n]);
-    assert forall a:T, b:T, n: Ref :: a != id ==> b != id ==> n !in a.dom ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out[n] == a.out[n];
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
-    assert forall a:T, b:T :: (a == id || b == id) || (a != id && b != id);
-  }
-
-  lemma replacement_theorem(i1: T, i2: T, j1: T)
-    requires valid(comp(i1, i2))
-    requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
-    requires forall n: Ref :: n in j1.dom -- i1.dom ==> i2.out[n] == M.id
-    ensures comp(j1, i2) != top
-    ensures contextualExt(comp(i1, i2), comp(j1, i2))
-  {
-    var i: T := comp(i1, i2);
-    var j: T := int(
-      {| n: Ref :: n in i.dom ?
-        (n in i1.dom ? M.comp(i.inf[n], M.frame(j1.inf[n], i1.inf[n]))
-          : i.inf[n]) : j1.inf[n] |},
-      {| n: Ref :: n !in j1.dom && n !in i2.dom ?
-        M.comp(j1.out[n], i2.out[n]) : M.id |},
-      j1.dom ++ i2.dom);
-
-    compUnfold(i1, i2);
-      
-    assert forall n: Ref :: n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
-      if (n in i1.dom) {
-        M.compId();
-        M.frameInv();
-      } else if (n in j1.dom) {
-        M.compId();
-      }
-    }
-
-    assert forall n: Ref ::
-      n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
-
-    compValid();
-    assert forall n: Ref :: n in j.dom ==> M.valid(j.inf[n]) with {
-      if (n in j.dom && n in i.dom && n in i1.dom) {
-        M.frameCompInv();
-      }
-    }
-  
-    compFold(j1, i2, j);
-
-    assert forall n: Ref :: n !in j.dom ==> i.out[n] == j.out[n];
-
-    assert forall n: Ref :: n in i.dom ==> j.inf[n] == i.inf[n];
-
-    // assert forall n: Ref :: n in i.dom ==> M.valid(M.frame(j.inf[n], i.inf[n])) with
-    // {
-    //   M.frameId();
-    //   M.idValid();
-    //   M.frameFrame();
-    // }
-
-    // assert false;
-  }  
-}
 
 interface Keyspace {
   rep type T
@@ -585,7 +109,7 @@ interface NodeImpl {
     requires node(n, c, i_n)
     ensures node(n, c, i_n) && 
       (ret ?   
-        k in outset(i_n, n) :
+        k in outset(i_n, n1) :
         k !in outsets(i_n))
 
   proc inRange(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
@@ -650,6 +174,11 @@ module GiveUpTemplate[Node: NodeImpl] {
   field authKS: AuthKeyset_K
   field authFlow: AuthFlow_K
 
+  // lemma autoLemmas() {
+  //   AuthKeyset_K.autoLemmas();
+  //   AuthFlow_K.autoLemmas();
+  // }
+
   pred globalinv(g_i: Flow_K, r: Ref) {
       Flow_K.valid(g_i) &&
       r in g_i.dom &&
@@ -692,6 +221,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     returns (r: Ref)
     ensures css(r, {||})
   {
+    // autoLemmas();
     r := Node.createRoot();
 
     var root_flow_int: Flow_K := int(
@@ -711,8 +241,12 @@ module GiveUpTemplate[Node: NodeImpl] {
       )
     );
 
+    assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, {||}), Keyset_K.ksPair(keyspace, {||})));
+
     fold globalinv(root_flow_int, r);
     fold globalRes(r, {||}, root_flow_int);
+
+    // assert keyset(root_flow_int) == keyspace;
     fold nodePred(r, r, {||}, root_flow_int);
     fold cssR(r, {||}, root_flow_int, {| r:Ref :: {||} |}, {| l:Ref :: l == r ? root_flow_int : Flow_K.id |});
 
@@ -727,11 +261,13 @@ module GiveUpTemplate[Node: NodeImpl] {
     ensures cssR(r, c, g_i, contents, i)
     ensures inFP(r, n)
   {
+    // autoLemmas();
     unfold cssR(r, c, g_i, contents, i);
     unfold globalRes(r, c, g_i);
     unfold inFP(r, n);
 
     assert own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)));
+    
     assert n in g_i.dom;
 
     fold globalRes(r, c, g_i);
@@ -745,6 +281,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     ensures inFP(r, n)
     ensures cssR(r, c, g_i, contents, i)
   {
+    // autoLemmas();
     unfold cssR(r, c, g_i, contents, i);
     unfold globalRes(r, c, g_i);
 
@@ -757,12 +294,80 @@ module GiveUpTemplate[Node: NodeImpl] {
 
   lemma flowIntStep(r: Ref, n: Ref, k: K, n1: Ref, c: Set[K], contents: Map[Ref, Set[K]], i: Map[Ref, Flow_K], g_i: Flow_K)
     requires cssR(r, c, g_i, contents, i)
-    requires elem((i[n].out)[n1], k)
+    requires k in outset(i[n], n1)
     ensures cssR(r, c, g_i, contents, i)
-    ensures elem(i[n1].inf[n1], k)
+    ensures k in inset(i[n1], n1)
     ensures n1 in g_i.dom
   {
     assume false;
+  }
+
+  lemma root_fp(r: Ref, implicit ghost c: Set[K], implicit ghost contents: Map[Ref, Set[K]], implicit ghost i: Map[Ref, Flow_K], implicit ghost g_i: Flow_K)
+    requires cssR(r, c, g_i, contents, i)
+    ensures cssR(r, c, g_i, contents, i)
+    ensures r in g_i.dom
+  {
+    // autoLemmas();
+    unfold cssR(r, c, g_i, contents, i);
+    unfold globalRes(r, c, g_i);
+    unfold globalinv(g_i, r);
+
+    // assert own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)));
+    
+    assert r in g_i.dom;
+
+    fold globalinv(g_i, r);
+    fold globalRes(r, c, g_i);
+    fold cssR(r, c, g_i, contents, i);
+  }
+
+  lemma inset_root_keyspace(r: Ref, c: Set[K], g_i: Flow_K, contents: Map[Ref, Set[K]], i: Map[Ref, Flow_K])
+    requires cssR(r, c, g_i, contents, i)
+    ensures cssR(r, c, g_i, contents, i)
+    ensures keyspace subseteq inset(i[r], r)
+  {
+    // autoLemmas();
+    unfold cssR(r, c, g_i, contents, i);
+    unfold globalRes(r, c, g_i);
+
+    unfold globalinv(g_i, r);
+
+    assert r in g_i.dom;
+
+    unfold nodePred(r, r, contents[r], i[r]);
+
+    AuthFlow_K.compFrameInv();
+    AuthFlow_K.compValid();
+    AuthFlow_K.weak_frameCompInv();
+
+    assert own(r, authFlow, AuthFlow_K.frag(i[r]));
+    // assert own(r, authFlow, AuthFlow_K.auth(g_i));
+
+    assert own(r, authFlow, AuthFlow_K.auth_frag( 
+        g_i, i[r]
+        ));
+
+    // assert AuthFlow_K.valid(AuthFlow_K.auth_frag(g_i, i[r]));
+    // assert AuthFlow_K.valid(AuthFlow_K.frag(i[r]));
+    
+    assert inset(g_i, r) == keyspace;
+    assert Flow_K.valid(Flow_K.frame(g_i, i[r]));
+
+    assert r !in Flow_K.frame(g_i, i[r]).dom;
+
+    assert inset(Flow_K.frame(g_i, i[r]), r) == {||};
+
+    // assert valid(Flow_K.frame(g_i, i[r]).out[r]);
+
+    // Flow_K.frame_inflow_unfold(g_i, i[r], r);
+
+    assert keyspace subseteq inset(i[r], r);
+
+    fold nodePred(r, r, contents[r], i[r]);
+
+    fold globalinv(g_i, r);
+    fold globalRes(r, c, g_i);
+    fold cssR(r, c, g_i, contents, i);
   }
 
   proc traverse(r: Ref, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost contents: Map[Ref, Set[K]], implicit ghost i: Map[Ref, Flow_K], implicit ghost g_i: Flow_K)
@@ -775,6 +380,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     ensures k in keyset(i[ret])
     ensures inFP(r, ret)
   {
+    // autoLemmas();
     cssInFp(r, n, c, g_i, contents, i);
 
     unfold cssR(r, c, g_i, contents, i);
@@ -788,10 +394,13 @@ module GiveUpTemplate[Node: NodeImpl] {
       var n1: Ref;
       succ, n1 := Node.findNext(n, k, contents[n], i[n]);
 
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i[n]), contents[n] ) ));
+      assert node(n, contents[n], i[n]);
       fold nodePred(r, n, contents[n], i[n]);
       fold cssR(r, c, g_i, contents, i);
 
       if (succ) {
+        // assert k in outset
         flowIntStep(r, n, k, n1, c, contents, i, g_i);
 
         fpInCss(r, n1, c, g_i, contents, i);
@@ -805,17 +414,16 @@ module GiveUpTemplate[Node: NodeImpl] {
       }
 
     } else {
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i[n]), contents[n] ) ));
+      // assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+
       fold nodePred(r, n, contents[n], i[n]);
-      unfold globalRes(r, c, g_i);
-      // unfold nodePred(r, r, contents[r], i[r]);
-
-      assert i[r].inf[r] == fromSet(keyspace);
-
-      // assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i[r]), contents[r] ) ));
-      // fold nodePred(r, r, contents[r], i[r]);
-      fold globalRes(r, c, g_i);
       fold cssR(r, c, g_i, contents, i);
 
+
+      inset_root_keyspace(r, c, g_i, contents, i);
+
+      root_fp(r, c, contents, i, g_i);
       fpInCss(r, r, c, g_i, contents, i);
 
       var n3: Ref := traverse(r, r, k, c, contents, i, g_i);
@@ -828,7 +436,7 @@ module GiveUpTemplate[Node: NodeImpl] {
   }
 
 
-  lemma opSpecLift(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
+  lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
     returns (c1: Set[K])
     requires opSpec(dop, k, c_n, c_n1, res)
     requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c)))
@@ -842,6 +450,8 @@ module GiveUpTemplate[Node: NodeImpl] {
     ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c1)))
     ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n1)))
   {
+    // autoLemmas();
+
     unfold opSpec(dop, k, c_n, c_n1, res);
 
     if (dop == searchOp() || !res) {
@@ -855,6 +465,7 @@ module GiveUpTemplate[Node: NodeImpl] {
       if (dop == insertOp()) {
         c1 := c ++ {| k |};
 
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
         assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
         assert k !in c_n;
         assert k !in c;
@@ -862,6 +473,15 @@ module GiveUpTemplate[Node: NodeImpl] {
         // assert false;
         
         fold opSpec(dop, k, c, c1, res);
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+        ) with {
+          assume forall k: Keyset_K ::
+            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
+            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+        }
         
         fpu(r, authKS, 
         AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)),
@@ -871,6 +491,12 @@ module GiveUpTemplate[Node: NodeImpl] {
         
       } else {
         c1 := c -- {| k |};
+
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert k in c_n;
+        assert k in c;
+        
         fold opSpec(dop, k, c, c1, res);
 
         assert AuthKeyset_K.fpuAllowed(
@@ -895,6 +521,9 @@ module GiveUpTemplate[Node: NodeImpl] {
     requires css(r, c)
     ensures css(r, c1) && opSpec(dop, k, c, c1, res)
   {
+    // autoLemmas();
+
+
     ghost var contents: Map[Ref, Set[K]];
     ghost var i: Map[Ref, Flow_K];
     ghost var g_i: Flow_K;
@@ -902,12 +531,8 @@ module GiveUpTemplate[Node: NodeImpl] {
     unfold css(r, c);
     contents, i, g_i :| cssR(r, c, g_i, contents, i);
 
-    unfold cssR(r, c, g_i, contents, i);
-    unfold globalRes(r, c, g_i);
-
-    assert r in g_i.dom;
-    fold globalRes(r, c, g_i);
-    fold cssR(r, c, g_i, contents, i);
+    inset_root_keyspace(r, c, g_i, contents, i);
+    root_fp(r, c, contents, i, g_i);
 
     // assume i[r].inf[r] == fromSet(keyspace);
     fpInCss(r, r, c, g_i, contents, i);
@@ -920,6 +545,9 @@ module GiveUpTemplate[Node: NodeImpl] {
     cssInFp(r, n, c, g_i, contents, i);
     unfold cssR(r, c, g_i, contents, i);
     unfold nodePred(r, n, contents[n], i[n]);
+    AuthFlow_K.compValid();
+    AuthFlow_K.compFrameInv();
+    assert own(r, authFlow, AuthFlow_K.frag(i[n]));
     succ, res1, c_n := Node.decisiveOp(dop, n, k, contents[n], i[n]);
 
     if (succ) {
@@ -929,15 +557,28 @@ module GiveUpTemplate[Node: NodeImpl] {
       unfold opSpec(dop, k, contents[n], c_n, res1);
       fold opSpec(dop, k, contents[n], c_n, res1);
 
-      c1 := opSpecLift(r, dop, k, contents[n], c_n, c, res1, keyset(i[n]));
+      assert k in keyset(i[n]);
+      assert c_n subseteq contents[n] ++ {| k |};
 
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair(keyset(i[n]), contents[n])));
+      assert contents[n] subseteq keyset(i[n]);
+
+      c1 := keyset_theorem(r, dop, k, contents[n], c_n, c, res1, keyset(i[n]));
+
+      assert own(r, authFlow, AuthFlow_K.frag(i[n]));
       var contents1: Map[Ref, Set[K]] := contents[n := c_n];
 
-      assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c1 )));
+      // assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c1 )));
 
       fold globalRes(r, c1, g_i);
 
+      assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair(keyset(i[n]), c_n) ));
+      // assert 
 
+      AuthKeyset_K.compFrameInv();
+      AuthKeyset_K.compValid();
+      
       fold nodePred(r, n, contents1[n], i[n]);
       fold cssR(r, c1, g_i, contents1, i);
       assert cssR(r, c1, g_i, contents1, i);

@@ -38,6 +38,7 @@ let _ =
       ("havoc", HAVOC);
       ("if", IF);
       ("Int", INT);
+      ("include", INCLUDE);
       ("inhale", SPEC Stmt.Inhale);
       ("interface", MODULE true);
       ("inv", FUNC (Invariant));
@@ -142,6 +143,7 @@ rule token = parse
 | ']' { RBRACKET }
 | "{!" { LGHOSTBRACE }
 | "!}" { RGHOSTBRACE }
+| "\"" (( ("\\" _) | [^ '"'] )* as str) "\"" { STRINGVAL (Scanf.unescaped str) }
 | operator as op
     { try
       Hashtbl.find operator_table op

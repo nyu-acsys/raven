@@ -2048,6 +2048,13 @@ module Module = struct
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
+  let rec set_free md = 
+    { md with mod_def = List.map md.mod_def ~f:(fun instr -> 
+        match instr with
+        | SymbolDef (ModDef md) -> SymbolDef (ModDef (set_free md))
+        | SymbolDef (CallDef cdef) -> SymbolDef (CallDef (Callable.make_free cdef))
+        | _ -> instr) }
+
 
 
 end
@@ -2176,3 +2183,41 @@ module Predefs = struct
 
 
 end
+
+
+let merge_prog (prog1: Module.t) (prog2: Module.t) =
+  assert (Ident.equal prog1.mod_decl.mod_decl_name prog2.mod_decl.mod_decl_name);
+  assert (List.is_empty prog1.mod_decl.mod_decl_formals);
+  assert (List.is_empty prog2.mod_decl.mod_decl_formals);
+  assert (Option.is_none prog1.mod_decl.mod_decl_returns);
+  assert (Option.is_none prog2.mod_decl.mod_decl_returns);
+  assert (Set.is_empty prog1.mod_decl.mod_decl_interfaces);
+  assert (Set.is_empty prog2.mod_decl.mod_decl_interfaces);
+  assert (Option.is_none prog1.mod_decl.mod_decl_rep);
+  assert (Option.is_none prog2.mod_decl.mod_decl_rep);
+  assert (not prog1.mod_decl.mod_decl_is_ra);
+  assert (not prog2.mod_decl.mod_decl_is_ra);
+
+  let mod_decl =
+    {
+      Module.mod_decl_name = prog1.mod_decl.mod_decl_name;
+      mod_decl_formals = prog1.mod_decl.mod_decl_formals @ prog2.mod_decl.mod_decl_formals;
+      mod_decl_returns = prog2.mod_decl.mod_decl_returns;
+      mod_decl_interfaces = Set.union prog1.mod_decl.mod_decl_interfaces prog2.mod_decl.mod_decl_interfaces;
+      mod_decl_rep = prog2.mod_decl.mod_decl_rep;
+      mod_decl_is_ra = prog1.mod_decl.mod_decl_is_ra || prog2.mod_decl.mod_decl_is_ra;
+      mod_decl_is_interface = prog1.mod_decl.mod_decl_is_interface || prog2.mod_decl.mod_decl_is_interface;
+      mod_decl_loc = prog2.mod_decl.mod_decl_loc;
+    }
+  
+  in
+
+  let mod_def = prog1.mod_def @ prog2.mod_def in
+
+  { Module.mod_decl; mod_def }
+
+
+let empty_prog =
+  let mod_decl = { Module.empty_decl with mod_decl_name = Predefs.prog_ident } in
+  { Module.mod_decl; mod_def = [] }
+  

@@ -2968,9 +2968,12 @@ end
 
             let nondet_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
 
+            let* assume_stmt = TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment ~spec_error:spec.spec_error ~loc:s.stmt_loc spec.spec_form in
+
             let new_stmt = Stmt.mk_block_stmt ~loc [
               Stmt.{stmt_desc = cond_stmt; stmt_loc = loc}; 
-              nondet_false_stmt
+              nondet_false_stmt;
+              assume_stmt
             ] in
 
             Rewriter.return new_stmt
