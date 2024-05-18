@@ -809,7 +809,7 @@ module Expr = struct
           List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
               Type.join t (to_type e))
         in
-        App (And, es, mk_attr loc t)
+        App (Or, es, mk_attr loc t)
 
   let mk_not ?(loc = Loc.dummy) e =
     (* let t = to_type e in *)
