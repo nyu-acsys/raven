@@ -212,8 +212,8 @@ and pr_let_decls ppf = function
 
 and pr_trgs ppf = function
 | [] -> ()
-| [t] -> fprintf ppf "@[:pattern (%a)@]" pr_terms t
-| t :: ts -> fprintf ppf "@[:pattern (%a) @,%a@]" pr_terms t pr_trgs ts
+| [t] -> fprintf ppf ":pattern (%a)" pr_terms t
+| t :: ts -> fprintf ppf ":pattern (%a) @,%a" pr_terms t pr_trgs ts
         
 (* and pr_annot ppf (t, a) =
   match a with

@@ -22,27 +22,21 @@ ensures forall x1: Int, x2: Int :: f2(x1) == f2(x2) ==> x1 == x2
 
 
 proc p2() {
-  // The following go through:
-  // inhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
-  //   p(x, y);
-  // exhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
-  //   p(x, y);
+  inhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
+    p(x, y);
+  exhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
+    p(x, y);
 
-  // inhale forall x: Int :: 0 <= x && x <= 5 ==>
-  //   own(f(x), field1, x, 1.0 );
-  // exhale forall x: Int :: 0 <= x && x <= 5 ==>
-  //   own(f(x), field1, x, 1.0 );
+  inhale forall x: Int :: 0 <= x && x <= 5 ==>
+    own(f(x), field1, x, 1.0 );
+  exhale forall x: Int :: 0 <= x && x <= 5 ==>
+    own(f(x), field1, x, 1.0 );
 
-  // inhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
-  // exhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
-
-  // --------------------
-
-  // The following don't:
+  inhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
+  exhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
 
   inhale forall x: Int :: 0 <= x && x <= 5 ==>
     q(x);
-
   exhale forall x: Int :: 0 <= x && x <= 5 ==>
     q(x);
 
