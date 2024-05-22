@@ -310,7 +310,7 @@ module GiveUpTemplate[Node: NodeImpl] {
           AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
           AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
         ) with {
-          assume forall k: Keyset_K ::
+          assert forall k: Keyset_K ::
             Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
             Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
         }

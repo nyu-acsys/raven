@@ -440,25 +440,22 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     auto lemma frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {
-        assert forall a:T, b:T :: a == id() || b == id() ==> 
-            valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
-        // assert valid(a);
-        assert forall a:T, b:T::
-            (a == frac_chunk(a.frac_proj1, a.frac_proj2)) ==>
-            (b == frac_chunk(b.frac_proj1, b.frac_proj2)) ==>
-             valid(comp(a, b)) ==> frame(comp(a, b), b) == a 
-             with {
-                compValid();
-                assert valid(comp(a,b)) ==> valid(a); 
-                assert valid(comp(a,b)) ==> valid(b);
-                assert (a == frac_chunk(a.frac_proj1, a.frac_proj2)) ==>
-                    (b == frac_chunk(b.frac_proj1, b.frac_proj2)) ==> 
-                    valid(comp(a, b)) ==> a.frac_proj1 == b.frac_proj1;
-                assert (a == frac_chunk(a.frac_proj1, a.frac_proj2)) ==>
-                    (b == frac_chunk(b.frac_proj1, b.frac_proj2)) ==> 
-                    valid(comp(a, b)) ==> a.frac_proj2 + b.frac_proj2 <= 1.0;
-                // assert valid(b);
-             }
+        assert forall a:T, b:T :: valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
+            if (valid(comp(a,b))) {
+                if (a == id || b == id) {
+                    assert frame(comp(a, b), b) == a;
+                } else {
+                    assert valid(a) && valid(b);
+                    assert a == frac_chunk(a.frac_proj1, a.frac_proj2);
+                    assert b == frac_chunk(b.frac_proj1, b.frac_proj2);
+                    assert a.frac_proj1 == b.frac_proj1;
+                    assert a.frac_proj2 + b.frac_proj2 > 0.0;
+                    assert a.frac_proj2 + b.frac_proj2 <= 1.0;
+                    assert comp(a, b) == frac_chunk(b.frac_proj1, a.frac_proj2 + b.frac_proj2);
+                    assert frame(comp(a, b), b) == a;
+                }
+            }
+        }
     }
 
 }
@@ -838,9 +835,17 @@ module KeysetRA[X: Type] : CancellativeResourceAlgebra {
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-        //assert forall a:T, b:T ::  (a == ksPair(a.keyset, a.contents) && b == ksPair(b.keyset, b.contents)) ==>  (valid(frame(a, b)) ==> comp(frame(a, b), b) == a);
-        assert forall a:T, b:T :: a == id || b == id ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
-        assert forall a:T, b:T :: a != id ==> b != id ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
+        assert forall a:T, b:T :: valid(frame(a, b)) ==> comp(frame(a, b), b) == a with {
+            if (valid(frame(a, b))) {
+                if (a == id || b == id) {
+                    assert comp(frame(a, b), b) == a;
+                } else {
+                    assert frame(a,b) == ksPair(a.keyset -- b.keyset, a.contents -- b.contents);
+                    assert comp(frame(a, b), b) == a;
+                
+                }
+            }
+        }
     }
     
     auto lemma fpuValid()
