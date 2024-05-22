@@ -22,11 +22,11 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     // not undefined
     i != top
     // Inflow and outflow properly defined
-    && (forall n: Ref :: i.inf[n] != M.id ==> n in i.dom)
-    && (forall n: Ref :: i.out[n] != M.id ==> n !in i.dom)
+    && (forall n: Ref :: {i.inf[n]} i.inf[n] != M.id ==> n in i.dom)
+    && (forall n: Ref :: {i.out[n]} i.out[n] != M.id ==> n !in i.dom)
     // Inflow and outflow are valid
-    && (forall n: Ref :: n in i.dom ==> M.valid(i.inf[n]))
-    && (forall n: Ref :: n !in i.dom ==> M.valid(i.out[n]))
+    && (forall n: Ref :: {i.inf[n]} n in i.dom ==> M.valid(i.inf[n]))
+    && (forall n: Ref :: {i.out[n]} n !in i.dom ==> M.valid(i.out[n]))
     // Empty domain ==> no outflow
     && (i.dom == {||} ==> i.out == zeroFlow)
   }
@@ -193,11 +193,11 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
 
     assert i12 != top
     // Inflow and outflow properly defined
-    && (forall n: Ref :: i12.inf[n] != M.id ==> n in i12.dom)
-    && (forall n: Ref :: i12.out[n] != M.id ==> n !in i12.dom)
+    && (forall n: Ref :: {i12.inf[n]} i12.inf[n] != M.id ==> n in i12.dom)
+    && (forall n: Ref :: {i12.out[n]} i12.out[n] != M.id ==> n !in i12.dom)
     // Inflow and outflow are valid
-    && (forall n: Ref :: n in i12.dom ==> M.valid(i12.inf[n]))
-    && (forall n: Ref :: n !in i12.dom ==> M.valid(i12.out[n]))
+    && (forall n: Ref :: {i12.inf[n]} n in i12.dom ==> M.valid(i12.inf[n]))
+    && (forall n: Ref :: {i12.out[n]} n !in i12.dom ==> M.valid(i12.out[n]))
     // Empty domain ==> no outflow
     && (i12.dom == {||} ==> i12.out == zeroFlow);
 
@@ -312,8 +312,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.compFrameInv();
     // compId();
     M.frameInv();
-    // assert forall a:T, b:T:: a == id || b == id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
-    // assert forall a:T, b:T:: a != id ==> b != id ==> valid(comp(a, b)) ==> valid(frame(comp(a, b), b));
   }
 
   auto lemma frameCompInv()
@@ -323,24 +321,22 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.compFrameInv();
     M.frameInv();
     M.frameFrame();
+    M.compValid();
+    M.compCommute();
+    M.compId();
+    M.compAssoc();
     frameInv();
-    // assume forall a: M, b: M :: M.valid(M.frame(a, b)) ==> M.frame(a, M.frame(a,b)) == b;
-    assert forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a with {
-      if (valid(comp(a, b))) {
-        assert a == id || b == id ==> frame(comp(a, b), b) == a;
-        assert a != id ==> b != id ==> frame(comp(a, b), b).dom == a.dom;
-        assert forall n: Ref :: frame(comp(a, b), b).out[n] == a.out[n];
-        assert forall n: Ref :: a != id ==> b != id ==> n in a.dom ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-        assert forall n: Ref :: a != id ==> b != id ==> n !in a.dom ==> frame(comp(a, b), b).inf[n] == a.inf[n];
-        assert frame(comp(a, b), b).inf == a.inf;
-        assert forall n: Ref :: a != id ==> b != id ==> n in a.dom ==> frame(comp(a, b), b).out[n] == a.out[n];
-        //assert forall n: Ref :: a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> comp(a, b).out[n] == M.comp(a.out[n], b.out[n]);
-        assert forall n: Ref :: a != id ==> b != id ==> n !in a.dom ==> frame(comp(a, b), b).out[n] == a.out[n] with {
-          assert a != id ==> b != id ==> n !in a.dom && n !in b.dom ==> frame(comp(a, b), b).out[n] == M.frame(comp(a,b).out[n], b.out[n]);
-        }
-        assert a != id ==> b != id ==> frame(comp(a, b), b).out == a.out;
-      }
-    }
+
+    assert forall a:T, b:T :: a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
+
+    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
+
+    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
+
+    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
+
+    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
+
   }
   
   lemma replacement_theorem(i1: T, i2: T, j1: T)

@@ -1,0 +1,51 @@
+interface Test {
+pred p(x: Int, y: Int) {
+  true
+}
+
+pred q(x: Int) {
+  true
+}
+
+field field1: Int
+
+func f(x: Int) returns (ret: Ref)
+func f2(x: Int) returns (ret: Int)
+
+func g(x: Ref) returns (ret: Bool)
+
+auto lemma f_diff()
+ensures forall x1: Int, x2: Int :: f(x1) == f(x2) ==> x1 == x2
+
+auto lemma f2_diff()
+ensures forall x1: Int, x2: Int :: f2(x1) == f2(x2) ==> x1 == x2
+
+
+proc p2() {
+  inhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
+    p(x, y);
+  exhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
+    p(x, y);
+
+  inhale forall x: Int :: 0 <= x && x <= 5 ==>
+    own(f(x), field1, x, 1.0 );
+  exhale forall x: Int :: 0 <= x && x <= 5 ==>
+    own(f(x), field1, x, 1.0 );
+
+  inhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
+  exhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
+
+  inhale forall x: Int :: 0 <= x && x <= 5 ==>
+    q(x);
+  exhale forall x: Int :: 0 <= x && x <= 5 ==>
+    q(x);
+
+
+  inhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
+    p(f2(x), y);
+
+  exhale forall x: Int, y: Int :: 0 <= x && x <= 10 && 0 <= y && y <= 10 ==>
+    p(f2(x), y);
+}
+
+}
