@@ -1946,7 +1946,7 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
     
 
   
-  | Cond cond_stmt -> 
+  | Cond cond_stmt when not cond_stmt.cond_if_assumes_false -> 
     let cond_test = Option.map ~f:(fun test -> Expr.alpha_renaming test subst_map) cond_stmt.cond_test in
 
     let* cond_then = rewrite_ssa_stmts cond_stmt.cond_then in
@@ -1999,7 +1999,22 @@ let rec rewrite_ssa_stmts (s: Stmt.t) : (Stmt.t, var_decl ident_map) Rewriter.t_
 
     let+ _ = Rewriter.set_user_state new_var_map in
 
-    Stmt.{ s with stmt_desc = Cond { cond_test; cond_then; cond_else; } }
+    Stmt.{ s with stmt_desc = Cond { cond_test; cond_then; cond_else; cond_if_assumes_false = false} }
+
+  | Cond cond_stmt -> 
+    assert cond_stmt.cond_if_assumes_false;
+    assert Poly.(cond_stmt.cond_else.stmt_desc = Block { block_is_ghost = false; block_body = [] });
+
+    let* orig_map = Rewriter.current_user_state in
+
+    let cond_test = Option.map ~f:(fun test -> Expr.alpha_renaming test subst_map) cond_stmt.cond_test in
+
+    let* cond_then = rewrite_ssa_stmts cond_stmt.cond_then in
+    let* cond_else = rewrite_ssa_stmts cond_stmt.cond_else in
+
+    let* _ = Rewriter.set_user_state orig_map in
+
+    Rewriter.return Stmt.{ s with stmt_desc = Cond { cond_test; cond_then; cond_else; cond_if_assumes_false = true } }
 
   | Loop loop_stmt -> assert false
 

@@ -246,7 +246,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     fold globalinv(root_flow_int, r);
     fold globalRes(r, {||}, root_flow_int);
 
-    // assert keyset(root_flow_int) == keyspace;
+    assert keyset(root_flow_int) == keyspace;
     fold nodePred(r, r, {||}, root_flow_int);
     fold cssR(r, {||}, root_flow_int, {| r:Ref :: {||} |}, {| l:Ref :: l == r ? root_flow_int : Flow_K.id |});
 
@@ -292,14 +292,155 @@ module GiveUpTemplate[Node: NodeImpl] {
     fold cssR(r, c, g_i, contents, i);
   }
 
+  lemma fpInStep(r: Ref, n: Ref, k: K, n1: Ref, c: Set[K], contents: Map[Ref, Set[K]], i: Map[Ref, Flow_K], g_i: Flow_K)
+    requires cssR(r, c, g_i, contents, i)
+    requires k in outset(i[n], n1)
+    requires n in g_i.dom
+    ensures cssR(r, c, g_i, contents, i)
+    ensures n1 in g_i.dom
+  {
+    if (n1 !in g_i.dom) {
+      unfold cssR(r, c, g_i, contents, i);
+      unfold globalRes(r, c, g_i);
+      unfold globalinv(g_i, r);
+
+      unfold nodePred(r, n, contents[n], i[n]);
+      AuthFlow_K.weak_frameCompInv();
+      AuthFlow_K.compValid();
+      AuthFlow_K.compAssoc();
+      AuthFlow_K.compCommute();
+      AuthFlow_K.compId();
+
+      assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+      assert own(r, authFlow, AuthFlow_K.auth(g_i));
+
+      ghost var i_o: Flow_K = Flow_K.frame(g_i, i[n]);
+      assert Flow_K.valid(i_o);
+
+      Flow_K.compUnfold(i_o, i[n]);
+
+      assert g_i.out[n1] == Multiset_K.comp(i[n].out[n1], i_o.out[n1]);
+
+      assert k !in outsets(g_i);
+
+      assert (g_i.out[n1])[k] == 0;
+
+      assert n1 in g_i.dom;
+
+
+      fold nodePred(r, n, contents[n], i[n]);
+      fold globalinv(g_i, r);
+      fold globalRes(r, c, g_i);
+      fold cssR(r, c, g_i, contents, i);
+    }
+        
+  }
+
+  // lemma authFlowOwnValid2(x: Ref, i1: Flow_K, i2: Flow_K)
+  //   requires own(x, authFlow, AuthFlow_K.frag(i1))
+  //   requires own(x, authFlow, AuthFlow_K.frag(i2))
+  //   ensures own(x, authFlow, AuthFlow_K.frag(i1))
+  //   ensures own(x, authFlow, AuthFlow_K.frag(i2))
+  //   ensures Flow_K.valid(Flow_K.comp(i1, i2))
+  // {
+  //   assume false;
+  // }
+
+lemma nodePredValid2(r: Ref, n1: Ref, n2: Ref, c1: Set[K], i1: Flow_K, c2: Set[K], i2: Flow_K)
+    requires nodePred(r, n1, c1, i1)
+    requires nodePred(r, n2, c2, i2)
+    ensures nodePred(r, n1, c1, i1)
+    ensures nodePred(r, n2, c2, i2)
+    ensures Flow_K.valid(Flow_K.comp(i1, i2))
+  {
+    // AuthFlow_K.compAssoc();
+    // AuthFlow_K.compCommute();
+    // AuthFlow_K.weak_frameCompInv();
+    unfold nodePred(r, n1, c1, i1);
+    assert own(r, authFlow, AuthFlow_K.frag(i1));
+    
+    unfold nodePred(r, n2, c2, i2);
+    AuthFlow_K.weak_frameCompInv();
+    AuthFlow_K.compValid();
+    AuthFlow_K.compAssoc();
+    AuthFlow_K.compCommute();
+    AuthFlow_K.compId();
+    assert own(r, authFlow, AuthFlow_K.frag(i2));
+    assert own(r, authFlow, AuthFlow_K.frag(i1));
+
+    assert own(r, authFlow, AuthFlow_K.frag(Flow_K.comp(i1, i2)));
+    assert Flow_K.valid(Flow_K.comp(i1, i2));
+
+    // assert AuthFlow_K.valid( AuthFlow_K.frame(  AuthFlow_K.frag(Flow_K.comp(i1, i2)), AuthFlow_K.frag(i1) ) );
+    // assert own(r, authFlow, AuthFlow_K.frag(i1));
+    fold nodePred(r, n1, c1, i1);
+    Flow_K.frameCompInv();
+    // AuthFlow_K.compFrameInv();
+    assert own(r, authFlow, AuthFlow_K.frag(i2));
+    fold nodePred(r, n2, c2, i2);
+  }
+
   lemma flowIntStep(r: Ref, n: Ref, k: K, n1: Ref, c: Set[K], contents: Map[Ref, Set[K]], i: Map[Ref, Flow_K], g_i: Flow_K)
     requires cssR(r, c, g_i, contents, i)
+    requires n in g_i.dom
     requires k in outset(i[n], n1)
     ensures cssR(r, c, g_i, contents, i)
     ensures k in inset(i[n1], n1)
     ensures n1 in g_i.dom
   {
-    assume false;
+    fpInStep(r, n, k, n1, c, contents, i, g_i);
+    unfold cssR(r, c, g_i, contents, i);
+    assert (forall n2: Ref :: n2 in g_i.dom ==> 
+        (nodePred(r, n2, contents[n2], i[n2])));
+    unfold nodePred(r, n, contents[n], i[n]);
+    assert n != n1;
+    AuthFlow_K.weak_frameCompInv();
+    AuthFlow_K.compValid();
+    assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+    fold nodePred(r, n, contents[n], i[n]);
+    assert nodePred(r, n, contents[n], i[n]);
+    assert nodePred(r, n1, contents[n1], i[n1]);
+    // assert Flow_K.valid(i[n]);
+    // assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+    // AuthFlow_K.compAssoc();
+    // unfold nodePred(r, n1, contents[n1], i[n1]);
+    // assert own(r, authFlow, AuthFlow_K.frag(i[n1]));
+    // assert Flow_K.valid(i[n1]);
+    // Flow_K.compCommute();
+    // Flow_K.compAssoc();
+    // AuthFlow_K.compCommute();
+    // assert own(r, authFlow, AuthFlow_K.comp(AuthFlow_K.frag(i[n]), AuthFlow_K.frag(i[n1])));
+    // assert own(r, authFlow, AuthFlow_K.frag(Flow_K.comp(i[n], i[n1])));
+    // assert AuthFlow_K.valid(AuthFlow_K.frag(Flow_K.comp(i[n], i[n1])));
+    // assert Flow_K.valid(Flow_K.comp(i[n], i[n1]));
+    // authFlowOwnValid2(r, i[n], i[n1]);
+    nodePredValid2(r, n, n1, contents[n], i[n], contents[n1], i[n1]);
+    Flow_K.compUnfold(i[n], i[n1]);
+    // assert 0 < (i[n].out[n1])[k];
+    unfold nodePred(r, n1, contents[n1], i[n1]);
+    assert n1 in i[n1].dom;
+    AuthFlow_K.weak_frameCompInv();
+    AuthFlow_K.compValid();
+    assert own(r, authFlow, AuthFlow_K.frag(i[n1]));
+    fold nodePred(r, n1, contents[n1], i[n1]);
+    assert (i[n].out[n1])[k] <= (i[n1].inf[n1])[k];
+    assert k in inset(i[n1], n1);
+    // fold nodePred(r, n, contents[n], i[n]);
+    // fold nodePred(r, n1, contents[n1], i[n1]);
+    // assert globalRes(r, c, g_i);
+    // assert nodePred(r, n, contents[n], i[n]);
+    // assert nodePred(r, n1, contents[n1], i[n1]);
+    assert (forall n2: Ref :: n2 in g_i.dom ==> 
+        (nodePred(r, n2, contents[n2], i[n2]))) with {
+          if (n2 in g_i.dom && n2 != n1 && n2 != n) {
+            assert nodePred(r, n2, contents[n2], i[n2]);
+          }
+          // assert n in g_i.dom ==> nodePred(r, n, contents[n], i[n]);
+        
+        }
+    fold cssR(r, c, g_i, contents, i);
+
+    //  assume false;
   }
 
   lemma root_fp(r: Ref, implicit ghost c: Set[K], implicit ghost contents: Map[Ref, Set[K]], implicit ghost i: Map[Ref, Flow_K], implicit ghost g_i: Flow_K)
@@ -386,6 +527,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     unfold cssR(r, c, g_i, contents, i);
 
     unfold nodePred(r, n, contents[n], i[n]);
+    assert own(r, authFlow, AuthFlow_K.frag(i[n]));
 
     var in_range: Bool := Node.inRange(n, k, contents[n], i[n]);
 
@@ -396,6 +538,8 @@ module GiveUpTemplate[Node: NodeImpl] {
 
       assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i[n]), contents[n] ) ));
       assert node(n, contents[n], i[n]);
+
+      assert own(r, authFlow, AuthFlow_K.frag(i[n]));
       fold nodePred(r, n, contents[n], i[n]);
       fold cssR(r, c, g_i, contents, i);
 
@@ -415,7 +559,7 @@ module GiveUpTemplate[Node: NodeImpl] {
 
     } else {
       assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i[n]), contents[n] ) ));
-      // assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+      assert own(r, authFlow, AuthFlow_K.frag(i[n]));
 
       fold nodePred(r, n, contents[n], i[n]);
       fold cssR(r, c, g_i, contents, i);
@@ -478,9 +622,12 @@ module GiveUpTemplate[Node: NodeImpl] {
           AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
           AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
         ) with {
-          assume forall k: Keyset_K ::
+          assert forall k: Keyset_K ::
             Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
             Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+
+          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
         }
         
         fpu(r, authKS, 
@@ -502,7 +649,11 @@ module GiveUpTemplate[Node: NodeImpl] {
         assert AuthKeyset_K.fpuAllowed(
           AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
           AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
-        );
+        ) with {
+          assert forall k: Keyset_K ::
+            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
+            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+        }
         
         fpu(r, authKS, 
         AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
@@ -534,7 +685,6 @@ module GiveUpTemplate[Node: NodeImpl] {
     inset_root_keyspace(r, c, g_i, contents, i);
     root_fp(r, c, contents, i, g_i);
 
-    // assume i[r].inf[r] == fromSet(keyspace);
     fpInCss(r, r, c, g_i, contents, i);
 
     var n: Ref := traverse(r, r, k, c, contents, i, g_i);
@@ -546,7 +696,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     unfold cssR(r, c, g_i, contents, i);
     unfold nodePred(r, n, contents[n], i[n]);
     AuthFlow_K.compValid();
-    AuthFlow_K.compFrameInv();
+    AuthFlow_K.weak_frameCompInv();
     assert own(r, authFlow, AuthFlow_K.frag(i[n]));
     succ, res1, c_n := Node.decisiveOp(dop, n, k, contents[n], i[n]);
 
@@ -565,6 +715,9 @@ module GiveUpTemplate[Node: NodeImpl] {
 
       c1 := keyset_theorem(r, dop, k, contents[n], c_n, c, res1, keyset(i[n]));
 
+      AuthFlow_K.compValid();
+      // AuthFlow_K.weak_frameCompInv();
+
       assert own(r, authFlow, AuthFlow_K.frag(i[n]));
       var contents1: Map[Ref, Set[K]] := contents[n := c_n];
 
@@ -572,12 +725,15 @@ module GiveUpTemplate[Node: NodeImpl] {
 
       fold globalRes(r, c1, g_i);
 
-      assert own(r, authFlow, AuthFlow_K.frag(i[n]));
-      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair(keyset(i[n]), c_n) ));
+      // assert own(r, authFlow, AuthFlow_K.frag(i[n]));
+      // assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair(keyset(i[n]), c_n) ));
       // assert 
 
-      AuthKeyset_K.compFrameInv();
-      AuthKeyset_K.compValid();
+      // AuthKeyset_K.compFrameInv();
+      // AuthKeyset_K.compValid();
+      // AuthKeyset_K.weak_frameCompInv();
+
+      // assert own(r, authFlow, AuthFlow_K.frag(i[n]));
       
       fold nodePred(r, n, contents1[n], i[n]);
       fold cssR(r, c1, g_i, contents1, i);

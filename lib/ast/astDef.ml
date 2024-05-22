@@ -1172,7 +1172,7 @@ module Stmt = struct
     loop_postbody : t;  (** the actual loop body *)
   }
 
-  and cond_desc = { cond_test : expr option; cond_then : t; cond_else : t }
+  and cond_desc = { cond_test : expr option; cond_then : t; cond_else : t; cond_if_assumes_false : bool; }
   and block_desc = { block_body : t list; block_is_ghost: bool }
 
   and stmt_desc =
@@ -1373,8 +1373,8 @@ module Stmt = struct
 
   let mk_havoc ~loc x = { stmt_desc = Basic (Havoc x); stmt_loc = loc }
 
-  let mk_cond ~loc test then_ else_ =
-    { stmt_desc = Cond { cond_test = test; cond_then = then_; cond_else = else_ }; stmt_loc = loc }
+  let mk_cond ~loc ?(cond_if_assumes_false = false) test then_ else_ =
+    { stmt_desc = Cond { cond_test = test; cond_then = then_; cond_else = else_; cond_if_assumes_false }; stmt_loc = loc }
 
   let mk_call ~loc ?(lhs=[]) name args =
     { stmt_desc = Basic (Call { call_lhs = lhs; call_name = name; call_args = args }); stmt_loc = loc }

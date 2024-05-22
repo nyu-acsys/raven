@@ -2966,7 +2966,8 @@ end
             let cond_stmt = Stmt.Cond {
               cond_test = Some (Expr.from_var_decl nondet_var);
               cond_then = Stmt.mk_block_stmt ~loc [exhale_stmt; assume_false_stmt];
-              cond_else = Stmt.mk_block_stmt ~loc []} in
+              cond_else = Stmt.mk_block_stmt ~loc [];
+              cond_if_assumes_false = true;} in
 
             let nondet_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_not (Expr.from_var_decl nondet_var)) in
 

@@ -677,6 +677,7 @@ module Stmt = struct
     and+ new_else_branch = c cond_desc.cond_else in
 
     { stmt with stmt_desc = Cond {
+        cond_desc with
           cond_test = new_test;
           cond_then = new_then_branch;
           cond_else = new_else_branch;

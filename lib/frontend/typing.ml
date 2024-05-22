@@ -1338,6 +1338,7 @@ module ProcessCallable = struct
       let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
       let (cond_desc: Stmt.cond_desc) = {
+        cond_desc with
         cond_test;
         cond_then;
         cond_else;

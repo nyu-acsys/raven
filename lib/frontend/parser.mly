@@ -518,7 +518,8 @@ with_clause:
           Cond {
             cond_test = Some (Expr.from_var_decl nondet_var);
             cond_then = assume_e;
-            cond_else = (Stmt.mk_block_stmt ~loc checks)
+            cond_else = (Stmt.mk_block_stmt ~loc checks);
+            cond_if_assumes_false = false;
         }
         in
         mk_block [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]
@@ -602,6 +603,7 @@ if_then_stmt:
     Stmt.{ cond_test = Some e;
            cond_then = st;
            cond_else = mk_skip ~loc:(Loc.make $endpos $endpos);
+           cond_if_assumes_false = false;
          }
   in
   Stmt.(Cond cond)
@@ -614,6 +616,7 @@ if_then_else_stmt:
     Stmt.{ cond_test = Some e;
            cond_then = st;
            cond_else = se;
+           cond_if_assumes_false = false;
          }
   in
   Stmt.(Cond cond)
@@ -626,6 +629,7 @@ if_then_else_stmt_no_short_if:
     Stmt.{ cond_test = Some e;
            cond_then = st;
            cond_else = se;
+           cond_if_assumes_false = false;
          }
   in
   Stmt.(Cond cond)
