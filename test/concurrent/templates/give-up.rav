@@ -177,6 +177,89 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires own(n, lock, 1, 1.0)
     atomic ensures own(n, lock, 0, 1.0)
 
+  proc lockNodeHigh(r: Ref, n: Ref, implicit ghost c: Set[K])
+    returns (c_n : Set[K], i_n: Flow_K)
+    requires inFP(r, n)
+    atomic requires css(r, c)
+    atomic ensures css(r, c) && nodePred(r, n, c_n, i_n) && inFP(r, n)
+  {
+    var phi: AtomicToken := bindAU();
+
+    ghost var g_i0: Flow_K;
+    ghost var lockval0: Map[Ref, Int];
+    ghost var contents0: Map[Ref, Set[K]];
+    ghost var intf0: Map[Ref, Flow_K];
+    
+    ghost val c0: Set[K] := openAU(phi);
+    unfold css(r, c0);
+    g_i0, lockval0, contents0, intf0 :| cssR(r, c0, g_i0, lockval0, contents0, intf0);
+    cssInFp(r, n, c0, g_i0, lockval0, contents0, intf0);
+
+    assert n in g_i0.dom;
+    unfold cssR(r, c0, g_i0, lockval0, contents0, intf0);
+
+    assert own(n, lock, lockval0[n], 1.0);
+    lockNode(n, lockval0[n]);
+    ghost var lockval00: Map[Ref, Int] := lockval0[n := 1];
+    fold cssR(r, c0, g_i0, lockval00, contents0, intf0);
+    assert cssR(r, c0, g_i0, lockval00, contents0, intf0);
+    fold css(r, c0);
+
+    commitAU(phi, contents0[n], intf0[n]);
+    return contents0[n], intf0[n];
+  }
+
+  proc unlockNodeHigh(r: Ref, n: Ref, c_n: Set[K], i_n: Flow_K, implicit ghost c: Set[K])
+    requires inFP(r, n)
+    requires nodePred(r, n, c_n, i_n)
+    atomic requires css(r, c)
+    atomic ensures css(r, c) && inFP(r, n)
+  {
+    var phi: AtomicToken := bindAU();
+
+    ghost var g_i1: Flow_K;
+    ghost var lockval1: Map[Ref, Int];
+    ghost var contents1: Map[Ref, Set[K]];
+    ghost var intf1: Map[Ref, Flow_K];
+    
+    ghost val c1: Set[K] := openAU(phi);
+    unfold css(r, c1);
+    g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
+    cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
+    assert n in g_i1.dom;
+    
+    unfold cssR(r, c1, g_i1, lockval1, contents1, intf1);
+    
+    {!
+      if (lockval1[n] != 1) {
+        unfold nodePred(r, n, contents1[n], intf1[n]);
+        unfold nodePred(r, n, c_n, i_n);
+        assert node(n, c_n, i_n);
+        assert node(n, contents1[n], intf1[n]);
+        assert node(n, c_n, i_n) && node(n, contents1[n], intf1[n]);
+        Node.nodeSepStar(n, c_n, contents1[n], i_n, intf1[n]);
+        assert false;
+      } else {
+        assert lockval1[n] == 1;
+      }
+    !}
+
+    assert lockval1[n] == 1;
+
+    unlockNode(n);
+    ghost var lockval2: Map[Ref, Int] := lockval1[n := 0];
+    ghost var contents2: Map[Ref, Set[K]] := contents1[n := c_n];
+    ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
+    assert nodePred(r, n, c_n, i_n);
+    
+    fold cssR(r, c1, g_i1, lockval2, contents2, intf2);
+    assert cssR(r, c1, g_i1, lockval2, contents2, intf2);
+    fold css(r, c1);
+
+    commitAU(phi);
+  }
+  
+
   pred globalinv(g_i: Flow_K, r: Ref) {
       Flow_K.valid(g_i) &&
       r in g_i.dom &&
@@ -321,10 +404,46 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ensures nodePred(r, n, c_n, i_n)
     ensures n1 in g_i.dom
   {
-    assume false;
+    if (n1 !in g_i.dom) {
+      unfold cssR(r, c, g_i, lockval, contents, intf);
+      unfold nodePred(r, n, c_n, i_n);
+
+      unfold globalRes(r, c, g_i);
+      unfold globalinv(g_i, r);
+
+      AuthFlow_K.weak_frameCompInv();
+      AuthFlow_K.compValid();
+      AuthFlow_K.compAssoc();
+      AuthFlow_K.compCommute();
+      AuthFlow_K.compId();
+
+      assert own(r, authFlow, AuthFlow_K.frag(i_n));
+      assert own(r, authFlow, AuthFlow_K.auth(g_i));
+
+      ghost var i_o: Flow_K = Flow_K.frame(g_i, i_n);
+      Flow_K.frameCompInv();
+      assert Flow_K.valid(i_o);
+
+      Flow_K.compUnfold(i_o, i_n);
+
+      assert g_i.out[n1] == Multiset_K.comp(i_n.out[n1], i_o.out[n1]);
+
+      assert k !in outsets(g_i);
+
+      assert (g_i.out[n1])[k] == 0;
+
+      assert n1 in g_i.dom;
+
+
+      // fold nodePred(r, n, contents[n], intf[n]);
+      fold nodePred(r, n, c_n, i_n);
+      fold globalinv(g_i, r);
+      fold globalRes(r, c, g_i);
+      fold cssR(r, c, g_i, lockval, contents, intf);
+    }
   }
 
-  proc traverse(r: Ref, n: Ref, implicit ghost c: Set[K], k: K)
+  proc traverse(r: Ref, n: Ref, k: K, implicit ghost c: Set[K])
     returns (nn: Ref, cnn: Set[K], i_nn: Flow_K)
     requires inFP(r, n)
     atomic requires css(r, c)
@@ -335,78 +454,110 @@ interface GiveUpTemplate[Node: NodeImpl] {
   {
     ghost val phi: AtomicToken := bindAU();
 
-    ghost var g_i0: Flow_K;
-    ghost var lockval0: Map[Ref, Int];
-    ghost var contents0: Map[Ref, Set[K]];
-    ghost var intf0: Map[Ref, Flow_K];
+    ghost var c_n: Set[K];
+    ghost var i_n: Flow_K;
     
-    // ghost val c0: Set[K] := openAU(phi);
-    ghost var c0: Set[K];
-    inhale css(r, c0);
-    unfold css(r, c0);
-    g_i0, lockval0, contents0, intf0 :| cssR(r, c0, g_i0, lockval0, contents0, intf0);
-    cssInFp(r, n, c0, g_i0, lockval0, contents0, intf0);
-    assert n in g_i0.dom;
-    unfold cssR(r, c0, g_i0, lockval0, contents0, intf0);
-    // unfold nodePred(r, n, contents0[n], intf0[n]);
-
-    assert own(n, lock, lockval0[n], 1.0);
-    lockNode(n, lockval0[n]);
-    ghost var lockval00: Map[Ref, Int] := lockval0[n := 1];
-    fold cssR(r, c0, g_i0, lockval00, contents0, intf0);
-    assert cssR(r, c0, g_i0, lockval00, contents0, intf0);
-    fold css(r, c0);
-    exhale css(r, c0);
-    // abortAU(phi);
-    assert nodePred(r, n, contents0[n], intf0[n]);
+    ghost val c0: Set[K] := openAU(phi);
+    c_n, i_n := lockNodeHigh(r, n, c0);
+    abortAU(phi);
+    assert nodePred(r, n, c_n, i_n);
     
-    unfold nodePred(r, n, contents0[n], intf0[n]);
+    unfold nodePred(r, n, c_n, i_n);
     AuthFlow_K.compValid();
     AuthFlow_K.weak_frameCompInv();
-    // assert own(r, authFlow, AuthFlow_K.frag(intf0[n]));
+    // assert own(r, authFlow, AuthFlow_K.frag(i_n));
 
-    var in_range: Bool := Node.inRange(n, k, contents0[n], intf0[n]);
+    var in_range: Bool := Node.inRange(n, k, c_n, i_n);
 
     if (in_range) {
       var succ: Bool;
       var n1: Ref;
-      succ, n1 := Node.findNext(n, k, contents0[n], intf0[n]);
+      succ, n1 := Node.findNext(n, k, c_n, i_n);
       
-      assert node(n, contents0[n], intf0[n]);
-      // assert own(r, authFlow, AuthFlow_K.frag(intf0[n]));
-      fold nodePred(r, n, contents0[n], intf0[n]);
+      assert node(n, c_n, i_n);
+      // assert own(r, authFlow, AuthFlow_K.frag(i_n));
+      fold nodePred(r, n, c_n, i_n);
 
       if (succ) {
+        ghost var g_i1: Flow_K;
+        ghost var lockval1: Map[Ref, Int];
+        ghost var contents1: Map[Ref, Set[K]];
+        ghost var intf1: Map[Ref, Flow_K];
+        
+        ghost val c1: Set[K] := openAU(phi);
+        unfold css(r, c1);
+        g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
+
+        cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
+        fpInStep(r, n, n1, k, c1, g_i1, lockval1, contents1, intf1, c_n, i_n);
+        fpInCss(r, n1, c1, g_i1, lockval1, contents1, intf1);
+
+        assert cssR(r, c1, g_i1, lockval1, contents1, intf1);
+        fold css(r, c1);
+
+        unlockNodeHigh(r, n, c_n, i_n, c1);
+
+        abortAU(phi);
+
+        ghost val c2: Set[K] := openAU(phi);
+
+        nn, cnn, i_nn := traverse(r, n1, k, c2);
+
+        // exhale css(r, c1);
+        commitAU(phi, nn, cnn, i_nn);
+        return nn, cnn, i_nn;
+      } else {
+        ghost val c0: Set[K] := openAU(phi);
+        unlockNodeHigh(r, n, c_n, i_n, c0);
+        abortAU(phi);
 
         ghost var g_i1: Flow_K;
         ghost var lockval1: Map[Ref, Int];
         ghost var contents1: Map[Ref, Set[K]];
         ghost var intf1: Map[Ref, Flow_K];
         
-        // ghost val c1: Set[K] := openAU(phi);
-        ghost var c1: Set[K];
-        inhale css(r, c1);
-        unfold css(r, c1);
-        g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
+        ghost val c1: Set[K] := openAU(phi);
 
-        cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
-        fpInStep(r, n, n1, k, c1, g_i1, lockval1, contents1, intf1, contents0[n], intf0[n]);
-        fpInCss(r, n1, c1, g_i1, lockval1, contents1, intf1);
-
-        assert cssR(r, c1, g_i1, lockval1, contents1, intf1);
-        fold css(r, c1);
-        nn, cnn, i_nn := traverse(r, n1, c1, k);
-
-        exhale css(r, c1);
-        // commitAU(phi, nn, cnn, i_nn);
-        // return nn, cnn, i_nn;
-        // return n2;
-        assume false;
-      } else {
-        assume false;
+        commitAU(phi, n, c_n, i_n);
+        return n, c_n, i_n;
       }
     } else {
-      assume false;
+
+      // unlockNode(n);
+
+      fold nodePred(r, n, c_n, i_n);
+
+      ghost val c0: Set[K] := openAU(phi);
+      unlockNodeHigh(r, n, c_n, i_n, c0);
+      abortAU(phi);
+
+      ghost var g_i1: Flow_K;
+      ghost var lockval1: Map[Ref, Int];
+      ghost var contents1: Map[Ref, Set[K]];
+      ghost var intf1: Map[Ref, Flow_K];
+      
+      ghost val c1: Set[K] := openAU(phi);
+
+      unfold css(r, c1);
+      g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
+
+      unfold cssR(r, c1, g_i1, lockval1, contents1, intf1);
+      unfold globalRes(r, c1, g_i1);
+      unfold globalinv(g_i1, r);
+
+      assert r in g_i1.dom;
+
+      fold globalinv(g_i1, r);
+      fold globalRes(r, c1, g_i1);
+      fold cssR(r, c1, g_i1, lockval1, contents1, intf1);
+
+      fpInCss(r, r, c1, g_i1, lockval1, contents1, intf1);
+      
+      assert cssR(r, c1, g_i1, lockval1, contents1, intf1);
+      fold css(r, c1);
+      nn, cnn, i_nn := traverse(r, r, k, c1);
+
+      commitAU(phi, nn, cnn, i_nn);
     }
 
   }
@@ -425,7 +576,72 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c1)))
     ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n1)))
   {
-    assume false;
+    unfold opSpec(dop, k, c_n, c_n1, res);
+
+    if (dop == searchOp() || !res) {
+      c1 := c;
+      assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert c_n subseteq c;
+      fold opSpec(dop, k, c, c1, res);
+    } else {
+      if (dop == insertOp()) {
+        c1 := c ++ {| k |};
+
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert k !in c_n;
+        assert k !in c;
+
+        // assert false;
+        
+        fold opSpec(dop, k, c, c1, res);
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+        ) with {
+          assert forall k: Keyset_K ::
+            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
+            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+
+          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+        }
+        
+        fpu(r, authKS, 
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)),
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+
+        // assert false;
+        
+      } else {
+        c1 := c -- {| k |};
+
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert k in c_n;
+        assert k in c;
+        
+        fold opSpec(dop, k, c, c1, res);
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+        ) with {
+          assert forall k: Keyset_K ::
+            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
+            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+        }
+        
+        fpu(r, authKS, 
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
+        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+
+        // assert false;
+      }
+    }
   }
 
   proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
@@ -454,7 +670,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     assert cssR(r, c0, g_i0, lockval0, contents0, intf0);
     fold css(r, c0);
     
-    n, c_n, i_n := traverse(r, r, c0, k);
+    n, c_n, i_n := traverse(r, r, k, c0);
 
     abortAU(phi);
 
@@ -520,6 +736,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
       ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
 
       assert node(n, contents2[n], intf2[n]);
+      Flow_K.compFrameInv();
+      Flow_K.frameCompInv();
       assert own(r, authFlow, AuthFlow_K.frag(i_n));
       fold nodePred(r, n, contents2[n], intf2[n]);
       fold cssR(r, cc, g_i1, lockval2, contents2, intf2);
@@ -531,6 +749,10 @@ interface GiveUpTemplate[Node: NodeImpl] {
       // assert false;
       return res, cc;
     } else {
+      fold nodePred(r, n, c_n, i_n);
+      ghost val c0: Set[K] := openAU(phi);
+      unlockNodeHigh(r, n, c_n, i_n, c0);
+      abortAU(phi);
       
       ghost val c1: Set[K] := openAU(phi);
       res, cc := cssOp(dop, r, k, c1);
