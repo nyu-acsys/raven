@@ -1,0 +1,548 @@
+include "./flows_ra.rav"
+include "./ccm_instances.rav"
+
+import Library.KeysetRA
+
+
+import Library.Type
+import Library.CancellativeResourceAlgebra
+
+interface Keyspace {
+  rep type T
+
+  val ks: Set[T]
+}
+
+module IntKeyspace : Keyspace {
+  rep type T = Int
+
+  val ks: Set[T] = {| k: Int :: true |}
+}
+
+interface SearchStructureSpec {
+  type K
+  val keyspace: Set[K]
+
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
+
+	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+    op == searchOp() ? 
+      c_in == c_out && res == (k in c_in) :
+    (op == insertOp() ?
+      c_out == c_in ++ {| k |} && res == (k !in c_in) :
+      c_out == c_in -- {| k |} && res == (k in c_in))
+	}
+}
+
+interface Node {
+  rep type T
+}
+
+interface NodeImpl {
+
+  module Spec : SearchStructureSpec
+  import Spec._
+
+  module K_Type : Library.Type {
+    rep type T = K
+  }
+
+  module Multiset_K = Multiset[K_Type]
+  module Flow_K = FlowsRA[Multiset_K]
+
+  import Flow_K._
+  import Multiset_K.elem
+
+  pred node(n: Ref; c: Set[K], flow_int: Flow_K)
+
+  // func outsets(outset: Map[Ref, Set[K]]) returns (ret: Set[K])
+  // {
+  //   {| k: K :: exists r: Ref :: k in outset[r] |}
+  // }
+
+  // func keyset(inset: Set[K], outset: Map[Ref, Set[K]]) returns (ret: Set[K])
+  // {
+  //   inset -- outsets(outset)
+  // }
+
+  func inset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
+  {
+    {| k : K :: (i.inf[n])[k] > 0 |}
+  }
+
+  func insets(i: Flow_K.T) returns (ret: Set[K])
+  {
+    {| k : K :: exists n: Ref :: n in i.dom && k in inset(i, n) |}
+  }
+
+  func outset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
+  {
+    {| k : K :: (i.out[n])[k] > 0 |}
+  }
+
+  func outsets(i: Flow_K.T) returns (ret: Set[K])
+  {
+    {| k: K :: exists n: Ref :: n !in i.dom && k in outset(i,n) |}
+  }
+
+  func keyset(i: Flow_K.T) returns (ret: Set[K])
+  {
+    insets(i) -- outsets(i)
+  }
+
+  proc createRoot()
+    returns (r: Ref)
+    ensures node(r, {||}, 
+    Flow_K.int({| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
+
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
+    requires k in keyset(i_n)
+    requires node(n, c, i_n)
+    ensures node(n, c1, i_n)
+    ensures succ ==> opSpec(dop, k, c, c1, res) 
+    ensures !succ ==> c == c1
+
+  proc findNext(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (ret: Bool, n1: Ref)
+    requires k in inset(i_n, n)
+    requires node(n, c, i_n)
+    ensures node(n, c, i_n) && 
+      (ret ?   
+        k in outset(i_n, n1) :
+        k !in outsets(i_n))
+
+  proc inRange(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (ret: Bool)
+    requires node(n, c, i_n)
+    ensures node(n, c, i_n) && (ret ==> k in inset(i_n, n))
+
+
+  lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K], i_n1: Flow_K, i_n2: Flow_K)
+    requires node(n, c1, i_n1) && node(n, c2, i_n2)
+    ensures false
+}
+
+// interface SearchStructure {
+//   module Spec: SearchStructureSpec
+//   import Spec._
+
+//   pred css(r: Ref, c: Set[K])
+
+//   // inv cssInv(r: Ref)
+
+//   proc create()
+//     returns (r: Ref)
+//     ensures css(r, {||})
+
+//   // proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+//   //   returns (res: Bool, implicit ghost c1: Set[K])
+//   //   requires k in keyset
+//   //   // requires cssInv(r)
+//   //   atomic requires cssR(r, c)
+//   //   atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
+// }
+
+
+interface GiveUpTemplate[Node: NodeImpl] {
+  module Spec: SearchStructureSpec = Node.Spec
+  import Node.Spec._
+  import Node._
+  import Node.Flow_K._
+  import Node.Multiset_K.elem
+  import Node.Multiset_K.fromSet
+
+  module Ref_Type : Library.Type {
+    rep type T = Ref
+  }
+
+  module SetRefRA = Library.SetRA[Ref_Type]
+
+  module AuthSetRef = Library.Auth[SetRefRA]
+    
+  module Keyset_K = KeysetRA[K_Type]
+  module AuthKeyset_K = Library.Auth[Keyset_K]
+  module AuthFlow_K = Library.Auth[Flow_K]
+
+  field authSet: AuthSetRef
+  field authKS: AuthKeyset_K
+  field authFlow: AuthFlow_K
+  field lock: Int
+
+  proc lockNode(n: Ref, implicit ghost b: Int)
+    atomic requires own(n, lock, b, 1.0)
+    atomic ensures own(n, lock, 1, 1.0) && b == 0
+
+  proc unlockNode(n: Ref)
+    atomic requires own(n, lock, 1, 1.0)
+    atomic ensures own(n, lock, 0, 1.0)
+
+  pred globalinv(g_i: Flow_K, r: Ref) {
+      Flow_K.valid(g_i) &&
+      r in g_i.dom &&
+      outsets(g_i) == {||} &&
+      inset(g_i, r) == keyspace  
+  }
+
+  pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
+    own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c ))) &&
+    own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
+    own(r, authFlow, AuthFlow_K.auth(g_i)) &&
+    globalinv(g_i, r)
+  }
+
+  pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
+    own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i_n), c ) )) &&
+    own(r, authFlow, AuthFlow_K.frag(i_n)) &&
+    i_n.dom == {|n|} && 
+    node(n, c, i_n)
+  }
+
+  pred inFP(r: Ref, n: Ref) {
+    own(r, authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+  }
+
+  pred cssR(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K]) {
+      (forall n: Ref :: n in g_i.dom ==> 
+          own(n, lock, lockval[n], 1.0) && (lockval[n] == 1 ? true : nodePred(r, n, contents[n], intf[n])))
+      && 
+      globalRes(r, c, g_i)
+  }
+
+  pred css(r: Ref, c: Set[K]) {
+    exists g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K] :: 
+      cssR(r, c, g_i, lockval, contents, intf)
+  }
+
+  lemma cssInFp(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K])
+    requires cssR(r, c, g_i, lockval, contents, intf)
+    requires inFP(r, n)
+    ensures n in g_i.dom
+    ensures cssR(r, c, g_i, lockval, contents, intf)
+    ensures inFP(r, n)
+  {
+    // autoLemmas();
+    unfold cssR(r, c, g_i, lockval, contents, intf);
+    unfold globalRes(r, c, g_i);
+    unfold inFP(r, n);
+
+    assert own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)));
+    
+    assert n in g_i.dom;
+
+    fold globalRes(r, c, g_i);
+    fold inFP(r, n);
+    fold cssR(r, c, g_i, lockval, contents, intf);
+  }
+
+
+  lemma fpInCss(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K])
+    requires cssR(r, c, g_i, lockval, contents, intf)
+    requires n in g_i.dom
+    ensures inFP(r, n)
+    ensures cssR(r, c, g_i, lockval, contents, intf)
+  {
+    // autoLemmas();
+    unfold cssR(r, c, g_i, lockval, contents, intf);
+    unfold globalRes(r, c, g_i);
+
+    fpu(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)), AuthSetRef.auth_frag(SetRefRA.set_constr(g_i.dom), SetRefRA.set_constr(g_i.dom)));
+
+    fold globalRes(r, c, g_i);
+    fold inFP(r, n);
+    fold cssR(r, c, g_i, lockval, contents, intf);
+  }
+
+  lemma root_fp(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K])
+    requires cssR(r, c, g_i, lockval, contents, intf)
+    ensures cssR(r, c, g_i, lockval, contents, intf)
+    ensures r in g_i.dom
+  {
+    // autoLemmas();
+    unfold cssR(r, c, g_i, lockval, contents, intf);
+    unfold globalRes(r, c, g_i);
+    unfold globalinv(g_i, r);
+
+    // assert own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)));
+    
+    assert r in g_i.dom;
+
+    fold globalinv(g_i, r);
+    fold globalRes(r, c, g_i);
+    fold cssR(r, c, g_i, lockval, contents, intf);
+  }
+
+  proc create()
+    returns (r: Ref)
+    ensures css(r, {||})
+  {
+    // autoLemmas();
+    r := Node.createRoot();
+
+    var i_r: Flow_K := int(
+        {| l:Ref :: l == r ? fromSet(keyspace) : fromSet({||})  |},
+        zeroFlow(),
+        {|r|}
+      );
+    var contents: Map[Ref, Set[K]] := {| l: Ref :: {||} |};
+    var lockval: Map[Ref, Int] := {| l: Ref :: 0 |};
+    var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
+
+    r := new(
+      authKS: AuthKeyset_K.auth_frag(
+        Keyset_K.ksPair(keyspace, {||}),
+        Keyset_K.ksPair(keyspace, {||})
+      ),
+      authSet:AuthSetRef.auth(SetRefRA.set_constr({|r|})),
+      authFlow: AuthFlow_K.auth_frag(
+        i_r, i_r
+      ),
+      lock:0
+    );
+
+    assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, {||}), Keyset_K.ksPair(keyspace, {||})));
+    assert keyset(i_r) == keyspace;
+    assert node(r, {||}, i_r);
+    fold nodePred(r, r, {||}, i_r);
+
+    fold globalinv(i_r, r);
+    fold globalRes(r, {||}, i_r);
+    fold cssR(r, {||}, i_r, lockval, contents, intf);
+    assert cssR(r, {||}, i_r, lockval, contents, intf);
+    fold css(r, {||});
+  }
+
+  lemma fpInStep(r: Ref, n: Ref, n1: Ref, k: K, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K], c_n: Set[K], i_n: Flow_K)
+    requires cssR(r, c, g_i, lockval, contents, intf)
+    requires nodePred(r, n, c_n, i_n)
+    requires k in outset(i_n, n1)
+    requires n in g_i.dom
+    ensures cssR(r, c, g_i, lockval, contents, intf)
+    ensures nodePred(r, n, c_n, i_n)
+    ensures n1 in g_i.dom
+  {
+    assume false;
+  }
+
+  proc traverse(r: Ref, n: Ref, implicit ghost c: Set[K], k: K)
+    returns (nn: Ref, cnn: Set[K], i_nn: Flow_K)
+    requires inFP(r, n)
+    atomic requires css(r, c)
+    atomic ensures css(r, c)
+    ensures nodePred(r, nn, cnn, i_nn)
+    ensures inFP(r, nn)
+    ensures k in keyset(i_nn)
+  {
+    ghost val phi: AtomicToken := bindAU();
+
+    ghost var g_i0: Flow_K;
+    ghost var lockval0: Map[Ref, Int];
+    ghost var contents0: Map[Ref, Set[K]];
+    ghost var intf0: Map[Ref, Flow_K];
+    
+    // ghost val c0: Set[K] := openAU(phi);
+    ghost var c0: Set[K];
+    inhale css(r, c0);
+    unfold css(r, c0);
+    g_i0, lockval0, contents0, intf0 :| cssR(r, c0, g_i0, lockval0, contents0, intf0);
+    cssInFp(r, n, c0, g_i0, lockval0, contents0, intf0);
+    assert n in g_i0.dom;
+    unfold cssR(r, c0, g_i0, lockval0, contents0, intf0);
+    // unfold nodePred(r, n, contents0[n], intf0[n]);
+
+    assert own(n, lock, lockval0[n], 1.0);
+    lockNode(n, lockval0[n]);
+    ghost var lockval00: Map[Ref, Int] := lockval0[n := 1];
+    fold cssR(r, c0, g_i0, lockval00, contents0, intf0);
+    assert cssR(r, c0, g_i0, lockval00, contents0, intf0);
+    fold css(r, c0);
+    exhale css(r, c0);
+    // abortAU(phi);
+    assert nodePred(r, n, contents0[n], intf0[n]);
+    
+    unfold nodePred(r, n, contents0[n], intf0[n]);
+    AuthFlow_K.compValid();
+    AuthFlow_K.weak_frameCompInv();
+    // assert own(r, authFlow, AuthFlow_K.frag(intf0[n]));
+
+    var in_range: Bool := Node.inRange(n, k, contents0[n], intf0[n]);
+
+    if (in_range) {
+      var succ: Bool;
+      var n1: Ref;
+      succ, n1 := Node.findNext(n, k, contents0[n], intf0[n]);
+      
+      assert node(n, contents0[n], intf0[n]);
+      // assert own(r, authFlow, AuthFlow_K.frag(intf0[n]));
+      fold nodePred(r, n, contents0[n], intf0[n]);
+
+      if (succ) {
+
+        ghost var g_i1: Flow_K;
+        ghost var lockval1: Map[Ref, Int];
+        ghost var contents1: Map[Ref, Set[K]];
+        ghost var intf1: Map[Ref, Flow_K];
+        
+        // ghost val c1: Set[K] := openAU(phi);
+        ghost var c1: Set[K];
+        inhale css(r, c1);
+        unfold css(r, c1);
+        g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
+
+        cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
+        fpInStep(r, n, n1, k, c1, g_i1, lockval1, contents1, intf1, contents0[n], intf0[n]);
+        fpInCss(r, n1, c1, g_i1, lockval1, contents1, intf1);
+
+        assert cssR(r, c1, g_i1, lockval1, contents1, intf1);
+        fold css(r, c1);
+        nn, cnn, i_nn := traverse(r, n1, c1, k);
+
+        exhale css(r, c1);
+        // commitAU(phi, nn, cnn, i_nn);
+        // return nn, cnn, i_nn;
+        // return n2;
+        assume false;
+      } else {
+        assume false;
+      }
+    } else {
+      assume false;
+    }
+
+  }
+
+  lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
+    returns (c1: Set[K])
+    requires opSpec(dop, k, c_n, c_n1, res)
+    requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c)))
+    requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n)))
+    // requires own(r, authFlow, AuthFlow_K.auth(g_i))requires own(r, authFlow, AuthFlow_K.frag(g_i))
+    requires c_n1 subseteq k_n
+    requires k in k_n
+    requires k in keyspace
+
+    ensures opSpec(dop, k, c, c1, res)
+    ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c1)))
+    ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n1)))
+  {
+    assume false;
+  }
+
+  proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost cc: Set[K])
+    requires k in keyspace
+    atomic requires css(r, c)
+    atomic ensures css(r, cc) && opSpec(dop, k, c, cc, res)
+  {
+    ghost val phi: AtomicToken := bindAU();
+
+    var n: Ref;
+    var c_n: Set[K];
+    var i_n: Flow_K;
+    ghost var g_i0: Flow_K;
+    ghost var lockval0: Map[Ref, Int];
+    ghost var contents0: Map[Ref, Set[K]];
+    ghost var intf0: Map[Ref, Flow_K];
+    
+    ghost val c0: Set[K] := openAU(phi);
+    unfold css(r, c0);
+    g_i0, lockval0, contents0, intf0 :| cssR(r, c0, g_i0, lockval0, contents0, intf0);
+
+    root_fp(r, c0, g_i0, lockval0, contents0, intf0);
+    fpInCss(r, r, c0, g_i0, lockval0, contents0, intf0);
+    // assert inFP(r, r);
+    assert cssR(r, c0, g_i0, lockval0, contents0, intf0);
+    fold css(r, c0);
+    
+    n, c_n, i_n := traverse(r, r, c0, k);
+
+    abortAU(phi);
+
+    var succ: Bool;
+    // var res1: Bool;
+    var c_n1: Set[K];
+
+    unfold nodePred(r, n, c_n, i_n);
+    assert own(r, authFlow, AuthFlow_K.frag(i_n));
+    
+    succ, res, c_n1 := Node.decisiveOp(dop, n, k, c_n, i_n);
+    if (succ) {
+
+      ghost var g_i1: Flow_K;
+      ghost var lockval1: Map[Ref, Int];
+      ghost var contents1: Map[Ref, Set[K]];
+      ghost var intf1: Map[Ref, Flow_K];
+      
+      ghost val c1: Set[K] := openAU(phi);
+      unfold css(r, c1);
+      g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
+      cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
+      assert n in g_i1.dom;
+      unfold cssR(r, c1, g_i1, lockval1, contents1, intf1);
+      
+      {!
+        if (lockval1[n] != 1) {
+          unfold nodePred(r, n, contents1[n], intf1[n]);
+          assert node(n, c_n1, i_n);
+          assert node(n, contents1[n], intf1[n]);
+          Node.nodeSepStar(n, c_n1, contents1[n], i_n, intf1[n]);
+          assert false;
+        } else {
+          assert lockval1[n] == 1;
+        }
+      !}
+
+      assert lockval1[n] == 1;
+
+      unlockNode(n);
+
+      unfold globalRes(r, c1, g_i1);
+      unfold opSpec(dop, k, c_n, c_n1, res);
+      fold opSpec(dop, k, c_n, c_n1, res);
+
+      assert k in keyset(i_n);
+      assert c_n1 subseteq c_n ++ {| k |};
+
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair(keyset(i_n), c_n)));
+      assert c_n subseteq keyset(i_n);
+
+      cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));
+
+
+      // assert own(r, authFlow, AuthFlow_K.frag(i_n));
+      // assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c1 )));
+      AuthFlow_K.compValid();
+      AuthFlow_K.weak_frameCompInv();
+
+      fold globalRes(r, cc, g_i1);
+      ghost var lockval2: Map[Ref, Int] := lockval1[n := 0];
+      ghost var contents2: Map[Ref, Set[K]] := contents1[n := c_n1];
+      ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
+
+      assert node(n, contents2[n], intf2[n]);
+      assert own(r, authFlow, AuthFlow_K.frag(i_n));
+      fold nodePred(r, n, contents2[n], intf2[n]);
+      fold cssR(r, cc, g_i1, lockval2, contents2, intf2);
+      assert cssR(r, cc, g_i1, lockval2, contents2, intf2);
+      fold css(r, cc);
+
+      commitAU(phi, res, cc);
+
+      // assert false;
+      return res, cc;
+    } else {
+      
+      ghost val c1: Set[K] := openAU(phi);
+      res, cc := cssOp(dop, r, k, c1);
+      commitAU(phi, res, cc);
+      
+      // assert false;
+      return res, cc;
+    }
+  }
+
+
+
+
+
+}
