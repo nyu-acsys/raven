@@ -1365,17 +1365,24 @@ module AtomicityAnalysis = struct
       }
 
   let close_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
-    if not (List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) then
-      Error.error loc "Invariant not already opened"
-    else
-    let invs_opened = List.filter atomicity_state.invs_opened ~f:(fun inv -> not (QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) in
+    if not (List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) && Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name) then
+      (* Folding a new invariant *)
+      (* Allowed if invariant not already opened, but exists in the mask *)
+      atomicity_state
 
-    let mask = Set.add atomicity_state.mask inv_name in
+    else (
+      if not (List.exists atomicity_state.invs_opened ~f:(fun inv -> QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) && not (Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name)) then
+        Error.error loc "Invariant not already opened; cannot be closed. Invariant not in mask; cannot be allocated."
+      else
+      let invs_opened = List.filter atomicity_state.invs_opened ~f:(fun inv -> not (QualIdent.(inv.inv_name = inv_name) && List.for_all2_exn inv_args inv.inv_args ~f:(Expr.alpha_equal))) in
 
-    if List.is_empty invs_opened && List.is_empty atomicity_state.au_opened then
-      { atomicity_state with invs_opened; mask; atomic_step_taken = false }
-    else
-      { atomicity_state with invs_opened; mask }
+      let mask = Set.add atomicity_state.mask inv_name in
+
+      if List.is_empty invs_opened && List.is_empty atomicity_state.au_opened then
+        { atomicity_state with invs_opened; mask; atomic_step_taken = false }
+      else
+        { atomicity_state with invs_opened; mask }
+    )
 
   let open_au ~loc (token, callable, callable_args, implicit_bound_vars) atomicity_state : atomicity_check =
     if List.exists atomicity_state.au_opened ~f:(fun au -> QualIdent.(au.token = token)) then

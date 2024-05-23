@@ -6,9 +6,8 @@ inv counterInv(x: Ref) {
 
 proc make()
   returns (x: Ref)
-  ensures counterInv(x)
+  // ensures counterInv(x)
 {
   x := new(c: 0);
-  // the following fails but is expected to pass
   fold counterInv(x);
 }

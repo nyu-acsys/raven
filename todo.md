@@ -11,10 +11,7 @@ Type-checking:
 
 - Fix `return proc()` stmts
 - Allow parsing of `map[m1][m2]` expressions
-- Allow passing multiple files to Raven
 
-- Add support for include cmnds
-- Fix creation of invariants
-- Parse field reads/writes / cas / fpu separately
+- Parse field reads/writes/cas/fpu separately
 - Fix dependency analysis wrt auto lemmas
 - Investigate spurious "unknown"s in the middle of log files
