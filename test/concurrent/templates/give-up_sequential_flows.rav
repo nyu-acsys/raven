@@ -230,6 +230,8 @@ module GiveUpTemplate[Node: NodeImpl] {
         {|r|}
       );
 
+    assert node(r, {||}, root_flow_int);
+
     r := new(
       authKS: AuthKeyset_K.auth_frag(
         Keyset_K.ksPair(keyspace, {||}),
@@ -247,6 +249,10 @@ module GiveUpTemplate[Node: NodeImpl] {
     fold globalRes(r, {||}, root_flow_int);
 
     assert keyset(root_flow_int) == keyspace;
+    // assert own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(keyspace, {||})));
+    // assert own(r, authFlow, AuthFlow_K.frag(root_flow_int));
+    // assert root_flow_int.dom == {|r|};
+    // assert node(r, {||}, root_flow_int);
     fold nodePred(r, r, {||}, root_flow_int);
     fold cssR(r, {||}, root_flow_int, {| r:Ref :: {||} |}, {| l:Ref :: l == r ? root_flow_int : Flow_K.id |});
 
@@ -527,6 +533,10 @@ lemma nodePredValid2(r: Ref, n1: Ref, n2: Ref, c1: Set[K], i1: Flow_K, c2: Set[K
     unfold cssR(r, c, g_i, contents, i);
 
     unfold nodePred(r, n, contents[n], i[n]);
+    // AuthFlow_K.weak_frameCompInv();
+    // AuthFlow_K.compValid();  
+    // AuthFlow_K.compAssoc();
+    AuthFlow_K.compFrameInv();
     assert own(r, authFlow, AuthFlow_K.frag(i[n]));
 
     var in_range: Bool := Node.inRange(n, k, contents[n], i[n]);
@@ -716,7 +726,7 @@ lemma nodePredValid2(r: Ref, n1: Ref, n2: Ref, c1: Set[K], i1: Flow_K, c2: Set[K
       c1 := keyset_theorem(r, dop, k, contents[n], c_n, c, res1, keyset(i[n]));
 
       AuthFlow_K.compValid();
-      // AuthFlow_K.weak_frameCompInv();
+      AuthFlow_K.weak_frameCompInv();
 
       assert own(r, authFlow, AuthFlow_K.frag(i[n]));
       var contents1: Map[Ref, Set[K]] := contents[n := c_n];

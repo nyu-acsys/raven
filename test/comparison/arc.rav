@@ -1,0 +1,238 @@
+include "arc_ra.rav"
+
+interface ARC {
+    field c: Int
+    field v: ArcRA
+
+    pred p()
+
+    pred no_tokens(x: Ref) {
+        own(x, v, ArcRA.noToken(0.5))
+    }
+
+    pred token_counter(x: Ref, n: Int) {
+        exists q: Real :: q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0))
+    }
+
+    pred token(x: Ref) {
+        exists q: Real :: own(x, v, ArcRA.tokens(0, 0.0, 1, q))    
+    }
+
+    inv arc_inv(x: Ref) {
+        exists v: Int :: (v <= 0 ? no_tokens(x) : token_counter(x, v)) && own(x, c, v, 1.0)
+    }
+
+    // lemma token_allocate(x: Ref)
+    //     requires p()
+    //     ensures token(x) && token_counter(x, 1)
+
+
+    lemma token_interact(x: Ref)
+        requires no_tokens(x)
+        requires token(x)
+        ensures false
+    {
+        unfold no_tokens(x);
+        unfold token(x);
+        assert false;
+    }
+    
+    lemma token_mutate_incr(x: Ref, n: Int)
+        requires token_counter(x, n)
+        ensures token_counter(x, n + 1) && token(x)
+    {
+        ghost var q: Real;
+        
+        unfold token_counter(x, n);
+        q :| q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
+        ghost var q1: Real := ((1.0-q)/2.0);
+        fpu(x, v, 
+            ArcRA.tokens(n, q, 0, 0.0), 
+            ArcRA.tokens(n+1, q + q1, 1, q1)
+        );
+        
+        assert own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        fold token(x);
+        // ArcRA.weak_frameCompInv();
+        // ArcRA.compFrameInv();
+
+        assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
+
+        // assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1));
+
+        // assert ArcRA.tokens(n+1, q + q1, 0, 0.0) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
+
+        assert q+q1 < 1.0 && own(x, v, ArcRA.tokens(n+1, q + q1, 0, 0.0));
+        fold token_counter(x, n + 1);
+        // assert false;
+        
+    }
+    
+    lemma token_mutate_decr(x: Ref, n: Int)
+        requires n > 1 && token_counter(x, n) && token(x)
+        ensures token_counter(x, n - 1)
+    {
+        ghost var q: Real;
+        ghost var q1: Real;
+        unfold token_counter(x, n);
+        q :| q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
+
+        unfold token(x);
+        q1 :| own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+
+        fpu(x, v, 
+            ArcRA.tokens(n, q, 1, q1), 
+            ArcRA.tokens(n-1, q - q1, 0, 0.0)
+        );
+
+        // assert false;
+
+        var n2: Int := n - 1;
+
+        // assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n2, q-q1, 0, 0.0));
+        // fold token_counter(x, n2);
+        // assert token_counter(x, n-1);
+
+        assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n-1, q-q1, 0, 0.0));
+        fold token_counter(x, n-1);        
+    }
+    
+    lemma token_mutate_delete_last(x: Ref)
+        requires token_counter(x, 1) && token(x)
+        ensures no_tokens(x) && no_tokens(x) && p()
+    {
+        ghost var q: Real;
+        ghost var q1: Real;
+
+        unfold token_counter(x, 1);
+        q :| q < 1.0 && own(x, v, ArcRA.tokens(1, q, 0, 0.0));
+
+        unfold token(x);
+        q1 :| own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+
+        fpu(x, v, 
+            ArcRA.tokens(1, q, 1, q1), 
+            ArcRA.noToken(1.0)
+        );
+
+        fold no_tokens(x);
+        fold no_tokens(x);
+        inhale p();
+        // assert no_tokens(x);
+        // assert false;
+    }
+
+    proc mk_arc() 
+        returns (ret: Ref)
+        requires p()
+        ensures arc_inv(ret) && token(ret)
+    {
+        var x: Ref;
+        x := new(c: 1, v: ArcRA.tokens(1, 0.5, 1, 0.5));
+
+        assert ArcRA.frame(ArcRA.tokens(1, 0.5, 1, 0.5), ArcRA.tokens(0, 0.0, 1, 0.5)) == ArcRA.tokens(1, 0.5, 0, 0.0);
+
+        assert own(x, v, ArcRA.tokens(0, 0.0, 1, 0.5));
+        fold token(x);
+
+        assert 0.5 < 1.0 && own(x, v, ArcRA.tokens(1, 0.5, 0, 0.0));
+        fold token_counter(x, 1);
+        fold arc_inv(x);
+        // assert false;
+        return x;
+    }
+
+    proc clone(x: Ref)
+        returns (ret: Int)
+        requires arc_inv(x) && token(x)
+        ensures 0 < ret 
+        ensures token(x) && token(x)
+    {
+        unfold arc_inv(x);
+        var old_count: Int = x.c;
+        fold arc_inv(x);
+
+        var new_count: Int = old_count + 1; 
+        
+        unfold arc_inv(x);
+        var res: Bool = cas(x.c, old_count, new_count);
+
+        {!
+        if (res) {
+            assert token_counter(x, old_count) with {
+                if (old_count <= 0) {
+                    token_interact(x);
+                }
+            }
+
+            token_mutate_incr(x, old_count);
+        }
+        !}
+        
+        fold arc_inv(x);
+
+        if (res) {
+            return old_count;
+        } else {
+            var v: Int := clone(x);
+            return v;
+        }
+    }
+
+    proc count(x: Ref)
+        returns (ret: Int)
+        requires arc_inv(x) && token(x)
+        ensures 0 < ret && token(x)
+    {
+        unfold arc_inv(x);
+        var v: Int = x.c;
+        {!
+        assert v > 0 with {
+            if (v <= 0) {
+                token_interact(x);
+            }
+        }
+        !}
+        fold arc_inv(x);
+
+        return v;
+    }
+
+    proc drop(x: Ref)
+        returns (ret: Bool)
+        requires arc_inv(x) && token(x)
+        ensures (ret == true) ==> no_tokens(x) && p()
+    {
+        unfold arc_inv(x);
+        var old_count: Int = x.c;
+        fold arc_inv(x);
+        var new_count: Int = old_count - 1;
+
+        unfold arc_inv(x);
+        var res: Bool = cas(x.c, old_count, new_count);
+
+        {!
+        if (res) {
+            if (new_count == 0) {
+                token_mutate_delete_last(x);
+            } else {
+                assert old_count > 0 with {
+                    if (old_count <= 0) {
+                        token_interact(x);
+                    }
+                }
+                token_mutate_decr(x, old_count);
+            }
+        }
+        !}
+
+        fold arc_inv(x);
+
+        if (res) {
+            return old_count == 1;
+        } else {
+            var r: Bool := drop(x);
+            return r;
+        }
+    }
+}

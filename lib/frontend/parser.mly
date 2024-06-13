@@ -501,7 +501,7 @@ with_clause:
                  var_loc = loc; 
                  var_type = Type.bool;
                  var_const = true;
-                 var_ghost = false;
+                 var_ghost = true;
                  var_implicit = false; }
         in
 

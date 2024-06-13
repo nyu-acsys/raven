@@ -43,8 +43,8 @@ interface ResourceAlgebra : Type {
     auto axiom fpuReflexive()
         ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
 
-    auto axiom frameValid()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+    // auto axiom frameValid()
+    //     ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
 
     auto axiom weak_frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
@@ -305,7 +305,7 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
     { 
         M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
-        M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv();
+        M.fpuValid(); M.fpuReflexive(); M.weak_frameCompInv();
 
         assert forall a:T, b:T, c:T :: 
             ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1)) ==>
@@ -320,19 +320,19 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
         ensures forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
     {}
     
-    auto lemma frameValid()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    {
-        M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
-        M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv();
+    // auto lemma frameValid()
+    //     ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+    // {
+    //     M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
+    //     M.fpuValid(); M.fpuReflexive(); M.weak_frameCompInv();
 
-    }
+    // }
     
     auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {
         M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
-        M.fpuValid(); M.fpuReflexive(); M.frameValid(); M.weak_frameCompInv();
+        M.fpuValid(); M.fpuReflexive(); M.weak_frameCompInv();
     }
 
 }
@@ -962,9 +962,9 @@ module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra] : ResourceAlgebra {
         ensures forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
     { M1.fpuReflexive(); M2.fpuReflexive(); }
 
-    auto lemma frameValid()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    { M1.frameValid(); M2.frameValid(); }
+    // auto lemma frameValid()
+    //     ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
+    // { M1.frameValid(); M2.frameValid(); }
 
     auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))

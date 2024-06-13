@@ -1,0 +1,88 @@
+module ArcRA : Library.ResourceAlgebra {
+    rep type T = data {
+        case noToken(frac: Real);
+        case tokens(authCount: Int, authPerm: Real, fragCount: Int, fragPerm: Real);
+        case identity;
+        case top
+    }
+
+    val id: T = identity
+
+    func comp(a: T, b: T) returns (ret: T) {
+        a == identity ?
+            b :
+        (b == identity ?
+            a :
+        (valid(a) && valid(b) ?
+            
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
+        valid(tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm)) ?
+            tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm) :
+        (a == noToken(a.frac) && b == noToken(b.frac) && a.frac + b.frac <= 1.0 ?
+            noToken(a.frac + b.frac) :
+            top
+        )) :
+        top
+        
+        ))
+    }
+
+    func valid(a: T) returns (ret: Bool) {
+        a == noToken(a.frac) ?
+            a.frac > 0.0 && a.frac <= 1.0 :
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
+            a.authCount >= 0 && 
+            a.authPerm >= 0.0 && a.authPerm <= 1.0 &&
+            a.fragCount >= 0 && 
+            a.fragPerm >= 0.0 && a.fragPerm <= 1.0 &&
+            ((a.fragCount <= a.authCount &&
+            a.fragPerm <= a.authPerm ) || (a.authCount == 0 && a.authPerm == 0.0)) &&
+            ((a.authCount > 0 && a.authPerm > 0.0) || (a.fragCount > 0 && a.fragPerm > 0.0)) &&
+            (a.authCount > a.fragCount ==> a.authPerm > a.fragPerm)
+            :
+        (a == identity ?
+            true :
+            false))
+    }
+
+    func frame(a: T, b: T) returns (ret: T) {
+        a == b ? 
+            identity :
+        (b == identity ?
+            a :
+        (a == noToken(a.frac) && b == noToken(b.frac) && valid(a) && valid(b) && a.frac > b.frac ?
+            noToken(a.frac - b.frac) :
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
+        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && valid(a) && valid(b) &&
+        ((b.authCount == 0 && b.authPerm == 0.0) || (b.authCount == a.authCount && b.authPerm == a.authPerm)) && b.fragCount <= a.fragCount && b.fragPerm <= a.fragPerm ?
+            tokens(a.authCount - b.authCount, a.authPerm - b.authPerm, a.fragCount - b.fragCount, a.fragPerm - b.fragPerm) :
+            top
+        )))
+    }
+
+    func fpuAllowed(a: T, b: T) returns (ret: Bool) {
+        a == b ? true : 
+        (valid(a) && valid(b) ?
+        (a == noToken(1.0) ?
+            true :
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
+        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) ?
+            (a.authCount - a.fragCount == b.authCount - b.fragCount  &&
+            a.authPerm - a.fragPerm == b.authPerm - b.fragPerm )
+            :
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
+            (a.authCount == a.fragCount  
+            // &&
+            // a.authPerm == a.fragPerm
+            ) :
+            false)
+        )) : 
+        false)
+    }
+
+    auto lemma compFrameInv()
+        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+    {
+        assert forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
+    }
+}

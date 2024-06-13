@@ -205,6 +205,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     compValid();
     assert valid(i3);
 
+    assert i.dom == i12.dom ++ i3.dom;
     assert forall n: Ref :: n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
     compFold(i12, i3, i);
   }
