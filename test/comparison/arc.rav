@@ -7,7 +7,7 @@ interface ARC {
     pred p()
 
     pred no_tokens(x: Ref) {
-        own(x, v, ArcRA.noToken(0.5))
+        own(x, v, ArcRA.noToken)
     }
 
     pred token_counter(x: Ref, n: Int) {
@@ -112,8 +112,10 @@ interface ARC {
 
         fpu(x, v, 
             ArcRA.tokens(1, q, 1, q1), 
-            ArcRA.noToken(1.0)
+            ArcRA.noToken
         );
+
+        assert ArcRA.frame(ArcRA.noToken, ArcRA.noToken) == ArcRA.noToken;
 
         fold no_tokens(x);
         fold no_tokens(x);
