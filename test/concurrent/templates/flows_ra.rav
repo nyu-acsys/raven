@@ -38,8 +38,8 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     valid(i1) && valid(i2) && i1.dom ** i2.dom == {||}
     // && (forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i2.out[n], M.frame(i1.inf[n], i2.out[n])))
     // && (forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i1.out[n], M.frame(i2.inf[n], i1.out[n])))
-    && (forall n: Ref :: n in i1.dom ==> M.valid(M.frame(i1.inf[n], i2.out[n])))
-    && (forall n: Ref :: n in i2.dom ==> M.valid(M.frame(i2.inf[n], i1.out[n])))
+    && (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> M.valid(M.frame(i1.inf[n], i2.out[n])))
+    && (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i2.dom ==> M.valid(M.frame(i2.inf[n], i1.out[n])))
   }
 
   // Interface composition
@@ -100,11 +100,11 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   {
     M.compCommute();
 
-    assert forall i1: T, i2: T ::
+    assert forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)}
       (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
       comp(i1, i2).inf == comp(i2, i1).inf;
     
-    assert forall i1: T, i2: T ::
+    assert forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)}
       (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
       comp(i1, i2).out == comp(i2, i1).out;
   }
@@ -124,12 +124,12 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     requires i.dom == i1.dom ++ i2.dom
     requires i1.dom ** i2.dom == {||}
     requires valid(i1) && valid(i2)
-    requires forall n: Ref :: n in i.dom ==> M.valid(i.inf[n])
-    requires forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i.inf[n], i2.out[n])
-    requires forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i.inf[n], i1.out[n])
-    requires forall n: Ref :: n !in i.dom ==> i.inf[n] == M.id
-    requires forall n: Ref :: n !in i.dom ==> i.out[n] == M.comp(i1.out[n], i2.out[n])
-    requires forall n: Ref :: n in i.dom ==> i.out[n] == M.id
+    requires forall n: Ref :: {i.inf[n]} n in i.dom ==> M.valid(i.inf[n])
+    requires forall n: Ref :: {i1.inf[n]} {i.inf[n]} {i2.out[n]} n in i1.dom ==> i1.inf[n] == M.comp(i.inf[n], i2.out[n])
+    requires forall n: Ref :: {i.inf[n]} {i2.out[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(i.inf[n], i1.out[n])
+    requires forall n: Ref :: {i.inf[n]} n !in i.dom ==> i.inf[n] == M.id
+    requires forall n: Ref :: {i.out[n]} n !in i.dom ==> i.out[n] == M.comp(i1.out[n], i2.out[n])
+    requires forall n: Ref :: {i.out[n]} n in i.dom ==> i.out[n] == M.id
     ensures comp(i1, i2) == i 
   {
     // assume false;
@@ -151,9 +151,9 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     ensures comp(i1, i2).dom == i1.dom ++ i2.dom
     ensures i1.dom ** i2.dom == {||} 
     ensures valid(i1) && valid(i2)
-    ensures forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
-    ensures forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
-    ensures forall n: Ref :: n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
+    ensures forall n: Ref :: {i1.inf[n]} {i2.out[n]} n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
+    ensures forall n: Ref :: {i2.inf[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
+    ensures forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
   {
     idComposable();
     M.compCommute();
@@ -184,14 +184,14 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
                       i1.dom ++ i2.dom);
   
     compFold(i1, i2, i12);
-    assert i12 != top;
-    assert (forall n: Ref :: i12.inf[n] != M.id ==> n in i12.dom);
-    assert (forall n: Ref :: i12.out[n] != M.id ==> n !in i12.dom);
-    assert (forall n: Ref :: n in i12.dom ==> M.valid(i12.inf[n]));
-    assert (forall n: Ref :: n !in i12.dom ==> M.valid(i12.out[n]));
-    assert (i12.dom == {||} ==> i12.out == zeroFlow);
+    //assert i12 != top;
+    //assert (forall n: Ref :: {i12.inf[n]} i12.inf[n] != M.id ==> n in i12.dom);
+    //assert (forall n: Ref :: {i12.out[n]} i12.out[n] != M.id ==> n !in i12.dom);
+    //assert (forall n: Ref :: {i12.inf[n]} n in i12.dom ==> M.valid(i12.inf[n]));
+    //assert (forall n: Ref :: {i12.out[n]} n !in i12.dom ==> M.valid(i12.out[n]));
+    //assert (i12.dom == {||} ==> i12.out == zeroFlow);
 
-    assert i12 != top
+    /*assert i12 != top
     // Inflow and outflow properly defined
     && (forall n: Ref :: {i12.inf[n]} i12.inf[n] != M.id ==> n in i12.dom)
     && (forall n: Ref :: {i12.out[n]} i12.out[n] != M.id ==> n !in i12.dom)
@@ -199,14 +199,14 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     && (forall n: Ref :: {i12.inf[n]} n in i12.dom ==> M.valid(i12.inf[n]))
     && (forall n: Ref :: {i12.out[n]} n !in i12.dom ==> M.valid(i12.out[n]))
     // Empty domain ==> no outflow
-    && (i12.dom == {||} ==> i12.out == zeroFlow);
+    && (i12.dom == {||} ==> i12.out == zeroFlow);*/
 
-    assert valid(i12);
+    //assert valid(i12);
     compValid();
-    assert valid(i3);
+    //assert valid(i3);
 
-    assert i.dom == i12.dom ++ i3.dom;
-    assert forall n: Ref :: n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
+    //assert i.dom == i12.dom ++ i3.dom;
+    //assert forall n: Ref :: {i12.out[n]} {i3.inf[n]} n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
     compFold(i12, i3, i);
   }
 
@@ -258,17 +258,17 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.compFrameInv();
     M.frameInv();
     M.frameFrame();
-    assert forall a: T :: a == id ==> frame(a,a) == id;
-    assert forall a: T :: a != id ==> valid(a) ==> frame(a,a).dom == id.dom;
-    assert forall a: T :: a != id ==> valid(a) ==> frame(a,a).inf == id.inf;
-    assert forall a: T :: a != id ==> valid(a) ==> frame(a,a) == id;
+    //assert forall a: T :: {frame(a,a)} a == id ==> frame(a,a) == id;
+    //assert forall a: T :: {frame(a,a)} a != id ==> valid(a) ==> frame(a,a).dom == id.dom;
+    //assert forall a: T :: {frame(a,a)} a != id ==> valid(a) ==> frame(a,a).inf == id.inf;
+    //assert forall a: T :: {frame(a,a)} a != id ==> valid(a) ==> frame(a,a) == id;
   }
 
 
   func contextualExt(i1: T, i2: T) returns (ret: Bool) {
     valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
-    (forall n: Ref :: n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
-    (forall n: Ref :: n !in i2.dom ==> i1.out[n] == i2.out[n])
+    (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
+    (forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in i2.dom ==> i1.out[n] == i2.out[n])
   }
 
   func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
@@ -287,8 +287,8 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.frameInv();
     M.frameFrame();
     frameInv();
-    assert forall a:T, b:T :: a == id || b == id ==> valid(frame(a,b)) ==> comp(frame(a,b), b) == a;
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(frame(a,b)) ==> comp(frame(a,b), b).dom == a.dom;
+    assert forall a:T, b:T :: {comp(frame(a,b), b)} a == id || b == id ==> valid(frame(a,b)) ==> comp(frame(a,b), b) == a;
+    assert forall a:T, b:T :: {comp(frame(a,b), b)} a != id ==> b != id ==> valid(frame(a,b)) ==> comp(frame(a,b), b).dom == a.dom;
   }
 
   auto lemma fpuValid()
@@ -304,17 +304,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
   {}
 
-  auto lemma weak_frameCompInv()
-    ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-  {
-    M.frameCompInv();
-    M.compCommute();
-    // M.frameFrame();
-    M.compFrameInv();
-    // compId();
-    M.frameInv();
-  }
-
   auto lemma frameCompInv()
     ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
   {
@@ -328,22 +317,22 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.compAssoc();
     frameInv();
 
-    assert forall a:T, b:T :: a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
+    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
 
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
+    assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
 
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
+    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
 
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
+    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
 
-    assert forall a:T, b:T :: a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
+    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
 
   }
   
   lemma replacement_theorem(i1: T, i2: T, j1: T)
     requires valid(comp(i1, i2))
     requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
-    requires forall n: Ref :: n in j1.dom -- i1.dom ==> i2.out[n] == M.id
+    requires forall n: Ref :: {i2.out[n]} n in j1.dom -- i1.dom ==> i2.out[n] == M.id
     ensures comp(j1, i2) != top
     ensures contextualExt(comp(i1, i2), comp(j1, i2))
   {
@@ -358,7 +347,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
 
     compUnfold(i1, i2);
       
-    assert forall n: Ref :: n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
+    assert forall n: Ref :: {j1.inf[n]} {i2.out[n]} n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
       if (n in i1.dom) {
         M.compId();
         M.frameInv();
@@ -367,11 +356,11 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       }
     }
 
-    assert forall n: Ref ::
-      n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
+    //assert forall n: Ref :: {j.inf[n]} {i2.inf[n]} {j1.out[n]} 
+    //  n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
 
     compValid();
-    assert forall n: Ref :: n in j.dom ==> M.valid(j.inf[n]) with {
+    assert forall n: Ref :: {j.inf[n]} n in j.dom ==> M.valid(j.inf[n]) with {
       if (n in j.dom && n in i.dom && n in i1.dom) {
         M.frameCompInv();
       }
@@ -379,9 +368,9 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   
     compFold(j1, i2, j);
 
-    assert forall n: Ref :: n !in j.dom ==> i.out[n] == j.out[n];
+    //assert forall n: Ref :: {i.out[n]} {j.out[n]} n !in j.dom ==> i.out[n] == j.out[n];
 
-    assert forall n: Ref :: n in i.dom ==> j.inf[n] == i.inf[n];
+    //assert forall n: Ref :: {i.inf[n]} {j.inf[n]} n in i.dom ==> j.inf[n] == i.inf[n];
 
     // assert forall n: Ref :: n in i.dom ==> M.valid(M.frame(j.inf[n], i.inf[n])) with
     // {

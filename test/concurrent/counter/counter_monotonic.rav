@@ -77,10 +77,6 @@ module MaxNat : Library.LatticeResourceAlgebra {
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
     {}
     
-    auto lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-    {}
-
     auto lemma frameCompInv()
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> frame(a, b) == a
     {}

@@ -18,7 +18,7 @@ interface CCM : Type {
     ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
 
   auto lemma compId()
-    ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
+    ensures forall a:T :: {comp(a, id)} {frame(a, id)} comp(a, id) == a
 
   auto lemma compValid()
     ensures forall a:T, b:T :: {comp(a,b)} valid(a) && valid(b) ==> valid(comp(a, b)) 
@@ -30,10 +30,14 @@ interface CCM : Type {
     ensures forall a:T :: {frame(a,id)} frame(a, id) == a
   {}
 
-  // Better name?
+  // Better name? selfFrame? frameRefl?
   lemma frameInv()
-    ensures forall a:T :: frame(a, a) == id
-  {}
+    ensures forall a:T :: {frame(a,a)} frame(a, a) == id
+  {
+    assert forall a:T :: {frame(a,a)} frame(a, a) == id with {
+      assert frame(a, a) == frame(comp(a, id), a);  
+    }
+  }
 
   auto lemma compFrameInv()
    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a

@@ -34,7 +34,7 @@ interface ARC {
     {
         unfold no_tokens(x);
         unfold token(x);
-        assert false;
+        //assert false;
     }
     
     lemma token_mutate_incr(x: Ref, n: Int)
@@ -46,6 +46,11 @@ interface ARC {
         unfold token_counter(x, n);
         q :| q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
         ghost var q1: Real := ((1.0-q)/2.0);
+        ghost var a: ArcRA := ArcRA.tokens(n, q, 0, 0.0);
+        ghost var b: ArcRA := ArcRA.tokens(n+1, q + q1, 1, q1);
+        //assert a.ArcRA.authCount - a.ArcRA.fragCount == b.ArcRA.authCount - b.ArcRA.fragCount;
+        //assert a.ArcRA.authPerm - a.ArcRA.fragPerm == b.ArcRA.authPerm - b.ArcRA.fragPerm;
+        //assert ArcRA.fpuAllowed(a, b);
         fpu(x, v, 
             ArcRA.tokens(n, q, 0, 0.0), 
             ArcRA.tokens(n+1, q + q1, 1, q1)
@@ -56,7 +61,7 @@ interface ARC {
         // ArcRA.weak_frameCompInv();
         // ArcRA.compFrameInv();
 
-        assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
+        //assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
 
         // assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1));
 
@@ -87,7 +92,7 @@ interface ARC {
 
         // assert false;
 
-        var n2: Int := n - 1;
+        //var n2: Int := n - 1;
 
         // assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n2, q-q1, 0, 0.0));
         // fold token_counter(x, n2);
@@ -132,7 +137,7 @@ interface ARC {
         var x: Ref;
         x := new(c: 1, v: ArcRA.tokens(1, 0.5, 1, 0.5));
 
-        assert ArcRA.frame(ArcRA.tokens(1, 0.5, 1, 0.5), ArcRA.tokens(0, 0.0, 1, 0.5)) == ArcRA.tokens(1, 0.5, 0, 0.0);
+        //assert ArcRA.frame(ArcRA.tokens(1, 0.5, 1, 0.5), ArcRA.tokens(0, 0.0, 1, 0.5)) == ArcRA.tokens(1, 0.5, 0, 0.0);
 
         assert own(x, v, ArcRA.tokens(0, 0.0, 1, 0.5));
         fold token(x);

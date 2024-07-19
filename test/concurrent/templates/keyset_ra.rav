@@ -1,6 +1,6 @@
 module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
     rep type T = data {
-        case prodKS(keyset: Set[K], contents: Set[K]);
+        case prodKS(keyset: Set[K], contents: Set[K])
         case topKS
     }
 
@@ -21,20 +21,18 @@ module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
             (b == id ? 
                 a :
                 (ks_composable(a, b) ?
-                    prodKS(a.keyset ++ b.keyset, a.contents ++ b.contents) : topKS())
+                    prodKS(a.keyset ++ b.keyset, a.contents ++ b.contents) : topKS)
             )
     }
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
         (valid(a) && valid(b) && b.keyset subseteq a.keyset && b.contents subseteq a.contents ?
-            prodKS(a.keyset -- b.keyset, a.contents -- b.contents) : topKS())
+            prodKS(a.keyset -- b.keyset, a.contents -- b.contents) : topKS)
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        a == b ? true : 
-        (valid(a) && valid(b) && b.keyset subseteq a.keyset ?
-            true : false)
+      valid(a) && valid(b) && b.keyset subseteq a.keyset
     }
 
     auto lemma idValid()
@@ -47,8 +45,7 @@ module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
 
     auto lemma compCommute()
         ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    { 
-    }
+    {}
 
     auto lemma compId()
         ensures forall a:T :: {comp(a, id)} comp(a, id) == a
@@ -66,23 +63,15 @@ module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     {}
     
-    auto lemma fpuValid()
+    lemma fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)}
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}
-    
-    auto lemma fpuReflexive()
-        ensures (forall a:T :: {fpuAllowed(a,a)} valid(a) ==> fpuAllowed(a,a))
     {}
     
     auto lemma frameValid()
         ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
     {}
     
-    auto lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-    {}
-
     auto lemma frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
     {}

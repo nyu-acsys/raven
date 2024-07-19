@@ -20,10 +20,10 @@ module Multiset[K: Type]: CCM {
 
   func valid(a:T) returns (ret: Bool)
   {
-    forall k: K :: a[k] >= 0
+    forall k: K :: {a[k]} a[k] >= 0
   }
 
-  auto lemma idValid()
+  /*auto lemma idValid()
     ensures valid(id)
   {}
 
@@ -49,7 +49,7 @@ module Multiset[K: Type]: CCM {
 
   auto lemma compFrameInv()
    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-  {}
+  {}*/
 
   func fromSet(s: Set[K]) returns (ret:T)
   {

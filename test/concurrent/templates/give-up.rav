@@ -1,7 +1,8 @@
 include "./flows_ra.rav"
 include "./ccm_instances.rav"
+include "./keyset_ra.rav"
 
-import Library.KeysetRA
+//import Library.KeysetRA
 
 
 import Library.Type
@@ -268,14 +269,14 @@ interface GiveUpTemplate[Node: NodeImpl] {
   }
 
   pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
-    own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c ))) &&
+    own(r, authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
     own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
     own(r, authFlow, AuthFlow_K.auth(g_i)) &&
     globalinv(g_i, r)
   }
 
   pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
-    own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair( keyset(i_n), c ) )) &&
+    own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
     own(r, authFlow, AuthFlow_K.frag(i_n)) &&
     i_n.dom == {|n|} && 
     node(n, c, i_n)
@@ -373,8 +374,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
     r := new(
       authKS: AuthKeyset_K.auth_frag(
-        Keyset_K.ksPair(keyspace, {||}),
-        Keyset_K.ksPair(keyspace, {||})
+        Keyset_K.prodKS(keyspace, {||}),
+        Keyset_K.prodKS(keyspace, {||})
       ),
       authSet:AuthSetRef.auth(SetRefRA.set_constr({|r|})),
       authFlow: AuthFlow_K.auth_frag(
@@ -383,7 +384,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       lock:0
     );
 
-    assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, {||}), Keyset_K.ksPair(keyspace, {||})));
+    assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, {||}), Keyset_K.prodKS(keyspace, {||})));
     assert keyset(i_r) == keyspace;
     assert node(r, {||}, i_r);
     fold nodePred(r, r, {||}, i_r);
@@ -562,32 +563,32 @@ interface GiveUpTemplate[Node: NodeImpl] {
   lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
     returns (c1: Set[K])
     requires opSpec(dop, k, c_n, c_n1, res)
-    requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c)))
-    requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n)))
+    requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
+    requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
     // requires own(r, authFlow, AuthFlow_K.auth(g_i))requires own(r, authFlow, AuthFlow_K.frag(g_i))
     requires c_n1 subseteq k_n
     requires k in k_n
     requires k in keyspace
 
     ensures opSpec(dop, k, c, c1, res)
-    ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.ksPair(keyspace, c1)))
-    ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.ksPair(k_n, c_n1)))
+    ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
+    ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
   {
     unfold opSpec(dop, k, c_n, c_n1, res);
 
     if (dop == searchOp() || !res) {
       c1 := c;
-      assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
-      assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
-      assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+      assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+      assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+      assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
       assert c_n subseteq c;
       fold opSpec(dop, k, c, c1, res);
     } else {
       if (dop == insertOp()) {
         c1 := c ++ {| k |};
 
-        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
-        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
         assert k !in c_n;
         assert k !in c;
 
@@ -596,45 +597,45 @@ interface GiveUpTemplate[Node: NodeImpl] {
         fold opSpec(dop, k, c, c1, res);
 
         assert AuthKeyset_K.fpuAllowed(
-          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
-          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1))
         ) with {
-          assert forall k: Keyset_K ::
-            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
-            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+          assert forall k: Keyset_K :: {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1))} {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n))}
+            Keyset_K.prodKS(keyspace, c) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n)) ==>
+            Keyset_K.prodKS(keyspace, c1) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1));
 
-          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
-          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+          assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
         }
         
         fpu(r, authKS, 
-        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)),
-        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)),
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
 
         // assert false;
         
       } else {
         c1 := c -- {| k |};
 
-        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
-        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)));
+        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
         assert k in c_n;
         assert k in c;
         
         fold opSpec(dop, k, c, c1, res);
 
         assert AuthKeyset_K.fpuAllowed(
-          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
-          AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1))
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1))
         ) with {
-          assert forall k: Keyset_K ::
-            Keyset_K.ksPair(keyspace, c) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n)) ==>
-            Keyset_K.ksPair(keyspace, c1) == Keyset_K.comp(k, Keyset_K.ksPair(k_n, c_n1));
+          assert forall k: Keyset_K :: {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n))} {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1))}
+            Keyset_K.prodKS(keyspace, c) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n)) ==>
+            Keyset_K.prodKS(keyspace, c1) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1));
         }
         
         fpu(r, authKS, 
-        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c), Keyset_K.ksPair(k_n, c_n)), 
-        AuthKeyset_K.auth_frag(Keyset_K.ksPair(keyspace, c1), Keyset_K.ksPair(k_n, c_n1)));
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
 
         // assert false;
       }
@@ -716,14 +717,14 @@ interface GiveUpTemplate[Node: NodeImpl] {
       assert k in keyset(i_n);
       assert c_n1 subseteq c_n ++ {| k |};
 
-      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.ksPair(keyset(i_n), c_n)));
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS(keyset(i_n), c_n)));
       assert c_n subseteq keyset(i_n);
 
       cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));
 
 
       // assert own(r, authFlow, AuthFlow_K.frag(i_n));
-      // assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.ksPair( keyspace, c1 )));
+      // assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c1 )));
       AuthFlow_K.compValid();
       AuthFlow_K.weak_frameCompInv();
 
