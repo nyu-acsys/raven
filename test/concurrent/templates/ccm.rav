@@ -8,22 +8,22 @@ interface CCM : Type {
 
   func valid(a:T) returns (ret: Bool)
 
-  auto lemma idValid()
+  auto axiom idValid()
     ensures valid(id)
 
-  auto lemma compAssoc()
+  auto axiom compAssoc()
     ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
-  auto lemma compCommute()
+  auto axiom compCommute()
     ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
 
-  auto lemma compId()
+  auto axiom compId()
     ensures forall a:T :: {comp(a, id)} {frame(a, id)} comp(a, id) == a
 
-  auto lemma compValid()
+  auto axiom compValid()
     ensures forall a:T, b:T :: {comp(a,b)} valid(a) && valid(b) ==> valid(comp(a, b)) 
 
-  auto lemma frameCompInv()
+  auto axiom frameCompInv()
     ensures forall a:T, b:T:: {comp(a,b)} frame(comp(a, b), b) == a
         
   lemma frameId()
@@ -39,14 +39,10 @@ interface CCM : Type {
     }
   }
 
-  auto lemma compFrameInv()
+  auto axiom compFrameInv()
    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
 
   lemma frameFrame()
     ensures forall a:T, b:T :: {valid(frame(a, b))} valid(frame(a, b)) ==> frame(a, frame(a, b)) == b
   {}
-
-
-  //auto lemma frameValid()
-  //  ensures forall a:T, b:T :: {frame(a,b)} {valid(a), valid(b)} valid(frame(a,b)) ==> valid(a) && valid(b)
 }

@@ -142,7 +142,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
                           M.id) |},
                     {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
                     i1.dom ++ i2.dom);
-    assert comp(i1, i2).inf == i.inf;
+    //assert comp(i1, i2).inf == i.inf;
   }
 
   // Unfolds definition of interface composition, avoiding M.frame
@@ -205,7 +205,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     compValid();
     //assert valid(i3);
 
-    //assert i.dom == i12.dom ++ i3.dom;
+    assert i.dom == i12.dom ++ i3.dom;
     //assert forall n: Ref :: {i12.out[n]} {i3.inf[n]} n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
     compFold(i12, i3, i);
   }
@@ -317,13 +317,13 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     M.compAssoc();
     frameInv();
 
-    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
+    assert forall a:T, b:T :: {frame(comp(a, b), b)} a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
 
     assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
 
-    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
+    assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
 
-    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
+    assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
 
     //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
 

@@ -55,7 +55,6 @@ module ArcRA : Library.ResourceAlgebra {
     }
 
     func fpuAllowed(a: T, b: T) returns (ret: Bool) {
-        //a == b || 
         valid(a) && valid(b) &&
         a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
         b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) &&
@@ -65,17 +64,4 @@ module ArcRA : Library.ResourceAlgebra {
         a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
         a.authCount == a.fragCount
     }
-
-    //auto lemma compCommute()
-    //    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    //{}
-
-    //auto lemma weak_frameCompInv()
-    //    ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
-    //{}
-    //auto lemma compFrameInv()
-    //  ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    //{
-    //  assert forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
-    // }
 }

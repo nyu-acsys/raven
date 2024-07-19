@@ -120,7 +120,7 @@ interface ARC {
             ArcRA.noToken
         );
 
-        assert ArcRA.frame(ArcRA.noToken, ArcRA.noToken) == ArcRA.noToken;
+        //assert ArcRA.frame(ArcRA.noToken, ArcRA.noToken) == ArcRA.noToken;
 
         fold no_tokens(x);
         fold no_tokens(x);

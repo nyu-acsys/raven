@@ -572,11 +572,7 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
     {}
-    
-    /*auto lemma fpuReflexive()
-        ensures forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
-    {}*/
-    
+        
     //auto lemma frameValid()
     //    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
     //{}
@@ -664,14 +660,6 @@ module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra] : ResourceAlgebra {
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
     { M1.fpuValid(); M2.fpuValid(); }
-
-   // auto lemma fpuReflexive()
-   //     ensures forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a)
-   // { M1.fpuReflexive(); M2.fpuReflexive(); }
-
-    // auto lemma frameValid()
-    //     ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    // { M1.frameValid(); M2.frameValid(); }
 
     auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
