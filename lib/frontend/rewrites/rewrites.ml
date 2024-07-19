@@ -13,7 +13,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
           | Assert -> "This assertion may be violated"
           | _ -> "Possibly insufficient permissions to exhale this assertion" )
       in
-      let spec_error = [ Stmt.mk_const_spec_error error ] in
+      let spec_error = spec.spec_error @ [Stmt.mk_const_spec_error error] in
       Rewriter.return
         { stmt with stmt_desc = Basic (Spec (kind, { spec with spec_error })) }
   | Loop loop_desc ->
@@ -26,7 +26,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
                   "This loop invariant may not hold upon loop entry"
                 else "This loop invariant may not be maintained" )
             in
-            { spec with spec_error = [ error ] })
+            { spec with spec_error = spec.spec_error @ [error] })
       in
       let stmt =
         { stmt with stmt_desc = Loop { loop_desc with loop_contract } }
@@ -44,7 +44,7 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
             spec.spec_form |> Expr.to_loc,
             "This is the postcondition that may not hold" )
         in
-        { spec with spec_error = [ Stmt.mk_const_spec_error error ] })
+        { spec with spec_error = spec.spec_error @ [Stmt.mk_const_spec_error error] })
   in
   let call_decl_precond =
     List.map call_decl.call_decl_precond ~f:(fun spec ->
@@ -53,7 +53,7 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
             spec.spec_form |> Expr.to_loc,
             "This is the precondition that may not hold" )
         in
-        { spec with spec_error = [ Stmt.mk_const_spec_error error ] })
+        { spec with spec_error = spec.spec_error @ [ Stmt.mk_const_spec_error error ] })
   in
   let call_decl = { call_decl with call_decl_postcond; call_decl_precond } in
   let+ call_def =

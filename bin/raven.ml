@@ -98,9 +98,9 @@ let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
   (smt_env, tbl)
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all no_library file_names =
+let parse_and_check_all smt_diagnostics no_library file_names =
   (* Start backend solver session *)
-  let smt_env = Backend.Smt_solver.init () in
+  let smt_env = Backend.Smt_solver.init smt_diagnostics in
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan =
@@ -231,11 +231,15 @@ let no_library =
   let doc = "Skip standard library." in
   Arg.(value & flag & info [ "nostdlib" ] ~doc)
 
+let smt_diagnostics =
+  let doc = "Let Z3 produce diagostic output." in
+  Arg.(value & flag & info [ "smt-info" ] ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files no_greeting no_library =
+let main () input_files no_greeting no_library smt_diagnostics =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  try `Ok (parse_and_check_all no_library input_files) with
+  try `Ok (parse_and_check_all smt_diagnostics no_library input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
       Logs.err (fun m -> m "%s" s);
       Logs.debug (fun m ->
@@ -253,6 +257,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ smt_diagnostics))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

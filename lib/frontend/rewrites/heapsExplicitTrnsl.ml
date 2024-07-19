@@ -469,6 +469,7 @@ let generate_utils_module ~(is_field : bool) (mod_ident : ident)
       mod_decl_rep = None;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
+      mod_decl_is_free = false;
       mod_decl_loc = loc;
     }
   in

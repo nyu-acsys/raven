@@ -270,7 +270,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         let* _ = assume_expr spec_expr in
 
         let* b =
-          if callable.call_decl.call_decl_is_free then Rewriter.return true
+          if callable.call_decl.call_decl_is_free
+          then Rewriter.return true
           else check_valid check_contract_expr
         in
 
@@ -367,8 +368,8 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
     Rewriter.List.iter deps ~f:(fun dep ->
         match dep with
         | [ qual_name ] -> (
-            Logs.debug (fun m ->
-                m "Checker.check_members: Checking: %a" QualIdent.pr qual_name);
+            Logs.info (fun m ->
+                m "Checking: %a" QualIdent.pr qual_name);
             let* symbol = Rewriter.find_and_reify Loc.dummy qual_name in
             match symbol with
             | CallDef callable -> check_callable qual_name callable

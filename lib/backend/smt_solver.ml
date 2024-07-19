@@ -48,7 +48,7 @@ module SmtSession = struct
       }
     in
 
-    let log_file_name = "log.smt" in
+    let log_file_name = "log.smt2" in
 
     {
       log_file_name;
@@ -320,17 +320,17 @@ let declare_tuple_sort (arity : int) : command =
 
   mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
 
-let init () : smt_env =
+let init diagnostics : smt_env =
   let open SmtSession in
   let session = start_solver () in
   let open PreambleConsts in
   let options_list =
     [
-      SetOption (":timeout", "2000", None);
+      SetOption (":timeout", "10000", None);
       SetOption (":produce-unsat-cores", "true", None);
       SetOption (":smt.mbqi", "false", None);
       SetOption (":auto-config", "false", None);
-    ]
+    ] @ if diagnostics then [SetOption (":smt.qi.profile", "true", None)] else []
   in
 
   let list_of_cmds =

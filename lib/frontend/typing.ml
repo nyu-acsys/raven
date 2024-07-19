@@ -2219,7 +2219,7 @@ module ProcessModule = struct
         (QualIdent.to_loc mod_ident)
         (Printf.sprintf
            !"%s %{QualIdent} does not implement interface %{QualIdent}."
-           (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol))
+           (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
            mod_ident int_ident)
 
   let rec process_module (m : Module.t) : Module.t Rewriter.t =
@@ -2337,7 +2337,7 @@ module ProcessModule = struct
           (QualIdent.from_ident (Symbol.to_name (ModDef m)))
     in
 
-    let merge_defs parent_mod_def mod_def =
+    let merge_defs parent_ident parent_mod_def mod_def =
       let _parent_defined_symbols = get_defined_symbols parent_mod_def in
       let rec merge_defs (merged, to_check, seen) = function
         | [], mod_def -> (List.rev_append merged mod_def, to_check)
@@ -2351,25 +2351,60 @@ module ProcessModule = struct
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | Module.SymbolDef parent_symbol :: parent_mod_def, mod_def -> (
             let parent_symbol_ident = Symbol.to_name parent_symbol in
+            let annotate_error_msg = function
+              | Module.CallDef ({ call_decl; _ } as call) as symbol ->
+                let annotate_spec spec =
+                  let error =
+                    ( Error.Verification,
+                      Symbol.to_loc parent_symbol,
+                      (Printf.sprintf
+                         !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
+                         (Symbol.kind symbol |> String.capitalize)
+                         parent_symbol_ident
+                         (Symbol.kind parent_symbol)
+                         parent_ident parent_symbol_ident))
+                  in
+                  { spec with Stmt.spec_error = Stmt.mk_const_spec_error error :: spec.Stmt.spec_error }
+                in
+                let call_decl_postcond = List.map ~f:annotate_spec call_decl.call_decl_postcond in
+                let call_decl_precond = List.map ~f:annotate_spec call_decl.call_decl_precond in
+                let call_decl =
+                  { call_decl with
+                    call_decl_precond;
+                    call_decl_postcond;
+                    call_decl_loc = m.mod_decl.mod_decl_loc }
+                in
+                Module.CallDef { call with call_decl }
+              | symbol -> symbol
+            in
             if not (Set.mem defined_symbols parent_symbol_ident) then
               (* case: parent_symbol should be inherited *)
               let parent_symbol =
                 match parent_symbol with
                 | CallDef call when not @@ Callable.is_abstract call ->
-                    Module.CallDef (Callable.make_free call)
+                  Logs.info (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
+                  Module.CallDef (Callable.make_free call)
                 | CallDef
                     ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
                   when Callable.is_abstract call
                        && not m.mod_decl.mod_decl_is_interface ->
-                    let loc = Callable.to_loc call in
-                    CallDef
-                      {
-                        call with
-                        call_def =
-                          ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
-                      }
-                | _ -> parent_symbol
+                  let loc = m.mod_decl.mod_decl_loc in
+                  let call =
+                    {
+                      call with
+                      call_def =
+                        ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
+                    }
+                  in
+                  let call =
+                    if m.mod_decl.mod_decl_is_free
+                    then Callable.make_free call
+                    else call
+                  in
+                  annotate_error_msg (CallDef call)
+                | _ -> annotate_error_msg parent_symbol
               in
+              
               merge_defs
                 (Module.SymbolDef parent_symbol :: merged, to_check, seen)
                 (parent_mod_def, mod_def)
@@ -2452,25 +2487,7 @@ module ProcessModule = struct
           ( Some qual_interface_ident,
             Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
             interface_ident,
-            (*List.fold interface.mod_def ~init:([], Map.empty (module Ident)) ~f:(fun (inherited, to_check) -> function
-                | Module.SymbolDef ( ConstrDef _ | DestrDef _) -> inherited, to_check
-                | Module.SymbolDef symbol ->
-                  let ident = Symbol.to_name symbol in
-                  if Set.mem defined_symbols ident
-                  then inherited, Map.add_exn to_check ~key:ident ~data:symbol
-                  else
-                    let symbol = match symbol with
-                      | CallDef call  when not @@ Callable.is_abstract call ->
-                        Module.CallDef (Callable.make_free call)
-                      | CallDef ({ call_decl = {call_decl_kind = Lemma; _ }; _ } as call)
-                        when Callable.is_abstract call && not m.mod_decl.mod_decl_is_interface ->
-                        let loc = Callable.to_loc call in
-                        CallDef { call with call_def = ProcDef { proc_body = Some (Stmt.mk_skip ~loc) } }
-                      | _ -> symbol
-                    in
-                    Module.SymbolDef symbol :: inherited, to_check
-                | _ -> inherited, to_check)*)
-            merge_defs interface.mod_def m.mod_def )
+            merge_defs qual_interface_ident interface.mod_def m.mod_def )
       | _ ->
           let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
           let interfaces =

@@ -1901,6 +1901,7 @@ module Module = struct
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
+    mod_decl_is_free : bool;
     mod_decl_loc : location;
   }
 
@@ -2014,6 +2015,7 @@ module Module = struct
       mod_decl_loc = Loc.dummy;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
+      mod_decl_is_free = false;
     }
 
 
@@ -2048,8 +2050,9 @@ module Module = struct
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
-  let rec set_free md = 
-    { md with mod_def = List.map md.mod_def ~f:(fun instr -> 
+  let rec set_free md =
+    let mod_decl = { md.mod_decl with mod_decl_is_free = true } in
+    { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr -> 
         match instr with
         | SymbolDef (ModDef md) -> SymbolDef (ModDef (set_free md))
         | SymbolDef (CallDef cdef) -> SymbolDef (CallDef (Callable.make_free cdef))
@@ -2097,7 +2100,10 @@ module Symbol = struct
     | FieldDef _ -> "field"
     | CallDef call_def ->
       match call_def.call_decl.call_decl_kind with
-      | Lemma -> "lemma"
+      | Lemma ->
+        (match call_def.call_def with
+        | ProcDef {proc_body = None } -> "axiom"
+        | _ -> "lemma")
       | Proc -> "procedure"
       | Func -> "function"
       | Pred -> "predicate"
@@ -2207,6 +2213,7 @@ let merge_prog (prog1: Module.t) (prog2: Module.t) =
       mod_decl_rep = prog2.mod_decl.mod_decl_rep;
       mod_decl_is_ra = prog1.mod_decl.mod_decl_is_ra || prog2.mod_decl.mod_decl_is_ra;
       mod_decl_is_interface = prog1.mod_decl.mod_decl_is_interface || prog2.mod_decl.mod_decl_is_interface;
+      mod_decl_is_free = prog1.mod_decl.mod_decl_is_free && prog2.mod_decl.mod_decl_is_free;
       mod_decl_loc = prog2.mod_decl.mod_decl_loc;
     }
   
