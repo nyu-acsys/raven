@@ -55,13 +55,19 @@ module ArcRA : Library.ResourceAlgebra {
     }
 
     func fpuAllowed(a: T, b: T) returns (ret: Bool) {
-        valid(a) && valid(b) &&
-        a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) &&
-        a.authCount - a.fragCount == b.authCount - b.fragCount  &&
-        a.authPerm - a.fragPerm == b.authPerm - b.fragPerm ||
-        valid(a) && valid(b) &&
-        a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-        a.authCount == a.fragCount
+        a == b ? true : 
+        (valid(a) && valid(b) ?
+        (a == noToken ?
+            false :
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
+        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) ?
+            (a.authCount - a.fragCount == b.authCount - b.fragCount  &&
+            a.authPerm - a.fragPerm == b.authPerm - b.fragPerm )
+            :
+        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
+            a.authCount == a.fragCount :
+            false)
+        )) : 
+        false)
     }
 }

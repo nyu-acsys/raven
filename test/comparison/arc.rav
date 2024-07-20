@@ -1,50 +1,53 @@
+include "shareable_predicates.rav"
 include "arc_ra.rav"
 
 interface ARC {
     field c: Int
     field v: ArcRA
 
+    module SharePred: ShareablePredicate
+
     pred p()
 
-    pred no_tokens(x: Ref) {
+    pred noTokens(x: Ref) {
         own(x, v, ArcRA.noToken)
     }
 
-    pred token_counter(x: Ref, n: Int) {
-        exists q: Real :: q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0))
+    pred tokenCounter(x: Ref, n: Int) {
+        exists q: Real :: q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(n, q, 0, 0.0))
     }
 
     pred token(x: Ref) {
-        exists q: Real :: own(x, v, ArcRA.tokens(0, 0.0, 1, q))    
+        exists q: Real :: SharePred.p_chunk(x, q) && own(x, v, ArcRA.tokens(0, 0.0, 1, q)) 
     }
 
-    inv arc_inv(x: Ref) {
-        exists v: Int :: (v <= 0 ? no_tokens(x) : token_counter(x, v)) && own(x, c, v, 1.0)
+    inv arcInv(x: Ref) {
+        exists v: Int :: (v <= 0 ? noTokens(x) : tokenCounter(x, v)) && own(x, c, v, 1.0)
     }
 
     // lemma token_allocate(x: Ref)
     //     requires p()
-    //     ensures token(x) && token_counter(x, 1)
+    //     ensures token(x) && tokenCounter(x, 1)
 
 
     lemma token_interact(x: Ref)
-        requires no_tokens(x)
+        requires noTokens(x)
         requires token(x)
         ensures false
     {
-        unfold no_tokens(x);
+        unfold noTokens(x);
         unfold token(x);
         //assert false;
     }
     
     lemma token_mutate_incr(x: Ref, n: Int)
-        requires token_counter(x, n)
-        ensures token_counter(x, n + 1) && token(x)
+        requires tokenCounter(x, n)
+        ensures tokenCounter(x, n + 1) && token(x)
     {
         ghost var q: Real;
         
-        unfold token_counter(x, n);
-        q :| q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
+        unfold tokenCounter(x, n);
+        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
         ghost var q1: Real := ((1.0-q)/2.0);
         ghost var a: ArcRA := ArcRA.tokens(n, q, 0, 0.0);
         ghost var b: ArcRA := ArcRA.tokens(n+1, q + q1, 1, q1);
@@ -55,35 +58,29 @@ interface ARC {
             ArcRA.tokens(n, q, 0, 0.0), 
             ArcRA.tokens(n+1, q + q1, 1, q1)
         );
+
+        SharePred.split(x, 1.0-q);
         
-        assert own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        assert SharePred.p_chunk(x, q1) && own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
         fold token(x);
-        // ArcRA.weak_frameCompInv();
-        // ArcRA.compFrameInv();
-
-        //assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
-
-        // assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1));
-
-        // assert ArcRA.tokens(n+1, q + q1, 0, 0.0) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
-
-        assert q+q1 < 1.0 && own(x, v, ArcRA.tokens(n+1, q + q1, 0, 0.0));
-        fold token_counter(x, n + 1);
-        // assert false;
         
+        assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
+
+        assert q+q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q+q1)) && own(x, v, ArcRA.tokens(n+1, q + q1, 0, 0.0));
+        fold tokenCounter(x, n + 1);        
     }
     
     lemma token_mutate_decr(x: Ref, n: Int)
-        requires n > 1 && token_counter(x, n) && token(x)
-        ensures token_counter(x, n - 1)
+        requires n > 1 && tokenCounter(x, n) && token(x)
+        ensures tokenCounter(x, n - 1)
     {
         ghost var q: Real;
         ghost var q1: Real;
-        unfold token_counter(x, n);
-        q :| q < 1.0 && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
+        unfold tokenCounter(x, n);
+        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
 
         unfold token(x);
-        q1 :| own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        q1 :| SharePred.p_chunk(x, q1) && own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
 
         fpu(x, v, 
             ArcRA.tokens(n, q, 1, q1), 
@@ -94,26 +91,28 @@ interface ARC {
 
         //var n2: Int := n - 1;
 
-        // assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n2, q-q1, 0, 0.0));
-        // fold token_counter(x, n2);
-        // assert token_counter(x, n-1);
+        SharePred.merge(x, 1.0-q, q1);
 
-        assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n-1, q-q1, 0, 0.0));
-        fold token_counter(x, n-1);        
+        // assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n2, q-q1, 0, 0.0));
+        // fold tokenCounter(x, n2);
+        // assert tokenCounter(x, n-1);
+
+        assert q-q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q-q1)) && own(x, v, ArcRA.tokens(n-1, q-q1, 0, 0.0));
+        fold tokenCounter(x, n-1);        
     }
     
     lemma token_mutate_delete_last(x: Ref)
-        requires token_counter(x, 1) && token(x)
-        ensures no_tokens(x) && no_tokens(x) && p()
+        requires tokenCounter(x, 1) && token(x)
+        ensures noTokens(x) && noTokens(x) && p()
     {
         ghost var q: Real;
         ghost var q1: Real;
 
-        unfold token_counter(x, 1);
-        q :| q < 1.0 && own(x, v, ArcRA.tokens(1, q, 0, 0.0));
+        unfold tokenCounter(x, 1);
+        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(1, q, 0, 0.0));
 
         unfold token(x);
-        q1 :| own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        q1 :| SharePred.p_chunk(x, q1) && own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
 
         fpu(x, v, 
             ArcRA.tokens(1, q, 1, q1), 
@@ -122,51 +121,54 @@ interface ARC {
 
         //assert ArcRA.frame(ArcRA.noToken, ArcRA.noToken) == ArcRA.noToken;
 
-        fold no_tokens(x);
-        fold no_tokens(x);
+        fold noTokens(x);
+        fold noTokens(x);
         inhale p();
-        // assert no_tokens(x);
+        // assert noTokens(x);
         // assert false;
     }
 
     proc mk_arc() 
         returns (ret: Ref)
-        requires p()
-        ensures arc_inv(ret) && token(ret)
+        ensures arcInv(ret) && token(ret)
     {
         var x: Ref;
+        
         x := new(c: 1, v: ArcRA.tokens(1, 0.5, 1, 0.5));
+        SharePred.allocate(x);
 
         //assert ArcRA.frame(ArcRA.tokens(1, 0.5, 1, 0.5), ArcRA.tokens(0, 0.0, 1, 0.5)) == ArcRA.tokens(1, 0.5, 0, 0.0);
 
-        assert own(x, v, ArcRA.tokens(0, 0.0, 1, 0.5));
+        SharePred.split(x, 1.0);
+
+        assert SharePred.p_chunk(x, 0.5) && own(x, v, ArcRA.tokens(0, 0.0, 1, 0.5));
         fold token(x);
 
-        assert 0.5 < 1.0 && own(x, v, ArcRA.tokens(1, 0.5, 0, 0.0));
-        fold token_counter(x, 1);
-        fold arc_inv(x);
+        assert 0.5 < 1.0 && SharePred.p_chunk(x, 1.0-0.5) && own(x, v, ArcRA.tokens(1, 0.5, 0, 0.0));
+        fold tokenCounter(x, 1);
+        fold arcInv(x);
         // assert false;
         return x;
     }
 
     proc clone(x: Ref)
         returns (ret: Int)
-        requires arc_inv(x) && token(x)
+        requires arcInv(x) && token(x)
         ensures 0 < ret 
         ensures token(x) && token(x)
     {
-        unfold arc_inv(x);
+        unfold arcInv(x);
         var old_count: Int = x.c;
-        fold arc_inv(x);
+        fold arcInv(x);
 
         var new_count: Int = old_count + 1; 
         
-        unfold arc_inv(x);
+        unfold arcInv(x);
         var res: Bool = cas(x.c, old_count, new_count);
 
         {!
         if (res) {
-            assert token_counter(x, old_count) with {
+            assert tokenCounter(x, old_count) with {
                 if (old_count <= 0) {
                     token_interact(x);
                 }
@@ -176,22 +178,24 @@ interface ARC {
         }
         !}
         
-        fold arc_inv(x);
+        fold arcInv(x);
 
         if (res) {
+            // assert false;
             return old_count;
         } else {
             var v: Int := clone(x);
+            // assert false;
             return v;
         }
     }
 
     proc count(x: Ref)
         returns (ret: Int)
-        requires arc_inv(x) && token(x)
+        requires arcInv(x) && token(x)
         ensures 0 < ret && token(x)
     {
-        unfold arc_inv(x);
+        unfold arcInv(x);
         var v: Int = x.c;
         {!
         assert v > 0 with {
@@ -200,22 +204,22 @@ interface ARC {
             }
         }
         !}
-        fold arc_inv(x);
+        fold arcInv(x);
 
         return v;
     }
 
     proc drop(x: Ref)
         returns (ret: Bool)
-        requires arc_inv(x) && token(x)
-        ensures (ret == true) ==> no_tokens(x) && p()
+        requires arcInv(x) && token(x)
+        ensures (ret == true) ==> noTokens(x) && p()
     {
-        unfold arc_inv(x);
+        unfold arcInv(x);
         var old_count: Int = x.c;
-        fold arc_inv(x);
+        fold arcInv(x);
         var new_count: Int = old_count - 1;
 
-        unfold arc_inv(x);
+        unfold arcInv(x);
         var res: Bool = cas(x.c, old_count, new_count);
 
         {!
@@ -233,7 +237,7 @@ interface ARC {
         }
         !}
 
-        fold arc_inv(x);
+        fold arcInv(x);
 
         if (res) {
             return old_count == 1;
