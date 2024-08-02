@@ -15,3 +15,5 @@ Type-checking:
 - Parse field reads/writes/cas/fpu separately
 - Fix dependency analysis wrt auto lemmas
 - Investigate spurious "unknown"s in the middle of log files
+
+- Fix missing triggers in all `Expr.mk_binder` calls
