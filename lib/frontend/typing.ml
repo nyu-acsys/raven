@@ -2391,7 +2391,7 @@ module ProcessModule = struct
                   let loc = m.mod_decl.mod_decl_loc in
                   let call =
                     {
-                      call with
+                      Callable.call_decl = { call.call_decl with call_decl_is_auto = false };
                       call_def =
                         ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
                     }

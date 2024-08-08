@@ -327,9 +327,10 @@ let init diagnostics : smt_env =
   let options_list =
     [
       SetOption (":timeout", "10000", None);
-      SetOption (":produce-unsat-cores", "true", None);
-      SetOption (":smt.mbqi", "false", None);
+      (*SetOption (":produce-unsat-cores", "true", None);*)
       SetOption (":auto-config", "false", None);
+      SetOption (":smt.mbqi", "false", None);
+      SetOption (":smt.case_split", "3", None);
     ] @ if diagnostics then [SetOption (":smt.qi.profile", "true", None)] else []
   in
 
