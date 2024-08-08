@@ -98,7 +98,64 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
     lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {}
+
+    /*lemma frameCompValid()
+      ensures forall a: T, b: T, c: T :: {frame(a, comp(b, c)), frame(a,b)}
+        valid(a) && valid(comp(b, c)) && valid(frame(a,b)) && valid(frame(a,c)) ==> //&& valid(frame(a, comp(b, c)))==>
+          valid(frame(a, comp(b, c)))
+    {
+      assert forall a: T, b: T, c: T :: {frame(a, comp(b, c)), frame(a,b)}
+        valid(a) && valid(comp(b, c)) && valid(frame(a,b)) && valid(frame(a,c)) ==> //&& valid(frame(a, comp(b, c)))==>
+          valid(frame(a, comp(b, c))) with {
+        cancellative();
+        if (valid(a) && valid(comp(b, c)) && valid(frame(a,b)) && valid(frame(a,c))) {
+          
+          assert valid(frame(frame(a, b), c));
+          //assert comp (frame(a, comp(b, c)), comp(b, c)) == a;
+        }
+      }
+    }*/
+
+    /*lemma frameCompDist()
+      ensures forall a: T, b: T, c: T :: {frame(a, comp(b, c)), frame(a,b)}
+        valid(a) && valid(comp(b, c)) && valid(frame(a,b)) ==> //&& valid(frame(a, comp(b, c)))==>
+          frame(a, comp(b, c)) == frame(frame(a, b), c)
+    {
+      assert forall a: T, b: T, c: T :: {frame(a, comp(b, c)), frame(a,b)}
+        valid(a) && valid(comp(b, c)) && valid(frame(a,b)) ==> // && valid(frame(a, comp(b, c)))==>
+          frame(a, comp(b, c)) == frame(frame(a, b), c) with {
+        cancellative();
+        if (valid(a) && valid(comp(b, c)) && valid(frame(a,b))) {
+          assert comp (frame(a, comp(b, c)), comp(b, c)) == a;
+        }
+      }      
+      /*
+         ==> // compFrameInv
+         (a - (b + c) + (b + c)) == a 
+         ==> // compComm + compAssoc 
+         (a - (b + c) + c) + b == a 
+         ==> // compFrameInv
+         (a - b) + b == a 
+         ==> // cancellative
+         a - b == (a - (b + c) + c)
+      */
+    }*/
+
+
+    /*lemma test(a: T, b: T, c: T)
+       requires valid(a) && valid(b) && valid(c) && valid(frame(a, b))
+       ensures valid(frame(comp(a, c), comp(b, c)))
+    {
+        //assert valid(frame(a, comp(b,c))) ==> frame(a, comp(b,c)) == frame(frame(a, b), c);
+        assume valid(comp(a, c)) && valid(comp(b, c)) && valid(frame(comp(a, c), comp(b, c)));
+        frameCompDist();
+        assert frame(frame(comp(a, c), c), b) == frame(comp(a, c), comp(b, c));
+        assert frame(frame(comp(a, c), c), b) == frame(comp(a, c), comp(b, c));
+        assert frame(frame(comp(a, c), c), b) == frame(a, b);
+    }*/
 }
+
+
 
 interface LatticeResourceAlgebra : ResourceAlgebra {
     auto axiom frameCompInv()
@@ -151,41 +208,157 @@ module Nat : CancellativeResourceAlgebra {
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
         forall c:T :: valid(a) && valid(comp(a,c)) ==> valid(comp(b,c))
     }
+}
 
-    lemma idValid()
+/*
+module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
+    rep type T = data { 
+        case frag(f_proj1: M)
+        case auth_frag(af_proj1: M, af_proj2: M)
+        case top
+    }
+    
+    val id: T = frag(M.id)
+
+    func valid(n:T) returns (ret:Bool) {
+        (n == frag(n.f_proj1) ?
+            M.valid(n.f_proj1) :
+        (n == auth_frag(n.af_proj1, n.af_proj2) && 
+            M.valid(n.af_proj1) && M.valid(n.af_proj2) && M.valid(M.frame(n.af_proj1, n.af_proj2))
+        )
+        )
+    }
+
+    func comp(a:T, b:T) returns (ret:T) {
+        (a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+            (frag(M.comp(a.f_proj1, b.f_proj1))) :
+        ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
+            auth_frag(b.af_proj1, M.comp(a.f_proj1, b.af_proj2)) :
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
+            auth_frag(a.af_proj1, M.comp(b.f_proj1, a.af_proj2)) :
+            top))
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        b == id ? a : 
+        ((a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+            (frag(M.frame(a.f_proj1, b.f_proj1))) :
+        ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
+            top :
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == frag(b.f_proj1)) ? 
+            auth_frag(a.af_proj1, M.frame(a.af_proj2, b.f_proj1)) :
+        ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == auth_frag(b.af_proj1, b.af_proj2) ? 
+            (a.af_proj1 == b.af_proj1 ? frag(M.frame(a.af_proj2, b.af_proj2)) : top) :
+            top
+        )))))
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+      a == auth_frag(a.af_proj1, a.af_proj2) && 
+      b == auth_frag(b.af_proj1, b.af_proj2) && 
+      valid(a) && valid(b) && 
+      M.fpuAllowed(a.af_proj2, b.af_proj2) &&
+      M.valid(M.frame(b.af_proj1, M.frame(a.af_proj1, a.af_proj2)))
+    }
+
+    func auth(a:M) returns (ret: T) {
+        auth_frag(a, M.id)
+    }
+
+    auto lemma idValid()
         ensures valid(id)
-    {}
+    { M.idValid(); }
 
-    lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} 
-            (comp(comp(a, b), c) == comp(a, comp(b, c)))
-    {}
+    auto lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    { M.compCommute(); M.compAssoc(); }
 
-    lemma compCommute()
+    auto lemma compCommute()
         ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    {}
+    { M.compCommute(); }
 
-    lemma compId()
-        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
-    {}
- 
-    lemma compValid()
-        ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-    {}
+    auto lemma compId()
+        ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
+    { M.compCommute(); M.compId(); }
 
-    lemma frameId()
+    auto lemma compValid()
+        ensures forall a:T, b:T :: {valid(comp(a,b))} valid(comp(a, b)) ==> valid(a) && valid(b)
+    { 
+        M.compValid(); M.compAssoc(); M.compFrameInv(); 
+        M.weak_frameCompInv();
+
+        assert forall a: M, b: M :: {M.valid(M.frame(a,b))} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
+    }
+
+    auto lemma frameId()
         ensures forall a:T :: {frame(a,id)} frame(a, id) == a
     {}
-    
-    lemma compFrameInv()
+
+    auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a,b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    {}
+    { 
+        M.compCommute(); 
+        M.compId(); 
+        M.compValid(); 
+        M.compFrameInv();
+    }
+
+    auto lemma frameCompInv()
+        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+    {
+        M.frameCompInv();
+        M.compCommute(); 
+        M.compId(); 
+        M.compValid(); 
+        M.compFrameInv();
+    }
     
-    lemma fpuValid()
+    auto lemma fpuValid()
         ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}    
+    { 
+        M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
+        M.fpuValid(); //M.fpuReflexive(); 
+        M.weak_frameCompInv();
+        M.cancellative();
+        M.frameCompInv();
+        assert forall a: M, b: M :: {M.valid(M.frame(a,b))} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
+
+        assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
+            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c)) with {
+          if (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) {
+            if (c == frag(c.f_proj1)) {
+              assert M.valid(M.frame(a.af_proj1, c.f_proj1));
+              assert M.valid(M.comp(c.f_proj1, a.af_proj2));
+              assert M.valid(M.frame(a.af_proj1, M.comp(c.f_proj1, a.af_proj2)));
+              assert M.valid(M.comp(c.f_proj1, b.af_proj2));
+              assert M.valid(M.frame(a.af_proj1, c.f_proj1));
+
+              assert M.valid(M.frame(b.af_proj1, b.af_proj2));
+              assert M.valid(M.frame(b.af_proj1, c.f_proj1));
+              //frameCompDist();
+              assume M.valid(M.frame(b.af_proj1, M.comp(c.f_proj1, b.af_proj2)));
+            }
+          }
+        }
+
+        //assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} 
+        //    ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1)) ==>
+        //    (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c));
+    }
+        
+    /*auto lemma weak_frameCompInv()
+        ensures forall a:T, b:T:: {frame(comp(a,b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+    {
+        M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
+        M.fpuValid(); 
+        //M.fpuReflexive(); 
+        M.weak_frameCompInv();
+        assert forall a: M, b: M :: {M.frame(a,b)} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
+    }*/
+
 }
+*/
 
 module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
@@ -307,54 +480,55 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
 
 }
 
+
 module Frac[X: Type] : CancellativeResourceAlgebra {
     rep type T = data {
-        case frac_null;
-        case frac_chunk(frac_proj1: X, frac_proj2: Real);
+        case frac_null
+        case frac_chunk(frac_proj1: X, frac_proj2: Real)
         case frac_top
     }
 
-    val id: T = frac_null()
+    val id: T = frac_null
 
     func valid(n:T) 
         returns (ret:Bool) 
     {
         (n == frac_chunk(n.frac_proj1, n.frac_proj2) ?
             (n.frac_proj2 > 0.0 && n.frac_proj2 <= 1.0) : 
-            (n == frac_null() ? true : 
+            (n == frac_null ? true : 
                 false
             )
         )
     }
 
     func comp(a:T, b:T) returns (ret:T) {
-        a == frac_null() ? b :
-        (b == frac_null() ? a :
+        a == frac_null ? b :
+        (b == frac_null ? a :
         (valid(a) && valid(b) ? 
             (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 + b.frac_proj2 > 0.0 && a.frac_proj2 + b.frac_proj2 <= 1.0 ? 
                 frac_chunk(a.frac_proj1, a.frac_proj2 + b.frac_proj2) :
-                frac_top()) : 
-            frac_top()
+                frac_top) : 
+            frac_top
         )
         )
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        b == frac_null() ? a :
+        b == frac_null ? a :
 
         (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) && valid(a) && valid(b) ? 
             (a.frac_proj1 == b.frac_proj1 ? 
-                (a.frac_proj2 == b.frac_proj2 ? frac_null() : frac_chunk(a.frac_proj1, a.frac_proj2 - b.frac_proj2)) : 
-                frac_top()
+                (a.frac_proj2 == b.frac_proj2 ? frac_null : frac_chunk(a.frac_proj1, a.frac_proj2 - b.frac_proj2)) : 
+                frac_top
             ) : 
-            frac_top()
+            frac_top
         )
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
         (a == frac_chunk(a.frac_proj1, a.frac_proj2) ?
             a.frac_proj2 == 1.0 && valid(b) :
-        (a == frac_top() ? true : false))
+        (a == frac_top ? true : false))
     }
 }
 
@@ -383,38 +557,15 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     }
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool) {
-        a == b
+        false
     }
     
     auto lemma compFrameInv()
         ensures forall a: T, b: T :: {comp(frame(a,b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-        assert forall a: T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
+        assert forall a: T :: (a == agree_null || a == agree_constr(a.agree_proj1) || a == agree_top) ;
     }
     
-    //auto lemma fpuValid()
-    //    ensures forall a: T, b: T, c: T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
-    //        (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    //{}    
-
-    auto lemma frameCompInv()
-        ensures forall a: T, b: T :: {frame(a,b)} valid(frame(a, b)) ==> frame(a, b) == a
-    {}
-    
-    auto lemma frameCompInv0()
-        ensures forall a: T, b: T :: {comp(a, b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
-    {}
-    
-    //auto lemma frame_comp_inv()
-    //    ensures forall a: T, b: T, c: T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
-    // {
-        //assert forall a: T, b: T, c: T :: {frame(a, comp(b,c))}
-        //    b == agree_null ==>
-        //   frame(a, comp(b, c)) == frame(frame(a, b), c);
-        // assert forall a: T :: (a == agree_null() || a == agree_constr(a.agree_proj1) || a == agree_top()) ;
-        // assert false;
-    //}
-
 }
 
 module CountAgreeRA[X: Type] : CancellativeResourceAlgebra {
@@ -461,54 +612,6 @@ module CountAgreeRA[X: Type] : CancellativeResourceAlgebra {
         )
     }
 
-    auto lemma idValid()
-        ensures valid(id)
-    {}
-
-    auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-    {}
-
-    auto lemma compCommute()
-        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    {}
-
-    auto lemma compId()
-        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
-    {}
- 
-    auto lemma compValid()
-        ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-    {}
-
-    auto lemma frameId()
-        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-    {}
-    
-    auto lemma compFrameInv()
-        ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    {}
-    
-    auto lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
-            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}
-    
-    auto lemma fpuReflexive()
-        ensures forall a:T :: {fpuAllowed(a,a)} valid(a) ==> fpuAllowed(a,a)
-    {}
-
-    //auto lemma frameValid()
-    //    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    //{}
-    
-    auto lemma frameCompInv()
-        ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-    { 
-        assert forall a:T, b:T :: {comp(a, b)} (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value)) ==>  (valid(comp(a, b)) ==> a.value == b.value);
-        assert forall a:T, b:T :: {frame(comp(a, b), b)} (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value)) ==>  (valid(comp(a, b)) ==> frame(comp(a, b), b) == a); 
-    }
-
 }
 
 module SetRA[X: Type] : LatticeResourceAlgebra {
@@ -540,58 +643,6 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
         && a.set_proj1 subseteq b.set_proj1
     }
 
-    auto lemma idValid()
-        ensures valid(id)
-    {}
-
-    auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-    {}
-
-    auto lemma compCommute()
-        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    {}
-
-    auto lemma compId()
-        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
-    {}
- 
-    auto lemma compValid()
-        ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-    {}
-
-    auto lemma frameId()
-        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-    {}
-    
-    auto lemma compFrameInv()
-        ensures forall a:T, b:T :: {comp(frame(a,b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    {}
-    
-    auto lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
-            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}
-        
-    //auto lemma frameValid()
-    //    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    //{}
-    
-    /*auto lemma frameCompInv()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> frame(a, b) == a
-    {}
-    
-    auto lemma frameCompInv0()
-        ensures forall a:T, b:T :: {frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
-    {}*/
-    
-    //auto lemma frameCompInv2()
-    //    ensures forall a:T, b:T :: {comp(a,b), frame(a,b)} comp(a, b) == a && valid(a) ==> frame(a, b) == a
-    //{}
-    
-    auto lemma frame_comp_inv()
-        ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
-    {}
 }
 
 
