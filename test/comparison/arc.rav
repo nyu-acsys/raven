@@ -37,7 +37,6 @@ interface ARC {
     {
         unfold noTokens(x);
         unfold token(x);
-        //assert false;
     }
     
     lemma token_mutate_incr(x: Ref, n: Int)
@@ -86,8 +85,6 @@ interface ARC {
             ArcRA.tokens(n, q, 1, q1), 
             ArcRA.tokens(n-1, q - q1, 0, 0.0)
         );
-
-        // assert false;
 
         //var n2: Int := n - 1;
 
