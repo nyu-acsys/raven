@@ -331,6 +331,8 @@ let init diagnostics : smt_env =
       SetOption (":auto-config", "false", None);
       SetOption (":smt.mbqi", "false", None);
       SetOption (":smt.case_split", "3", None);
+      SetOption (":smt.candidate_models", "true", None);
+      (*SetOption (":smt.macro_finder", "true", None);*)
     ] @ if diagnostics then [SetOption (":smt.qi.profile", "true", None)] else []
   in
 

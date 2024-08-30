@@ -2,7 +2,7 @@ module IntType : Library.Type {
   rep type T = Int;
 }
 
-module NatAgree = Library.AgreeRA[IntType]
+module NatAgree = Library.Agree[IntType]
 
 field f: NatAgree
 
@@ -13,8 +13,8 @@ proc p() {
 
   assume (a1 != a2);
 
-  inhale own(x, f, NatAgree.agree_constr(a1));
-  inhale own(x, f, NatAgree.agree_constr(a2));
+  inhale own(x, f, NatAgree.agree(a1));
+  inhale own(x, f, NatAgree.agree(a2));
 
   assert false;
 }

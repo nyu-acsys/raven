@@ -2160,13 +2160,13 @@ module Predefs = struct
   
   let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
   
-  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "AgreeRA" 0]
+  let lib_agree_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Agree" 0]
 
-  let lib_agree_constr_ident = Ident.make Loc.dummy "agree_constr" 0
+  let lib_agree_constr_ident = Ident.make Loc.dummy "agree" 0
 
-  let lib_agree_destr1_ident = Ident.make Loc.dummy "agree_proj1" 0
+  let lib_agree_destr1_ident = Ident.make Loc.dummy "value" 0
 
-  let lib_countAgreeRA_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CountAgreeRA" 0]
+  let lib_countAgreeRA_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CountAgree" 0]
 
   let lib_countAgreeRA_constr_ident = Ident.make Loc.dummy "count_cons" 0
 

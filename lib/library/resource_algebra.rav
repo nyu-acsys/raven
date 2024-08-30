@@ -532,10 +532,10 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     }
 }
 
-module AgreeRA[X: Type] : LatticeResourceAlgebra {
+module Agree[X: Type] : LatticeResourceAlgebra {
     rep type T = data {
-        case agree_null;
-        case agree_constr(agree_proj1: X);
+        case agree_null
+        case agree(value: X)
         case agree_top
     }
 
@@ -563,15 +563,15 @@ module AgreeRA[X: Type] : LatticeResourceAlgebra {
     auto lemma compFrameInv()
         ensures forall a: T, b: T :: {comp(frame(a,b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     { 
-        assert forall a: T :: (a == agree_null || a == agree_constr(a.agree_proj1) || a == agree_top) ;
+        assert forall a: T :: (a == agree_null || a == agree(a.value) || a == agree_top) ;
     }
     
 }
 
-module CountAgreeRA[X: Type] : CancellativeResourceAlgebra {
+module CountAgree[X: Type] : CancellativeResourceAlgebra {
     rep type T = data {
-        case count_null;
-        case count_cons(count: Int, value: X);
+        case count_null
+        case count_cons(count: Int, value: X)
         case count_top
     }
 
