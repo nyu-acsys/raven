@@ -1,28 +1,33 @@
 interface Lock {
-  field lock: Ref
+  module R: Library.Type
 
+  module Agree = Library.Agree[R]
+
+  ghost field agr: Agree
+  
   // Resource protected by the lock
-  pred resource(x: Ref)
+  pred resource(r: R)
 
   // Lock representation invariant
-  pred lockRep(l: Ref; b: Bool)
+  pred lock_rep(l: Ref; b: Bool)
 
   // Abstract predicate describing a lock 
-  pred is_lock(x: Ref; b: Bool) {
-    exists l: Ref, q: Real :: own(x, lock, l, q) 
-    && lockRep(l, b)
-    && (b ? true : resource(x))
+  pred is_lock(l: Ref; r: R, b: Bool) {
+    own(l, agr, Agree.agree(r)) 
+    && lock_rep(l, b)
+    && (b ? true : resource(r))
   }
 
-  proc create(x: Ref)
-    requires exists l: Ref :: own(x, lock, l, 1.0) && resource(x)
-    ensures is_lock(x, false)
+  proc create(r: R)
+    returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r, false)
 
-  proc acquire(x: Ref, implicit ghost b: Bool)
-    atomic requires is_lock(x, b)
-    atomic ensures is_lock(x, true) && resource(x)
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
+    atomic requires is_lock(l, r, b)
+    atomic ensures is_lock(l, r, true) && resource(r)
 
-  proc release(x: Ref)
-    atomic requires is_lock(x, true) && resource(x)
-    atomic ensures is_lock(x, false)
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, false)
 }

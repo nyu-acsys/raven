@@ -3,46 +3,34 @@ include "lock.rav"
 interface SpinLock : Lock {
   field bit: Bool
   
-  pred lockRep(l: Ref; b: Bool) {
+  pred lock_rep(l: Ref; b: Bool) {
     own(l, bit, b, 1.0)
   }
 
-  proc create(x: Ref)
-    requires exists l0: Ref :: own(x, lock, l0, 1.0) && resource(x)
-    ensures is_lock(x, false)
+  proc create(r: R)
+    returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r, false)
   {
-    var l: Ref;
-    l := new (bit: false);
-    fold lockRep(l, false);
-    x.lock := l;
-    assert own(x, lock, l, 1.0) && lockRep(l, false) && (false ? true : resource(x));
-    fold is_lock(x, false);
+    l := new (bit: false, agr: Agree.agree(r));
+    fold lock_rep(l, false);
+    fold is_lock(l, r, false);
   }
 
-  /*proc acquire(x: Ref, implicit ghost b: Bool)
-    atomic requires is_lock(x, b)
-    atomic ensures is_lock(x, true) && resource(x)
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
+    atomic requires is_lock(l, r, b)
+    atomic ensures is_lock(l, r, true) && resource(r)
   {
     ghost val phi: AtomicToken = bindAU();
-    
-    var l: Ref; 
-    ghost var q: Real; ghost var l1: Ref;
-    ghost var b1 : Bool := openAU(phi);
-    unfold is_lock(x, b1);
-    l1, q :| own(x, lock, l1, q);
-    l := x.lock;
-    assert own(x, lock, l, q/2.0) && lockRep(l, b1) && (b1 ? true : resource(x));
-    fold is_lock(x, b1);
-    abortAU(phi);
-    
-    b1 := openAU(phi);
-    unfold is_lock(x, b1);
-    unfold lockRep(l, b1);
+        
+    ghost var b1: Bool;
+    r, b1 := openAU(phi);
+    unfold is_lock(l, r, b1);
+    unfold lock_rep(l, b1);
     val res: Bool := cas(l.bit, false, true);
     {!
-      fold lockRep(l, b1 == false);
-      assert own(x, lock, l, q/2.0) && lockRep(l, b1 == false) && (b1 == false ? true : resource(x));
-      fold is_lock(x, b1 == false);
+      fold lock_rep(l, true);
+      fold is_lock(l, r, true);
       if (res) {
         commitAU(phi);
       } else {
@@ -54,23 +42,23 @@ interface SpinLock : Lock {
       return;
     }
 
-    b1 := openAU(phi);
-    assert is_lock(x, b1);
-    acquire(x);
+    r, b1 := openAU(phi);
+    assert is_lock(l, r, b1);
+    acquire(l, r, b1);
     commitAU(phi);
   }
-  */
-  /*proc release(l: Ref)
-    atomic requires lockR(l, true) && lockResource(l)
-    atomic ensures lockR(l, false)
+  
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, false)
   {
     ghost val phi: AtomicToken = bindAU();  
-    openAU(phi);
-    unfold lockR(l, true);
+    r := openAU(phi);
+    unfold is_lock(l, r, true);
+    unfold lock_rep(l, true);
     l.bit := false;
-    fold lockR(l, false);
+    fold lock_rep(l, false);
+    fold is_lock(l, r, false);
     commitAU(phi);
-  }*/
+  }
 }
-
-
