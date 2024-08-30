@@ -4,6 +4,7 @@ Type-checking:
   - Check that assertion expressions having the right format -- conditionals in ternary expr being pure, etc
   - Ensure that return variables of functions are not used in the function body
   - Ensure that predicates don't have implicit ghost args
+  - Ensure that left-hand side of bindAU is well-typed (number of vars matches number of implicit args; types match, etc.) 
 
 - Implement mask computation to check interface <-> module compatibility
 - Improve expression matching algorithm
