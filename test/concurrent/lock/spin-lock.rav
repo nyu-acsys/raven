@@ -1,42 +1,51 @@
-interface Lock {
+include "lock.rav"
+
+interface SpinLock : Lock {
   field bit: Bool
   
-  pred lockResource(l: Ref)
-
-  pred lockR(l: Ref, implicit ghost b: Bool) {
-    own(l, bit, b, 1.0) && 
-    (b ? true : lockResource(l))
+  pred lockRep(l: Ref; b: Bool) {
+    own(l, bit, b, 1.0)
   }
 
-  proc allocResource(l: Ref)
-    ensures lockResource(l)
-
-  proc create()
-    returns (l: Ref)
-    ensures lockR(l, false)
+  proc create(x: Ref)
+    requires exists l0: Ref :: own(x, lock, l0, 1.0) && resource(x)
+    ensures is_lock(x, false)
   {
+    var l: Ref;
     l := new (bit: false);
-    allocResource(l);
-    fold lockR(l, false);
+    fold lockRep(l, false);
+    x.lock := l;
+    assert own(x, lock, l, 1.0) && lockRep(l, false) && (false ? true : resource(x));
+    fold is_lock(x, false);
   }
 
-  proc acquire(l: Ref, implicit ghost b: Bool)
-    atomic requires lockR(l, b)
-    atomic ensures lockR(l, true) && lockResource(l)
+  /*proc acquire(x: Ref, implicit ghost b: Bool)
+    atomic requires is_lock(x, b)
+    atomic ensures is_lock(x, true) && resource(x)
   {
     ghost val phi: AtomicToken = bindAU();
     
+    var l: Ref; 
+    ghost var q: Real; ghost var l1: Ref;
     ghost var b1 : Bool := openAU(phi);
-    unfold lockR(l, b1);
-
+    unfold is_lock(x, b1);
+    l1, q :| own(x, lock, l1, q);
+    l := x.lock;
+    assert own(x, lock, l, q/2.0) && lockRep(l, b1) && (b1 ? true : resource(x));
+    fold is_lock(x, b1);
+    abortAU(phi);
+    
+    b1 := openAU(phi);
+    unfold is_lock(x, b1);
+    unfold lockRep(l, b1);
     val res: Bool := cas(l.bit, false, true);
-
     {!
+      fold lockRep(l, b1 == false);
+      assert own(x, lock, l, q/2.0) && lockRep(l, b1 == false) && (b1 == false ? true : resource(x));
+      fold is_lock(x, b1 == false);
       if (res) {
-        fold lockR(l, true);
         commitAU(phi);
       } else {
-        fold lockR(l, b1);
         abortAU(phi);
       }
     !}
@@ -46,12 +55,12 @@ interface Lock {
     }
 
     b1 := openAU(phi);
-    assert lockR(l, b1);
-    acquire(l);
+    assert is_lock(x, b1);
+    acquire(x);
     commitAU(phi);
   }
-
-  proc release(l: Ref)
+  */
+  /*proc release(l: Ref)
     atomic requires lockR(l, true) && lockResource(l)
     atomic ensures lockR(l, false)
   {
@@ -61,7 +70,7 @@ interface Lock {
     l.bit := false;
     fold lockR(l, false);
     commitAU(phi);
-  }
+  }*/
 }
 
 

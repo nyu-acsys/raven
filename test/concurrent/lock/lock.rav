@@ -1,0 +1,28 @@
+interface Lock {
+  field lock: Ref
+
+  // Resource protected by the lock
+  pred resource(x: Ref)
+
+  // Lock representation invariant
+  pred lockRep(l: Ref; b: Bool)
+
+  // Abstract predicate describing a lock 
+  pred is_lock(x: Ref; b: Bool) {
+    exists l: Ref, q: Real :: own(x, lock, l, q) 
+    && lockRep(l, b)
+    && (b ? true : resource(x))
+  }
+
+  proc create(x: Ref)
+    requires exists l: Ref :: own(x, lock, l, 1.0) && resource(x)
+    ensures is_lock(x, false)
+
+  proc acquire(x: Ref, implicit ghost b: Bool)
+    atomic requires is_lock(x, b)
+    atomic ensures is_lock(x, true) && resource(x)
+
+  proc release(x: Ref)
+    atomic requires is_lock(x, true) && resource(x)
+    atomic ensures is_lock(x, false)
+}
