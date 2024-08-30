@@ -156,11 +156,12 @@ member_def:
 | imp = import_dir { Module.Import imp }
   
 field_def:
-| FIELD x = IDENT; COLON; t = type_expr {
+| g = ghost_modifier; FIELD x = IDENT; COLON; t = type_expr {
     let decl =
       Module.{ field_name = x;
-      field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t;
-      field_loc = Loc.make $startpos $endpos
+               field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t;
+               field_is_ghost = g;
+               field_loc = Loc.make $startpos $endpos
            }
     in
     decl

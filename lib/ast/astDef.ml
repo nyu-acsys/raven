@@ -1889,7 +1889,8 @@ module Module = struct
 
   type field_def = {
     field_name : ident; 
-    field_type : type_expr; 
+    field_type : type_expr;
+    field_is_ghost: bool;
     field_loc : Loc.t 
   }
 
@@ -1993,7 +1994,9 @@ module Module = struct
         | App (Fld, [typ], _) -> typ
         | typ -> typ
       in
-      fprintf ppf "@[field %a: %a@]" Ident.pr field_def.field_name Type.pr
+      fprintf ppf "@[%sfield %a: %a@]"
+        (if field_def.field_is_ghost then "ghost " else "")
+        Ident.pr field_def.field_name Type.pr
         field_type
     | VarDef vdef -> Stmt.pr_var_def ppf vdef
     | CallDef cdef -> Callable.pr ppf cdef

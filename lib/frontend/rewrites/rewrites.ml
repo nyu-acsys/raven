@@ -938,8 +938,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                   Error.error stmt.stmt_loc
                     "Expected a func_def inside a fold/unfold stmt"
               | FuncDef { func_body = None } ->
-                  Error.error stmt.stmt_loc
-                    "Empty func_def body inside a fold/unfold stmt not allowed"
+                  Error.error stmt.stmt_loc (*(QualIdent.to_loc use_desc.use_name)*)
+                    ("Cannot (un)fold abstract predicate " ^ (use_desc.use_name |> QualIdent.unqualify |> Ident.to_string)) (* TW: this should already be checked during typing *)
               | FuncDef { func_body = Some e } -> e
             in
 

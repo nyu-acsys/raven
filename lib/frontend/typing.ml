@@ -891,12 +891,13 @@ module ProcessCallable = struct
                           (AUAction { auaction_kind = BindAU token_qual_ident }),
                         disam_tbl )
                   | _ ->
-                      Error.type_error loc
-                        "bindAU token expected to be a variable")
+                      Error.type_error (Expr.to_loc token)
+                        "The left-hand side of this ghost assignment must be a ghost variable")
               | _ -> Error.type_error loc "bindAU takes exactly one argument"
             else if
               QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident)
             then
+              
               let* bound_vars =
                 Rewriter.List.map assign_desc.assign_lhs ~f:(fun expr ->
                     let+ expr =

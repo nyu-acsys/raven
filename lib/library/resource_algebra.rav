@@ -183,32 +183,47 @@ module Nat : CancellativeResourceAlgebra {
 
     func valid(n:T)
       returns (ret:Bool)
-      { n >= 0 }
+    { n >= 0 }
 
     func comp(a:T, b:T) returns (ret:T) { 
-        (a == id ? 
-            b : 
-            (b == id ? 
-                a :
-                (valid(a) && valid(b) ? 
-                    a+b : 
-                    -1
-                )
-            ) 
-        )
+      a == id ? b : (b == id ? a :
+        (valid(a) && valid(b) ? a+b : -1))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        b == id ? 
-            a :
-        (valid(a) && valid(b) ?
-            a-b : -1)
+      b == id ? a :
+        (valid(a) && valid(b) ? a - b : -1)
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        forall c:T :: valid(a) && valid(comp(a,c)) ==> valid(comp(b,c))
+        valid(a) && valid(b)
     }
 }
+
+module MaxNat : LatticeResourceAlgebra {
+    rep type T = Int
+
+    val id: T = 0
+
+    func valid(n:T)
+      returns (ret:Bool)
+    { n >= 0 }
+
+    func comp(a:T, b:T) returns (ret:T) { 
+      a == id ? b : (b == id ? a :
+      (valid(a) && valid(b) ? (a > b ? a : b) : -1))
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+      b == id ? a :
+      (valid(a) && valid(b) && a >= b ? a : -1)
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+      valid(a) && valid(b) && a <= b
+    }
+}
+
 
 /*
 module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
@@ -559,13 +574,6 @@ module Agree[X: Type] : LatticeResourceAlgebra {
     func fpuAllowed(a:T, b:T) returns (ret: Bool) {
         false
     }
-    
-    auto lemma compFrameInv()
-        ensures forall a: T, b: T :: {comp(frame(a,b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    { 
-        assert forall a: T :: (a == agree_null || a == agree(a.value) || a == agree_top) ;
-    }
-    
 }
 
 module CountAgree[X: Type] : CancellativeResourceAlgebra {
