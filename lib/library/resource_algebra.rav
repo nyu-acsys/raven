@@ -83,6 +83,9 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
         }
     }
 
+    //axiom frame_comp_dist()
+    //    ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} valid(comp(b,c)) && valid(frame(a,b)) ==> frame(a, comp(b,c)) == frame(frame(a, b), c)
+
     lemma cancellative()
       ensures forall a:T, b:T, c:T :: {comp(a,b),comp(c,b)} (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c))
     {
@@ -116,30 +119,6 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
       }
     }*/
 
-    /*lemma frameCompDist()
-      ensures forall a: T, b: T, c: T :: {frame(a, comp(b, c)), frame(a,b)}
-        valid(a) && valid(comp(b, c)) && valid(frame(a,b)) ==> //&& valid(frame(a, comp(b, c)))==>
-          frame(a, comp(b, c)) == frame(frame(a, b), c)
-    {
-      assert forall a: T, b: T, c: T :: {frame(a, comp(b, c)), frame(a,b)}
-        valid(a) && valid(comp(b, c)) && valid(frame(a,b)) ==> // && valid(frame(a, comp(b, c)))==>
-          frame(a, comp(b, c)) == frame(frame(a, b), c) with {
-        cancellative();
-        if (valid(a) && valid(comp(b, c)) && valid(frame(a,b))) {
-          assert comp (frame(a, comp(b, c)), comp(b, c)) == a;
-        }
-      }      
-      /*
-         ==> // compFrameInv
-         (a - (b + c) + (b + c)) == a 
-         ==> // compComm + compAssoc 
-         (a - (b + c) + c) + b == a 
-         ==> // compFrameInv
-         (a - b) + b == a 
-         ==> // cancellative
-         a - b == (a - (b + c) + c)
-      */
-    }*/
 
 
     /*lemma test(a: T, b: T, c: T)
@@ -187,12 +166,12 @@ module Nat : CancellativeResourceAlgebra {
 
     func comp(a:T, b:T) returns (ret:T) { 
       a == id ? b : (b == id ? a :
-        (valid(a) && valid(b) ? a+b : -1))
+        (valid(a) && valid(b) ? a + b : -1))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
       b == id ? a :
-        (valid(a) && valid(b) ? a - b : -1)
+        (valid(a) && valid(b) && a - b >= 0 ? a - b : -1)
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
@@ -224,9 +203,7 @@ module MaxNat : LatticeResourceAlgebra {
     }
 }
 
-
-/*
-module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
+/*module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
     rep type T = data { 
         case frag(f_proj1: M)
         case auth_frag(af_proj1: M, af_proj2: M)
@@ -269,11 +246,10 @@ module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-      a == auth_frag(a.af_proj1, a.af_proj2) && 
-      b == auth_frag(b.af_proj1, b.af_proj2) && 
-      valid(a) && valid(b) && 
-      M.fpuAllowed(a.af_proj2, b.af_proj2) &&
-      M.valid(M.frame(b.af_proj1, M.frame(a.af_proj1, a.af_proj2)))
+       a == auth_frag(a.af_proj1, a.af_proj2) && 
+       b == auth_frag(b.af_proj1, b.af_proj2) && 
+       valid(a) && valid(b) && 
+       b.af_proj1 == M.comp(M.frame(a.af_proj1, a.af_proj2), b.af_proj2)
     }
 
     func auth(a:M) returns (ret: T) {
@@ -337,31 +313,42 @@ module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
         M.weak_frameCompInv();
         M.cancellative();
         M.frameCompInv();
-        assert forall a: M, b: M :: {M.valid(M.frame(a,b))} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
+        M.frame_comp_dist();
 
-        assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
-            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c)) with {
-          if (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) {
-            if (c == frag(c.f_proj1)) {
-              assert M.valid(M.frame(a.af_proj1, c.f_proj1));
-              assert M.valid(M.comp(c.f_proj1, a.af_proj2));
-              assert M.valid(M.frame(a.af_proj1, M.comp(c.f_proj1, a.af_proj2)));
-              assert M.valid(M.comp(c.f_proj1, b.af_proj2));
-              assert M.valid(M.frame(a.af_proj1, c.f_proj1));
+        assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} 
+          ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1)) ==>
+          (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c)) with {
+            if (a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1) &&
+                fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) {
+            ghost val a1: M := a.af_proj1;
+            ghost val a2: M := a.af_proj2;
+            ghost val b1: M := b.af_proj1;
+            ghost val b2: M := b.af_proj2;
+            ghost val c0: M := c.f_proj1;
+            assert M.valid(b1);
+            assert b1 == M.comp(M.frame(a1, a2), b2); 
+            assert comp(b, c) == auth_frag(b1, M.comp(b2, c0));
+            assert M.valid(M.comp(a2, c0));
 
-              assert M.valid(M.frame(b.af_proj1, b.af_proj2));
-              assert M.valid(M.frame(b.af_proj1, c.f_proj1));
-              //frameCompDist();
-              assume M.valid(M.frame(b.af_proj1, M.comp(c.f_proj1, b.af_proj2)));
-            }
+            assert M.valid(M.frame(M.frame(a1, a2), c0));
+            assert M.valid(M.frame(M.frame(b1, b2), c0));
+
+            assert M.valid(M.comp(b2, c0));
+            assert M.valid(M.frame(b1, M.comp(b2, c0)));          
           }
         }
-
-        //assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} 
-        //    ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1)) ==>
-        //    (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c));
     }
         
+    lemma frame_comp_dist()
+        ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} valid(comp(b,c)) && valid(frame(a,b)) ==> frame(a, comp(b,c)) == frame(frame(a, b), c)
+    { 
+      M.idValid(); M.compAssoc(); M.compCommute(); M.compId(); M.compValid(); M.frameId(); M.compFrameInv();
+        M.weak_frameCompInv();
+        M.cancellative();
+        M.frameCompInv();
+        M.frame_comp_dist();
+    }    
+
     /*auto lemma weak_frameCompInv()
         ensures forall a:T, b:T:: {frame(comp(a,b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {
@@ -372,8 +359,7 @@ module Auth[M: CancellativeResourceAlgebra] : CancellativeResourceAlgebra {
         assert forall a: M, b: M :: {M.frame(a,b)} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
     }*/
 
-}
-*/
+}*/
 
 module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
@@ -423,6 +409,7 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
             a == auth_frag(a.af_proj1, a.af_proj2) && 
             b == auth_frag(b.af_proj1, b.af_proj2) && 
             valid(a) && valid(b) && 
+            //b.af_proj1 == M.comp(M.frame(a.af_proj1, a.af_proj2), b.af_proj2)
             (forall c: M :: {M.comp(a.af_proj2, c)} {M.comp(b.af_proj2, c)} a.af_proj1 == M.comp(a.af_proj2, c) ==> b.af_proj1 == M.comp(b.af_proj2, c))
         )
     }
@@ -495,7 +482,6 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
 
 }
 
-
 module Frac[X: Type] : CancellativeResourceAlgebra {
     rep type T = data {
         case frac_null
@@ -532,7 +518,7 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
         b == frac_null ? a :
 
         (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) && valid(a) && valid(b) ? 
-            (a.frac_proj1 == b.frac_proj1 ? 
+            (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 - b.frac_proj2 >= 0.0 ? 
                 (a.frac_proj2 == b.frac_proj2 ? frac_null : frac_chunk(a.frac_proj1, a.frac_proj2 - b.frac_proj2)) : 
                 frac_top
             ) : 
@@ -603,7 +589,7 @@ module CountAgree[X: Type] : CancellativeResourceAlgebra {
         b == count_null() ? a :
 
         (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
-            (a.value == b.value ? 
+            (a.value == b.value && a.count - b.count >= 0 ? 
                 (a.count == b.count ? count_null() : count_cons(a.count - b.count, a.value)) : 
                 count_top()
             ) :
@@ -649,6 +635,34 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
         a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1)
         && a.set_proj1 subseteq b.set_proj1
+    }
+
+}
+
+module DisjSet[X: Type] : CancellativeResourceAlgebra {
+    rep type T = data {
+        case set(value: Set[X])
+        case top
+    }
+
+    val id: T = set({||})
+
+    func valid(n:T) returns (ret:Bool) {
+        n == set(n.value)
+    }
+
+    func comp(a:T, b:T) returns (ret:T) {
+        a == set(a.value) && b == set(b.value) && a.value ** b.value == {||} ? 
+          set(a.value ++ b.value) : top
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        a == set(a.value) && b == set(b.value) && b.value subseteq a.value ?
+          set(a.value -- b.value) : top
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+        false
     }
 
 }
