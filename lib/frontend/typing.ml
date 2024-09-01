@@ -210,7 +210,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           let given_type_lb = Expr.to_type expr_arg in
           check_and_set
             (App (constr, [ expr_arg ], expr_attr))
-            given_type_lb given_type_ub expected_typ
+            given_type_lb given_type_lb expected_typ
       | (Not | Uminus), _expr_list ->
           Error.type_error (Expr.to_loc expr)
             (Expr.constr_to_string constr ^ " takes exactly one argument")
