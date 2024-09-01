@@ -18,3 +18,5 @@ Type-checking:
 - Investigate spurious "unknown"s in the middle of log files
 
 - Fix missing triggers in all `Expr.mk_binder` calls
+
+- Allow types to be used as modules implementing Library.Type

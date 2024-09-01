@@ -1,0 +1,19 @@
+lemma p() 
+    ensures false
+{
+    q();
+}
+
+lemma q() 
+    ensures false
+{
+    // assert false;
+    p();
+}
+
+proc invalid()
+    ensures false
+{
+    // assert false;
+    p();
+}

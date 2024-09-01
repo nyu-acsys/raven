@@ -193,10 +193,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
     g_i0, lockval0, contents0, intf0 :| cssR(r, c0, g_i0, lockval0, contents0, intf0);
     cssInFp(r, n, c0, g_i0, lockval0, contents0, intf0);
 
-    //assert n in g_i0.dom;
     unfold cssR(r, c0, g_i0, lockval0, contents0, intf0);
 
-    //assert own(n, lock, lockval0[n], 1.0);
     lockNode(n, lockval0[n]);
     ghost var lockval00: Map[Ref, Int] := lockval0[n := 1];
     fold cssR(r, c0, g_i0, lockval00, contents0, intf0);
@@ -224,7 +222,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     unfold css(r, c1);
     g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
     cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
-    //assert n in g_i1.dom;
     
     unfold cssR(r, c1, g_i1, lockval1, contents1, intf1);
     
@@ -232,21 +229,14 @@ interface GiveUpTemplate[Node: NodeImpl] {
       if (lockval1[n] != 1) {
         unfold nodePred(r, n, contents1[n], intf1[n]);
         unfold nodePred(r, n, c_n, i_n);
-        //assert node(n, c_n, i_n);
-        //assert node(n, contents1[n], intf1[n]);
-        //assert node(n, c_n, i_n) && node(n, contents1[n], intf1[n]);
         Node.nodeSepStar(n, c_n, contents1[n], i_n, intf1[n]);
-        // assert false;
       }
     !}
-
-    // assert lockval1[n] == 1;
 
     unlockNode(n);
     ghost var lockval2: Map[Ref, Int] := lockval1[n := 0];
     ghost var contents2: Map[Ref, Set[K]] := contents1[n := c_n];
     ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
-    // assert nodePred(r, n, c_n, i_n);
     
     fold cssR(r, c1, g_i1, lockval2, contents2, intf2);
     assert cssR(r, c1, g_i1, lockval2, contents2, intf2);
@@ -300,14 +290,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ensures cssR(r, c, g_i, lockval, contents, intf)
     ensures inFP(r, n)
   {
-    // autoLemmas();
     unfold cssR(r, c, g_i, lockval, contents, intf);
     unfold globalRes(r, c, g_i);
     unfold inFP(r, n);
-
-    // assert own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)));
-    
-    // assert n in g_i.dom;
 
     fold globalRes(r, c, g_i);
     fold inFP(r, n);
@@ -321,7 +306,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ensures inFP(r, n)
     ensures cssR(r, c, g_i, lockval, contents, intf)
   {
-    // autoLemmas();
     unfold cssR(r, c, g_i, lockval, contents, intf);
     unfold globalRes(r, c, g_i);
 
@@ -337,14 +321,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ensures cssR(r, c, g_i, lockval, contents, intf)
     ensures r in g_i.dom
   {
-    // autoLemmas();
     unfold cssR(r, c, g_i, lockval, contents, intf);
     unfold globalRes(r, c, g_i);
     unfold globalinv(g_i, r);
-
-    // assert own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)));
-    
-    // assert r in g_i.dom;
 
     fold globalinv(g_i, r);
     fold globalRes(r, c, g_i);
@@ -355,7 +334,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     returns (r: Ref)
     ensures css(r, {||})
   {
-    // autoLemmas();
     r := Node.createRoot();
 
     var i_r: Flow_K := int(
@@ -379,9 +357,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
       lock:0
     );
 
-    //assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, {||}), Keyset_K.prodKS(keyspace, {||})));
-    //assert keyset(i_r) == keyspace;
-    //assert node(r, {||}, i_r);
     fold nodePred(r, r, {||}, i_r);
 
     fold globalinv(i_r, r);
@@ -419,16 +394,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       Flow_K.compUnfold(i_o, i_n);
 
-      // assert g_i.out[n1] == Multiset_K.comp(i_n.out[n1], i_o.out[n1]);
-
       assert k !in outsets(g_i);
 
-      // assert (g_i.out[n1])[k] == 0;
-
-      // assert n1 in g_i.dom;
-
-
-      // fold nodePred(r, n, contents[n], intf[n]);
       fold nodePred(r, n, c_n, i_n);
       fold globalinv(g_i, r);
       fold globalRes(r, c, g_i);
@@ -453,12 +420,10 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ghost val c0: Set[K] := openAU(phi);
     c_n, i_n := lockNodeHigh(r, n, c0);
     abortAU(phi);
-    // assert nodePred(r, n, c_n, i_n);
     
     unfold nodePred(r, n, c_n, i_n);
     AuthFlow_K.compValid();
     AuthFlow_K.weak_frameCompInv();
-    // assert own(r, authFlow, AuthFlow_K.frag(i_n));
 
     var in_range: Bool := Node.inRange(n, k, c_n, i_n);
 
@@ -467,8 +432,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
       var n1: Ref;
       succ, n1 := Node.findNext(n, k, c_n, i_n);
       
-      // assert node(n, c_n, i_n);
-      // assert own(r, authFlow, AuthFlow_K.frag(i_n));
       fold nodePred(r, n, c_n, i_n);
 
       if (succ) {
@@ -496,7 +459,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
         nn, cnn, i_nn := traverse(r, n1, k, c2);
 
-        // exhale css(r, c1);
         commitAU(phi, nn, cnn, i_nn);
         return nn, cnn, i_nn;
       } else {
@@ -515,8 +477,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
         return n, c_n, i_n;
       }
     } else {
-
-      // unlockNode(n);
 
       fold nodePred(r, n, c_n, i_n);
 
@@ -538,8 +498,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold globalRes(r, c1, g_i1);
       unfold globalinv(g_i1, r);
 
-      // assert r in g_i1.dom;
-
       fold globalinv(g_i1, r);
       fold globalRes(r, c1, g_i1);
       fold cssR(r, c1, g_i1, lockval1, contents1, intf1);
@@ -552,7 +510,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       commitAU(phi, nn, cnn, i_nn);
     }
-
   }
 
   lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
@@ -625,7 +582,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
     root_fp(r, c0, g_i0, lockval0, contents0, intf0);
     fpInCss(r, r, c0, g_i0, lockval0, contents0, intf0);
-    // assert inFP(r, r);
     assert cssR(r, c0, g_i0, lockval0, contents0, intf0);
     fold css(r, c0);
     
@@ -634,7 +590,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     abortAU(phi);
 
     var succ: Bool;
-    // var res1: Bool;
     var c_n1: Set[K];
 
     unfold nodePred(r, n, c_n, i_n);
@@ -652,19 +607,14 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold css(r, c1);
       g_i1, lockval1, contents1, intf1 :| cssR(r, c1, g_i1, lockval1, contents1, intf1);
       cssInFp(r, n, c1, g_i1, lockval1, contents1, intf1);
-      //assert n in g_i1.dom;
       unfold cssR(r, c1, g_i1, lockval1, contents1, intf1);
       
       {!
         if (lockval1[n] != 1) {
           unfold nodePred(r, n, contents1[n], intf1[n]);
-          //assert node(n, c_n1, i_n);
-          //assert node(n, contents1[n], intf1[n]);
           Node.nodeSepStar(n, c_n1, contents1[n], i_n, intf1[n]);
         }
       !}
-
-      //assert lockval1[n] == 1;
 
       unlockNode(n);
 
@@ -672,17 +622,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold opSpec(dop, k, c_n, c_n1, res);
       fold opSpec(dop, k, c_n, c_n1, res);
 
-      //assert k in keyset(i_n);
-      //assert c_n1 subseteq c_n ++ {| k |};
-
-      //assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS(keyset(i_n), c_n)));
-      //assert c_n subseteq keyset(i_n);
-
       cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));
 
-
-      // assert own(r, authFlow, AuthFlow_K.frag(i_n));
-      // assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c1 )));
       AuthFlow_K.compValid();
       AuthFlow_K.weak_frameCompInv();
 
@@ -691,10 +632,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
       ghost var contents2: Map[Ref, Set[K]] := contents1[n := c_n1];
       ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
 
-      //assert node(n, contents2[n], intf2[n]);
       Flow_K.compFrameInv();
       Flow_K.frameCompInv();
-      //assert own(r, authFlow, AuthFlow_K.frag(i_n));
       fold nodePred(r, n, contents2[n], intf2[n]);
       fold cssR(r, cc, g_i1, lockval2, contents2, intf2);
       assert cssR(r, cc, g_i1, lockval2, contents2, intf2);
@@ -702,7 +641,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       commitAU(phi, res, cc);
 
-      // assert false;
       return res, cc;
     } else {
       fold nodePred(r, n, c_n, i_n);
@@ -717,9 +655,4 @@ interface GiveUpTemplate[Node: NodeImpl] {
       return res, cc;
     }
   }
-
-
-
-
-
 }
