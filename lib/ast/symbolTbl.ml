@@ -5,7 +5,7 @@ open AstDef
 open Util
 
 let unknown_ident_error loc id =
-  Error.error loc ("Unknown identifier " ^ QualIdent.to_string id)
+  Error.error (QualIdent.to_loc id) ("Unknown identifier " ^ QualIdent.to_string id)
 
 type entry =
   | Symbol of QualIdent.t
