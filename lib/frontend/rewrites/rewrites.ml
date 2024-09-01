@@ -2407,18 +2407,16 @@ module AtomicityAnalysis = struct
           let* else_atomicity_state = Rewriter.current_user_state in
 
           let if_else_atomicity_states_equal =
-            if
-              List.length then_atomicity_state.invs_opened
-              = List.length else_atomicity_state.invs_opened
-              && List.length then_atomicity_state.au_opened
-                 = List.length else_atomicity_state.au_opened
-            then
-              List.for_all2_exn then_atomicity_state.invs_opened
+            List.length then_atomicity_state.invs_opened
+            = List.length else_atomicity_state.invs_opened
+            && List.length then_atomicity_state.au_opened
+               = List.length else_atomicity_state.au_opened
+            && List.for_all2_exn then_atomicity_state.invs_opened
                 else_atomicity_state.invs_opened ~f:(fun inv1 inv2 ->
                   QualIdent.equal inv1.inv_name inv2.inv_name
                   && List.for_all2_exn inv1.inv_args inv2.inv_args
                        ~f:Expr.alpha_equal)
-              && List.for_all2_exn then_atomicity_state.au_opened
+            && List.for_all2_exn then_atomicity_state.au_opened
                    else_atomicity_state.au_opened ~f:(fun au1 au2 ->
                      QualIdent.equal au1.token au2.token
                      && QualIdent.equal au1.callable au2.callable
@@ -2427,7 +2425,6 @@ module AtomicityAnalysis = struct
                      && List.for_all2_exn au1.implicit_bound_vars
                           au2.implicit_bound_vars ~f:Expr.alpha_equal)
               (* && Bool.(then_atomicity_state.atomic_step_taken = else_atomicity_state.atomic_step_taken) *)
-            else false
           in
 
           if if_else_atomicity_states_equal then
