@@ -38,7 +38,7 @@ interface TicketLock : Lock {
 
   proc wait_loop(l: Ref, x: Int, implicit ghost r: R, implicit ghost b: Bool)
     atomic requires is_lock(l, r, b) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
-    atomic ensures is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
     ghost val phi: AtomicToken := bindAU();
     //var c: Int;
@@ -80,7 +80,7 @@ interface TicketLock : Lock {
 
   proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
     atomic requires is_lock(l, r, b)
-    atomic ensures is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
     ghost val phi: AtomicToken = bindAU();
         

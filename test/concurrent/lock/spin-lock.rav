@@ -19,7 +19,7 @@ interface SpinLock : Lock {
 
   proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
     atomic requires is_lock(l, r, b)
-    atomic ensures is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
     ghost val phi: AtomicToken = bindAU();
         
