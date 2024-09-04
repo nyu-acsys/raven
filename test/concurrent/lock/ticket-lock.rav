@@ -15,10 +15,11 @@ interface TicketLock : Lock {
 
   pred lock_rep(l: Ref; b: Bool) {
     exists n: Int, c: Int ::
-      own(l, next, n, 1.0) && n >= 0
-      && own(l, curr, c, 1.0)
-      && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
+      n >= 0
       && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
+      && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
+      && own(l, next, n, 1.0) 
+      && own(l, curr, c, 1.0)
   }
 
   proc create(r: R)
@@ -27,12 +28,7 @@ interface TicketLock : Lock {
     ensures is_lock(l, r, false)
   {
     l := new (next: 0, curr: -1, agr: Agree.agree(r), tickets: ADS.auth_frag(IntSet.set({||}), IntSet.set({||})));
-    exhale own(l, next, 0, 1.0) && 0 >= 0
-      && own(l, curr, -1, 1.0)
-      && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < 0|}), IntSet.set({||}))) 
-      && (false ==> own(l, tickets, ADS.frag(IntSet.set({|-1|}))));
-    inhale lock_rep(l, false);
-    // fold lock_rep(l, false); <-- this fails even when exhale is assert
+    fold lock_rep(l, false);
     fold is_lock(l, r, false);
   }
 
@@ -41,7 +37,6 @@ interface TicketLock : Lock {
     atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
     ghost val phi: AtomicToken := bindAU();
-    //var c: Int;
     r, b := openAU(phi);
     unfold is_lock(l, r, b);
     unfold lock_rep(l, b);
@@ -50,19 +45,11 @@ interface TicketLock : Lock {
       ghost var n: Int;
       n :| own(l, next, n, 1.0);
       if (x == c) {
-        exhale own(l, next, n, 1.0) && n >= 0
-          && own(l, curr, c, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
-          && (true ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))));
-        inhale lock_rep(l, true);
+        fold lock_rep(l, true);
         fold is_lock(l, r, true);
         commitAU(phi);                
       } else {
-         exhale own(l, next, n, 1.0) && n >= 0
-          && own(l, curr, c, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
-          && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))));
-        inhale lock_rep(l, b);
+        fold lock_rep(l, b);
         fold is_lock(l, r, b);
         abortAU(phi);  
       }
@@ -88,13 +75,7 @@ interface TicketLock : Lock {
     unfold is_lock(l, r, b);
     unfold lock_rep(l, b);
     val x: Int := l.next;
-    ghost val c: Int;
-    c :| own(l, curr, c, 1.0);
-    exhale own(l, next, x, 1.0) && x >= 0
-          && own(l, curr, c, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||}))) 
-          && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))));
-    inhale lock_rep(l, b);
+    fold lock_rep(l, b);
     fold is_lock(l, r, b);
     abortAU(phi);
 
@@ -103,25 +84,14 @@ interface TicketLock : Lock {
     unfold lock_rep(l, b);
     val res: Bool := cas(l.next, x, x+1);
     {!
-      c :| own(l, curr, c, 1.0);
       if (res) {
         fpu(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})), 
                         ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})));
-        exhale own(l, next, x+1, 1.0) && x+1 >= 0
-          && own(l, curr, c, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({||}))) 
-          && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))));
-        inhale lock_rep(l, b);
+        fold lock_rep(l, b);
         fold is_lock(l, r, b);
         abortAU(phi);
       } else {
-        ghost var x1: Int;
-        x1 :| own(l, next, x1, 1.0);
-        exhale own(l, next, x1, 1.0) && x1 >= 0
-          && own(l, curr, c, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x1|}), IntSet.set({||}))) 
-          && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))));
-        inhale lock_rep(l, b);
+        fold lock_rep(l, b);
         fold is_lock(l, r, b);
         abortAU(phi);
       }
@@ -148,13 +118,7 @@ interface TicketLock : Lock {
     unfold is_lock(l, r, true);
     unfold lock_rep(l, true);
     val c: Int := l.curr;
-    ghost var n: Int;
-    n :| own(l, next, n, 1.0);
-    exhale own(l, next, n, 1.0) && n >= 0
-          && own(l, curr, c, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
-          && (true ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))));
-    inhale lock_rep(l, true);
+    fold lock_rep(l, true);
     fold is_lock(l, r, true);
     abortAU(phi);
       
@@ -163,12 +127,7 @@ interface TicketLock : Lock {
     unfold is_lock(l, r, true);
     unfold lock_rep(l, true);
     l.curr := c1;
-    n :| own(l, next, n, 1.0);
-    exhale own(l, next, n, 1.0) && n >= 0
-          && own(l, curr, c1, 1.0)
-          && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
-          && (false ==> own(l, tickets, ADS.frag(IntSet.set({|c1|}))));
-    inhale lock_rep(l, false);
+    fold lock_rep(l, false);
     fold is_lock(l, r, false);
     commitAU(phi);
   }
