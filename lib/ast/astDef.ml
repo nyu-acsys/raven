@@ -273,7 +273,7 @@ module Type = struct
   let any_type_string = "Any"
   let data_type_string = "struct"
   let atomic_token_type_string = "AtomicToken"
-  let prod_type_string = "Prod"
+  let prod_type_string = "Unit"
 
   let to_name = function
     | Int -> int_type_string
