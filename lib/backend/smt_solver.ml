@@ -171,6 +171,7 @@ type smt_env = {
   (* smtTbl: SmtEnv.smt_trnsl qual_ident_map; *)
   session : SmtSession.session;
   path_conditions : term list;
+  auto_dependencies : Dependencies.Graph.t;
 }
 
 (* type state = {
@@ -350,7 +351,12 @@ let init diagnostics : smt_env =
     list_of_cmds @ Base.List.init 11 ~f:(fun i -> declare_tuple_sort i)
   in
 
-  let smt_env = { session; path_conditions = [] } in
+  let smt_env =
+    { session;
+      path_conditions = [];
+      auto_dependencies = Dependencies.Graph.empty
+    }
+  in
 
   (* preamble *)
   Base.List.iter options_list ~f:(write session);

@@ -48,6 +48,9 @@ module Make (V : Vertex) = struct
           let old_dsts = Option.value old_dsts_opt ~default:empty_vertex_set in
           Set.union old_dsts dsts) )
 
+  let succs (vs, es) v : VertexSet.t =
+    Map.find es v |> Option.value ~default:empty_vertex_set
+  
   let targets (vs, es) : VertexSet.t =
     Map.fold es ~f:(fun ~key ~data -> Set.union data) ~init:empty_vertex_set
 

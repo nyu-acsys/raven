@@ -358,56 +358,69 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
     =
   let open Rewriter.Syntax in
+  let check_member qual_name symbol =
+    Logs.info (fun m -> m "Checking: %a" QualIdent.pr qual_name);
+    match symbol with
+      | Module.CallDef callable -> check_callable qual_name callable
+      | TypeDef typ -> define_type qual_name typ
+      | VarDef var_def -> (
+          let* _ =
+            write (mk_declare_const qual_name var_def.var_decl.var_type)
+          in
+          match var_def.var_init with
+          | None -> Rewriter.return ()
+          | Some expr ->
+            assume_expr
+              (Expr.mk_eq
+                 (Expr.mk_app ~typ:(Expr.to_type expr) (Var qual_name)
+                    [])
+                 expr))
+      | _ ->
+        Error.unsupported_error Loc.dummy
+          ("Unsupported symbol: " ^ Symbol.to_string symbol)
+  in
   let* _ = push in
   let* _ =
     write_comment
       (Stdlib.Format.asprintf "Checking members in %a" Ident.pr mod_name)
   in
-
-  let* _ =
-    Rewriter.List.iter deps ~f:(fun dep ->
-        match dep with
-        | [ qual_name ] -> (
-            Logs.info (fun m ->
-                m "Checking: %a" QualIdent.pr qual_name);
-            let* symbol = Rewriter.find_and_reify Loc.dummy qual_name in
-            match symbol with
-            | CallDef callable -> check_callable qual_name callable
-            | TypeDef typ -> define_type qual_name typ
-            | VarDef var_def -> (
-                let* _ =
-                  write (mk_declare_const qual_name var_def.var_decl.var_type)
-                in
-                match var_def.var_init with
-                | None -> Rewriter.return ()
-                | Some expr ->
-                    assume_expr
-                      (Expr.mk_eq
-                         (Expr.mk_app ~typ:(Expr.to_type expr) (Var qual_name)
-                            [])
-                         expr))
-            | _ ->
-                Error.unsupported_error Loc.dummy
-                  ("Unsupported symbol: " ^ Symbol.to_string symbol))
-        | [] -> assert false
-        | _ ->
-            Error.unsupported_error Loc.dummy
-              "Recursive dependencies not supported at present")
+  let* _ = Rewriter.List.iter deps ~f:(fun dep ->
+      let* dep_sym = Rewriter.List.map dep ~f:(fun qual_name ->
+          let+ symbol = Rewriter.find_and_reify Loc.dummy qual_name in
+          let symbol = match symbol with
+            | CallDef ({ call_decl = { call_decl_kind = Lemma; _ } as call_decl; _} as call_def) ->
+              Module.CallDef { call_def with call_decl = { call_decl with call_decl_is_free = true } }
+            | _ -> symbol
+          in
+          (qual_name, symbol))
+      in
+      let sorted_dep =
+        List.sort dep_sym ~compare:(fun (qid1, sym1) (qid2, sym2) ->
+            match sym1, sym2 with
+            | CallDef _, CallDef _ -> Loc.compare (QualIdent.to_loc qid1) (QualIdent.to_loc qid2)
+            | CallDef _, _ -> 1
+            | _, CallDef _ -> -1
+            | _ -> Loc.compare (QualIdent.to_loc qid1) (QualIdent.to_loc qid2)
+          )
+      in
+      Logs.info (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) dep);
+      Rewriter.List.iter sorted_dep ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
-
   let* _ = pop in
 
   Rewriter.current_user_state
 
 let check_module (module_def : Ast.Module.t) (tbl : SymbolTbl.t)
     (smt_env : smt_env) : smt_env =
-  let dependencies = Dependencies.analyze tbl module_def in
+  let dependencies, auto_dependencies = Dependencies.analyze tbl module_def smt_env.auto_dependencies in
 
   Logs.debug (fun m ->
       m "Dependencies: %a"
         (Util.Print.pr_list_sep " ]]\n" (Util.Print.pr_list_comma QualIdent.pr))
         dependencies);
 
+  let smt_env = { smt_env with auto_dependencies } in 
+  
   let _tbl, smt_env =
     Rewriter.eval ~update:false
       (Rewriter.eval_with_user_state ~init:smt_env

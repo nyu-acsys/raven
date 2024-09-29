@@ -1239,6 +1239,8 @@ module Symbol = struct
     Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
 
   let orig_symbol (_name, symbol, _subst) = symbol
+  let orig_qid (name, _symbol, _subst) = name
+  let subst (_name, _symbol, subst) = subst
   let extract (_name, symbol, subst) ~f = f (QualIdent.requalify subst) symbol
   let add_subst s (name, symbol, subst) = (name, symbol, s :: subst)
 
