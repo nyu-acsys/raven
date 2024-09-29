@@ -34,45 +34,4 @@ module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
       valid(a) && valid(b) && b.keyset subseteq a.keyset
     }
-
-    auto lemma idValid()
-        ensures valid(id)
-    {}
-
-    auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-    {}
-
-    auto lemma compCommute()
-        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-    {}
-
-    auto lemma compId()
-        ensures forall a:T :: {comp(a, id)} comp(a, id) == a
-    {}
-
-    auto lemma compValid()
-        ensures forall a:T, b:T :: {comp(a,b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-    {}
-
-    auto lemma frameId()
-        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-    {}
-    
-    auto lemma compFrameInv()
-        ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-    {}
-    
-    lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)}
-            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-    {}
-    
-    auto lemma frameValid()
-        ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-    {}
-    
-    auto lemma frameCompInv()
-        ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-    {}
 }

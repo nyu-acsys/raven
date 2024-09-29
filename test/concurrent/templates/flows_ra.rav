@@ -53,71 +53,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       (i1 == id ? i2 : (i2 == id ? i1 : top))
   }
 
-  // Domain of interface composition is union of its component domains
-  auto lemma compDom()
-    ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> comp(i1, i2).dom == i1.dom ++ i2.dom
-  {}
-
-  // Domains of composit interfaces must be disjoint
-  auto lemma compDisjoint()
-    ensures forall i1: T, i2: T :: {comp(i1, i2)} valid(comp(i1, i2)) ==> i1.dom ** i2.dom == {||}
-  {}
-
-  // Valid interfaces are defined
-  auto lemma validDefined()
-    ensures forall i: T :: valid(i) ==> i != top 
-  {}
-
-  // The empty interface is valid */
-  auto lemma idValid()
-    ensures valid(id)
-  {
-    M.idValid();
-  }
-
-  // top is an absorbing element
-  auto lemma compTop()
-    ensures forall i: T :: {comp(top, i)} comp(top, i) == top
-  {}
-
-  // The empty interface is the unit of interface composition
-  auto lemma compId()
-    ensures forall i: T :: {comp(i, id)} comp(i, id) == i
-  {
-  
-    M.compCommute(); //idComposable();
-    M.compId();
-    M.frameId();
-  }
-
-  auto lemma compValid()
-    ensures forall i1: T, i2: T :: {comp(i1,i2)} valid(comp(i1, i2)) ==> valid(i1) && valid(i2)
-  {}
-
-
-  auto lemma compCommute()
-    ensures forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)} comp(i1, i2) == comp(i2, i1)
-  {
-    M.compCommute();
-
-    assert forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)}
-      (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
-      comp(i1, i2).inf == comp(i2, i1).inf;
-    
-    assert forall i1: T, i2: T :: {comp(i1,i2)} {comp(i2,i1)}
-      (i1 == int(i1.inf, i1.out, i1.dom) && i2 == int(i2.inf, i2.out, i2.dom)) ==>
-      comp(i1, i2).out == comp(i2, i1).out;
-  }
-
-  //  The empty interface composes with valid interfaces
-  lemma idComposable()
-    ensures forall i: T :: {valid(i)} valid(i) ==> composable(i, id)
-  {
-    M.compCommute();
-    M.compId();
-    M.frameId();
-  }
-
   // Folds definition of interface composition, avoiding M.frame
   lemma compFold(i1: T, i2: T, i: T)
     requires i != top
@@ -132,92 +67,36 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     requires forall n: Ref :: {i.out[n]} n in i.dom ==> i.out[n] == M.id
     ensures comp(i1, i2) == i 
   {
-    // assume false;
-    M.frameCompInv();
-    M.compCommute();
-
     assert i == int({| n: Ref :: 
                         n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) : 
                         (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) :
                           M.id) |},
                     {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
                     i1.dom ++ i2.dom);
-    //assert comp(i1, i2).inf == i.inf;
   }
-
-  // Unfolds definition of interface composition, avoiding M.frame
-  lemma compUnfold(i1: T, i2: T)
-    requires valid(comp(i1, i2))
-    ensures comp(i1, i2).dom == i1.dom ++ i2.dom
-    ensures i1.dom ** i2.dom == {||} 
-    ensures valid(i1) && valid(i2)
-    ensures forall n: Ref :: {i1.inf[n]} {i2.out[n]} n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
-    ensures forall n: Ref :: {i2.inf[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
-    ensures forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
-  {
-    idComposable();
-    M.compCommute();
-    M.compFrameInv();
-  }
-
 
   // Auxiliary lemma to prove that interface composition is associative
   lemma compAssocValid(i1: T, i2: T, i3: T)
     requires valid(comp(i1, comp(i2, i3)))
     ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
   {
-    M.compId();
-    M.frameId();
-    M.compAssoc();
-    M.compCommute();
-    M.idValid();
-    M.compValid();
-  
     val i23: T := comp(i2, i3);
     val i: T := comp(i1, i23);
-  
-    compUnfold(i1, i23);
-    compUnfold(i2, i3);
   
     val i12: T := int({| n: Ref :: n in i1.dom ++ i2.dom ? M.comp(i.inf[n], i3.out[n]) : M.id |},
                       {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
                       i1.dom ++ i2.dom);
   
     compFold(i1, i2, i12);
-    //assert i12 != top;
-    //assert (forall n: Ref :: {i12.inf[n]} i12.inf[n] != M.id ==> n in i12.dom);
-    //assert (forall n: Ref :: {i12.out[n]} i12.out[n] != M.id ==> n !in i12.dom);
-    //assert (forall n: Ref :: {i12.inf[n]} n in i12.dom ==> M.valid(i12.inf[n]));
-    //assert (forall n: Ref :: {i12.out[n]} n !in i12.dom ==> M.valid(i12.out[n]));
-    //assert (i12.dom == {||} ==> i12.out == zeroFlow);
-
-    /*assert i12 != top
-    // Inflow and outflow properly defined
-    && (forall n: Ref :: {i12.inf[n]} i12.inf[n] != M.id ==> n in i12.dom)
-    && (forall n: Ref :: {i12.out[n]} i12.out[n] != M.id ==> n !in i12.dom)
-    // Inflow and outflow are valid
-    && (forall n: Ref :: {i12.inf[n]} n in i12.dom ==> M.valid(i12.inf[n]))
-    && (forall n: Ref :: {i12.out[n]} n !in i12.dom ==> M.valid(i12.out[n]))
-    // Empty domain ==> no outflow
-    && (i12.dom == {||} ==> i12.out == zeroFlow);*/
-
-    //assert valid(i12);
+    
     compValid();
-    //assert valid(i3);
-
-    assert i.dom == i12.dom ++ i3.dom;
-    //assert forall n: Ref :: {i12.out[n]} {i3.inf[n]} n in i3.dom ==> i3.inf[n] == M.comp(i.inf[n], i12.out[n]);
+   
     compFold(i12, i3, i);
   }
 
   auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
   {
-    M.compCommute();
-    M.compId();
-    M.frameId();
-    M.idValid();
-    M.compValid();
     assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
       if (valid(comp(i1, comp(i2, i3)))) {
         compAssocValid(i1, i2, i3);
@@ -243,28 +122,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
           i1.dom -- i2.dom) :
       top)
   }
-
-  auto lemma frameId()
-    ensures forall a:T :: {frame(a,id)} frame(a, id) == a
-  {
-    M.frameId();
-    M.frameCompInv();
-  }
   
-  lemma frameInv()
-    ensures forall a:T :: valid(a) ==> frame(a, a) == id
-  {
-    M.frameCompInv();
-    M.compFrameInv();
-    M.frameInv();
-    M.frameFrame();
-    //assert forall a: T :: {frame(a,a)} a == id ==> frame(a,a) == id;
-    //assert forall a: T :: {frame(a,a)} a != id ==> valid(a) ==> frame(a,a).dom == id.dom;
-    //assert forall a: T :: {frame(a,a)} a != id ==> valid(a) ==> frame(a,a).inf == id.inf;
-    //assert forall a: T :: {frame(a,a)} a != id ==> valid(a) ==> frame(a,a) == id;
-  }
-
-
   func contextualExt(i1: T, i2: T) returns (ret: Bool) {
     valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
     (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
@@ -275,58 +133,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   {
     i1 == i2 
     // contextualExt(i1, i2) 
-  }
-
-  auto lemma compFrameInv()
-    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-  {
-    // assume false;
-    M.frameCompInv();
-    M.compCommute();
-    M.compFrameInv();
-    M.frameInv();
-    M.frameFrame();
-    frameInv();
-    assert forall a:T, b:T :: {comp(frame(a,b), b)} a == id || b == id ==> valid(frame(a,b)) ==> comp(frame(a,b), b) == a;
-    assert forall a:T, b:T :: {comp(frame(a,b), b)} a != id ==> b != id ==> valid(frame(a,b)) ==> comp(frame(a,b), b).dom == a.dom;
-  }
-
-  auto lemma fpuValid()
-    ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)}
-      (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
-  {}
-
-  auto lemma fpuReflexive()
-    ensures (forall a:T :: {valid(a)} valid(a) ==> fpuAllowed(a,a))
-  {}
-
-  auto lemma frameValid()
-    ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a,b)) ==> valid(a) && valid(b)
-  {}
-
-  auto lemma frameCompInv()
-    ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
-  {
-    M.frameCompInv();
-    M.compFrameInv();
-    M.frameInv();
-    M.frameFrame();
-    M.compValid();
-    M.compCommute();
-    M.compId();
-    M.compAssoc();
-    frameInv();
-
-    assert forall a:T, b:T :: {frame(comp(a, b), b)} a == id || b == id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
-
-    assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).dom == a.dom;
-
-    assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).inf == a.inf;
-
-    assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b).out == a.out;
-
-    //assert forall a:T, b:T :: {frame(comp(a, b), b)} a != id ==> b != id ==> valid(comp(a, b)) ==> frame(comp(a, b), b) == a;
-
   }
   
   lemma replacement_theorem(i1: T, i2: T, j1: T)
@@ -345,51 +151,13 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
         M.comp(j1.out[n], i2.out[n]) : M.id |},
       j1.dom ++ i2.dom);
 
-    compUnfold(i1, i2);
-      
-    assert forall n: Ref :: {j1.inf[n]} {i2.out[n]} n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
-      if (n in i1.dom) {
-        M.compId();
-        M.frameInv();
-      } else if (n in j1.dom) {
-        M.compId();
-      }
-    }
-
-    //assert forall n: Ref :: {j.inf[n]} {i2.inf[n]} {j1.out[n]} 
-    //  n in i2.dom ==> i2.inf[n] == M.comp(j.inf[n], j1.out[n]);
-
     compValid();
-    assert forall n: Ref :: {j.inf[n]} n in j.dom ==> M.valid(j.inf[n]) with {
-      if (n in j.dom && n in i.dom && n in i1.dom) {
-        M.frameCompInv();
-      }
-    }
-  
     compFold(j1, i2, j);
-
-    //assert forall n: Ref :: {i.out[n]} {j.out[n]} n !in j.dom ==> i.out[n] == j.out[n];
-
-    //assert forall n: Ref :: {i.inf[n]} {j.inf[n]} n in i.dom ==> j.inf[n] == i.inf[n];
-
-    // assert forall n: Ref :: n in i.dom ==> M.valid(M.frame(j.inf[n], i.inf[n])) with
-    // {
-    //   M.frameId();
-    //   M.idValid();
-    //   M.frameFrame();
-    // }
-
-    // assert false;
   }
 
   lemma frame_inflow_unfold(i1: T, i2: T, n: Ref) 
     requires valid(frame(i1, i2))
     requires n in i2.dom
     ensures M.valid(M.frame(i2.inf[n], i1.inf[n]))
-  {
-    M.frameId();
-    M.frameInv();
-    M.frameFrame();
-    M.frameCompInv();
-  }
+  { }
 }

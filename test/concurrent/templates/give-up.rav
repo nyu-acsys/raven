@@ -382,17 +382,17 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold globalRes(r, c, g_i);
       unfold globalinv(g_i, r);
 
-      AuthFlow_K.weak_frameCompInv();
+      /*AuthFlow_K.weak_frameCompInv();
       AuthFlow_K.compValid();
       AuthFlow_K.compAssoc();
       AuthFlow_K.compCommute();
-      AuthFlow_K.compId();
+      AuthFlow_K.compId();*/
 
       ghost var i_o: Flow_K = Flow_K.frame(g_i, i_n);
-      Flow_K.frameCompInv();
+      //Flow_K.frameCompInv();
       assert Flow_K.valid(i_o);
 
-      Flow_K.compUnfold(i_o, i_n);
+      //Flow_K.compUnfold(i_o, i_n);
 
       assert k !in outsets(g_i);
 
@@ -422,8 +422,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
     abortAU(phi);
     
     unfold nodePred(r, n, c_n, i_n);
-    AuthFlow_K.compValid();
-    AuthFlow_K.weak_frameCompInv();
+    assert own(r, authFlow, AuthFlow_K.frag(i_n));
+    //AuthFlow_K.compValid();
+    //AuthFlow_K.weak_frameCompInv();
 
     var in_range: Bool := Node.inRange(n, k, c_n, i_n);
 
@@ -431,7 +432,12 @@ interface GiveUpTemplate[Node: NodeImpl] {
       var succ: Bool;
       var n1: Ref;
       succ, n1 := Node.findNext(n, k, c_n, i_n);
-      
+
+      assert i_n.dom == {|n|}; 
+      assert node(n, c_n, i_n);
+      assert own(r, authFlow, AuthFlow_K.frag(i_n));
+      assert own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c_n ) ));
+
       fold nodePred(r, n, c_n, i_n);
 
       if (succ) {
@@ -624,16 +630,16 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));
 
-      AuthFlow_K.compValid();
-      AuthFlow_K.weak_frameCompInv();
+      /*AuthFlow_K.compValid();
+      AuthFlow_K.weak_frameCompInv();*/
 
       fold globalRes(r, cc, g_i1);
       ghost var lockval2: Map[Ref, Int] := lockval1[n := 0];
       ghost var contents2: Map[Ref, Set[K]] := contents1[n := c_n1];
       ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
 
-      Flow_K.compFrameInv();
-      Flow_K.frameCompInv();
+      //Flow_K.compFrameInv();
+      //Flow_K.frameCompInv();
       fold nodePred(r, n, contents2[n], intf2[n]);
       fold cssR(r, cc, g_i1, lockval2, contents2, intf2);
       assert cssR(r, cc, g_i1, lockval2, contents2, intf2);
