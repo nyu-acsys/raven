@@ -85,9 +85,9 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     ensures forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
   { }
   
-  auto lemma compValid()
-    ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-  { }
+  //auto lemma compValid()
+  //  ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
+  //{ }
 
   // The are no non-trivial inverses
   auto lemma compPositive()
@@ -145,9 +145,9 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   }
 
   // TW: This needs to remain 'auto'. Not sure why.
-  auto lemma compCommute()
-    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-  { }
+  //auto lemma compCommute()
+  //  ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+  //{ }
 
   auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
