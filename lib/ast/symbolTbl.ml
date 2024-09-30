@@ -274,9 +274,6 @@ let resolve name (tbl : t) :
                ~data:(alias_qual_ident, orig_qual_ident, subst);
            (alias_qual_ident, orig_qual_ident, subst))
   in
-  (*Logs.debug (fun m -> m "SymbolTbl.resolve: name: %a" QualIdent.pr name);
-    Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
-    Logs.debug (fun m -> m "SymbolTbl.resolve: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));*)
   go_backward true tbl.tbl_curr tbl.tbl_path
 
 (** Like [resolve] but throws an exception if [name] is not found in [tbl]. *)
@@ -312,9 +309,9 @@ let resolve_and_find_exn loc name (tbl : t) =
     Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_entries qualIdents: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_entries));*)
   resolve_and_find name tbl
   |> Option.lazy_value ~default:(fun () ->
-         Logs.debug (fun m ->
+         (*Logs.debug (fun m ->
              m "SymbolTbl.resolve_and_find_exn: %a fail: tbl_curr: %a"
-               QualIdent.pr name QualIdent.pr tbl.tbl_curr.scope_id);
+               QualIdent.pr name QualIdent.pr tbl.tbl_curr.scope_id);*)
          (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
          unknown_ident_error loc name)
 
@@ -430,9 +427,9 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
     in
 
     let symbol_qual_ident = fully_qualify symbol_ident appropriate_scope tbl in
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "SymbolTbl.add_symbol: symbol_qual_ident: %a" QualIdent.pr
-          symbol_qual_ident);
+          symbol_qual_ident);*)
     let duplicate (map : entry IdentHashtbl.t) (key : Ident.t) data =
       match Hashtbl.find_exn map key with
       | Import _ -> Hashtbl.set map ~key ~data
@@ -518,10 +515,10 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
 let set_symbol symbol tbl : t =
   let symbol_ident = Symbol.to_name symbol in
   let symbol_qual_ident = fully_qualify symbol_ident tbl.tbl_curr tbl in
-  Logs.debug (fun m ->
+  (*Logs.debug (fun m ->
       m "SymbolTbl.set_symbol: symbol_qual_ident: %a" QualIdent.pr
         symbol_qual_ident);
-  Logs.debug (fun m -> m "SymbolTbl.set_symbol: symbol: %a" Symbol.pr symbol);
+  Logs.debug (fun m -> m "SymbolTbl.set_symbol: symbol: %a" Symbol.pr symbol);*)
   let new_map = Map.set tbl.tbl_symbols ~key:symbol_qual_ident ~data:symbol in
 
   (* Logs.debug (fun m -> m "SymbolTbl.set_symbol: new_map: %a" (Print.pr_list_comma QualIdent.pr) (Map.keys new_map)); *)

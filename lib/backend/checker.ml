@@ -403,7 +403,6 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
             | _ -> Loc.compare (QualIdent.to_loc qid1) (QualIdent.to_loc qid2)
           )
       in
-      Logs.info (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) dep);
       Rewriter.List.iter sorted_dep ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
   let* _ = pop in
