@@ -2390,9 +2390,11 @@ module ProcessModule = struct
                   when Callable.is_abstract call
                        && not m.mod_decl.mod_decl_is_interface ->
                   let loc = m.mod_decl.mod_decl_loc in
+                  (* Keep 'auto' flag for everything but RA associativity axioms *)
+                  let auto = String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc") in
                   let call =
                     {
-                      Callable.call_decl = { call.call_decl with call_decl_is_auto = false };
+                      Callable.call_decl = { call.call_decl with call_decl_is_auto = auto };
                       call_def =
                         ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
                     }

@@ -82,7 +82,7 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t) (ag: Graph.t): QualIdent.t list 
           deps
         | _ -> Graph.empty_vertex_set
       in
-      Logs.debug (fun m -> m "Dependencies.analyze: Adding dependencies of %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
+      Logs.info (fun m -> m "Dependencies.analyze: Adding dependencies of %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
       let g1 = Graph.add_edges g qid deps in
       let covered1 = Set.add covered qid in
       let todos1 = Set.union (Set.remove todos qid) (Set.diff deps covered1) in

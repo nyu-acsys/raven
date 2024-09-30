@@ -361,7 +361,7 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
     =
   let open Rewriter.Syntax in
   let check_member qual_name symbol =
-    Logs.info (fun m -> m "Checking: %a" QualIdent.pr qual_name);
+    (* Logs.info (fun m -> m "Checking: %a" QualIdent.pr qual_name); *)
     match symbol with
       | Module.CallDef callable -> check_callable qual_name callable
       | TypeDef typ -> define_type qual_name typ
@@ -387,6 +387,7 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
       (Stdlib.Format.asprintf "Checking members in %a" Ident.pr mod_name)
   in
   let* _ = Rewriter.List.iter deps ~f:(fun dep ->
+      Logs.info (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) dep);
       let* dep_sym = Rewriter.List.map dep ~f:(fun qual_name ->
           let+ symbol = Rewriter.find_and_reify Loc.dummy qual_name in
           (qual_name, symbol))
@@ -394,7 +395,14 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
       let sorted_dep =
         List.sort dep_sym ~compare:(fun (qid1, sym1) (qid2, sym2) ->
             match sym1, sym2 with
-            | CallDef _, CallDef _ -> Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)
+            | CallDef call_def1, CallDef call_def2 ->
+              begin
+                match Callable.kind call_def1, Callable.kind call_def2 with
+                | (Pred | Func | Invariant), (Lemma | Proc) -> -1
+                | (Lemma | Proc), (Pred | Func | Invariant) -> 1
+                | _ ->
+                  Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)
+              end
             | CallDef _, _ -> 1
             | _, CallDef _ -> -1
             | _ -> Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)

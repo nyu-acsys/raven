@@ -210,14 +210,18 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
 
     assert forall n: Ref :: {j1.inf[n]} {i2.out[n]} n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
       if (n in i1.dom) {
-        //M.compId();
         M.frameInv();
-      } else if (n in j1.dom) {
-        //M.compId();
+      } 
+    }
+    //compAssoc();
+    //compValid();
+    
+    assert forall n: Ref :: {j.inf[n]} n !in j.dom ==> j.inf[n] == M.id with {
+      if (n !in j.dom) {
+        assert n !in i1.dom && n !in i2.dom;
       }
     }
     
-    compValid();
     compFold(j1, i2, j);
   }
 
