@@ -272,7 +272,7 @@ let resolve name (tbl : t) :
            if is_first then
              Hashtbl.add_exn scope_cache ~key:name
                ~data:(alias_qual_ident, orig_qual_ident, subst);
-           (alias_qual_ident, orig_qual_ident, subst))
+           (alias_qual_ident, QualIdent.set_loc (QualIdent.to_loc name) orig_qual_ident, subst))
   in
   go_backward true tbl.tbl_curr tbl.tbl_path
 

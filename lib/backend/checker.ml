@@ -310,7 +310,9 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
             let* _ = pop in
 
             Rewriter.return ()
-        | _ -> Rewriter.return ()
+        | _ ->
+          Logs.info (fun m -> m "Skipping %b" callable.call_decl.call_decl_is_free);
+          Rewriter.return ()
       in
 
       (* Rewriter.return () *)
@@ -387,20 +389,15 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
   let* _ = Rewriter.List.iter deps ~f:(fun dep ->
       let* dep_sym = Rewriter.List.map dep ~f:(fun qual_name ->
           let+ symbol = Rewriter.find_and_reify Loc.dummy qual_name in
-          let symbol = match symbol with
-            | CallDef ({ call_decl = { call_decl_kind = Lemma; _ } as call_decl; _} as call_def) ->
-              Module.CallDef { call_def with call_decl = { call_decl with call_decl_is_free = true } }
-            | _ -> symbol
-          in
           (qual_name, symbol))
       in
       let sorted_dep =
         List.sort dep_sym ~compare:(fun (qid1, sym1) (qid2, sym2) ->
             match sym1, sym2 with
-            | CallDef _, CallDef _ -> Loc.compare (QualIdent.to_loc qid1) (QualIdent.to_loc qid2)
+            | CallDef _, CallDef _ -> Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)
             | CallDef _, _ -> 1
             | _, CallDef _ -> -1
-            | _ -> Loc.compare (QualIdent.to_loc qid1) (QualIdent.to_loc qid2)
+            | _ -> Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)
           )
       in
       Rewriter.List.iter sorted_dep ~f:(fun (qual_name, sym) -> check_member qual_name sym))

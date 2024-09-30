@@ -17,7 +17,9 @@ module Ident = struct
       | 0 -> id.ident_name
       | _ -> Printf.sprintf !"%{String}^%{Int}" id.ident_name id.ident_num
 
-    let to_loc id = id.ident_loc      
+    let to_loc id = id.ident_loc
+
+    let set_loc loc id = { id with ident_loc = loc }
   end
 
   include T
@@ -108,6 +110,9 @@ module QualIdent = struct
   let to_rev_list qid =
     qid.qual_base :: List.rev qid.qual_path
 
+  let set_loc loc qid =
+    { qid with qual_base = Ident.set_loc loc qid.qual_base }
+  
   let first_ident qid =
     match qid.qual_path with
     | id :: _ -> id

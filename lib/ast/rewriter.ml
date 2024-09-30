@@ -1200,7 +1200,9 @@ module Symbol = struct
         in
 
         (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
-        symbol1
+        match symbol1 with
+        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.make_free call_def)
+        | _ -> symbol1
 
   let reify_type_def loc (name, symbol, subst) :
       (AstDef.Type.t Base.Option.t, 'a) t_ext =

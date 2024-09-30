@@ -75,6 +75,53 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
                     i1.dom ++ i2.dom);
   }
 
+  lemma compUnfold(i1: T, i2: T)
+    requires valid(comp(i1, i2))
+    ensures comp(i1, i2).dom == i1.dom ++ i2.dom
+    ensures i1.dom ** i2.dom == {||} 
+    ensures valid(i1) && valid(i2)
+    ensures forall n: Ref :: {i1.inf[n]} {i2.out[n]} n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
+    ensures forall n: Ref :: {i2.inf[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
+    ensures forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
+  { }
+  
+  auto lemma compValid()
+    ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
+  { }
+
+  // The are no non-trivial inverses
+  auto lemma compPositive()
+    ensures forall i1: T, i2: T :: {comp(i1, i2)} comp(i1, i2) == id ==> i1 == id && i2 == id
+  { }
+
+
+  /*lemma compAssocInvalid(i1: T, i2: T, i3: T)
+    requires !(valid(comp(i1, comp(i2, i3))))
+    requires !(valid(comp(comp(i1, i2), i3)))
+    ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
+  {
+    val i23: T := comp(i2, i3);
+    val i1_23: T := comp(i1, i23);
+    val i12: T := comp(i1, i2);
+    val i12_3: T := comp(i12, i3);
+  
+    //lemma_int_composable(I1, I23);
+    assert !(composable(i1, i23));
+ 
+    //lemma_int_composable(I12, I3);
+    assert !(composable(i12, i3));
+
+    if (i1 == id) {
+    } else if (i2 == id) {
+    } else if (i3 == id) {
+    } else if (i23 == id) {
+      //compPositive(i2, i3);
+    } else if (i12 == id) {
+      //compPositive(i1, i2);
+    } 
+  }*/
+
+
   // Auxiliary lemma to prove that interface composition is associative
   lemma compAssocValid(i1: T, i2: T, i3: T)
     requires valid(comp(i1, comp(i2, i3)))
@@ -87,12 +134,20 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
                       {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
                       i1.dom ++ i2.dom);
   
+    //compUnfold(i1, i23);
+    //compUnfold(i2, i3);
+
     compFold(i1, i2, i12);
     
     compValid();
    
     compFold(i12, i3, i);
   }
+
+  // TW: This needs to remain 'auto'. Not sure why.
+  auto lemma compCommute()
+    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+  { }
 
   auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
@@ -102,7 +157,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
         compAssocValid(i1, i2, i3);
       } else if (valid(comp(comp(i1, i2), i3))) {
         compAssocValid(i3, i2, i1);
-      }    
+      }
     }
   }
 
@@ -151,6 +206,17 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
         M.comp(j1.out[n], i2.out[n]) : M.id |},
       j1.dom ++ i2.dom);
 
+    compUnfold(i1, i2);
+
+    assert forall n: Ref :: {j1.inf[n]} {i2.out[n]} n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
+      if (n in i1.dom) {
+        //M.compId();
+        M.frameInv();
+      } else if (n in j1.dom) {
+        //M.compId();
+      }
+    }
+    
     compValid();
     compFold(j1, i2, j);
   }

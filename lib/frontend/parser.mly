@@ -709,7 +709,7 @@ ghost_block:
 
 primary:
 | c = CONSTVAL { Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) c []) }
-| LPAREN; e = expr; RPAREN { e }
+| LPAREN; e = expr; RPAREN cont = map_update_opt { cont e }
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
@@ -732,16 +732,7 @@ compr_expr:
   
 dot_expr:
 (*| MAP LT var_type, var_type GT LPAREN expr_list_opt RPAREN {*)
-| p = qual_ident_expr; co = call_opt {
-  Base.Option.map co ~f:(fun (c, es) ->
-    let constr, args =
-      let p_ident = Expr.to_qual_ident p in
-      Base.Option.map c ~f:(fun c -> c, p :: es) |> 
-      Base.Option.value ~default:(Expr.Var p_ident, es)
-    in
-    Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) constr args))
-  |> Base.Option.value ~default:p
-}
+| p = qual_ident_expr; co = call_opt { co p }
 ;
 
 own_expr:
@@ -773,20 +764,33 @@ lookup:
 }
     
 call_expr:
-| p = qual_ident_expr; ces = call {
-  let _, es = ces in
+| p = qual_ident_expr; es = call {
   Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
 }
   
 call:
-| LPAREN; es = separated_list(COMMA, expr); RPAREN { (None, es) }
+| LPAREN; es = separated_list(COMMA, expr); RPAREN { es }
   
 call_opt:
-| c = call { Some c }
-| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET {
-  Some (Some MapUpdate, [e2; e3])
+| es = call; cont = map_update_opt {
+  fun p ->
+    let p_ident = Expr.to_qual_ident p in
+    let e =
+      Expr.(mk_app ~typ:Type.bot ~loc:(Loc.merge (to_loc p) (Loc.make $startpos $endpos)) (Var p_ident) es)
+    in
+    cont e
 }
-| (* empty *) { None }
+| cont = map_update_opt { cont }
+
+map_update_opt:
+| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET cont = map_update_opt {
+  fun e ->
+    let e_upd =
+      Expr.(mk_app ~typ:Type.bot ~loc:(Loc.merge (to_loc e) (Loc.make $startpos $endpos)) MapUpdate [e; e2; e3])
+    in
+    cont e_upd
+}
+| (* empty *) { fun p -> p }
   
 qual_ident_expr:
 | x = qual_ident { x }
@@ -802,7 +806,7 @@ qual_ident:
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
 }
-    
+ 
 mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
