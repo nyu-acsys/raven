@@ -853,7 +853,7 @@ rel_expr:
 | c = comp_seq {
   match c with
   | e, [] -> e
-  | _, comps -> Expr.mk_and ~loc:(Loc.make $startpos $endpos) comps
+  | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Expr.mk_and ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
 }
 | e1 = rel_expr; IN; e2 = add_expr {
     Expr.(mk_app ~typ:Type.bot ~loc:(Loc.make $startpos $endpos) Elem [e1; e2])
