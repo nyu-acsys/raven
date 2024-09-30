@@ -9,10 +9,10 @@ interface IArray {
   func second(r: Ref) returns (i: Int)
   
   auto lemma all_diff()
-    ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
+    ensures forall a:T, i: Int :: {loc(a, i)} first(loc(a, i)) == a && second(loc(a, i)) == i
     
   auto lemma len_nonneg()
-    ensures forall a:T :: len(a) >= 0
+    ensures forall a:T :: {len(a)} len(a) >= 0
 }
 
 module ArrayMax[M: IArray] {
@@ -24,8 +24,10 @@ module ArrayMax[M: IArray] {
   
   val x: Int := 4
   
-  pred is_max(i: Int, m: Map[Int, Int], u: Int) {
-    forall j: Int :: 0 <= j && j < u ==> m[j] <= m[i]
+  func is_max(i: Int, m: Map[Int, Int], u: Int) 
+    returns (res: Bool) 
+  {
+    forall j: Int :: {m[j]} 0 <= j && j < u ==> m[j] <= m[i]
   }
   
   proc max(a: M, implicit ghost m: Map[Int, Int]) 
@@ -70,7 +72,7 @@ module ArrayMax[M: IArray] {
       }
     }
 
-    fold is_max(x, m, M.len(a));
+    //fold is_max(x, m, M.len(a));
   }
 
   
