@@ -1,0 +1,11 @@
+proc foo(x: Int) 
+{
+  var i: Int := 0;
+
+  while (i < 10) 
+    invariant 0 <= i <= 10
+    invariant x == x
+  {
+    i := i + 1;
+  }
+}
