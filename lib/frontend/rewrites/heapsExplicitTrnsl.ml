@@ -4066,19 +4066,21 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let field_name = fr_desc.field_read_field in
-
+          let field_loc = fr_desc.field_read_field |> QualIdent.to_loc in
           let* field_symbol = Rewriter.find_and_reify s.stmt_loc field_name in
 
           let field_symbol =
             match field_symbol with
             | FieldDef field_symbol -> field_symbol
-            | _ -> Error.type_error s.stmt_loc "Expected a field definition."
+            | _ -> Error.type_error field_loc "Expected a field definition."
           in
 
           let field_ra =
             Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol
           in
-
+          let field_read_ref_loc = fr_desc.field_read_ref |> Expr.to_loc in
+          let loc = Loc.merge field_loc field_read_ref_loc in
+          
           let* orig_ra_name, ra_def, _ = Rewriter.find s.stmt_loc field_ra in
 
           if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
@@ -4110,7 +4112,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
             let assert_stmt =
               let error =
                 ( Error.Verification,
-                  s.stmt_loc,
+                  loc,
                   "Could not assert sufficient permissions to access this field"
                 )
               in
