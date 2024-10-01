@@ -50,6 +50,15 @@ interface OrderedType : Library.Type {
 
 }
 
+/*module IntInf : OrderedType {
+  // Integers extended with infinities
+  rep type T = data {
+    case 
+  }
+    
+  func lt(x: T, y: T) returns (res: Bool)
+*/
+
 interface ArrayUtil[K: OrderedType] {
   import K.lt
 
@@ -432,7 +441,7 @@ interface ArrayUtil[K: OrderedType] {
     unfold sorted_array_with_content(a, len, m);
     arr_shift(a, i, i + 1, len - i, m);
 
-    // assume false;
+    //assume false;
     A.all_diff();
     A.len_nonneg();
     unfold arr(a, map_shift(m, i, i + 1, len - i));

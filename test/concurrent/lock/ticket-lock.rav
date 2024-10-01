@@ -1,8 +1,10 @@
 include "lock.rav"
 
-interface TicketLock : Lock {
+interface TicketLock[R: LockResource] : Lock {
   field next: Int
   field curr: Int
+
+  import R.resource
 
   module IntType : Library.Type {
     rep type T = Int

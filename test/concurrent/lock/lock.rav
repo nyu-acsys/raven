@@ -1,12 +1,22 @@
-interface Lock {
-  module R: Library.Type
+interface LockResource : Library.Type {
+  rep type T
+  
+  // Resource protected by a lock
+  pred resource(r: T)
+
+  axiom exclusive(r: T)
+    requires resource(r) && resource(r)
+    ensures false
+}
+
+
+interface Lock[R: LockResource] {
+  import R.resource
 
   module Agree = Library.Agree[R]
 
   ghost field agr: Agree
   
-  // Resource protected by the lock
-  pred resource(r: R)
 
   // Lock representation invariant
   pred lock_rep(l: Ref; b: Bool)
@@ -16,6 +26,14 @@ interface Lock {
     own(l, agr, Agree.agree(r)) 
     && lock_rep(l, b)
     && (b ? true : resource(r))
+  }
+
+  lemma exclusive(l: Ref, r: R)
+    requires is_lock(l, r, true) && resource(r)
+    ensures false
+  {
+    unfold is_lock(l, r, true);
+    R.exclusive(r);
   }
 
   proc create(r: R)
