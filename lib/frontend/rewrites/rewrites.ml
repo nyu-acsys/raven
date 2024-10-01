@@ -1526,14 +1526,14 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
         Logs.debug (fun m ->
             m
               "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: \
-               tp_module: %a"
-              Type.pr field_type);
+               tp_module: %a;\n ... & frac_mod_ident: %a"
+              Type.pr field_type QualIdent.pr (QualIdent.from_ident
+              (Rewriter.ProgUtils.field_type_to_frac_mod_ident
+                 ~loc:(Expr.to_loc expr) field_type)));
 
         let* frac_mod_name =
           Rewriter.resolve (Expr.to_loc expr)
-            (QualIdent.from_ident
-               (Rewriter.ProgUtils.field_type_to_frac_mod_ident
-                  ~loc:(Expr.to_loc expr) field_type))
+            (Rewriter.ProgUtils.field_type_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type)
         in
 
         let frac_type =

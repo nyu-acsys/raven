@@ -1313,6 +1313,12 @@ module ProgUtils = struct
   let field_type_to_frac_mod_ident ~loc field_tp =
     Ident.make loc (serialize ("Frac$" ^ AstDef.Type.to_string field_tp)) 0
 
+  let field_type_to_frac_mod_qual_ident ~loc field_name field_tp =
+    let frac_mod_ident = Ident.make loc (serialize ("Frac$" ^ AstDef.Type.to_string field_tp)) 0 in
+    let frac_mod_path = QualIdent.from_list (QualIdent.path field_name) in
+
+    QualIdent.append frac_mod_path frac_mod_ident
+
   let pred_to_ra_mod_ident ~loc pred_ident =
     Ident.make loc (serialize ("PredHeapRA$" ^ Ident.to_string pred_ident)) 0
 
