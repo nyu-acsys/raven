@@ -238,7 +238,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                   ~data:(Expr.mk_tuple_lookup fn_call_expr i))
         in
 
-        let check_contract_expr =
+        let inductive_contract_expr =
           Expr.mk_binder Forall
             (call_decl.call_decl_formals @ call_decl.call_decl_returns)
             (Expr.mk_impl
@@ -248,6 +248,20 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                         (Var fully_qual_name)
                         (List.map call_decl.call_decl_formals ~f:(fun arg ->
                              Expr.from_var_decl arg)))
+                  :: List.map call_decl.call_decl_precond ~f:(fun pre ->
+                         pre.spec_form)))
+               (Expr.mk_and
+                  (List.map call_decl.call_decl_postcond ~f:(fun post ->
+                       post.spec_form))))
+        in
+
+        let check_contract_expr =
+          Expr.mk_binder Forall
+            (call_decl.call_decl_formals @ call_decl.call_decl_returns)
+            (Expr.mk_impl
+               (Expr.mk_and
+                  (Expr.mk_eq ret_tuple
+                      (Expr.alpha_renaming expr alpha_renaming_map)
                   :: List.map call_decl.call_decl_precond ~f:(fun pre ->
                          pre.spec_form)))
                (Expr.mk_and
@@ -267,13 +281,20 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         in
 
         let* _ = write cmd in
-        let* _ = assume_expr spec_expr in
+        (* let* _ = assume_expr spec_expr in *)
 
         let* b =
           if callable.call_decl.call_decl_is_free
           then Rewriter.return true
-          else check_valid check_contract_expr
+          else 
+            let* _ = push in
+            let* _ = assume_expr inductive_contract_expr in
+            let* result = check_valid check_contract_expr in
+            let+ _ = pop in
+            result
         in
+
+        let* _ = assume_expr spec_expr in
 
         match b with
         | true -> (
