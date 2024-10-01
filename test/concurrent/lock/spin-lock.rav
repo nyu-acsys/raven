@@ -1,7 +1,9 @@
 include "lock.rav"
 
-interface SpinLock : Lock {
+module SpinLock[R: LockResource] : Lock {
   field bit: Bool
+  
+  import R.resource
   
   pred lock_rep(l: Ref; b: Bool) {
     own(l, bit, b, 1.0)

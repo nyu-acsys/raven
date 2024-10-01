@@ -12,6 +12,8 @@ interface Array {
     
   auto axiom len_nonneg()
     ensures forall a:T :: {length(a)} length(a) >= 0
+
+  field value: E
 }
 
 interface OrderedType : Library.Type {
@@ -66,10 +68,10 @@ interface ArrayUtil[K: OrderedType] {
     type E = K
   }
 
-  field value: K
+  //import A.value
 
   pred arr(a: A, m: Map[Int, K]) {
-    forall j: Int :: 0 <= j < A.length(a) ==> own(A.loc(a, j), value, m[j], 1.0)
+    forall j: Int :: 0 <= j < A.length(a) ==> own(A.loc(a, j), A.value, m[j], 1.0)
   }
 
   // project map segment m[i..j] to set of its elements
@@ -297,8 +299,8 @@ interface ArrayUtil[K: OrderedType] {
       {
         //ghost var m1 := a.map;
         unfold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
-        var tmp: K := A.loc(a, src + i).value;
-        A.loc(a, dst + i).value := tmp;
+        var tmp: K := A.loc(a, src + i).A.value;
+        A.loc(a, dst + i).A.value := tmp;
         //pure assert a.map == m1[dst + i := tmp];
         i := i - 1;
         fold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
@@ -314,8 +316,8 @@ interface ArrayUtil[K: OrderedType] {
       {
         //ghost var m1 := a.map;
         unfold arr(a, map_shift(amap, src, dst, i));
-        var tmp: K := A.loc(a, src + i).value;
-        A.loc(a, dst + i).value := tmp;
+        var tmp: K := A.loc(a, src + i).A.value;
+        A.loc(a, dst + i).A.value := tmp;
         //pure assert a.map == m1[dst + i := tmp];
         i := i + 1;
         fold arr(a, map_shift(amap, src, dst, i));
@@ -340,10 +342,10 @@ interface ArrayUtil[K: OrderedType] {
       invariant 0 <= dst <= dst + len <= A.length(b)
     {
       unfold arr(a, amap);
-      var tmp: K := A.loc(a, src + i).value;
+      var tmp: K := A.loc(a, src + i).A.value;
       fold arr(a, amap);
       unfold arr(b, map_copy(bmap, amap, src, dst, i));
-      A.loc(b, dst + i).value := tmp;
+      A.loc(b, dst + i).A.value := tmp;
       i := i + 1;
       fold arr(b, map_copy(bmap, amap, src, dst, i));
     }
@@ -378,7 +380,7 @@ interface ArrayUtil[K: OrderedType] {
       unfold sorted_array_with_content(a, len, m);
       unfold arr(a, m);
       var mid: Int := (hi + lo) / 2;
-      var amid: K := A.loc(a, mid).value;
+      var amid: K := A.loc(a, mid).A.value;
       var cmp: Int := K.compare(k, amid);
       if (cmp < 0) {
         hi := mid;      // look in first half
@@ -403,7 +405,7 @@ interface ArrayUtil[K: OrderedType] {
       A.all_diff();
       A.len_nonneg();
       unfold arr(a, m);
-      var alo: K := A.loc(a, lo).value;
+      var alo: K := A.loc(a, lo).A.value;
       found := !lt(k, alo);
       fold arr(a, m);
       fold sorted_array_with_content(a, len, m);
@@ -445,7 +447,7 @@ interface ArrayUtil[K: OrderedType] {
     A.all_diff();
     A.len_nonneg();
     unfold arr(a, map_shift(m, i, i + 1, len - i));
-    A.loc(a, i).value := k;
+    A.loc(a, i).A.value := k;
     m1 := map_shift(m, i, i + 1, len - i)[i := k];
     fold arr(a, m1);
     //pure assert a.map == ms[i := k];

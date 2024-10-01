@@ -1,6 +1,6 @@
 include "lock.rav"
 
-interface TicketLock[R: LockResource] : Lock {
+module TicketLock[R: LockResource] : Lock {
   field next: Int
   field curr: Int
 
