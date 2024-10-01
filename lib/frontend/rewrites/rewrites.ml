@@ -423,9 +423,14 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
              curr_loop_arg_var_decls ) =
         (* Local variables accessed from loop body become arguments for loop procedure *)
         let curr_loop_args =
-          Set.union
-            (Stmt.local_vars_accessed loop.loop_postbody)
-            (Expr.local_vars loop.loop_test)
+          List.fold ~init:(Set.empty (module Ident)) 
+          ~f:Set.union
+            (
+              (Stmt.local_vars_accessed loop.loop_postbody) ::
+              (Expr.local_vars loop.loop_test) ::
+              (List.map ~f:(fun s -> Expr.local_vars s.spec_form) loop.loop_contract)
+            )
+            
           |> Set.to_list
         in
         let+ curr_loop_arg_var_decls =
