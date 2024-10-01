@@ -390,7 +390,9 @@ interface ArrayUtil[K: OrderedType] {
       found := false;
     } else {
       unfold sorted_array_with_content(a, len, m);
-      assume false;
+      // assume false;
+      A.all_diff();
+      A.len_nonneg();
       unfold arr(a, m);
       var alo: K := A.loc(a, lo).value;
       found := !lt(k, alo);
@@ -430,7 +432,9 @@ interface ArrayUtil[K: OrderedType] {
     unfold sorted_array_with_content(a, len, m);
     arr_shift(a, i, i + 1, len - i, m);
 
-    assume false;
+    // assume false;
+    A.all_diff();
+    A.len_nonneg();
     unfold arr(a, map_shift(m, i, i + 1, len - i));
     A.loc(a, i).value := k;
     m1 := map_shift(m, i, i + 1, len - i)[i := k];
