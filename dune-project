@@ -1,5 +1,5 @@
 (lang dune 3.12)
-(name raven)
+(name Raven)
 (using menhir 2.1)
 (map_workspace_root false)
 
