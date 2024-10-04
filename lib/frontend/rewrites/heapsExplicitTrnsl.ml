@@ -167,7 +167,7 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
         "Could not prove the injectivity of the index expression for this \
          iterated separating conjunction" )
     in
-    Stmt.mk_assert_expr ~loc
+    Stmt.mk_assert_expr ~loc ~cmnt:("Injectivity assertion: " ^ "universal quants: " ^ String.concat ~sep:", " (List.map univ_vars ~f:(fun v -> Ident.to_string v.var_name)) ^ "; expression: " ^ Expr.to_string expr) 
       ~spec_error:[ Stmt.mk_const_spec_error error ]
       assert_expr
   in
@@ -1268,7 +1268,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
             "This update may not be frame-preserving" )
         in
         Stmt.mk_assert_expr ~loc:stmt.stmt_loc
-          ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt))
+          ~cmnt:("FPU stmt: " ^ Stmt.to_string stmt)
           ~spec_error:[ Stmt.mk_const_spec_error error ]
           (Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.bool
              (Expr.Var fpu_allowed_qual_iden)
@@ -1282,7 +1282,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
             "This update may not be frame-preserving" )
         in
         Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
-          ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt))
+          ~cmnt:("FPU stmt: " ^ Stmt.to_string stmt)
           ~spec_error:[ Stmt.mk_const_spec_error error ]
           (Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.perm Expr.Own
              [ fpu_desc.fpu_ref; field_expr; old_val ])
@@ -1290,7 +1290,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let inhale_stmt =
         Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
-          ~cmnt:(Some ("FPU stmt: " ^ Stmt.to_string stmt))
+          ~cmnt:("FPU stmt: " ^ Stmt.to_string stmt)
           (Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.perm Expr.Own
              [ fpu_desc.fpu_ref; field_expr; fpu_desc.fpu_new_val ])
       in
@@ -1328,7 +1328,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
       let assert_stmt =
         Stmt.mk_assert_expr ~loc:stmt.stmt_loc
-          ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt))
+          ~cmnt:("Bind stmt: " ^ Stmt.to_string stmt)
           ~spec_error:[ Stmt.mk_const_spec_error error ]
           (Expr.mk_binder Exists ~loc:stmt.stmt_loc exis_vars
              (Expr.alpha_renaming bind_desc.bind_rhs alpha_renaming_map))
@@ -1336,7 +1336,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let assume_stmt =
         Stmt.mk_assume_expr ~loc:stmt.stmt_loc
-          ~cmnt:(Some ("Bind stmt: " ^ Stmt.to_string stmt))
+          ~cmnt:("Bind stmt: " ^ Stmt.to_string stmt)
           bind_desc.bind_rhs
       in
 
@@ -1879,12 +1879,11 @@ module TrnslInhale = struct
 
           Stmt.mk_assume_expr ~loc
             ~cmnt:
-              (Some
-                 ((match cmnt with None -> "" | Some cmnt -> cmnt ^ "\n")
-                 ^ "inhale: "
-                 ^ Stdlib.Format.asprintf "%a" Expr.pr
-                     (Expr.mk_binder Forall univ_vars_list
-                        (Expr.mk_impl (Expr.mk_and conds) expr))))
+              ((match cmnt with None -> "" | Some cmnt -> cmnt ^ "\n")
+              ^ "inhale: "
+              ^ Stdlib.Format.asprintf "%a" Expr.pr
+                  (Expr.mk_binder Forall univ_vars_list
+                    (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
                ~trigs:
                  [
@@ -2053,12 +2052,11 @@ module TrnslInhale = struct
 
           Stmt.mk_assume_expr ~loc
             ~cmnt:
-              (Some
-                 ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                 ^ "\ninhale: "
-                 ^ Stdlib.Format.asprintf "%a" Expr.pr
-                     (Expr.mk_binder Forall univ_vars_list
-                        (Expr.mk_impl (Expr.mk_and conds) expr))))
+              ((match cmnt with None -> "" | Some cmnt -> cmnt)
+              ^ "\ninhale: "
+              ^ Stdlib.Format.asprintf "%a" Expr.pr
+                  (Expr.mk_binder Forall univ_vars_list
+                    (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
                ~trigs:
                  [
@@ -2127,12 +2125,11 @@ module TrnslInhale = struct
           Rewriter.return
             (Stmt.mk_assume_expr ~loc
                ~cmnt:
-                 (Some
-                    ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                    ^ "\ninhale: "
-                    ^ Stdlib.Format.asprintf "%a" Expr.pr
-                        (Expr.mk_binder Forall univ_vars_list
-                           (Expr.mk_impl (Expr.mk_and conds) expr))))
+                  ((match cmnt with None -> "" | Some cmnt -> cmnt)
+                  ^ "\ninhale: "
+                  ^ Stdlib.Format.asprintf "%a" Expr.pr
+                      (Expr.mk_binder Forall univ_vars_list
+                          (Expr.mk_impl (Expr.mk_and conds) expr)))
                assume_expr)
         else
           match e with
@@ -2284,12 +2281,11 @@ module TrnslInhale = struct
 
                     Stmt.mk_assume_expr ~loc
                       ~cmnt:
-                        (Some
-                           ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                           ^ "\ninhale: "
-                           ^ Stdlib.Format.asprintf "%a" Expr.pr
-                               (Expr.mk_binder Forall univ_vars_list
-                                  (Expr.mk_impl (Expr.mk_and conds) expr))))
+                        ((match cmnt with None -> "" | Some cmnt -> cmnt)
+                        ^ "\ninhale: "
+                        ^ Stdlib.Format.asprintf "%a" Expr.pr
+                            (Expr.mk_binder Forall univ_vars_list
+                              (Expr.mk_impl (Expr.mk_and conds) expr)))
                       (Expr.mk_binder
                          ~trigs:
                            [
@@ -2411,12 +2407,11 @@ module TrnslInhale = struct
         let assume_stmt =
           Stmt.mk_assume_expr ~loc
             ~cmnt:
-              (Some
-                 ((match cmnt with None -> "" | Some cmnt -> cmnt ^ "\n")
-                 ^ "assume: "
-                 ^ Stdlib.Format.asprintf "%a" Expr.pr
-                     (Expr.mk_binder Forall univ_vars_list
-                        (Expr.mk_impl (Expr.mk_and conds) expr))))
+              ((match cmnt with None -> "" | Some cmnt -> cmnt ^ "\n")
+              ^ "assume: "
+              ^ Stdlib.Format.asprintf "%a" Expr.pr
+                  (Expr.mk_binder Forall univ_vars_list
+                    (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
                (Expr.mk_impl ~loc (Expr.mk_and ~loc conds)
                   (Expr.mk_app ~loc ~typ:Type.bool
@@ -2480,12 +2475,11 @@ module TrnslInhale = struct
 
           Stmt.mk_assume_expr ~loc
             ~cmnt:
-              (Some
-                 ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                 ^ "\nassume: "
-                 ^ Stdlib.Format.asprintf "%a" Expr.pr
-                     (Expr.mk_binder Forall univ_vars_list
-                        (Expr.mk_impl (Expr.mk_and conds) expr))))
+              ((match cmnt with None -> "" | Some cmnt -> cmnt)
+              ^ "\nassume: "
+              ^ Stdlib.Format.asprintf "%a" Expr.pr
+                  (Expr.mk_binder Forall univ_vars_list
+                    (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
                (Expr.mk_impl ~loc (Expr.mk_and ~loc conds)
                   (Expr.mk_app ~loc ~typ:Type.bool
@@ -2509,12 +2503,11 @@ module TrnslInhale = struct
           Rewriter.return
             (Stmt.mk_assume_expr ~loc
                ~cmnt:
-                 (Some
-                    ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                    ^ "\nassume: "
-                    ^ Stdlib.Format.asprintf "%a" Expr.pr
-                        (Expr.mk_binder Forall univ_vars_list
-                           (Expr.mk_impl (Expr.mk_and conds) expr))))
+                  ((match cmnt with None -> "" | Some cmnt -> cmnt)
+                  ^ "\nassume: "
+                  ^ Stdlib.Format.asprintf "%a" Expr.pr
+                      (Expr.mk_binder Forall univ_vars_list
+                          (Expr.mk_impl (Expr.mk_and conds) expr)))
                assume_expr)
         else
           match e with
@@ -2592,12 +2585,11 @@ module TrnslInhale = struct
 
                     Stmt.mk_assume_expr ~loc
                       ~cmnt:
-                        (Some
-                           ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                           ^ "\nassume: "
-                           ^ Stdlib.Format.asprintf "%a" Expr.pr
-                               (Expr.mk_binder Forall univ_vars_list
-                                  (Expr.mk_impl (Expr.mk_and conds) expr))))
+                        ((match cmnt with None -> "" | Some cmnt -> cmnt)
+                        ^ "\nassume: "
+                        ^ Stdlib.Format.asprintf "%a" Expr.pr
+                            (Expr.mk_binder Forall univ_vars_list
+                              (Expr.mk_impl (Expr.mk_and conds) expr)))
                       (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
                          (Expr.mk_impl ~loc
                             (* m1(a,b,c) && l == f1(a, b, c) *)
@@ -3469,12 +3461,11 @@ module TrnslExhale = struct
 
           Stmt.mk_assume_expr ~loc
             ~cmnt:
-              (Some
                  ((match cmnt with None -> "" | Some cmnt -> cmnt ^ "\n")
                  ^ "exhale: "
                  ^ Stdlib.Format.asprintf "%a" Expr.pr
                      (Expr.mk_binder Forall univ_vars_list
-                        (Expr.mk_impl (Expr.mk_and conds) expr))))
+                        (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
                ~trigs:
                  [
@@ -3638,12 +3629,11 @@ module TrnslExhale = struct
 
           Stmt.mk_assume_expr ~loc
             ~cmnt:
-              (Some
-                 ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                 ^ "\nexhale: "
-                 ^ Stdlib.Format.asprintf "%a" Expr.pr
-                     (Expr.mk_binder Forall univ_vars_list
-                        (Expr.mk_impl (Expr.mk_and conds) expr))))
+              ((match cmnt with None -> "" | Some cmnt -> cmnt)
+              ^ "\nexhale: "
+              ^ Stdlib.Format.asprintf "%a" Expr.pr
+                  (Expr.mk_binder Forall univ_vars_list
+                    (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
                ~trigs:
                  [
@@ -3711,12 +3701,11 @@ module TrnslExhale = struct
           let assert_stmt =
             Stmt.mk_assert_expr ~loc
               ~cmnt:
-                (Some
-                   ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                   ^ "\nexhale: "
-                   ^ Stdlib.Format.asprintf "%a" Expr.pr
-                       (Expr.mk_binder Forall univ_vars_list
-                          (Expr.mk_impl (Expr.mk_and conds) expr))))
+                ((match cmnt with None -> "" | Some cmnt -> cmnt)
+                ^ "\nexhale: "
+                ^ Stdlib.Format.asprintf "%a" Expr.pr
+                    (Expr.mk_binder Forall univ_vars_list
+                      (Expr.mk_impl (Expr.mk_and conds) expr)))
               ~spec_error assert_expr
           in
           (* let assume_stmt = (Stmt.mk_assume_expr ~loc assert_expr) in *)
@@ -3872,12 +3861,11 @@ module TrnslExhale = struct
 
                     Stmt.mk_assume_expr ~loc
                       ~cmnt:
-                        (Some
-                           ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                           ^ "\nexhale: "
-                           ^ Stdlib.Format.asprintf "%a" Expr.pr
-                               (Expr.mk_binder Forall univ_vars_list
-                                  (Expr.mk_impl (Expr.mk_and conds) expr))))
+                        ((match cmnt with None -> "" | Some cmnt -> cmnt)
+                        ^ "\nexhale: "
+                        ^ Stdlib.Format.asprintf "%a" Expr.pr
+                            (Expr.mk_binder Forall univ_vars_list
+                              (Expr.mk_impl (Expr.mk_and conds) expr)))
                       (Expr.mk_binder
                          ~trigs:
                            [

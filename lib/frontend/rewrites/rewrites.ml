@@ -767,7 +767,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let loc = Stmt.to_loc stmt in
           [
-            Stmt.mk_exhale_expr ~cmnt:(Some "au_return_stmt") ~loc
+            Stmt.mk_exhale_expr ~cmnt:("au_return_stmt") ~loc
               ~spec_error:[ Stmt.mk_const_spec_error error ]
               (Expr.mk_app ~loc ~typ:Type.perm
                  (Expr.AUPredCommit curr_proc_name)
@@ -785,7 +785,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
               Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                 ~cmnt:
-                  (Some ("postconds added for ret_stmt: " ^ Stmt.to_string stmt))
+                  ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)
                 ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
                 expr)
       in
@@ -839,7 +839,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
             let inhale_stmt =
               Stmt.mk_inhale_expr
-                ~cmnt:(Some ("new stmt: " ^ Stmt.to_string stmt))
+                ~cmnt:("new stmt: " ^ Stmt.to_string stmt)
                 ~loc:stmt.stmt_loc inhale_expr
             in
 
@@ -997,7 +997,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           match use_desc.use_kind with
           | Fold ->
               ( Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
-                  ~cmnt:(Some ("fold : " ^ Expr.to_string pred_expr))
+                  ~cmnt:("fold : " ^ Expr.to_string pred_expr)
                   pred_expr,
                 let error =
                   ( Error.Verification,
@@ -1006,12 +1006,12 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                      not hold at this point" )
                 in
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
-                  ~cmnt:(Some ("fold : " ^ Expr.to_string pred_expr))
+                  ~cmnt:("fold : " ^ Expr.to_string pred_expr)
                   ~spec_error:[ Stmt.mk_const_spec_error error ]
                   body_expr )
           | Unfold ->
               ( Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
-                  ~cmnt:(Some ("unfold : " ^ Expr.to_string pred_expr))
+                  ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
                   body_expr,
                 let error =
                   ( Error.Verification,
@@ -1020,7 +1020,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                      this point" )
                 in
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
-                  ~cmnt:(Some ("unfold : " ^ Expr.to_string pred_expr))
+                  ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
                   ~spec_error:[ Stmt.mk_const_spec_error error ]
                   pred_expr )
           | _ -> assert false
@@ -1180,7 +1180,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let assert_stmt =
             Stmt.mk_assert_expr ~loc:stmt.stmt_loc
-              ~cmnt:(Some ("Assert stmt for Call: " ^ Stmt.to_string stmt))
+              ~cmnt:("Assert stmt for Call: " ^ Stmt.to_string stmt)
               ~spec_error:[ Stmt.mk_const_spec_error error ]
                 (* TODO: can we preserve the error messages for the individual preconditions here? *)
               (Expr.mk_binder ~loc:stmt.stmt_loc Exists quant_dropped_args
@@ -1200,14 +1200,14 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let exhale_stmts =
             List.map call_decl.call_decl_precond ~f:(fun spec ->
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
-                  ~cmnt:(Some ("Exhale stmt for Call: " ^ Stmt.to_string stmt))
+                  ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
                   (Expr.alpha_renaming spec.spec_form new_renaming_map))
           in
 
           let inhale_stmt =
             Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
-              ~cmnt:(Some ("Inhale stmt for Call: " ^ Stmt.to_string stmt))
+              ~cmnt:("Inhale stmt for Call: " ^ Stmt.to_string stmt)
               (Expr.mk_and
                  (List.map call_decl.call_decl_postcond ~f:(fun spec ->
                       Expr.alpha_renaming spec.spec_form new_renaming_map)))
@@ -1240,7 +1240,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let exhale_stmts =
             List.map call_decl.call_decl_precond ~f:(fun spec ->
                 Stmt.mk_exhale_spec
-                  ~cmnt:(Some ("Call: " ^ Stmt.to_string stmt))
+                  ~cmnt:("Call: " ^ Stmt.to_string stmt)
                   ~loc:stmt.stmt_loc spec)
           in
 
@@ -1286,8 +1286,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                 else
                   Some
                     (Stmt.mk_inhale_spec
-                       ~cmnt:
-                         (Some ("precond: " ^ Expr.to_string spec.spec_form))
+                       ~cmnt:("precond: " ^ Expr.to_string spec.spec_form)
                        ~loc:(Expr.to_loc spec.spec_form)
                        spec))
           and post_conds =
@@ -1308,8 +1307,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                   in
                   Some
                     (Stmt.mk_exhale_spec
-                       ~cmnt:
-                         (Some ("postcond: " ^ Expr.to_string spec.spec_form))
+                       ~cmnt:("postcond: " ^ Expr.to_string spec.spec_form)
                        ~loc:(Expr.to_loc spec.spec_form)
                        spec))
           in
@@ -1336,7 +1334,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
               in
 
               let inhale_au =
-                Stmt.mk_inhale_expr ~cmnt:(Some "au_precond") ~loc
+                Stmt.mk_inhale_expr ~cmnt:("au_precond") ~loc
                   (Expr.mk_app ~loc ~typ:Type.perm
                      (Expr.AUPred callable_fully_qual_name)
                      (atomic_token_var :: concrete_args_expr))
@@ -1354,7 +1352,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                     "The atomic specification may not have been committed \
                      before reaching this return point" )
                 in
-                Stmt.mk_exhale_expr ~cmnt:(Some "au_postcond") ~loc
+                Stmt.mk_exhale_expr ~cmnt:("au_postcond") ~loc
                   ~spec_error:[ Stmt.mk_const_spec_error error ]
                   (Expr.mk_app ~loc ~typ:Type.perm
                      (Expr.AUPredCommit callable_fully_qual_name)
@@ -2208,7 +2206,7 @@ module AtomicityAnalysis = struct
           | OpenAU (token, callable, bound_vars) -> (
               let exhale_stmt =
                 Stmt.mk_exhale_expr
-                  ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt))
+                  ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
                   ~loc
                   (Expr.mk_app ~loc ~typ:Type.perm (AUPred curr_callable_name)
                      (Expr.mk_var ~typ:Type.atomic_token token
@@ -2236,7 +2234,7 @@ module AtomicityAnalysis = struct
                         else
                           Some
                             (Stmt.mk_inhale_expr
-                               ~cmnt:(Some ("OpenAU: " ^ Stmt.to_string stmt))
+                               ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
                                ~loc
                                (Expr.alpha_renaming spec.spec_form
                                   alpha_renaming_map)))
@@ -2309,8 +2307,7 @@ module AtomicityAnalysis = struct
                             in
                             Some
                               (Stmt.mk_exhale_expr
-                                 ~cmnt:
-                                   (Some ("AbortAU: " ^ Stmt.to_string stmt))
+                                 ~cmnt: ("AbortAU: " ^ Stmt.to_string stmt)
                                  ~loc
                                  ~spec_error:
                                    (Stmt.mk_const_spec_error error
@@ -2321,7 +2318,7 @@ module AtomicityAnalysis = struct
 
                     let inhale_stmt =
                       Stmt.mk_inhale_expr
-                        ~cmnt:(Some ("AbortAU: " ^ Stmt.to_string stmt))
+                        ~cmnt:("AbortAU: " ^ Stmt.to_string stmt)
                         ~loc
                         (Expr.mk_app ~loc ~typ:Type.perm
                            (AUPred opened_au_token.callable)
@@ -2358,8 +2355,7 @@ module AtomicityAnalysis = struct
                             in
                             Some
                               (Stmt.mk_exhale_expr
-                                 ~cmnt:
-                                   (Some ("CommitAU: " ^ Stmt.to_string stmt))
+                                 ~cmnt: ("CommitAU: " ^ Stmt.to_string stmt)
                                  ~loc
                                  ~spec_error:
                                    (Stmt.mk_const_spec_error error
@@ -2370,7 +2366,7 @@ module AtomicityAnalysis = struct
 
                     let inhale_stmt =
                       Stmt.mk_inhale_expr
-                        ~cmnt:(Some ("CommitAU: " ^ Stmt.to_string stmt))
+                        ~cmnt:("CommitAU: " ^ Stmt.to_string stmt)
                         ~loc
                         (Expr.mk_app ~loc ~typ:Type.perm
                            (AUPredCommit opened_au_token.callable)
