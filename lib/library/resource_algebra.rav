@@ -31,7 +31,7 @@ interface ResourceAlgebra : Type {
         ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
 
     auto axiom frameId()
-        ensures forall a:T :: {frame(a,id)} frame(a, id) == a
+        ensures forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a
 
     auto axiom compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
@@ -48,6 +48,16 @@ interface ResourceAlgebra : Type {
 interface CancellativeResourceAlgebra : ResourceAlgebra {
     auto axiom frameCompInv()
         ensures forall a:T, b:T:: {comp(a,b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == a
+
+    lemma frameId()
+        ensures forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a
+    {
+        assert forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a with {
+            if (valid(a)) {
+                assert valid(comp(a, id));
+            }
+        }
+    }
 
     lemma frameReflexive()
         ensures forall a:T :: {frame(a,a)} valid(a) ==> frame(a, a) == id
@@ -66,7 +76,7 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
       ensures forall a:T, b:T, c:T :: {comp(a,b),comp(c,b)} (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c))
     {
       //frameCompInv();
-      assert forall a:T, b:T, c:T :: (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c)) with {
+      assert forall a:T, b:T, c:T :: {comp(a,b),comp(c,b)} (valid(comp(a, b)) && comp(a,b) == comp(c,b) ==> (a == c)) with {
         if (valid(comp(a, b)) && comp(a,b) == comp(c,b)) {
             assert frame(comp(a, b), b) == a;
             //assert frame(comp(c, b), b) == c;
@@ -117,17 +127,27 @@ interface LatticeResourceAlgebra : ResourceAlgebra {
         ensures forall a:T, b:T :: {valid(frame(a, b))} valid(frame(a, b)) ==> frame(a, b) == a
 
     auto axiom frameCompInv0()
-        ensures forall a:T, b:T :: {valid(comp(a, b))} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
+        ensures forall a:T, b:T :: {valid(comp(a, b)),frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
+
+    /*auto lemma frameId()
+        ensures forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a
+    {
+        assert forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a with {
+            if (valid(a)) {
+                assert valid(comp(a, id));
+            }
+        }
+    }*/
 
     //TW: The following is implied by frameCompInv and frameCompInv0
     //auto axiom frameCompInv2()
     //    ensures forall a:T, b:T :: comp(a, b) == a && valid(a) ==> frame(a, b) == a
 
     auto axiom frame_comp_inv()
-        ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c))} {frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
+        ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c)),frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
 
     lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: {valid(comp(a,b))} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+        ensures forall a:T, b:T:: {valid(comp(a,b)),frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {}
 }
 

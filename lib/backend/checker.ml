@@ -387,28 +387,12 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
       (Stdlib.Format.asprintf "Checking members in %a" Ident.pr mod_name)
   in
   let* _ = Rewriter.List.iter deps ~f:(fun dep ->
-      Logs.info (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) dep);
       let* dep_sym = Rewriter.List.map dep ~f:(fun qual_name ->
           let+ symbol = Rewriter.find_and_reify Loc.dummy qual_name in
           (qual_name, symbol))
       in
-      let sorted_dep =
-        List.sort dep_sym ~compare:(fun (qid1, sym1) (qid2, sym2) ->
-            match sym1, sym2 with
-            | CallDef call_def1, CallDef call_def2 ->
-              begin
-                match Callable.kind call_def1, Callable.kind call_def2 with
-                | (Pred | Func | Invariant), (Lemma | Proc) -> -1
-                | (Lemma | Proc), (Pred | Func | Invariant) -> 1
-                | _ ->
-                  Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)
-              end
-            | CallDef _, _ -> 1
-            | _, CallDef _ -> -1
-            | _ -> Loc.compare (Symbol.to_loc sym1) (Symbol.to_loc sym2)
-          )
-      in
-      Rewriter.List.iter sorted_dep ~f:(fun (qual_name, sym) -> check_member qual_name sym))
+      Logs.info (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) (List.map ~f:(fun (a,b) -> a) dep_sym));
+      Rewriter.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
   let* _ = pop in
 
@@ -431,5 +415,4 @@ let check_module (module_def : Ast.Module.t) (tbl : SymbolTbl.t)
          (check_members module_def.mod_decl.mod_decl_name dependencies))
       tbl
   in
-
   smt_env

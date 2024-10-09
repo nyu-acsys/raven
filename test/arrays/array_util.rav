@@ -31,7 +31,7 @@ interface OrderedType : Library.Type {
     x == y ? 0 : (lt(x, y) ? -1 : 1)
   }
 
-  val bot: T
+  /*val bot: T
   val top: T
 
   auto axiom bot_smallest()
@@ -39,7 +39,7 @@ interface OrderedType : Library.Type {
   auto axiom top_largest()
     ensures forall a: T :: {lt(top, a)} !lt(top, a)
   auto axiom nontrivial()
-    ensures bot != top
+    ensures bot != top*/
 
   auto axiom lt_irreflexive()
     ensures forall a: T :: {lt(a, a)} !lt(a, a)
@@ -401,9 +401,6 @@ interface ArrayUtil[K: OrderedType] {
       found := false;
     } else {
       unfold sorted_array_with_content(a, len, m);
-      // assume false;
-      A.all_diff();
-      A.len_nonneg();
       unfold arr(a, m);
       var alo: K := A.loc(a, lo).A.value;
       found := !lt(k, alo);
@@ -443,9 +440,6 @@ interface ArrayUtil[K: OrderedType] {
     unfold sorted_array_with_content(a, len, m);
     arr_shift(a, i, i + 1, len - i, m);
 
-    //assume false;
-    A.all_diff();
-    A.len_nonneg();
     unfold arr(a, map_shift(m, i, i + 1, len - i));
     A.loc(a, i).A.value := k;
     m1 := map_shift(m, i, i + 1, len - i)[i := k];
