@@ -321,13 +321,13 @@ let declare_tuple_sort (arity : int) : command =
 
   mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
 
-let init diagnostics : smt_env =
+let init diagnostics timeout : smt_env =
   let open SmtSession in
   let session = start_solver () in
   let open PreambleConsts in
   let options_list =
     [
-      SetOption (":timeout", "10000", None);
+      SetOption (":timeout", Int.to_string timeout, None);
       (*SetOption (":produce-unsat-cores", "true", None);*)
       SetOption (":auto-config", "false", None);
       SetOption (":smt.mbqi", "false", None);
