@@ -146,16 +146,18 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           else
             (* Type.is_map ret_typ *)
             let var_decl = List.hd_exn v_l in
-
-            Expr.mk_binder ~typ:Type.bool Forall [ var_decl ]
+            let lookup_expr =
+              Expr.mk_app ~typ:(Type.map_codom ret_typ) MapLookUp
+                [
+                  Expr.from_var_decl ret_var_decl;
+                  Expr.from_var_decl var_decl;
+                ]
+            in
+            Expr.mk_binder ~typ:Type.bool ~trigs:[[lookup_expr]] Forall [ var_decl ]
               (Expr.mk_app ~typ:Type.bool Eq
                  [
                    inner_expr;
-                   Expr.mk_app ~typ:(Type.map_codom ret_typ) MapLookUp
-                     [
-                       Expr.from_var_decl ret_var_decl;
-                       Expr.from_var_decl var_decl;
-                     ];
+                   lookup_expr
                  ])
         in
 
