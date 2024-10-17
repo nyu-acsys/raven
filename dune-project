@@ -6,8 +6,8 @@
 
 (package
  (name Raven)
- (synopsis "Resource Algebra Verification ENgine")
- (description "An infrastructure to write automated proofs in separation logic")
+ (synopsis "Raven")
+ (description "An intermediate verification language and deductive verifier based on concurrent separation logic.")
  (depends
   (ocaml
    (>= 4.12.0))
