@@ -16,52 +16,7 @@ interface Array {
   field value: E
 }
 
-interface OrderedType : Library.Type {
-  // An ordered type
-  rep type T
-    
-  func lt(x: T, y: T) returns (res: Bool)
-
-  func le(x: T, y: T) returns (res: Bool) {
-    lt(x, y) || x == y
-  }
-
-  func compare(x: T, y: T) returns (res: Int)
-  {
-    x == y ? 0 : (lt(x, y) ? -1 : 1)
-  }
-
-  /*val bot: T
-  val top: T
-
-  auto axiom bot_smallest()
-    ensures forall a: T :: {lt(a, bot)} !lt(a, bot)
-  auto axiom top_largest()
-    ensures forall a: T :: {lt(top, a)} !lt(top, a)
-  auto axiom nontrivial()
-    ensures bot != top*/
-
-  auto axiom lt_irreflexive()
-    ensures forall a: T :: {lt(a, a)} !lt(a, a)
-  auto axiom lt_antisymmetric()
-    ensures forall a: T, b: T :: {lt(a, b)} {lt(b, a)} !lt(a, b) || !lt(b, a)
-  auto axiom lt_total()
-    ensures forall a: T, b: T :: {lt(a, b)} {lt(b, a)} lt(a, b) || lt(b, a) || a == b
-  auto axiom lt_transitive()
-    ensures forall a: T, b: T, c: T :: {lt(a, b), lt(b, c)} lt(a, b) && lt(b, c) ==> lt(a, c)
-
-}
-
-/*module IntInf : OrderedType {
-  // Integers extended with infinities
-  rep type T = data {
-    case 
-  }
-    
-  func lt(x: T, y: T) returns (res: Bool)
-*/
-
-interface ArrayUtil[K: OrderedType] {
+interface ArrayUtil[K: Library.OrderedType] {
   import K.lt
 
   interface A : Array {
@@ -217,17 +172,15 @@ interface ArrayUtil[K: OrderedType] {
 
   func map_shift(m: Map[Int, K], src: Int, dst: Int, len: Int)
     returns (res: Map[Int, K])
-    ensures forall i: Int :: {res[i]} res[i] == (i < dst || dst + len <= i ? m[i] : m[src + (i - dst)])
-  //{
-  //  {| i: Int :: {res[i]} i < dst || dst + len <= i ? m[i] : m[src + (i - dst)] |}
-  //}
+  {
+    {| i: Int :: i < dst || dst + len <= i ? m[i] : m[src + (i - dst)] |}
+  }
 
   func map_copy(m1: Map[Int, K], m2: Map[Int, K], src: Int, dst: Int, len: Int)
     returns (res: Map[Int, K])
-    ensures forall i: Int :: {res[i]} res[i] == (dst <= i < dst + len ? m2[src + (i - dst)] : m1[i])
-  //{
-  //  {| i: Int :: {res[i]} dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] |}
-  //}
+  {
+    {| i: Int :: dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] |}
+  }
 
   lemma map_insert_content_set(m: Map[Int, K], m1: Map[Int, K], idx: Int, k: K, len: Int, new_len: Int)
     requires sorted_map_seg(m, 0, len)
