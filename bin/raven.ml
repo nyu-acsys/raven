@@ -112,16 +112,23 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
   let smt_env, tbl =
     if no_library then (smt_env, tbl)
     else
-      let resource_algebra_lexbuf =
-        Lexing.from_string Resource_algebra.resource_algebra
+      let lib_prog =
+        List.fold_right Library.sources ~init:empty_prog
+        ~f:(fun (lib_file_name, lib_source) lib_prog ->
+            let lib_source_lexbuf =
+              Lexing.from_string lib_source
+            in
+            let _ =
+              Lexer.set_file_name lib_source_lexbuf lib_file_name
+            in
+            let _includes, md = parse_cu Predefs.lib_ident lib_source_lexbuf in
+            merge_prog md lib_prog)
       in
-      let _ =
-        Lexer.set_file_name resource_algebra_lexbuf "resource_algebra.rav"
-      in
-      parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf
-        front_end_out_chan
+          (*  parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf
+              front_end_out_chan*)
+      check_cu tbl smt_env lib_prog front_end_out_chan
   in
-
+  
   (* Parse and check actual input program *)
   let rec parse_prog parsed to_parse prog =
     match to_parse with

@@ -32,10 +32,6 @@ interface SearchStructureSpec {
 	}
 }
 
-interface Node {
-  rep type T
-}
-
 interface NodeImpl {
 
   module Spec : SearchStructureSpec
@@ -80,7 +76,7 @@ interface NodeImpl {
 
   func outsets(i: Flow_K.T) returns (ret: Set[K])
   {
-    {| k: K :: exists n: Ref :: n !in i.dom && k in outset(i,n) |}
+    {| k: K :: exists n: Ref :: {outset(i,n)} n !in i.dom && k in outset(i,n) |}
   }
 
   func keyset(i: Flow_K.T) returns (ret: Set[K])
@@ -383,10 +379,10 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold globalinv(g_i, r);
 
       ghost var i_o: Flow_K = Flow_K.frame(g_i, i_n);
-      // assert Flow_K.valid(i_o);
-
-      assert k !in outsets(g_i);
-
+      
+      assert i_o.out[n1] == Multiset_K.frame(g_i.out[n1], i_n.out[n1]);
+      assert k !in outset(g_i, n1);
+      
       fold nodePred(r, n, c_n, i_n);
       fold globalinv(g_i, r);
       fold globalRes(r, c, g_i);

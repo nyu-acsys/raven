@@ -89,7 +89,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   //  ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
   //{ }
 
-  // The are no non-trivial inverses
+  // There are no non-trivial inverses
   auto lemma compPositive()
     ensures forall i1: T, i2: T :: {comp(i1, i2)} comp(i1, i2) == id ==> i1 == id && i2 == id
   { }
@@ -144,11 +144,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     compFold(i12, i3, i);
   }
 
-  // TW: This needs to remain 'auto'. Not sure why.
-  //auto lemma compCommute()
-  //  ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-  //{ }
-
   auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
   {
@@ -173,8 +168,8 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       |},
       {| n: Ref :: 
         n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : 
-              (n in i1.dom ? M.id : M.frame(i1.out[n], i2.out[n])) |},
-          i1.dom -- i2.dom) :
+          (n in i1.dom ? M.id : M.frame(i1.out[n], i2.out[n])) |},
+      i1.dom -- i2.dom) :
       top)
   }
   
@@ -214,13 +209,13 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       } 
     }
     //compAssoc();
-    //compValid();
+    compValid();
     
-    assert forall n: Ref :: {j.inf[n]} n !in j.dom ==> j.inf[n] == M.id with {
+    /*assert forall n: Ref :: {j.inf[n]} n !in j.dom ==> j.inf[n] == M.id with {
       if (n !in j.dom) {
         assert n !in i1.dom && n !in i2.dom;
       }
-    }
+    }*/
     
     compFold(j1, i2, j);
   }
@@ -229,5 +224,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     requires valid(frame(i1, i2))
     requires n in i2.dom
     ensures M.valid(M.frame(i2.inf[n], i1.inf[n]))
-  { }
+  { 
+    assert frame(i1, i2).out[n] == M.frame(i2.inf[n], i1.inf[n]);
+  }
 }

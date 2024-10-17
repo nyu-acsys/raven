@@ -16,7 +16,7 @@
   frontend
   rewrites
   backend
-  resource_algebra)
+  library)
  (preprocess
   (pps ppx_custom_printf))
  (modes byte exe))

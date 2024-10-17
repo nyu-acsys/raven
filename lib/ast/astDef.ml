@@ -2200,7 +2200,7 @@ end
 
 
 let merge_prog (prog1: Module.t) (prog2: Module.t) =
-  assert (Ident.equal prog1.mod_decl.mod_decl_name prog2.mod_decl.mod_decl_name);
+  (*assert (Ident.equal prog1.mod_decl.mod_decl_name prog2.mod_decl.mod_decl_name);*)
   assert (List.is_empty prog1.mod_decl.mod_decl_formals);
   assert (List.is_empty prog2.mod_decl.mod_decl_formals);
   assert (Option.is_none prog1.mod_decl.mod_decl_returns);
