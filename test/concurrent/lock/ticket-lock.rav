@@ -29,7 +29,13 @@ module TicketLock[R: LockResource] : Lock {
     requires resource(r)
     ensures is_lock(l, r, false)
   {
-    l := new (next: 0, curr: -1, agr: Agree.agree(r), tickets: ADS.auth_frag(IntSet.set({||}), IntSet.set({||})));
+    l := new (
+      next: 0, 
+      curr: -1, 
+      agr: Agree.agree(r), 
+      tickets: ADS.auth_frag(IntSet.set({||}), 
+      IntSet.set({||}))
+    );
     fold lock_rep(l, false);
     fold is_lock(l, r, false);
   }

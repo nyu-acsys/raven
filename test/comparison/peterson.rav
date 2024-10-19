@@ -1,0 +1,75 @@
+field turn: Int
+field flagL: Bool
+field flagR: Bool
+
+
+inv petersonInv() {
+    
+}
+
+proc acquireL(root: Ref) 
+    requires exists b1: Bool, b2: Bool, i: Int ::
+        own(root, turn, i, 1.0) &&
+        own(root, flagL, b1, 1.0) &&
+        own(root, flagR, b2, 1.0)
+{
+    root.flagL := true;
+    root.turn := 1;
+
+    var flag : Bool := root.flagR;
+    var currTurn : Int := root.turn;
+
+    while(flag == false && currTurn != 2) 
+        invariant exists b1: Bool, b2: Bool, i: Int ::
+        own(root, turn, i, 1.0) &&
+        own(root, flagL, b1, 1.0) &&
+        own(root, flagR, b2, 1.0)
+    {
+        flag := root.flagR;
+        currTurn := root.turn;
+    }
+
+    // Secure section
+}
+
+proc exitL(root: Ref) 
+    requires exists b1: Bool ::
+        own(root, flagL, b1, 1.0)
+{
+    root.flagL := false;
+}
+
+proc acquireR(root: Ref)
+    requires exists i: Int, b1: Bool, b2: Bool ::
+        own(root, turn, i, 1.0) &&
+        own(root, flagL, b1, 1.0) &&
+        own(root, flagR, b2, 1.0)
+{
+    root.flagR := true;
+    root.turn := 2;
+
+    var flag : Bool := root.flagL;
+    var currTurn : Int := root.turn;
+
+    while(flag == false && currTurn != 1) 
+        invariant exists b1: Bool, b2: Bool, i: Int ::
+        own(root, turn, i, 1.0) &&
+        own(root, flagL, b1, 1.0) &&
+        own(root, flagR, b2, 1.0)
+    {
+        flag := root.flagL;
+        currTurn := root.turn;
+    }
+
+    // Secure section
+}
+
+proc exitR(root: Ref) 
+    requires exists b2: Bool ::
+        own(root, flagR, b2, 1.0)
+{
+    root.flagR := false;
+}
+
+
+
