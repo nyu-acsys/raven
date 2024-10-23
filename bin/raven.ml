@@ -122,6 +122,7 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
               Lexer.set_file_name lib_source_lexbuf lib_file_name
             in
             let _includes, md = parse_cu Predefs.lib_ident lib_source_lexbuf in
+            let md = Ast.Module.set_free md in
             merge_prog md lib_prog)
       in
           (*  parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf

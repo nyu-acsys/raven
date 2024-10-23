@@ -1,18 +1,6 @@
 import Library.Type
-
-module Option[E: Type] {
-  rep type T = data {
-    case none
-    case some(x: E)
-  }
-}
-
-module List[E: Type] {
-  rep type T = data {
-    case nil
-    case cons(hd: E, tl: T) 
-  }
-}
+import Library.Option
+import Library.List
 
 module Stack[T: Type] {
 
@@ -21,7 +9,7 @@ module Stack[T: Type] {
   import TList._
   import TOption._
 
-  field head: Ref
+  field top: Ref
   field next: Ref
   field value: T
 
@@ -29,11 +17,11 @@ module Stack[T: Type] {
   pred list(x: Ref; xs: TList) {
     x == null ? 
       xs == nil : 
-      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x, value, xs.hd, q) && own(x, next, tl0, q) && list(tl0, xs.tl))))
+      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x, value, xs.head, q) && own(x, next, tl0, q) && list(tl0, xs.tail))))
   }
 
   pred stack(s: Ref; xs: TList) {
-    exists x: Ref :: (list(x, xs) && own(s, head, x, 1.0))
+    exists x: Ref :: (list(x, xs) && own(s, top, x, 1.0))
   }
 
   proc push(s: Ref, x: T, implicit ghost xs: TList)
@@ -44,28 +32,28 @@ module Stack[T: Type] {
     ghost val xs0: TList := openAU(phi);
 
     unfold stack(s, xs0);
-    var top: Ref := s.head;
+    var topv: Ref := s.top;
     fold stack(s, xs0);
 
     abortAU(phi);
 
     var s0 : Ref;
-    s0 := new(value: x, next: top);
+    s0 := new(value: x, next: topv);
 
     ghost val xs1: TList := openAU(phi);
 
     ghost val top1: Ref;
     unfold stack(s, xs1);
-    top1 :| list(top1, xs1) && own(s, head, top1, 1.0);
+    top1 :| list(top1, xs1) && own(s, top, top1, 1.0);
   
-    var res: Bool := cas(s.head, top, s0);
+    var res: Bool := cas(s.top, topv, s0);
 
     {!
       if (res) {
         assert   
           (s0 == null ? 
             cons(x, xs1) == nil : 
-            (cons(x,xs1) != nil && (1.0 > 0.0 && (own(s0, value, cons(x, xs1).hd, 1.0) && own(s0, next, top1, 1.0) && list(top1, cons(x, xs1).tl)))));
+            (cons(x,xs1) != nil && (1.0 > 0.0 && (own(s0, value, cons(x, xs1).head, 1.0) && own(s0, next, top1, 1.0) && list(top1, cons(x, xs1).tail)))));
         fold list(s0, cons(x, xs1)); 
         fold stack(s, cons(x, xs1));
         commitAU(phi);
@@ -88,60 +76,60 @@ module Stack[T: Type] {
     atomic ensures 
       xs == nil ? 
         (stack(s, xs) && result == none) : 
-        (stack(s, xs.tl) && result == some(xs.hd))
+        (stack(s, xs.tail) && result == some(xs.head))
   {
     ghost val phi: AtomicToken := bindAU();
     ghost val xs0: TList := openAU(phi);
 
     unfold stack(s, xs0);
 
-    var top: Ref := s.head;
+    var topv: Ref := s.top;
   
     {!
-      if (top == null) {
-        unfold list(top, xs0);
-        fold list(top, xs0);
+      if (topv == null) {
+        unfold list(topv, xs0);
+        fold list(topv, xs0);
         fold stack(s, xs0);
         commitAU(phi, none);
       } else {
         ghost val q: Real;
         ghost val tl0: Ref;
-        unfold list(top, xs0);
+        unfold list(topv, xs0);
 
         tl0, q :| 
-          top == null ? 
+          topv == null ? 
           xs0 == nil : 
-          (xs0 != nil && (q > 0.0 && (own(top, value, xs0.hd, q) && own(top, next, tl0, q) && list(tl0, xs0.tl))));
+          (xs0 != nil && (q > 0.0 && (own(topv, value, xs0.head, q) && own(topv, next, tl0, q) && list(tl0, xs0.tail))));
       
-        assert top == null ? 
+        assert topv == null ? 
           xs0 == nil : 
-          (xs0 != nil && (q/2.0 > 0.0 && (own(top, value, xs0.hd, q/2.0) && own(top, next, tl0, q/2.0) && list(tl0, xs0.tl))));
+          (xs0 != nil && (q/2.0 > 0.0 && (own(topv, value, xs0.head, q/2.0) && own(topv, next, tl0, q/2.0) && list(tl0, xs0.tail))));
       
-        fold list(top, xs0);
+        fold list(topv, xs0);
         fold stack(s, xs0);
         abortAU(phi);
       }
     !}
 
-    if (top == null) {
+    if (topv == null) {
       return none;
     }
 
-    val top_next: Ref := top.next;
-    val top_value: T := top.value;
+    val top_next: Ref := topv.next;
+    val top_value: T := topv.value;
 
     ghost val xs1: TList := openAU(phi);
 
     ghost val top1: Ref;
     unfold stack(s, xs1);
-    top1 :| list(top1, xs1) && own(s, head, top1, 1.0);
+    top1 :| list(top1, xs1) && own(s, top, top1, 1.0);
 
-    var res: Bool := cas(s.head, top, top_next);
+    var res: Bool := cas(s.top, topv, top_next);
 
     {!
       if (res) {
         unfold list(top1, xs1);
-        fold stack(s, xs1.tl);
+        fold stack(s, xs1.tail);
         commitAU(phi, some(top_value));
       } else {
         fold stack(s, xs1);

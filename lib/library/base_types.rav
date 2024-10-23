@@ -2,6 +2,20 @@ interface Type {
   rep type T
 }
 
+module Option[E: Type] : Type {
+  rep type T = data {
+    case none
+    case some(value: E)
+  }
+}
+
+module List[E: Type] : Type {
+  rep type T = data {
+    case nil
+    case cons(head: E, tail: T) 
+  }
+}
+
 // An ordered type
 interface OrderedType : Type {
     
