@@ -2107,6 +2107,7 @@ module ProcessModule = struct
             with
             | Some mod_typ, orig_mod_typ
               when QualIdent.(mod_typ <> orig_mod_typ) ->
+                Logs.debug (fun m -> m !"%{QualIdent} %{QualIdent}" mod_typ orig_mod_typ);
                 Error.type_error loc
                   (Printf.sprintf
                      !"%s %{Ident} must implement interface %{QualIdent} \
@@ -2261,9 +2262,14 @@ module ProcessModule = struct
                 let+ mod_def = Rewriter.exit_module mod_def in
                 Module.ModDef mod_def
             | ModInst mod_inst ->
+                let* mod_inst_type =
+                  Rewriter.resolve mod_inst.mod_inst_loc mod_inst.mod_inst_type
+                in
+                let symbol = Module.ModInst { mod_inst with mod_inst_type } in
                 let* to_check =
                   Rewriter.Option.map mod_inst.mod_inst_def
                     ~f:(fun (mod_inst_func, mod_inst_args) ->
+                      let* _ = Rewriter.declare_symbol symbol in
                       let+ qual_functor_ident, functor_symbol =
                         Rewriter.resolve_and_find mod_inst.mod_inst_loc
                           mod_inst_func
@@ -2286,8 +2292,7 @@ module ProcessModule = struct
                                  !"Module %{QualIdent} expects %d arguments"
                                  mod_inst_func (List.length formals))
                       in
-                      args_and_formals
-                      @ [ (qual_functor_ident, mod_inst.mod_inst_type) ])
+                      (qual_functor_ident, mod_inst.mod_inst_type) :: args_and_formals)
                 in
                 let to_check = Option.value to_check ~default:[] in
                 let+ _ =
@@ -2304,8 +2309,9 @@ module ProcessModule = struct
           let+ _ = Rewriter.set_symbol symbol in
           Module.SymbolDef symbol
       | Import import ->
-          (* Handled by symbol table *)
-          Rewriter.return (Module.Import import)
+        (* Handled by symbol table *)
+            let* _ = Rewriter.import import in
+            Rewriter.return (Module.Import import)
     in
 
     (* Add formal parameters to module definitions *)
@@ -2503,12 +2509,6 @@ module ProcessModule = struct
     (*let inherited_symbols = List.rev inherited_symbols in*)
     let mod_def = mod_def_formals @ merged_symbols in
 
-    let* _ =
-      Rewriter.List.map mod_def ~f:(function
-        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol
-        | Module.Import import -> Rewriter.import import)
-    in
-
     (* Find rep type and add it to module declaration *)
     let mod_decl_rep =
       List.fold_left mod_def ~init:None ~f:(fun rep_type -> function
@@ -2568,6 +2568,12 @@ module ProcessModule = struct
       }
     in
 
+    let* _ =
+      Rewriter.List.iter mod_def ~f:(function
+        | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ -> Rewriter.return ()
+        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol)
+    in
+
     (* Check and rewrite all symbols *)
     let* mod_def = Rewriter.List.map merged_symbols ~f:process_instr in
 
@@ -2606,7 +2612,8 @@ module ProcessModule = struct
       Logs.debug (fun mm ->
           mm !"Done with processing module %{Ident}" (Symbol.to_name (ModDef m)))
     in
-
+    Logs.debug (fun mm ->
+          mm !"%{Symbol}" (ModDef (Module.{ mod_decl; mod_def })));
     Module.{ mod_decl; mod_def }
 end
 
