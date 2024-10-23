@@ -1,0 +1,103 @@
+include "give-up.rav"
+include "../../arrays/array_util.rav"
+
+interface BPlusTree[O: Library.OrderedType] : NodeImpl {
+
+  module Spec : SearchStructureSpec {
+    type K = O
+    val keyspace: Set[K] = {| k: K :: true |}
+  }
+
+  import Spec._
+
+  module KOption = Library.Option[O]
+
+  import KOption.some
+  import KOption.none
+
+  import Flow_K._
+  import Multiset_K.elem
+
+  interface AU = ArrayUtil[O]
+
+  import AU._
+
+  interface AN : Array {
+    type E = Ref
+  }
+
+  // Width parameter of the B-tree
+  val b: Int
+
+  auto axiom bValid() 
+    ensures b > 0
+
+  // Fields of a B-tree node
+  field len: Int
+  field rangeLb: KOption
+  field rangeUb: KOption
+  field keys: A.T
+  field ptrs: AN.T
+
+  func le(ko: KOption, k: K) returns (res : Bool)
+  {
+    ko == none ? true : O.le(ko.KOption.value, k)
+  }
+
+  func lt(k: K, ko: KOption) returns (res : Bool)
+  {
+    ko == none ? true : O.lt(k, ko.KOption.value)
+  }
+
+  func flow_int_of(n: Ref, lb: KOption, ub: KOption, kmap: Map[Int, K], cmap: Map[Int, Ref]) returns (flow_int: Flow_K)
+  {
+    Flow_K.int({| np: Ref :: np == n ? {| k: K :: le(lb, k) && lt(k, ub) ? 1 : 0 |} : Multiset_K.id |},
+               {| np: Ref :: Multiset_K.id /* TODO: fix this */ |},
+               {| n |})
+  }
+
+  
+  pred node(n: Ref; c: Set[K], flow_int: Flow_K) {
+    exists l: Int, lb: KOption, ub: KOption, ks: A.T, chlds: AN.T, kmap: Map[Int, K], cmap: Map[Int, Ref] ::
+       0 <= l && l < 2*b 
+    && A.length(ks) == 2*b 
+    && AN.length(chlds) == 2*b
+    // Definition of flow interface
+    && flow_int == flow_int_of(n, lb, ub, kmap, cmap)
+    // Definition of contents
+    && c == (cmap[0] == null ? /* Leaf */ AU.set_of_map(kmap, 0, l) : {||})
+    // Keys are sorted
+    && (forall i: Int, j: Int :: {kmap[i], kmap[j]} 0 <= i < j < l ==> O.lt(kmap[i], kmap[j]))
+    // Keys are within range
+    && (l > 0 ==> le(lb, kmap[0]) && lt(kmap[l-1], ub))
+    // Consistency of cmap
+    && (cmap[0] != null ==>
+           (forall i: Int :: {cmap[i]} 0 <= i <= l ==> n != cmap[i])
+        && (forall i: Int, j: Int :: {cmap[i], cmap[j]} 0 <= i < j <= l ==> cmap[i] != cmap[j])
+        && (forall i: Int :: {cmap[i]} 0 <= i <= l ==> cmap[i] != null))       
+    // Heap resources
+    && own(n, len, l, 1.0)
+    && own(n, rangeLb, lb, 1.0)
+    && own(n, rangeLb, ub, 1.0)
+    && own(n, keys, ks, 1.0)
+    && AU.sorted_array_with_content(ks, l, kmap)
+    && own(n, ptrs, chlds, 1.0)
+    && AN.arr(chlds, cmap)
+  }
+
+
+  /* Initialize a new root node */
+  proc createRoot() returns (r: Ref)
+    ensures node(r, {||}, 
+      Flow_K.int({| l: Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
+  {
+    var ka: A.T;
+    ka := A.alloc(2*b, A.default);
+    var pa: AN.T;
+    pa := AN.alloc(2*b, null);
+    r := new(len: 0, rangeLb: none, rangeUb: none, keys: ka, ptrs: pa);
+    
+    fold node(r, {||}, 
+      Flow_K.int({| l: Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}));    
+  }
+}

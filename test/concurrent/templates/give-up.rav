@@ -23,7 +23,7 @@ interface SearchStructureSpec {
 
   type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
-	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+	pred opSpec(op: Op, k: K, c_in: Set[K]; c_out: Set[K], res: Bool) {
     op == searchOp() ? 
       c_in == c_out && res == (k in c_in) :
     (op == insertOp() ?

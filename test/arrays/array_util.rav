@@ -14,6 +14,17 @@ interface Array {
     ensures forall a:T :: {length(a)} length(a) >= 0
 
   field value: E
+
+  val default: E
+
+  pred arr(a: T; m: Map[Int, E]) {
+    (forall j: Int :: 0 <= j < length(a) ==> own(loc(a, j), value, m[j], 1.0)) 
+    && (forall j: Int :: {m[j]} (0 > j || j >= length(a)) ==> m[j] == default)
+  }
+
+  proc alloc(len: Int, d: E) returns (a: T)
+    requires 0 <= len
+    ensures length(a) == len && arr(a, {| i: Int :: 0 <= i < len ? d : default |})
 }
 
 interface ArrayUtil[K: Library.OrderedType] {
@@ -23,12 +34,8 @@ interface ArrayUtil[K: Library.OrderedType] {
     type E = K
   }
 
-  //import A.value
-
-  pred arr(a: A, m: Map[Int, K]) {
-    forall j: Int :: 0 <= j < A.length(a) ==> own(A.loc(a, j), A.value, m[j], 1.0)
-  }
-
+  import A.arr
+  
   // project map segment m[i..j] to set of its elements
   func set_of_map(m: Map[Int, K], i: Int, j: Int)
     returns (res: Set[K])
@@ -250,11 +257,11 @@ interface ArrayUtil[K: Library.OrderedType] {
         invariant 0 <= dst <= dst + len <= A.length(a)
         invariant -1 <= i < len
       {
-        //ghost var m1 := a.map;
         unfold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
         var tmp: K := A.loc(a, src + i).A.value;
         A.loc(a, dst + i).A.value := tmp;
-        //pure assert a.map == m1[dst + i := tmp];
+        ghost var m : Map[Int, K] = map_shift(amap, src + i, dst + i, len - i);
+        assert m == map_shift(amap, src + i + 1, dst + i + 1, len - i - 1)[dst + i := tmp];
         i := i - 1;
         fold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
       }
@@ -267,11 +274,11 @@ interface ArrayUtil[K: Library.OrderedType] {
         invariant 0 <= dst <= dst + len <= A.length(a)
         invariant 0 <= i <= len 
       {
-        //ghost var m1 := a.map;
         unfold arr(a, map_shift(amap, src, dst, i));
         var tmp: K := A.loc(a, src + i).A.value;
         A.loc(a, dst + i).A.value := tmp;
-        //pure assert a.map == m1[dst + i := tmp];
+        ghost var m : Map[Int, K] = map_shift(amap, src, dst, i + 1);
+        assert m == map_shift(amap, src, dst, i)[dst + i := tmp];
         i := i + 1;
         fold arr(a, map_shift(amap, src, dst, i));
       }
@@ -299,12 +306,14 @@ interface ArrayUtil[K: Library.OrderedType] {
       fold arr(a, amap);
       unfold arr(b, map_copy(bmap, amap, src, dst, i));
       A.loc(b, dst + i).A.value := tmp;
+      ghost var m: Map[Int, K] = map_copy(bmap, amap, src, dst, i + 1);
+      assert m == map_copy(bmap, amap, src, dst, i)[dst + i := tmp];
       i := i + 1;
       fold arr(b, map_copy(bmap, amap, src, dst, i));
     }
   }
 
-  pred sorted_array_with_content(a: A, len: Int, m: Map[Int, K])
+  pred sorted_array_with_content(a: A, len: Int; m: Map[Int, K])
   {
     0 <= len <= A.length(a) && arr(a, m) && sorted_map_seg(m, 0, len)
   }
