@@ -14,9 +14,20 @@ Type-checking:
 - Allow parsing of `map[m1][m2]` expressions
 
 - Parse field reads/writes/cas/fpu separately
-- Fix dependency analysis wrt auto lemmas
-- Investigate spurious "unknown"s in the middle of log files
+- [x] Fix dependency analysis wrt auto lemmas
+- [x] Investigate spurious "unknown"s in the middle of log files
 
 - Fix missing triggers in all `Expr.mk_binder` calls
 
 - Allow types to be used as modules implementing Library.Type
+
+22 oct:
+- move injectivity check outside.
+- reorder rewrite passes to do inj checks for preds before rewriting fold/unfold
+  maybe by adding new lemmas
+- exhale order of clause witness computation bug
+- sweep to add default triggers for every Quant
+- add another assertion for ISC that quantifies over the actualy value, not just location
+
+- add forks
+- toy around with preds as macros
