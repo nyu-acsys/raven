@@ -417,7 +417,7 @@ module Type = struct
     | App (Bot, [], _), t | t, App (Bot, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
     | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [join t1 t2], a1)
-    | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Any, [meet ti1 ti2; join to1 to2], a1)
+    | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [meet ti1 ti2; join to1 to2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:join ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
