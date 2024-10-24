@@ -1703,7 +1703,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               ("pred_valid$" ^ Ident.to_string c.call_decl.call_decl_name)
           in
 
-          let formal_args, renaming_map1, renaming_map2, preconds =
+          let formal_args, renaming_map1, renaming_map2, postconds =
             let renamings, in_args =
               List.fold_map c.call_decl.call_decl_formals
                 ~init:(Map.empty (module QualIdent))
@@ -1762,24 +1762,28 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
                     new_var_decl ))
             in
 
-            let preconds =
+            let postconds =
               List.map2_exn out_args1 out_args2 ~f:(fun out_arg1 out_arg2 ->
                   let spec_expr =
-                    Expr.mk_not
-                      (Expr.mk_eq ~loc:(Expr.to_loc body)
-                         (Expr.from_var_decl out_arg1)
-                         (Expr.from_var_decl out_arg2))
+                    (Expr.mk_eq ~loc:(Expr.to_loc body)
+                       (Expr.from_var_decl out_arg1)
+                       (Expr.from_var_decl out_arg2))
                   in
-
-                  Stmt.mk_spec spec_expr)
+                  let error =
+                    (Error.Verification,
+                     out_arg1.var_loc,
+                     "This output parameter may not be uniquely determined by the input parameter(s)")
+                  in
+                  Stmt.mk_spec ~error:[fun _ -> error] spec_expr)
             in
 
-            (in_args @ out_args1 @ out_args2, renamings1, renamings2, preconds)
+            (in_args @ out_args1 @ out_args2, renamings1, renamings2, postconds)
           in
 
-          let postcond =
-            Stmt.mk_spec (Expr.mk_bool ~loc:(Expr.to_loc body) false)
-          in
+          (*let postcond =
+            let error = (Error.Verification, 
+             (Expr.mk_bool ~loc:(Expr.to_loc body) false)
+          in*)
 
           let call_decl =
             {
@@ -1788,8 +1792,8 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_formals = formal_args;
               call_decl_returns = [];
               call_decl_locals = [];
-              call_decl_precond = preconds;
-              call_decl_postcond = [ postcond ];
+              call_decl_precond = [];
+              call_decl_postcond = postconds;
               call_decl_is_free = false;
               call_decl_is_auto = false;
               call_decl_mask = None;
