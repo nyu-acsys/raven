@@ -2931,7 +2931,29 @@ module TrnslExhale = struct
                   ~data:expr)
           in
 
-          let e = Expr.alpha_renaming e renaming_map in
+          Logs.debug (fun m ->
+            m
+              "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: \
+               renaming_map: %a"
+              (Fmt.Dump.list (fun ppf (qi, e) ->
+                   Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr qi
+                    Expr.pr e))
+              (Map.to_alist renaming_map));
+
+          let renaming_map_sanitized =
+            (* Need to sanitize renaming_map if an existentially quantified expression occurs in a computed witness.
+              eg: exists a, b :: x.f |-> (a, 1.) && a.f |-> (b, 1.)
+              here renaming map would map
+              a ~> (x.f)#0
+              b ~> (a.f)#0
+
+            This occurence of `a` in `renaming_map[b]` needs alpha-renamed. *)
+            Map.map renaming_map ~f:(fun e ->
+              Expr.alpha_renaming e renaming_map
+            )
+          in 
+
+          let e = Expr.alpha_renaming e renaming_map_sanitized in
           let* e = elim_a univ_vars univ_conds e in
 
           Rewriter.return e
