@@ -1692,11 +1692,12 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
     Callable.t Rewriter.t =
   let open Rewriter.Syntax in
+  if c.call_decl.call_decl_is_free then Rewriter.return c else
   match c.call_decl.call_decl_kind with
   | Pred | Invariant -> (
       match (c.call_decl.call_decl_returns, c.call_def) with
       | [], _ | _, FuncDef { func_body = None } -> Rewriter.return c
-      | rets, FuncDef { func_body = Some body } ->
+      | rets, FuncDef { func_body = Some body }  ->
           let pred_valid_lemma_ident =
             Ident.fresh c.call_decl.call_decl_loc
               ("pred_valid$" ^ Ident.to_string c.call_decl.call_decl_name)
