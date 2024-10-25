@@ -122,8 +122,8 @@ let exit_module (mdef : Module.t) s =
     mdef )
 
 let exit_callable (call_def : Callable.t) s =
-  Logs.debug (fun m ->
-      m "exit_callable: %a" Ident.pr call_def.call_decl.call_decl_name);
+  (*Logs.debug (fun m ->
+      m "exit_callable: %a" Ident.pr call_def.call_decl.call_decl_name);*)
 
   (* (match call_def.call_def with
      | Callable.FuncDef { func_body = Some _; _ } -> ()
@@ -157,15 +157,15 @@ let exit_callable (call_def : Callable.t) s =
         ( (new_mod_symbols1 @ new_mod_symbols) :: new_symbols,
           { call_def with call_decl } )
     | new_symbols ->
-        Logs.debug (fun m -> m "exit_callable: No New Symbols");
+      (*Logs.debug (fun m -> m "exit_callable: No New Symbols");*)
         (new_symbols, call_def)
   in
   ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols = new_symbols },
     call_def )
 
 let enter symbol s =
-  Logs.debug (fun m ->
-      m "Rewriter.enter: symbol = %a" Ident.pr (AstDef.Symbol.to_name symbol));
+  (*Logs.debug (fun m ->
+      m "Rewriter.enter: symbol = %a" Ident.pr (AstDef.Symbol.to_name symbol));*)
   (* Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Symbol.pr (symbol)); *)
   let _ =
     match symbol with
@@ -184,7 +184,7 @@ let enter symbol s =
 let enter_module mdef = enter (ModDef mdef)
 
 let enter_callable callable =
-  Logs.debug (fun m -> m "Rewriter.enter_callable: callable ");
+  (*Logs.debug (fun m -> m "Rewriter.enter_callable: callable ");*)
   enter (CallDef callable)
 
 let declare_symbol symbol : unit t = update_table (SymbolTbl.add_symbol symbol)
@@ -208,8 +208,8 @@ let introduce_typecheck_symbol ~loc
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
 
   (* Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol)); *)
-  Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol: symbol = %a" Symbol.pr symbol);
+  (*Logs.debug (fun m ->
+      m "Rewriter.introduce_typecheck_symbol: symbol = %a" Symbol.pr symbol);*)
   let current_scope = s.state_table.tbl_curr.scope_id in
   let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
 
@@ -258,8 +258,8 @@ let introduce_typecheck_symbol ~loc
         else (f symbol s, qual_ident)
   in
 
-  Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol end: symbol = %a" Symbol.pr symbol);
+  (*Logs.debug (fun m ->
+      m "Rewriter.introduce_typecheck_symbol end: symbol = %a" Symbol.pr symbol);*)
 
   ( {
       s with
@@ -277,9 +277,9 @@ let introduce_toplevel_symbol ~loc
   (* This function takes a symbol and adds it to a top-scope, typically $Program. This is achieved by calling exit_module a bunch of times till we are in the right scope in table. Then, calling the f typechecking function on symbol, then *)
 
   (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
-  Logs.debug (fun m ->
+  (*Logs.debug (fun m ->
       m "Rewriter.introduce_toplevel_symbol: topscope_name = %a" QualIdent.pr
-        topscope_name);
+        topscope_name);*)
 
   let topscope = SymbolTbl.get_scope_exn topscope_name s.state_table in
 
@@ -351,10 +351,10 @@ let introduce_toplevel_symbol ~loc
 
 let add_locals var_decls s =
   if s.state_update_table then (
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "Rewriter.add_locals: var_decls = %a"
           (Print.pr_list_comma AstDef.Ident.pr)
-          (List.map var_decls ~f:(fun (vd : var_decl) -> vd.var_name)));
+          (List.map var_decls ~f:(fun (vd : var_decl) -> vd.var_name)));*)
     update_table (SymbolTbl.add_local_vars var_decls) s)
   else (s, ())
 
@@ -883,15 +883,15 @@ module Callable = struct
 
   let rewrite_scoped ~f callable =
     let open Syntax in
-    Logs.debug (fun m ->
-        m "Rewriter.Callable.rewrite_scoped: callable = %a" Callable.pr callable);
+    (*Logs.debug (fun m ->
+        m "Rewriter.Callable.rewrite_scoped: callable = %a" Callable.pr callable);*)
 
     (* rewrite_scoped assumes the callable will always be opened BEFORE any Callable.rewrite_ call.
        This is ensured in all the Module.rewrite_ methods.
 
        Therefore, no need to call enter_callable or exit_callable here.
     *)
-    Logs.debug (fun m -> m "Rewriter.Callable.rewrite_scoped: entered callable");
+    (*Logs.debug (fun m -> m "Rewriter.Callable.rewrite_scoped: entered callable");*)
     let* callable = f callable in
 
     return callable
@@ -1177,13 +1177,13 @@ end
 
 module Symbol = struct
   let reify (name, symbol, subst) =
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "Rewriter.Symbol.reify %a; %a" AstDef.Symbol.pr symbol
           (Print.pr_list_comma (fun ppf (q, i_l) ->
                Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q
                  (Print.pr_list_comma Ident.pr)
                  i_l))
-          subst);
+          subst);*)
 
     match subst with
     | [] -> return symbol
@@ -1271,9 +1271,9 @@ let resolve_and_find loc name : (QualIdent.t * Symbol.t, 'a) t_ext =
 let resolve loc name : (QualIdent.t, 'a) t_ext =
   let open Syntax in
   let+ qual_ident, _ = resolve_and_find loc name in
-  Logs.debug (fun m ->
+  (*Logs.debug (fun m ->
       m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name
-        QualIdent.pr qual_ident);
+        QualIdent.pr qual_ident);*)
   qual_ident
 
 let find loc name : (Symbol.t, 'a) t_ext =
@@ -1284,15 +1284,12 @@ let find loc name : (Symbol.t, 'a) t_ext =
 let find_and_reify loc name : (AstDef.Module.symbol, 'a) t_ext =
   let open Syntax in
   let* symbol = find loc name in
-  Logs.debug (fun m ->
-      m "Rewriter.find_and_reify: symbol = %a" Symbol.pr symbol);
+  (*Logs.debug (fun m ->
+      m "Rewriter.find_and_reify: symbol = %a" Symbol.pr symbol);*)
   Symbol.reify symbol
 
 let is_local loc qual_ident s =
   let s, qual_ident = resolve loc qual_ident s in
-
-  Logs.debug (fun m ->
-      m "Rewriter.is_local: qual_ident = %a" QualIdent.pr qual_ident);
   (s, Base.List.is_empty qual_ident.qual_path)
 
 module ProgUtils = struct
@@ -1332,9 +1329,9 @@ module ProgUtils = struct
 
   let find_highest_valid_scope_qi loc (qi : qual_ident) : qual_ident t =
     let open Syntax in
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "Rewriter.ProgUtils.find_highest_valid_scope_qi: qi = %a"
-          AstDef.QualIdent.pr qi);
+          AstDef.QualIdent.pr qi);*)
     let rec find_highest_valid_scope_qi' (qi : qual_ident) : qual_ident t =
       (* starting from the current scope, keeps going up till it reaches an abstract scope. Not ideal, since it does not take into account the actual qual_ident `qi` being looked up. *)
       match qi.qual_path with
@@ -1374,9 +1371,9 @@ module ProgUtils = struct
 
     let* highest_valid_scope = find_highest_valid_scope_qi' qi in
 
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "Rewriter.ProgUtils.find_highest_valid_scope_qi: Found scope = %a"
-          AstDef.QualIdent.pr highest_valid_scope);
+          AstDef.QualIdent.pr highest_valid_scope);*)
 
     return highest_valid_scope
 
@@ -1470,9 +1467,9 @@ module ProgUtils = struct
 
     let symbol = AstDef.Module.ModDef { mod_decl; mod_def } in
 
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "Rewriter.ProgUtils.intros_type_module: symbol = %a" AstDef.Symbol.pr
-          symbol);
+          symbol);*)
 
     (* let* topscope_name = find_highest_valid_scope_type_expr loc tp in
 
@@ -1484,10 +1481,10 @@ module ProgUtils = struct
     introduce_typecheck_symbol ~loc ~f symbol
 
   let rec does_symbol_implement_ra (symbol : AstDef.Module.symbol) : bool t =
-    Logs.debug (fun m ->
+    (*Logs.debug (fun m ->
         m "Rewriter.ProgUtils.does_symbol_implement_ra: symbol = %a"
           AstDef.Ident.pr
-          (AstDef.Symbol.to_name symbol));
+          (AstDef.Symbol.to_name symbol));*)
     let open Syntax in
     match symbol with
     | ModDef mod_def ->
