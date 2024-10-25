@@ -1,3 +1,20 @@
+22 oct, 2024:
+- add another assertion for ISC that quantifies over the actualy value, not just location
+- exhale order of clause witness computation bug
+
+- formalize masks
+- introduce fold existential witness notation
+
+- move injectivity check outside.
+- reorder rewrite passes to do inj checks for preds before rewriting fold/unfold
+    maybe by adding new lemmas
+- sweep to add default triggers for every Quant
+
+- add forks
+- toy around with preds as macros
+
+
+
 Type-checking:
   - Ensure that return variables are not allowed in pre-conditions
   - Check that openAU, commitAU having right number of arguments
@@ -10,24 +27,26 @@ Type-checking:
 - Improve expression matching algorithm
 - Revamp witness computation code
 
-- Fix `return proc()` stmts
+- [x] Fix `return proc()` stmts
 - Allow parsing of `map[m1][m2]` expressions
+    iirc Thomas did implement a fix for this, but he thinks it was a bit hacky.
 
 - Parse field reads/writes/cas/fpu separately
-- [x] Fix dependency analysis wrt auto lemmas
-- [x] Investigate spurious "unknown"s in the middle of log files
 
 - Fix missing triggers in all `Expr.mk_binder` calls
 
 - Allow types to be used as modules implementing Library.Type
 
-22 oct:
-- move injectivity check outside.
-- reorder rewrite passes to do inj checks for preds before rewriting fold/unfold
-  maybe by adding new lemmas
-- exhale order of clause witness computation bug
-- sweep to add default triggers for every Quant
-- add another assertion for ISC that quantifies over the actualy value, not just location
 
-- add forks
-- toy around with preds as macros
+
+===
+
+- [x] Fix dependency analysis wrt auto lemmas
+- [x] Investigate spurious "unknown"s in the middle of log files
+
+
+pred(a,b) {
+  \exists x^123, y :: 
+}
+
+fold pred(a_1, a_2)[x := ..., x := ]

@@ -174,6 +174,36 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
 
   Rewriter.return assert_stmt
 
+let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal_quants : universal_quants) : (var_decl list) Rewriter.t =
+  let open Rewriter.Syntax in
+  let symbols =
+    List.fold (expr :: conds)
+      ~init:(Set.empty (module QualIdent))
+      ~f:(fun symbols cond -> Expr.symbols ~acc:symbols cond)
+  in
+
+  let locals =
+    let locals_set = 
+      Set.filter symbols ~f:(fun s ->
+          QualIdent.is_local s
+          && not
+              (List.exists universal_quants.univ_vars ~f:(fun (i, _) ->
+                    Ident.(i = QualIdent.unqualify s))))
+    in
+
+    Set.to_list locals_set
+  in
+
+  let+ local_var_decls =
+    Rewriter.List.map locals ~f:(fun qual_ident ->
+        let+ symbol = Rewriter.find_and_reify loc qual_ident in
+        match symbol with
+        | VarDef v -> v.var_decl
+        | _ -> Error.error loc "Expected a variable declaration")
+  in
+
+  local_var_decls
+
 let generate_inv_function ~loc (universal_quants : universal_quants)
     (conds : conditions) (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t
     =
@@ -194,21 +224,24 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
     in
 
     let* env_local_var_decls =
-      let symbols =
+      compute_env_local_var_decls ~loc inv_expr conds universal_quants
+      (* let symbols =
         List.fold (inv_expr :: conds)
           ~init:(Set.empty (module QualIdent))
           ~f:(fun symbols cond -> Expr.symbols ~acc:symbols cond)
       in
 
       let locals =
-        Set.filter symbols ~f:(fun s ->
-            QualIdent.is_local s
-            && not
-                 (List.exists universal_quants.univ_vars ~f:(fun (i, _) ->
-                      Ident.(i = QualIdent.unqualify s))))
-      in
+        let locals_set = 
+          Set.filter symbols ~f:(fun s ->
+              QualIdent.is_local s
+              && not
+                  (List.exists universal_quants.univ_vars ~f:(fun (i, _) ->
+                        Ident.(i = QualIdent.unqualify s))))
+        in
 
-      let locals = Set.to_list locals in
+        Set.to_list locals_set
+      in
 
       let+ local_var_decls =
         Rewriter.List.map locals ~f:(fun qual_ident ->
@@ -218,7 +251,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
             | _ -> Error.error loc "Expected a variable declaration")
       in
 
-      local_var_decls
+      local_var_decls *)
     in
 
     let arg_type = Expr.to_type inv_expr in
@@ -1854,8 +1887,64 @@ module TrnslInhale = struct
         in
 
         let inv_exprs =
-          List.mapi univ_vars_list ~f:(fun index var_decl ->
+          List.mapi univ_vars_list ~f:(fun index _var_decl ->
               Expr.mk_tuple_lookup inv_fn_expr index)
+        in
+
+        
+        (* inhale forall i, j :: { v(i,j) } own(f(i, j), fld, v(i, j))
+          *   ~~>
+          * forall i, j :: { v(i,j) } 
+          *  v[
+          *      i <- inv(f(i, j), i, j)#0, 
+          *      j <- inv(f(i, j), i, j)#1
+          *  ]
+          *    = 
+          *  v(i, j)
+          *
+          *  OR
+          *
+          *  forall i, j :: {v(i, j)}
+          *      i == inv(f(i, j), i, j)#0 && 
+          *      j == inv(f(i, j), i, j)#1 *)
+        let* forward_trigger_assertion =
+          let inv_fn_qi = (match inv_fn_expr with
+            | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
+            | _ -> 
+              Error.internal_error loc "Expected inv function call"            
+          ) in
+
+          let+ env_local_var_decls =
+            compute_env_local_var_decls ~loc e1 conds universal_quants
+          in
+          
+          let inv_expr = 
+            Expr.mk_app ~loc 
+              ~typ:(Type.mk_prod loc 
+                (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
+              )  
+              (Expr.Var inv_fn_qi) 
+                (e1 :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
+          in 
+
+          (* i ~> inv(f(i, j), i, j)#0
+           * j ~> inv(f(i, j), i, j)#1*)
+          let renaming_map =
+            List.foldi univ_vars_list 
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun index map var_decl ->
+                Map.set map
+                  ~key:(QualIdent.from_ident var_decl.var_name)
+                  ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+          in
+          let expr = Expr.alpha_renaming e3 renaming_map 
+          
+          in
+
+          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+            (Expr.mk_eq ~loc expr e3)
+          )
         in
 
         let alpha_renaming_map =
@@ -1933,7 +2022,7 @@ module TrnslInhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assume_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
