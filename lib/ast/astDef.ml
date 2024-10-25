@@ -822,9 +822,9 @@ module Expr = struct
 
 
   let mk_eq ?(loc = Loc.dummy) e1 e2 =
-    let typ_join = (Type.join (to_type e1) (to_type e2)) in
-    (* Logs.debug (fun m -> m "Type of e1: %a" Type.pr (to_type e1)); *)
-    (* Logs.debug (fun m -> m "Type of e2: %a" Type.pr (to_type e2)); *)
+    (*let typ_join = (Type.join (to_type e1) (to_type e2)) in
+    Logs.info (fun m -> m "Type of e1: %a" Type.pr (to_type e1)); 
+    Logs.info (fun m -> m "Type of e2: %a" Type.pr (to_type e2));
     assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  ||
     (match (to_type e1), (to_type e2) with
     | App (Data (qual_id1, _), _, _), App ((Var qual_id2), _, _) ->
@@ -832,7 +832,7 @@ module Expr = struct
     | App ((Var qual_id1), _, _), App (Data (qual_id2, _), _, _) ->
       QualIdent.equal qual_id1 qual_id2
     | _ -> false;
-    ));
+    ));*)
     (* let t = Type.join (to_type e1) (to_type e2) in *)
     App (Eq, [ e1; e2 ], mk_attr loc Type.bool)
 
@@ -997,9 +997,11 @@ module Expr = struct
         let bv =
           List.fold_left vs
             ~init:bv ~f:(fun bv var_decl -> Set.add bv (QualIdent.from_ident var_decl.var_name)) in
-        let syms = List.fold_left trgs ~f:(fun syms exprs -> List.fold_left exprs ~f:(symbols bv) ~init:syms) ~init:syms
-        in
-        symbols bv syms e
+        let syms = List.fold_left trgs ~f:(fun syms exprs -> List.fold_left exprs ~f:(symbols bv) ~init:syms) ~init:syms in
+        let res = symbols bv syms e in
+        (*Logs.info (fun m -> m "Expr.symbols: %s" (to_string e0));
+        Logs.info (fun m -> m "\nSymbols: %a" QualIdent.pr_list (Set.elements res));*)
+        res
     in 
     symbols (Set.empty (module QualIdent)) acc e 
 
