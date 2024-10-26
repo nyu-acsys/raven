@@ -3084,10 +3084,10 @@ module TrnslExhale = struct
                   (* Neither of the following function calls: 
                    *)
                       (* a. *) 
-                          (* Rewriter.introduce_symbol skolem_placeholder_var_def *)
+                          Rewriter.introduce_symbol skolem_placeholder_var_def
                       (* nor   
                          b. *) 
-                          Rewriter.add_locals [temp_skolem_var_decl]
+                          (* Rewriter.add_locals [temp_skolem_var_decl] *)
                   (* 
                     seem to work.
                   
