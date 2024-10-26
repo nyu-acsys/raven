@@ -202,15 +202,6 @@ let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal
         | _ -> Error.error loc "Expected a variable declaration")
   in
 
-  Logs.debug (fun m -> 
-    m 
-      "heapsExplicitTrnsl.compute_env_local_var_decls: expr: %a;\n conds: %a;\n universal_quants: %a;\n \
-      OUTPUT: local_var_decls: %a"
-    Expr.pr expr
-    Expr.pr_list conds
-    Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
-    Type.pr_var_decl_list local_var_decls
-  );
   local_var_decls
 
 let generate_inv_function ~loc (universal_quants : universal_quants)
@@ -234,6 +225,33 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
 
     let* env_local_var_decls =
       compute_env_local_var_decls ~loc inv_expr conds universal_quants
+      (* let symbols =
+        List.fold (inv_expr :: conds)
+          ~init:(Set.empty (module QualIdent))
+          ~f:(fun symbols cond -> Expr.symbols ~acc:symbols cond)
+      in
+
+      let locals =
+        let locals_set = 
+          Set.filter symbols ~f:(fun s ->
+              QualIdent.is_local s
+              && not
+                  (List.exists universal_quants.univ_vars ~f:(fun (i, _) ->
+                        Ident.(i = QualIdent.unqualify s))))
+        in
+
+        Set.to_list locals_set
+      in
+
+      let+ local_var_decls =
+        Rewriter.List.map locals ~f:(fun qual_ident ->
+            let+ symbol = Rewriter.find_and_reify loc qual_ident in
+            match symbol with
+            | VarDef v -> v.var_decl
+            | _ -> Error.error loc "Expected a variable declaration")
+      in
+
+      local_var_decls *)
     in
 
     let arg_type = Expr.to_type inv_expr in
@@ -337,18 +355,14 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
     Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
       (arg_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl)
 
-
-let ident_to_skolem_fn_ident ~loc ident =
-  Ident.fresh loc ("$skolem_" ^ Ident.to_string ident)
-
 let generate_skolem_function (universal_quants : universal_quants)
-    (var_decl : var_decl) ~skolem_id ?(postconds : expr list = [])
+    (var_decl : var_decl) ?(postconds : expr list = [])
     ?(optn_args : (var_decl * expr) list = []) ~loc : expr Rewriter.t =
   let open Rewriter.Syntax in
   let univ_quants_list = universal_quants.univ_vars in
 
   let skolem_fn_ident =
-    skolem_id
+    Ident.fresh loc ("$skolem_" ^ Ident.to_string var_decl.var_name)
   in
 
   let formal_var_decls =
@@ -440,57 +454,43 @@ let generate_skolem_function (universal_quants : universal_quants)
       ret_expr_args_list
   in
 
-  (Logs.debug (fun m -> m 
-  "heapsExplicitTrnsl.generate_skolem_function: \
-    universal_quants: %a \n \
-    var_decl: %a \n \
-    postconds: %a \n \
-    optn_args: %a \n \
-    output_expr: %a
-  "
-    Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
-    Type.pr_var_decl var_decl
-    (Stmt.pr_spec_list "skolemPostConds") postconds
-    (Util.Print.pr_list_comma (fun ppf (vd, e) ->
-      Stdlib.Format.fprintf ppf "%a -> %a" Type.pr_var_decl vd Expr.pr e
-    )) optn_args
-    Expr.pr ret_expr
-  ));
-
   Rewriter.return ret_expr
 
-
-
-(* This function generates a module which roughly looks like the following:
- *     module f$utils {
- *       type T = f.field_type.T;
- *   
- *       var id : T = f.field_type.id;
- *   
- *       func f$heapValid(h: Map[Ref, T]) returns (ret:Bool) {
- *         forall l: Ref :: T.valid(h[l])
- *       }
- *   
- *       func f$heapChunkComp(x1: T, x2: T) returns (ret: T) {
- *         T.comp(x1, x2)
- *       }
- *   
- *       func f$heapChunkFrame(x1: T, x2: T) returns (ret: T) {
- *         T.frame(x1, x2)
- *       }
- *   
- *       func f$heapchunk_compare(x1: T, x2: T) returns (ret: Bool) {
- *         T.valid(f$heapSubChunk(x1, x2))
- *       }
- *     }
-*)
 let generate_utils_module ~(is_field : bool) (mod_ident : ident)
     (ra_qual_ident : qual_ident) ?(in_arg_typ = Type.ref) (loc : location) :
     Module.symbol Rewriter.t =
   assert ((not is_field) || (is_field && Type.equal in_arg_typ Type.ref));
 
   let open Rewriter.Syntax in
+  (*
+     module f$utils {
+       type T = f.field_type.T;
 
+       var id : T = f.field_type.id;
+
+       func f$heapValid(h: Map[Ref, T]) returns (ret:Bool) {
+         forall l: Ref :: T.valid(h[l])
+       }
+
+       func f$heapChunkComp(x1: T, x2: T) returns (ret: T) {
+         T.comp(x1, x2)
+       }
+
+       func f$heapChunkFrame(x1: T, x2: T) returns (ret: T) {
+         T.frame(x1, x2)
+       }
+
+       func f$heapchunk_compare(x1: T, x2: T) returns (ret: Bool) {
+         T.valid(f$heapSubChunk(x1, x2))
+       }
+     }
+  *)
+
+  (* let fld_elem_type = match f.field_type with
+       | App (Fld, [tp_expr], _) -> tp_expr
+       | _ -> Error.type_error f.field_loc "Expected field identifier."
+
+     in *)
   let fld_elem_type = Rewriter.ProgUtils.get_ra_rep_type ra_qual_ident in
 
   let mod_decl =
@@ -1547,11 +1547,7 @@ module TrnslInhale = struct
   let rec skolemize_inhale_expr (universal_quants : universal_quants)
       (subst : expr qual_ident_map) (expr : expr) : expr Rewriter.t =
     let open Rewriter.Syntax in
-    (* The difference between 
-        generate_skolem_function_inhale and generate_skolem_function
-      is that the former utilizes maps, whereas the latter utilizes functions.
-    *)
-    let generate_skolem_function_inhale (universal_quants : universal_quants)
+    let generate_skolem_function (universal_quants : universal_quants)
         (var_decl : var_decl) : expr Rewriter.t =
       let univ_quants_list = universal_quants.univ_vars in
       (* univ_quants_list computed here to keep the ordering on keys constant for the construction *)
@@ -1601,6 +1597,62 @@ module TrnslInhale = struct
              (Expr.mk_var ~typ:var_decl.var_type
                 (QualIdent.from_ident var_decl.var_name))
              tuple_expr)
+      (* let skolem_fn_ident = Ident.fresh (Expr.to_loc expr) ("$skolem_" ^ (Ident.to_string var_decl.var_name)) in
+
+         let formal_var_decls =
+           List.map univ_quants_list ~f:(fun (v, v_decl) ->
+             {
+               Type.var_name = v_decl.var_name;
+               var_loc = Expr.to_loc expr;
+               var_type = v_decl.var_type;
+               var_const = true;
+               var_ghost = false;
+               var_implicit = false;
+             }
+           )
+
+         in
+         let ret_var_decl = {
+           Type.var_name = Ident.fresh (Expr.to_loc expr) ("ret_" ^ (Ident.to_string var_decl.var_name));
+           var_loc = Expr.to_loc expr;
+           var_type = var_decl.var_type;
+           var_const = true;
+           var_ghost = false;
+           var_implicit = false;
+         } in
+
+         let call_decl = {
+           Callable.call_decl_kind = Func;
+           call_decl_name = skolem_fn_ident;
+           call_decl_formals = formal_var_decls;
+           call_decl_returns = [ret_var_decl];
+           call_decl_locals = [];
+           call_decl_precond = [];
+           call_decl_postcond = [];
+           call_decl_loc = Expr.to_loc expr;
+         }
+
+         in
+
+         let* skolem_fn_qual_ident =
+           let+ module_qual_ident = Rewriter.current_module_name in
+
+           QualIdent.append module_qual_ident skolem_fn_ident
+
+         in
+
+         let callable = Callable.{ call_decl; call_def = FuncDef { func_body = None;} }
+
+
+         in
+
+         let symbol = Module.CallDef callable in
+
+         let* _ = Rewriter.introduce_typecheck_symbol ~loc:(Expr.to_loc expr) ~f:(Typing.process_symbol) symbol in
+
+         let ret_expr = Expr.mk_app (Expr.Var skolem_fn_qual_ident) (List.map univ_quants_list ~f:(fun (v, _) -> Expr.mk_var (QualIdent.from_ident v))) in
+
+         Rewriter.return ret_expr *)
     in
 
     match expr with
@@ -1616,6 +1668,9 @@ module TrnslInhale = struct
           }
         in
 
+        (* List.fold var_decls ~init:universal_quants ~f:(fun map var_decl ->
+             Map.add_exn map ~key:var_decl.var_name ~data:var_decl
+           in *)
         let* e = skolemize_inhale_expr universal_quants subst e in
 
         Rewriter.return Expr.(Binder (Forall, var_decls, trgs, e, e_attr))
@@ -1623,7 +1678,7 @@ module TrnslInhale = struct
         let* subst =
           Rewriter.List.fold_left var_decls ~init:subst ~f:(fun map var_decl ->
               let* (new_expr : expr) =
-                generate_skolem_function_inhale universal_quants var_decl
+                generate_skolem_function universal_quants var_decl
               in
               Rewriter.return
                 (Map.add_exn map
@@ -1637,8 +1692,7 @@ module TrnslInhale = struct
             m
               "Rewrites.HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: \
                found existentials:  e: %a"
-              Expr.pr e
-        );
+              Expr.pr e);
         Rewriter.return e
     | _ ->
         let* expr =
@@ -1844,9 +1898,15 @@ module TrnslInhale = struct
           *  v[
           *      i <- inv(f(i, j), i, j)#0, 
           *      j <- inv(f(i, j), i, j)#1
-          *  ] (var substitution)
+          *  ]
           *    = 
-          *  v(i, j) *)
+          *  v(i, j)
+          *
+          *  OR
+          *
+          *  forall i, j :: {v(i, j)}
+          *      i == inv(f(i, j), i, j)#0 && 
+          *      j == inv(f(i, j), i, j)#1 *)
         let* forward_trigger_assertion =
           let inv_fn_qi = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
@@ -2283,6 +2343,9 @@ module TrnslInhale = struct
                   let assume_stmt =
                     let in_vars_eq_args =
                       Expr.mk_eq in_vars_tuple actual_arg_in_exprs_subst_tuple
+                      (* List.map2_exn in_vars actual_arg_in_exprs_subst ~f:(fun var_decl arg ->
+                           Expr.mk_eq (Expr.from_var_decl var_decl) arg
+                         ) *)
                     in
 
                     let new_chunk =
@@ -2581,6 +2644,10 @@ module TrnslInhale = struct
                   in
 
                   let assume_stmt =
+                    (* let l_var = Type.{ var_name = Ident.fresh (Expr.to_loc expr) "l"; var_loc = Expr.to_loc expr;
+                       var_type = Type.ref; var_const = false; var_ghost = false; var_implicit = false; } in *)
+
+                    (* let l_expr = Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name) in *)
                     let new_chunk =
                       let new_chunk_expr_list =
                         match c.call_decl.call_decl_kind with
@@ -2816,177 +2883,14 @@ module TrnslExhale = struct
       let open Rewriter.Syntax in
       match expr with
       | Binder (Exists, var_decls, trgs, e, expr_attr) ->
-          let loc =  expr_attr.expr_loc in
-          let var_decls_skolem_idents = 
-            List.map var_decls ~f:(
-              fun vd ->
-                (vd, ident_to_skolem_fn_ident ~loc vd.var_name)
-            )
+          let init_map =
+            List.fold var_decls
+              ~init:(Map.empty (module Ident))
+              ~f:(fun map var_decl ->
+                Map.add_exn map ~key:var_decl.var_name ~data:[])
           in
-
-          let* (witnesses : (conditions * expr option) list ident_map) =
-            let init_map =
-              List.fold var_decls
-                ~init:(Map.empty (module Ident))
-                ~f:(fun map var_decl ->
-                  Map.add_exn map ~key:var_decl.var_name ~data:[])
-            in
-
+          let* witnesses =
             elim_a0 univ_vars var_decls (univ_conds, []) e init_map
-          in
-
-          (* Sanitizing witnesses: 
-          * a. getting rid of expr option; and
-          * b. filtering empty lists [] from map *)
-          let witnesses : (conditions * expr) list ident_map =
-              let witnesses : (conditions * expr) list ident_map = 
-                Map.map witnesses ~f:(fun cnd_expr_optn_list ->
-                  List.filter_map cnd_expr_optn_list ~f:(fun (cnd, expr_optn) -> 
-                    match expr_optn with
-                    | None -> None
-                    | Some e -> Some (cnd, e)
-                  )
-                )
-              in
-
-              let witnesses : (conditions * expr) list ident_map = 
-                Map.filter witnesses ~f:(fun cnd_expr_list ->
-                  not @@ List.is_empty cnd_expr_list
-                )
-              in 
-
-            witnesses
-          in
-
-          let witnesses_local_vars_ident = 
-            let (witnesses_local_vars_ident_set : IdentSet.t) =
-              (* Folds over all existentials *)
-              Map.fold witnesses ~init:(Set.empty (module Ident)) ~f:(
-                fun ~key:_ ~data:cnd_expr_list accum_local_vars_set ->
-                  
-                (* Folds over all different witnesses computed for each existential *)
-                List.fold cnd_expr_list ~init:accum_local_vars_set ~f:(
-                  fun acc (cnds, e) ->
-
-                  (* Folds over all path conditions for every witness *)
-                  let path_conds_vars = List.fold cnds ~init:(Expr.local_vars e) ~f:(
-                    fun accum cnd ->
-                      Set.union accum (Expr.local_vars cnd)
-                  )
-                  in
-                  Set.union acc path_conds_vars
-                )
-              )
-            in
-
-            Set.to_list witnesses_local_vars_ident_set
-          in
-
-          (* Logs.debug (fun m -> m 
-            "TrnslExhale.WitnessComputation.elim_a1: witnesses_local_vars_ident: %a" 
-              Ident.pr_list witnesses_local_vars_ident
-          ); *)
-
-          let env_local_vars_ident =
-            let univ_cond_locals_ident_set = 
-              List.fold ~init:(Set.empty (module Ident)) univ_conds ~f:(fun accum expr ->
-                Set.union accum (Expr.local_vars expr)
-              )
-            in
-
-            let univ_cond_locals_ident = Set.to_list univ_cond_locals_ident_set in
-
-            let env_local_vars_ident = univ_cond_locals_ident @ witnesses_local_vars_ident in
-
-            let env_local_non_skolems_vars_ident = List.filter env_local_vars_ident 
-              ~f:(fun s ->
-                List.for_all var_decls 
-                ~f:(fun vd ->
-                  not @@ Ident.(vd.var_name = s)
-                )
-              )
-            in
-
-            env_local_non_skolems_vars_ident
-          in
-
-          (* Logs.debug (fun m -> m 
-          "TrnslExhale.WitnessComputation.elim_a1: env_local_vars_ident: %a" 
-            Ident.pr_list env_local_vars_ident
-          ); *)
-
-          let* env_local_var_decls =
-            Rewriter.List.map env_local_vars_ident ~f:(fun iden ->
-                let+ symbol =
-                  Rewriter.find_and_reify (Ident.to_loc iden)
-                    (QualIdent.from_ident iden)
-                in
-                match symbol with
-                | VarDef v -> v.var_decl
-                | _ ->
-                    Error.error (Ident.to_loc iden)
-                      "Expected a variable declaration")
-          in
-
-          Logs.debug (fun m -> m 
-          "TrnslExhale.WitnessComputation.elim_a1: env_local_var_decls: %a" 
-            Type.pr_var_decl_list env_local_var_decls
-          );
-
-          let env_local_var_decls_exprs = List.map env_local_var_decls ~f:(fun vd ->
-            (vd, Expr.from_var_decl vd)  
-          )
-
-          in
-
-          let witness_args_conds_exprs_map = 
-            Map.mapi witnesses ~f:(fun ~key:iden ~data:witness_list ->
-              let witness_arg_exprs =
-                (List.map witness_list ~f:(fun (conds, witness) ->
-                    let optn_arg =
-                      {
-                        Type.var_name =
-                          Ident.fresh loc
-                            ("witness_"
-                            ^ Ident.to_string iden);
-                        var_loc = loc;
-                        var_type = Expr.to_type witness;
-                        var_const = true;
-                        var_ghost = false;
-                        var_implicit = false;
-                      }
-                    in
-                    
-                    (optn_arg, conds, witness) 
-                ))
-              in
-              
-              witness_arg_exprs
-            )
-          in
-
-          let skolem_vars_alpha_renaming_map = 
-            List.fold var_decls_skolem_idents ~init:(Map.empty (module QualIdent)) ~f:(
-              fun map (vd, skolem_id) -> (
-                let skolemized_expr = 
-                  let optn_args = begin
-                    match Map.find witness_args_conds_exprs_map vd.var_name with
-                    | None -> []
-                    | Some arg_conds_expr_list -> 
-                      List.map arg_conds_expr_list ~f:(fun (arg, cond, expr) -> expr)
-                        @
-                      List.map env_local_var_decls_exprs ~f:(fun (_vd, expr) -> expr) 
-                    end 
-                  in
-                  Expr.mk_app ~loc ~typ:(vd.var_type) (Expr.Var (QualIdent.from_ident skolem_id)) optn_args
-
-                in
-
-                match (Map.add ~key:(QualIdent.from_ident vd.var_name) ~data:skolemized_expr map) with
-                | `Ok map -> map
-                | `Duplicate -> Error.internal_error loc "Duplicate existentially quantified var"
-              )
-            )
           in
 
           Logs.debug (fun m ->
@@ -2998,14 +2902,14 @@ module TrnslExhale = struct
                        (Fmt.Dump.list (fun ppf (c, e) ->
                             Stdlib.Format.fprintf ppf "%a -> %a"
                               (Util.Print.pr_list_comma Expr.pr)
-                              c Expr.pr e))
+                              c (Fmt.Dump.option Expr.pr) e))
                        e))
                 (Map.to_alist witnesses));
 
           let* skolemized_exprs =
-            Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
+            Rewriter.List.map var_decls ~f:(fun var_decl ->
                 let* postconds, optn_args =
-                  match Map.find witness_args_conds_exprs_map var_decl.var_name with
+                  match Map.find witnesses var_decl.var_name with
                   | None | Some [] ->
                       let error =
                         ( Error.Verification,
@@ -3015,40 +2919,92 @@ module TrnslExhale = struct
                       in
                       Logs.warn (fun m -> m "%s" (Error.to_string error));
                       Rewriter.return ([], [])
-                  | Some witness_arg_exprs ->
-                      let postconds =
-                        (List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
-                          (Expr.mk_impl (Expr.mk_and (univ_conds @ conds))
-                            (Expr.mk_eq
-                              (Expr.from_var_decl var_decl)
-                              (Expr.from_var_decl optn_arg)
-                            )
-                          )
-                        ))
+                  | Some witness_list ->
+                      let witness_list =
+                        List.filter witness_list ~f:(fun (conds, e) ->
+                            Option.is_some e)
                       in
 
-                      let witness_optn_args = List.map witness_arg_exprs ~f:(
-                        fun (vd, _, e) -> (vd, e)
-                      ) in
+                      let postconds, optn_args =
+                        List.unzip
+                          (List.map witness_list ~f:(fun (conds, e) ->
+                               let witness = Option.value_exn e in
+                               let optn_arg =
+                                 {
+                                   Type.var_name =
+                                     Ident.fresh var_decl.var_loc
+                                       ("witness_"
+                                       ^ Ident.to_string var_decl.var_name);
+                                   var_loc = var_decl.var_loc;
+                                   var_type = Expr.to_type witness;
+                                   var_const = true;
+                                   var_ghost = false;
+                                   var_implicit = false;
+                                 }
+                               in
+
+                               ( Expr.mk_impl
+                                   (Expr.mk_and (univ_conds @ conds))
+                                   (Expr.mk_eq
+                                      (Expr.from_var_decl var_decl)
+                                      (Expr.from_var_decl optn_arg)),
+                                 (optn_arg, witness) )))
+                      in
+
+                      let conds =
+                        List.concat_map witness_list ~f:(fun (conds, _) ->
+                            conds)
+                      in
+                      let conds = univ_conds @ conds in
+
+                      let symbols =
+                        List.fold conds
+                          ~init:(Set.empty (module QualIdent))
+                          ~f:(fun symbols cond -> Expr.symbols cond)
+                      in
+
+                      let locals =
+                        Set.filter symbols ~f:(fun s ->
+                            QualIdent.is_local s
+                            && not
+                                 (List.exists univ_vars.univ_vars
+                                    ~f:(fun (i, _) ->
+                                      Ident.(i = QualIdent.unqualify s))))
+                      in
+
+                      let locals = Set.to_list locals in
+
+                      let* locals_var_decls =
+                        Rewriter.List.map locals ~f:(fun qual_ident ->
+                            let+ symbol =
+                              Rewriter.find_and_reify var_decl.var_loc
+                                qual_ident
+                            in
+                            match symbol with
+                            | VarDef v -> v.var_decl
+                            | _ ->
+                                Error.error var_decl.var_loc
+                                  "Expected a variable declaration")
+                      in
+
+                      Logs.debug (fun m ->
+                          m
+                            "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: \
+                             locals_var_decls: %a"
+                            (Fmt.Dump.list QualIdent.pr)
+                            locals);
 
                       let optn_args =
-                        witness_optn_args @ env_local_var_decls_exprs
+                        optn_args
+                        @ List.map locals_var_decls ~f:(fun var_decl ->
+                              (var_decl, Expr.from_var_decl var_decl))
                       in
 
                       Rewriter.return (postconds, optn_args)
                 in
 
-                let postconds_sanitized = 
-                  let skolem_vars_alpha_renaming_map_local =
-                    Map.remove skolem_vars_alpha_renaming_map (QualIdent.from_ident var_decl.var_name) 
-                  in
-                  List.map postconds ~f:(
-                    fun expr -> Expr.alpha_renaming expr skolem_vars_alpha_renaming_map_local
-                  )
-                in
-
                 let+ expr =
-                  generate_skolem_function univ_vars var_decl ~skolem_id:skolem_ident ~postconds:postconds_sanitized
+                  generate_skolem_function univ_vars var_decl ~postconds
                     ~optn_args ~loc:var_decl.var_loc
                 in
 
