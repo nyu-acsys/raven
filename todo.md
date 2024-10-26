@@ -1,4 +1,7 @@
 22 oct, 2024:
+- fix bug with existenials occuring in other variables' skolem function
+    + [x] rewrite the entire elim_a functionality.
+    + fix issue with order of adding vs typechecking of mutually dependent skolems
 - add another assertion for ISC that quantifies over the actualy value, not just location
 - exhale order of clause witness computation bug
 
