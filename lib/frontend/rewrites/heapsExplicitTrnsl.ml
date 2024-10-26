@@ -3064,13 +3064,52 @@ module TrnslExhale = struct
                 expr)
           in
 
+          let* temp_skolem_var_var_decls = 
+            Rewriter.List.map (List.zip_exn var_decls skolemized_exprs)
+              ~f:(fun (var_decl, skolem_expr) ->
+
+                let temp_skolem_var_decl = {
+                  var_decl with
+                  var_name = Ident.fresh loc @@ 
+                    "$skolem_expr_placeholder$$" ^ (Ident.to_string var_decl.var_name);
+                  }
+                in
+
+                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = Some skolem_expr})
+
+              in
+                
+                let+ _ =
+                  (* ************************************* *)
+                  (* Neither of the following function calls: 
+                   *)
+                      (* a. *) 
+                          (* Rewriter.introduce_symbol skolem_placeholder_var_def *)
+                      (* nor   
+                         b. *) 
+                          Rewriter.add_locals [temp_skolem_var_decl]
+                  (* 
+                    seem to work.
+                  
+                    `$skolem_expr_placeholder$$` does not get added to 
+                    p().call_decl_locals
+                  
+                  *)
+                  (* ************************************* *)
+                    
+                in
+
+                temp_skolem_var_decl
+            )
+          in
+
           let renaming_map =
-            List.fold2_exn var_decls skolemized_exprs
+            List.fold2_exn var_decls temp_skolem_var_var_decls
               ~init:(Map.empty (module QualIdent))
-              ~f:(fun map var_decl expr ->
+              ~f:(fun map var_decl temp_skolem_var_decl ->
                 Map.set map
                   ~key:(QualIdent.from_ident var_decl.var_name)
-                  ~data:expr)
+                  ~data:(Expr.from_var_decl temp_skolem_var_decl))
           in
 
           Logs.debug (fun m ->
