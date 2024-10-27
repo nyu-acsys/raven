@@ -2395,7 +2395,10 @@ module ProcessModule = struct
                        && not m.mod_decl.mod_decl_is_interface ->
                   let loc = m.mod_decl.mod_decl_loc in
                   (* Keep 'auto' flag for everything but RA associativity axioms *)
-                  let auto = String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc") in
+                  let auto =
+                    call.call_decl.call_decl_is_auto &&
+                    String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc")
+                  in
                   let call =
                     {
                       Callable.call_decl = { call.call_decl with call_decl_is_auto = auto };
@@ -2596,8 +2599,8 @@ module ProcessModule = struct
               | TypeDef { type_def_expr = None; _ }
               | ModInst { mod_inst_def = None; _ }
               | VarDef { var_decl = { var_const = true; _ }; var_init = None }
-              | CallDef { call_def = ProcDef { proc_body = None }; _ }
-              | CallDef { call_def = FuncDef { func_body = None }; _ } ->
+              | CallDef { call_def = ProcDef { proc_body = None }; call_decl = { call_decl_is_free = false; _ } }
+              | CallDef { call_def = FuncDef { func_body = None }; call_decl = { call_decl_is_free = false; _ } } ->
                   Error.type_error mod_decl.mod_decl_loc
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \

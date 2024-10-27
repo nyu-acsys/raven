@@ -353,8 +353,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                              spec.spec_form))))
           else
             Error.verification_error call_decl.call_decl_loc
-              "Auto lemmas must have pure preconditions and postconditions, \
-               and no arguments or return values"
+              (Printf.sprintf !"Auto lemma %{Ident} must have pure preconditions and postconditions, \
+               and no arguments or return values" call_decl.call_decl_name)
       | _ -> Rewriter.return ())
 
 let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t

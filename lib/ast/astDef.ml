@@ -1854,8 +1854,13 @@ module Callable = struct
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
 
   (** Change the given symbol to one whose correctness is assumed *)
-  let make_free call_def = 
-    { call_def with call_decl = { (to_decl call_def) with call_decl_is_free = true } }
+  let make_free callable =
+    if is_abstract callable then callable else
+      let call_def = match callable.call_def with
+        | ProcDef proc_def -> ProcDef { proc_body = None }
+        | call_def -> call_def
+      in
+      { call_def; call_decl = { (to_decl callable) with call_decl_is_free = true } }
 
   let is_atomic c =
     List.exists (c.call_decl_precond @ c.call_decl_postcond) ~f:(fun spec -> spec.spec_atomic)
