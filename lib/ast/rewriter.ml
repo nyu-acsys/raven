@@ -202,16 +202,36 @@ let introduce_symbol symbol s =
     },
     () )
 
+(* `f` represents a typechecking function that will be used to type-check 
+ * `symbol` once the state has been set in the correct scope. 
+ * This function is almost always intended to be `Typing.process_symbol` function. 
+ * However, this cannot be set statically since 
+ * that creates a recursive dependency between `module Rewriter` and `module Typing`. *)
 let introduce_typecheck_symbol ~loc
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     (symbol : Module.symbol) (s : 'a state) : 'a state * qual_ident =
-  (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
 
-  (* Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol: symbol = %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol)); *)
-  (*Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol: symbol = %a" Symbol.pr symbol);*)
+
+  Logs.debug (fun m -> m 
+    "Rewriter.introduce_typecheck_symbol: symbol = %a" 
+      AstDef.Ident.pr (AstDef.Symbol.to_name symbol)
+  );
+  Logs.debug (fun m -> m 
+    "Rewriter.introduce_typecheck_symbol: symbol = %a" 
+      Symbol.pr symbol
+  );
+    
   let current_scope = s.state_table.tbl_curr.scope_id in
   let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
+
+  Logs.debug (fun m -> m 
+    "
+      Rewriter.introduce_typecheck_symbol: current_scope = %a \n \
+      Rewriter.introduce_typecheck_symbol: qual_ident = %a \n \
+    " 
+      QualIdent.pr current_scope
+      QualIdent.pr qual_ident
+  );
 
   let (s, _), already_defined =
     try (declare_symbol symbol s, false) with _ -> ((s, ()), true)
@@ -258,8 +278,8 @@ let introduce_typecheck_symbol ~loc
         else (f symbol s, qual_ident)
   in
 
-  (*Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol end: symbol = %a" Symbol.pr symbol);*)
+  Logs.debug (fun m ->
+      m "Rewriter.introduce_typecheck_symbol end: symbol = %a" Symbol.pr symbol);
 
   ( {
       s with

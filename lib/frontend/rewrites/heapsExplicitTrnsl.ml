@@ -2762,32 +2762,40 @@ module TrnslExhale = struct
           ~f:rewriter_user_annot_elim_exists_from_exhales
 
   module WitnessComputation = struct
-    let rec find_witnesses_elim_exists (expr : expr) : expr Rewriter.t =
+    let rec find_witnesses_elim_exists (expr : expr) : (expr * expr list) Rewriter.t =
       elim_a { univ_vars = []; triggers = [] } [] expr
 
     and elim_a (universal_quants : universal_quants) (conds : conditions)
-        (expr : expr) : expr Rewriter.t =
+        (expr : expr) : (expr * expr list) Rewriter.t =
       let open Rewriter.Syntax in
-      if%bind Rewriter.ProgUtils.is_expr_pure expr then Rewriter.return expr
+      if%bind Rewriter.ProgUtils.is_expr_pure expr then Rewriter.return (expr, [])
       else
         match expr with
         | App (Ite, [ c; e1; e2 ], expr_attr) ->
-            let* e1 = elim_a universal_quants (c :: conds) e1 in
+            let* (e1, wtns_specs1) = elim_a universal_quants (c :: conds) e1 in
 
             let not_c = Expr.mk_not ~loc:(Expr.to_loc c) c in
-            let* e2 = elim_a universal_quants (not_c :: conds) e2 in
+            let* (e2, wtns_specs2) = elim_a universal_quants (not_c :: conds) e2 in
 
-            Rewriter.return (Expr.App (Ite, [ c; e1; e2 ], expr_attr))
+            Rewriter.return (
+              (Expr.App (Ite, [ c; e1; e2 ], expr_attr)), 
+              wtns_specs1 @ wtns_specs2
+            )
         | App (Impl, [ c; e2 ], expr_attr) ->
-            let+ e2 = elim_a universal_quants (c :: conds) e2 in
-            Expr.App (Impl, [ c; e2 ], expr_attr)
+            let+ e2, wtns_specs = elim_a universal_quants (c :: conds) e2 in
+            Expr.App (Impl, [ c; e2 ], expr_attr), wtns_specs
         | App (And, e_list, expr_attr) ->
-            let* e_list =
+            let* e_wtns_specs_list =
               Rewriter.List.map e_list ~f:(fun e ->
                   elim_a universal_quants conds e)
             in
 
-            Rewriter.return (Expr.App (And, e_list, expr_attr))
+            let e_list, wtns_specs = List.unzip e_wtns_specs_list in
+
+            Rewriter.return (
+              (Expr.App (And, e_list, expr_attr)), 
+              (List.concat wtns_specs)
+            )
         | Binder (Forall, var_decls, trgs, e, expr_attr) ->
             let universal_quants =
               let new_quants =
@@ -2805,14 +2813,16 @@ module TrnslExhale = struct
               }
             in
 
-            let* e = elim_a universal_quants conds e in
+            let* e, wtns_specs = elim_a universal_quants conds e in
 
-            Rewriter.return
-              (Expr.Binder (Forall, var_decls, trgs, e, expr_attr))
+            Rewriter.return (
+              (Expr.Binder (Forall, var_decls, trgs, e, expr_attr)),
+              wtns_specs
+            )
         | _ -> elim_a1 universal_quants conds expr
 
     and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions)
-        (expr : expr) : expr Rewriter.t =
+        (expr : expr) : (expr * expr list) Rewriter.t =
       let open Rewriter.Syntax in
       match expr with
       | Binder (Exists, var_decls, trgs, e, expr_attr) ->
@@ -3064,46 +3074,68 @@ module TrnslExhale = struct
                 expr)
           in
 
-          let* temp_skolem_var_var_decls = 
+          let* temp_skolem_var_decls__wtns_specs_list : (var_decl * expr) list =
             Rewriter.List.map (List.zip_exn var_decls skolemized_exprs)
               ~f:(fun (var_decl, skolem_expr) ->
+                let skolem_wtns_var_tp =
+                  if (List.is_empty univ_vars.univ_vars) then
+                    var_decl.var_type
+                  else
+                    Type.mk_map loc (
+                      Type.mk_prod loc 
+                        (List.map univ_vars.univ_vars ~f:(fun (_, vd) -> vd.var_type))
+                    )
+                    (* ~~~> *)
+                    var_decl.var_type
+                in
 
                 let temp_skolem_var_decl = {
                   var_decl with
                   var_name = Ident.fresh loc @@ 
                     "$skolem_expr_placeholder$$" ^ (Ident.to_string var_decl.var_name);
+                  var_type = skolem_wtns_var_tp
+
                   }
                 in
 
-                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = Some skolem_expr})
+                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = None})
 
-              in
+                in
                 
                 let+ _ =
-                  (* ************************************* *)
-                  (* None of the following function calls: 
-                   *)
-                      (* a. *) 
-                          Rewriter.introduce_typecheck_symbol ~loc  ~f:Typing.process_symbol skolem_placeholder_var_def
-                      (* nor   
-                         b. *) 
-                          (* Rewriter.introduce_symbol skolem_placeholder_var_def *)
-                      (* nor   
-                         c. *) 
-                          (* Rewriter.add_locals [temp_skolem_var_decl] *)
-                  (* 
-                    seem to work.
-                  
-                    `$skolem_expr_placeholder$$` does not get added to 
-                    p().call_decl_locals
-                  
-                  *)
-                  (* ************************************* *)
-                    
+                  Rewriter.introduce_typecheck_symbol ~loc  ~f:Typing.process_symbol skolem_placeholder_var_def
+                in
+              
+                let wtns_constraint_expr = match univ_vars.univ_vars with
+                | [] -> 
+                  Expr.mk_eq ~loc
+                      (Expr.from_var_decl temp_skolem_var_decl)
+                      skolem_expr
+
+                | _ -> 
+                  Expr.mk_binder ~loc 
+                    Forall (
+                        List.map univ_vars.univ_vars ~f:(fun (_, vd) -> vd)
+                        (* TODO: ^^^ Check if SMTLIB requires univ_vars need to be renamed when used in quantifiers. *)
+                    ) (* :: *) (
+                      Expr.mk_eq ~loc
+                          (* skolem_var[ univ_vars ] *)
+                          (Expr.mk_maplookup
+                              (Expr.from_var_decl temp_skolem_var_decl)
+                              (Expr.mk_tuple 
+                                  (List.map univ_vars.univ_vars ~f:(fun (_, vd) -> (Expr.from_var_decl vd)))
+                              )
+                          )
+                          (* == *)
+                          skolem_expr
+                    )
                 in
 
-                temp_skolem_var_decl
+                temp_skolem_var_decl, wtns_constraint_expr
             )
+          in
+
+          let temp_skolem_var_var_decls, wtns_specs_exprs = List.unzip temp_skolem_var_decls__wtns_specs_list
           in
 
           let renaming_map =
@@ -3112,7 +3144,21 @@ module TrnslExhale = struct
               ~f:(fun map var_decl temp_skolem_var_decl ->
                 Map.set map
                   ~key:(QualIdent.from_ident var_decl.var_name)
-                  ~data:(Expr.from_var_decl temp_skolem_var_decl))
+                  ~data:(
+                    match univ_vars.univ_vars with
+                    | [] -> Expr.from_var_decl temp_skolem_var_decl
+                    | _ -> 
+                      Expr.mk_maplookup 
+                        (Expr.from_var_decl temp_skolem_var_decl) 
+                        (* [ *)
+                          (Expr.mk_tuple 
+                            (List.map univ_vars.univ_vars ~f:(
+                              fun (_, vd) -> Expr.from_var_decl vd
+                            ))
+                          )
+                        (* ] *)
+                  )
+              )
           in
 
           Logs.debug (fun m ->
@@ -3138,12 +3184,12 @@ module TrnslExhale = struct
           in 
 
           let e = Expr.alpha_renaming e renaming_map_sanitized in
-          let* e = elim_a univ_vars univ_conds e in
+          let* e, wtns_specs = elim_a univ_vars univ_conds e in
 
-          Rewriter.return e
+          Rewriter.return (e, wtns_specs_exprs @ wtns_specs)
       | _ ->
           (* No existentials found *)
-          Rewriter.return expr
+          Rewriter.return (expr, [])
 
     and elim_a0 (univ_vars : universal_quants) (exist_vars : var_decl list)
         ((univ_conds, exist_conds) : conditions * conditions) (expr : expr)
@@ -3533,25 +3579,57 @@ module TrnslExhale = struct
   let rec rewriter_find_witness_elim_exists_from_exhale (stmt : Stmt.t) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
+    let loc = Stmt.to_loc stmt in
     match stmt.stmt_desc with
     | Basic (Spec (Exhale, spec)) ->
         let exhale_expr = spec.spec_form in
-        let* elim_expr =
+        let* elim_expr, wtns_specs =
           WitnessComputation.find_witnesses_elim_exists exhale_expr
         in
 
-        let spec = { spec with spec_form = elim_expr } in
+        Logs.debug (fun m -> m 
+          "WitnessComputation.rewriter_find_witness_elim_exists_from_exhale: \n \
+              init exhale_expr: %a \n \
+              elim exhale_expr: %a
+          "
+            Expr.pr exhale_expr
+            Expr.pr elim_expr
+        );
 
-        Rewriter.return { stmt with stmt_desc = Basic (Spec (Exhale, spec)) }
+        let spec = { spec with spec_form = elim_expr } in
+        let exhale_stmt = { stmt with stmt_desc = Basic (Spec (Exhale, spec)) } in 
+
+        let wtns_specs_stmts = List.map wtns_specs ~f:(
+          fun spec_expr -> 
+            Stmt.mk_assume_expr ~loc spec_expr 
+              ~cmnt:("Witness binding `assume`, for existentials during exhale.")
+        )
+        in 
+
+        Rewriter.return (
+          Stmt.mk_block_stmt ~loc (wtns_specs_stmts @ [exhale_stmt])
+        )
+
     | Basic (Spec (Assert, spec)) ->
         let assert_expr = spec.spec_form in
-        let* elim_expr =
+        let* elim_expr, wtns_specs =
           WitnessComputation.find_witnesses_elim_exists assert_expr
         in
 
         let spec = { spec with spec_form = elim_expr } in
+        let assert_stmt = { stmt with stmt_desc = Basic (Spec (Assert, spec)) } in 
 
-        Rewriter.return { stmt with stmt_desc = Basic (Spec (Assert, spec)) }
+        let wtns_specs_stmts = List.map wtns_specs ~f:(
+          fun spec_expr -> 
+            Stmt.mk_assume_expr ~loc spec_expr
+              ~cmnt:("Witness binding `assume`, for existentials during assert.")
+        )
+        in 
+
+        Rewriter.return (
+          Stmt.mk_block_stmt ~loc (wtns_specs_stmts @ [assert_stmt])
+        )
+
     | _ ->
         Rewriter.Stmt.descend stmt
           ~f:rewriter_find_witness_elim_exists_from_exhale
