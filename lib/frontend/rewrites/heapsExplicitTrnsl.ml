@@ -3184,6 +3184,11 @@ module TrnslExhale = struct
           in 
 
           let e = Expr.alpha_renaming e renaming_map_sanitized in
+          let wtns_specs_exprs = 
+            List.map wtns_specs_exprs ~f:(
+              fun wtns_expr -> Expr.alpha_renaming wtns_expr renaming_map_sanitized
+            )
+          in
           let* e, wtns_specs = elim_a univ_vars univ_conds e in
 
           Rewriter.return (e, wtns_specs_exprs @ wtns_specs)
