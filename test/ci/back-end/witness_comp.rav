@@ -1,0 +1,17 @@
+field c: Int
+
+pred pred1(x:Ref, v:Int) {
+    true
+}
+
+proc p() {
+    var x: Ref;
+    inhale exists v: Int :: own(x, c, v, 1.0) && pred1(x, v);
+    exhale exists v: Int :: own(x, c, v, 1.0) && pred1(x, v);
+
+    // After witness computation, the above exhale gets replaced by:
+    //     assume $skolem_expr_placeholder$v = c$Heap[x].frac_proj1;
+    //     exhale
+    //        own(x, c, $skolem_expr_placeholder$v, 1.0) && 
+    //        pred1(x, $skolem_expr_placeholder$v);
+}
