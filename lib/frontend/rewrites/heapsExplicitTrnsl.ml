@@ -1851,7 +1851,7 @@ module TrnslInhale = struct
           let inv_fn_qi = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
             | _ -> 
-              Error.internal_error loc "Expected inv function call"            
+              Error.internal_error loc "Expected inv function call (i/own)"            
           ) in
 
           let+ env_local_var_decls =
@@ -2041,6 +2041,55 @@ module TrnslInhale = struct
               Expr.mk_tuple_lookup inv_fn_expr index)
         in
 
+        (* inhale forall i, j :: { v(i,j) } AUPred(proc, gamma(i,j), (a_1, ... a_k)(i, j))
+        *   ~~>
+        * forall i, j :: { v(i,j) } 
+        *  (a_1, ... a_k)[
+        *      i <- inv(f(i, j), i, j)#0, 
+        *      j <- inv(f(i, j), i, j)#1
+        *  ] (var substitution)
+        *    = 
+        *  (a_1, ... a_k)(i, j) *)
+        let* forward_trigger_assertion =
+          let inv_fn_qi = (match inv_fn_expr with
+            | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
+            | _ -> 
+              Error.internal_error loc "Expected inv function call (i/au)"            
+          ) in
+
+          let+ env_local_var_decls =
+            compute_env_local_var_decls ~loc token conds universal_quants
+          in
+          
+          let inv_expr = 
+            Expr.mk_app ~loc 
+              ~typ:(Type.mk_prod loc 
+                (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
+              )  
+              (Expr.Var inv_fn_qi) 
+                (token :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
+          in 
+
+          (* i ~> inv(f(i, j), i, j)#0
+            * j ~> inv(f(i, j), i, j)#1*)
+          let renaming_map =
+            List.foldi univ_vars_list 
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun index map var_decl ->
+                Map.set map
+                  ~key:(QualIdent.from_ident var_decl.var_name)
+                  ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+          in
+          let expr = Expr.alpha_renaming (Expr.mk_tuple args) renaming_map 
+          
+          in
+
+          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+            (Expr.mk_eq ~loc expr (Expr.mk_tuple args))
+          )
+        in
+
         let alpha_renaming_map =
           List.fold2_exn univ_vars_list inv_exprs
             ~init:(Map.empty (module QualIdent))
@@ -2133,7 +2182,7 @@ module TrnslInhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assume_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -2251,6 +2300,64 @@ module TrnslInhale = struct
                   let inv_exprs =
                     List.mapi univ_vars_list ~f:(fun index var_decl ->
                         Expr.mk_tuple_lookup inv_fn_expr index)
+                  in
+
+                  (* inhale forall i, j :: { v(i,j) } pred(ins(i, j); outs(i, j))
+                  *   ~~>
+                  * forall i, j :: { v(i,j) } 
+                  *  outs[
+                  *      i <- inv(f(i, j), i, j)#0, 
+                  *      j <- inv(f(i, j), i, j)#1
+                  *  ] (var substitution)
+                  *    = 
+                  *  outs(i, j) *)
+                  let* forward_trigger_assertion =
+                    let inv_fn_qi_opt = (match inv_fn_expr with
+                      | App ((Expr.Var inv_fn_qi), args, _) -> 
+                        Some inv_fn_qi
+                      | _ -> 
+                        None
+
+                        (* Error.internal_error loc ("Expected inv function call  (i/pred)"*)
+                    ) in
+                    
+                    begin match inv_fn_qi_opt with
+                    | None -> 
+                      Rewriter.return (Stmt.mk_skip ~loc)
+
+                    | Some inv_fn_qi ->
+                      let+ env_local_var_decls =
+                        compute_env_local_var_decls ~loc (Expr.mk_tuple actual_arg_in_exprs) conds universal_quants
+                      in
+                      
+                      let inv_expr = 
+                        Expr.mk_app ~loc 
+                          ~typ:(Type.mk_prod loc 
+                            (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
+                          )  
+                          (Expr.Var inv_fn_qi) 
+                            ((Expr.mk_tuple actual_arg_in_exprs) :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
+                      in 
+            
+                      (* i ~> inv(f(i, j), i, j)#0
+                      * j ~> inv(f(i, j), i, j)#1*)
+                      let renaming_map =
+                        List.foldi univ_vars_list 
+                          ~init:(Map.empty (module QualIdent))
+                          ~f:(fun index map var_decl ->
+                            Map.set map
+                              ~key:(QualIdent.from_ident var_decl.var_name)
+                              ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                      in
+                      let expr = Expr.alpha_renaming (Expr.mk_tuple actual_arg_out_exprs) renaming_map 
+                      
+                      in
+            
+                      Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                        Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                        (Expr.mk_eq ~loc expr (Expr.mk_tuple actual_arg_out_exprs))
+                      )
+                    end
                   in
 
                   let alpha_renaming_map =
@@ -2373,7 +2480,7 @@ module TrnslInhale = struct
 
                   let stmts_list =
                     stmts_list
-                    @ [ havoc_stmt; assume_stmt; eq_stmt; assume_heap_valid ]
+                    @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assume_heap_valid ]
                   in
 
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -3728,6 +3835,56 @@ module TrnslExhale = struct
               Expr.mk_tuple_lookup inv_fn_expr index)
         in
 
+        (* exhale forall i, j :: { v(i,j) } own(f(i, j), fld, v(i, j))
+          *   ~~>
+          * forall i, j :: { v(i,j) } 
+          *  v[
+          *      i <- inv(f(i, j), i, j)#0, 
+          *      j <- inv(f(i, j), i, j)#1
+          *  ] (var substitution)
+          *    = 
+          *  v(i, j) *)
+        let* forward_trigger_assertion =
+          let inv_fn_qi = (match inv_fn_expr with
+            | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
+            | _ -> 
+              Error.internal_error loc "Expected inv function call (e/own)"            
+          ) in
+
+          let+ env_local_var_decls =
+            compute_env_local_var_decls ~loc e1 conds universal_quants
+          in
+          
+          let inv_expr = 
+            Expr.mk_app ~loc 
+              ~typ:(Type.mk_prod loc 
+                (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
+              )  
+              (Expr.Var inv_fn_qi) 
+                (e1 :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
+          in 
+
+          (* i ~> inv(f(i, j), i, j)#0
+            * j ~> inv(f(i, j), i, j)#1*)
+          let renaming_map =
+            List.foldi univ_vars_list 
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun index map var_decl ->
+                Map.set map
+                  ~key:(QualIdent.from_ident var_decl.var_name)
+                  ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+          in
+          let expr = Expr.alpha_renaming e3 renaming_map 
+          
+          in
+
+          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+            (Expr.mk_eq ~loc expr e3)
+          )
+        in
+
+
         let alpha_renaming_map =
           List.fold2_exn univ_vars_list inv_exprs
             ~init:(Map.empty (module QualIdent))
@@ -3804,7 +3961,7 @@ module TrnslExhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assert_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -3876,6 +4033,55 @@ module TrnslExhale = struct
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
               Expr.mk_tuple_lookup inv_fn_expr index)
+        in
+
+        (* exhale forall i, j :: { v(i,j) } AUPred(proc, gamma(i,j), (a_1, ... a_k)(i, j))
+        *   ~~>
+        * forall i, j :: { v(i,j) } 
+        *  (a_1, ... a_k)[
+        *      i <- inv(f(i, j), i, j)#0, 
+        *      j <- inv(f(i, j), i, j)#1
+        *  ] (var substitution)
+        *    = 
+        *  (a_1, ... a_k)(i, j) *)
+        let* forward_trigger_assertion =
+          let inv_fn_qi = (match inv_fn_expr with
+            | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
+            | _ -> 
+              Error.internal_error loc "Expected inv function call (e/au)"            
+          ) in
+
+          let+ env_local_var_decls =
+            compute_env_local_var_decls ~loc token conds universal_quants
+          in
+          
+          let inv_expr = 
+            Expr.mk_app ~loc 
+              ~typ:(Type.mk_prod loc 
+                (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
+              )  
+              (Expr.Var inv_fn_qi) 
+                (token :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
+          in 
+
+          (* i ~> inv(f(i, j), i, j)#0
+            * j ~> inv(f(i, j), i, j)#1*)
+          let renaming_map =
+            List.foldi univ_vars_list 
+              ~init:(Map.empty (module QualIdent))
+              ~f:(fun index map var_decl ->
+                Map.set map
+                  ~key:(QualIdent.from_ident var_decl.var_name)
+                  ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+          in
+          let expr = Expr.alpha_renaming (Expr.mk_tuple args) renaming_map 
+          
+          in
+
+          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+            (Expr.mk_eq ~loc expr (Expr.mk_tuple args))
+          )
         in
 
         let alpha_renaming_map =
@@ -3971,7 +4177,7 @@ module TrnslExhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assert_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -4091,6 +4297,64 @@ module TrnslExhale = struct
                   let inv_exprs =
                     List.mapi univ_vars_list ~f:(fun index var_decl ->
                         Expr.mk_tuple_lookup inv_fn_expr index)
+                  in
+
+                  (* exhale forall i, j :: { v(i,j) } pred(ins(i, j); outs(i, j))
+                  *   ~~>
+                  * forall i, j :: { v(i,j) } 
+                  *  outs[
+                  *      i <- inv(f(i, j), i, j)#0, 
+                  *      j <- inv(f(i, j), i, j)#1
+                  *  ] (var substitution)
+                  *    = 
+                  *  outs(i, j) *)
+                  let* forward_trigger_assertion =
+                    let inv_fn_qi_opt = (match inv_fn_expr with
+                      | App ((Expr.Var inv_fn_qi), args, _) -> 
+                        Some inv_fn_qi
+                      | _ -> 
+                        None
+
+                        (* Error.internal_error loc "Expected inv function call (e/pred)"*)
+                    ) in
+
+                    begin match inv_fn_qi_opt with
+                    | None -> 
+                      Rewriter.return (Stmt.mk_skip ~loc)
+
+                    | Some inv_fn_qi ->
+                      let+ env_local_var_decls =
+                        compute_env_local_var_decls ~loc (Expr.mk_tuple actual_arg_in_exprs) conds universal_quants
+                      in
+                      
+                      let inv_expr = 
+                        Expr.mk_app ~loc 
+                          ~typ:(Type.mk_prod loc 
+                            (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
+                          )  
+                          (Expr.Var inv_fn_qi) 
+                            ((Expr.mk_tuple actual_arg_in_exprs) :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
+                      in 
+            
+                      (* i ~> inv(f(i, j), i, j)#0
+                      * j ~> inv(f(i, j), i, j)#1*)
+                      let renaming_map =
+                        List.foldi univ_vars_list 
+                          ~init:(Map.empty (module QualIdent))
+                          ~f:(fun index map var_decl ->
+                            Map.set map
+                              ~key:(QualIdent.from_ident var_decl.var_name)
+                              ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                      in
+                      let expr = Expr.alpha_renaming (Expr.mk_tuple actual_arg_out_exprs) renaming_map 
+                      
+                      in
+            
+                      Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                        Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                        (Expr.mk_eq ~loc expr (Expr.mk_tuple actual_arg_out_exprs))
+                      )
+                    end
                   in
 
                   let alpha_renaming_map =
@@ -4220,7 +4484,7 @@ module TrnslExhale = struct
 
                   let stmts_list =
                     stmts_list
-                    @ [ havoc_stmt; assume_stmt; eq_stmt; assert_heap_valid ]
+                    @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assert_heap_valid ]
                   in
 
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
