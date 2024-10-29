@@ -2,8 +2,8 @@
 - fix bug with existenials occuring in other variables' skolem function
     + [x] rewrite the entire elim_a functionality.
     + fix issue with order of adding vs typechecking of mutually dependent skolems
-- add another assertion for ISC that quantifies over the actualy value, not just location
-- exhale order of clause witness computation bug
+- [x] add another assertion for ISC that quantifies over the actual value, not just location
+- [x] exhale order of clause witness computation bug
 
 - formalize masks
 - introduce fold existential witness notation
