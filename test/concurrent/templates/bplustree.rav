@@ -98,6 +98,38 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     unfold node(n, c2, i_n2);
   }
 
+  // Show that if query key k is in the keyset of node x than x must be a leaf.
+  /*lemma keyset_implies_leaf(n: Ref, k: K, i: Int, 
+                            implicit ghost cmap: , implicit ghost c: Set[K])
+    exists l: Int, lb: KOption, ub: KOption, ks: AK.T, chlds: AN.T, kmap: Map[Int, K], cmap: Map[Int, Ref] ::
+    node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
+    // Heap resources
+    && own(n, len, l, 1.0)
+    && own(n, rangeLb, lb, 1.0)
+    && own(n, rangeUb, ub, 1.0)
+    && own(n, keys, ks, 1.0)
+    && AK.sorted_array_with_content(ks, l, kmap)
+    && own(n, ptrs, chlds, 1.0)
+    && AN.arr(chlds, cmap)
+    requires int.inf[n][k] == 1 && (forall y: Node :: {int.out[y][k]} int.out[y][k] == 0)
+    requires (i <= 0 || O.le(x.keys[i-1], k)) && 0 <= i <= x.len
+    ensures node(x, Ix, C)
+    ensures x.ptrs[0] == null  // x is a leaf
+  {
+    if (x.ptrs[0] != null) {
+      if (i < x.len) {
+        if (lt(k, x.keys[i])) {
+          pure assert Ix.out[x.ptrs[i]][k] == 1;
+        } else {
+          keyset_implies_leaf(x, Ix, k, i + 1);
+        }
+      } else {
+        pure assert Ix.out[x.ptrs[i]][k] == 1;
+      }
+    }
+  }*/
+
+
   /*Initialize a new root node */
   proc createRoot() returns (r: Ref)
     ensures node(r, {||}, 
@@ -116,7 +148,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
 
     fold AK.sorted_array_with_content(ka, 0, AK.default_map);
     
-    assert node_cond(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap),
+    /*assert node_cond(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap),
                      0, none, none, ka, pa, AK.default_map, cmap)
       && own(r, len, 0, 1.0)
       && own(r, rangeLb, none, 1.0)
@@ -124,7 +156,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
       && own(r, keys, ka, 1.0)
       && AK.sorted_array_with_content(ka, 0, AK.default_map)
       && own(r, ptrs, pa, 1.0)
-      && AN.arr(pa, cmap);
+      && AN.arr(pa, cmap);*/
 
     fold node(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap));
   }
@@ -141,7 +173,49 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
 
     fold node(n, c, i_n);
     return le(lb, k) && lt(k, ub);
-
   }
+
+  proc findNext(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (ret: Bool, n1: Ref)
+    requires k in inset(i_n, n)
+    requires node(n, c, i_n)
+    ensures node(n, c, i_n) && 
+      (ret ?   
+        k in outset(i_n, n1) :
+        k !in outsets(i_n))
+  {
+    unfold node(n, c, i_n);
+    
+    var n_len : Int := n.len;
+    var n_ptrs : AN.T := n.ptrs;
+    ghost var chlds: Map[Int, Ref];
+    chlds :| AN.arr(n_ptrs, chlds);
+    unfold AN.arr(n_ptrs, chlds);
+    var chld0: Ref = AN.loc(n_ptrs, 0).AN.value;
+    fold AN.arr(n_ptrs, chlds);
+
+    if (chld0 == null) {  // Leaf node
+      fold node(n, c, i_n);
+      return false, null;
+    }
+
+    var n_keys : AK.T := n.keys;
+
+    var found: Bool;
+    var i: Int;
+    found, i := AK.arr_find(n_keys, n_len, k);
+
+    var n_keys_i: K := AK.loc(n_keys, i).AK.value;
+
+    if (i < n_len && k == n_keys_i) {  // arr_find finds upper bound, we want lower
+      i := i + 1;
+    }
+
+    n1 := AN.loc(n_ptrs, i).AN.value;
+    ret := true;
+
+    fold node(n, c, i_n);
+  }
+
 
 }
