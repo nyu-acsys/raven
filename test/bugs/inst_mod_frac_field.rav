@@ -1,0 +1,24 @@
+interface A[Tp: Library.Type] {
+    field f: Tp.T
+}
+
+interface M {
+   module RefType : Library.Type {
+    rep type T = Ref
+  }
+
+  interface AN = A[RefType]
+
+  proc p(x: Ref) {
+    inhale own(x, AN.f, x, 1.0);
+  }
+
+  // There is a bug in the `rewrite_own_expr_4_arg` rewriter which 
+  // translates 4-arg own chunks into uniform 3-arg own chunks.
+  //
+  // The name for the Frac module generated to rewrite the inhale expression is:
+  //    $Program.M.AN.Frac$Fld-Ref-.T
+  // 
+  // The name that is actually generated during the `rewrite_frac_field_types` rewrite is:
+  //    $Program.A.Frac$Fld-$Program_A_Tp_T-.T
+}

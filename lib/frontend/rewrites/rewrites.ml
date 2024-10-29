@@ -1431,6 +1431,14 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
         | App (Fld, [ App (Var qual_iden, args, _) ], _) ->
             assert (List.is_empty args);
 
+            Logs.debug (fun m -> m
+              "Rewrites.rewrite_frac_field_types: \
+                field_def: %a
+                field_qual_iden: %a"
+                  Ident.pr f.field_name
+                  QualIdent.pr qual_iden
+            );
+
             let module_name = QualIdent.pop qual_iden in
 
             let* does_module_implement_ra =
@@ -1444,10 +1452,13 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
         | _ -> Rewriter.return false
       in
 
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_frac_field_types: is_field_an_ra: %s -> %b"
-            (Type.to_string f.field_type)
-            is_field_an_ra);
+      Logs.debug (fun m -> m
+          "Rewrites.rewrite_frac_field_types:
+          is_field_an_ra: %a -> %b"
+            Type.pr f.field_type
+            is_field_an_ra
+      );
+            
       if is_field_an_ra then Rewriter.return symbol
       else
         let* field_type =
@@ -1489,6 +1500,13 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
           Rewriter.introduce_typecheck_symbol ~loc:f.field_loc
             ~f:Typing.process_symbol instantiated_frac_module
         in
+
+        Logs.debug (fun m -> m 
+          "Rewrites.rewrite_frac_field_types: 
+          frac_mod_name: %a"
+
+            QualIdent.pr frac_mod_name
+        );
 
         let frac_type =
           Type.mk_fld f.field_loc
@@ -1532,8 +1550,19 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
                  ~loc:(Expr.to_loc expr) field_type)));
 
         let* frac_mod_name =
-          Rewriter.resolve (Expr.to_loc expr)
-            (Rewriter.ProgUtils.field_type_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type)
+          let frac_mod_name = 
+            Rewriter.ProgUtils.field_type_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type
+          in
+
+          Logs.debug (fun m -> m
+            "Rewrites.rewrite_own_expr_4_arg: 
+              frac_mod_name: %a"
+
+              QualIdent.pr frac_mod_name 
+          );
+
+          Rewriter.resolve (Expr.to_loc expr) frac_mod_name
+          
         in
 
         let frac_type =
@@ -1549,6 +1578,13 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
                   (Ident.make (Expr.to_loc expr) "frac_chunk" 0)))
             [ expr3_1; expr3_2 ]
         in
+
+        Logs.debug (fun m -> m
+          "Rewrites.rewrite_own_expr_4_arg: 
+            expr3: %a"
+
+            Expr.pr expr3 
+        );
 
         Rewriter.return expr3
       in

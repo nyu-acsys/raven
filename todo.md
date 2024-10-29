@@ -5,7 +5,7 @@
 - [x] add another assertion for ISC that quantifies over the actual value, not just location
 - [x] exhale order of clause witness computation bug
 
-- formalize masks
+- [x] formalize masks
 - introduce fold existential witness notation
 
 - move injectivity check outside.
