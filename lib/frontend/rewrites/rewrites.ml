@@ -1479,8 +1479,8 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
           Module.ModInst
             {
               mod_inst_name =
-                Rewriter.ProgUtils.field_type_to_frac_mod_ident ~loc:f.field_loc
-                  field_type;
+                Rewriter.ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc 
+                  f.field_name field_type;
               mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
               mod_inst_def =
                 Some (Predefs.lib_frac_mod_qual_ident, [ tp_module ]);
@@ -1535,7 +1535,19 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
            | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier."
          in *)
       let field_type = Expr.to_type expr2 in
+
+      Logs.debug (fun m -> m
+        "Rewrites.rewrite_own_expr_4_arg: field_type1: %a" 
+          Type.pr field_type
+      );
+
       let* field_type = Typing.ProcessTypeExpr.expand_type_expr field_type in
+      let field_name = QualIdent.unqualify (Expr.to_qual_ident expr2) in 
+
+      Logs.debug (fun m -> m
+        "Rewrites.rewrite_own_expr_4_arg: field_type2: %a" 
+          Type.pr field_type
+      );
 
       let+ expr3 =
         let expr3_1 = expr3 in
@@ -1546,17 +1558,17 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
               "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: \
                tp_module: %a;\n ... & frac_mod_ident: %a"
               Type.pr field_type QualIdent.pr (QualIdent.from_ident
-              (Rewriter.ProgUtils.field_type_to_frac_mod_ident
-                 ~loc:(Expr.to_loc expr) field_type)));
+              (Rewriter.ProgUtils.frac_field_to_frac_mod_ident
+                 ~loc:(Expr.to_loc expr) field_name field_type)));
 
         let* frac_mod_name =
           let frac_mod_name = 
-            Rewriter.ProgUtils.field_type_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type
+            Rewriter.ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type
           in
 
           Logs.debug (fun m -> m
-            "Rewrites.rewrite_own_expr_4_arg: 
-              frac_mod_name: %a"
+            "Rewrites.rewrite_own_expr_4_args: \ 
+            frac_mod_name: %a"
 
               QualIdent.pr frac_mod_name 
           );
