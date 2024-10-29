@@ -311,7 +311,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 
             Rewriter.return ()
         | _ ->
-          Logs.info (fun m -> m "Skipping %b" callable.call_decl.call_decl_is_free);
+          Logs.debug (fun m -> m "Skipping %b" callable.call_decl.call_decl_is_free);
           Rewriter.return ()
       in
 
@@ -391,7 +391,7 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
           let+ symbol = Rewriter.find_and_reify Loc.dummy qual_name in
           (qual_name, symbol))
       in
-      Logs.info (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) (List.map ~f:(fun (a,b) -> a) dep_sym));
+      Logs.debug (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) (List.map ~f:(fun (a,b) -> a) dep_sym));
       Rewriter.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
   let* _ = pop in

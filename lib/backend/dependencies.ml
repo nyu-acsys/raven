@@ -25,13 +25,13 @@ let root_dependencies (tbl: SymbolTbl.t) (mdef: Module.t) (ag: Graph.t) =
     | CallDef call_def -> 
       let+ qid = Rewriter.resolve (Symbol.to_loc sym) (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Callable.symbols call_def in
-      Logs.info (fun m -> m "Dependencies.root_dependencies: Adding dependencies of callable %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
+      Logs.debug (fun m -> m "Dependencies.root_dependencies: Adding dependencies of callable %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
       Graph.add_edges g qid deps,
       if (Callable.to_decl call_def).call_decl_is_auto
       then Set.fold deps ~f:(fun g dep_qid ->
           if List.equal Ident.(=) QualIdent.(path qid) QualIdent.(path dep_qid)
           then
-            let _ = Logs.info (fun m -> m "Dependencies.root_dependencies: adding auto dependency %a -> %a" QualIdent.pr dep_qid QualIdent.pr qid) in
+            let _ = Logs.debug (fun m -> m "Dependencies.root_dependencies: adding auto dependency %a -> %a" QualIdent.pr dep_qid QualIdent.pr qid) in
             Graph.add_edge g dep_qid qid else g) ~init:ag
       else ag
     (*| ConstrDef cdef -> ???
