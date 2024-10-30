@@ -274,14 +274,16 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           Expr.mk_tuple_lookup (Expr.from_var_decl ret_var_decl) index)
     in
 
-    let* precond =
+    (* `precond` no longer used. 
+     * Injectivity assertions are ensured at the site of inhale/exhale *)
+    (* let* precond =
       let+ assert_stmt =
         generate_injectivity_assertions ~loc universal_quants conds inv_expr
       in
       match assert_stmt.stmt_desc with
       | Basic (Spec (Assert, spec)) -> spec
       | _ -> Error.error loc "Expected an assertion statement"
-    in
+    in *)
 
     let postcond =
       let spec_form =
@@ -312,7 +314,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
         call_decl_formals = formal_var_decls;
         call_decl_returns = [ ret_var_decl ];
         call_decl_locals = [];
-        call_decl_precond = [ precond ];
+        call_decl_precond = [ (* precond *) ];
         call_decl_postcond = [ postcond ];
         call_decl_is_free = false;
         call_decl_is_auto = false;
