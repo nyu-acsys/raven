@@ -19,7 +19,7 @@ interface Array[E: Library.Type] {
   val default_map: Map[Int, E] = {| i: Int :: default |}
 
   pred arr(a: T; m: Map[Int, E]) {
-    (forall j: Int :: 0 <= j < length(a) ==> own(loc(a, j), value, m[j], 1.0)) 
+    (forall j: Int :: {m[j]} 0 <= j < length(a) ==> own(loc(a, j), value, m[j], 1.0)) 
     && (forall j: Int :: {m[j]} (0 > j || j >= length(a)) ==> m[j] == default)
   }
 
