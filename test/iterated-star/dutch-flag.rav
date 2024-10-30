@@ -6,10 +6,10 @@ interface IArray {
   func first(r: Ref) returns (a: T)
   func second(r: Ref) returns (i: Int)
   
-  lemma all_diff()
+  auto lemma all_diff()
     ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
     
-  lemma len_nonneg()
+  auto lemma len_nonneg()
     ensures forall a:T :: len(a) >= 0
 }
 
@@ -31,8 +31,6 @@ module DutchFlag[Arr: IArray] {
         ensures access(a,m2) && ordered(m2, Arr.len(a))
         // ensures access(a,m) && ordered(m, Arr.len(a))
     {
-        Arr.all_diff();
-        Arr.len_nonneg();
         var unsorted : Int := 0;
         var white : Int := 0;
         var blue : Int := Arr.len(a);
@@ -46,14 +44,10 @@ module DutchFlag[Arr: IArray] {
             invariant forall i : Int :: white <= i && i < unsorted ==> m2[i] == 1
             invariant forall i : Int :: blue <= i && i < Arr.len(a) ==> m2[i] == 2
         {
-
-            Arr.all_diff();
-            // Arr.len_nonneg();
             unfold access(a, m2);
             // assert false;
             var tmp : Int := Arr.loc(a,unsorted).value;
             // assert false;
-
 
             if (tmp == 1) {
                 unsorted := unsorted + 1;
@@ -83,7 +77,6 @@ module DutchFlag[Arr: IArray] {
         }
 
         fold ordered(m2, Arr.len(a));
-        // assume false;
     }
 
     proc test1(x: Ref, y: Ref)
