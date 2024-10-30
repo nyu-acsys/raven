@@ -94,7 +94,7 @@ let au_heap_name2 (callable_name : qual_ident) =
   Ident.make Loc.dummy (callable_name_str ^ "$AU_Heap2") 0
 
 let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
-    (conditions : conditions) (expr : expr) : Stmt.t Rewriter.t =
+    (conditions : conditions) ~env_local_var_decls (expr : expr) : Stmt.t Rewriter.t =
   (* Running example :
       Say we have:
       forall a, b :: p1(a, b) && p2(a, b) ==> f(a, b)
@@ -154,10 +154,10 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
        f(a, b) == f(a', b') && p1(a, b) && p2(a, b) && p1(a', b') && p2(a', b')  ==>
         a == a' && b == b'
     *)
-    Expr.mk_binder ~loc ~typ:Type.bool Forall (univ_vars @ dup_vars)
+    Expr.mk_binder ~loc ~typ:Type.bool Forall (univ_vars @ dup_vars @ env_local_var_decls)
       (Expr.mk_impl
-         (Expr.mk_and ((expr_eq :: conditions) @ renamed_conditions))
-         (Expr.mk_and vars_eq_list))
+         (Expr.mk_chained_and ((expr_eq :: conditions) @ renamed_conditions))
+         (Expr.mk_chained_and vars_eq_list))
   in
 
   let assert_stmt =
@@ -167,7 +167,14 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
         "Could not prove the injectivity of the index expression for this \
          iterated separating conjunction" )
     in
-    Stmt.mk_assert_expr ~loc ~cmnt:("Injectivity assertion: " ^ "universal quants: " ^ String.concat ~sep:", " (List.map univ_vars ~f:(fun v -> Ident.to_string v.var_name)) ^ "; expression: " ^ Expr.to_string expr) 
+    
+    Stmt.mk_assert_expr ~loc ~cmnt:(
+        "Injectivity assertion: " ^ 
+        "universal quants: " ^ 
+            String.concat ~sep:", " (List.map univ_vars ~f:(fun v -> Ident.to_string v.var_name)) ^
+        "; expression: " 
+            ^ Expr.to_string expr
+      ) 
       ~spec_error:[ Stmt.mk_const_spec_error error ]
       assert_expr
   in
@@ -274,8 +281,10 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           Expr.mk_tuple_lookup (Expr.from_var_decl ret_var_decl) index)
     in
 
-    (* `precond` no longer used. 
-     * Injectivity assertions are ensured at the site of inhale/exhale *)
+    (* `precond`, `postcond` no longer used. 
+     * Injectivity assertions are ensured at the site of inhale/exhale 
+    *)
+    
     (* let* precond =
       let+ assert_stmt =
         generate_injectivity_assertions ~loc universal_quants conds inv_expr
@@ -285,7 +294,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       | _ -> Error.error loc "Expected an assertion statement"
     in *)
 
-    let postcond =
+    (* let postcond =
       let spec_form =
         let var_decls_forall =
           List.map universal_quants.univ_vars ~f:(fun (var, var_decl) ->
@@ -305,7 +314,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       in
 
       Stmt.mk_spec spec_form
-    in
+    in *)
 
     let call_decl =
       {
@@ -315,7 +324,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
         call_decl_returns = [ ret_var_decl ];
         call_decl_locals = [];
         call_decl_precond = [ (* precond *) ];
-        call_decl_postcond = [ postcond ];
+        call_decl_postcond = [ (* postcond *) ];
         call_decl_is_free = false;
         call_decl_is_auto = false;
         call_decl_loc = loc;
@@ -329,15 +338,159 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       QualIdent.append module_qual_ident inv_fn_ident
     in
 
-    let fn_def =
+    let inv_fn_def =
       Module.CallDef
         Callable.{ call_decl; call_def = FuncDef { func_body = None } }
     in
 
-    let+ _ = Rewriter.introduce_symbol fn_def in
+    let inverted_expr = Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
+    (arg_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl) 
+    in
 
-    Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
-      (arg_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl)
+    (*  inhale forall x: Int, y: Bool :: p(x, y, env2) ==> own( l(x, y, env1), f, v(x, y, env3) )
+     *
+     *  ~~>
+     *
+     *  func inv(res: Ref, env1: T1, env2: T2) returns (ret: (Int, Bool))
+     *
+     *  auto lemma inv_injective()
+     *    ensures forall 
+     *        res: Ref, env1: T1, env2: T2 :: 
+     *          {inv(res, env1, env2)} 
+     *      l(  inv(res, env1, env2)#0, inv(res, env1, env2)#1, env1  ) == res
+     *
+     *    ensures forall 
+     *        ret: (Int, Bool), env1: T1, env2: T2 :: 
+     *          {l(ret#0, ret#1, env1)} 
+     *      inv(l(ret#0, ret#1, env1), env1, env2) == ret
+     *  {
+     *    assert forall 
+     *        x1: Int, y1: Bool, x2: Int, y2: Bool, env1: T1, env2: T2 :: 
+     *      l(x1, y1, env1) == l(x2, y2, env1) ==> x1 == x2 && y1 == y2;
+     *    assume false;
+     *  } 
+    *)
+    let* inv_fn_auto_lemma_def =
+
+      let inv_fn_lemma_ident = 
+        Ident.fresh loc
+          ("inverse_func_valid$" ^ Ident.to_string inv_fn_ident)
+      in
+
+      let postconds =
+        let postcond1 = (
+          (* inv(res, env1, env2) *)
+          let inverted_expr_with_res = 
+            Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
+              (List.map formal_var_decls ~f:Expr.from_var_decl) 
+          in
+          let spec_expr1 =
+            (* x ~> inv(res, env1, env2)#0;; y ~> inv(res, env1, env2)#1 *)
+            let renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
+              fun i mp (_, vd) ->
+                Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc inverted_expr_with_res i )
+            )
+            in
+
+            Expr.mk_binder Forall ~loc formal_var_decls
+            ~trigs: [ [ 
+              Expr.mk_app ~loc ~typ:ret_type 
+                (Var inv_fn_qual_ident) 
+                  (List.map formal_var_decls ~f:Expr.from_var_decl) 
+            ] ] (
+              Expr.mk_eq ~loc
+                (Expr.from_var_decl arg_var_decl)
+                (Expr.alpha_renaming inv_expr renam_map)
+            )
+
+          in
+          let error =
+            (Error.Verification,
+             loc,
+             "This iterated separating conjunction may not be injective on the quantified variable(s)")
+          in
+          Stmt.mk_spec ~error:[fun _ -> error] spec_expr1
+        ) in
+
+        let postcond2 = (
+          (* inv(l(x, y, env1), env1, env2) *)
+          let inverted_expr_with_inv_expr = 
+            Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
+            (inv_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl) 
+          in
+          let spec_expr2 = 
+            (* x ~> inv(res, env1, env2)#0;; y ~> inv(res, env1, env2)#1 *)
+            let renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
+              fun i mp (_, vd) ->
+                Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc (Expr.from_var_decl ret_var_decl) i )
+            )
+            in
+
+            Expr.mk_binder Forall ~loc (ret_var_decl :: env_local_var_decls)
+            ~trigs: [  
+              let alpha_renamed_expr = (Expr.alpha_renaming inv_expr renam_map) in
+              if Expr.alpha_equal alpha_renamed_expr (Expr.from_var_decl ret_var_decl)
+                then [] else
+                  [alpha_renamed_expr]
+             ] (
+              Expr.mk_eq ~loc
+                (Expr.from_var_decl ret_var_decl)
+                (Expr.alpha_renaming inverted_expr_with_inv_expr renam_map)
+            )
+
+          in
+          let error =
+            (Error.Verification,
+             loc,
+             "This iterated separating conjunction may not be injective on the quantified variable(s)")
+          in
+          Stmt.mk_spec ~error:[fun _ -> error] spec_expr2
+        ) in
+        
+        [postcond1; postcond2]
+      in
+
+
+      let+ injectivity_assertion = 
+        generate_injectivity_assertions ~loc universal_quants conds ~env_local_var_decls inv_expr
+      in
+
+      let call_decl =
+        {
+          Callable.call_decl_kind = Lemma;
+          call_decl_name = inv_fn_lemma_ident;
+          call_decl_formals = [];
+          call_decl_returns = [];
+          call_decl_locals = [];
+          call_decl_precond = [];
+          call_decl_postcond = postconds;
+          call_decl_is_free = false;
+          call_decl_is_auto = true;
+          call_decl_mask = None;
+          call_decl_loc = loc;
+        }
+      in
+
+      let lemma_body = Stmt.mk_block_stmt ~loc [
+        injectivity_assertion; (Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false))
+      ] in
+
+      let call_def =
+        Module.CallDef
+          Callable.
+            { call_decl; call_def = ProcDef { proc_body = Some lemma_body } }
+      in
+
+      call_def
+    in
+
+    let* _ = Rewriter.introduce_symbol inv_fn_def in
+    let+ _ =
+      Rewriter.introduce_typecheck_symbol ~loc:loc
+        ~f:Typing.process_symbol inv_fn_auto_lemma_def
+    in
+
+    inverted_expr
 
 
 let ident_to_skolem_fn_ident ~loc ident =
@@ -1960,14 +2113,14 @@ module TrnslInhale = struct
                [ field_heap_expr ])
         in
 
-        let* injectivity_assertion =
+        (* let* injectivity_assertion =
           generate_injectivity_assertions ~loc universal_quants conds e1
-        in
+        in *)
 
         let stmts_list =
           match univ_quants_list with
           | [] -> []
-          | _ -> [ injectivity_assertion ]
+          | _ -> [ (* injectivity_assertion *) ]
         in
 
         let stmts_list =
@@ -2187,14 +2340,14 @@ module TrnslInhale = struct
                [ au_heap_expr ])
         in
 
-        let* injectivity_assertion =
+        (* let* injectivity_assertion =
           generate_injectivity_assertions ~loc universal_quants conds token
-        in
+        in *)
 
         let stmts_list =
           match univ_quants_list with
           | [] -> []
-          | _ -> [ injectivity_assertion ]
+          | _ -> [ (* injectivity_assertion *) ]
         in
 
         let stmts_list =
@@ -2490,15 +2643,15 @@ module TrnslInhale = struct
                          (Expr.Var pred_heap_valid_fn) [ pred_heap_expr ])
                   in
 
-                  let* injectivity_assertion =
+                  (* let* injectivity_assertion =
                     generate_injectivity_assertions ~loc universal_quants conds
                       (Expr.mk_tuple actual_arg_in_exprs)
-                  in
+                  in *)
 
                   let stmts_list =
                     match univ_quants_list with
                     | [] -> []
-                    | _ -> [ injectivity_assertion ]
+                    | _ -> [ (* injectivity_assertion *) ]
                   in
 
                   let stmts_list =
@@ -3979,14 +4132,14 @@ module TrnslExhale = struct
                [ field_heap_expr ])
         in
 
-        let* injectivity_assertion =
+        (* let* injectivity_assertion =
           generate_injectivity_assertions ~loc universal_quants conds e1
-        in
+        in *)
 
         let stmts_list =
           match univ_quants_list with
           | [] -> []
-          | _ -> [ injectivity_assertion ]
+          | _ -> [ (* injectivity_assertion *) ]
         in
 
         let stmts_list =
@@ -4202,14 +4355,14 @@ module TrnslExhale = struct
                [ au_heap_expr ])
         in
 
-        let* injectivity_assertion =
+        (* let* injectivity_assertion =
           generate_injectivity_assertions ~loc universal_quants conds token
-        in
+        in *)
 
         let stmts_list =
           match univ_quants_list with
           | [] -> []
-          | _ -> [ injectivity_assertion ]
+          | _ -> [ (* injectivity_assertion *) ]
         in
 
         let stmts_list =
@@ -4514,15 +4667,15 @@ module TrnslExhale = struct
                          (Expr.Var pred_heap_valid_fn) [ pred_heap_expr ])
                   in
 
-                  let* injectivity_assertion =
+                  (* let* injectivity_assertion =
                     generate_injectivity_assertions ~loc universal_quants conds
                       (Expr.mk_tuple actual_arg_in_exprs)
-                  in
+                  in *)
 
                   let stmts_list =
                     match univ_quants_list with
                     | [] -> []
-                    | _ -> [ injectivity_assertion ]
+                    | _ -> [ (* injectivity_assertion *) ]
                   in
 
                   let stmts_list =

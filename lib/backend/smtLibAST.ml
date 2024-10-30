@@ -192,8 +192,9 @@ let rec pr_term ppf (term : term) =
                 Error.internal_error (Expr.to_loc term)
                   ("pr_term: unexpected term" ^ Expr.to_string term)
           in
-
-          fprintf ppf "@[<2>($tuple_%i_%a@ %a)@]" arity pr_term index pr_term
+          let index_num = Expr.to_int index 
+          in
+          fprintf ppf "@[<2>($tuple_%i_%i@ %a)@]" arity index_num pr_term
             tuple_expr
       | Tuple, es -> (
           match List.length es with

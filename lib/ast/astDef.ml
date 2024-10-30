@@ -805,6 +805,18 @@ module Expr = struct
         in
         App (And, es, mk_attr loc t)
 
+  let mk_chained_and ?(loc = Loc.dummy) = function
+  | [] -> mk_bool ~loc true
+  | [ e ] -> e
+  | es ->
+      let t =
+        List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
+            Type.join t (to_type e))
+      in
+      List.fold es ~init:(mk_bool true) ~f:(fun acc e ->
+        App (And, [acc; e], mk_attr loc t)  
+      )
+
   (** Constructor for disjunction.*)
   let mk_or ?(loc = Loc.dummy) = function
     | [] -> mk_bool ~loc false
@@ -1740,6 +1752,10 @@ module Callable = struct
 
   let pr_call_decl has_body ppf call_decl =
     let open Stdlib.Format in
+    let auto_modifier = match call_decl.call_decl_is_auto with
+      | true -> "auto "
+      | false -> ""
+    in
     let kind =
       match call_decl.call_decl_kind with
       | Pred -> "pred"
@@ -1765,7 +1781,7 @@ module Callable = struct
           fprintf ppf "@\n/* mask: (@[<0>%a@]) */" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
     in
     fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a@]" 
-      kind 
+      (auto_modifier ^ kind) 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
       pr_returns call_decl.call_decl_returns 

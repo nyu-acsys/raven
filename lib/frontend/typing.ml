@@ -834,6 +834,10 @@ module ProcessCallable = struct
               in
               (disam_tbl, var_decl'))
         in
+        Logs.debug (fun m -> m
+          "typing.ProcessCallable.disambiguate_expr: expr = %a"
+            Expr.pr expr
+        );
         let* disambiguated_expr = disambiguate_expr expr disam_tbl in
         let* trgs =
           Rewriter.List.map trgs ~f:(fun trg ->
@@ -849,7 +853,17 @@ module ProcessCallable = struct
       (disam_tbl : DisambiguationTbl.t) : expr Rewriter.t =
     let open Rewriter.Syntax in
     let* expr = disambiguate_expr expr disam_tbl in
-    process_expr expr expected_typ
+
+    let+ processed_expr = 
+      process_expr expr expected_typ
+    in 
+    
+    Logs.debug (fun m -> m 
+      "Typing.ProcessCallable.disambiguate_process_expr: processed_expr = %a"
+      Expr.pr processed_expr
+    );
+    
+    processed_expr
 
   let process_stmt_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) :
       Stmt.spec Rewriter.t =
@@ -1717,6 +1731,7 @@ module ProcessCallable = struct
       Rewriter.List.map call_decl.call_decl_postcond
         ~f:(process_stmt_spec disam_tbl)
     in
+    Logs.debug (fun m -> m "done processing pre/post cond");
     let call_decl =
       {
         call_decl with
