@@ -276,46 +276,6 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       }
     in
 
-    let univ_vars_exprs =
-      List.mapi universal_quants.univ_vars ~f:(fun index (var, var_decl) ->
-          Expr.mk_tuple_lookup (Expr.from_var_decl ret_var_decl) index)
-    in
-
-    (* `precond`, `postcond` no longer used. 
-     * Injectivity assertions are ensured at the site of inhale/exhale 
-    *)
-    
-    (* let* precond =
-      let+ assert_stmt =
-        generate_injectivity_assertions ~loc universal_quants conds inv_expr
-      in
-      match assert_stmt.stmt_desc with
-      | Basic (Spec (Assert, spec)) -> spec
-      | _ -> Error.error loc "Expected an assertion statement"
-    in *)
-
-    (* let postcond =
-      let spec_form =
-        let var_decls_forall =
-          List.map universal_quants.univ_vars ~f:(fun (var, var_decl) ->
-              var_decl)
-        in
-        let var_decls = var_decls_forall in
-
-        let eq_expr = Expr.mk_eq (Expr.from_var_decl arg_var_decl) inv_expr in
-
-        Expr.mk_binder ~loc ~typ:Type.bool Forall var_decls
-          (Expr.mk_impl ~loc
-             (Expr.mk_and ~loc (eq_expr :: conds))
-             (Expr.mk_and
-                (List.map2_exn universal_quants.univ_vars univ_vars_exprs
-                   ~f:(fun (_, var_decl) expr ->
-                     Expr.mk_eq ~loc (Expr.from_var_decl var_decl) expr))))
-      in
-
-      Stmt.mk_spec spec_form
-    in *)
-
     let call_decl =
       {
         Callable.call_decl_kind = Func;
@@ -353,20 +313,25 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
      *
      *  func inv(res: Ref, env1: T1, env2: T2) returns (ret: (Int, Bool))
      *
-     *  auto lemma inv_injective()
+     *  auto lemma inverse_func_valid()
      *    ensures forall 
      *        res: Ref, env1: T1, env2: T2 :: 
      *          {inv(res, env1, env2)} 
-     *      l(  inv(res, env1, env2)#0, inv(res, env1, env2)#1, env1  ) == res
+     *      p( inv(res, env1, env2)#0, inv(res, env1, env2)#1, env2 ) ==> 
+     *        l( inv(res, env1, env2)#0, inv(res, env1, env2)#1, env1 ) == res
      *
      *    ensures forall 
      *        ret: (Int, Bool), env1: T1, env2: T2 :: 
      *          {l(ret#0, ret#1, env1)} 
-     *      inv(l(ret#0, ret#1, env1), env1, env2) == ret
+     *      p(ret#0, ret#1, env2) ==> inv(l(ret#0, ret#1, env1), env1, env2) == ret
      *  {
      *    assert forall 
      *        x1: Int, y1: Bool, x2: Int, y2: Bool, env1: T1, env2: T2 :: 
-     *      l(x1, y1, env1) == l(x2, y2, env1) ==> x1 == x2 && y1 == y2;
+     *
+     *        ( l(x1, y1, env1) == l(x2, y2, env1) && 
+     *           p(x1, y1, env2) && p(x2, y2, env2) ) 
+     *        ==> x1 == x2 && y1 == y2;
+     *
      *    assume false;
      *  } 
     *)
