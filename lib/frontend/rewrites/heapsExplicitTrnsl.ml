@@ -1901,6 +1901,12 @@ module TrnslInhale = struct
         let conds_subst =
           List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map)
         in
+        let new_trigs =
+          List.map universal_quants.triggers ~f:(
+            fun trgs -> 
+              List.map trgs ~f:(fun trg -> Expr.alpha_renaming trg alpha_renaming_map)
+          )
+        in
 
         let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
         let assume_stmt =
@@ -1914,11 +1920,12 @@ module TrnslInhale = struct
                   (Expr.mk_binder Forall univ_vars_list
                     (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
-               ~trigs:
+               ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc field_heap2_expr l_expr ];
                    [ Expr.mk_maplookup ~loc field_heap_expr l_expr ];
-                 ]
+                 ] @ new_trigs
+               )
                ~loc ~typ:Type.bool Forall [ l_var ]
                (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite
                   [
@@ -2106,6 +2113,12 @@ module TrnslInhale = struct
         let conds_subst =
           List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map)
         in
+        let new_trigs =
+          List.map universal_quants.triggers ~f:(
+            fun trgs -> 
+              List.map trgs ~f:(fun trg -> Expr.alpha_renaming trg alpha_renaming_map)
+          )
+        in
 
         let assume_stmt =
           let token_var_eq_given_token =
@@ -2136,11 +2149,12 @@ module TrnslInhale = struct
                   (Expr.mk_binder Forall univ_vars_list
                     (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
-               ~trigs:
+               ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc au_heap2_expr new_token_expr ];
                    [ Expr.mk_maplookup ~loc au_heap_expr new_token_expr ];
-                 ]
+                 ] @ new_trigs
+               )
                ~loc ~typ:Type.bool Forall [ new_token_var ]
                (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite
                   [
@@ -2384,6 +2398,12 @@ module TrnslInhale = struct
                     List.map conds ~f:(fun e ->
                         Expr.alpha_renaming e alpha_renaming_map)
                   in
+                  let new_trigs =
+                    List.map universal_quants.triggers ~f:(
+                      fun trgs -> 
+                        List.map trgs ~f:(fun trg -> Expr.alpha_renaming trg alpha_renaming_map)
+                    )
+                  in
 
                   let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
 
@@ -2420,7 +2440,7 @@ module TrnslInhale = struct
                             (Expr.mk_binder Forall univ_vars_list
                               (Expr.mk_impl (Expr.mk_and conds) expr)))
                       (Expr.mk_binder
-                         ~trigs:
+                         ~trigs: (
                            [
                              [
                                Expr.mk_maplookup ~loc pred_heap2_expr
@@ -2430,7 +2450,8 @@ module TrnslInhale = struct
                                Expr.mk_maplookup ~loc pred_heap_expr
                                  in_vars_tuple;
                              ];
-                           ]
+                           ] @ new_trigs
+                         )
                          ~loc ~typ:Type.bool Forall in_vars
                          (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite
                             [
@@ -3896,9 +3917,14 @@ module TrnslExhale = struct
 
         let e1_subst = Expr.alpha_renaming e1 alpha_renaming_map in
         let e3_subst = Expr.alpha_renaming e3 alpha_renaming_map in
-
         let conds_subst =
           List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map)
+        in
+        let new_trigs =
+          List.map universal_quants.triggers ~f:(
+            fun trgs -> 
+              List.map trgs ~f:(fun trg -> Expr.alpha_renaming trg alpha_renaming_map)
+          )
         in
 
         let havoc_stmt = Stmt.mk_havoc ~loc field_heap2_qual_ident in
@@ -3913,11 +3939,12 @@ module TrnslExhale = struct
                      (Expr.mk_binder Forall univ_vars_list
                         (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
-               ~trigs:
+               ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc field_heap2_expr l_expr ];
                    [ Expr.mk_maplookup ~loc field_heap_expr l_expr ];
-                 ]
+                 ]  @ new_trigs
+               )
                ~loc ~typ:Type.bool Forall [ l_var ]
                (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite
                   [
@@ -4100,6 +4127,12 @@ module TrnslExhale = struct
         let conds_subst =
           List.map conds ~f:(fun e -> Expr.alpha_renaming e alpha_renaming_map)
         in
+        let new_trigs =
+          List.map universal_quants.triggers ~f:(
+            fun trgs -> 
+              List.map trgs ~f:(fun trg -> Expr.alpha_renaming trg alpha_renaming_map)
+          )
+        in
 
         let assume_stmt =
           let token_var_eq_given_token =
@@ -4130,11 +4163,12 @@ module TrnslExhale = struct
                   (Expr.mk_binder Forall univ_vars_list
                     (Expr.mk_impl (Expr.mk_and conds) expr)))
             (Expr.mk_binder
-               ~trigs:
+               ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc au_heap2_expr new_token_expr ];
                    [ Expr.mk_maplookup ~loc au_heap_expr new_token_expr ];
-                 ]
+                 ]  @ new_trigs
+                )
                ~loc ~typ:Type.bool Forall [ new_token_var ]
                (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
                   (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite
@@ -4381,6 +4415,12 @@ module TrnslExhale = struct
                     List.map conds ~f:(fun e ->
                         Expr.alpha_renaming e alpha_renaming_map)
                   in
+                  let new_trigs =
+                    List.map universal_quants.triggers ~f:(
+                      fun trgs -> 
+                        List.map trgs ~f:(fun trg -> Expr.alpha_renaming trg alpha_renaming_map)
+                    )
+                  in
 
                   let havoc_stmt = Stmt.mk_havoc ~loc pred_heap2_qual_ident in
 
@@ -4420,7 +4460,7 @@ module TrnslExhale = struct
                             (Expr.mk_binder Forall univ_vars_list
                               (Expr.mk_impl (Expr.mk_and conds) expr)))
                       (Expr.mk_binder
-                         ~trigs:
+                         ~trigs: (
                            [
                              [
                                Expr.mk_maplookup ~loc pred_heap2_expr
@@ -4430,7 +4470,8 @@ module TrnslExhale = struct
                                Expr.mk_maplookup ~loc pred_heap_expr
                                  in_vars_tuple;
                              ];
-                           ]
+                           ]  @ new_trigs
+                          )
                          ~loc ~typ:Type.bool Forall in_vars
                          (Expr.mk_app ~loc ~typ:Type.bool Expr.Ite
                             [
