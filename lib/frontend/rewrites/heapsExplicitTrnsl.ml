@@ -377,7 +377,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           ("inverse_func_valid$" ^ Ident.to_string inv_fn_ident)
       in
 
-      let postconds =
+      let preconds, postconds =
         let postcond1 = (
           (* inv(res, env1, env2) *)
           let inverted_expr_with_res = 
@@ -386,7 +386,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           in
           let spec_expr1 =
             (* x ~> inv(res, env1, env2)#0;; y ~> inv(res, env1, env2)#1 *)
-            let renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
+            let inv_renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
               fun i mp (_, vd) ->
                 Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc inverted_expr_with_res i )
             )
@@ -398,9 +398,12 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
                 (Var inv_fn_qual_ident) 
                   (List.map formal_var_decls ~f:Expr.from_var_decl) 
             ] ] (
-              Expr.mk_eq ~loc
-                (Expr.from_var_decl arg_var_decl)
-                (Expr.alpha_renaming inv_expr renam_map)
+              Expr.mk_impl ~loc 
+                (Expr.mk_chained_and ~loc (List.map conds ~f:(fun e -> Expr.alpha_renaming e inv_renam_map)))
+
+                (Expr.mk_eq ~loc
+                  (Expr.from_var_decl arg_var_decl)
+                  (Expr.alpha_renaming inv_expr inv_renam_map))
             )
 
           in
@@ -419,24 +422,27 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
             (inv_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl) 
           in
           let spec_expr2 = 
-            (* x ~> inv(res, env1, env2)#0;; y ~> inv(res, env1, env2)#1 *)
-            let renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
+            (* x ~> ret#0;; y ~> ret#1 *)
+            let ret_renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
               fun i mp (_, vd) ->
                 Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc (Expr.from_var_decl ret_var_decl) i )
             )
             in
+            Expr.mk_binder Forall ~loc env_local_var_decls
+              (Expr.mk_binder Forall ~loc [ret_var_decl]
+              ~trigs: [  
+                let alpha_renamed_expr = (Expr.alpha_renaming inv_expr ret_renam_map) in
+                if Expr.alpha_equal alpha_renamed_expr (Expr.from_var_decl ret_var_decl)
+                  then [] else
+                    [alpha_renamed_expr]
+              ] (
+                Expr.mk_impl ~loc 
+                  (Expr.mk_chained_and ~loc (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map)))
 
-            Expr.mk_binder Forall ~loc (ret_var_decl :: env_local_var_decls)
-            ~trigs: [  
-              let alpha_renamed_expr = (Expr.alpha_renaming inv_expr renam_map) in
-              if Expr.alpha_equal alpha_renamed_expr (Expr.from_var_decl ret_var_decl)
-                then [] else
-                  [alpha_renamed_expr]
-             ] (
-              Expr.mk_eq ~loc
-                (Expr.from_var_decl ret_var_decl)
-                (Expr.alpha_renaming inverted_expr_with_inv_expr renam_map)
-            )
+                  (Expr.mk_eq ~loc
+                    (Expr.from_var_decl ret_var_decl)
+                    (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map))
+              ))
 
           in
           let error =
@@ -447,7 +453,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           Stmt.mk_spec ~error:[fun _ -> error] spec_expr2
         ) in
         
-        [postcond1; postcond2]
+        [], [postcond1; postcond2]
       in
 
 
@@ -462,7 +468,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           call_decl_formals = [];
           call_decl_returns = [];
           call_decl_locals = [];
-          call_decl_precond = [];
+          call_decl_precond = preconds;
           call_decl_postcond = postconds;
           call_decl_is_free = false;
           call_decl_is_auto = true;
