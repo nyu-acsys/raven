@@ -697,18 +697,21 @@ let generate_utils_module ~(is_field : bool) (mod_ident : ident)
           FuncDef
             {
               func_body =
+                let heap_map_lookup_l = Expr.mk_maplookup ~loc
+                (Expr.from_var_decl
+                   (List.hd_exn
+                      heap_valid_fn_decl.call_decl_formals))
+                (Expr.from_var_decl l_var_decl)
+                in
                 Some
                   (Expr.mk_and
                      (Expr.mk_binder ~loc ~typ:Type.bool Forall [ l_var_decl ]
+                      ~trigs:[[heap_map_lookup_l]]
+
                         (Expr.mk_app ~loc ~typ:Type.bool
                            (Expr.Var ra_valid_fn_qual_ident)
-                           [
-                             Expr.mk_maplookup ~loc
-                               (Expr.from_var_decl
-                                  (List.hd_exn
-                                     heap_valid_fn_decl.call_decl_formals))
-                               (Expr.from_var_decl l_var_decl);
-                           ])
+                           [ heap_map_lookup_l ]
+                        )
                      ::
                      (if is_field then
                         (* Null has no ownership *)
