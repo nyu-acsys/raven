@@ -659,15 +659,15 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
       }
     in
 
+    let heap_formal_arg = 
+      Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "h")
+      (Type.mk_map loc in_arg_typ type_tp_expr) 
+    in
     let heap_valid_fn_decl =
       {
         Callable.call_decl_kind = Func;
         call_decl_name = Rewriter.ProgUtils.heap_utils_valid_ident loc;
-        call_decl_formals =
-          [
-            Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "h")
-              (Type.mk_map loc in_arg_typ type_tp_expr);
-          ];
+        call_decl_formals = [ heap_formal_arg ];
         call_decl_returns =
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool;
@@ -692,8 +692,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
 
     let heap_valid_fn_body = 
       let heap_map_lookup_l = Expr.mk_maplookup ~loc
-        (Expr.from_var_decl
-            (List.hd_exn heap_valid_fn_decl.call_decl_formals))
+        (Expr.from_var_decl heap_formal_arg)
         (Expr.from_var_decl l_var_decl)
       in
 
@@ -727,7 +726,8 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
 
     let heap_valid_fn_expr = Expr.mk_app ~loc ~typ:Type.bool 
         (Var (QualIdent.from_ident heap_valid_fn_decl.call_decl_name)) [
-          Expr.from_var_decl (List.hd_exn heap_valid_fn_decl.call_decl_formals)]
+          Expr.from_var_decl heap_formal_arg
+        ]
     in
 
     let heap_valid_inhale_fn = {
@@ -738,8 +738,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
             let null_id_check =
               Expr.mk_eq ~loc
               (Expr.mk_maplookup ~loc
-                (Expr.from_var_decl
-                    (List.hd_exn heap_valid_fn_decl.call_decl_formals))
+                (Expr.from_var_decl heap_formal_arg)
                 (Expr.mk_null ()))
               (Expr.mk_var ~loc ~typ:type_tp_expr
                 (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
