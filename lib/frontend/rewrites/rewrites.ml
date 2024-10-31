@@ -811,8 +811,15 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   | Basic (New new_desc) ->
       Logs.debug (fun m ->
           m "Rewrites.rewrite_new_stmts: new_desc: %a" Stmt.pr stmt);
-
-      let* new_stmts =
+      
+      let assume_non_null_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc 
+          ~cmnt:"AssumeNonNull Stmt; from new stmt"
+        (Expr.mk_not (
+          Expr.mk_eq (Expr.mk_null ())
+          (Expr.mk_var ~typ:(Type.ref) new_desc.new_lhs)
+        ))
+      in
+      let* new_inhale_stmts =
         Rewriter.List.map new_desc.new_args ~f:(fun (field_name, expr_optn) ->
             let* field_val =
               match expr_optn with
@@ -848,7 +855,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             Rewriter.return inhale_stmt)
       in
 
-      Rewriter.return (Stmt.mk_block_stmt ~loc:stmt.stmt_loc new_stmts)
+      Rewriter.return (Stmt.mk_block_stmt ~loc:stmt.stmt_loc (assume_non_null_stmt :: new_inhale_stmts))
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
 
 (** Replaces a `b := CAS(x.f, v1, v2)` stmt with `v := x.f; if (v == v1) { b := true; x.f := v2 } else { b := false }`. *)

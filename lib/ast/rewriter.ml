@@ -1609,6 +1609,8 @@ module ProgUtils = struct
     QualIdent.append ra_qual_iden
       (Ident.make (QualIdent.to_loc ra_qual_iden) "fpuAllowed" 0)
 
+  (* ======================== *)
+
   let field_utils_module_ident loc field_ident : ident =
     Ident.make loc (serialize ("FieldUtils$" ^ Ident.to_string field_ident)) 0
 
@@ -1617,6 +1619,8 @@ module ProgUtils = struct
 
   let au_utils_module_ident loc callable_ident : ident =
     Ident.make loc (serialize ("AUUtils$" ^ Ident.to_string callable_ident)) 0
+
+  (* ======================== *)
 
   let get_field_utils_module loc field_name : qual_ident t =
     let open Syntax in
@@ -1639,6 +1643,8 @@ module ProgUtils = struct
     QualIdent.make call_fully_qual_name.qual_path
       (au_utils_module_ident loc call_fully_qual_name.qual_base)
 
+  (* ======================== *)
+
   let heap_utils_rep_type_ident loc = Ident.make loc "T" 0
 
   let get_field_utils_rep_type loc field_name : qual_ident t =
@@ -1655,6 +1661,8 @@ module ProgUtils = struct
     let open Syntax in
     let+ call_utils_module = get_au_utils_module loc call_name in
     QualIdent.append call_utils_module (heap_utils_rep_type_ident loc)
+
+  (* ======================== *)
 
   let heap_utils_comp_chunk_ident loc = Ident.make loc "heapChunkComp" 0
 
@@ -1673,6 +1681,8 @@ module ProgUtils = struct
     let+ call_utils_module = get_au_utils_module loc call_name in
     QualIdent.append call_utils_module (heap_utils_comp_chunk_ident loc)
 
+  (* ======================== *)
+
   let heap_utils_frame_chunk_ident loc = Ident.make loc "heapChunkFrame" 0
 
   let get_field_utils_frame loc field_name : qual_ident t =
@@ -1689,6 +1699,8 @@ module ProgUtils = struct
     let open Syntax in
     let+ call_utils_module = get_au_utils_module loc call_name in
     QualIdent.append call_utils_module (heap_utils_frame_chunk_ident loc)
+
+  (* ======================== *)
 
   let heap_utils_valid_ident loc = Ident.make loc "valid" 0
 
@@ -1707,6 +1719,27 @@ module ProgUtils = struct
     let+ call_utils_module = get_au_utils_module loc call_name in
     QualIdent.append call_utils_module (heap_utils_valid_ident loc)
 
+  (* ======================== *)
+
+  let heap_utils_valid_inhale_ident loc = Ident.make loc "validInhale" 0
+
+  let get_field_utils_valid_inhale loc field_name : qual_ident t =
+    let open Syntax in
+    let+ field_utils_module = get_field_utils_module loc field_name in
+    QualIdent.append field_utils_module (heap_utils_valid_inhale_ident loc)
+
+  let get_pred_utils_valid_inhale loc pred_name : qual_ident t =
+    let open Syntax in
+    let+ pred_utils_module = get_pred_utils_module loc pred_name in
+    QualIdent.append pred_utils_module (heap_utils_valid_inhale_ident loc)
+
+  let get_au_utils_valid_inhale loc call_name : qual_ident t =
+    let open Syntax in
+    let+ call_utils_module = get_au_utils_module loc call_name in
+    QualIdent.append call_utils_module (heap_utils_valid_inhale_ident loc)
+
+  (* ======================== *)
+
   let heap_utils_heapchunk_compare_ident loc =
     Ident.make loc "heapChunkCompare" 0
 
@@ -1724,6 +1757,8 @@ module ProgUtils = struct
     let open Syntax in
     let+ call_utils_module = get_au_utils_module loc call_name in
     QualIdent.append call_utils_module (heap_utils_heapchunk_compare_ident loc)
+
+  (* ======================== *)
 
   let heap_utils_id_ident loc = Ident.make loc "id" 0
 
@@ -1786,6 +1821,8 @@ module ProgUtils = struct
 
     return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:call_elem_type
 
+  (* ======================== *)
+  
   let pred_ra_constr_qual_ident loc pred_name =
     let open Syntax in
     let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in

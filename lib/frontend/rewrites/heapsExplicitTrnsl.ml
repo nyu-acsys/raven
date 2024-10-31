@@ -690,46 +690,62 @@ let generate_utils_module ~(is_field : bool) (mod_ident : ident)
       Rewriter.ProgUtils.get_ra_valid_fn_qual_ident ra_qual_ident
     in
 
+    let heap_valid_fn_body = 
+      let heap_map_lookup_l = Expr.mk_maplookup ~loc
+        (Expr.from_var_decl
+            (List.hd_exn heap_valid_fn_decl.call_decl_formals))
+        (Expr.from_var_decl l_var_decl)
+      in
+
+      (Expr.mk_binder ~loc ~typ:Type.bool Forall [ l_var_decl ]
+        ~trigs:[[heap_map_lookup_l]]
+
+          (Expr.mk_app ~loc ~typ:Type.bool
+            (Expr.Var ra_valid_fn_qual_ident)
+            [ heap_map_lookup_l ]
+          )
+      )
+
+      (* && (if is_field then
+        (* Null has no ownership *)
+        [
+          Expr.mk_eq ~loc
+            (Expr.mk_maplookup ~loc
+              (Expr.from_var_decl
+                  (List.hd_exn
+                    heap_valid_fn_decl.call_decl_formals))
+              (Expr.mk_app ~loc ~typ:Type.ref Null []))
+            (Expr.mk_var ~loc ~typ:type_tp_expr
+              (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
+        ]
+      else []) *)
+    in
+
     let heap_valid_fn =
       {
         Callable.call_decl = heap_valid_fn_decl;
         call_def =
           FuncDef
             {
-              func_body =
-                let heap_map_lookup_l = Expr.mk_maplookup ~loc
-                (Expr.from_var_decl
-                   (List.hd_exn
-                      heap_valid_fn_decl.call_decl_formals))
-                (Expr.from_var_decl l_var_decl)
-                in
-                Some
-                  (Expr.mk_and
-                     (Expr.mk_binder ~loc ~typ:Type.bool Forall [ l_var_decl ]
-                      ~trigs:[[heap_map_lookup_l]]
-
-                        (Expr.mk_app ~loc ~typ:Type.bool
-                           (Expr.Var ra_valid_fn_qual_ident)
-                           [ heap_map_lookup_l ]
-                        )
-                     :: 
-                      []
-                      (* (if is_field then
-                          (* Null has no ownership *)
-                          [
-                            Expr.mk_eq ~loc
-                              (Expr.mk_maplookup ~loc
-                                (Expr.from_var_decl
-                                    (List.hd_exn
-                                      heap_valid_fn_decl.call_decl_formals))
-                                (Expr.mk_app ~loc ~typ:Type.ref Null []))
-                              (Expr.mk_var ~loc ~typ:type_tp_expr
-                                (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
-                          ]
-                        else []) *)
-                      ));
+              func_body = Some heap_valid_fn_body
             };
       }
+    in
+
+    let heap_valid_inhale_fn_decl =
+      { heap_valid_fn_decl with
+        (* Callable.call_decl_kind = Func; *)
+        call_decl_name = Rewriter.ProgUtils.heap_utils_valid_inhale_ident loc;
+      }
+    in
+
+    let heap_valid_inhale_fn = {
+      Callable.call_decl = heap_valid_inhale_fn_decl;
+      call_def = FuncDef {
+        func_body = Some heap_valid_fn_body
+      }
+    }
+      
     in
 
     let heap_add_chunk_fn_decl =
@@ -889,6 +905,7 @@ let generate_utils_module ~(is_field : bool) (mod_ident : ident)
         Module.SymbolDef (Module.TypeDef type_def);
         SymbolDef (Module.VarDef var_def);
         SymbolDef (Module.CallDef heap_valid_fn);
+        SymbolDef (Module.CallDef heap_valid_inhale_fn);
         SymbolDef (Module.CallDef heap_add_chunk_fn);
         SymbolDef (Module.CallDef heap_sub_chunk_fn);
         SymbolDef (Module.CallDef heapchunk_compare_fn);
@@ -1943,6 +1960,10 @@ module TrnslInhale = struct
           Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
+        let* (field_heap_valid_inhale_fn : qual_ident) =
+          Rewriter.ProgUtils.get_field_utils_valid_inhale (Expr.to_loc e2) field_name
+        in
+
         let l_var =
           Type.
             {
@@ -2085,7 +2106,7 @@ module TrnslInhale = struct
 
         let assume_heap_valid =
           Stmt.mk_assume_expr ~loc
-            (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn)
+            (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_inhale_fn)
                [ field_heap_expr ])
         in
 
@@ -2143,6 +2164,10 @@ module TrnslInhale = struct
 
         let* (au_heap_valid_fn : qual_ident) =
           Rewriter.ProgUtils.get_au_utils_valid loc call_name
+        in
+
+        let* (au_heap_valid_inhale_fn : qual_ident) =
+          Rewriter.ProgUtils.get_au_utils_valid_inhale loc call_name
         in
 
         let* au_ra_uncommitted_constr =
@@ -2312,7 +2337,7 @@ module TrnslInhale = struct
 
         let assume_heap_valid =
           Stmt.mk_assume_expr ~loc
-            (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn)
+            (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_inhale_fn)
                [ au_heap_expr ])
         in
 
@@ -2398,6 +2423,10 @@ module TrnslInhale = struct
 
                   let* (pred_heap_valid_fn : qual_ident) =
                     Rewriter.ProgUtils.get_pred_utils_valid loc pred_name
+                  in
+
+                  let* (pred_heap_valid_inhale_fn : qual_ident) =
+                    Rewriter.ProgUtils.get_pred_utils_valid_inhale loc pred_name
                   in
 
                   let* pred_in_types =
@@ -2616,7 +2645,7 @@ module TrnslInhale = struct
                   let assume_heap_valid =
                     Stmt.mk_assume_expr ~loc
                       (Expr.mk_app ~loc ~typ:Type.bool
-                         (Expr.Var pred_heap_valid_fn) [ pred_heap_expr ])
+                         (Expr.Var pred_heap_valid_inhale_fn) [ pred_heap_expr ])
                   in
 
                   (* let* injectivity_assertion =
