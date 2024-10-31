@@ -1,0 +1,23 @@
+field f: Int
+
+
+func loc_id(x: Ref) 
+    returns (r: Ref)
+{ x }
+
+func t(x: Ref)
+    returns (r: Bool)
+{ true }
+
+func guard(x: Ref, b: Bool)
+    returns (r: Bool)
+{ true }
+
+proc p() {
+    var b: Bool := true;
+
+    if (b) {
+        inhale forall x: Ref :: { t(x) } guard(x, b) ==> own(loc_id(x), f, 1, 1.0);
+    }
+    
+}

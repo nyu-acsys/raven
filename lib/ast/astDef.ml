@@ -837,6 +837,8 @@ module Expr = struct
     (* let t = to_type e in *)
     App (Not, [ e ], mk_attr loc Type.bool)
 
+  let mk_null ?(loc = Loc.dummy) () =
+    App (Null, [], mk_attr loc Type.ref)
 
   let mk_eq ?(loc = Loc.dummy) e1 e2 =
     (*let typ_join = (Type.join (to_type e1) (to_type e2)) in
