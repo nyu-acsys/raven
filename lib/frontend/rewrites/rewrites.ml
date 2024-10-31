@@ -985,8 +985,23 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let body_expr =
         let new_body = Expr.alpha_renaming body renaming_map in
 
-        (* Expr.mk_binder ~loc:stmt.stmt_loc ~typ:Type.bool Exists fresh_dropped_args new_body  *)
-        new_body
+        let existential_var_idens_set = Expr.existential_vars new_body in
+        let user_witness_renam_map = 
+          List.fold 
+            (Option.value use_desc.use_witnesses ~default:[])
+          ~init:(Map.empty (module QualIdent)) ~f:(
+            fun mp (iden, wtns_expr) ->
+              
+            match (Set.find existential_var_idens_set ~f:(
+              fun ex_var_iden ->
+                String.(ex_var_iden.ident_name = iden.ident_name)
+            )) with
+            | None -> mp
+            | Some v -> Map.set mp ~key:(QualIdent.from_ident v) ~data:wtns_expr
+          )
+        in
+
+        Expr.supply_witnesses user_witness_renam_map new_body
       in
 
       let pred_expr =

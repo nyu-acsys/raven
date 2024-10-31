@@ -1515,11 +1515,21 @@ module ProcessCallable = struct
                       disambiguate_expr expr disam_tbl)
                 in
 
-                let+ use_args =
+                let* use_args =
                   process_callable_args stmt.stmt_loc pred_decl use_args
                 in
 
-                ( Stmt.Basic (Use { use_desc with use_name; use_args }),
+                let+ use_witnesses = match use_desc.use_witnesses with
+                | None -> Rewriter.return None
+                | Some iden_expr_list -> 
+                  let+ iden_expr_list = Rewriter.List.map iden_expr_list ~f:(fun (i, e) ->
+                    let+ e = disambiguate_process_expr e (Type.mk_any stmt.stmt_loc)disam_tbl in
+                    (i, e)
+                  ) in
+                  Some (iden_expr_list) in
+                  
+
+                ( Stmt.Basic (Use { use_desc with use_name; use_args; use_witnesses }),
                   disam_tbl )
             | New new_desc ->
                 let* new_qual_ident =

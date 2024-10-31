@@ -1,0 +1,12 @@
+pred p(i1: Int, i2: Int, b: Bool) {
+    true
+}
+
+pred q(i1: Int) {
+    exists i2: Int, b: Bool :: p(i1, i2, b)
+}
+
+proc pr() {
+    inhale p(5, 2, true);
+    fold q(5)[i2 := 2, b := true];
+}

@@ -805,6 +805,11 @@ module Expr = struct
         in
         App (And, es, mk_attr loc t)
 
+  (* `mk_chained_and` is used in contexts where the generated expression is typechecked again.
+   * This is because the typechecker only expects `&&` to be used as a binary operator,
+   * for syntax reasons. Whereas, internally we allow `&&` as a k-ary operator,
+   * since SMTLIB supports it.
+  *)
   let mk_chained_and ?(loc = Loc.dummy) = function
   | [] -> mk_bool ~loc true
   | [ e ] -> e
@@ -1058,6 +1063,74 @@ module Expr = struct
     | App (AUPredCommit id, _, _) -> Set.singleton (module QualIdent) id
     | App (_, es, _) -> Set.union_list (module QualIdent) (List.map es ~f:au_preds)
     | Binder (_, _, _, e, _) -> au_preds e
+
+  let rec existential_vars ?(acc = Set.empty (module Ident)) (expr: t) : IdentSet.t = 
+  match expr with
+  | App (_, exprs, _) ->
+    List.fold exprs ~init:acc ~f:(fun acc e ->
+      existential_vars ~acc e
+      )
+  | Binder (Exists, vds, _, e, _) ->
+    let acc = List.fold vds ~init:acc ~f:(fun acc vd -> Set.add acc vd.var_name)
+    in
+    existential_vars ~acc e
+  | Binder (_, _, _, e, _) ->
+    existential_vars ~acc e
+
+  let rec supply_witnesses wtns_renam_map (expr: t) =
+    let expr = alpha_renaming expr wtns_renam_map
+    in
+    
+    let ex_var_iden_set = 
+      let ex_var_iden_list = List.map (Map.keys wtns_renam_map) ~f:(fun qi -> QualIdent.to_ident qi) in
+
+      Set.of_list (module Ident) ex_var_iden_list
+    in
+
+    match expr with
+    | App (constr, exprs, expr_attr) ->
+      let exprs = List.map exprs ~f:(fun e -> supply_witnesses wtns_renam_map e) in
+
+      App (constr, exprs, expr_attr)
+    
+    | Binder (Exists, vds, trgs, e, expr_attr) ->
+      let new_trgs = 
+        List.map trgs ~f:(fun trgs -> List.map trgs ~f:(fun e -> alpha_renaming e wtns_renam_map))
+      in
+      let new_e = supply_witnesses wtns_renam_map e in
+
+      Logs.debug (fun m -> m
+        "Expr.supply_witnesses: old_vds: %a"
+          Ident.pr_list (List.map vds ~f:(fun vd -> vd.var_name ))
+      );
+
+      Logs.debug (fun m -> m
+        "Expr.supply_witnesses: ex_var_ident_set: %a"
+          Ident.pr_list (Set.to_list ex_var_iden_set)
+      );
+
+      let vds = List.filter vds ~f:(fun vd -> 
+        Set.for_all ex_var_iden_set ~f:(fun ex_var_ident -> not Ident.(vd.var_name = ex_var_ident))
+      ) in 
+      
+      Logs.debug (fun m -> m
+        "Expr.supply_witnesses: new_vds: %a"
+          Ident.pr_list (List.map vds ~f:(fun vd -> vd.var_name ))
+      );
+      
+      (
+        match vds with 
+        | [] -> new_e
+        | _ -> 
+        Binder (Exists, vds, new_trgs, new_e, expr_attr)
+      )
+
+    | Binder (_b, vds, trgs, e, expr_attr) ->
+      let new_trgs = 
+        List.map trgs ~f:(fun trgs -> List.map trgs ~f:(fun e -> alpha_renaming e wtns_renam_map))
+      in
+      let new_e = supply_witnesses wtns_renam_map e in
+      Binder (_b, vds, new_trgs, new_e, expr_attr)
 end
 
 type expr = Expr.t
@@ -1108,8 +1181,6 @@ module Stmt = struct
     call_args : expr list;
   }
 
-  type fold_desc = { fold_expr : expr }
-  type unfold_desc = { unfold_expr : expr }
 
   type fpu_desc = {
     fpu_ref : expr;
@@ -1148,6 +1219,7 @@ module Stmt = struct
     use_kind : use_kind;
     use_name : qual_ident;
     use_args : expr list;
+    use_witnesses : (ident * expr) list option;
   }
 
   type auaction_kind =

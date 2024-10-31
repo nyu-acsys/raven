@@ -472,12 +472,31 @@ stmt_wo_trailing_substmt:
 }
 (* unfold / fold / openInv / closeInv *)
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN; SEMICOLON {
-  Stmt.(Basic (Use {use_kind = use_kind; use_name = Expr.to_qual_ident id; use_args = es}))
+  Stmt.(Basic (Use {
+    use_kind = use_kind; 
+    use_name = Expr.to_qual_ident id; 
+    use_args = es;
+    use_witnesses = None;
+  }))
+}
+| use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN;
+  LBRACKET wtns = separated_nonempty_list(COMMA, existential_witness) RBRACKET SEMICOLON {
+  Stmt.(Basic (Use {
+    use_kind = use_kind; 
+    use_name = Expr.to_qual_ident id; 
+    use_args = es;
+    use_witnesses = Some wtns;
+  }))
 }
 ;
 
+existential_witness:
+| x = IDENT COLONEQ e = expr {
+  (x, e)
+}
+
 with_clause:
-| SEMICOLON { 
+| SEMICOLON {
   fun sk e ->
     let open Stmt in
     let spec = { spec_form = e;
