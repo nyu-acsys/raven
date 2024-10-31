@@ -712,20 +712,22 @@ let generate_utils_module ~(is_field : bool) (mod_ident : ident)
                            (Expr.Var ra_valid_fn_qual_ident)
                            [ heap_map_lookup_l ]
                         )
-                     ::
-                     (if is_field then
-                        (* Null has no ownership *)
-                        [
-                          Expr.mk_eq ~loc
-                            (Expr.mk_maplookup ~loc
-                               (Expr.from_var_decl
-                                  (List.hd_exn
-                                     heap_valid_fn_decl.call_decl_formals))
-                               (Expr.mk_app ~loc ~typ:Type.ref Null []))
-                            (Expr.mk_var ~loc ~typ:type_tp_expr
-                               (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
-                        ]
-                      else [])));
+                     :: 
+                      []
+                      (* (if is_field then
+                          (* Null has no ownership *)
+                          [
+                            Expr.mk_eq ~loc
+                              (Expr.mk_maplookup ~loc
+                                (Expr.from_var_decl
+                                    (List.hd_exn
+                                      heap_valid_fn_decl.call_decl_formals))
+                                (Expr.mk_app ~loc ~typ:Type.ref Null []))
+                              (Expr.mk_var ~loc ~typ:type_tp_expr
+                                (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
+                          ]
+                        else []) *)
+                      ));
             };
       }
     in
