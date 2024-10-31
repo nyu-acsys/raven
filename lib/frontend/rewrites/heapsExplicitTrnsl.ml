@@ -705,20 +705,6 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
             [ heap_map_lookup_l ]
           )
       )
-
-      (* && (if is_field then
-        (* Null has no ownership *)
-        [
-          Expr.mk_eq ~loc
-            (Expr.mk_maplookup ~loc
-              (Expr.from_var_decl
-                  (List.hd_exn
-                    heap_valid_fn_decl.call_decl_formals))
-              (Expr.mk_app ~loc ~typ:Type.ref Null []))
-            (Expr.mk_var ~loc ~typ:type_tp_expr
-              (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
-        ]
-      else []) *)
     in
 
     let heap_valid_fn =
@@ -739,6 +725,11 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
       }
     in
 
+    let heap_valid_fn_expr = Expr.mk_app ~loc ~typ:Type.bool 
+        (Var (QualIdent.from_ident heap_valid_fn_decl.call_decl_name)) [
+          Expr.from_var_decl (List.hd_exn heap_valid_fn_decl.call_decl_formals)]
+    in
+
     let heap_valid_inhale_fn = {
       Callable.call_decl = heap_valid_inhale_fn_decl;
       call_def = FuncDef {
@@ -755,11 +746,11 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
             in
 
             Expr.mk_and [
-              heap_valid_fn_body;
+              heap_valid_fn_expr;
               null_id_check;
             ]
           else
-            heap_valid_fn_body
+            heap_valid_fn_expr
         )
       }
     }
