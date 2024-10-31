@@ -105,15 +105,17 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     }
     var ms: Map[Int, E] := map_shift(m, idx, idx + 1, len - idx);
 
-    // prove set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_array(ms, idx + 1, len + 1);
+    // prove set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
     set_of_map_split(m, 0, idx, len);
     set_of_map_equal(m, ms, 0, 0, idx);
     set_of_map_equal(m, ms, idx, idx + 1, len - idx);
-    // prove set_of_map(m1, 0, new_len) == set_of_array(ms, 0, idx) ++ {k} ++ set_of_map(ms, idx + 1, len + 1)
+    assert set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
+    // prove set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1)
     inverse_update();
     frame_set_of_map(ms, 0, idx);
     frame_set_of_map(ms, idx + 1, len + 1); 
     set_of_map_split(m1, 0, idx, len + 1);
+    assert set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1);
   }
 
   lemma map_delete_content_set(m: Map[Int, E], m1: Map[Int, E], len: Int, new_len: Int, idx: Int, k: E)
