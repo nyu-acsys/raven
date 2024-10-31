@@ -141,23 +141,9 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     pa := AN.alloc(2*b, null);
     r := new(len: 0, rangeLb: none, rangeUb: none, keys: ka, ptrs: pa);
     
-    assert own(r, len, 0, 1.0);
-    
     val cmap: Map[Int, Ref] = {| i: Int :: 0 <= i < 2*b ? null : AN.default |};
-    val kmap: Map[Int, K] = AK.default_map;
-
-    fold AK.sorted_array_with_content(ka, 0, AK.default_map);
     
-    /*assert node_cond(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap),
-                     0, none, none, ka, pa, AK.default_map, cmap)
-      && own(r, len, 0, 1.0)
-      && own(r, rangeLb, none, 1.0)
-      && own(r, rangeUb, none, 1.0)
-      && own(r, keys, ka, 1.0)
-      && AK.sorted_array_with_content(ka, 0, AK.default_map)
-      && own(r, ptrs, pa, 1.0)
-      && AN.arr(pa, cmap);*/
-
+    fold AK.sorted_array_with_content(ka, 0, AK.default_map);
     fold node(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap));
   }
 
@@ -192,9 +178,9 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     chlds :| AN.arr(n_ptrs, chlds);
     unfold AN.arr(n_ptrs, chlds);
     var chld0: Ref = AN.loc(n_ptrs, 0).AN.value;
-    fold AN.arr(n_ptrs, chlds);
-
+    
     if (chld0 == null) {  // Leaf node
+      fold AN.arr(n_ptrs, chlds);
       fold node(n, c, i_n);
       return false, null;
     }
@@ -205,7 +191,12 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     var i: Int;
     found, i := AK.arr_find(n_keys, n_len, k);
 
+    ghost var kmap: Map[Int, K];
+    kmap :| AK.sorted_array_with_content(n_keys, n_len, kmap);
+    unfold AK.sorted_array_with_content(n_keys, n_len, kmap);
+    unfold AK.arr(n_keys, kmap);
     var n_keys_i: K := AK.loc(n_keys, i).AK.value;
+    fold AK.arr(n_keys, kmap);
 
     if (i < n_len && k == n_keys_i) {  // arr_find finds upper bound, we want lower
       i := i + 1;
@@ -214,6 +205,8 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     n1 := AN.loc(n_ptrs, i).AN.value;
     ret := true;
 
+    fold AN.arr(n_ptrs, chlds);
+    fold AK.sorted_array_with_content(n_keys, n_len, kmap);
     fold node(n, c, i_n);
   }
 
