@@ -2008,7 +2008,7 @@ module TrnslInhale = struct
           *  ] (var substitution)
           *    = 
           *  v(i, j) *)
-        let* forward_trigger_assertion =
+        let* forward_trigger_assertions =
           let inv_fn_qi = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
             | _ -> 
@@ -2038,13 +2038,16 @@ module TrnslInhale = struct
                   ~key:(QualIdent.from_ident var_decl.var_name)
                   ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
           in
-          let expr = Expr.alpha_renaming e3 renaming_map 
-          
-          in
 
-          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-            (Expr.mk_eq ~loc expr e3)
+          List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+            let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+
+            Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+              Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_impl 
+                (Expr.mk_and conds)
+                (Expr.mk_eq ~loc trg_term new_trg_term))
+            )
           )
         in
 
@@ -2130,7 +2133,7 @@ module TrnslInhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assume_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assume_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -2222,7 +2225,7 @@ module TrnslInhale = struct
         *  ] (var substitution)
         *    = 
         *  (a_1, ... a_k)(i, j) *)
-        let* forward_trigger_assertion =
+        let* forward_trigger_assertions =
           let inv_fn_qi = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
             | _ -> 
@@ -2252,13 +2255,16 @@ module TrnslInhale = struct
                   ~key:(QualIdent.from_ident var_decl.var_name)
                   ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
           in
-          let expr = Expr.alpha_renaming (Expr.mk_tuple args) renaming_map 
-          
-          in
 
-          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-            (Expr.mk_eq ~loc expr (Expr.mk_tuple args))
+          List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+            let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+
+            Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+              Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_impl 
+                (Expr.mk_and conds)
+                (Expr.mk_eq ~loc trg_term new_trg_term))
+            )
           )
         in
 
@@ -2361,7 +2367,7 @@ module TrnslInhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assume_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assume_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -2494,7 +2500,7 @@ module TrnslInhale = struct
                   *  ] (var substitution)
                   *    = 
                   *  outs(i, j) *)
-                  let* forward_trigger_assertion =
+                  let* forward_trigger_assertions =
                     let inv_fn_qi_opt = (match inv_fn_expr with
                       | App ((Expr.Var inv_fn_qi), args, _) -> 
                         Some inv_fn_qi
@@ -2506,7 +2512,7 @@ module TrnslInhale = struct
                     
                     begin match inv_fn_qi_opt with
                     | None -> 
-                      Rewriter.return (Stmt.mk_skip ~loc)
+                      Rewriter.return []
 
                     | Some inv_fn_qi ->
                       let+ env_local_var_decls =
@@ -2532,13 +2538,16 @@ module TrnslInhale = struct
                               ~key:(QualIdent.from_ident var_decl.var_name)
                               ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
                       in
-                      let expr = Expr.alpha_renaming (Expr.mk_tuple actual_arg_out_exprs) renaming_map 
-                      
-                      in
+
+                      List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                        let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
             
-                      Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                        Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                        (Expr.mk_eq ~loc expr (Expr.mk_tuple actual_arg_out_exprs))
+                        Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                          Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                          (Expr.mk_impl 
+                            (Expr.mk_and conds)
+                            (Expr.mk_eq ~loc trg_term new_trg_term))
+                        )
                       )
                     end
                   in
@@ -2670,7 +2679,7 @@ module TrnslInhale = struct
 
                   let stmts_list =
                     stmts_list
-                    @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assume_heap_valid ]
+                    @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assume_heap_valid ]
                   in
 
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -4034,7 +4043,7 @@ module TrnslExhale = struct
           *  ] (var substitution)
           *    = 
           *  v(i, j) *)
-        let* forward_trigger_assertion =
+        let* forward_trigger_assertions =
           let inv_fn_qi = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
             | _ -> 
@@ -4064,13 +4073,16 @@ module TrnslExhale = struct
                   ~key:(QualIdent.from_ident var_decl.var_name)
                   ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
           in
-          let expr = Expr.alpha_renaming e3 renaming_map 
-          
-          in
 
-          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-            (Expr.mk_eq ~loc expr e3)
+          List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+            let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+
+            Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+              Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_impl 
+                (Expr.mk_and conds)
+                (Expr.mk_eq ~loc trg_term new_trg_term))
+            )
           )
         in
 
@@ -4157,7 +4169,7 @@ module TrnslExhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assert_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assert_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -4240,7 +4252,7 @@ module TrnslExhale = struct
         *  ] (var substitution)
         *    = 
         *  (a_1, ... a_k)(i, j) *)
-        let* forward_trigger_assertion =
+        let* forward_trigger_assertions =
           let inv_fn_qi = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> inv_fn_qi
             | _ -> 
@@ -4270,13 +4282,16 @@ module TrnslExhale = struct
                   ~key:(QualIdent.from_ident var_decl.var_name)
                   ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
           in
-          let expr = Expr.alpha_renaming (Expr.mk_tuple args) renaming_map 
-          
-          in
 
-          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-            (Expr.mk_eq ~loc expr (Expr.mk_tuple args))
+          List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+            let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+
+            Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+              Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+              (Expr.mk_impl 
+                (Expr.mk_and conds)
+                (Expr.mk_eq ~loc trg_term new_trg_term))
+            )
           )
         in
 
@@ -4380,7 +4395,7 @@ module TrnslExhale = struct
         in
 
         let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assert_heap_valid ]
+          stmts_list @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assert_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -4511,7 +4526,7 @@ module TrnslExhale = struct
                   *  ] (var substitution)
                   *    = 
                   *  outs(i, j) *)
-                  let* forward_trigger_assertion =
+                  let* forward_trigger_assertions =
                     let inv_fn_qi_opt = (match inv_fn_expr with
                       | App ((Expr.Var inv_fn_qi), args, _) -> 
                         Some inv_fn_qi
@@ -4523,7 +4538,7 @@ module TrnslExhale = struct
 
                     begin match inv_fn_qi_opt with
                     | None -> 
-                      Rewriter.return (Stmt.mk_skip ~loc)
+                      Rewriter.return []
 
                     | Some inv_fn_qi ->
                       let+ env_local_var_decls =
@@ -4549,13 +4564,16 @@ module TrnslExhale = struct
                               ~key:(QualIdent.from_ident var_decl.var_name)
                               ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
                       in
-                      let expr = Expr.alpha_renaming (Expr.mk_tuple actual_arg_out_exprs) renaming_map 
-                      
-                      in
+
+                      List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                        let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
             
-                      Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                        Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                        (Expr.mk_eq ~loc expr (Expr.mk_tuple actual_arg_out_exprs))
+                        Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                          Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                          (Expr.mk_impl 
+                            (Expr.mk_and conds)
+                            (Expr.mk_eq ~loc trg_term new_trg_term))
+                        )
                       )
                     end
                   in
@@ -4694,7 +4712,7 @@ module TrnslExhale = struct
 
                   let stmts_list =
                     stmts_list
-                    @ [ havoc_stmt; assume_stmt; forward_trigger_assertion; eq_stmt; assert_heap_valid ]
+                    @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assert_heap_valid ]
                   in
 
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
