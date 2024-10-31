@@ -610,7 +610,7 @@ let generate_skolem_function (universal_quants : universal_quants)
  *       }
  *     }
 *)
-let generate_utils_module ~(is_field : bool) (mod_ident : ident)
+let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident : ident)
     (ra_qual_ident : qual_ident) ?(in_arg_typ = Type.ref) (loc : location) :
     Module.symbol Rewriter.t =
   assert ((not is_field) || (is_field && Type.equal in_arg_typ Type.ref));
@@ -742,7 +742,25 @@ let generate_utils_module ~(is_field : bool) (mod_ident : ident)
     let heap_valid_inhale_fn = {
       Callable.call_decl = heap_valid_inhale_fn_decl;
       call_def = FuncDef {
-        func_body = Some heap_valid_fn_body
+        func_body = Some (
+          if is_frac_field then
+            let null_id_check =
+              Expr.mk_eq ~loc
+              (Expr.mk_maplookup ~loc
+                (Expr.from_var_decl
+                    (List.hd_exn heap_valid_fn_decl.call_decl_formals))
+                (Expr.mk_null ()))
+              (Expr.mk_var ~loc ~typ:type_tp_expr
+                (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
+            in
+
+            Expr.mk_and [
+              heap_valid_fn_body;
+              null_id_check;
+            ]
+          else
+            heap_valid_fn_body
+        )
       }
     }
       
@@ -920,11 +938,12 @@ let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t
   match symbol with
   | FieldDef f ->
       let* utils_module =
+        let is_field_def_real_heap = Rewriter.ProgUtils.is_field_def_real_heap f in
         let ra_qual_ident = Rewriter.ProgUtils.field_get_ra_qual_iden f in
         let mod_ident =
           Rewriter.ProgUtils.field_utils_module_ident f.field_loc f.field_name
         in
-        generate_utils_module ~is_field:true mod_ident ra_qual_ident f.field_loc
+        generate_utils_module ~is_field:true ~is_frac_field:is_field_def_real_heap mod_ident ra_qual_ident f.field_loc
       in
 
       let* _ =

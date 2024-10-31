@@ -1337,6 +1337,18 @@ module ProgUtils = struct
     let frac_mod_path = QualIdent.from_list (QualIdent.path field_name_qi) in
 
     QualIdent.append frac_mod_path frac_mod_ident
+  
+  let is_field_def_real_heap (fld: AstDef.Module.field_def) : bool =
+    Logs.debug (fun m -> m
+      "Rewriter.ProgUtils.is_field_def_real_heap: fld.field_type: %a"
+        AstDef.Type.pr fld.field_type
+    );
+
+    match fld.field_type with 
+    | App (Fld, [App (Var qi, [], _)], _) ->
+      let second_last_qi = QualIdent.unqualify (QualIdent.pop qi) in
+      Ident.(second_last_qi = (frac_field_to_frac_mod_ident ~loc:Loc.dummy fld.field_name fld.field_type))
+    | _ -> false 
 
   let pred_to_ra_mod_ident ~loc pred_ident =
     Ident.make loc (serialize ("PredHeapRA$" ^ Ident.to_string pred_ident)) 0
