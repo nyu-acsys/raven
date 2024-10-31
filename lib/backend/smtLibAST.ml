@@ -213,7 +213,7 @@ let rec pr_term ppf (term : term) =
           fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b)
             pr_var_decls vs pr_term f
       | _ ->
-          fprintf ppf "@[(%s @[(%a)@,(! %a %a))@]" (Expr.binder_to_string b)
+          fprintf ppf "@[(%s @[(%a)@,(! %a %a)@])@]" (Expr.binder_to_string b)
             pr_var_decls vs pr_term f pr_trgs trgs)
 
 and pr_terms ppf = function
