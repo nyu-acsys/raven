@@ -23,12 +23,12 @@ interface SearchStructureSpec {
 
   type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
-	pred opSpec(op: Op, k: K, c_in: Set[K]; c_out: Set[K], res: Bool) {
+	func opSpec(op: Op, k: K, c_in: Set[K]) returns (c_out_res: (Set[K], Bool)) {
     op == searchOp() ? 
-      c_in == c_out && res == (k in c_in) :
+      ((c_in, (k in c_in))) :
     (op == insertOp() ?
-      c_out == c_in ++ {| k |} && res == (k !in c_in) :
-      c_out == c_in -- {| k |} && res == (k in c_in))
+      ((c_in ++ {| k |}, (k !in c_in))) :
+      ((c_in -- {| k |}, (k in c_in))))
 	}
 }
 
@@ -94,7 +94,7 @@ interface NodeImpl {
     requires k in keyset(i_n)
     requires node(n, c, i_n)
     ensures node(n, c1, i_n)
-    ensures succ ==> opSpec(dop, k, c, c1, res) 
+    ensures succ ==> opSpec(dop, k, c) == ((c1, res)) 
     ensures !succ ==> c == c1
 
   proc findNext(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
@@ -499,7 +499,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
   lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
     returns (c1: Set[K])
-    requires opSpec(dop, k, c_n, c_n1, res)
+    requires opSpec(dop, k, c_n) == ((c_n1, res))
     requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
     requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
     // requires own(r, authFlow, AuthFlow_K.auth(g_i))requires own(r, authFlow, AuthFlow_K.frag(g_i))
@@ -507,24 +507,24 @@ interface GiveUpTemplate[Node: NodeImpl] {
     requires k in k_n
     requires k in keyspace
 
-    ensures opSpec(dop, k, c, c1, res)
+    ensures opSpec(dop, k, c) == ((c1, res))
     ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
     ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
   {
-    unfold opSpec(dop, k, c_n, c_n1, res);
+    //unfold opSpec(dop, k, c_n, c_n1, res);
 
-    if (dop == searchOp() || !res) {
+    if (dop == searchOp || !res) {
       c1 := c;
-      fold opSpec(dop, k, c, c1, res);
+      //fold opSpec(dop, k, c, c1, res);
     } else {
-      if (dop == insertOp()) {
+      if (dop == insertOp) {
         c1 := c ++ {| k |};
       } else {
         c1 := c -- {| k |};
       }
         
       {!
-        fold opSpec(dop, k, c, c1, res);
+        //fold opSpec(dop, k, c, c1, res);
 
         /*assert AuthKeyset_K.fpuAllowed(
           AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
@@ -549,7 +549,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     returns (res: Bool, implicit ghost cc: Set[K])
     requires k in keyspace
     atomic requires css(r, c)
-    atomic ensures css(r, cc) && opSpec(dop, k, c, cc, res)
+    atomic ensures css(r, cc) && opSpec(dop, k, c) == ((cc, res))
   {
     ghost val phi: AtomicToken := bindAU();
 
@@ -604,8 +604,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unlockNode(n);
 
       unfold globalRes(r, c1, g_i1);
-      unfold opSpec(dop, k, c_n, c_n1, res);
-      fold opSpec(dop, k, c_n, c_n1, res);
+      //unfold opSpec(dop, k, c_n, c_n1, res);
+      //fold opSpec(dop, k, c_n, c_n1, res);
 
       cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));
 

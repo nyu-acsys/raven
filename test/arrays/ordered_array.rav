@@ -118,13 +118,14 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     assert set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1);
   }
 
-  lemma map_delete_content_set(m: Map[Int, E], m1: Map[Int, E], len: Int, new_len: Int, idx: Int, k: E)
+  lemma map_delete_content_set(m: Map[Int, E], len: Int, idx: Int, k: E)
     requires sorted_map_seg(m, 0, len)
     requires idx == map_find(m, 0, len, k)
     requires 0 <= idx <= len
-    requires k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    requires k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
-    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) -- {|k|}
+    //requires k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
+    //requires k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
+    ensures set_of_map((k in set_of_map(m, 0, len) ? map_shift(m, idx + 1, idx, len - (idx + 1)) : m), 0, 
+                       (k in set_of_map(m, 0, len) ? len - 1 : len)) == set_of_map(m, 0, len) -- {|k|}
   {
     //map_find_content_set(m, 0, len, idx, k);
     //set_of_map_split(m, 0, idx, len);
@@ -132,7 +133,7 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     if (idx == len || m[idx] != k) {
       return;
     }
-
+    val m1: Map[Int, E] = map_shift(m, idx + 1, idx, len - (idx + 1));
     // prove: set_of_map(m, 0, len) -- {k} == set_of_map(m1, 0, idx - 1) ++ set_of_map(m1, idx - 1, len - 1)
     set_of_map_equal(m, m1, 0, 0, idx);
     set_of_map_equal(m, m1, idx + 1, idx, len - (idx + 1));

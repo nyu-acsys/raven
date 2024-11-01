@@ -72,7 +72,8 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     && (l > 0 ==> le(lb, kmap[0]) && lt(kmap[l-1], ub))
     // Consistency of cmap
     && (forall i: Int :: {cmap[i]} 0 <= i <= l ==> n != cmap[i])
-    && AN.injective(cmap, 0, l+1)
+    && (cmap[0] != null ==> AN.injective(cmap, 0, l+1))
+    && (cmap[0] == null ==> (forall i: Int :: {cmap[i]} 0 <= i < 2*b ==> cmap[i] == null))
     // Internal nodes don't point to null
     && (cmap[0] != null ==> (forall i: Int :: {cmap[i]} 0 <= i <= l ==> cmap[i] != null))    
   }
@@ -99,10 +100,10 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
   }
 
   // Show that if query key k is in the keyset of node x than x must be a leaf.
-  /*lemma keyset_implies_leaf(n: Ref, k: K, i: Int, 
-                            implicit ghost cmap: , implicit ghost c: Set[K])
-    exists l: Int, lb: KOption, ub: KOption, ks: AK.T, chlds: AN.T, kmap: Map[Int, K], cmap: Map[Int, Ref] ::
-    node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
+  lemma keyset_implies_leaf(n: Ref, k: K, i: Int, flow_int: Flow_K, c: Set[K],
+      implicit ghost l: Int, implicit ghost lb: KOption, implicit ghost ub: KOption, 
+      implicit ghost ks: AK.T, implicit ghost chlds: AN.T, implicit ghost kmap: Map[Int, K], implicit ghost cmap: Map[Int, Ref])
+    requires node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
     // Heap resources
     && own(n, len, l, 1.0)
     && own(n, rangeLb, lb, 1.0)
@@ -111,23 +112,34 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     && AK.sorted_array_with_content(ks, l, kmap)
     && own(n, ptrs, chlds, 1.0)
     && AN.arr(chlds, cmap)
-    requires int.inf[n][k] == 1 && (forall y: Node :: {int.out[y][k]} int.out[y][k] == 0)
-    requires (i <= 0 || O.le(x.keys[i-1], k)) && 0 <= i <= x.len
-    ensures node(x, Ix, C)
-    ensures x.ptrs[0] == null  // x is a leaf
+    requires k in keyset(flow_int)
+    requires (i <= 0 || O.le(kmap[i-1], k)) && 0 <= i <= l
+    ensures node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
+    // Heap resources
+    && own(n, len, l, 1.0)
+    && own(n, rangeLb, lb, 1.0)
+    && own(n, rangeUb, ub, 1.0)
+    && own(n, keys, ks, 1.0)
+    && AK.sorted_array_with_content(ks, l, kmap)
+    && own(n, ptrs, chlds, 1.0)
+    && AN.arr(chlds, cmap)
+    ensures cmap[0] == null  // x is a leaf
   {
-    if (x.ptrs[0] != null) {
-      if (i < x.len) {
-        if (lt(k, x.keys[i])) {
-          pure assert Ix.out[x.ptrs[i]][k] == 1;
+    assert (flow_int.inf[n])[k] == 1;
+    assert (forall y: Ref :: {outset(flow_int, y)} k !in outset(flow_int, y));
+    assert (forall y: Ref :: {(flow_int.out[y])[k]} k !in outset(flow_int, y) ==> (flow_int.out[y])[k] == 0);
+    if (cmap[0] != null) {
+      if (i < l) {
+        if (O.lt(k, kmap[i])) {
+          assert (flow_int.out[cmap[i]])[k] == 1;
         } else {
-          keyset_implies_leaf(x, Ix, k, i + 1);
+          keyset_implies_leaf(n, k, i + 1, flow_int, c);
         }
       } else {
-        pure assert Ix.out[x.ptrs[i]][k] == 1;
+        assert (flow_int.out[cmap[i]])[k] == 1;
       }
     }
-  }*/
+  }
 
 
   /*Initialize a new root node */
@@ -210,5 +222,58 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     fold node(n, c, i_n);
   }
 
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
+    requires k in keyset(i_n)
+    requires node(n, c, i_n)
+    ensures node(n, c1, i_n)
+    ensures succ ==> opSpec(dop, k, c) == ((c1, res)) 
+    ensures !succ ==> c == c1
+  {
+    unfold node(n, c, i_n);
+    var n_len : Int := n.len;
+    var n_ptrs : AN.T := n.ptrs;
+    ghost var cmap: Map[Int, Ref];
+    cmap :| AN.arr(n_ptrs, cmap);
+      
+    c1 := (opSpec(dop, k, c))#0;
+    
+    var idx: Int;
+    var new_len: Int;
+    var n_keys : AK.T := n.keys;
+    ghost var m1: Map[Int, K];
+    ghost var kmap: Map[Int, K];
+    kmap :| AK.sorted_array_with_content(n_keys, n_len, kmap);
+
+    keyset_implies_leaf(n, k, 0, i_n, c);
+
+    if (dop == searchOp) {
+      res, idx := AK.arr_find(n_keys, n_len, k);
+      fold node(n, c, i_n);
+      return true, res, c;
+    } else if (dop == insertOp) {
+      if (n_len < 2*b - 1) {
+        idx, new_len, m1 := AK.arr_insert(n_keys, k, n_len);
+        AK.map_insert_content_set(kmap, m1, idx, k, n_len, new_len);
+
+        n.len := new_len;
+        fold node(n, c1, i_n);
+        return true, new_len != n_len, c1;
+      } else {
+        fold node(n, c, i_n);
+        return false, false, c;
+      }
+    } else {
+      new_len, idx, m1 := AK.arr_delete(n_keys, k, n_len);
+
+      AK.map_delete_content_set(kmap, n_len, idx, k);
+
+      n.len := new_len;
+      
+      ghost var c1: Set[K] := (opSpec(dop, k, c))#0;
+      fold node(n, c1, i_n);
+      return true, new_len != n_len, c1;
+    }
+  }
 
 }
