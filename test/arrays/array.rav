@@ -136,11 +136,11 @@ interface Array[E: Library.Type] {
 
   func map_copy(m1: Map[Int, E], m2: Map[Int, E], src: Int, dst: Int, len: Int)
     returns (res: Map[Int, E])
-    ensures forall i: Int :: {res[i]} {m1[i]} 
-      res[i] == (dst <= i < dst + len ? m2[src + (i - dst)] : m1[i])
-  //{
-  //  {| i: Int :: dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] |}
-  //}
+    //ensures forall i: Int :: {res[i]} {m1[i]} 
+      //res[i] == (dst <= i < dst + len ? m2[src + (i - dst)] : m1[i])
+  {
+    {| i: Int :: dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] |}
+  }
 
   lemma set_of_map_equal(m1: Map[Int, E], m2: Map[Int, E], i1: Int, i2: Int, len: Int)
     requires forall j: Int :: {m1[j]} i1 <= j < i1 + len ==> m1[j] == m2[j + (i2 - i1)]
@@ -186,7 +186,6 @@ interface Array[E: Library.Type] {
         assert m == map_shift(amap, src + i + 1, dst + i + 1, len - i - 1)[dst + i := tmp];
         fold arr(a, m);
         i := i - 1;
-        //fold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
       }
     } else if (src > dst) {
       var i: Int := 0;
@@ -204,7 +203,6 @@ interface Array[E: Library.Type] {
         assert m == map_shift(amap, src, dst, i)[dst + i := tmp];
         fold arr(a, m);
         i := i + 1;
-        //fold arr(a, map_shift(amap, src, dst, i));
       }
     }
   }
@@ -229,158 +227,13 @@ interface Array[E: Library.Type] {
       fold arr(a, amap);
       unfold arr(b, map_copy(bmap, amap, src, dst, i));
       
-      var i1: Int;
-      assume 0 <= i1 < length(b);
-      ghost var v: E;
-      //v :| own(loc(b, dst + i), value, v, 1.0);
-      //v :| own(loc(b, i1), value, v, 1.0);
       
       loc(b, dst + i).value := tmp;
       ghost var m: Map[Int, E] = map_copy(bmap, amap, src, dst, i + 1);
       assert m == map_copy(bmap, amap, src, dst, i)[dst + i := tmp];
-      //assert forall j: Int :: {m[j]} (0 > j || j >= length(b)) ==> m[j] == default;
-      
-      //v :| own(loc(b, i1), value, v, 1.0);
-      
-      //exhale own(loc(b, i1), value, m[i1], 1.0);
-      //assume false;
       fold arr(b, m);
       i := i + 1;
-      //fold arr(b, map_copy(bmap, amap, src, dst, i));
     }
   }
 
-
-  /*
-  func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
-  {
-    forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
-  }
-
-  lemma sorted_injective()
-    ensures forall m: Map[Int, E], i: Int, j: Int :: {sorted_map_seg(m, i, j)}
-       sorted_map_seg(m, i, j) ==> injective(m, i, j)
-  { }
-
-  lemma not_in_sorted_seg(m: Map[Int, E], i: Int, j: Int, k: E)
-    requires sorted_map_seg(m, i, j)
-    ensures i >= j || lt(k, m[i]) || lt(m[j-1], k) ==> k !in set_of_map(m, i, j)
-  { 
-  }
-  
-
-  auto lemma map_find_content_set()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {sorted_map_seg(m, i, j), map_find(m, i, j, k)}
-      i <= j && sorted_map_seg(m, i, j) ==> 
-        k !in set_of_map(m, i, map_find(m, i, j, k)) &&
-        k !in set_of_map(m, map_find(m, i, j, k) + 1, j)
-  { }
-
-  lemma map_find_in_set(m: Map[Int, E], i: Int, j: Int, k: E)
-    requires i <= j
-    requires sorted_map_seg(m, i, j)
-    ensures k in set_of_map(m, i, j) ==> map_find(m, i, j, k) < j && m[map_find(m, i, j, k)] == k
-    ensures k !in set_of_map(m, i, j) ==> map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])
-  { 
-    //map_find_content_set(m, i, j, k);
-  }
- 
-  lemma map_insert_content_set(m: Map[Int, E], m1: Map[Int, E], idx: Int, k: E, len: Int, new_len: Int)
-    //requires sorted_map_seg(m, 0, len)
-    requires injective(m, 0, len)
-    requires idx == map_find(m, 0, len, k)
-    requires 0 <= idx <= len
-    requires k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    requires k !in set_of_map(m, 0, len) ==> new_len == len + 1 && m1 == map_shift(m, idx, idx + 1, len - idx)[idx := k]
-    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) ++ {| k |}
-  {
-    if (m[idx] == k && idx < len) {
-      //in_set_of_map(m, 0, len);
-      return;
-    }
-    //assume false;
-    var ms: Map[Int, E] := map_shift(m, idx, idx + 1, len - idx);
-
-    // prove set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_array(ms, idx + 1, len + 1);
-    
-    //set_of_map_split(m, 0, idx, len);
-    set_of_map_equal(m, ms, 0, 0, idx);
-    set_of_map_equal(m, ms, idx, idx + 1, len - idx);
-
-    // prove set_of_map(m1, 0, new_len) == set_of_array(ms, 0, idx) ++ {k} ++ set_of_map(ms, idx + 1, len + 1)
-    //frame_set_of_map(ms, 0, idx);
-    //frame_set_of_map(ms, idx + 1, len + 1);  
-    set_of_map_split(m1, 0, idx, len + 1);
-  }*/
-
-  /*
-  func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
-  {
-    forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
-  }
-
-  func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
-    /*ensures 
-      i <= j && sorted_map_seg(m, i, j) ==>
-        i <= idx <= j &&
-        (m[idx] == k || idx == j || lt(k, m[idx])) &&
-        (i < idx ==> lt(m[idx - 1], k))*/
-  {
-    i < j && lt(m[i], k) ? map_find(m, i + 1, j, k) : i  
-  }
-
-  lemma map_find_spec(m: Map[Int, E], i: Int, j: Int, k: E)
-    ensures i <= j && sorted_map_seg(m, i, j) ==>
-        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
-  {
-    if (i < j && sorted_map_seg(m, i, j)) {
-      map_find_spec(m, i+1, j, k);
-    }
-  }
-
-  auto lemma map_find_spec_auto()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
-        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
-  {
-    assert forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
-        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k)) with {
-      map_find_spec(m, i, j, k);
-    }
-  }
-
-  auto lemma sorted_injective()
-    ensures forall m: Map[Int, E], i: Int, j: Int :: {sorted_map_seg(m, i, j)}
-       sorted_map_seg(m, i, j) ==> injective(m, i, j)
-  { }
-
-  lemma map_delete_content_set(m: Map[Int, E], m1: Map[Int, E], len: Int, new_len: Int, idx: Int, k: E)
-    requires sorted_map_seg(m, 0, len)
-    requires idx == map_find(m, 0, len, k)
-    requires 0 <= idx <= len
-    requires k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    requires k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
-    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) -- {|k|}
-  {
-    //map_find_content_set(m, 0, len, idx, k);
-    //set_of_map_split(m, 0, idx, len);
-    
-    if (idx == len || m[idx] != k) {
-      return;
-    }
-
-    // prove: set_of_map(m, 0, len) -- {k} == set_of_map(m1, 0, idx - 1) ++ set_of_map(m1, idx - 1, len - 1)
-    set_of_map_equal(m, m1, 0, 0, idx);
-    set_of_map_equal(m, m1, idx + 1, idx, len - (idx + 1));
-
-    //not_in_sorted_seg(m, 0, idx - 1, k);
-    //not_in_sorted_seg(m, idx + 1, len, k);
-  
-    set_of_map_split(m1, 0, idx, len - 1);
-  }*/
 }

@@ -18,25 +18,6 @@ interface OrderedArray[E: Library.OrderedType] : Array {
        sorted_map_seg(m, i, j) ==> injective(m, i, j)
   { }
 
-  /*lemma not_in_sorted_seg(m: Map[Int, E], i: Int, j: Int, k: E, implicit ghost c: Set[E])
-    requires sorted_map_seg(m, i, j) && c == set_of_map(m, i, j)
-    ensures i >= j || lt(k, m[i]) || lt(m[j-1], k) ==> k !in c
-  {
-    /*if (i >= j) return;
-  
-    if (lt(m[j - 1], k)) {
-      extend_right(m, i, j - 1);
-      not_in_sorted_seg(m, i, j - 1, k);
-      return;
-    }
-
-    if (lt(k, m[i])) {
-      not_in_sorted_seg(m, i + 1, j, k);    
-      return;
-    }
-   */
-  }*/
-
   func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
     /*ensures 
       i <= j && sorted_map_seg(m, i, j) ==>
@@ -72,23 +53,12 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     }
   }
 
-
   auto lemma map_find_content_set()
     ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {sorted_map_seg(m, i, j), map_find(m, i, j, k)}
       i <= j && sorted_map_seg(m, i, j) ==> 
         k !in set_of_map(m, i, map_find(m, i, j, k)) &&
         k !in set_of_map(m, map_find(m, i, j, k) + 1, j)
   { }
-
-  /*lemma map_find_in_set(m: Map[Int, E], i: Int, j: Int, k: E)
-    requires i <= j
-    requires sorted_map_seg(m, i, j)
-    ensures k in set_of_map(m, i, j) ==> map_find(m, i, j, k) < j && m[map_find(m, i, j, k)] == k
-    ensures k !in set_of_map(m, i, j) ==> map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])
-  { 
-    //map_find_content_set(m, i, j, k);
-  }*/
-
 
   lemma map_insert_content_set(m: Map[Int, E], m1: Map[Int, E], idx: Int, k: E, len: Int, new_len: Int)
     requires sorted_map_seg(m, 0, len)
@@ -219,7 +189,6 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     found, i := arr_find(a, len, k, m);
 
     unfold sorted_array_with_content(a, len, m);
-    //map_find_in_set(m, 0, len, k);
     fold sorted_array_with_content(a, len, m);
     
     // k already in C?
@@ -232,7 +201,6 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     loc(a, i).value := k;
     m1 := map_shift(m, i, i + 1, len - i)[i := k];
     fold arr(a, m1);
-    //pure assert a.map == ms[i := k];
     fold sorted_array_with_content(a, len + 1, m1);
 
     return i, len + 1, m1;
