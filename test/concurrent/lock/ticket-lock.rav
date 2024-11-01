@@ -1,10 +1,16 @@
 include "lock.rav"
 
-module TicketLock[R: LockResource] : Lock {
+// tk change to module
+interface TicketLock[R: LockResource] 
+// : Lock 
+{
+  import R.resource
+  
   field next: Int
   field curr: Int
 
-  import R.resource
+  module Agree = Library.Agree[R]
+  ghost field agr: Agree
 
   module IntType : Library.Type {
     rep type T = Int
@@ -15,19 +21,23 @@ module TicketLock[R: LockResource] : Lock {
 
   ghost field tickets: ADS
 
-  pred lock_rep(l: Ref; b: Bool) {
-    exists n: Int, c: Int ::
-      n >= 0
-      && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
-      && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
-      && own(l, next, n, 1.0) 
-      && own(l, curr, c, 1.0)
+  inv lock_inv(l: Ref; r: R) {
+    // own(l, agr, Agree.agree(r)) && (
+
+      exists n: Int, c: Int, b: Bool ::
+        n >= 0
+        && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
+        && (!b ==> resource(r))
+        && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
+        && own(l, next, n, 1.0) 
+        && own(l, curr, c, 1.0)
+    // )
   }
 
   proc create(r: R)
     returns (l: Ref)
     requires resource(r)
-    ensures is_lock(l, r, false)
+    ensures lock_inv(l, r)
   {
     l := new (
       next: 0, 
@@ -36,107 +46,103 @@ module TicketLock[R: LockResource] : Lock {
       tickets: ADS.auth_frag(IntSet.set({||}), 
       IntSet.set({||}))
     );
-    fold lock_rep(l, false);
-    fold is_lock(l, r, false);
+    fold lock_inv(l, r)[b := false];
   }
 
-  proc wait_loop(l: Ref, x: Int, implicit ghost r: R, implicit ghost b: Bool)
-    atomic requires is_lock(l, r, b) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
-    atomic ensures is_lock(l, r, true) && b == false && resource(r)
+  proc wait_loop(l: Ref, x: Int, r: R)
+    atomic requires lock_inv(l, r) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
+    atomic ensures lock_inv(l, r) && resource(r)
   {
-    ghost val phi: AtomicToken := bindAU();
-    r, b := openAU(phi);
-    unfold is_lock(l, r, b);
-    unfold lock_rep(l, b);
-    val c: Int := l.curr;    
-    {!
-      ghost var n: Int;
-      n :| own(l, next, n, 1.0);
-      if (x == c) {
-        fold lock_rep(l, true);
-        fold is_lock(l, r, true);
-        commitAU(phi);                
-      } else {
-        fold lock_rep(l, b);
-        fold is_lock(l, r, b);
-        abortAU(phi);  
-      }
-    !}
+    assume false;
+    //   ghost val phi: AtomicToken := bindAU();
+    //   r, b := openAU(phi);
+    //   unfold lock_inv(l, r, b);
+    //   unfold lock_inv(l, b);
+    //   val c: Int := l.curr;    
+    //   {!
+    //     ghost var n: Int;
+    //     n :| own(l, next, n, 1.0);
+    //     if (x == c) {
+    //       fold lock_inv(l, true);
+    //       fold lock_inv(l, r, true);
+    //       commitAU(phi);                
+    //     } else {
+    //       fold lock_inv(l, b);
+    //       fold lock_inv(l, r, b);
+    //       abortAU(phi);  
+    //     }
+    //   !}
 
-    if (x == c) {
-      return;
-    } else {
-      r, b := openAU(phi);
-      wait_loop(l, x);
-      commitAU(phi);
-    }
+    //   if (x == c) {
+    //     return;
+    //   } else {
+    //     r, b := openAU(phi);
+    //     wait_loop(l, x);
+    //     commitAU(phi);
+    //   }
   }
     
-
-  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
-    atomic requires is_lock(l, r, b)
-    atomic ensures is_lock(l, r, true) && b == false && resource(r)
+  
+  proc acquire(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r)
+    ensures lock_inv(l, r) && resource(r)
   {
-    ghost val phi: AtomicToken = bindAU();
+    // ghost val phi: AtomicToken = bindAU();
         
-    r, b := openAU(phi);
-    unfold is_lock(l, r, b);
-    unfold lock_rep(l, b);
-    val x: Int := l.next;
-    fold lock_rep(l, b);
-    fold is_lock(l, r, b);
-    abortAU(phi);
+    // r, b := openAU(phi);
+    ghost var n: Int; ghost var c: Int; ghost var b: Bool;
 
-    r, b := openAU(phi);
-    unfold is_lock(l, r, b);
-    unfold lock_rep(l, b);
+    unfold lock_inv(l, r){n :| n, c :| c, b :| b};
+
+    val x: Int := l.next;
+    fold lock_inv(l, r)[n := n, c := c, b := b];
+
+    // r, b := openAU(phi);
+    // unfold lock_inv(l, r, b);
+    unfold lock_inv(l, r);
     val res: Bool := cas(l.next, x, x+1);
     {!
       if (res) {
         fpu(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})), 
                         ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})));
-        fold lock_rep(l, b);
-        fold is_lock(l, r, b);
-        abortAU(phi);
+        fold lock_inv(l, r);
       } else {
-        fold lock_rep(l, b);
-        fold is_lock(l, r, b);
-        abortAU(phi);
+        fold lock_inv(l, r);
       }
     !}
 
     if (res) {
-      r, b := openAU(phi);
-      wait_loop(l, x);
-      commitAU(phi);
+      // r, b := openAU(phi);
+      wait_loop(l, x, r);
+      // commitAU(phi);
     } else {
-      r, b := openAU(phi);
+      // r, b := openAU(phi);
       acquire(l);
-      commitAU(phi);
+      // commitAU(phi);
     }
   }
   
   
-  proc release(l: Ref, implicit ghost r: R)
-    atomic requires is_lock(l, r, true) && resource(r)
-    atomic ensures is_lock(l, r, false)
+  /*proc release(l: Ref, implicit ghost r: R)
+    atomic requires lock_inv(l, r, true) && resource(r)
+    atomic ensures lock_inv(l, r, false)
   {
     ghost val phi: AtomicToken = bindAU();  
     r := openAU(phi);
-    unfold is_lock(l, r, true);
-    unfold lock_rep(l, true);
+    unfold lock_inv(l, r, true);
+    unfold lock_inv(l, true);
     val c: Int := l.curr;
-    fold lock_rep(l, true);
-    fold is_lock(l, r, true);
+    fold lock_inv(l, true);
+    fold lock_inv(l, r, true);
     abortAU(phi);
       
     val c1: Int := c + 1;
     r := openAU(phi);
-    unfold is_lock(l, r, true);
-    unfold lock_rep(l, true);
+    unfold lock_inv(l, r, true);
+    unfold lock_inv(l, true);
     l.curr := c1;
-    fold lock_rep(l, false);
-    fold is_lock(l, r, false);
+    fold lock_inv(l, false);
+    fold lock_inv(l, r, false);
     commitAU(phi);
-  }
+  }*/
 }

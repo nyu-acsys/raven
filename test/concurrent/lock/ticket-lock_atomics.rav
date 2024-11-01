@@ -1,0 +1,142 @@
+include "lock.rav"
+
+module TicketLock[R: LockResource] : Lock {
+  field next: Int
+  field curr: Int
+
+  import R.resource
+
+  module IntType : Library.Type {
+    rep type T = Int
+  }
+
+  module IntSet = Library.DisjSet[IntType]
+  module ADS = Library.Auth[IntSet]
+
+  ghost field tickets: ADS
+
+  pred lock_rep(l: Ref; b: Bool) {
+    exists n: Int, c: Int ::
+      n >= 0
+      && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
+      && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
+      && own(l, next, n, 1.0) 
+      && own(l, curr, c, 1.0)
+  }
+
+  proc create(r: R)
+    returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r, false)
+  {
+    l := new (
+      next: 0, 
+      curr: -1, 
+      agr: Agree.agree(r), 
+      tickets: ADS.auth_frag(IntSet.set({||}), 
+      IntSet.set({||}))
+    );
+    fold lock_rep(l, false);
+    fold is_lock(l, r, false);
+  }
+
+  proc wait_loop(l: Ref, x: Int, implicit ghost r: R, implicit ghost b: Bool)
+    atomic requires is_lock(l, r, b) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
+    atomic ensures is_lock(l, r, true) && b == false && resource(r)
+  {
+    ghost val phi: AtomicToken := bindAU();
+    r, b := openAU(phi);
+    unfold is_lock(l, r, b);
+    unfold lock_rep(l, b);
+    val c: Int := l.curr;    
+    {!
+      ghost var n: Int;
+      n :| own(l, next, n, 1.0);
+      if (x == c) {
+        fold lock_rep(l, true);
+        fold is_lock(l, r, true);
+        commitAU(phi);                
+      } else {
+        fold lock_rep(l, b);
+        fold is_lock(l, r, b);
+        abortAU(phi);  
+      }
+    !}
+
+    if (x == c) {
+      return;
+    } else {
+      r, b := openAU(phi);
+      wait_loop(l, x);
+      commitAU(phi);
+    }
+  }
+    
+
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
+    atomic requires is_lock(l, r, b)
+    atomic ensures is_lock(l, r, true) && b == false && resource(r)
+  {
+    ghost val phi: AtomicToken = bindAU();
+        
+    r, b := openAU(phi);
+    unfold is_lock(l, r, b);
+    unfold lock_rep(l, b);
+    val x: Int := l.next;
+    fold lock_rep(l, b);
+    fold is_lock(l, r, b);
+    abortAU(phi);
+
+    r, b := openAU(phi);
+    unfold is_lock(l, r, b);
+    unfold lock_rep(l, b);
+    val res: Bool := cas(l.next, x, x+1);
+    {!
+      if (res) {
+        fpu(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})), 
+                        ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})));
+        fold lock_rep(l, b);
+        fold is_lock(l, r, b);
+        abortAU(phi);
+      } else {
+        fold lock_rep(l, b);
+        fold is_lock(l, r, b);
+        abortAU(phi);
+      }
+    !}
+
+    if (res) {
+      r, b := openAU(phi);
+      wait_loop(l, x);
+      commitAU(phi);
+    } else {
+      r, b := openAU(phi);
+      acquire(l);
+      commitAU(phi);
+    }
+  }
+  
+  
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, false)
+  {
+    ghost val phi: AtomicToken = bindAU();  
+    r := openAU(phi);
+    unfold is_lock(l, r, true);
+    unfold lock_rep(l, true);
+    val c: Int := l.curr;
+    fold lock_rep(l, true);
+    fold is_lock(l, r, true);
+    abortAU(phi);
+      
+    val c1: Int := c + 1;
+    r := openAU(phi);
+    unfold is_lock(l, r, true);
+    unfold lock_rep(l, true);
+    l.curr := c1;
+    fold lock_rep(l, false);
+    fold is_lock(l, r, false);
+    commitAU(phi);
+  }
+}

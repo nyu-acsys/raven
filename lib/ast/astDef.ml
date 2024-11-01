@@ -1222,6 +1222,7 @@ module Stmt = struct
     use_name : qual_ident;
     use_args : expr list;
     use_witnesses : (ident * expr) list option;
+    use_binds : (ident * ident) list option;
   }
 
   type auaction_kind =

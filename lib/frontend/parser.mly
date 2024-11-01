@@ -477,6 +477,7 @@ stmt_wo_trailing_substmt:
     use_name = Expr.to_qual_ident id; 
     use_args = es;
     use_witnesses = None;
+    use_binds = None;
   }))
 }
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN;
@@ -486,6 +487,17 @@ stmt_wo_trailing_substmt:
     use_name = Expr.to_qual_ident id; 
     use_args = es;
     use_witnesses = Some wtns;
+    use_binds = None;
+  }))
+}
+|use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN;
+  LBRACE bnds = separated_nonempty_list(COMMA, existential_binds) RBRACE SEMICOLON {
+  Stmt.(Basic (Use {
+    use_kind = use_kind; 
+    use_name = Expr.to_qual_ident id; 
+    use_args = es;
+    use_witnesses = None;
+    use_binds = Some bnds;
   }))
 }
 ;
@@ -493,6 +505,11 @@ stmt_wo_trailing_substmt:
 existential_witness:
 | x = IDENT COLONEQ e = expr {
   (x, e)
+}
+
+existential_binds:
+| bd_var = IDENT COLONPIPE exis_var = IDENT {
+  (bd_var, exis_var)
 }
 
 with_clause:
