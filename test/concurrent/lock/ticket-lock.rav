@@ -54,7 +54,7 @@ module TicketLock[R: LockResource]
     fold lock_inv(l, r)[b := false];
   }
 
-  proc wait_loop(l: Ref, x: Int, r: R)
+  proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
     requires lock_inv(l, r) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
     ensures resource(r)
   {
@@ -71,7 +71,7 @@ module TicketLock[R: LockResource]
       return;
     } else{
       fold lock_inv(l, r)[ b := b];
-      wait_loop(l, x, r);
+      wait_loop(l, x);
     }
   }
     
@@ -109,9 +109,9 @@ module TicketLock[R: LockResource]
     !}
 
     if (res) {
-      wait_loop(l, x, r);
+      wait_loop(l, x);
     } else {
-      acquire(l, r);
+      acquire(l);
     }
   }
   

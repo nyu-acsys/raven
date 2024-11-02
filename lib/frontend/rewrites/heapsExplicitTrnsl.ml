@@ -3325,7 +3325,8 @@ module TrnslExhale = struct
                               (Util.Print.pr_list_comma Expr.pr)
                               c Expr.pr e))
                        e))
-                (Map.to_alist witnesses));
+                (Map.to_alist witnesses)
+          );
 
           let* skolemized_exprs =
             Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
@@ -3606,7 +3607,7 @@ module TrnslExhale = struct
           let* symbol = Rewriter.find_and_reify (Expr.to_loc expr) qual_ident in
 
           match symbol with
-          | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred) ->
+          | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
               let pred_heap = pred_heap_name qual_ident in
               let* pred_in_types =
                 Rewriter.ProgUtils.pred_in_types qual_ident
