@@ -1332,10 +1332,24 @@ module Stmt = struct
 
     | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
     | Use use_desc ->
-      fprintf ppf "@[<2>%s %a(@[%a@])@]"
+      fprintf ppf "@[<2>%s %a(@[%a@])[%a]{%a}  @]"
         (use_kind_to_string use_desc.use_kind)
         QualIdent.pr use_desc.use_name
+
         Expr.pr_list use_desc.use_args
+
+        (Fmt.Dump.option (Util.Print.pr_list_comma (fun ppf (i,e) -> 
+          Stdlib.Format.fprintf ppf "%a := %a"
+          Ident.pr i
+          Expr.pr e
+        )))  use_desc.use_witnesses
+
+        (Fmt.Dump.option (Util.Print.pr_list_comma (fun ppf (i_b, i_e) -> 
+          Stdlib.Format.fprintf ppf "%a :| %a"
+          Ident.pr i_b
+          Ident.pr i_e
+        ))) use_desc.use_binds
+
     | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
     | Call cstm -> (
         match cstm.call_lhs with
@@ -1552,7 +1566,22 @@ module Stmt = struct
           Expr.symbols ~acc:accesses e
           
         | Use use_desc ->
-          scan_expr_list accesses use_desc.use_args
+          let accesses = scan_expr_list accesses use_desc.use_args in
+          let accesses = match use_desc.use_witnesses with
+          | None -> accesses
+          | Some use_witnesses ->
+            scan_expr_list accesses (List.map use_witnesses ~f:(fun (i_e, wtns) -> wtns))
+          in
+
+          let accesses = match use_desc.use_binds with
+            | None -> accesses
+            | Some use_binds_list ->
+              List.fold ~init:accesses use_binds_list ~f:(
+                fun acc (i_b, _i_e) -> 
+                  Set.add acc (QualIdent.from_ident i_b)
+              )
+            in
+          accesses
 
         | AUAction _ -> accesses
 
@@ -1845,7 +1874,7 @@ module Callable = struct
           fprintf ppf "returns (@[<0>%a@])" Expr.pr_var_decl_list rs
     in
     let pr_call_locals ppf = function
-      | [] -> ()
+      (* | [] -> () *)
       | ls ->
           fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
     in

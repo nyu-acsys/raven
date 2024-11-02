@@ -53,28 +53,6 @@ module TicketLock[R: LockResource]
     );
     fold lock_inv(l, r)[b := false];
   }
-
-  proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
-    requires lock_inv(l, r) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
-    ensures resource(r)
-  {
-    ghost var n: Int; ghost var c: Int; ghost var b: Bool;
-
-    unfold lock_inv(l, r){
-      b :| b, n :| n, c :| c 
-    };
-
-    val crr: Int := l.curr;
-
-    if (x == crr) {
-      fold lock_inv(l, r)[ b := true];
-      return;
-    } else{
-      fold lock_inv(l, r)[ b := b];
-      wait_loop(l, x);
-    }
-  }
-    
   
   proc acquire(l: Ref, implicit ghost r: R)
     requires lock_inv(l, r)
@@ -92,13 +70,10 @@ module TicketLock[R: LockResource]
       if (res) {
         fpu( l, tickets, 
             ADS.auth_frag(
-              IntSet.set({|i: Int :: 0 <= i && i < x|}), 
-              IntSet.set({||})
-            ), 
-            
+              IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})
+            ),
             ADS.auth_frag(
-              IntSet.set({|i: Int :: 0 <= i && i < x+1|}), 
-              IntSet.set({|x|})
+              IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})
             )
         );
 
@@ -109,7 +84,32 @@ module TicketLock[R: LockResource]
     !}
 
     if (res) {
-      wait_loop(l, x);
+      var acq_flag: Bool = false;
+
+      while(!acq_flag)
+        invariant 
+          lock_inv(l, r) && 
+          (
+            acq_flag ? 
+              resource(r) :
+              own(l, tickets, ADS.frag(  IntSet.set({| x |})  ))
+          )
+      {
+        ghost var b1: Bool;
+        unfold lock_inv(l, r) {  b1 :| b  };
+
+        var crr: Int := l.curr;
+
+        if (x != crr) {
+          fold lock_inv(l, r)[ b := b1];
+        } else {
+          fold lock_inv(l, r)[ b := true];
+          acq_flag := true;
+        }
+      }
+
+      return;
+
     } else {
       acquire(l);
     }
