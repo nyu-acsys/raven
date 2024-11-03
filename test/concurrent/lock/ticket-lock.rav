@@ -21,20 +21,20 @@ module TicketLock[R: LockResource]
 
   inv lock_inv(l: Ref; r: R) {
     own(l, agr, Agree.agree(r)) && (
-
+      
       exists n: Int, c: Int, b: Bool ::
-        own(l, next, n, 1.0) 
+        own(l, next, n, 1.0)
         && own(l, curr, c, 1.0)
         && n >= 0
         && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
         && (!b ==> resource(r))
-        && own(l, tickets, 
+        && own(l, tickets,
           ADS.auth_frag(
-            IntSet.set({| i: Int :: 0 <= i && i < n |}), 
+            IntSet.set({| i: Int :: 0 <= i && i < n |}),
             IntSet.set({||})
           )
-        ) 
-    )      
+        )
+    )
   }
 
   proc create(r: R)
@@ -43,11 +43,11 @@ module TicketLock[R: LockResource]
     ensures lock_inv(l, r)
   {
     l := new (
-      next: 0, 
-      curr: -1, 
-      agr: Agree.agree(r), 
+      next: 0,
+      curr: -1,
+      agr: Agree.agree(r),
       tickets: ADS.auth_frag(
-        IntSet.set({||}), 
+        IntSet.set({||}),
         IntSet.set({||})
       )
     );
@@ -59,16 +59,16 @@ module TicketLock[R: LockResource]
     ensures lock_inv(l, r) && resource(r)
   {
     ghost var n: Int; ghost var c: Int; ghost var b: Bool;
-
+    
     unfold lock_inv(l, r){b :| b};
     val x: Int := l.next;
     fold lock_inv(l, r)[b := b];
-
+    
     unfold lock_inv(l, r){b :| b, n :| n};
     val res: Bool := cas(l.next, x, x+1);
     {!
       if (res) {
-        fpu( l, tickets, 
+        fpu( l, tickets,
             ADS.auth_frag(
               IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})
             ),
@@ -76,7 +76,7 @@ module TicketLock[R: LockResource]
               IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})
             )
         );
-
+        
         fold lock_inv(l, r)[b := b, n := n+1];
       } else {
         fold lock_inv(l, r)[b := b];
@@ -85,36 +85,36 @@ module TicketLock[R: LockResource]
 
     if (res) {
       var acq_flag: Bool = false;
-
+      
       while(!acq_flag)
-        invariant 
-          lock_inv(l, r) && 
-          (
-            acq_flag ? 
-              resource(r) :
-              own(l, tickets, ADS.frag(  IntSet.set({| x |})  ))
-          )
+        invariant lock_inv(l, r) && (acq_flag ?
+            resource(r) :
+            
+            own(l, tickets,
+              ADS.frag(IntSet.set({| x |}))
+            )
+        )
       {
         ghost var b1: Bool;
         unfold lock_inv(l, r) {  b1 :| b  };
-
+        
         var crr: Int := l.curr;
-
+        
         if (x == crr) {
           fold lock_inv(l, r)[ b := true];
           acq_flag := true;
         } else {
-          fold lock_inv(l, r)[ b := b1];  
+          fold lock_inv(l, r)[ b := b1];
         }
       }
-
+    
       return;
-
+    
     } else {
       acquire(l);
     }
   }
-  
+
   proc release(l: Ref, implicit ghost r: R)
     requires lock_inv(l, r) && resource(r)
     ensures true
@@ -136,9 +136,9 @@ module TicketLock[R: LockResource]
     val c1: Int := c+1;
     unfold lock_inv(l, r){ b :| b};
     assert b;
-
+    
     l.curr := c1;
-
+    
     fold lock_inv(l, r)[b := false];
   }
 }
