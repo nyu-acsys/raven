@@ -21,12 +21,13 @@ module TicketLock[R: LockResource]
 
   inv lock_inv(l: Ref; r: R) {
     own(l, agr, Agree.agree(r)) && (
-      
       exists n: Int, c: Int, b: Bool ::
-        own(l, next, n, 1.0)
+        own(l, next, n, 1.0) && n >= 0
         && own(l, curr, c, 1.0)
-        && n >= 0
-        && (b ? own(l, tickets, ADS.frag(IntSet.set({|c|}))) : resource(r))
+        && (b ? 
+          own(l, tickets, ADS.frag(IntSet.set({|c|}))) :
+          resource(r)
+        )
         && own(l, tickets,
           ADS.auth_frag(
             IntSet.set({| i: Int :: 0 <= i && i < n |}),
@@ -36,18 +37,14 @@ module TicketLock[R: LockResource]
     )
   }
 
-  proc create(r: R)
-    returns (l: Ref)
+  proc create(r: R) returns (l: Ref)
     requires resource(r)
     ensures lock_inv(l, r)
   {
-    l := new (
-      next: 0,
-      curr: -1,
+    l := new (next: 0, curr: -1,
       agr: Agree.agree(r),
       tickets: ADS.auth_frag(
-        IntSet.set({||}),
-        IntSet.set({||})
+        IntSet.set({||}), IntSet.set({||})
       )
     );
     fold lock_inv(l, r)[b := false];
@@ -68,12 +65,8 @@ module TicketLock[R: LockResource]
     {!
       if (res) {
         fpu( l, tickets,
-            ADS.auth_frag(
-              IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})
-            ),
-            ADS.auth_frag(
-              IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})
-            )
+            ADS.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})  ),
+            ADS.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})  )
         );
         
         fold lock_inv(l, r)[b := b, n := n+1];
@@ -86,12 +79,13 @@ module TicketLock[R: LockResource]
       var acq_flag: Bool = false;
       
       while(!acq_flag)
-        invariant lock_inv(l, r) && (acq_flag ?
-            resource(r) :
+        invariant lock_inv(l, r) && (
+          acq_flag ?
+              resource(r) :
             
-            own(l, tickets,
-              ADS.frag(IntSet.set({| x |}))
-            )
+              own(l, tickets,
+                ADS.frag(IntSet.set({| x |}))
+              )
         )
       {
         ghost var b1: Bool;
