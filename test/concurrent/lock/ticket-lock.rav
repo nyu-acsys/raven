@@ -26,8 +26,7 @@ module TicketLock[R: LockResource]
         own(l, next, n, 1.0)
         && own(l, curr, c, 1.0)
         && n >= 0
-        && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
-        && (!b ==> resource(r))
+        && (b ? own(l, tickets, ADS.frag(IntSet.set({|c|}))) : resource(r))
         && own(l, tickets,
           ADS.auth_frag(
             IntSet.set({| i: Int :: 0 <= i && i < n |}),
@@ -135,8 +134,7 @@ module TicketLock[R: LockResource]
     
     val c1: Int := c+1;
     unfold lock_inv(l, r){ b :| b};
-    assert b;
-    
+
     l.curr := c1;
     
     fold lock_inv(l, r)[b := false];
