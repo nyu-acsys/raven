@@ -34,7 +34,7 @@ module TicketLock[R: LockResource]
             IntSet.set({||})
           )
         ) 
-    )
+    )      
   }
 
   proc create(r: R)
@@ -100,11 +100,11 @@ module TicketLock[R: LockResource]
 
         var crr: Int := l.curr;
 
-        if (x != crr) {
-          fold lock_inv(l, r)[ b := b1];
-        } else {
+        if (x == crr) {
           fold lock_inv(l, r)[ b := true];
           acq_flag := true;
+        } else {
+          fold lock_inv(l, r)[ b := b1];  
         }
       }
 
