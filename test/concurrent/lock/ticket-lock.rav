@@ -52,7 +52,7 @@ module TicketLock[R: LockResource]
   
   proc acquire(l: Ref, implicit ghost r: R)
     requires lock_inv(l, r)
-    ensures lock_inv(l, r) && resource(r)
+    ensures resource(r)
   {
     ghost var n: Int; ghost var c: Int; ghost var b: Bool;
     
