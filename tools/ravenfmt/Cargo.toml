@@ -1,0 +1,14 @@
+[package]
+name = "ravenfmt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tree-sitter-raven = { path = "../tree-sitter-raven/" }
+topiary-core = { git = "https://github.com/tweag/topiary.git", tag = "v0.5.1" }
+topiary-tree-sitter-facade = { git = "https://github.com/tweag/topiary.git", tag = "v0.5.1" }
+tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter.git", tag = "v0.22.6" }
+clap = { version = "4.5.20", features = ["derive"] }
+string-builder = "0.2.0"
+walkdir = "2.5.0"
+

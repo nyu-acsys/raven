@@ -1,0 +1,9 @@
+[workspace]
+members = [
+  "tools/tree-sitter-raven",
+  "tools/ravenfmt"
+]
+resolver = "2"
+
+[patch.crates-io]
+tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter.git", tag = "v0.22.6" }
