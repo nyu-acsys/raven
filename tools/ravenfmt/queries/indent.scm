@@ -62,6 +62,8 @@
   (seperator)
 ] @append_space
 
+(comment) @append_hardline @allow_blank_line_before
+
 ; Input softlines before and after all comments. This means that the input
 ; decides if a comment should have line breaks before or after. A line comment
 ; always ends with a line break.
@@ -90,6 +92,13 @@
     (block_comment)
     (comment)
   ]* @do_nothing
+)
+
+; Put breaks between defns
+(
+ (defn)
+ .
+ (defn) @prepend_hardline
 )
 
 (block_comment) @multi_line_indent_all
@@ -124,30 +133,30 @@
 ; )
 ; Perhaps even the built in #match! can do this
 
-(module_defn name: (identifier) @prepend_space)
-(func_defn name: (identifier) @prepend_space)
-(axiom_defn name: (identifier) @prepend_space)
-(lemma_defn name: (identifier) @prepend_space)
-(pred_defn name: (identifier) @prepend_space)
-(proc_defn name: (identifier) @prepend_space)
+(module_defn name: (identifier) @prepend_space @append_indent_start)
+(func_defn name: (identifier) @prepend_space @append_indent_start)
+(axiom_defn name: (identifier) @prepend_space @append_indent_start)
+(lemma_defn name: (identifier) @prepend_space @append_indent_start)
+(pred_defn name: (identifier) @prepend_space @append_indent_start)
+(proc_defn name: (identifier) @prepend_space @append_indent_start)
 (case_defn) @prepend_spaced_softline
 
 
 (func_defn returns: (returns_clause) @prepend_space)
 (proc_defn returns: (returns_clause) @prepend_space)
 
-(axiom_defn io: (io_spec_clause) @prepend_space)
-(lemma_defn io: (io_spec_clause) @prepend_space)
-(proc_defn io: (io_spec_clause) @prepend_space)
+(axiom_defn io: (io_spec_clause) @prepend_spaced_softline)
+(lemma_defn io: (io_spec_clause) @prepend_spaced_softline)
+(proc_defn io: (io_spec_clause) @prepend_spaced_softline)
 
-(module_defn body: (interface_body) @prepend_space)
-(interface_defn body: (interface_body) @prepend_space)
-(data_defn body: (data_body) @prepend_space)
-(data_defn body: (data_body case: (case_defn) @append_spaced_softline))
-(func_defn body: (proc_body) @prepend_space)
-(lemma_defn body: (proc_body) @prepend_space)
-(proc_defn body: (proc_body) @prepend_space)
-(pred_defn body: (pred_body) @prepend_space)
+(module_defn body: (interface_body) @prepend_indent_end @prepend_space)
+(interface_defn body: (interface_body) @prepend_indent_end @prepend_space)
+(data_defn body: (data_body) @prepend_indent_end @prepend_space)
+(data_defn body: (data_body case: (case_defn) @append_spaced_softline) )
+(func_defn body: (proc_body) @prepend_space @prepend_indent_end)
+(lemma_defn body: (proc_body) @prepend_space @prepend_indent_end)
+(proc_defn body: (proc_body) @prepend_space @prepend_indent_end)
+(pred_defn body: (pred_body) @prepend_space @prepend_indent_end)
 
 (data_defn (lcurly) @append_spaced_softline @append_indent_start)
 (data_defn (rcurly) @prepend_spaced_softline @prepend_indent_end)
@@ -170,14 +179,15 @@
   _
   (rcurly) @prepend_spaced_softline @prepend_indent_end
   .)
-(map_literal
-  .
-  (map_literal_l) @append_spaced_softline @append_indent_start
-  _
-  (map_literal_r) @prepend_spaced_softline @prepend_indent_end
-  .)
-
+(map_literal_l) @append_spaced_softline @append_indent_start
+(map_literal_r) @prepend_spaced_softline @prepend_indent_end
 
 (arg vartype: (type) @prepend_space)
+
+; Make the invariant clauses spaced
+(while_stmt . (kwd_while) @append_indent_start)
+(while_stmt (invariant_spec_clause) @prepend_spaced_softline)
+; Make the last invariant clause unindented
+(while_stmt (invariant_spec_clause) @prepend_indent_end .)
 
 [ (seperator) (end_stmt)] @prepend_antispace

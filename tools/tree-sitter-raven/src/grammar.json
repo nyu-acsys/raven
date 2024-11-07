@@ -1690,6 +1690,28 @@
           "name": "map_literal_l"
         },
         {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "map_literal_id"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "map_literal_expr"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "map_literal_r"
+        }
+      ]
+    },
+    "map_literal_id": {
+      "type": "SEQ",
+      "members": [
+        {
           "type": "SYMBOL",
           "name": "identifier"
         },
@@ -1713,33 +1735,12 @@
               "type": "BLANK"
             }
           ]
-        },
-        {
-          "type": "CHOICE",
-          "members": [
-            {
-              "type": "SEQ",
-              "members": [
-                {
-                  "type": "SYMBOL",
-                  "name": "coloncolon"
-                },
-                {
-                  "type": "SYMBOL",
-                  "name": "expr"
-                }
-              ]
-            },
-            {
-              "type": "BLANK"
-            }
-          ]
-        },
-        {
-          "type": "SYMBOL",
-          "name": "map_literal_r"
         }
       ]
+    },
+    "map_literal_expr": {
+      "type": "SYMBOL",
+      "name": "expr"
     },
     "update": {
       "type": "PREC",
@@ -3055,6 +3056,10 @@
     [
       "assign_stmt",
       "value"
+    ],
+    [
+      "map_literal_id",
+      "location"
     ]
   ],
   "precedences": [],

@@ -376,7 +376,9 @@ module.exports = grammar({
     expr: ($) => choice($.value, $.unop, $.binop, $.ternary_op, $.quantified_expr, $.paren_expr, $.apply, $.update, $.lookup, $.map_literal),
     map_literal_l: (_) => LMAP_LITERAL,
     map_literal_r: (_) => RMAP_LITERAL,
-    map_literal: ($) => seq($.map_literal_l, $.identifier, optional(seq($.colon, $.type)), optional(seq($.coloncolon, $.expr)), $.map_literal_r),
+    map_literal: ($) => seq($.map_literal_l, choice($.map_literal_id, $.map_literal_expr), $.map_literal_r),
+    map_literal_id: ($) => seq($.identifier, optional(seq($.colon, $.type))),
+    map_literal_expr: ($) => $.expr,
     update: ($) => prec(8, seq($.expr, token("["), $.expr, $.coloneq, $.expr, token("]"))),
     apply: ($) => prec(10, seq(field("callee", $.expr), $.lparen, repeat(seq($.expr, $.seperator)), optional($.expr), $.rparen)),
     lookup: ($) => prec(9, seq($.expr, token("["), repeat(seq($.expr, $.seperator)), optional($.expr), token("]"))),
@@ -453,7 +455,7 @@ module.exports = grammar({
     comment_text: $ => repeat1(choice(/.|\n|\r/)),
     comment: _ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/),
   },
-  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value]],
+  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value], [$.map_literal_id, $.location]],
 });
 
 const AU = token("au");
@@ -476,6 +478,3 @@ const REF = token("Ref");
 const REAL = token("Real");
 const SUBSETEQ = token("subseteq");
 const SET = token("Set");
-
-
-

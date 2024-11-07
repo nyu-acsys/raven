@@ -1251,19 +1251,11 @@
       "required": true,
       "types": [
         {
-          "type": "colon",
+          "type": "map_literal_expr",
           "named": true
         },
         {
-          "type": "coloncolon",
-          "named": true
-        },
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "identifier",
+          "type": "map_literal_id",
           "named": true
         },
         {
@@ -1272,6 +1264,40 @@
         },
         {
           "type": "map_literal_r",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "map_literal_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "map_literal_id",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "colon",
+          "named": true
+        },
+        {
+          "type": "identifier",
           "named": true
         },
         {
