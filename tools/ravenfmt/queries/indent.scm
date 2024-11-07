@@ -15,7 +15,7 @@
 
 ; Surround spaces
 [
-  (binop_op) (unop_op)
+  (binop_op)
   (qmark) (ternary_colon)
   (kwd_import)
   (kwd_field)
@@ -135,13 +135,18 @@
 (interface_defn parameters: (type_cons) @append_indent_start)
 (module_defn parameters: (type_cons) @append_indent_start)
 (module_defn name: (identifier) @prepend_space @append_indent_start)
-(func_defn name: (identifier) @prepend_space @append_indent_start)
-(axiom_defn name: (identifier) @prepend_space @append_indent_start)
-(lemma_defn name: (identifier) @prepend_space @append_indent_start)
-(pred_defn name: (identifier) @prepend_space @append_indent_start)
-(proc_defn name: (identifier) @prepend_space @append_indent_start)
-(rep_defn name: (identifier) @append_indent_start)
+(interface_defn typecons: ((colon) (type) @prepend_space))
+(module_defn typecons: ((colon) (type) @prepend_space))
+
+(func_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
+
+(axiom_defn name: (identifier) @prepend_space @append_indent_start _ @append_indent_end .)
+(lemma_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
+(pred_defn name: (identifier) @prepend_space @append_indent_start (pred_body))
+(proc_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
+(rep_defn name: (identifier) @append_indent_start (data_defn))
 (case_defn) @prepend_spaced_softline
+
 
 
 (func_defn returns: (returns_clause) @prepend_space)
@@ -194,7 +199,7 @@
 (while_stmt . (kwd_while) @append_indent_start)
 (while_stmt (invariant_spec_clause) @prepend_spaced_softline)
 ; Make the last invariant clause unindented
-(while_stmt (invariant_spec_clause) @prepend_indent_end .)
+(while_stmt (proc_body) @prepend_indent_end .)
 
 (type_cons) @prepend_antispace
 [ (seperator) (end_stmt) ] @prepend_antispace
