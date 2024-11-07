@@ -139,6 +139,7 @@
 (lemma_defn name: (identifier) @prepend_space @append_indent_start)
 (pred_defn name: (identifier) @prepend_space @append_indent_start)
 (proc_defn name: (identifier) @prepend_space @append_indent_start)
+(rep_defn name: (identifier) @append_indent_start)
 (case_defn) @prepend_spaced_softline
 
 

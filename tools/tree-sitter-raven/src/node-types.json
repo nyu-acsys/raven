@@ -641,11 +641,7 @@
       "required": true,
       "types": [
         {
-          "type": "colon",
-          "named": true
-        },
-        {
-          "type": "identifier",
+          "type": "arg",
           "named": true
         },
         {

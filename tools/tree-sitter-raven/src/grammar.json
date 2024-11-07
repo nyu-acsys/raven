@@ -908,15 +908,7 @@
         },
         {
           "type": "SYMBOL",
-          "name": "identifier"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "colon"
-        },
-        {
-          "type": "SYMBOL",
-          "name": "identifier"
+          "name": "arg"
         }
       ]
     },
