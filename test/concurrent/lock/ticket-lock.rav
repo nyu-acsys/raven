@@ -1,35 +1,34 @@
 include "lock.rav"
 
-module TicketLock[R: LockResource] 
-{
+module TicketLock[R: LockResource] {
   import R.resource
   
   field next: Int
   field curr: Int
 
-  module Agree = Library.Agree[R]
-  ghost field agr: Agree
+  module Agree_R = Library.Agree[R]
+  ghost field agr: Agree_R
 
   module IntType : Library.Type {
     rep type T = Int
   }
 
   module IntSet = Library.DisjSet[IntType]
-  module ADS = Library.Auth[IntSet]
-
-  ghost field tickets: ADS
+  module AuthDisjInts = Library.Auth[IntSet]
+ 
+  ghost field tickets: AuthDisjInts
 
   inv lock_inv(l: Ref; r: R) {
-    own(l, agr, Agree.agree(r)) && (
+    own(l, agr, Agree_R.agree(r)) && (
       exists n: Int, c: Int, b: Bool ::
         own(l, next, n, 1.0) && n >= 0
         && own(l, curr, c, 1.0)
         && (b ? 
-          own(l, tickets, ADS.frag(IntSet.set({|c|}))) :
+          own(l, tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
           resource(r)
         )
         && own(l, tickets,
-          ADS.auth_frag(
+          AuthDisjInts.auth_frag(
             IntSet.set({| i: Int :: 0 <= i && i < n |}),
             IntSet.set({||})
           )
@@ -42,8 +41,8 @@ module TicketLock[R: LockResource]
     ensures lock_inv(l, r)
   {
     l := new (next: 0, curr: -1,
-      agr: Agree.agree(r),
-      tickets: ADS.auth_frag(
+      agr: Agree_R.agree(r),
+      tickets: AuthDisjInts.auth_frag(
         IntSet.set({||}), IntSet.set({||})
       )
     );
@@ -54,42 +53,41 @@ module TicketLock[R: LockResource]
     requires lock_inv(l, r)
     ensures resource(r)
   {
-    ghost var n: Int; ghost var c: Int; ghost var b: Bool;
+    ghost var lockAcq: Bool;
     
-    unfold lock_inv(l, r){b :| b};
+    unfold lock_inv(l, r){lockAcq :| b};
     val x: Int := l.next;
-    fold lock_inv(l, r)[b := b];
+    fold lock_inv(l, r)[b := lockAcq];
     
-    unfold lock_inv(l, r){b :| b, n :| n};
+    unfold lock_inv(l, r){lockAcq :| b};
     val res: Bool := cas(l.next, x, x+1);
     {!
-      if (res) {
-        fpu( l, tickets,
-            ADS.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})  ),
-            ADS.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})  )
-        );
-        
-        fold lock_inv(l, r)[b := b, n := n+1];
+      if (!res) {
+        fold lock_inv(l, r)[b := lockAcq];
       } else {
-        fold lock_inv(l, r)[b := b];
+        fpu( l, tickets,
+            AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < x|}), IntSet.set({||})  ),
+            AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < x+1|}), IntSet.set({|x|})  )
+        );
+
+        fold lock_inv(l, r)[b := lockAcq];
       }
     !}
 
-    if (res) {
+    if (!res) {
+      acquire(l);
+    } else {
       var acq_flag: Bool = false;
       
       while(!acq_flag)
         invariant lock_inv(l, r) && (
-          acq_flag ?
-              resource(r) :
-            
-              own(l, tickets,
-                ADS.frag(IntSet.set({| x |}))
-              )
+          acq_flag ? resource(r) :
+            own(l, tickets, 
+              AuthDisjInts.frag(IntSet.set({|x|}))  )
         )
       {
-        ghost var b1: Bool;
-        unfold lock_inv(l, r) {  b1 :| b  };
+        ghost var lockAcq1: Bool;
+        unfold lock_inv(l, r) {  lockAcq1 :| b  };
         
         var crr: Int := l.curr;
         
@@ -97,37 +95,32 @@ module TicketLock[R: LockResource]
           fold lock_inv(l, r)[ b := true];
           acq_flag := true;
         } else {
-          fold lock_inv(l, r)[ b := b1];
+          fold lock_inv(l, r)[ b := lockAcq1];
         }
       }
     
       return;
-    
-    } else {
-      acquire(l);
-    }
+    } 
   }
 
   proc release(l: Ref, implicit ghost r: R)
     requires lock_inv(l, r) && resource(r)
     ensures true
-    // the spec for release is not ideal
   {
-    ghost var n: Int; ghost var c: Int; ghost var b: Bool;
+    ghost var lockAcq: Bool;
     
-    unfold lock_inv(l, r){ b :| b };
-    {!
-      assert b with {
-        if(!b) {
-          R.exclusive(r);
-        }
+    unfold lock_inv(l, r){ lockAcq :| b };
+    {! 
+      assert lockAcq with {
+        if(!lockAcq) {R.exclusive(r);}
       }
     !}
+    
     val crr: Int := l.curr;
     fold lock_inv(l, r)[b := true];
     
-    val c1: Int := c+1;
-    unfold lock_inv(l, r){ b :| b};
+    val c1: Int := crr+1;
+    unfold lock_inv(l, r);
 
     l.curr := c1;
     
