@@ -1,0 +1,25 @@
+field f1: Int
+ghost field g1: Int
+
+inv inv1() { true }
+
+proc p1(x: Ref) 
+    requires inv1()
+    requires exists nn:Int :: own(x, f1, nn, 1.0)
+    requires exists nn:Int :: own(x, g1, nn, 1.0)
+{
+    unfold inv1();
+        ghost var gv0: Int := 0;
+
+        // This field read is the concrete atomic step
+        var f: Int := x.f1;
+
+        // The following commands are all allowed before folding the invariant,
+        // since they are all writes to ghost variables or ghost fields.
+        x.g1 := 4;
+        ghost var gv1: Int := 0;
+        gv0 := 1;
+        {! x.g1 := 4; gv1 := 2; !}
+        
+    fold inv1();
+}
