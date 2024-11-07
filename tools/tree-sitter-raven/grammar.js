@@ -161,6 +161,7 @@ const keywords = {
   "returns": ["returns"],
   "return": ["return"],
   "val": ["val"],
+  "own": ["own"],
   ";": [";"],
   ",": [","],
   ".": ["."],
@@ -186,6 +187,7 @@ const keywords = {
   "type": ["type"],
   "data": ["data"],
   "case": ["case"],
+  "inhale": ["inhale"],
   "lmap_literal": ["{|"],
   "rmap_literal": ["|}"],
   "qmark": ["?"]
@@ -248,6 +250,8 @@ const RMAP_LITERAL = into_tokens("rmap_literal");
 const LPAREN = into_tokens("lparen");
 const RPAREN = into_tokens("rparen");
 const QMARK = into_tokens("qmark");
+const INHALE = into_tokens("inhale");
+const OWN = into_tokens("own");
 
 /* constants */
 const SEPERATOR = choice(token(","), token(";"))
@@ -316,6 +320,7 @@ module.exports = grammar({
       seq($.kwd_func,
         field("name", $.identifier),
         field("parameters", $.arglist),
+        field("io", repeat($.io_spec_clause)),
         field("returns", $.returns_clause),
         field("body", optional($.proc_body))),
     axiom_defn: ($) =>
@@ -343,11 +348,11 @@ module.exports = grammar({
         repeat(choice(field("io", $.io_spec_clause),
           field("returns", $.returns_clause))),
         optional(field("body", $.proc_body))),
-    type_con: ($) => seq($.identifier, token(":"), $.identifier),
+    type_con: ($) => seq(field("subtype", $.identifier), token(":"), field("supertype", $.identifier)),
     type_cons: ($) => seq(token("["), repeat($.type_con), token("]")),
     val_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_val, $.arg, optional(seq(choice($.coloneq, $.eq), $.expr))),
     field_defn: ($) => seq($.kwd_field, $.arg),
-    io_spec_clause: ($) => choice(seq($.kwd_requires, $.expr), seq($.kwd_ensures, $.expr)),
+    io_spec_clause: ($) => seq(choice($.kwd_requires, $.kwd_ensures, $.kwd_inhale), $.expr),
     returns_clause: ($) => seq($.kwd_returns, field("arglist", $.arglist)),
     stmt: ($) => choice($.stmt_syntax, $.call),
     proc_body: ($) => choice(seq($.lcurly, repeat(seq($.stmt, optional($.end_stmt))), $.rcurly), $.stmt),
@@ -373,13 +378,14 @@ module.exports = grammar({
     type_application: ($) => seq(field("ty_name", $.identifier), token("["), $.typelist, token("]")),
     typelist: ($) => seq(repeat(seq($.type, $.seperator)), $.type),
     pred_body: ($) => seq($.lcurly, $.expr, $.rcurly),
-    expr: ($) => choice($.value, $.unop, $.binop, $.ternary_op, $.quantified_expr, $.paren_expr, $.apply, $.update, $.lookup, $.map_literal),
+    expr: ($) => choice($.value, $.unop, $.binop, $.ternary_op, $.quantified_expr, $.paren_expr, $.apply, $.update, $.lookup, $.map_literal, $.own),
     map_literal_l: (_) => LMAP_LITERAL,
     map_literal_r: (_) => RMAP_LITERAL,
-    map_literal: ($) => seq($.map_literal_l, choice($.map_literal_id, $.map_literal_expr), $.map_literal_r),
+    map_literal: ($) => seq($.map_literal_l, optional(choice($.map_literal_id, $.map_literal_expr)), $.map_literal_r),
     map_literal_id: ($) => seq($.identifier, optional(seq($.colon, $.type))),
     map_literal_expr: ($) => $.expr,
     update: ($) => prec(8, seq($.expr, token("["), $.expr, $.coloneq, $.expr, token("]"))),
+    own: ($) => prec(10, seq($.kwd_own, $.lparen, repeat(seq($.expr, $.seperator)), optional($.expr), $.rparen)),
     apply: ($) => prec(10, seq(field("callee", $.expr), $.lparen, repeat(seq($.expr, $.seperator)), optional($.expr), $.rparen)),
     lookup: ($) => prec(9, seq($.expr, token("["), repeat(seq($.expr, $.seperator)), optional($.expr), token("]"))),
     paren_expr: ($) => prec(3, seq($.lparen, $.expr, $.rparen)),
@@ -412,6 +418,7 @@ module.exports = grammar({
     eq: ($) => EQ,
     end_stmt: ($) => END_STMT,
     /* KEYWORDS */
+    kwd_own: ($) => OWN,
     kwd_import: ($) => IMPORT,
     kwd_field: ($) => FIELD,
     kwd_pred: ($) => PRED,
@@ -445,6 +452,7 @@ module.exports = grammar({
     kwd_lemma: ($) => LEMMA,
     kwd_axiom: ($) => AXIOM,
     kwd_func: ($) => FUNC,
+    kwd_inhale: ($) => INHALE,
     /* COMMENTS */
     // borrowing from the C99 parser
     block_comment: ($) => seq(
@@ -466,13 +474,11 @@ const CAS = token("cas");
 const CLOSEINV = token("closeInv");
 const EXHALE = token("exhale");
 const INT = token("Int");
-const INHALE = token("inhale");
 const INV = token("inv");
 const MAP = token("Map");
 const NEW = token("new");
 const NULL = token("null");
 const OPENINV = token("openInv");
-const OWN = token("own");
 const PERM = token("Perm");
 const REF = token("Ref");
 const REAL = token("Real");

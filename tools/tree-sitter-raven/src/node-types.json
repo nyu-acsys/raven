@@ -606,6 +606,10 @@
           "named": true
         },
         {
+          "type": "own",
+          "named": true
+        },
+        {
           "type": "paren_expr",
           "named": true
         },
@@ -680,6 +684,16 @@
         "types": [
           {
             "type": "proc_body",
+            "named": true
+          }
+        ]
+      },
+      "io": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "io_spec_clause",
             "named": true
           }
         ]
@@ -948,6 +962,10 @@
           "named": true
         },
         {
+          "type": "kwd_inhale",
+          "named": true
+        },
+        {
           "type": "kwd_requires",
           "named": true
         }
@@ -1030,6 +1048,11 @@
     "fields": {}
   },
   {
+    "type": "kwd_inhale",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "kwd_interface",
     "named": true,
     "fields": {}
@@ -1051,6 +1074,11 @@
   },
   {
     "type": "kwd_module",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_own",
     "named": true,
     "fields": {}
   },
@@ -1377,6 +1405,37 @@
     "type": "number",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "own",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_own",
+          "named": true
+        },
+        {
+          "type": "lparen",
+          "named": true
+        },
+        {
+          "type": "rparen",
+          "named": true
+        },
+        {
+          "type": "seperator",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "paren_expr",
@@ -1972,16 +2031,27 @@
   {
     "type": "type_con",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "identifier",
-          "named": true
-        }
-      ]
+    "fields": {
+      "subtype": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "supertype": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      }
     }
   },
   {
@@ -2460,6 +2530,10 @@
     "named": false
   },
   {
+    "type": "inhale",
+    "named": false
+  },
+  {
     "type": "interface",
     "named": false
   },
@@ -2473,6 +2547,10 @@
   },
   {
     "type": "module",
+    "named": false
+  },
+  {
+    "type": "own",
     "named": false
   },
   {

@@ -569,6 +569,17 @@
         },
         {
           "type": "FIELD",
+          "name": "io",
+          "content": {
+            "type": "REPEAT",
+            "content": {
+              "type": "SYMBOL",
+              "name": "io_spec_clause"
+            }
+          }
+        },
+        {
+          "type": "FIELD",
           "name": "returns",
           "content": {
             "type": "SYMBOL",
@@ -807,8 +818,12 @@
       "type": "SEQ",
       "members": [
         {
-          "type": "SYMBOL",
-          "name": "identifier"
+          "type": "FIELD",
+          "name": "subtype",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
         },
         {
           "type": "TOKEN",
@@ -818,8 +833,12 @@
           }
         },
         {
-          "type": "SYMBOL",
-          "name": "identifier"
+          "type": "FIELD",
+          "name": "supertype",
+          "content": {
+            "type": "SYMBOL",
+            "name": "identifier"
+          }
         }
       ]
     },
@@ -913,10 +932,10 @@
       ]
     },
     "io_spec_clause": {
-      "type": "CHOICE",
+      "type": "SEQ",
       "members": [
         {
-          "type": "SEQ",
+          "type": "CHOICE",
           "members": [
             {
               "type": "SYMBOL",
@@ -924,22 +943,17 @@
             },
             {
               "type": "SYMBOL",
-              "name": "expr"
-            }
-          ]
-        },
-        {
-          "type": "SEQ",
-          "members": [
-            {
-              "type": "SYMBOL",
               "name": "kwd_ensures"
             },
             {
               "type": "SYMBOL",
-              "name": "expr"
+              "name": "kwd_inhale"
             }
           ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "expr"
         }
       ]
     },
@@ -1647,6 +1661,10 @@
         {
           "type": "SYMBOL",
           "name": "map_literal"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "own"
         }
       ]
     },
@@ -1685,12 +1703,20 @@
           "type": "CHOICE",
           "members": [
             {
-              "type": "SYMBOL",
-              "name": "map_literal_id"
+              "type": "CHOICE",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "map_literal_id"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "map_literal_expr"
+                }
+              ]
             },
             {
-              "type": "SYMBOL",
-              "name": "map_literal_expr"
+              "type": "BLANK"
             }
           ]
         },
@@ -1769,6 +1795,55 @@
               "type": "STRING",
               "value": "]"
             }
+          }
+        ]
+      }
+    },
+    "own": {
+      "type": "PREC",
+      "value": 10,
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "kwd_own"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "lparen"
+          },
+          {
+            "type": "REPEAT",
+            "content": {
+              "type": "SEQ",
+              "members": [
+                {
+                  "type": "SYMBOL",
+                  "name": "expr"
+                },
+                {
+                  "type": "SYMBOL",
+                  "name": "seperator"
+                }
+              ]
+            }
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "SYMBOL",
+                "name": "expr"
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          },
+          {
+            "type": "SYMBOL",
+            "name": "rparen"
           }
         ]
       }
@@ -2368,7 +2443,7 @@
             "type": "TOKEN",
             "content": {
               "type": "PATTERN",
-              "value": "[A-Z_-_b-bj-kn-oq-qs-sx-z][a-zA-Z0-9_]*|f[0-9A-Z_-_b-hj-np-tv-z][a-zA-Z0-9_]*|fi[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|fie[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fiel[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|field[0-9A-Z_-_a-z][a-zA-Z0-9_]*|field[A-Za-z0-9_]+|fo[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|for[0-9A-Z_-_b-z][a-zA-Z0-9_]*|fora[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|foral[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|forall[0-9A-Z_-_a-z][a-zA-Z0-9_]*|forall[A-Za-z0-9_]+|fol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|fold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|fold[A-Za-z0-9_]+|fa[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fal[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|fals[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|false[0-9A-Z_-_a-z][a-zA-Z0-9_]*|false[A-Za-z0-9_]+|fu[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|fun[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|func[0-9A-Z_-_a-z][a-zA-Z0-9_]*|func[A-Za-z0-9_]+|p[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|pr[0-9A-Z_-_a-df-np-z][a-zA-Z0-9_]*|pre[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|pred[0-9A-Z_-_a-z][a-zA-Z0-9_]*|pred[A-Za-z0-9_]+|pro[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|proc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|proc[A-Za-z0-9_]+|e[0-9A-Z_-_a-km-mo-wy-z][a-zA-Z0-9_]*|ex[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|exi[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exis[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|exist[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exists[0-9A-Z_-_a-z][a-zA-Z0-9_]*|exists[A-Za-z0-9_]+|en[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ens[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|ensu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|ensur[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|ensure[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ensures[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ensures[A-Za-z0-9_]+|el[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|els[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|else[0-9A-Z_-_a-z][a-zA-Z0-9_]*|else[A-Za-z0-9_]+|t[0-9A-Z_-_a-qs-xz-z][a-zA-Z0-9_]*|tr[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|tru[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|true[0-9A-Z_-_a-z][a-zA-Z0-9_]*|true[A-Za-z0-9_]+|ty[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|typ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|type[0-9A-Z_-_a-z][a-zA-Z0-9_]*|type[A-Za-z0-9_]+|i[0-9A-Z_-_a-eg-lo-z][a-zA-Z0-9_]*|in[0-9A-Z_-_a-bd-su-uw-z][a-zA-Z0-9_]*|inv[0-9A-Z_-_b-z][a-zA-Z0-9_]*|inva[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|invar[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|invari[0-9A-Z_-_b-z][a-zA-Z0-9_]*|invaria[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|invarian[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|invariant[0-9A-Z_-_a-z][a-zA-Z0-9_]*|invariant[A-Za-z0-9_]+|inc[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|incl[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|inclu[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|includ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|include[0-9A-Z_-_a-z][a-zA-Z0-9_]*|include[A-Za-z0-9_]+|int[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|inte[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|inter[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|interf[0-9A-Z_-_b-z][a-zA-Z0-9_]*|interfa[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|interfac[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|interface[0-9A-Z_-_a-z][a-zA-Z0-9_]*|interface[A-Za-z0-9_]+|if[0-9A-Z_-_a-z][a-zA-Z0-9_]*|if[A-Za-z0-9_]+|im[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|imp[0-9A-Z_-_a-km-np-z][a-zA-Z0-9_]*|impo[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|impor[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|import[0-9A-Z_-_a-z][a-zA-Z0-9_]*|import[A-Za-z0-9_]+|impl[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|impli[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|implic[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|implici[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|implicit[0-9A-Z_-_a-z][a-zA-Z0-9_]*|implicit[A-Za-z0-9_]+|r[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|re[0-9A-Z_-_a-or-su-z][a-zA-Z0-9_]*|req[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|requ[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|requi[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|requir[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|require[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|requires[0-9A-Z_-_a-z][a-zA-Z0-9_]*|requires[A-Za-z0-9_]+|ret[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|retu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|retur[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|return[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|returns[0-9A-Z_-_a-z][a-zA-Z0-9_]*|returns[A-Za-z0-9_]+|rep[0-9A-Z_-_a-z][a-zA-Z0-9_]*|rep[A-Za-z0-9_]+|u[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|un[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|unf[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|unfo[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|unfol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|unfold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|unfold[A-Za-z0-9_]+|v[0-9A-Z_-_b-z][a-zA-Z0-9_]*|va[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|var[0-9A-Z_-_a-z][a-zA-Z0-9_]*|var[A-Za-z0-9_]+|val[0-9A-Z_-_a-z][a-zA-Z0-9_]*|val[A-Za-z0-9_]+|a[0-9A-Z_-_a-rt-tv-wy-z][a-zA-Z0-9_]*|as[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ass[0-9A-Z_-_a-df-tv-z][a-zA-Z0-9_]*|asse[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|asser[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|assert[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assert[A-Za-z0-9_]+|assu[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|assum[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|assume[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assume[A-Za-z0-9_]+|au[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|aut[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|auto[0-9A-Z_-_a-z][a-zA-Z0-9_]*|auto[A-Za-z0-9_]+|ax[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|axi[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|axio[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|axiom[0-9A-Z_-_a-z][a-zA-Z0-9_]*|axiom[A-Za-z0-9_]+|h[0-9A-Z_-_b-z][a-zA-Z0-9_]*|ha[0-9A-Z_-_a-uw-z][a-zA-Z0-9_]*|hav[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|havo[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|havoc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|havoc[A-Za-z0-9_]+|w[0-9A-Z_-_a-gj-z][a-zA-Z0-9_]*|wh[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|whi[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|whil[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|while[0-9A-Z_-_a-z][a-zA-Z0-9_]*|while[A-Za-z0-9_]+|wi[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|wit[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|with[0-9A-Z_-_a-z][a-zA-Z0-9_]*|with[A-Za-z0-9_]+|c[0-9A-Z_-_b-np-z][a-zA-Z0-9_]*|co[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|col[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|colo[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|colon[0-9A-Z_-_a-z][a-zA-Z0-9_]*|colon[A-Za-z0-9_]+|ca[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|cas[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|case[0-9A-Z_-_a-z][a-zA-Z0-9_]*|case[A-Za-z0-9_]+|g[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|gh[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|gho[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ghos[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|ghost[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ghost[A-Za-z0-9_]+|m[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|mo[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|mod[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|modu[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|modul[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|module[0-9A-Z_-_a-z][a-zA-Z0-9_]*|module[A-Za-z0-9_]+|l[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|le[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lem[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lemm[0-9A-Z_-_b-z][a-zA-Z0-9_]*|lemma[0-9A-Z_-_a-z][a-zA-Z0-9_]*|lemma[A-Za-z0-9_]+|d[0-9A-Z_-_b-z][a-zA-Z0-9_]*|da[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|dat[0-9A-Z_-_b-z][a-zA-Z0-9_]*|data[0-9A-Z_-_a-z][a-zA-Z0-9_]*|data[A-Za-z0-9_]+|f|p|e|t|i|r|u|v|a|h|w|c|g|m|l|d|fi|fo|fa|fu|pr|ex|en|el|tr|ty|im|re|un|va|as|au|ax|ha|wh|wi|co|ca|gh|mo|le|da|fie|for|fol|fal|fun|pre|pro|exi|ens|els|tru|typ|inv|inc|int|imp|req|ret|unf|ass|aut|axi|hav|whi|wit|col|cas|gho|mod|lem|dat|fiel|fora|fals|exis|ensu|inva|incl|inte|impo|impl|requ|retu|unfo|asse|assu|axio|havo|whil|colo|ghos|modu|lemm|foral|exist|ensur|invar|inclu|inter|impor|impli|requi|retur|unfol|asser|assum|modul|ensure|invari|includ|interf|implic|requir|invaria|interfa|implici|require|invarian|interfac"
+              "value": "[A-Z_-_b-bj-kn-nq-qs-sx-z][a-zA-Z0-9_]*|f[0-9A-Z_-_b-hj-np-tv-z][a-zA-Z0-9_]*|fi[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|fie[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fiel[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|field[0-9A-Z_-_a-z][a-zA-Z0-9_]*|field[A-Za-z0-9_]+|fo[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|for[0-9A-Z_-_b-z][a-zA-Z0-9_]*|fora[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|foral[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|forall[0-9A-Z_-_a-z][a-zA-Z0-9_]*|forall[A-Za-z0-9_]+|fol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|fold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|fold[A-Za-z0-9_]+|fa[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fal[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|fals[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|false[0-9A-Z_-_a-z][a-zA-Z0-9_]*|false[A-Za-z0-9_]+|fu[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|fun[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|func[0-9A-Z_-_a-z][a-zA-Z0-9_]*|func[A-Za-z0-9_]+|p[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|pr[0-9A-Z_-_a-df-np-z][a-zA-Z0-9_]*|pre[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|pred[0-9A-Z_-_a-z][a-zA-Z0-9_]*|pred[A-Za-z0-9_]+|pro[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|proc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|proc[A-Za-z0-9_]+|e[0-9A-Z_-_a-km-mo-wy-z][a-zA-Z0-9_]*|ex[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|exi[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exis[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|exist[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exists[0-9A-Z_-_a-z][a-zA-Z0-9_]*|exists[A-Za-z0-9_]+|en[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ens[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|ensu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|ensur[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|ensure[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ensures[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ensures[A-Za-z0-9_]+|el[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|els[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|else[0-9A-Z_-_a-z][a-zA-Z0-9_]*|else[A-Za-z0-9_]+|t[0-9A-Z_-_a-qs-xz-z][a-zA-Z0-9_]*|tr[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|tru[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|true[0-9A-Z_-_a-z][a-zA-Z0-9_]*|true[A-Za-z0-9_]+|ty[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|typ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|type[0-9A-Z_-_a-z][a-zA-Z0-9_]*|type[A-Za-z0-9_]+|i[0-9A-Z_-_a-eg-lo-z][a-zA-Z0-9_]*|in[0-9A-Z_-_a-bd-gi-su-uw-z][a-zA-Z0-9_]*|inv[0-9A-Z_-_b-z][a-zA-Z0-9_]*|inva[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|invar[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|invari[0-9A-Z_-_b-z][a-zA-Z0-9_]*|invaria[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|invarian[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|invariant[0-9A-Z_-_a-z][a-zA-Z0-9_]*|invariant[A-Za-z0-9_]+|inc[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|incl[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|inclu[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|includ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|include[0-9A-Z_-_a-z][a-zA-Z0-9_]*|include[A-Za-z0-9_]+|int[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|inte[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|inter[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|interf[0-9A-Z_-_b-z][a-zA-Z0-9_]*|interfa[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|interfac[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|interface[0-9A-Z_-_a-z][a-zA-Z0-9_]*|interface[A-Za-z0-9_]+|inh[0-9A-Z_-_b-z][a-zA-Z0-9_]*|inha[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|inhal[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|inhale[0-9A-Z_-_a-z][a-zA-Z0-9_]*|inhale[A-Za-z0-9_]+|if[0-9A-Z_-_a-z][a-zA-Z0-9_]*|if[A-Za-z0-9_]+|im[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|imp[0-9A-Z_-_a-km-np-z][a-zA-Z0-9_]*|impo[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|impor[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|import[0-9A-Z_-_a-z][a-zA-Z0-9_]*|import[A-Za-z0-9_]+|impl[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|impli[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|implic[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|implici[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|implicit[0-9A-Z_-_a-z][a-zA-Z0-9_]*|implicit[A-Za-z0-9_]+|r[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|re[0-9A-Z_-_a-or-su-z][a-zA-Z0-9_]*|req[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|requ[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|requi[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|requir[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|require[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|requires[0-9A-Z_-_a-z][a-zA-Z0-9_]*|requires[A-Za-z0-9_]+|ret[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|retu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|retur[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|return[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|returns[0-9A-Z_-_a-z][a-zA-Z0-9_]*|returns[A-Za-z0-9_]+|rep[0-9A-Z_-_a-z][a-zA-Z0-9_]*|rep[A-Za-z0-9_]+|u[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|un[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|unf[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|unfo[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|unfol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|unfold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|unfold[A-Za-z0-9_]+|v[0-9A-Z_-_b-z][a-zA-Z0-9_]*|va[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|var[0-9A-Z_-_a-z][a-zA-Z0-9_]*|var[A-Za-z0-9_]+|val[0-9A-Z_-_a-z][a-zA-Z0-9_]*|val[A-Za-z0-9_]+|a[0-9A-Z_-_a-rt-tv-wy-z][a-zA-Z0-9_]*|as[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ass[0-9A-Z_-_a-df-tv-z][a-zA-Z0-9_]*|asse[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|asser[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|assert[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assert[A-Za-z0-9_]+|assu[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|assum[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|assume[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assume[A-Za-z0-9_]+|au[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|aut[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|auto[0-9A-Z_-_a-z][a-zA-Z0-9_]*|auto[A-Za-z0-9_]+|ax[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|axi[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|axio[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|axiom[0-9A-Z_-_a-z][a-zA-Z0-9_]*|axiom[A-Za-z0-9_]+|h[0-9A-Z_-_b-z][a-zA-Z0-9_]*|ha[0-9A-Z_-_a-uw-z][a-zA-Z0-9_]*|hav[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|havo[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|havoc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|havoc[A-Za-z0-9_]+|w[0-9A-Z_-_a-gj-z][a-zA-Z0-9_]*|wh[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|whi[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|whil[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|while[0-9A-Z_-_a-z][a-zA-Z0-9_]*|while[A-Za-z0-9_]+|wi[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|wit[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|with[0-9A-Z_-_a-z][a-zA-Z0-9_]*|with[A-Za-z0-9_]+|o[0-9A-Z_-_a-vx-z][a-zA-Z0-9_]*|ow[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|own[0-9A-Z_-_a-z][a-zA-Z0-9_]*|own[A-Za-z0-9_]+|c[0-9A-Z_-_b-np-z][a-zA-Z0-9_]*|co[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|col[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|colo[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|colon[0-9A-Z_-_a-z][a-zA-Z0-9_]*|colon[A-Za-z0-9_]+|ca[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|cas[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|case[0-9A-Z_-_a-z][a-zA-Z0-9_]*|case[A-Za-z0-9_]+|g[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|gh[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|gho[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ghos[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|ghost[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ghost[A-Za-z0-9_]+|m[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|mo[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|mod[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|modu[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|modul[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|module[0-9A-Z_-_a-z][a-zA-Z0-9_]*|module[A-Za-z0-9_]+|l[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|le[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lem[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lemm[0-9A-Z_-_b-z][a-zA-Z0-9_]*|lemma[0-9A-Z_-_a-z][a-zA-Z0-9_]*|lemma[A-Za-z0-9_]+|d[0-9A-Z_-_b-z][a-zA-Z0-9_]*|da[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|dat[0-9A-Z_-_b-z][a-zA-Z0-9_]*|data[0-9A-Z_-_a-z][a-zA-Z0-9_]*|data[A-Za-z0-9_]+|f|p|e|t|i|r|u|v|a|h|w|o|c|g|m|l|d|fi|fo|fa|fu|pr|ex|en|el|tr|ty|im|re|un|va|as|au|ax|ha|wh|wi|ow|co|ca|gh|mo|le|da|fie|for|fol|fal|fun|pre|pro|exi|ens|els|tru|typ|inv|inc|int|inh|imp|req|ret|unf|ass|aut|axi|hav|whi|wit|col|cas|gho|mod|lem|dat|fiel|fora|fals|exis|ensu|inva|incl|inte|inha|impo|impl|requ|retu|unfo|asse|assu|axio|havo|whil|colo|ghos|modu|lemm|foral|exist|ensur|invar|inclu|inter|inhal|impor|impli|requi|retur|unfol|asser|assum|modul|ensure|invari|includ|interf|implic|requir|invaria|interfa|implici|require|invarian|interfac"
             }
           },
           {
@@ -2384,7 +2459,7 @@
                   "type": "TOKEN",
                   "content": {
                     "type": "PATTERN",
-                    "value": "[A-Z_-_b-bj-kn-oq-qs-sx-z][a-zA-Z0-9_]*|f[0-9A-Z_-_b-hj-np-tv-z][a-zA-Z0-9_]*|fi[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|fie[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fiel[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|field[0-9A-Z_-_a-z][a-zA-Z0-9_]*|field[A-Za-z0-9_]+|fo[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|for[0-9A-Z_-_b-z][a-zA-Z0-9_]*|fora[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|foral[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|forall[0-9A-Z_-_a-z][a-zA-Z0-9_]*|forall[A-Za-z0-9_]+|fol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|fold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|fold[A-Za-z0-9_]+|fa[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fal[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|fals[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|false[0-9A-Z_-_a-z][a-zA-Z0-9_]*|false[A-Za-z0-9_]+|fu[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|fun[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|func[0-9A-Z_-_a-z][a-zA-Z0-9_]*|func[A-Za-z0-9_]+|p[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|pr[0-9A-Z_-_a-df-np-z][a-zA-Z0-9_]*|pre[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|pred[0-9A-Z_-_a-z][a-zA-Z0-9_]*|pred[A-Za-z0-9_]+|pro[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|proc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|proc[A-Za-z0-9_]+|e[0-9A-Z_-_a-km-mo-wy-z][a-zA-Z0-9_]*|ex[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|exi[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exis[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|exist[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exists[0-9A-Z_-_a-z][a-zA-Z0-9_]*|exists[A-Za-z0-9_]+|en[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ens[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|ensu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|ensur[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|ensure[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ensures[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ensures[A-Za-z0-9_]+|el[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|els[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|else[0-9A-Z_-_a-z][a-zA-Z0-9_]*|else[A-Za-z0-9_]+|t[0-9A-Z_-_a-qs-xz-z][a-zA-Z0-9_]*|tr[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|tru[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|true[0-9A-Z_-_a-z][a-zA-Z0-9_]*|true[A-Za-z0-9_]+|ty[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|typ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|type[0-9A-Z_-_a-z][a-zA-Z0-9_]*|type[A-Za-z0-9_]+|i[0-9A-Z_-_a-eg-lo-z][a-zA-Z0-9_]*|in[0-9A-Z_-_a-bd-su-uw-z][a-zA-Z0-9_]*|inv[0-9A-Z_-_b-z][a-zA-Z0-9_]*|inva[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|invar[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|invari[0-9A-Z_-_b-z][a-zA-Z0-9_]*|invaria[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|invarian[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|invariant[0-9A-Z_-_a-z][a-zA-Z0-9_]*|invariant[A-Za-z0-9_]+|inc[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|incl[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|inclu[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|includ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|include[0-9A-Z_-_a-z][a-zA-Z0-9_]*|include[A-Za-z0-9_]+|int[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|inte[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|inter[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|interf[0-9A-Z_-_b-z][a-zA-Z0-9_]*|interfa[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|interfac[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|interface[0-9A-Z_-_a-z][a-zA-Z0-9_]*|interface[A-Za-z0-9_]+|if[0-9A-Z_-_a-z][a-zA-Z0-9_]*|if[A-Za-z0-9_]+|im[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|imp[0-9A-Z_-_a-km-np-z][a-zA-Z0-9_]*|impo[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|impor[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|import[0-9A-Z_-_a-z][a-zA-Z0-9_]*|import[A-Za-z0-9_]+|impl[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|impli[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|implic[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|implici[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|implicit[0-9A-Z_-_a-z][a-zA-Z0-9_]*|implicit[A-Za-z0-9_]+|r[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|re[0-9A-Z_-_a-or-su-z][a-zA-Z0-9_]*|req[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|requ[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|requi[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|requir[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|require[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|requires[0-9A-Z_-_a-z][a-zA-Z0-9_]*|requires[A-Za-z0-9_]+|ret[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|retu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|retur[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|return[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|returns[0-9A-Z_-_a-z][a-zA-Z0-9_]*|returns[A-Za-z0-9_]+|rep[0-9A-Z_-_a-z][a-zA-Z0-9_]*|rep[A-Za-z0-9_]+|u[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|un[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|unf[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|unfo[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|unfol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|unfold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|unfold[A-Za-z0-9_]+|v[0-9A-Z_-_b-z][a-zA-Z0-9_]*|va[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|var[0-9A-Z_-_a-z][a-zA-Z0-9_]*|var[A-Za-z0-9_]+|val[0-9A-Z_-_a-z][a-zA-Z0-9_]*|val[A-Za-z0-9_]+|a[0-9A-Z_-_a-rt-tv-wy-z][a-zA-Z0-9_]*|as[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ass[0-9A-Z_-_a-df-tv-z][a-zA-Z0-9_]*|asse[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|asser[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|assert[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assert[A-Za-z0-9_]+|assu[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|assum[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|assume[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assume[A-Za-z0-9_]+|au[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|aut[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|auto[0-9A-Z_-_a-z][a-zA-Z0-9_]*|auto[A-Za-z0-9_]+|ax[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|axi[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|axio[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|axiom[0-9A-Z_-_a-z][a-zA-Z0-9_]*|axiom[A-Za-z0-9_]+|h[0-9A-Z_-_b-z][a-zA-Z0-9_]*|ha[0-9A-Z_-_a-uw-z][a-zA-Z0-9_]*|hav[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|havo[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|havoc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|havoc[A-Za-z0-9_]+|w[0-9A-Z_-_a-gj-z][a-zA-Z0-9_]*|wh[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|whi[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|whil[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|while[0-9A-Z_-_a-z][a-zA-Z0-9_]*|while[A-Za-z0-9_]+|wi[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|wit[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|with[0-9A-Z_-_a-z][a-zA-Z0-9_]*|with[A-Za-z0-9_]+|c[0-9A-Z_-_b-np-z][a-zA-Z0-9_]*|co[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|col[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|colo[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|colon[0-9A-Z_-_a-z][a-zA-Z0-9_]*|colon[A-Za-z0-9_]+|ca[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|cas[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|case[0-9A-Z_-_a-z][a-zA-Z0-9_]*|case[A-Za-z0-9_]+|g[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|gh[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|gho[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ghos[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|ghost[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ghost[A-Za-z0-9_]+|m[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|mo[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|mod[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|modu[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|modul[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|module[0-9A-Z_-_a-z][a-zA-Z0-9_]*|module[A-Za-z0-9_]+|l[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|le[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lem[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lemm[0-9A-Z_-_b-z][a-zA-Z0-9_]*|lemma[0-9A-Z_-_a-z][a-zA-Z0-9_]*|lemma[A-Za-z0-9_]+|d[0-9A-Z_-_b-z][a-zA-Z0-9_]*|da[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|dat[0-9A-Z_-_b-z][a-zA-Z0-9_]*|data[0-9A-Z_-_a-z][a-zA-Z0-9_]*|data[A-Za-z0-9_]+|f|p|e|t|i|r|u|v|a|h|w|c|g|m|l|d|fi|fo|fa|fu|pr|ex|en|el|tr|ty|im|re|un|va|as|au|ax|ha|wh|wi|co|ca|gh|mo|le|da|fie|for|fol|fal|fun|pre|pro|exi|ens|els|tru|typ|inv|inc|int|imp|req|ret|unf|ass|aut|axi|hav|whi|wit|col|cas|gho|mod|lem|dat|fiel|fora|fals|exis|ensu|inva|incl|inte|impo|impl|requ|retu|unfo|asse|assu|axio|havo|whil|colo|ghos|modu|lemm|foral|exist|ensur|invar|inclu|inter|impor|impli|requi|retur|unfol|asser|assum|modul|ensure|invari|includ|interf|implic|requir|invaria|interfa|implici|require|invarian|interfac"
+                    "value": "[A-Z_-_b-bj-kn-nq-qs-sx-z][a-zA-Z0-9_]*|f[0-9A-Z_-_b-hj-np-tv-z][a-zA-Z0-9_]*|fi[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|fie[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fiel[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|field[0-9A-Z_-_a-z][a-zA-Z0-9_]*|field[A-Za-z0-9_]+|fo[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|for[0-9A-Z_-_b-z][a-zA-Z0-9_]*|fora[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|foral[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|forall[0-9A-Z_-_a-z][a-zA-Z0-9_]*|forall[A-Za-z0-9_]+|fol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|fold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|fold[A-Za-z0-9_]+|fa[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|fal[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|fals[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|false[0-9A-Z_-_a-z][a-zA-Z0-9_]*|false[A-Za-z0-9_]+|fu[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|fun[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|func[0-9A-Z_-_a-z][a-zA-Z0-9_]*|func[A-Za-z0-9_]+|p[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|pr[0-9A-Z_-_a-df-np-z][a-zA-Z0-9_]*|pre[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|pred[0-9A-Z_-_a-z][a-zA-Z0-9_]*|pred[A-Za-z0-9_]+|pro[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|proc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|proc[A-Za-z0-9_]+|e[0-9A-Z_-_a-km-mo-wy-z][a-zA-Z0-9_]*|ex[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|exi[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exis[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|exist[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|exists[0-9A-Z_-_a-z][a-zA-Z0-9_]*|exists[A-Za-z0-9_]+|en[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ens[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|ensu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|ensur[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|ensure[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ensures[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ensures[A-Za-z0-9_]+|el[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|els[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|else[0-9A-Z_-_a-z][a-zA-Z0-9_]*|else[A-Za-z0-9_]+|t[0-9A-Z_-_a-qs-xz-z][a-zA-Z0-9_]*|tr[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|tru[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|true[0-9A-Z_-_a-z][a-zA-Z0-9_]*|true[A-Za-z0-9_]+|ty[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|typ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|type[0-9A-Z_-_a-z][a-zA-Z0-9_]*|type[A-Za-z0-9_]+|i[0-9A-Z_-_a-eg-lo-z][a-zA-Z0-9_]*|in[0-9A-Z_-_a-bd-gi-su-uw-z][a-zA-Z0-9_]*|inv[0-9A-Z_-_b-z][a-zA-Z0-9_]*|inva[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|invar[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|invari[0-9A-Z_-_b-z][a-zA-Z0-9_]*|invaria[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|invarian[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|invariant[0-9A-Z_-_a-z][a-zA-Z0-9_]*|invariant[A-Za-z0-9_]+|inc[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|incl[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|inclu[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|includ[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|include[0-9A-Z_-_a-z][a-zA-Z0-9_]*|include[A-Za-z0-9_]+|int[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|inte[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|inter[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|interf[0-9A-Z_-_b-z][a-zA-Z0-9_]*|interfa[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|interfac[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|interface[0-9A-Z_-_a-z][a-zA-Z0-9_]*|interface[A-Za-z0-9_]+|inh[0-9A-Z_-_b-z][a-zA-Z0-9_]*|inha[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|inhal[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|inhale[0-9A-Z_-_a-z][a-zA-Z0-9_]*|inhale[A-Za-z0-9_]+|if[0-9A-Z_-_a-z][a-zA-Z0-9_]*|if[A-Za-z0-9_]+|im[0-9A-Z_-_a-oq-z][a-zA-Z0-9_]*|imp[0-9A-Z_-_a-km-np-z][a-zA-Z0-9_]*|impo[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|impor[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|import[0-9A-Z_-_a-z][a-zA-Z0-9_]*|import[A-Za-z0-9_]+|impl[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|impli[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|implic[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|implici[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|implicit[0-9A-Z_-_a-z][a-zA-Z0-9_]*|implicit[A-Za-z0-9_]+|r[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|re[0-9A-Z_-_a-or-su-z][a-zA-Z0-9_]*|req[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|requ[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|requi[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|requir[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|require[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|requires[0-9A-Z_-_a-z][a-zA-Z0-9_]*|requires[A-Za-z0-9_]+|ret[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|retu[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|retur[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|return[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|returns[0-9A-Z_-_a-z][a-zA-Z0-9_]*|returns[A-Za-z0-9_]+|rep[0-9A-Z_-_a-z][a-zA-Z0-9_]*|rep[A-Za-z0-9_]+|u[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|un[0-9A-Z_-_a-eg-z][a-zA-Z0-9_]*|unf[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|unfo[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|unfol[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|unfold[0-9A-Z_-_a-z][a-zA-Z0-9_]*|unfold[A-Za-z0-9_]+|v[0-9A-Z_-_b-z][a-zA-Z0-9_]*|va[0-9A-Z_-_a-km-qs-z][a-zA-Z0-9_]*|var[0-9A-Z_-_a-z][a-zA-Z0-9_]*|var[A-Za-z0-9_]+|val[0-9A-Z_-_a-z][a-zA-Z0-9_]*|val[A-Za-z0-9_]+|a[0-9A-Z_-_a-rt-tv-wy-z][a-zA-Z0-9_]*|as[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ass[0-9A-Z_-_a-df-tv-z][a-zA-Z0-9_]*|asse[0-9A-Z_-_a-qs-z][a-zA-Z0-9_]*|asser[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|assert[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assert[A-Za-z0-9_]+|assu[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|assum[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|assume[0-9A-Z_-_a-z][a-zA-Z0-9_]*|assume[A-Za-z0-9_]+|au[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|aut[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|auto[0-9A-Z_-_a-z][a-zA-Z0-9_]*|auto[A-Za-z0-9_]+|ax[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|axi[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|axio[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|axiom[0-9A-Z_-_a-z][a-zA-Z0-9_]*|axiom[A-Za-z0-9_]+|h[0-9A-Z_-_b-z][a-zA-Z0-9_]*|ha[0-9A-Z_-_a-uw-z][a-zA-Z0-9_]*|hav[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|havo[0-9A-Z_-_a-bd-z][a-zA-Z0-9_]*|havoc[0-9A-Z_-_a-z][a-zA-Z0-9_]*|havoc[A-Za-z0-9_]+|w[0-9A-Z_-_a-gj-z][a-zA-Z0-9_]*|wh[0-9A-Z_-_a-hj-z][a-zA-Z0-9_]*|whi[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|whil[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|while[0-9A-Z_-_a-z][a-zA-Z0-9_]*|while[A-Za-z0-9_]+|wi[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|wit[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|with[0-9A-Z_-_a-z][a-zA-Z0-9_]*|with[A-Za-z0-9_]+|o[0-9A-Z_-_a-vx-z][a-zA-Z0-9_]*|ow[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|own[0-9A-Z_-_a-z][a-zA-Z0-9_]*|own[A-Za-z0-9_]+|c[0-9A-Z_-_b-np-z][a-zA-Z0-9_]*|co[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|col[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|colo[0-9A-Z_-_a-mo-z][a-zA-Z0-9_]*|colon[0-9A-Z_-_a-z][a-zA-Z0-9_]*|colon[A-Za-z0-9_]+|ca[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|cas[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|case[0-9A-Z_-_a-z][a-zA-Z0-9_]*|case[A-Za-z0-9_]+|g[0-9A-Z_-_a-gi-z][a-zA-Z0-9_]*|gh[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|gho[0-9A-Z_-_a-rt-z][a-zA-Z0-9_]*|ghos[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|ghost[0-9A-Z_-_a-z][a-zA-Z0-9_]*|ghost[A-Za-z0-9_]+|m[0-9A-Z_-_a-np-z][a-zA-Z0-9_]*|mo[0-9A-Z_-_a-ce-z][a-zA-Z0-9_]*|mod[0-9A-Z_-_a-tv-z][a-zA-Z0-9_]*|modu[0-9A-Z_-_a-km-z][a-zA-Z0-9_]*|modul[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|module[0-9A-Z_-_a-z][a-zA-Z0-9_]*|module[A-Za-z0-9_]+|l[0-9A-Z_-_a-df-z][a-zA-Z0-9_]*|le[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lem[0-9A-Z_-_a-ln-z][a-zA-Z0-9_]*|lemm[0-9A-Z_-_b-z][a-zA-Z0-9_]*|lemma[0-9A-Z_-_a-z][a-zA-Z0-9_]*|lemma[A-Za-z0-9_]+|d[0-9A-Z_-_b-z][a-zA-Z0-9_]*|da[0-9A-Z_-_a-su-z][a-zA-Z0-9_]*|dat[0-9A-Z_-_b-z][a-zA-Z0-9_]*|data[0-9A-Z_-_a-z][a-zA-Z0-9_]*|data[A-Za-z0-9_]+|f|p|e|t|i|r|u|v|a|h|w|o|c|g|m|l|d|fi|fo|fa|fu|pr|ex|en|el|tr|ty|im|re|un|va|as|au|ax|ha|wh|wi|ow|co|ca|gh|mo|le|da|fie|for|fol|fal|fun|pre|pro|exi|ens|els|tru|typ|inv|inc|int|inh|imp|req|ret|unf|ass|aut|axi|hav|whi|wit|col|cas|gho|mod|lem|dat|fiel|fora|fals|exis|ensu|inva|incl|inte|inha|impo|impl|requ|retu|unfo|asse|assu|axio|havo|whil|colo|ghos|modu|lemm|foral|exist|ensur|invar|inclu|inter|inhal|impor|impli|requi|retur|unfol|asser|assum|modul|ensure|invari|includ|interf|implic|requir|invaria|interfa|implici|require|invarian|interfac"
                   }
                 }
               ]
@@ -2539,6 +2614,18 @@
         "type": "STRING",
         "value": ";"
       }
+    },
+    "kwd_own": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "TOKEN",
+          "content": {
+            "type": "STRING",
+            "value": "own"
+          }
+        }
+      ]
     },
     "kwd_import": {
       "type": "CHOICE",
@@ -2946,6 +3033,18 @@
           "content": {
             "type": "STRING",
             "value": "func"
+          }
+        }
+      ]
+    },
+    "kwd_inhale": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "TOKEN",
+          "content": {
+            "type": "STRING",
+            "value": "inhale"
           }
         }
       ]

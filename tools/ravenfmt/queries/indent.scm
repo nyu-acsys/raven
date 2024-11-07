@@ -1,9 +1,10 @@
-;;; Comments, text, & string is never formented
+;;; Comments, text, identifier & string is never formented
 [
   (block_comment)
   (comment_text)
   (comment)
   (string)
+  (identifier)
 ] @leaf
 
 ; Allow blank line before
@@ -49,18 +50,21 @@
   (kwd_lemma)
   (kwd_axiom)
   (kwd_func)
+  (kwd_inhale)
   (coloncolon)
   (trigger)
   (proc_body)
   (pred_body)
   (eq)
   (coloneq)
+  (kwd_own)
 ] @prepend_space @append_space
 
 ; Append spaces
 [
   (seperator)
 ] @append_space
+
 
 (comment) @append_hardline @allow_blank_line_before
 
@@ -119,11 +123,6 @@
   [(block_comment) (comment)]* @do_nothing
 )
 
-; Prepend softlines before dots
-(_
-  (dot) @prepend_empty_softline
-)
-
 ; This patterns is duplicated for all nodes that can contain curly braces.
 ; Hoping to be able to generalise them like this:
 ; (_
@@ -133,6 +132,8 @@
 ; )
 ; Perhaps even the built in #match! can do this
 
+(interface_defn parameters: (type_cons) @append_indent_start)
+(module_defn parameters: (type_cons) @append_indent_start)
 (module_defn name: (identifier) @prepend_space @append_indent_start)
 (func_defn name: (identifier) @prepend_space @append_indent_start)
 (axiom_defn name: (identifier) @prepend_space @append_indent_start)
@@ -145,7 +146,10 @@
 
 (func_defn returns: (returns_clause) @prepend_space)
 (proc_defn returns: (returns_clause) @prepend_space)
+(func_defn returns: (returns_clause) @prepend_spaced_softline)
+(proc_defn returns: (returns_clause) @prepend_spaced_softline)
 
+(func_defn io: (io_spec_clause) @prepend_spaced_softline)
 (axiom_defn io: (io_spec_clause) @prepend_spaced_softline)
 (lemma_defn io: (io_spec_clause) @prepend_spaced_softline)
 (proc_defn io: (io_spec_clause) @prepend_spaced_softline)
@@ -184,6 +188,7 @@
 (map_literal_r) @prepend_spaced_softline @prepend_indent_end
 
 (arg vartype: (type) @prepend_space)
+(type_con supertype: _ @prepend_space)
 
 ; Make the invariant clauses spaced
 (while_stmt . (kwd_while) @append_indent_start)
@@ -191,4 +196,5 @@
 ; Make the last invariant clause unindented
 (while_stmt (invariant_spec_clause) @prepend_indent_end .)
 
-[ (seperator) (end_stmt)] @prepend_antispace
+(type_cons) @prepend_antispace
+[ (seperator) (end_stmt) ] @prepend_antispace

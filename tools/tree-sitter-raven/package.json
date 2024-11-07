@@ -38,7 +38,10 @@
   "tree-sitter": [
     {
       "scope": "source.raven",
-      "injection-regex": "^raven$"
+      "highlights": "queries/highlights.scm",
+      "file-types": [
+        "rav"
+      ]
     }
   ]
 }
