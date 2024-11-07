@@ -298,7 +298,7 @@ module.exports = grammar({
     string: ($) => choice($.double_quote_string, $.single_quote_string),
     defn: ($) => choice($.rep_defn, $.func_defn, $.axiom_defn, $.pred_defn, $.lemma_defn, $.proc_defn, $.field_defn, $.val_defn, $.interface_defn, $.import_stmt, $.module_defn),
     interface_body: ($) => seq($.lcurly, repeat($.defn), $.rcurly),
-    rep_defn: ($) => seq($.kwd_rep, $.kwd_type, field("name", $.identifier), optional(seq(choice($.eq, $.coloneq), field("data", $.data_defn)))),
+    rep_defn: ($) => seq($.kwd_rep, $.kwd_type, field("name", $.identifier), optional(seq(choice($.eq, $.coloneq), choice(field("data", $.data_defn), field("type", $.type))))),
     lcurly: ($) => LCURLY,
     rcurly: ($) => RCURLY,
     data_defn: ($) => seq($.kwd_data, $.lcurly, optional(field("body", $.data_body)), $.rcurly),
@@ -315,7 +315,7 @@ module.exports = grammar({
         field("name", $.identifier),
         field("parameters", optional($.type_cons)),
         field("typecons", optional(seq($.colon, $.type))),
-        field("body", $.interface_body)),
+        choice(field("body", $.interface_body), field("type", seq(choice($.coloneq, $.eq), $.type)))),
     func_defn: ($) =>
       seq($.kwd_func,
         field("name", $.identifier),
@@ -335,7 +335,7 @@ module.exports = grammar({
         field("name", $.identifier),
         field("parameters", $.arglist),
         field("io", repeat($.io_spec_clause)),
-        field("body", $.proc_body)),
+        optional(field("body", $.proc_body))),
     pred_defn: ($) =>
       seq($.kwd_pred,
         field("name", $.identifier),
@@ -351,7 +351,7 @@ module.exports = grammar({
     type_con: ($) => seq(field("subtype", $.identifier), token(":"), field("supertype", $.identifier)),
     type_cons: ($) => seq(token("["), repeat($.type_con), token("]")),
     val_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_val, $.arg, optional(seq(choice($.coloneq, $.eq), $.expr))),
-    field_defn: ($) => seq($.kwd_field, $.arg),
+    field_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_field, $.arg),
     io_spec_clause: ($) => seq(choice($.kwd_requires, $.kwd_ensures, $.kwd_inhale), $.expr),
     returns_clause: ($) => seq($.kwd_returns, field("arglist", $.arglist)),
     stmt: ($) => choice($.stmt_syntax, $.call),
@@ -463,7 +463,7 @@ module.exports = grammar({
     comment_text: $ => repeat1(choice(/.|\n|\r/)),
     comment: _ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/),
   },
-  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value], [$.map_literal_id, $.location]],
+  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value], [$.map_literal_id, $.location], [$.lemma_defn]],
 });
 
 const AU = token("au");

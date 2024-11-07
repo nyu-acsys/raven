@@ -57,8 +57,8 @@
   (pred_body)
   (eq)
   (coloneq)
-  (kwd_own)
 ] @prepend_space @append_space
+(kwd_own) @prepend_space
 
 ; Append spaces
 [
@@ -132,19 +132,18 @@
 ; )
 ; Perhaps even the built in #match! can do this
 
-(interface_defn parameters: (type_cons) @append_indent_start)
-(module_defn parameters: (type_cons) @append_indent_start)
-(module_defn name: (identifier) @prepend_space @append_indent_start)
+(module_defn name: (identifier) @prepend_space)
 (interface_defn typecons: ((colon) (type) @prepend_space))
 (module_defn typecons: ((colon) (type) @prepend_space))
 
 (func_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
 
 (axiom_defn name: (identifier) @prepend_space @append_indent_start _ @append_indent_end .)
-(lemma_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
+(lemma_defn name: (identifier) @prepend_space @append_indent_start body: (proc_body))
 (pred_defn name: (identifier) @prepend_space @append_indent_start (pred_body))
 (proc_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
 (rep_defn name: (identifier) @append_indent_start (data_defn))
+(rep_defn name: (identifier) @append_indent_start (type) @append_indent_end)
 (case_defn) @prepend_spaced_softline
 
 
@@ -159,8 +158,12 @@
 (lemma_defn io: (io_spec_clause) @prepend_spaced_softline)
 (proc_defn io: (io_spec_clause) @prepend_spaced_softline)
 
-(module_defn body: (interface_body) @prepend_indent_end @prepend_space)
-(interface_defn body: (interface_body) @prepend_indent_end @prepend_space)
+
+(interface_defn (interface_body) @prepend_space !parameters)
+(module_defn (interface_body) @prepend_space !parameters)
+(interface_defn parameters: (type_cons) @append_indent_start body: (interface_body) @prepend_indent_end @prepend_space)
+(module_defn parameters: (type_cons) @append_indent_start body: (interface_body) @prepend_indent_end @prepend_space)
+(module_defn parameters: (type_cons) @append_indent_start type: ((_) (type) @prepend_indent_end @prepend_space))
 (data_defn body: (data_body) @prepend_indent_end @prepend_space)
 (data_defn body: (data_body case: (case_defn) @append_spaced_softline) )
 (func_defn body: (proc_body) @prepend_space @prepend_indent_end)
@@ -170,6 +173,13 @@
 
 (data_defn (lcurly) @append_spaced_softline @append_indent_start)
 (data_defn (rcurly) @prepend_spaced_softline @prepend_indent_end)
+
+[(data_defn !body)
+(data_defn !body)
+(func_defn !body)
+(lemma_defn !body)
+(proc_defn !body)
+(pred_defn !body)] @append_spaced_softline
 
 (proc_body
   .
