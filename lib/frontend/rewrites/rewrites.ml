@@ -2159,9 +2159,17 @@ module AtomicityAnalysis = struct
                     in
                     match symbol with
                     | VarDef v -> Rewriter.return v.var_decl.var_ghost
-                    | _ -> Error.error stmt.stmt_loc "Expected a var_def")
+                    | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+                )
                 | App (Read, [ loc_expr; field_expr ], _) ->
-                    Rewriter.return false
+                    let* field_symbol = Rewriter.find_and_reify loc (Expr.to_qual_ident field_expr) in
+
+                    begin match field_symbol with
+                    | FieldDef f ->
+                      Rewriter.return @@ f.field_is_ghost
+                    | _ ->
+                      Rewriter.return false
+                    end
                 | _ -> Error.error stmt.stmt_loc "Expected a variable")
           in
 
