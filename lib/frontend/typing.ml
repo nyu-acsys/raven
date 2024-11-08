@@ -335,7 +335,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           (* infer and propagate expected type of expr3 *)
           let expected_typ3 =
             match constr with
-            | Ite -> expected_typ2
+            | Ite -> expected_typ
             | MapUpdate -> Type.map_codom typ1
             | _ -> assert false
           in
@@ -344,7 +344,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           (* backpropagate typ3 to expr2 if needed *)
           let expected_typ2 =
             match constr with
-            | Ite -> typ3
+            | Ite -> Type.join typ2 typ3
             | MapUpdate -> typ2
             | _ -> assert false
           in
