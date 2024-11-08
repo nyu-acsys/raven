@@ -8,12 +8,12 @@
   "author": "Jacob Salzberg",
   "license": null,
   "scripts": {
-    "build": "mkdir -p build && cd build && (npx -c 'tree-sitter generate ../grammar/grammar.js') && (npx -c 'node-gyp configure') && (npx -c 'node-gyp build')",
     "install": "node-gyp-build",
     "prebuildify": "prebuildify --napi --strip"
   },
   "dependencies": {
     "node-addon-api": "^7.1.0",
+    "node-gyp": "^10.2.0",
     "node-gyp-build": "^4.8.0"
   },
   "peerDependencies": {

@@ -63,7 +63,6 @@ fn find_config() -> Option<std::io::Result<PathBuf>> {
 fn main() {
     let cli = Args::parse();
     if cli.default_config {
-        println!("here...");
         eprintln!("{}", format::raven_queries());
         return;
     }

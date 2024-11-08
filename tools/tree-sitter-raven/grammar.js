@@ -166,7 +166,7 @@ const keywords = {
   ",": [","],
   ".": ["."],
   "?": ["?"],
-  ":|": [":|"],
+  "colonpipe": [":|"],
   "lcurly": ["{"],
   "rcurly": ["}"],
   "lparen": ["("],
@@ -190,7 +190,9 @@ const keywords = {
   "inhale": ["inhale"],
   "lmap_literal": ["{|"],
   "rmap_literal": ["|}"],
-  "qmark": ["?"]
+  "qmark": ["?"],
+  "atomic": ["atomic"],
+  "exhale": ["exhale"],
 }
 
 const all_keywords = Object.keys(keywords).map((k) => keywords[k]).reduce((x, y) => x.concat(y), []);
@@ -252,12 +254,19 @@ const RPAREN = into_tokens("rparen");
 const QMARK = into_tokens("qmark");
 const INHALE = into_tokens("inhale");
 const OWN = into_tokens("own");
+const ATOMIC = into_tokens("atomic");
+const EXHALE = into_tokens("exhale");
 
 /* constants */
 const SEPERATOR = choice(token(","), token(";"))
 const END_STMT = token(";");
 const DOT = token(".")
 const EQ = token("=");
+const LGHOST = token("{!");
+const RGHOST = token("!}");
+const LUNGHOST = token("{{");
+const RUNGHOST = token("}}");
+const BIND = token(":|");
 
 module.exports = grammar({
   name: "raven",
@@ -296,8 +305,8 @@ module.exports = grammar({
     include_stmt: ($) => seq($.kwd_include, $.string),
     import_stmt: ($) => seq($.kwd_import, $.identifier),
     string: ($) => choice($.double_quote_string, $.single_quote_string),
-    defn: ($) => choice($.rep_defn, $.func_defn, $.axiom_defn, $.pred_defn, $.lemma_defn, $.proc_defn, $.field_defn, $.val_defn, $.interface_defn, $.import_stmt, $.module_defn),
-    interface_body: ($) => seq($.lcurly, repeat($.defn), $.rcurly),
+    defn: ($) => choice($.rep_defn, $.func_defn, $.axiom_defn, $.pred_defn, $.lemma_defn, $.proc_defn, $.field_defn, $.val_defn, $.interface_defn, $.import_stmt, $.module_defn, $.var_dec),
+    interface_body: ($) => seq($.lcurly, repeat(seq($.defn, optional($.end_stmt))), $.rcurly),
     rep_defn: ($) => seq($.kwd_rep, $.kwd_type, field("name", $.identifier), optional(seq(choice($.eq, $.coloneq), choice(field("data", $.data_defn), field("type", $.type))))),
     lcurly: ($) => LCURLY,
     rcurly: ($) => RCURLY,
@@ -352,14 +361,19 @@ module.exports = grammar({
     type_cons: ($) => seq(token("["), repeat($.type_con), token("]")),
     val_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_val, $.arg, optional(seq(choice($.coloneq, $.eq), $.expr))),
     field_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_field, $.arg),
-    io_spec_clause: ($) => seq(choice($.kwd_requires, $.kwd_ensures, $.kwd_inhale), $.expr),
+    io_spec_clause: ($) => seq(optional($.kwd_atomic), choice($.kwd_requires, $.kwd_ensures, $.kwd_inhale), $.expr),
     returns_clause: ($) => seq($.kwd_returns, field("arglist", $.arglist)),
-    stmt: ($) => choice($.stmt_syntax, $.call),
+    stmt: ($) => choice($.stmt_syntax, $.call, $.ghost_code),
+    ghost_code: ($) => seq($.lghost, repeat(seq($.stmt, optional($.end_stmt))), $.rghost),
+    unghost_code: ($) => seq($.lunghost, repeat(seq($.stmt, optional($.end_stmt))), $.runghost),
     proc_body: ($) => choice(seq($.lcurly, repeat(seq($.stmt, optional($.end_stmt))), $.rcurly), $.stmt),
-    stmt_syntax: ($) => prec.dynamic(20, choice($.if_stmt, $.while_stmt, $.fold_stmt, $.unfold_stmt, $.var_dec, $.assert_stmt, $.assume_stmt, $.havoc_stmt, $.val_defn, $.assign_stmt, $.return_stmt)),
+    stmt_syntax: ($) => prec.dynamic(20, choice($.if_stmt, $.while_stmt, $.fold_stmt, $.unfold_stmt, $.var_dec, $.assert_stmt, $.assume_stmt, $.havoc_stmt, $.val_defn, $.assign_stmt, $.return_stmt, $.bind_stmt, $.exhale_stmt, $.inhale_stmt)),
+    exhale_stmt: ($) => seq($.kwd_exhale, optional($.expr)),
+    inhale_stmt: ($) => seq($.kwd_inhale, optional($.expr)),
     call: ($) => prec.dynamic(19, seq($.expr)),
     return_stmt: ($) => seq($.kwd_return, optional(seq(repeat(seq($.expr, $.seperator)), $.expr))),
     assign_stmt: ($) => seq(repeat($.kwd_modifier), repeat(seq(field("lhs", $.location), $.seperator)), $.location, $.coloneq, field("rhs", $.expr)),
+    bind_stmt: ($) => seq(repeat($.kwd_modifier), repeat(seq(field("lhs", $.location), $.seperator)), $.location, $.kwd_bind, field("rhs", $.expr)),
     assert_stmt: ($) => seq($.kwd_assert, $.expr, optional($.with_stmt)),
     with_stmt: ($) => seq($.kwd_with, $.proc_body),
     assume_stmt: ($) => seq($.kwd_assume, $.expr),
@@ -417,7 +431,11 @@ module.exports = grammar({
     coloneq: ($) => COLONEQ,
     eq: ($) => EQ,
     end_stmt: ($) => END_STMT,
+    lghost: ($) => LGHOST,
+    rghost: ($) => RGHOST,
     /* KEYWORDS */
+    kwd_bind: ($) => BIND,
+    kwd_atomic: ($) => ATOMIC,
     kwd_own: ($) => OWN,
     kwd_import: ($) => IMPORT,
     kwd_field: ($) => FIELD,
@@ -453,6 +471,9 @@ module.exports = grammar({
     kwd_axiom: ($) => AXIOM,
     kwd_func: ($) => FUNC,
     kwd_inhale: ($) => INHALE,
+    kwd_exhale: ($) => EXHALE,
+    lunghost: ($) => LUNGHOST,
+    runghost: ($) => RUNGHOST,
     /* COMMENTS */
     // borrowing from the C99 parser
     block_comment: ($) => seq(
@@ -463,16 +484,14 @@ module.exports = grammar({
     comment_text: $ => repeat1(choice(/.|\n|\r/)),
     comment: _ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/),
   },
-  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value], [$.map_literal_id, $.location], [$.lemma_defn]],
+  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value, $.bind_stmt], [$.map_literal_id, $.location], [$.lemma_defn], [$.inhale_stmt], [$.exhale_stmt], [$.io_spec_clause, $.inhale_stmt]],
 });
 
 const AU = token("au");
-const ATOMIC = token("atomic");
 const ATOMICTOKEN = token("AtomicToken");
 const BOOL = token("Bool");
 const CAS = token("cas");
 const CLOSEINV = token("closeInv");
-const EXHALE = token("exhale");
 const INT = token("Int");
 const INV = token("inv");
 const MAP = token("Map");

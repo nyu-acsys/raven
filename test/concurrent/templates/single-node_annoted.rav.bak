@@ -92,8 +92,8 @@ module Lock {
       }	
     !}
 
-		CAS_FAIL
-		--------
+		// CAS_FAIL
+		// --------
 
 		// {{ AU(v_phi, "acquire", l, None, open(v_b)), own(l.bit, b') }} * 
 		// {{ phi = v_id, b = v_b, b != false, b' = b, res = false }}

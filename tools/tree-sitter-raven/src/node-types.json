@@ -262,6 +262,54 @@
     }
   },
   {
+    "type": "bind_stmt",
+    "named": true,
+    "fields": {
+      "lhs": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "location",
+            "named": true
+          }
+        ]
+      },
+      "rhs": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_bind",
+          "named": true
+        },
+        {
+          "type": "kwd_modifier",
+          "named": true
+        },
+        {
+          "type": "location",
+          "named": true
+        },
+        {
+          "type": "seperator",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "binop",
     "named": true,
     "fields": {},
@@ -502,6 +550,10 @@
         {
           "type": "val_defn",
           "named": true
+        },
+        {
+          "type": "var_dec",
+          "named": true
         }
       ]
     }
@@ -580,6 +632,25 @@
     "type": "eq",
     "named": true,
     "fields": {}
+  },
+  {
+    "type": "exhale_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_exhale",
+          "named": true
+        }
+      ]
+    }
   },
   {
     "type": "expr",
@@ -745,6 +816,33 @@
     }
   },
   {
+    "type": "ghost_code",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "end_stmt",
+          "named": true
+        },
+        {
+          "type": "lghost",
+          "named": true
+        },
+        {
+          "type": "rghost",
+          "named": true
+        },
+        {
+          "type": "stmt",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "havoc_stmt",
     "named": true,
     "fields": {},
@@ -848,6 +946,25 @@
     }
   },
   {
+    "type": "inhale_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_inhale",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "interface_body",
     "named": true,
     "fields": {},
@@ -857,6 +974,10 @@
       "types": [
         {
           "type": "defn",
+          "named": true
+        },
+        {
+          "type": "end_stmt",
           "named": true
         },
         {
@@ -962,6 +1083,10 @@
           "named": true
         },
         {
+          "type": "kwd_atomic",
+          "named": true
+        },
+        {
           "type": "kwd_ensures",
           "named": true
         },
@@ -983,6 +1108,11 @@
   },
   {
     "type": "kwd_assume",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_atomic",
     "named": true,
     "fields": {}
   },
@@ -1013,6 +1143,11 @@
   },
   {
     "type": "kwd_ensures",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_exhale",
     "named": true,
     "fields": {}
   },
@@ -1853,6 +1988,10 @@
           "named": true
         },
         {
+          "type": "ghost_code",
+          "named": true
+        },
+        {
           "type": "stmt_syntax",
           "named": true
         }
@@ -1880,6 +2019,14 @@
           "named": true
         },
         {
+          "type": "bind_stmt",
+          "named": true
+        },
+        {
+          "type": "exhale_stmt",
+          "named": true
+        },
+        {
           "type": "fold_stmt",
           "named": true
         },
@@ -1889,6 +2036,10 @@
         },
         {
           "type": "if_stmt",
+          "named": true
+        },
+        {
+          "type": "inhale_stmt",
           "named": true
         },
         {
@@ -2474,6 +2625,10 @@
     "named": false
   },
   {
+    "type": "atomic",
+    "named": false
+  },
+  {
     "type": "auto",
     "named": false
   },
@@ -2508,6 +2663,10 @@
   {
     "type": "escape_sequence",
     "named": true
+  },
+  {
+    "type": "exhale",
+    "named": false
   },
   {
     "type": "exists",
@@ -2574,8 +2733,20 @@
     "named": false
   },
   {
+    "type": "kwd_bind",
+    "named": true
+  },
+  {
     "type": "lemma",
     "named": false
+  },
+  {
+    "type": "lghost",
+    "named": true
+  },
+  {
+    "type": "lunghost",
+    "named": true
   },
   {
     "type": "module",
@@ -2608,6 +2779,14 @@
   {
     "type": "returns",
     "named": false
+  },
+  {
+    "type": "rghost",
+    "named": true
+  },
+  {
+    "type": "runghost",
+    "named": true
   },
   {
     "type": "string_fragment",

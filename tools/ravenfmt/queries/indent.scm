@@ -17,6 +17,8 @@
 [
   (binop_op)
   (qmark) (ternary_colon)
+  (kwd_bind)
+  (kwd_atomic)
   (kwd_import)
   (kwd_field)
   (kwd_pred)
@@ -51,10 +53,9 @@
   (kwd_axiom)
   (kwd_func)
   (kwd_inhale)
+  (kwd_exhale)
   (coloncolon)
   (trigger)
-  (proc_body)
-  (pred_body)
   (eq)
   (coloneq)
 ] @prepend_space @append_space
@@ -63,7 +64,7 @@
 ; Append spaces
 [
   (seperator)
-] @append_space
+] @append_input_spaced_softline
 
 
 (comment) @append_hardline @allow_blank_line_before
@@ -105,6 +106,13 @@
  (defn) @prepend_hardline
 )
 
+; Put breaks between statements
+(
+ (stmt)
+ .
+ (stmt) @prepend_spaced_softline
+)
+
 (block_comment) @multi_line_indent_all
 
 ; Allow line break after block comments
@@ -140,7 +148,6 @@
 
 (axiom_defn name: (identifier) @prepend_space @append_indent_start _ @append_indent_end .)
 (lemma_defn name: (identifier) @prepend_space @append_indent_start body: (proc_body))
-(pred_defn name: (identifier) @prepend_space @append_indent_start (pred_body))
 (proc_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
 (rep_defn name: (identifier) @append_indent_start (data_defn))
 (rep_defn name: (identifier) @append_indent_start (type) @append_indent_end)
@@ -169,7 +176,6 @@
 (func_defn body: (proc_body) @prepend_space @prepend_indent_end)
 (lemma_defn body: (proc_body) @prepend_space @prepend_indent_end)
 (proc_defn body: (proc_body) @prepend_space @prepend_indent_end)
-(pred_defn body: (pred_body) @prepend_space @prepend_indent_end)
 
 (data_defn (lcurly) @append_spaced_softline @append_indent_start)
 (data_defn (rcurly) @prepend_spaced_softline @prepend_indent_end)
@@ -181,26 +187,36 @@
 (proc_defn !body)
 (pred_defn !body)] @append_spaced_softline
 
-(proc_body
-  .
-  (lcurly) @append_spaced_softline @append_indent_start
-  _
-  (rcurly) @prepend_spaced_softline @prepend_indent_end
-  .)
+(pred_defn name: (identifier) @append_indent_start (pred_body) @prepend_indent_end)
 (pred_body
   .
-  (lcurly) @append_spaced_softline @append_indent_start
+  (lcurly) @prepend_input_softline @append_spaced_softline @append_indent_start
   _
-  (rcurly) @prepend_spaced_softline @prepend_indent_end
+  (rcurly) @prepend_input_softline @prepend_spaced_softline @prepend_indent_end
   .)
+
+(proc_body
+  .
+  (lcurly) @prepend_input_softline @append_spaced_softline @append_indent_start
+  _
+  (rcurly) @prepend_input_softline @prepend_spaced_softline @prepend_indent_end
+  .)
+
 (interface_body
   .
   (lcurly) @append_spaced_softline @append_indent_start
   _
   (rcurly) @prepend_spaced_softline @prepend_indent_end
   .)
-(map_literal_l) @append_spaced_softline @append_indent_start
-(map_literal_r) @prepend_spaced_softline @prepend_indent_end
+(map_literal_l) @append_input_softline @append_indent_start
+(map_literal_r) @prepend_input_softline @prepend_indent_end
+
+(ghost_code
+  .
+  (lghost) @append_spaced_softline @append_indent_start
+  _
+  (rghost) @prepend_spaced_softline @prepend_indent_end
+  .)
 
 (arg vartype: (type) @prepend_space)
 (type_con supertype: _ @prepend_space)

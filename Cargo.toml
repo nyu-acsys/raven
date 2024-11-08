@@ -1,7 +1,25 @@
+[package]
+name = "raven"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "format"
+test = false
+bench = false
+path = "scripts/format.rs"
+
+[dependencies]
+walkdir = "2.5.0"
+jwalk = "0.5"
+
+[dev-dependencies]
+ravenfmt = { path = "./tools/ravenfmt/" }
+
 [workspace]
 members = [
   "tools/tree-sitter-raven",
-  "tools/ravenfmt"
+  "tools/ravenfmt",
 ]
 resolver = "2"
 

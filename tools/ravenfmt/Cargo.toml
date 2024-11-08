@@ -11,4 +11,3 @@ tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter.git", tag = "v
 clap = { version = "4.5.20", features = ["derive"] }
 string-builder = "0.2.0"
 walkdir = "2.5.0"
-
