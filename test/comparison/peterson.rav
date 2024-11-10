@@ -40,6 +40,35 @@ module Peterson[R: LockResource]
                 (own(l, access, 2, 1.0) && resource(r))))
     }
 
+    proc create(implicit ghost r: R)
+        returns (l: Ref)
+        requires resource(r)
+        ensures peterson_inv(l, r)
+        ensures own(l, active_left, false, 0.5)
+        ensures own(l, active_right, false, 0.5)
+    {
+        l := new(
+            turn: false, 
+            wait_left: false, 
+            wait_right: false,
+            active_left: false,
+            active_right: false,
+            access: 2
+        );
+
+        fold peterson_inv(l, r)[
+            wl := false,
+            wr := false,
+            t := false,
+            la := false,
+            ra := false,
+            or_l := false,
+            or_r := false, 
+            or_tl := false, 
+            or_tr := false
+        ];
+    }
+
     proc wait_acquire_l(l: Ref, implicit ghost r: R) 
         requires peterson_inv(l, r)
         requires own(l, wait_left, true, 0.5)
