@@ -1,0 +1,52 @@
+field c: Int
+
+inv counterInv(x: Ref, max: Int) {
+  exists v: Int :: own(x, c, v, 1.0) && 0 <= v <= max
+}
+
+proc incr(x: Ref, max: Int)
+    returns (res: Int)
+    requires counterInv(x, max)
+    ensures counterInv(x, max)
+    ensures 0 <= res <= max
+{
+  var v: Int;
+
+  unfold counterInv(x, max);
+  v := x.c;
+  fold counterInv(x, max);
+  
+  var new_v : Int := (v < max) ? v+1 : 0;
+  var flag: Bool;
+
+  unfold counterInv(x, max);
+  flag := cas(x.c, v, new_v);
+  fold counterInv(x, max);
+  
+  if (!flag) {
+    res := incr(x, max); // retry
+  } else {
+    return v;
+  }
+}
+
+proc read(x: Ref, max: Int)
+  returns (v: Int)
+  requires counterInv(x, max)
+  ensures counterInv(x, max)
+{
+  unfold counterInv(x, max);
+  v := x.c;
+  fold counterInv(x, max);
+
+  return v;
+}
+
+proc create(max: Int)
+  returns (x: Ref)
+  requires 0 < max
+  ensures counterInv(x, max)
+{
+  x := new(c: 0);
+  fold counterInv(x, max);
+}
