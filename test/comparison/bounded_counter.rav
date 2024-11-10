@@ -7,7 +7,6 @@ inv counterInv(x: Ref, max: Int) {
 proc incr(x: Ref, max: Int)
     returns (res: Int)
     requires counterInv(x, max)
-    ensures counterInv(x, max)
     ensures 0 <= res <= max
 {
   var v: Int;
@@ -33,7 +32,6 @@ proc incr(x: Ref, max: Int)
 proc read(x: Ref, max: Int)
   returns (v: Int)
   requires counterInv(x, max)
-  ensures counterInv(x, max)
 {
   unfold counterInv(x, max);
   v := x.c;
