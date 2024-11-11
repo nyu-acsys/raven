@@ -29,10 +29,10 @@ function intervals_exclude(intervals, i) // intervals are non-overlapping, inclu
   return output;
 }
 
-const IDENT_BEGIN = [["a".charCodeAt(0), "z".charCodeAt(0)], ["A".charCodeAt(0), "Z".charCodeAt(0)],
-["_".charCodeAt(0), "_".charCodeAt(0)]];
+const IDENT_BEGIN = [["a".charCodeAt(0), "z".charCodeAt(0)], ["_".charCodeAt(0), "_".charCodeAt(0)]];
+const MOD_IDENT_BEGIN = [["A".charCodeAt(0), "Z".charCodeAt(0)], ["_".charCodeAt(0), "_".charCodeAt(0)]];
 const IDENT_INSIDE = [["a".charCodeAt(0), "z".charCodeAt(0)], ["A".charCodeAt(0), "Z".charCodeAt(0)],
-["_".charCodeAt(0), "_".charCodeAt(0)], ["0".charCodeAt(0), "9".charCodeAt(0)]];
+["_".charCodeAt(0), "_".charCodeAt(0)], ["0".charCodeAt(0), "9".charCodeAt(0)], ['\\'.charCodeAt(0), '\\'.charCodeAt(0)]];
 
 function character_class_without(intervals, characters) {
   characters.sort((c) => c.charCodeAt(0));
@@ -73,15 +73,17 @@ function make_trie(strings) {
   return trie
 }
 
-function* negate_keywords_trie(begin, trie) {
+function* negate_keywords_trie(begin, is_module, trie) {
   let chars = Object.keys(trie);
-  if (chars.length > 0 && begin) {
+  if (chars.length > 0 && begin && is_module) {
+    yield character_class_without(MOD_IDENT_BEGIN, chars) + "[a-zA-Z0-9_]*"
+  } else if (chars.length > 0 && begin) {
     yield character_class_without(IDENT_BEGIN, chars) + "[a-zA-Z0-9_]*"
   } else {
     yield character_class_without(IDENT_INSIDE, chars) + "[a-zA-Z0-9_]*"
   }
   for (let char of chars) {
-    for (let negated of (negate_keywords_trie(false, trie[char]))) {
+    for (let negated of (negate_keywords_trie(false, is_module, trie[char]))) {
       yield char + negated
     }
   }
@@ -94,10 +96,10 @@ function* negate_keywords_trie(begin, trie) {
   }
 }
 
-function negate_keywords_and_prefixes(keywords) {
+function negate_keywords_and_prefixes(keywords, is_module) {
   let trie = make_trie(keywords);
   let output = [];
-  for (let negated_regexp of negate_keywords_trie(true, trie)) {
+  for (let negated_regexp of negate_keywords_trie(true, is_module, trie)) {
     output.push(negated_regexp);
   }
   return output.join("|");
@@ -130,376 +132,355 @@ function keyword_prefixes(trie) {
   return output.filter((x) => x.length > 0).join("|")
 }
 
-function negation(keywords) {
-  return new RegExp([negate_keywords_and_prefixes(keywords), keyword_prefixes(make_trie(keywords))].join("|"))
+function negation(keywords, is_module) {
+  return new RegExp([negate_keywords_and_prefixes(keywords, is_module), keyword_prefixes(make_trie(keywords))].join("|"))
 }
 
 const keywords = {
-  "field": ["field"],
-  "pred": ["pred"],
-  "lcurly": ["{"],
-  "rcurly": ["}"],
-  "quantifier": ["forall", "exists"],
-  "boolean_literal": ["false", "true"],
-  "binop": ["==>", "<=>", "=", "==", "!=", "<=", ">=", "<", ">", "||", "&&", "in", "!in", "::", "**", "/", "*", "%", "*", "%", "++", "+", "--", "-"],
-  "unop": ["!"],
-  "proc": ["proc"],
-  "requires": ["requires"],
-  "ensures": ["ensures"],
-  "if": ["if"],
-  "else": ["else"],
-  "fold": ["fold"],
-  "unfold": ["unfold"],
-  "var": ["var"],
-  "assert": ["assert"],
-  "assume": ["assume"],
-  "havoc": ["havoc"],
-  "while": ["while"],
-  "invariant": ["invariant"],
-  "coloneq": [":="],
-  "eq": ["="],
-  "returns": ["returns"],
-  "return": ["return"],
-  "val": ["val"],
-  "own": ["own"],
-  ";": [";"],
-  ",": [","],
-  ".": ["."],
-  "?": ["?"],
-  "colonpipe": [":|"],
-  "lcurly": ["{"],
-  "rcurly": ["}"],
-  "lparen": ["("],
-  "rparen": [")"],
-  "with": ["with"],
-  "import": ["import"],
-  "colon": ["colon", ":"],
-  "coloncolon": ["::"],
-  "modifier": ["implicit", "ghost"],
-  "include": ["include"],
-  "interface": ["interface"],
-  "module": ["module"],
-  "lemma": ["lemma"],
-  "auto": ["auto"],
-  "axiom": ["axiom"],
-  "func": ["func"],
-  "rep": ["rep"],
-  "type": ["type"],
-  "data": ["data"],
-  "case": ["case"],
-  "inhale": ["inhale"],
-  "lmap_literal": ["{|"],
-  "rmap_literal": ["|}"],
-  "qmark": ["?"],
-  "atomic": ["atomic"],
-  "exhale": ["exhale"],
+  kwd_spec: ["assert", "assume", "exhale", "inhale", "fold", "unfold"],
+  kwd_inv: ["closeInv", "openInv", "inv"],
+  kwd_au: ["au"],
+  kwd_atomic: ["atomic"],
+  kwd_axiom: ["axiom"],
+  kwd_atomic_token: ["AtomicToken"],
+  kwd_auto: ["auto"],
+  kwd_bool: ["Bool"],
+  kwd_cas: ["cas"],
+  kwd_case: ["case"],
+  kwd_data: ["data"],
+  kwd_else: ["else"],
+  kwd_ensures: ["ensures"],
+  kwd_quantifier: ["forall", "exists"],
+  kwd_const: ["false", "true", "null"],
+  kwd_field: ["field"],
+  kwd_func: ["func", "pred"],
+  kwd_ghost: ["ghost"],
+  kwd_havoc: ["havoc"],
+  kwd_if: ["if"],
+  kwd_int: ["Int"],
+  kwd_include: ["include"],
+  kwd_module: ["interface", "module"],
+  kwd_invariant: ["invariant"],
+  kwd_import: ["import"],
+  kwd_implicit: ["implicit"],
+  kwd_lemma: ["lemma"],
+  kwd_rep: ["rep"],
+  kwd_map: ["Map"],
+  kwd_new: ["new"],
+  kwd_own: ["own"],
+  kwd_perm: ["Perm"],
+  kwd_proc: ["proc"],
+  kwd_ref: ["Ref"],
+  kwd_real: ["Real"],
+  kwd_requires: ["requires"],
+  kwd_return: ["return"],
+  kwd_returns: ["returns"],
+  kwd_set: ["Set"],
+  kwd_type: ["type"],
+  kwd_var: ["val", "val"],
+  kwd_with: ["with"],
+  kwd_while: ["while"],
+  /* hack: keywords contains "in" to exclude "in" from identifiers */
+  kwd_in: ["in"],
 }
 
-const all_keywords = Object.keys(keywords).map((k) => keywords[k]).reduce((x, y) => x.concat(y), []);
-
-const all_colliding_keywords = all_keywords.filter((x) => x.match(/^[A-Za-z0-9_]*$/));
-
-const IDENTIFIER = token(negation(all_colliding_keywords));
-
-function into_tokens(keyword) {
-  return choice.apply(null, keywords[keyword].map(token));
+const delimeters = {
+  delim_lbracepipe: ["{|"],
+  delim_rbracepipe: ["|}"],
+  delim_lbracketpipe: ["[|"],
+  delim_rbracketpipe: ["|]"],
+  delim_lparen: ['('],
+  delim_rparen: [')'],
+  delim_lbrace: ['{'],
+  delim_rbrace: ['}'],
+  delim_lbracket: ['['],
+  delim_rbracket: [']'],
+  delim_lghostbrace: ["{!"],
+  delim_rghostbrace: ["!}"],
 }
 
-/* keywords */
-const IMPORT = into_tokens("import");
-const COLON = into_tokens("colon")
-const COLONCOLON = into_tokens("coloncolon")
-const LCURLY = into_tokens("lcurly");
-const RCURLY = into_tokens("rcurly");
-const VAL = into_tokens("val");
-const FIELD = into_tokens("field");
-const PRED = into_tokens("pred");
-const PROC = into_tokens("proc");
-const REQUIRES = into_tokens("requires");
-const ENSURES = into_tokens("ensures");
-const RETURNS = into_tokens("returns");
-const RETURN = into_tokens("return");
-const COLONEQ = into_tokens("coloneq");
-const ASSERT = into_tokens("assert");
-const WITH = into_tokens("with");
-const ASSUME = into_tokens("assume");
-const HAVOC = into_tokens("havoc");
-const IF = into_tokens("if");
-const ELSE = into_tokens("else");
-const WHILE = into_tokens("while");
-const INVARIANT = into_tokens("invariant");
-const FOLD = into_tokens("fold");
-const UNFOLD = into_tokens("unfold");
-const VAR = into_tokens("var");
-const BOOLEAN_LIT = into_tokens("boolean_literal");
-const UNOP = into_tokens("unop");
-const BINOP = into_tokens("binop");
-const QUANTIFIER = into_tokens("quantifier");
-const MODIFIER = into_tokens("modifier");
-const INCLUDE = into_tokens("include");
-const INTERFACE = into_tokens("interface");
-const MODULE = into_tokens("module");
-const LEMMA = into_tokens("lemma");
-const AUTO = into_tokens("auto");
-const AXIOM = into_tokens("axiom");
-const FUNC = into_tokens("func");
-const REP = into_tokens("rep");
-const TYPE = into_tokens("type");
-const DATA = into_tokens("data");
-const CASE = into_tokens("case");
-const LMAP_LITERAL = into_tokens("lmap_literal");
-const RMAP_LITERAL = into_tokens("rmap_literal");
-const LPAREN = into_tokens("lparen");
-const RPAREN = into_tokens("rparen");
-const QMARK = into_tokens("qmark");
-const INHALE = into_tokens("inhale");
-const OWN = into_tokens("own");
-const ATOMIC = into_tokens("atomic");
-const EXHALE = into_tokens("exhale");
+const operators = {
+  op_implies: ["==>"],
+  op_iff: ["<=>"],
+  op_eq: ["="],
+  op_eqeq: ["=="],
+  op_neq: ["!="],
+  op_leq: ["<="],
+  op_geq: [">="],
+  op_lt: ["<"],
+  op_gt: [">"],
+  op_or: ["||"],
+  op_and: ["&&"],
+  op_in: ["in"],
+  op_not_in: ["!in"],
+  op_not: ["!"],
+  op_union: ["++"],
+  op_diff: ["--"],
+  op_multop_inter: ["**"],
+  op_plus: ["+"],
+  op_minus: ["-"],
+  op_div: ["/"],
+  op_mul: ["*"],
+  op_mod: ["%"],
+  op_coloneq: [":="],
+  op_coloncolon: ["::"],
+  op_colon: [":"],
+  op_semicolon: [";"],
+  op_comma: [","],
+  op_dot: ["."],
+  op_qmark: ["?"],
+  op_colonpipe: [":|"],
+}
 
-/* constants */
-const SEPERATOR = choice(token(","), token(";"))
-const END_STMT = token(";");
-const DOT = token(".")
-const EQ = token("=");
-const LGHOST = token("{!");
-const RGHOST = token("!}");
-const LUNGHOST = token("{{");
-const RUNGHOST = token("}}");
-const BIND = token(":|");
+/*** LexerRules(Rules) is a class extending the class "Rules" with
+     lexer rules and data. ***/
+const LexerRules = (Rules) => class AllRules extends Rules {
+  constructor() {
+    super();
+    for (let kwd of Object.keys(keywords)) {
+      this[kwd] = _ => into_tokens(keywords, kwd);
+    }
+    for (let delim of Object.keys(delimeters)) {
+      this[delim] = _ => into_tokens(delimeters, delim);
+    }
+    for (let op of Object.keys(operators)) {
+      this[op] = _ => into_tokens(operators, op);
+    }
+  }
 
-module.exports = grammar({
-  name: "raven",
-
-  extras: ($) => [/(\s|\f)/, $.comment, $.block_comment], // Ignore whitespace, comments
-
-  rules: {
-    source_file: ($) => seq(repeat($.include_stmt), repeat($.defn)),
-    // A borrow from Java:
-    double_quote_string: ($) => seq(
-      '"',
-      repeat(choice(
-        $.string_fragment,
-        $.escape_sequence,
-      )),
-      '"',
-    ),
-    single_quote_string: ($) => seq(
-      "'",
-      repeat(choice(
-        $.string_fragment,
-        $.escape_sequence,
-      )),
-      "'",
-    ),
-    string_fragment: (_) => token.immediate(prec(1, /[^"\\]+/)),
-    escape_sequence: (_) => token.immediate(seq(
-      '\\',
+  identifier = _ => IDENTIFIER;
+  mod_identifier = _ => MOD_IDENTIFIER;
+  block_comment = ($) => seq("/*", optional($.comment_text), "*/");
+  comment_text = _ => repeat1(choice(/.|\n|\r/));
+  comment = _ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/);
+  double_quote_string = ($) => seq(
+    '"',
+    repeat(choice(
+      $.string_fragment,
+      $.escape_sequence,
+    )),
+    '"',
+  );
+  single_quote_string = ($) => seq(
+    "'",
+    repeat(choice(
+      $.string_fragment,
+      $.escape_sequence,
+    )),
+    "'",
+  );
+  string_fragment = _ => token.immediate(prec(1, /[^"\\]+/));
+  escape_sequence = _ =>
+    token.immediate(seq('\\',
       choice(
         /[^xu0-7]/,
         /[0-7]{1,3}/,
         /x[0-9a-fA-F]{2}/,
         /u[0-9a-fA-F]{4}/,
         /u\{[0-9a-fA-F]+\}/,
-      ))),
-    include_stmt: ($) => seq($.kwd_include, $.string),
-    import_stmt: ($) => seq($.kwd_import, $.identifier),
-    string: ($) => choice($.double_quote_string, $.single_quote_string),
-    defn: ($) => choice($.rep_defn, $.func_defn, $.axiom_defn, $.pred_defn, $.lemma_defn, $.proc_defn, $.field_defn, $.val_defn, $.interface_defn, $.import_stmt, $.module_defn, $.var_dec),
-    interface_body: ($) => seq($.lcurly, repeat(seq($.defn, optional($.end_stmt))), $.rcurly),
-    rep_defn: ($) => seq($.kwd_rep, $.kwd_type, field("name", $.identifier), optional(seq(choice($.eq, $.coloneq), choice(field("data", $.data_defn), field("type", $.type))))),
-    lcurly: ($) => LCURLY,
-    rcurly: ($) => RCURLY,
-    data_defn: ($) => seq($.kwd_data, $.lcurly, optional(field("body", $.data_body)), $.rcurly),
-    data_body: ($) => seq(repeat((seq(field("cases", $.case_defn), $.end_stmt))), field("case", $.case_defn)),
-    case_defn: ($) => seq($.kwd_case, field("name", $.identifier), field("parameters", optional($.arglist))),
-    interface_defn: ($) =>
-      seq($.kwd_interface,
-        field("name", $.identifier),
-        field("parameters", optional($.type_cons)),
-        field("typecons", optional(seq($.colon, $.type))),
-        field("body", $.interface_body)),
-    module_defn: ($) =>
-      seq($.kwd_module,
-        field("name", $.identifier),
-        field("parameters", optional($.type_cons)),
-        field("typecons", optional(seq($.colon, $.type))),
-        choice(field("body", $.interface_body), field("type", seq(choice($.coloneq, $.eq), $.type)))),
-    func_defn: ($) =>
-      seq($.kwd_func,
-        field("name", $.identifier),
-        field("parameters", $.arglist),
-        field("io", repeat($.io_spec_clause)),
-        field("returns", $.returns_clause),
-        field("body", optional($.proc_body))),
-    axiom_defn: ($) =>
-      seq(optional($.kwd_auto),
-        $.kwd_axiom,
-        field("name", $.identifier),
-        field("parameters", $.arglist),
-        field("io", repeat($.io_spec_clause))),
-    lemma_defn: ($) =>
-      seq(optional($.kwd_auto),
-        $.kwd_lemma,
-        field("name", $.identifier),
-        field("parameters", $.arglist),
-        field("io", repeat($.io_spec_clause)),
-        optional(field("body", $.proc_body))),
-    pred_defn: ($) =>
-      seq($.kwd_pred,
-        field("name", $.identifier),
-        field("parameters", $.arglist),
-        optional(field("body", $.pred_body))),
-    proc_defn: ($) =>
-      seq($.kwd_proc,
-        field("name", $.identifier),
-        field("parameters", $.arglist),
-        repeat(choice(field("io", $.io_spec_clause),
-          field("returns", $.returns_clause))),
-        optional(field("body", $.proc_body))),
-    type_con: ($) => seq(field("subtype", $.identifier), token(":"), field("supertype", $.identifier)),
-    type_cons: ($) => seq(token("["), repeat($.type_con), token("]")),
-    val_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_val, $.arg, optional(seq(choice($.coloneq, $.eq), $.expr))),
-    field_defn: ($) => seq(repeat($.kwd_modifier), $.kwd_field, $.arg),
-    io_spec_clause: ($) => seq(optional($.kwd_atomic), choice($.kwd_requires, $.kwd_ensures, $.kwd_inhale), $.expr),
-    returns_clause: ($) => seq($.kwd_returns, field("arglist", $.arglist)),
-    stmt: ($) => choice($.stmt_syntax, $.call, $.ghost_code),
-    ghost_code: ($) => seq($.lghost, repeat(seq($.stmt, optional($.end_stmt))), $.rghost),
-    unghost_code: ($) => seq($.lunghost, repeat(seq($.stmt, optional($.end_stmt))), $.runghost),
-    proc_body: ($) => choice(seq($.lcurly, repeat(seq($.stmt, optional($.end_stmt))), $.rcurly), $.stmt),
-    stmt_syntax: ($) => prec.dynamic(20, choice($.if_stmt, $.while_stmt, $.fold_stmt, $.unfold_stmt, $.var_dec, $.assert_stmt, $.assume_stmt, $.havoc_stmt, $.val_defn, $.assign_stmt, $.return_stmt, $.bind_stmt, $.exhale_stmt, $.inhale_stmt)),
-    exhale_stmt: ($) => seq($.kwd_exhale, optional($.expr)),
-    inhale_stmt: ($) => seq($.kwd_inhale, optional($.expr)),
-    call: ($) => prec.dynamic(19, seq($.expr)),
-    return_stmt: ($) => seq($.kwd_return, optional(seq(repeat(seq($.expr, $.seperator)), $.expr))),
-    assign_stmt: ($) => seq(repeat($.kwd_modifier), repeat(seq(field("lhs", $.location), $.seperator)), $.location, $.coloneq, field("rhs", $.expr)),
-    bind_stmt: ($) => seq(repeat($.kwd_modifier), repeat(seq(field("lhs", $.location), $.seperator)), $.location, $.kwd_bind, field("rhs", $.expr)),
-    assert_stmt: ($) => seq($.kwd_assert, $.expr, optional($.with_stmt)),
-    with_stmt: ($) => seq($.kwd_with, $.proc_body),
-    assume_stmt: ($) => seq($.kwd_assume, $.expr),
-    havoc_stmt: ($) => seq($.kwd_havoc, $.expr),
-    if_stmt: ($) => seq($.kwd_if, $.paren_expr, $.proc_body, repeat($.elif_clause), optional($.else_clause)),
-    elif_clause: ($) => seq($.kwd_else, $.kwd_if, $.paren_expr, $.proc_body),
-    else_clause: ($) => seq($.kwd_else, $.proc_body),
-    while_stmt: ($) => seq($.kwd_while, optional($.paren_expr), repeat($.invariant_spec_clause), $.proc_body),
-    invariant_spec_clause: ($) => seq($.kwd_invariant, $.expr),
-    fold_stmt: ($) => seq($.kwd_fold, $.expr),
-    unfold_stmt: ($) => seq($.kwd_unfold, $.expr),
-    var_dec: ($) => seq(repeat($.kwd_modifier), $.kwd_var, $.arg, optional(seq(choice($.coloneq, $.eq), $.expr))),
-    arglist: ($) => seq($.lparen, repeat(seq(field("params", $.arg), $.seperator)), field("param", optional($.arg)), $.rparen),
-    arg: ($) => seq(repeat($.kwd_modifier), field("varname", $.identifier), $.colon, field("vartype", $.type)),
-    type: ($) => choice(field("ty_name", $.identifier), field("ty_app", $.type_application)),
-    type_application: ($) => seq(field("ty_name", $.identifier), token("["), $.typelist, token("]")),
-    typelist: ($) => seq(repeat(seq($.type, $.seperator)), $.type),
-    pred_body: ($) => seq($.lcurly, $.expr, $.rcurly),
-    expr: ($) => choice($.value, $.unop, $.binop, $.ternary_op, $.quantified_expr, $.paren_expr, $.apply, $.update, $.lookup, $.map_literal, $.own),
-    map_literal_l: (_) => LMAP_LITERAL,
-    map_literal_r: (_) => RMAP_LITERAL,
-    map_literal: ($) => seq($.map_literal_l, optional(choice($.map_literal_id, $.map_literal_expr)), $.map_literal_r),
-    map_literal_id: ($) => seq($.identifier, optional(seq($.colon, $.type))),
-    map_literal_expr: ($) => $.expr,
-    update: ($) => prec(8, seq($.expr, token("["), $.expr, $.coloneq, $.expr, token("]"))),
-    own: ($) => prec(10, seq($.kwd_own, $.lparen, repeat(seq($.expr, $.seperator)), optional($.expr), $.rparen)),
-    apply: ($) => prec(10, seq(field("callee", $.expr), $.lparen, repeat(seq($.expr, $.seperator)), optional($.expr), $.rparen)),
-    lookup: ($) => prec(9, seq($.expr, token("["), repeat(seq($.expr, $.seperator)), optional($.expr), token("]"))),
-    paren_expr: ($) => prec(3, seq($.lparen, $.expr, $.rparen)),
-    value: ($) => choice($.number, $.boolean_lit, $.location),
-    boolean_lit: ($) => BOOLEAN_LIT,
-    number: ($) => seq(optional(token("-")), /\d+|\d*\.\d+/),
-    unop: ($) => prec(2, seq($.unop_op, $.expr)),
-    unop_op: ($) => UNOP,
-    binop: ($) => prec.left(1, seq($.expr, $.binop_op, $.expr)),
-    binop_op: ($) => BINOP,
-    ternary_op: ($) => prec.left(1, seq($.expr, $.qmark, $.expr, $.ternary_colon, $.expr)),
-    quantified_expr: ($) => prec(7, seq($.kwd_quantifier, seq($.arg, repeat(seq(", ", $.arg))), $.coloncolon, optional($.trigger), $.expr)),
-    trigger_begin: ($) => LCURLY,
-    trigger_end: ($) => RCURLY,
-    trigger: ($) => seq($.trigger_begin, repeat(seq($.expr, $.seperator)), $.expr, $.trigger_end),
-    location: ($) => seq(repeat(seq($.expr, $.dot)), field("name_or_field", $.identifier)),
-    identifier: ($) => prec.left(100, seq(IDENTIFIER, repeat(seq($.dot, IDENTIFIER)))),
-    /* CONSTANTS */
-    lparen: ($) => LPAREN,
-    rparen: ($) => RPAREN,
-    lmap_literal: ($) => LMAP_LITERAL,
-    rmap_literal: ($) => RMAP_LITERAL,
-    ternary_colon: ($) => $.colon,
-    colon: ($) => COLON,
-    coloncolon: ($) => COLONCOLON,
-    seperator: ($) => SEPERATOR,
-    qmark: ($) => QMARK,
-    dot: ($) => DOT,
-    coloneq: ($) => COLONEQ,
-    eq: ($) => EQ,
-    end_stmt: ($) => END_STMT,
-    lghost: ($) => LGHOST,
-    rghost: ($) => RGHOST,
-    /* KEYWORDS */
-    kwd_bind: ($) => BIND,
-    kwd_atomic: ($) => ATOMIC,
-    kwd_own: ($) => OWN,
-    kwd_import: ($) => IMPORT,
-    kwd_field: ($) => FIELD,
-    kwd_pred: ($) => PRED,
-    kwd_proc: ($) => PROC,
-    kwd_requires: ($) => REQUIRES,
-    kwd_ensures: ($) => ENSURES,
-    kwd_returns: ($) => RETURNS,
-    kwd_return: ($) => RETURN,
-    kwd_assert: ($) => ASSERT,
-    kwd_assume: ($) => ASSUME,
-    kwd_havoc: ($) => HAVOC,
-    kwd_with: ($) => WITH,
-    kwd_val: ($) => VAL,
-    kwd_if: ($) => IF,
-    kwd_else: ($) => ELSE,
-    kwd_while: ($) => WHILE,
-    kwd_invariant: ($) => INVARIANT,
-    kwd_fold: ($) => FOLD,
-    kwd_unfold: ($) => UNFOLD,
-    kwd_var: ($) => VAR,
-    kwd_quantifier: ($) => QUANTIFIER,
-    kwd_modifier: ($) => MODIFIER,
-    kwd_include: ($) => INCLUDE,
-    kwd_interface: ($) => INTERFACE,
-    kwd_module: ($) => MODULE,
-    kwd_rep: ($) => REP,
-    kwd_type: ($) => TYPE,
-    kwd_data: ($) => DATA,
-    kwd_case: ($) => CASE,
-    kwd_auto: ($) => AUTO,
-    kwd_lemma: ($) => LEMMA,
-    kwd_axiom: ($) => AXIOM,
-    kwd_func: ($) => FUNC,
-    kwd_inhale: ($) => INHALE,
-    kwd_exhale: ($) => EXHALE,
-    lunghost: ($) => LUNGHOST,
-    runghost: ($) => RUNGHOST,
-    /* COMMENTS */
-    // borrowing from the C99 parser
-    block_comment: ($) => seq(
-      "/*",
-      optional($.comment_text),
-      "*/"
-    ),
-    comment_text: $ => repeat1(choice(/.|\n|\r/)),
-    comment: _ => seq('//', /(\\+(.|\r?\n)|[^\\\n])*/),
-  },
-  conflicts: ($) => [[$.location], [$.proc_defn], [$.func_defn], [$.return_stmt], [$.while_stmt, $.expr], [$.if_stmt, $.elif_clause], [$.if_stmt], [$.assign_stmt, $.var_dec, $.val_defn, $.call], [$.assign_stmt, $.value, $.bind_stmt], [$.map_literal_id, $.location], [$.lemma_defn], [$.inhale_stmt], [$.exhale_stmt], [$.io_spec_clause, $.inhale_stmt]],
-});
+      )));
+  string = ($) => choice($.double_quote_string, $.single_quote_string);
+}
 
-const AU = token("au");
-const ATOMICTOKEN = token("AtomicToken");
-const BOOL = token("Bool");
-const CAS = token("cas");
-const CLOSEINV = token("closeInv");
-const INT = token("Int");
-const INV = token("inv");
-const MAP = token("Map");
-const NEW = token("new");
-const NULL = token("null");
-const OPENINV = token("openInv");
-const PERM = token("Perm");
-const REF = token("Ref");
-const REAL = token("Real");
-const SUBSETEQ = token("subseteq");
-const SET = token("Set");
+
+function into_tokens(arr, keyword) {
+  return choice.apply(null, (arr[keyword]).map(token));
+}
+
+const all_keywords = Object.keys(keywords).map((k) => keywords[k]).reduce((x, y) => x.concat(y), []);
+
+const all_colliding_keywords = all_keywords.filter((x) => x.match(/^[A-Za-z0-9_]*$/));
+
+const IDENTIFIER = token(negation(all_colliding_keywords, false));
+
+const MOD_IDENTIFIER = token(negation(all_colliding_keywords, true));
+
+
+function separated_nonempty_list(nonterminal, sep, name) {
+  return seq(repeat(seq(field(name, nonterminal), sep)), field(name, nonterminal));
+}
+
+function separated_list(nonterminal, sep, name) {
+  return seq(repeat(seq(field(name, nonterminal), sep)), optional(field(name, nonterminal)));
+}
+
+function member_def_list($) {
+  return field("member_def_list", repeat(seq(field("ms", $.member_def), optional($.op_semicolon))))
+}
+
+function expr_list($) {
+  return field("expr_list", separated_list($.op_comma, $.expr, "expr"))
+}
+
+/***
+    toplevel definitions, block, and statement syntax
+***/
+class SyntaxRules {
+  source_file = ($) => seq(repeat(field("files", $.include_stmt)), member_def_list($));
+  include_stmt = ($) => seq($.kwd_include, $.string);
+  member_def = ($) => choice($.field_def, $.module_def, $.type_def, $.var_def, $.proc_def, $.func_def, $.import_dir);
+  field_def = ($) => seq(optional(field("modifier", $.ghost_modifier)), $.kwd_field, $.identifier, $.op_colon, $.type_expr);
+  ghost_modifier = ($) => $.kwd_ghost;
+  module_def = ($) =>
+    seq(field("interface", $.kwd_module),
+      $.module_header,
+      optional(choice($.module_inst, $.module_impl)));
+  module_header = ($) => seq($.mod_identifier, optional($.module_param_list), optional($.return_type));
+  module_param_list = ($) => seq($.delim_lbracket, separated_list($.module_param, $.op_comma, "module_parameter"), $.delim_rbracket);
+  module_param = ($) => seq(field("inst_name", $.identifier), $.op_colon, field("inst_type", $.type_expr));
+  return_type = ($) => seq($.op_colon, $.identifier);
+  module_inst = ($) => seq($.delim_lbrace, member_def_list($), $.delim_rbrace);
+  module_impl = ($) => seq($.mod_identifier, optional($.module_inst_args));
+  module_inst_args = ($) => seq($.delim_lbracket, separated_list($.mod_identifier, $.op_comma, "id"), $.delim_rbracket);
+  type_def = ($) => seq($.type_decl, optional(seq($.op_eq, $.type_def_expr)));
+  type_decl = ($) => seq(optional($.type_mod), $.kwd_type, $.mod_identifier);
+  type_mod = ($) => $.kwd_rep;
+  type_def_expr = ($) => choice($.type_expr, $.data_expr);
+  data_expr = ($) => seq($.kwd_data, $.delim_lbrace, separated_list($.case_defn, $.op_semicolon, "case"), $.delim_rbrace);
+  case_defn = ($) => seq($.kwd_case, field("name", $.identifier), field("parameters", optional($.variant_args)));
+  variant_args = ($) => seq($.delim_lparen, separated_list($.bound_var, $.op_comma, "arg"), $.delim_rparen);
+  bound_var = ($) => seq($.identifier, $.op_colon, $.type_expr);
+  type_expr = ($) => choice($.kwd_int, $.kwd_real, $.kwd_bool, $.kwd_ref, $.kwd_perm, $.kwd_atomic_token, $.kwd_set, $.type_expr_map, $.mod_identifier, $.type_expr_list, $.type_expr_app);
+  type_expr_map = ($) => seq($.kwd_map, $.delim_lbracket, $.type_expr, $.op_comma, $.type_expr, $.delim_rbracket);
+  type_expr_list = ($) => seq($.delim_lparen, separated_nonempty_list($.type_expr, $.op_comma, "type"), $.delim_rparen);
+  type_expr_app = ($) => seq(field("caller", $.type_expr), $.delim_lbracket, separated_list($.type_expr, $.op_comma, "arg"), $.delim_rbracket);
+  var_def = ($) =>
+    choice(seq($.ghost_modifier, $.kwd_var, optional($.bound_var_type), optional(seq($.op_eq, $.expr))),
+      seq($.ghost_modifier, $.kwd_var, optional($.bound_var_type), $.op_coloneq, $.expr));
+  proc_def = ($) => seq($.proc_kind, $.proc_decl, optional($.block));
+  proc_kind = ($) => choice($.kwd_proc, seq(optional($.kwd_auto), $.kwd_lemma), seq(optional($.kwd_auto), $.kwd_axiom));
+  proc_decl = ($) => $.callable_decl;
+  callable_decl = ($) => seq($.identifier, $.delim_lparen, optional($.var_decls_with_modifiers), $.delim_rparen, optional($.returns_clause), repeat($.contract));
+  var_decls_with_modifiers = ($) => separated_nonempty_list(seq(repeat($.var_modifier), $.bound_var), $.op_comma, "arg");
+  var_modifier = ($) => choice($.kwd_implicit, $.kwd_ghost);
+  returns_clause = ($) => seq($.kwd_returns, $.delim_lparen, optional($.var_decls_with_modifiers), $.delim_rparen);
+  contract = ($) => seq(repeat($.contract_modifier), choice($.kwd_requires, $.kwd_ensures), $.expr);
+  contract_modifier = ($) => $.kwd_atomic;
+  bound_var_type = ($) => choice($.identifier, seq($.identifier, $.op_colon, $.type_expr));
+  block = ($) => seq($.delim_lbrace, optional($.stmt_list), $.delim_rbrace);
+  stmt_list = ($) => repeat1($.stmt);
+  stmt = ($) => $.stmt_desc;
+  stmt_desc = ($) =>
+    choice($.stmt_wo_trailing_substmt,
+      $.if_then_stmt,
+      $.if_then_else_stmt,
+      $.while_stmt,
+      $.ghost_block);
+  stmt_wo_trailing_substmt = ($) =>
+    choice(seq($.var_def, $.op_semicolon),
+      $.block,
+      seq($.call_expr, $.op_semicolon),
+      $.assign_stmt,
+      $.bind_stmt,
+      $.havoc_stmt,
+      $.spec_stmt,
+      $.return_stmt,
+      $.resource_stmt);
+  assign_stmt = ($) => seq(separated_nonempty_list($.expr, $.op_comma, "lhs_proj"), $.op_coloneq, choice($.new_expr, $.expr), $.op_semicolon);
+  bind_stmt = ($) => seq(separated_nonempty_list($.expr, $.op_comma, "lhs_proj"), $.op_colonpipe, $.expr, $.op_semicolon);
+  havoc_stmt = ($) => seq($.kwd_havoc, $.qual_ident, $.op_semicolon);
+  with_clause = ($) => choice($.op_semicolon, seq($.kwd_with, $.block));
+  spec_stmt = ($) => seq($.kwd_spec, $.expr, $.with_clause);
+  return_stmt = ($) => seq($.kwd_return, separated_list($.expr, $.op_comma, "expr"), $.op_semicolon);
+  resource_stmt = ($) => seq($.kwd_inv, $.qual_ident, $.delim_lparen, separated_list($.expr, $.op_comma, "expr"), $.delim_rparen, $.op_semicolon);
+  new_expr = ($) => seq($.kwd_new, $.delim_lparen, separated_list(seq($.qual_ident, $.op_colon, $.expr), $.op_comma, "rhs_proj"));
+  call_expr = ($) => seq($.qual_ident_expr, $.call);
+  if_then_stmt = ($) => seq($.kwd_if, $.delim_lparen, $.expr, $.delim_rparen, $.stmt);
+  if_then_else_stmt = ($) => seq($.kwd_if, $.delim_lparen, $.expr, $.delim_rparen, $.stmt_no_short_if, $.kwd_else, $.stmt);
+  stmt_no_short_if = ($) => $.stmt_no_short_if_desc;
+  stmt_no_short_if_desc = ($) => choice($.stmt_wo_trailing_substmt, $.if_then_else_stmt_no_short_if, $.while_stmt_no_short_if);
+  if_then_else_stmt_no_short_if = ($) => seq($.kwd_if, $.delim_lparen, $.expr, $.delim_rparen, $.stmt_no_short_if, $.kwd_else, $.stmt_no_short_if);
+  while_stmt_no_short_if = ($) => choice(seq($.kwd_while, $.delim_lparen, $.expr, $.delim_rparen, $.stmt_no_short_if));
+  while_stmt = ($) => choice(seq($.kwd_while, $.delim_lparen, $.expr, $.delim_rparen, repeat1($.loop_contract), $.block), seq($.kwd_while, $.delim_lparen, $.expr, $.delim_rparen, $.stmt));
+  loop_contract = ($) => seq($.kwd_invariant, $.expr);
+  ghost_block = ($) => seq($.delim_lghostbrace, optional($.stmt_list), $.delim_rghostbrace);
+  func_def = ($) => seq($.func_decl, optional(seq($.delim_lbrace, $.expr, $.delim_rbrace)));
+  func_decl = ($) => choice(seq($.kwd_func, $.callable_decl), seq($.kwd_func, $.callable_decl_out_vars));
+  callable_decl_out_vars = ($) => seq($.identifier, $.delim_lparen, optional($.var_decls_with_modifiers), $.op_semicolon, optional($.var_decls_with_modifiers), $.delim_rparen, repeat($.contract));
+  import_dir = ($) => prec.left(choice(seq($.kwd_import, $.qual_ident), seq($.kwd_import, $.mod_identifier)));
+}
+
+const expr_parsers = {
+  expr: ($) => prec.right(choice($.tuple_expr, $._expr_with_quantifiers)),
+  tuple_expr: ($) => prec.right(seq($.delim_lparen, separated_nonempty_list($.expr, $.op_comma, "proj"), $.delim_rparen)),
+  _expr_with_quantifiers: ($) => prec.right(choice($.quantified_expr, $._expr_with_ternaries)),
+  quantified_expr: ($) => seq($.kwd_quantifier, separated_list($.bound_var, $.op_comma, "variable", true), $.op_coloncolon, repeat($.trigger), $.expr),
+  _expr_with_ternaries: ($) => prec.right(choice($.ternary_expr, $._expr_with_iffs)),
+  ternary_expr: ($) => seq($._expr_with_iffs, $.op_qmark, $.expr, $.op_colon, $.expr),
+  trigger: ($) => seq($.delim_lbrace, expr_list($), $.delim_rbrace),
+  _expr_with_iffs: ($) => prec.right(choice($.iff_expr, $._expr_with_impls)),
+  iff_expr: ($) => seq($.impl_expr, $.op_iff, $.expr),
+  _expr_with_impls: ($) => prec.right(choice($.impl_expr, $.expr_with_ors)),
+  impl_expr: ($) => seq($.expr_with_ors, $.op_implies, $.expr),
+  expr_with_ors: ($) => prec.right(seq($.or_expr, $.expr_with_ands)),
+  or_expr: ($) => seq($.expr_with_ands, $.op_or, $.expr),
+  expr_with_ands: ($) => prec.right(choice($.and_expr, $.expr_with_eqs)),
+  and_expr: ($) => seq($.expr_with_eqs, $.op_and, $.expr),
+  expr_with_eqs: ($) => prec.right(choice($.eq_expr, $.expr_with_neqs)),
+  eq_expr: ($) => seq($.expr_with_neqs, $.op_eq, $.expr),
+  expr_with_neqs: ($) => prec.right(choice($.neq_expr, $.expr_with_ins)),
+  neq_expr: ($) => seq($.expr_with_ins, $.op_neq, $.expr),
+  expr_with_ins: ($) => prec.right(choice($.in_expr, $.expr_with_not_ins)),
+  in_expr: ($) => seq($.expr_with_not_ins, $.op_in, $.parenthesized_value_expr),
+  expr_with_not_ins: ($) => prec.right(choice($.not_in_expr, $.value_expr)),
+  not_in_expr: ($) => seq($.value_expr, $.op_not_in, $.parenthesized_value_expr),
+  parenthesized_value_expr: ($) =>
+    choice(seq($.delim_lparen, $.value_expr, $.delim_rparen),
+      $.value_expr),
+  value_expr: ($) => prec.right(choice($.add_expr, $.expr_with_minus)),
+  add_expr: ($) => seq($.expr_with_minus, $.op_plus, $.parenthesized_value_expr),
+  expr_with_minus: ($) => prec.right(choice($.minus_expr, $.expr_with_mul)),
+  minus_expr: ($) => seq($.expr_with_mul, $.op_minus, $.parenthesized_value_expr),
+  expr_with_mul: ($) => prec.right(choice($.mul_expr, $.expr_with_div)),
+  mul_expr: ($) => seq($.expr_with_div, $.op_mul, $.parenthesized_value_expr),
+  expr_with_div: ($) => prec.right(choice($.div_expr, $.expr_with_negatives)),
+  div_expr: ($) => seq($.expr_with_negatives, $.op_div, $.parenthesized_value_expr),
+  expr_with_negatives: ($) => prec.right(choice($.negative_expr, $.expr_with_nots)),
+  negative_expr: ($) => seq($.op_minus, $.parenthesized_value_expr),
+  expr_with_nots: ($) => prec.right(choice($.not_expr, $.primary_expr)),
+  not_expr: ($) => prec.right(seq($.op_not, $.primary_expr)),
+  primary_expr: ($) => choice($.literal, $.map_and_updates, $.compr_expr, $.dot_expr, $.own_expr, $.cas_expr, $.au_expr, $.lookup_expr),
+  literal: ($) => choice($.kwd_const, $.number),
+  map_and_updates: ($) => seq($.delim_lparen, $.expr, $.delim_rparen, repeat($.map_update)),
+  map_update: ($) => seq($.delim_lbracket, $.expr, $.op_coloneq, $.expr, $.delim_rbracket),
+  compr_expr: ($) =>
+    choice(seq($.delim_lbracepipe, /* expr_list($), */ $.delim_rbracepipe),
+      seq($.delim_lbracepipe, $.op_coloncolon, $.expr, $.delim_rbracepipe),
+      seq($.delim_lbracketpipe, $.bound_var, $.op_coloncolon, $.expr, $.delim_rbracketpipe)),
+  dot_expr: ($) => prec.right(seq($.qual_ident_expr, optional($.call_opt))),
+  qual_ident_expr: ($) => choice($.identifier, seq($.primary_expr, $.op_dot, $.identifier),
+    seq($.primary_expr, $.delim_lparen, $.qual_ident, $.delim_rparen)),
+  qual_ident: ($) => choice($.identifier, seq($.mod_identifier, $.identifier)),
+  call_opt: ($) => choice(seq($.call, repeat($.map_update)), repeat1($.map_update)),
+  call: ($) => seq($.delim_lparen, /* expr_list($), */ $.delim_rparen),
+  own_expr: ($) => seq($.kwd_own, $.delim_lparen, expr_list($), $.delim_rparen),
+  cas_expr: ($) => seq($.kwd_cas, $.delim_lparen, expr_list($), $.delim_rparen),
+  au_expr: ($) => seq($.kwd_au, $.delim_lparen, $.qual_ident, expr_list($), $.delim_rparen),
+  lookup_expr: ($) => choice(seq($.qual_ident_expr, $.lookup), seq($.delim_lparen, $.expr, $.delim_rparen, $.lookup)),
+  lookup: ($) => choice(seq($.delim_lbracket, $.expr, $.delim_rbracket), $.hash),
+  hash: ($) => $.integer,
+  integer: _ => token(/[0-9]+/),
+  float: _ => token(/[0-9]*.[0-9]+/),
+  number: ($) => choice($.integer, $.float),
+}
+
+/***
+    All non-lexical parsing rules including expressions
+***/
+class ParserRules extends SyntaxRules {
+  constructor() {
+    super();
+    let length = Object.keys(expr_parsers).length + 1;
+    for (const entry of Object.keys(expr_parsers).entries()) {
+      this[entry[1]] = ($) => prec(entry[0], expr_parsers[entry[1]]($))
+    }
+  }
+}
+
+module.exports = grammar({
+  name: "raven",
+
+  extras: ($) => [/(\s|\f)/, $.comment, $.block_comment], // Ignore whitespace, comments
+
+  rules: new (LexerRules(ParserRules)),
+});
