@@ -382,7 +382,7 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        b == id ? a : 
+        //b == id ? a : 
         ((a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
             (frag(M.frame(a.f_proj1, b.f_proj1))) :
         ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
@@ -400,7 +400,7 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
         (
             a == auth_frag(a.af_proj1, a.af_proj2) && 
             b == auth_frag(b.af_proj1, b.af_proj2) && 
-            valid(a) && valid(b) && 
+            valid(b) && 
             //b.af_proj1 == M.comp(M.frame(a.af_proj1, a.af_proj2), b.af_proj2)
             (forall c: M :: {M.comp(a.af_proj2, c)} {M.comp(b.af_proj2, c)} a.af_proj1 == M.comp(a.af_proj2, c) ==> b.af_proj1 == M.comp(b.af_proj2, c))
         )
@@ -656,9 +656,9 @@ module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra] : ResourceAlgebra {
 
 module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     rep type T = data {
-        case au_null;
-        case au_uncommitted(au_uncommit_proj1: InArg);
-        case au_committed(au_commit_proj1: InArg, au_commit_proj2: RetArg);
+        case au_null
+        case au_uncommitted(au_uncommit_proj1: InArg)
+        case au_committed(au_commit_proj1: InArg, au_commit_proj2: RetArg)
         case au_top
     }
 

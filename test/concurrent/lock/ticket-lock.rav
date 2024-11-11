@@ -6,9 +6,6 @@ module TicketLock[R: LockResource] {
   field next: Int
   field curr: Int
 
-  module Agree_R = Library.Agree[R]
-  ghost field agr: Agree_R
-
   module IntType : Library.Type {
     rep type T = Int
   }
@@ -19,7 +16,7 @@ module TicketLock[R: LockResource] {
   ghost field tickets: AuthDisjInts
 
   inv lock_inv(l: Ref; r: R) {
-    own(l, agr, Agree_R.agree(r)) && (
+    (
       exists n: Int, c: Int, b: Bool ::
         own(l, next, n, 1.0) && n >= 0
         && own(l, curr, c, 1.0)
@@ -41,7 +38,6 @@ module TicketLock[R: LockResource] {
     ensures lock_inv(l, r)
   {
     l := new (next: 0, curr: -1,
-      agr: Agree_R.agree(r),
       tickets: AuthDisjInts.auth_frag(
         IntSet.set({||}), IntSet.set({||})
       )
