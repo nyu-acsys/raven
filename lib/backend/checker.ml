@@ -193,16 +193,53 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
             (Ast.Type.mk_prod call_decl.call_decl_loc
                (List.map call_decl.call_decl_returns ~f:(fun arg ->
                     arg.var_type)))
-        and spec_expr =
+        in
+        let spec_expr =
+          let extra_validInhale_trigs = 
+            let qual_ident_suffix = QualIdent.unqualify fully_qual_name in
+            let heap_utils_valid_ident = Rewriter.ProgUtils.heap_utils_valid_ident Loc.dummy in
+            let heap_utils_valid_inhale_ident = Rewriter.ProgUtils.heap_utils_valid_inhale_ident Loc.dummy in
+            let fully_qual_name_path = QualIdent.from_list (QualIdent.path fully_qual_name) in
+
+            if Ident.(qual_ident_suffix = heap_utils_valid_inhale_ident) then begin
+              Logs.debug (fun m -> m 
+                "Checker.check_callable: qual_ident_suffix matched with heap_utils_valid_inhale_ident: %a"
+                  Ident.pr qual_ident_suffix
+              );
+              let valid_ident_fully_qual_name =
+                QualIdent.append fully_qual_name_path heap_utils_valid_ident
+              in [ [
+                Expr.mk_app ~typ:Ast.Type.bot (Var valid_ident_fully_qual_name)
+                    (List.map call_decl.call_decl_formals ~f:(fun arg ->
+                         Expr.from_var_decl arg)
+                    );
+              ] ]
+            end else (
+              (* if Ident.(qual_ident_suffix = heap_utils_valid_ident) then begin
+                let valid_inhale_ident_fully_qual_name =
+                  QualIdent.append fully_qual_name_path heap_utils_valid_inhale_ident
+                in [ [
+                  Expr.mk_app ~typ:Ast.Type.bot (Var valid_inhale_ident_fully_qual_name)
+                      (List.map call_decl.call_decl_formals ~f:(fun arg ->
+                           Expr.from_var_decl arg)
+                      );
+                ] ]
+              end else *)
+                [ ] 
+            )
+              
+          in
+
           Expr.mk_binder Forall call_decl.call_decl_formals
-            ~trigs:
+            ~trigs: (
               [
                 [
                   Expr.mk_app ~typ:Ast.Type.bot (Var fully_qual_name)
                     (List.map call_decl.call_decl_formals ~f:(fun arg ->
                          Expr.from_var_decl arg));
                 ];
-              ]
+              ] @ extra_validInhale_trigs
+            )
             (Expr.mk_eq
                (Expr.mk_app ~typ:(Expr.to_type expr) (Var fully_qual_name)
                   (List.map call_decl.call_decl_formals ~f:(fun arg ->
