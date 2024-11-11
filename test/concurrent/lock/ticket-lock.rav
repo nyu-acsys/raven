@@ -16,21 +16,19 @@ module TicketLock[R: LockResource] {
   ghost field tickets: AuthDisjInts
 
   inv lock_inv(l: Ref; r: R) {
-    (
-      exists n: Int, c: Int, b: Bool ::
-        own(l, next, n, 1.0) && n >= 0
-        && own(l, curr, c, 1.0)
-        && (b ? 
-          own(l, tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
-          resource(r)
-        )
-        && own(l, tickets,
-          AuthDisjInts.auth_frag(
-            IntSet.set({| i: Int :: 0 <= i && i < n |}),
-            IntSet.set({||})
-          )
-        )
-    )
+    exists n: Int, c: Int, b: Bool ::
+      own(l, next, n, 1.0) && n >= 0
+      && own(l, curr, c, 1.0)
+      && (b ? 
+        own(l, tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
+        resource(r)
+      )
+      && own(l, tickets,
+        AuthDisjInts.auth_frag(
+          IntSet.set({| i: Int :: 0 <= i && i < n |}),
+          IntSet.set({||})
+         )
+      )
   }
 
   proc create(r: R) returns (l: Ref)
