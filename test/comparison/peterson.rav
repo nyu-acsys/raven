@@ -144,15 +144,7 @@ module Peterson[R: LockResource]
         var curr_turn : Bool := l.turn;
         assert own(l, active_left, true, 1.0);
         {!
-            if (curr_turn) {
-                if (or_tl1) {
-                    // this assert should pass
-                    // assert own(l, active_left, true, 1.0) && own(l, active_left, true, 0.5);
-                    // assert false;
-                    // putting assume false because above assert does not pass
-                    assume false;
-                }
-                // assert (or_tl1 == false);
+            if (wr && curr_turn) {
                 assert own(l, access, 2, 1.0);
                 fpu(l, access, 2, 0);
                 
@@ -365,15 +357,7 @@ module Peterson[R: LockResource]
         var curr_turn : Bool := l.turn;
         assert own(l, active_right, true, 1.0);
         {!
-            if (!curr_turn) {
-                if (or_tr1) {
-                    // this assert should pass
-                    // assert own(l, active_right, true, 1.0) && own(l, active_right, true, 0.5);
-                    // assert false;
-                    // putting assume false because above assert does not pass
-                    assume false;
-                }
-
+            if (wl && !curr_turn) {
                 assert own(l, access, 2, 1.0);
                 fpu(l, access, 2, 1);
                 fold peterson_inv(l, r)[
