@@ -18,10 +18,10 @@ module TicketLock[R: LockResource] : Lock {
   pred lock_rep(l: Ref; b: Bool) {
     exists n: Int, c: Int ::
       n >= 0
-      && (b ==> own(l, tickets, ADS.frag(IntSet.set({|c|}))))
-      && own(l, tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
-      && own(l, next, n, 1.0) 
-      && own(l, curr, c, 1.0)
+      && (b ==> own(l.tickets, ADS.frag(IntSet.set({|c|}))))
+      && own(l.tickets, ADS.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < n|}), IntSet.set({||}))) 
+      && own(l.next, n, 1.0) 
+      && own(l.curr, c, 1.0)
   }
 
   proc create(r: R)
@@ -41,7 +41,7 @@ module TicketLock[R: LockResource] : Lock {
   }
 
   proc wait_loop(l: Ref, x: Int, implicit ghost r: R, implicit ghost b: Bool)
-    atomic requires is_lock(l, r, b) && own(l, tickets, ADS.frag(IntSet.set({|x|})))
+    atomic requires is_lock(l, r, b) && own(l.tickets, ADS.frag(IntSet.set({|x|})))
     atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
     ghost val phi: AtomicToken := bindAU();
@@ -51,7 +51,7 @@ module TicketLock[R: LockResource] : Lock {
     val c: Int := l.curr;    
     {!
       ghost var n: Int;
-      n :| own(l, next, n, 1.0);
+      n :| own(l.next, n, 1.0);
       if (x == c) {
         fold lock_rep(l, true);
         fold is_lock(l, r, true);

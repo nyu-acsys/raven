@@ -9,7 +9,7 @@ import AuthMaxNat._
 field h: AuthMaxNat
 
 inv counterInv(x: Ref) { 
-  exists v: Int :: own(x, h, auth_frag(v,v)) && own(x, c, v, 1.0)
+  exists v: Int :: own(x.h, auth_frag(v,v)) && own(x.c, v, 1.0)
 }
 
 proc incr(x: Ref) 
@@ -27,7 +27,7 @@ proc incr(x: Ref)
 
   ghost var v2: Int;
   unfold counterInv(x);
-  v2 :| own(x, c, v2, 1.0);
+  v2 :| own(x.c, v2, 1.0);
   assert v1 <= v2;
   res := cas(x.c, v1, new_v1);
     

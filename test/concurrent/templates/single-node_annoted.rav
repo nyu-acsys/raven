@@ -251,21 +251,21 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
   field cont_spec: FracSK;
   
   pred nodePred(r: css) {
-    exists c: Set[K] :: nodeR(r.node, c) && own(r.cont_lock, frac(1/2, c))
+    exists c: Set[K] :: nodeR(r.node, c) && own(r.cont_lock.frac(1/2, c))
   }
 
   pred cssAuth(r: css, c: Set[K]) {
-    own(r.cont_spec, frac(1/2, c))
+    own(r.cont_spec.frac(1/2, c))
   }
 
   pred cssR(r: css, c: Set[K]) {
-    own(r.cont_spec, frac(1/2, c))
+    own(r.cont_spec.frac(1/2, c))
   }
 
   inv cssInv(r: css) {
     exists b: Bool, c: Set[K], l: Ref ::
       cssAuth(r, c)
-      && own(r.cont_lock, frac(1/2, c))
+      && own(r.cont_lock.frac(1/2, c))
       && own(r.lock, l)
       && Lock.lock(l, b) && (b ? true : nodePred(r))
   }
@@ -286,8 +286,8 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     r.cont_lock := frac(1, {||});
     r.cont_spec := frac(1, {||});
 
-    {{ Lock.lock(l, false), nodeR(n, {||}), own(r.lock, l), own(r.node, n), 
-    		own(r.cont_lock, frac(1, {||})), own(r.cont_spec, frac(1, {||})) }}
+    {{ Lock.lock(l, false), nodeR(n, {||}), own(r.lock.l), own(r.node.n), 
+    		own(r.cont_lock.frac(1, {||})), own(r.cont_spec.frac(1, {||})) }}
     
     {!          
       
@@ -295,25 +295,25 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
       /* After, [ frame (frac(1, {||})) (frac(1/2, {||})) ] remains */
       fold(cssAuth(r, {||}));
 
-    	{{ Lock.lock(l, false), nodeR(n, {||}, own(r.lock, l), own(r.node, n), 
-    			own(r.cont_lock, frac(1, {||})), own(r.cont_spec, frac(1/2, {||})),
+    	{{ Lock.lock(l, false), nodeR(n, {||}, own(r.lock.l), own(r.node.n), 
+    			own(r.cont_lock.frac(1, {||})), own(r.cont_spec.frac(1/2, {||})),
     			cssAuth(r, {||}) }}
 
-			assert nodeR(r.node, {||}) &*& own(r.cont_lock, frac(1/2, {||}))
+			assert nodeR(r.node, {||}) &*& own(r.cont_lock.frac(1/2, {||}))
 
 			fold nodePred(r)
 
-    	{{ Lock.lock(l, false), own(r.lock, l), own(r.node, n), 
-    			own(r.cont_lock, frac(1/2, {||})), own(r.cont_spec, frac(1/2, {||})),
+    	{{ Lock.lock(l, false), own(r.lock.l), own(r.node.n), 
+    			own(r.cont_lock.frac(1/2, {||})), own(r.cont_spec.frac(1/2, {||})),
     			cssAuth(r, {||}), nodePred(r) }}
 			
 			
-      assert cssAuth(r, {||}) &*& own(r.cont_lock, frac(1/2, {||}))
+      assert cssAuth(r, {||}) &*& own(r.cont_lock.frac(1/2, {||}))
         			&*& Lock.lock(r.lock, false) &*& (false ? true : nodePred(r));
       
       fold cssInv(r);
 
-    	{{ cssInv(r), own(r.cont_spec, frac(1/2, {||})) }}
+    	{{ cssInv(r), own(r.cont_spec.frac(1/2, {||})) }}
 
       fold cssR(r, {||});
       
@@ -335,13 +335,13 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     	
       openInv cssInv(r);
 
-    	{{ cssAuth(r, v_c), own(r.cont_lock, frac(1/2, v_c)), 
-    			own(r.lock, v_l), Lock.lock(v_l, v_b), (v_b ? true : nodePred(r)) }}
+    	{{ cssAuth(r, v_c), own(r.cont_lock.frac(1/2, v_c)), 
+    			own(r.lock.v_l), Lock.lock(v_l, v_b), (v_b ? true : nodePred(r)) }}
       
-      var b0, c0, l :| cssAuth(r, c) &*& own(r.lock, l) &*& Lock.lock(l, b) 
+      var b0, c0, l :| cssAuth(r, c) &*& own(r.lock.l) &*& Lock.lock(l, b) 
 
-    	{{ cssAuth(r, v_c), own(r.cont_lock, frac(1/2, v_c)), 
-    			own(r.lock, v_l), Lock.lock(v_l, v_b), (v_b ? true : nodePred(r)) }} *
+    	{{ cssAuth(r, v_c), own(r.cont_lock.frac(1/2, v_c)), 
+    			own(r.lock.v_l), Lock.lock(v_l, v_b), (v_b ? true : nodePred(r)) }} *
     	{{ b0 = v_b, c0 = v_c, l = v_l }}
                   
     !}
@@ -349,13 +349,13 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
     var l = r.lock; 
     acquire(l);
     
-  	{{ cssAuth(r, v_c), own(r.cont_lock, frac(1/2, v_c)), 
-  			own(r.lock, v_l), Lock.lock(v_l, true), nodePred(r) }} *
+  	{{ cssAuth(r, v_c), own(r.cont_lock.frac(1/2, v_c)), 
+  			own(r.lock.v_l), Lock.lock(v_l, true), nodePred(r) }} *
   	{{ b0 = v_b, c0 = v_c, l = v_l }}
     
     {!
 
-			assert cssAuth(r, c0) &*& own(r.lock, l) &*& Lock.lock(r.lock, true);
+			assert cssAuth(r, c0) &*& own(r.lock.l) &*& Lock.lock(r.lock, true);
 			
 			closeInv cssInv(r);
 
@@ -364,13 +364,13 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
 			assert nodePred(r);
       unfold nodePred(r);
       
-      {{ nodeR(r.node, v_c1), own(r.cont_lock, frac(1/2, v_c1)) }}
+      {{ nodeR(r.node, v_c1), own(r.cont_lock.frac(1/2, v_c1)) }}
       
     !} 
     
     res, c1 := decisiveOp(dop, r.node, k);
     
-    {{ nodeR(n, c1), own(r.cont_lock, frac(1/2, v_c1) }} * 
+    {{ nodeR(n, c1), own(r.cont_lock.frac(1/2, v_c1) }} * 
     {{ opSpec(dop, k, c1, v_c1, res) }}
 
 
@@ -391,7 +391,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] : SearchStructure[K] {
       frac_sum((r.cont_lock), 1/2, 1/2, c0');
       
       /* lemma frac_update l C C' : 
-            own(l, frac(1, C)) ~~> own(l, frac(1, C')) */
+            own(l.frac(1, C)) ~~> own(l.frac(1, C')) */
       frac_update((r.cont_lock), c0', c1);
 
       /* fold (C1)nodePred(r) */

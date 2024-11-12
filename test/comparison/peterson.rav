@@ -22,30 +22,30 @@ module Peterson[R: LockResource]
         exists wl: Bool, wr: Bool, t: Bool,
             la: Bool, ra: Bool, 
             or_l: Bool, or_r: Bool, or_tl: Bool, or_tr: Bool ::
-            own(l, wait_left, wl, 0.5)
-            && own(l, wait_right, wr, 0.5)
-            && own(l, turn, t, 1.0)
-            && own(l, active_left, la, 0.5) && (la ==> wl)
-            && own(l, active_right, ra, 0.5) && (ra ==> wr)
+            own(l.wait_left, wl, 0.5)
+            && own(l.wait_right, wr, 0.5)
+            && own(l.turn, t, 1.0)
+            && own(l.active_left, la, 0.5) && (la ==> wl)
+            && own(l.active_right, ra, 0.5) && (ra ==> wr)
             && (la && !ra ==> t == ra)
             && (ra && !la ==> t == !la)
             && (or_tl ? 
-                    (own(l, access, 0, 0.5) 
-                    && own(l, active_left, true, 0.5)
+                    (own(l.access, 0, 0.5) 
+                    && own(l.active_left, true, 0.5)
                     && (t == ra)) :
                 (or_tr ? 
-                    (own(l, access, 1, 0.5) 
-                    && own(l, active_right, true, 0.5)
+                    (own(l.access, 1, 0.5) 
+                    && own(l.active_right, true, 0.5)
                     && (t == !la)) :
-                (own(l, access, 2, 1.0) && resource(r))))
+                (own(l.access, 2, 1.0) && resource(r))))
     }
 
     proc create(implicit ghost r: R)
         returns (l: Ref)
         requires resource(r)
         ensures peterson_inv(l, r)
-        ensures own(l, active_left, false, 0.5)
-        ensures own(l, active_right, false, 0.5)
+        ensures own(l.active_left, false, 0.5)
+        ensures own(l.active_right, false, 0.5)
     {
         l := new(
             turn: false, 
@@ -71,9 +71,9 @@ module Peterson[R: LockResource]
 
     proc wait_acquire_l(l: Ref, implicit ghost r: R) 
         requires peterson_inv(l, r)
-        requires own(l, wait_left, true, 0.5)
-        requires own(l, active_left, true, 0.5)
-        ensures own(l, access, 0, 0.5) && resource(r)
+        requires own(l.wait_left, true, 0.5)
+        requires own(l.active_left, true, 0.5)
+        ensures own(l.access, 0, 0.5) && resource(r)
     {
         ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
         ghost var la0: Bool; ghost var ra0: Bool;
@@ -142,10 +142,10 @@ module Peterson[R: LockResource]
         };
 
         var curr_turn : Bool := l.turn;
-        assert own(l, active_left, true, 1.0);
+        assert own(l.active_left, true, 1.0);
         {!
             if (wr && curr_turn) {
-                assert own(l, access, 2, 1.0);
+                assert own(l.access, 2, 1.0);
                 fpu(l, access, 2, 0);
                 
                 fold peterson_inv(l, r)[
@@ -183,9 +183,9 @@ module Peterson[R: LockResource]
 
     proc acquire_l(l: Ref, implicit ghost r: R) 
         requires peterson_inv(l, r)
-        requires own(l, wait_left, false, 0.5)
-        requires own(l, active_left, false, 0.5)
-        ensures own(l, access, 0, 0.5) && resource(r)
+        requires own(l.wait_left, false, 0.5)
+        requires own(l.active_left, false, 0.5)
+        ensures own(l.access, 0, 0.5) && resource(r)
     {
         ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
         ghost var la0: Bool; ghost var ra0: Bool;
@@ -241,9 +241,9 @@ module Peterson[R: LockResource]
 
     proc release_l(l: Ref, r: R)
         requires peterson_inv(l, r)
-        requires own(l, wait_left, true, 0.5)
-        requires own(l, access, 0, 0.5) && resource(r)
-        ensures own(l, active_left, false, 0.5)
+        requires own(l.wait_left, true, 0.5)
+        requires own(l.access, 0, 0.5) && resource(r)
+        ensures own(l.active_left, false, 0.5)
     {
         ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
         ghost var la0: Bool; ghost var ra0: Bool;
@@ -284,9 +284,9 @@ module Peterson[R: LockResource]
 
     proc wait_acquire_r(l: Ref, implicit ghost r: R) 
         requires peterson_inv(l, r)
-        requires own(l, wait_right, true, 0.5)
-        requires own(l, active_right, true, 0.5)
-        ensures own(l, access, 1, 0.5) && resource(r)
+        requires own(l.wait_right, true, 0.5)
+        requires own(l.active_right, true, 0.5)
+        ensures own(l.access, 1, 0.5) && resource(r)
     {
         ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
         ghost var la0: Bool; ghost var ra0: Bool;
@@ -355,10 +355,10 @@ module Peterson[R: LockResource]
         };
 
         var curr_turn : Bool := l.turn;
-        assert own(l, active_right, true, 1.0);
+        assert own(l.active_right, true, 1.0);
         {!
             if (wl && !curr_turn) {
-                assert own(l, access, 2, 1.0);
+                assert own(l.access, 2, 1.0);
                 fpu(l, access, 2, 1);
                 fold peterson_inv(l, r)[
                     wl := wl1,
@@ -395,9 +395,9 @@ module Peterson[R: LockResource]
 
     proc acquire_r(l: Ref, implicit ghost r: R) 
         requires peterson_inv(l, r)
-        requires own(l, wait_right, false, 0.5)
-        requires own(l, active_right, false, 0.5)
-        ensures own(l, access, 1, 0.5) && resource(r)
+        requires own(l.wait_right, false, 0.5)
+        requires own(l.active_right, false, 0.5)
+        ensures own(l.access, 1, 0.5) && resource(r)
     {
         ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
         ghost var la0: Bool; ghost var ra0: Bool;
@@ -453,9 +453,9 @@ module Peterson[R: LockResource]
 
     proc release_r(l: Ref, r: R)
         requires peterson_inv(l, r)
-        requires own(l, wait_right, true, 0.5)
-        requires own(l, access, 1, 0.5) && resource(r)
-        ensures own(l, active_right, false, 0.5)
+        requires own(l.wait_right, true, 0.5)
+        requires own(l.access, 1, 0.5) && resource(r)
+        ensures own(l.active_right, false, 0.5)
     {
         ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
         ghost var la0: Bool; ghost var ra0: Bool;

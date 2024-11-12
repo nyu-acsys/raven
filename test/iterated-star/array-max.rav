@@ -19,7 +19,7 @@ module ArrayMax[M: IArray] {
   field value: Int
 
   pred arr(a: M, m: Map[Int, Int]) {
-    forall j: Int :: 0 <= j < M.len(a) ==> own(M.loc(a, j), value, m[j], 1.0)
+    forall j: Int :: 0 <= j < M.len(a) ==> own(M.loc(a, j).value, m[j], 1.0)
   }
   
   pred is_max(i: Int, m: Map[Int, Int], u: Int) {

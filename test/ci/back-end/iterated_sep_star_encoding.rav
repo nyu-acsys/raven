@@ -15,17 +15,17 @@ interface Test {
     inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> p(lookup(x, y), y);
     exhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> p(lookup(x, y), y);
 
-    inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y), f, y, 1.0);
-    exhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y), f, y, 1.0);
+    inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y).f, y, 1.0);
+    exhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y).f, y, 1.0);
 
     var x: Ref;
     var y: Int;
 
-    inhale own(x, f, y, 1.0);
-    exhale own(x, f, y, 1.0);
+    inhale own(x.f, y, 1.0);
+    exhale own(x.f, y, 1.0);
 
-    inhale own(x, f, y, 1.0) && p(x, y);
-    exhale own(x, f, y, 1.0) && p(x, y);
+    inhale own(x.f, y, 1.0) && p(x, y);
+    exhale own(x.f, y, 1.0) && p(x, y);
 
   }
 }

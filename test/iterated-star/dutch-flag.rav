@@ -21,7 +21,7 @@ module DutchFlag[Arr: IArray] {
     }
 
     pred access(a: Arr, implicit ghost m: Map[Int, Int]) {
-        forall i: Int :: 0 <= i && i < Arr.len(a) ==> own(Arr.loc(a,i), value, m[i], 1.0)
+        forall i: Int :: 0 <= i && i < Arr.len(a) ==> own(Arr.loc(a, i).value, m[i], 1.0)
     }
 
     proc dutchFlag(a: Arr, implicit ghost m: Map[Int, Int])
@@ -80,15 +80,15 @@ module DutchFlag[Arr: IArray] {
     }
 
     proc test1(x: Ref, y: Ref)
-        requires own(x, value, 5, 0.75)
-        requires own(y, value, 5, 0.75)
+        requires own(x.value, 5, 0.75)
+        requires own(y.value, 5, 0.75)
         ensures (x != y)
         { }
 
     proc test2(l: Ref)
-        requires own(l, value, 5, 1.0/2.0)
-        requires own(l, value, 5, 0.5)
-        ensures own(l, value, 5, 1.0)
+        requires own(l.value, 5, 1.0/2.0)
+        requires own(l.value, 5, 0.5)
+        ensures own(l.value, 5, 1.0)
         { }
 
 }

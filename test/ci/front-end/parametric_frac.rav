@@ -6,8 +6,8 @@
 //   field f: N
 
 //   proc p1(x: Ref, v: N) 
-//     requires own(x, f, v, 1.0)
-//     ensures own(x, f, v, 1.0)
+//     requires own(x.f, v, 1.0)
+//     ensures own(x.f, v, 1.0)
 //   {
     
 //   }
@@ -20,8 +20,8 @@ module M[N: Library.Type] {
 
   proc p1(x: Ref, v: N) 
     returns (m: N, l: Int)
-    requires own(x, f, v, 1.0)
-    ensures own(x, f, v, 1.0)
+    requires own(x.f, v, 1.0)
+    ensures own(x.f, v, 1.0)
     
   {
     var y: Int = 5;
@@ -38,8 +38,8 @@ module M[N: Library.Type] {
 //   type F = N
 
 //   // proc p1(x: Ref, v: N) 
-//   //   requires own(x, f, v, 1.0)
-//   //   ensures own(x, f, v, 1.0)
+//   //   requires own(x.f, v, 1.0)
+//   //   ensures own(x.f, v, 1.0)
 //   // {
     
 //   // }

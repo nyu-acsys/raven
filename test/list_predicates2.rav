@@ -3,7 +3,7 @@ field next: Ref
 
 pred list(start: Ref, end: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int]) {
   ((start == end) ? s == {||} :
-    (own(start, next, nmap[start], 1.0) && own(start, key, kmap[start], 1.0) 
+    (own(start.next, nmap[start], 1.0) && own(start.key, kmap[start], 1.0) 
       && kmap[start] in s && kmap[start] < kmap[nmap[start]] 
       && list(nmap[start], end, s -- {| kmap[start] |}, nmap, kmap)))
 }
@@ -59,8 +59,8 @@ proc append(x: Ref, y: Ref, z: Ref, s1: Set[Int], s2: Set[Int], nmap: Map[Ref, R
     append(xn, y, z, s1 -- {| kmap[x] |}, s2, nmap, kmap);
     
     // assert list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
-    // assert (own(x, next, nmap[x], 1.0));
-    // assert (own(x, key, kmap[x], 1.0));
+    // assert (own(x.next, nmap[x], 1.0));
+    // assert (own(x.key, kmap[x], 1.0));
     // assert kmap[x] in s1 ++ s2;
     // assert kmap[x] < kmap[xn];
     // assert list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
@@ -121,7 +121,7 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
   requires list(x, y, s, nmap, kmap)
   requires kmap[x] < k <= kmap[y]
   ensures list(x, p, s1, nmap, kmap)
-  ensures own(p, next, c, 1.0) && own(p, key, kmap[p], 1.0)
+  ensures own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0)
   ensures list(c, y, s2, nmap, kmap)
   ensures kmap[p] < k <= kmap[c]
   ensures nmap[p] == c
@@ -142,7 +142,7 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
     assert s == {| kmap[x] |};
     s1 := {||};
     fold list(x, p, s1, nmap, kmap);
-    assert own(p, next, c, 1.0) && own(p, key, kmap[p], 1.0);
+    assert own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0);
     s2 := {||};
     fold list(c, y, s2, nmap, kmap);
 
@@ -150,7 +150,7 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
     
     s1 := {||};
     fold list(x, p, s1, nmap, kmap);
-    assert own(p, next, c, 1.0) && own(p, key, kmap[p], 1.0);
+    assert own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0);
     s2 := s -- {| kmap[p] |};
     assert list(c, y, s2, nmap, kmap);
     assert s1 ++ {| kmap[p] |} ++ s2 == s;
@@ -158,7 +158,7 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
 
     while (kmap[c] < k)
       invariant list(x, p, s1, nmap, kmap)
-      invariant own(p, next, c, 1.0) && own(p, key, kmap[p], 1.0)
+      invariant own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0)
       invariant list(c, y, s2, nmap, kmap)
       invariant s1 ++ {| kmap[p] |} ++ s2 == s
       invariant kmap[p] < k
@@ -179,7 +179,7 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
       assert list(x, pold, s1, nmap, kmap);
       assert pold != p;
       // assert nmap[pold] == p;
-      // assert own(pold, next, nmap[pold], 1.0) && own(pold, key, kmap[pold], 1.0);
+      // assert own(pold.next, nmap[pold], 1.0) && own(pold.key, kmap[pold], 1.0);
       // assert kmap[pold] in {| kmap[pold] |};
       // assert kmap[pold] < kmap[p];
       fold list(p, p, {||}, nmap, kmap);
@@ -227,7 +227,7 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
 // proc insert_hd(k: Int, n: Ref, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
 //   returns (nmap1: Map[Ref, Ref], kmap1: Map[Ref, Int])
 //   requires list(x, y, s, nmap, kmap)
-//   requires own(n, next, c, 1.0) && own(n, key, k, 1.0)
+//   requires own(n.next, c, 1.0) && own(n.key, k, 1.0)
 //   requires k < kmap[x]
 //   ensures list(n, y, s ++ {| k |}, nmap1, kmap1)
 //   // ensures nmap1[n] == x && kmap1[n] == k 
@@ -237,8 +237,8 @@ proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[R
 //   // nmap1[n] := x;
 //   // kmap1 := kmap;
 //   // kmap1[n] := k;
-//   // assert own(n, next, nmap1[n], 1.0);
-//   // assert own(n, key, kmap1[n], 1.0);
+//   // assert own(n.next, nmap1[n], 1.0);
+//   // assert own(n.key, kmap1[n], 1.0);
 //   // fold list(x, x, {||}, nmap1, kmap1);
 //   // fold list(n, x, {| k |}, nmap1, kmap1);
 //   // // assume list(x, y, s, nmap1, kmap1);

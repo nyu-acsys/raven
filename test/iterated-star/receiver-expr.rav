@@ -7,30 +7,30 @@ lemma address_disj(i: Int, j: Int)
 
 proc test()
 {
-  inhale own(address(3).val, (1/2, _))
-  inhale own(address(2).val, (1/2, _))
-  inhale own(address(1).val, (1/2, _))
-  exhale forall i: Int :: 1 <= i <= 3 ==> own(address(i).val, (1/2, _))
+  inhale own(address(3).val.(1/2, _))
+  inhale own(address(2).val.(1/2, _))
+  inhale own(address(1).val.(1/2, _))
+  exhale forall i: Int :: 1 <= i <= 3 ==> own(address(i).val.(1/2, _))
 }
 
 func address2(i: Int) returns (r: Ref)
 
 proc test2()
 {
-  inhale own(address2(3).val, (1, _))
-  inhale own(address2(2).val, (1, _))
-  inhale own(address2(1).val, (1, _))
-  exhale forall i: Int :: 1 <= i <= 3 ==> own(address2(i).val, (1/2, _))
+  inhale own(address2(3).val.(1, _))
+  inhale own(address2(2).val.(1, _))
+  inhale own(address2(1).val.(1, _))
+  exhale forall i: Int :: 1 <= i <= 3 ==> own(address2(i).val.(1/2, _))
 }
 
 func address3(i: Int) returns (r: Ref)
 
 proc test3()
 {
-  inhale own(address3(3).val, (1/2, _))
-  inhale own(address3(2).val, (1/2, _))
-  inhale own(address3(1).val, (1/2, _))
+  inhale own(address3(3).val.(1/2, _))
+  inhale own(address3(2).val.(1/2, _))
+  inhale own(address3(1).val.(1/2, _))
   inhale address3(1) != address3(2) && address3(2) != address3(3) && address3(3) != address3(1) 
-  exhale forall i: Int :: 1 <= i <= 3 ==> own(address3(i).val, (1/2, _))
+  exhale forall i: Int :: 1 <= i <= 3 ==> own(address3(i).val.(1/2, _))
 }
 

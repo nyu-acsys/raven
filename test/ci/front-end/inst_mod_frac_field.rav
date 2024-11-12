@@ -10,7 +10,7 @@ interface M {
   interface AN = A[RefType]
 
   proc p(x: Ref) {
-    inhale own(x, AN.f, x, 1.0);
+    inhale own(x.AN.f, x, 1.0);
   }
 
   /*

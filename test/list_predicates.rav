@@ -8,7 +8,7 @@ field next: Ref
 // try insertion with this
 pred list(start: Ref, end: Ref, nmap: Map[Ref, Ref]) {
   (start == end) ? true : 
-    (own(start, next, nmap[start], 1.0) && list(nmap[start], end, nmap))
+    (own(start.next, nmap[start], 1.0) && list(nmap[start], end, nmap))
 } 
 
 proc append(x: Ref, y: Ref, z: Ref, nmap: Map[Ref, Ref]) 
@@ -40,7 +40,7 @@ proc deque(x: Ref, y: Ref, nmap: Map[Ref, Ref])
 proc insert(x: Ref, y: Ref, z: Ref, n: Ref, nmap: Map[Ref, Ref])
   returns (nmap1: Map[Ref, Ref])
   requires list(x, y, nmap)
-  requires own(n, next, nmap[n], 1.0)
+  requires own(n.next, nmap[n], 1.0)
   requires n != y
   ensures list(n, y, nmap1)
   ensures nmap1[n] == x
@@ -52,13 +52,13 @@ proc insert(x: Ref, y: Ref, z: Ref, n: Ref, nmap: Map[Ref, Ref])
 
   assert 
     (n == y) ? true : 
-    (own(n, next, nmap1[n], 1.0) && list(nmap1[n], y, nmap1));
+    (own(n.next, nmap1[n], 1.0) && list(nmap1[n], y, nmap1));
   fold list(n, y, nmap1);
 }
 
 // pred list_seg(start: Ref, end: Ref, i: Int, j: Int, l: Map[Int, Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int]) {
 //   ((start == end) ? true :
-//     (own(start, next, nmap[start], 1.0) && own(start, key, kmap[start], 1.0) 
+//     (own(start.next, nmap[start], 1.0) && own(start.key, kmap[start], 1.0) 
 //       && l[i] == kmap[start] && list_seg(nmap[start], end, i+1, j, l, nmap, kmap)))
 // }
 

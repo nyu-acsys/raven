@@ -177,8 +177,8 @@ interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
     }
 
     pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
-      own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
-      own(r, authFlow, AuthFlow_K.frag(i_n)) &&
+      own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
+      own(r.authFlow, AuthFlow_K.frag(i_n)) &&
       i_n.dom == {|n|} && 
         Node.node(n, c, i_n)
     }
@@ -194,27 +194,27 @@ interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
   }
 
   pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
-    own(r, authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
-    own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
-    own(r, authFlow, AuthFlow_K.auth(g_i)) &&
+    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
+    own(r.authFlow, AuthFlow_K.auth(g_i)) &&
     globalinv(g_i, r)
   }
 
   /*pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
-    own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
-    own(r, authFlow, AuthFlow_K.frag(i_n)) &&
+    own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
+    own(r.authFlow, AuthFlow_K.frag(i_n)) &&
     i_n.dom == {|n|} && 
     Node.node(n, c, i_n)
   }*/
 
   pred inFP(r: Ref, n: Ref) {
-    own(r, authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+    own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
   }
 
   pred cssR(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int]) {
     (forall n: Ref :: n in g_i.dom ==> 
       (exists l: Ref ::
-        L.is_lock(l, (r, n), lockval[n] == 1) && own(n, lock, l, 1.0)))
+        L.is_lock(l, (r, n), lockval[n] == 1) && own(n.lock, l, 1.0)))
         && 
     globalRes(r, c, g_i)
   }
@@ -272,12 +272,12 @@ interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
   }
 
   //  proc lockNode(n: Ref, implicit ghost b: Int)
-  //   atomic requires own(n, lock, b, 1.0)
-  //   atomic ensures own(n, lock, 1, 1.0) && b == 0
+  //   atomic requires own(n.lock, b, 1.0)
+  //   atomic ensures own(n.lock, 1, 1.0) && b == 0
 
   // proc unlockNode(n: Ref)
-  //   atomic requires own(n, lock, 1, 1.0)
-  //   atomic ensures own(n, lock, 0, 1.0)
+  //   atomic requires own(n.lock, 1, 1.0)
+  //   atomic ensures own(n.lock, 0, 1.0)
 
 /*
   proc lockNodeHigh(r: Ref, n: Ref, implicit ghost c: Set[K])
@@ -522,16 +522,16 @@ interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
   lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
     returns (c1: Set[K])
     requires opSpec(dop, k, c_n, c_n1, res)
-    requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
-    requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
-    // requires own(r, authFlow, AuthFlow_K.auth(g_i))requires own(r, authFlow, AuthFlow_K.frag(g_i))
+    requires own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
+    requires own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
+    // requires own(r.authFlow, AuthFlow_K.auth(g_i))requires own(r.authFlow, AuthFlow_K.frag(g_i))
     requires c_n1 subseteq k_n
     requires k in k_n
     requires k in keyspace
 
     ensures opSpec(dop, k, c, c1, res)
-    ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
-    ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
+    ensures own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
+    ensures own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
   {
     unfold opSpec(dop, k, c_n, c_n1, res);
 
@@ -600,7 +600,7 @@ interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
     var c_n1: Set[K];
 
     unfold N.resource((r, n, c_n, i_n));
-    //assert own(r, authFlow, AuthFlow_K.frag(i_n));
+    //assert own(r.authFlow, AuthFlow_K.frag(i_n));
     
     succ, res, c_n1 := Node.decisiveOp(dop, n, k, c_n, i_n);
     if (succ) {

@@ -2,7 +2,7 @@ module Main {
     field f : Library.Nat
 
     proc test(x: Ref, k: Library.Nat)
-        requires own(x, f, k)
+        requires own(x.f, k)
         requires k > 0
     {
         // fpu(x, f, k+1);

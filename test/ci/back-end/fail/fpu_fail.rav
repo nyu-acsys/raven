@@ -1,7 +1,7 @@
 field f: Int
 
 proc p(x:Ref, v:Int)
-  requires own(x, f, v, 0.75)
+  requires own(x.f, v, 0.75)
 
 {
   fpu(x, f, 4);

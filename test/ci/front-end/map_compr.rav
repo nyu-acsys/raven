@@ -8,7 +8,7 @@ proc p() {
   // var z: Int := a;
 
   // var l: Ref;
-  // var b1: Bool := exists c : Int :: own(l, f, c);
+  // var b1: Bool := exists c : Int :: own(l.f, c);
   // var d: Int := c;
 
   // var b2: Bool := exists c : Bool :: c && c == false;

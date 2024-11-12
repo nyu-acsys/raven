@@ -15,11 +15,11 @@ type IntList = data {
 pred is_list(hd: Ref; xs: IntList) {
   hd == null ? 
     xs == nil() : 
-    (xs != nil() && (exists tl0: Ref, q:Real ::  q > 0.0 && (own(hd, value, xs.elem, q) && own(hd, next, tl0, q) && is_list(tl0, xs.tl))))
+    (xs != nil() && (exists tl0: Ref, q:Real ::  q > 0.0 && (own(hd.value, xs.elem, q) && own(hd.next, tl0, q) && is_list(tl0, xs.tl))))
 }
 
 pred is_stack(s: Ref; xs: IntList) {
-  exists hd: Ref :: (is_list(hd, xs) && own(s, head, hd, 1.0))
+  exists hd: Ref :: (is_list(hd, xs) && own(s.head, hd, 1.0))
 }
 
 proc push(s: Ref, x: Int, implicit ghost xs: IntList)
@@ -42,7 +42,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
 
   ghost var hd1: Ref;
   unfold is_stack(s, xs1);
-  hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
+  hd1 :| is_list(hd1, xs1) && own(s.head, hd1, 1.0);
   
   var res : Bool := cas(s.head, hd, s0);
 
@@ -51,7 +51,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
       assert   
         (s0 == null ? 
           cons(x, xs1) == nil() : 
-          (cons(x,xs1) != nil() && (1.0 > 0.0 && (own(s0, value, cons(x, xs1).elem, 1.0) && own(s0, next, hd1, 1.0) && is_list(hd1, cons(x, xs1).tl)))));
+          (cons(x,xs1) != nil() && (1.0 > 0.0 && (own(s0.value, cons(x, xs1).elem, 1.0) && own(s0.next, hd1, 1.0) && is_list(hd1, cons(x, xs1).tl)))));
 
       fold is_list(s0, cons(x, xs1)); 
       fold is_stack(s, cons(x, xs1));
@@ -101,11 +101,11 @@ proc pop(s: Ref, implicit ghost xs: IntList)
       tl0, q :| 
         hd == null ? 
         xs0 == nil() : 
-        (xs0 != nil() && (q > 0.0 && (own(hd, value, xs0.elem, q) && own(hd, next, tl0, q) && is_list(tl0, xs0.tl))));
+        (xs0 != nil() && (q > 0.0 && (own(hd.value, xs0.elem, q) && own(hd.next, tl0, q) && is_list(tl0, xs0.tl))));
       
       assert hd == null ? 
         xs0 == nil() : 
-        (xs0 != nil() && (q/2.0 > 0.0 && (own(hd, value, xs0.elem, q/2.0) && own(hd, next, tl0, q/2.0) && is_list(tl0, xs0.tl))));
+        (xs0 != nil() && (q/2.0 > 0.0 && (own(hd.value, xs0.elem, q/2.0) && own(hd.next, tl0, q/2.0) && is_list(tl0, xs0.tl))));
       
       fold is_list(hd, xs0);
       fold is_stack(s, xs0);
@@ -124,7 +124,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
 
   ghost var hd1: Ref;
   unfold is_stack(s, xs1);
-  hd1 :| is_list(hd1, xs1) && own(s, head, hd1, 1.0);
+  hd1 :| is_list(hd1, xs1) && own(s.head, hd1, 1.0);
 
   var res : Bool := cas(s.head, hd, hd_next);
 

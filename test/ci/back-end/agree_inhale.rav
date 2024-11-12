@@ -13,8 +13,8 @@ proc p() {
 
   assume (a1 != a2);
 
-  inhale own(x, f, NatAgree.agree(a1));
-  inhale own(x, f, NatAgree.agree(a2));
+  inhale own(x.f, NatAgree.agree(a1));
+  inhale own(x.f, NatAgree.agree(a2));
 
   assert false;
 }

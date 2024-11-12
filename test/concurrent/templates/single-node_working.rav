@@ -3,7 +3,7 @@ module Lock {
   field bit: Bool
   
   pred lock(l: Ref, b: Bool) {
-    own(l, bit, b, 1.0) 
+    own(l.bit, b, 1.0) 
   }
 
   proc create()
@@ -154,18 +154,18 @@ interface SingleNodeTemplate[Node: NodeImpl] {
   field frac: Set[K];
 
   pred cssR(r: Ref, c: Set[K]) {
-      exists b: Bool :: own(r, frac, c, 0.5) && own(r, lock, b, 1.0) && 
-      (b ? true : (Node.nodeR(r, c) && own(r, frac, c, 0.5)))
+      exists b: Bool :: own(r.frac, c, 0.5) && own(r.lock, b, 1.0) && 
+      (b ? true : (Node.nodeR(r, c) && own(r.frac, c, 0.5)))
   }
 
 
   proc lockNode(n: Ref, implicit ghost b: Bool)
-    atomic requires own(n, lock, b, 1.0)
-    atomic ensures own(n, lock, true, 1.0) && b == false
+    atomic requires own(n.lock, b, 1.0)
+    atomic ensures own(n.lock, true, 1.0) && b == false
 
   proc unlockNode(n: Ref)
-    atomic requires own(n, lock, true, 1.0)
-    atomic ensures own(n, lock, false, 1.0)
+    atomic requires own(n.lock, true, 1.0)
+    atomic ensures own(n.lock, false, 1.0)
 
 
   proc create()
@@ -174,8 +174,8 @@ interface SingleNodeTemplate[Node: NodeImpl] {
   {
     r := Node.create();
     r := new(lock:false, frac:{||});
-    assert own(r, frac, {||}, 0.5) && own(r, lock, false, 1.0) && 
-      (false ? true : (Node.nodeR(r, {||}) && own(r, frac, {||}, 0.5)));
+    assert own(r.frac, {||}, 0.5) && own(r.lock, false, 1.0) && 
+      (false ? true : (Node.nodeR(r, {||}) && own(r.frac, {||}, 0.5)));
     fold cssR(r, {||});
   }
 
@@ -192,14 +192,14 @@ interface SingleNodeTemplate[Node: NodeImpl] {
 
     c0 := openAU(phi);
     unfold cssR(r, c0);
-    b :| own(r, frac, c0, 0.5) && own(r, lock, b, 1.0) && (b ? true : (Node.nodeR(r, c0) && own(r, frac, c0, 0.5)));
+    b :| own(r.frac, c0, 0.5) && own(r.lock, b, 1.0) && (b ? true : (Node.nodeR(r, c0) && own(r.frac, c0, 0.5)));
     lockNode(r, b);
     assert b == false;
-    assert own(r, frac, c0, 0.5) && own(r, lock, true, 1.0) && 
-      (true ? true : (Node.nodeR(r, c0) && own(r, frac, c0, 0.5)));
+    assert own(r.frac, c0, 0.5) && own(r.lock, true, 1.0) && 
+      (true ? true : (Node.nodeR(r, c0) && own(r.frac, c0, 0.5)));
 
     fold cssR(r, c0);
-    assert Node.nodeR(r, c0) && own(r, frac, c0, 0.5);
+    assert Node.nodeR(r, c0) && own(r.frac, c0, 0.5);
     abortAU(phi);
 
     var res1: Bool;
@@ -211,8 +211,8 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     var c2: Set[K] := openAU(phi);
 
     unfold cssR(r, c2);
-    b2 :| own(r, frac, c2, 0.5) && own(r, lock, b2, 1.0) && 
-      (b2 ? true : (Node.nodeR(r, c2) && own(r, frac, c2, 0.5)));
+    b2 :| own(r.frac, c2, 0.5) && own(r.lock, b2, 1.0) && 
+      (b2 ? true : (Node.nodeR(r, c2) && own(r.frac, c2, 0.5)));
 
 
     assert !b2 ==> Node.nodeR(r, c1) && Node.nodeR(r, c2);
@@ -233,8 +233,8 @@ interface SingleNodeTemplate[Node: NodeImpl] {
 
     unlockNode(r);
 
-    assert own(r, frac, c1, 0.5) && own(r, lock, false, 1.0) && 
-      (false ? true : (Node.nodeR(r, c1) && own(r, frac, c1, 0.5)));
+    assert own(r.frac, c1, 0.5) && own(r.lock, false, 1.0) && 
+      (false ? true : (Node.nodeR(r, c1) && own(r.frac, c1, 0.5)));
     fold cssR(r, c1);
     
     commitAU(phi, res1, c1);
@@ -260,7 +260,7 @@ module IntSetNodeImpl : NodeImpl {
   field value: Set[K]
 
   pred nodeR(n: Ref; c: Set[K]) {
-    own(n, value, c, 1.0)
+    own(n.value, c, 1.0)
   }
 
   proc create()

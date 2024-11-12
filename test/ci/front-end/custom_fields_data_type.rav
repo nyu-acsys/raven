@@ -16,7 +16,7 @@ field e: Something
 
 
 pred counter(x: Ref; v: Int) {
-  own(x, c, 0, 1.0) && own(x, d, IntSetRA.set_constr({|v|})) && own(x, e, onething(v), 1.0)
+  own(x.c, 0, 1.0) && own(x.d, IntSetRA.set_constr({|v|})) && own(x.e, onething(v), 1.0)
 }
 
 proc incr(x: Ref) 

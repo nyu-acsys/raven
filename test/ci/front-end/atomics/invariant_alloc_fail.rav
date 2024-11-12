@@ -1,7 +1,7 @@
 field c: Int
 
 inv counterInv(x: Ref) {
-  exists v: Int :: own(x, c, v, 1.0)
+  exists v: Int :: own(x.c, v, 1.0)
 }
 
 proc make()

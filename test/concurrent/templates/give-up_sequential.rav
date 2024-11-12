@@ -126,18 +126,18 @@ module GiveUpTemplate[Node: NodeImpl] {
   field authKS: AuthKeyset_K
 
   pred globalRes(r: Ref, c: Set[K]; fp: Set[Ref], inset: Map[Ref, Set[K]]) {
-    own(r, authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
-    own(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(fp))) && 
+    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(fp))) && 
     r in fp && inset[r] == keyspace
   }
 
   pred nodePred(r: Ref, n: Ref; c: Set[K], inset: Set[K], outset: Map[Ref, Set[K]]) {
-    own(r, authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(inset, outset), c ) )) &&
+    own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(inset, outset), c ) )) &&
     node(n, c, inset, outset)
   }
 
   pred inFP(r: Ref, n: Ref) {
-    own(r, authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+    own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
   }
 
   pred cssR(r: Ref, c: Set[K], fp: Set[Ref], contents: Map[Ref, Set[K]], inset: Map[Ref, Set[K]], outset: Map[Ref, Map[Ref, Set[K]]]) {
@@ -272,16 +272,16 @@ module GiveUpTemplate[Node: NodeImpl] {
   lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
     returns (c1: Set[K])
     requires opSpec(dop, k, c_n, c_n1, res)
-    requires own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
-    requires own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
-    // requires own(r, authFlow, AuthFlow_K.auth(g_i))requires own(r, authFlow, AuthFlow_K.frag(g_i))
+    requires own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
+    requires own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
+    // requires own(r.authFlow, AuthFlow_K.auth(g_i))requires own(r.authFlow, AuthFlow_K.frag(g_i))
     requires c_n1 subseteq k_n
     requires k in k_n
     requires k in keyspace
 
     ensures opSpec(dop, k, c, c1, res)
-    ensures own(r, authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
-    ensures own(r, authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
+    ensures own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
+    ensures own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
   {
     // autoLemmas();
 
@@ -289,7 +289,7 @@ module GiveUpTemplate[Node: NodeImpl] {
 
     if (dop == searchOp() || !res) {
       c1 := c;
-      assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+      assert own(r.authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
       assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
       assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
       assert c_n subseteq c;
@@ -298,7 +298,7 @@ module GiveUpTemplate[Node: NodeImpl] {
       if (dop == insertOp()) {
         c1 := c ++ {| k |};
 
-        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert own(r.authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
         assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
         assert k !in c_n;
         assert k !in c;
@@ -325,7 +325,7 @@ module GiveUpTemplate[Node: NodeImpl] {
       } else {
         c1 := c -- {| k |};
 
-        assert own(r, authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert own(r.authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
         assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
         assert k in c_n;
         assert k in c;
@@ -390,7 +390,7 @@ module GiveUpTemplate[Node: NodeImpl] {
 
       var contents1: Map[Ref, Set[K]] := contents[n := c_n];
 
-      assert own(r, authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c1 )));
+      assert own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c1 )));
 
       fold globalRes(r, c1, fp, inset);
       fold nodePred(r, n, contents1[n], inset[n], outset[n]);

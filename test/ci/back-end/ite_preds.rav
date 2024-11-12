@@ -28,12 +28,12 @@ proc p2() {
     p(x, y);
 
   inhale forall x: Int :: 0 <= x && x <= 5 ==>
-    own(f(x), field1, x, 1.0 );
+    own(f(x).field1, x, 1.0 );
   exhale forall x: Int :: 0 <= x && x <= 5 ==>
-    own(f(x), field1, x, 1.0 );
+    own(f(x).field1, x, 1.0 );
 
-  inhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
-  exhale forall y: Ref :: g(y) ==> own(y, field1, 1, 1.0);
+  inhale forall y: Ref :: g(y) ==> own(y.field1, 1, 1.0);
+  exhale forall y: Ref :: g(y) ==> own(y.field1, 1, 1.0);
 
   inhale forall x: Int :: 0 <= x && x <= 5 ==>
     q(x);

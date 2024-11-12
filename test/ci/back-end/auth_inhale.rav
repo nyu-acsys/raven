@@ -10,8 +10,8 @@ proc p() {
 
   // assume (a1 != a2);
 
-  inhale own(x, f, NatAuth.auth_frag(a1, b));
-  inhale own(x, f, NatAuth.auth_frag(a2, b));
+  inhale own(x.f, NatAuth.auth_frag(a1, b));
+  inhale own(x.f, NatAuth.auth_frag(a2, b));
 
   assert false;
 }

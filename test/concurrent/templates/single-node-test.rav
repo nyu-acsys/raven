@@ -4,7 +4,7 @@ module Lock {
   field bit: Bool
   
   pred lock(l: Ref, b: Bool) {
-    own(l, bit, b, 1.0) 
+    own(l.bit, b, 1.0) 
   }
 
   proc create()
@@ -184,20 +184,20 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
   field cont_spec: FracSK
   
   pred nodePred(r: CSS, implicit ghost c: Set[Node.Spec.K]) {
-    Node.nodeR(r.node, c) && own(r, cont_lock, FracSK.frac_chunk(c, 1.0/2.0))
+    Node.nodeR(r.node, c) && own(r.cont_lock, FracSK.frac_chunk(c, 1.0/2.0))
   }
 
   pred cssAuth(r: CSS, c: Set[Node.Spec.K]) {
-    own(r, cont_spec, FracSK.frac_chunk(c, 1.0/2.0))
+    own(r.cont_spec, FracSK.frac_chunk(c, 1.0/2.0))
   }
 
   pred cssR(r: CSS, c: Set[Node.Spec.K]) {
-    own(r, cont_spec, FracSK.frac_chunk(c, 1.0/2.0))
+    own(r.cont_spec, FracSK.frac_chunk(c, 1.0/2.0))
   }
 
   pred cssInv(r: CSS, implicit ghost b: Bool, implicit ghost c: Set[Node.Spec.K]) {
     cssAuth(r, c)
-    && own(r, cont_lock, FracSK.frac_chunk(c, 1.0/2.0))
+    && own(r.cont_lock, FracSK.frac_chunk(c, 1.0/2.0))
     && Lock.lock(r.lock, b) && (b ? true : nodePred(r))
   }
 
@@ -224,7 +224,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
       fold nodePred(r);
 
     	// assert cssAuth(r, {||})
-      //   && own(r, cont_lock, {||}, 1.0/2.0)
+      //   && own(r.cont_lock, {||}, 1.0/2.0)
         // && Lock.lock(r.lock, b) && (b ? true : nodePred(r));
     	fold cssInv(r);
       /*createInv cssI cssInv(r);*/
@@ -304,7 +304,7 @@ module SingleNodeTemplate[K: Keyspace, Node: NodeImpl[K]] /* : SearchStructure[K
 			// frac_sum((r.cont_lock), 1/2, 1/2, c0_0);
 			
 			/* lemma frac_update l C C' : 
-						own(l, frac(1, C)) ~~> own(l, frac(1, C')) */
+						own(l.frac(1, C)) ~~> own(l.frac(1, C')) */
 			fpu(r, cont_lock, FracSK.frac_chunk(c1, 1.0));
 
 			fold nodePred(r, c1);

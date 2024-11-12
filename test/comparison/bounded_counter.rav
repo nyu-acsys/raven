@@ -1,7 +1,7 @@
 field c: Int
 
 inv counterInv(x: Ref, max: Int) {
-  exists v: Int :: own(x, c, v, 1.0) && 0 <= v <= max
+  exists v: Int :: own(x.c, v, 1.0) && 0 <= v <= max
 }
 
 proc incr(x: Ref, max: Int)

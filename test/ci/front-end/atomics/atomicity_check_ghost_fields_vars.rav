@@ -5,8 +5,8 @@ inv inv1() { true }
 
 proc p1(x: Ref) 
     requires inv1()
-    requires exists nn:Int :: own(x, f1, nn, 1.0)
-    requires exists nn:Int :: own(x, g1, nn, 1.0)
+    requires exists nn:Int :: own(x.f1, nn, 1.0)
+    requires exists nn:Int :: own(x.g1, nn, 1.0)
 {
     unfold inv1();
         ghost var gv0: Int := 0;

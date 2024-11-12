@@ -4,6 +4,6 @@ module M1 {
 
 module M2 {
   pred foo(x: Ref) {
-    own(x, M1.f, true, 1.0)
+    own(x.M1.f, true, 1.0)
   }
 }

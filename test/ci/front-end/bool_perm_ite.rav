@@ -1,6 +1,6 @@
 field f: Int
 
 proc p(x: Ref) {
-    inhale !true ? true : own(x, f, 1, 1.0);
-    exhale true ?  own(x, f, 1, 1.0) : true;
+    inhale !true ? true : own(x.f, 1, 1.0);
+    exhale true ?  own(x.f, 1, 1.0) : true;
 }

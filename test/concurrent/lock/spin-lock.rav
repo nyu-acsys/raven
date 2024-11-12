@@ -6,7 +6,7 @@ module SpinLock[R: LockResource] : Lock {
   import R.resource
   
   pred lock_rep(l: Ref; b: Bool) {
-    own(l, bit, b, 1.0)
+    own(l.bit, b, 1.0)
   }
 
   proc create(r: R)

@@ -10,19 +10,19 @@ interface ARC[SharePred: ShareablePredicate] {
     pred p()
 
     pred noTokens(x: Ref) {
-        own(x, v, ArcRA.noToken)
+        own(x.v, ArcRA.noToken)
     }
 
     pred tokenCounter(x: Ref, n: Int) {
-        exists q: Real :: q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(n, q, 0, 0.0))
+        exists q: Real :: q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x.v, ArcRA.tokens(n, q, 0, 0.0))
     }
 
     pred token(x: Ref) {
-        exists q: Real :: SharePred.p_chunk(x, q) && own(x, v, ArcRA.tokens(0, 0.0, 1, q)) 
+        exists q: Real :: SharePred.p_chunk(x, q) && own(x.v, ArcRA.tokens(0, 0.0, 1, q)) 
     }
 
     inv arcInv(x: Ref) {
-        exists v: Int :: (v <= 0 ? noTokens(x) : tokenCounter(x, v)) && own(x, c, v, 1.0)
+        exists v: Int :: (v <= 0 ? noTokens(x) : tokenCounter(x, v)) && own(x.c, v, 1.0)
     }
 
     // lemma token_allocate(x: Ref)
@@ -47,7 +47,7 @@ interface ARC[SharePred: ShareablePredicate] {
         ghost var q: Real;
         
         unfold tokenCounter(x, n);
-        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
+        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x.v, ArcRA.tokens(n, q, 0, 0.0));
         ghost var q1: Real := ((1.0-q)/2.0);
         ghost var a: ArcRA := ArcRA.tokens(n, q, 0, 0.0);
         ghost var b: ArcRA := ArcRA.tokens(n+1, q + q1, 1, q1);
@@ -61,12 +61,12 @@ interface ARC[SharePred: ShareablePredicate] {
 
         SharePred.split(x, 1.0-q);
         
-        assert SharePred.p_chunk(x, q1) && own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        assert SharePred.p_chunk(x, q1) && own(x.v, ArcRA.tokens(0, 0.0, 1, q1));
         fold token(x);
         
         assert ArcRA.frame(ArcRA.tokens(n+1, q + q1, 1, q1), ArcRA.tokens(0, 0.0, 1, q1)) == ArcRA.tokens(n+1, q + q1, 0, 0.0);
 
-        assert q+q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q+q1)) && own(x, v, ArcRA.tokens(n+1, q + q1, 0, 0.0));
+        assert q+q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q+q1)) && own(x.v, ArcRA.tokens(n+1, q + q1, 0, 0.0));
         fold tokenCounter(x, n + 1);        
     }
     
@@ -77,10 +77,10 @@ interface ARC[SharePred: ShareablePredicate] {
         ghost var q: Real;
         ghost var q1: Real;
         unfold tokenCounter(x, n);
-        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(n, q, 0, 0.0));
+        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x.v, ArcRA.tokens(n, q, 0, 0.0));
 
         unfold token(x);
-        q1 :| SharePred.p_chunk(x, q1) && own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        q1 :| SharePred.p_chunk(x, q1) && own(x.v, ArcRA.tokens(0, 0.0, 1, q1));
 
         fpu(x, v, 
             ArcRA.tokens(n, q, 1, q1), 
@@ -93,11 +93,11 @@ interface ARC[SharePred: ShareablePredicate] {
 
         SharePred.merge(x, 1.0-q, q1);
 
-        // assert q-q1 < 1.0 && own(x, v, ArcRA.tokens(n2, q-q1, 0, 0.0));
+        // assert q-q1 < 1.0 && own(x.v, ArcRA.tokens(n2, q-q1, 0, 0.0));
         // fold tokenCounter(x, n2);
         // assert tokenCounter(x, n-1);
 
-        assert q-q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q-q1)) && own(x, v, ArcRA.tokens(n-1, q-q1, 0, 0.0));
+        assert q-q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q-q1)) && own(x.v, ArcRA.tokens(n-1, q-q1, 0, 0.0));
         fold tokenCounter(x, n-1);        
     }
     
@@ -109,10 +109,10 @@ interface ARC[SharePred: ShareablePredicate] {
         ghost var q1: Real;
 
         unfold tokenCounter(x, 1);
-        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x, v, ArcRA.tokens(1, q, 0, 0.0));
+        q :| q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x.v, ArcRA.tokens(1, q, 0, 0.0));
 
         unfold token(x);
-        q1 :| SharePred.p_chunk(x, q1) && own(x, v, ArcRA.tokens(0, 0.0, 1, q1));
+        q1 :| SharePred.p_chunk(x, q1) && own(x.v, ArcRA.tokens(0, 0.0, 1, q1));
 
         fpu(x, v, 
             ArcRA.tokens(1, q, 1, q1), 
@@ -141,10 +141,10 @@ interface ARC[SharePred: ShareablePredicate] {
 
         SharePred.split(x, 1.0);
 
-        assert SharePred.p_chunk(x, 0.5) && own(x, v, ArcRA.tokens(0, 0.0, 1, 0.5));
+        assert SharePred.p_chunk(x, 0.5) && own(x.v, ArcRA.tokens(0, 0.0, 1, 0.5));
         fold token(x);
 
-        assert 0.5 < 1.0 && SharePred.p_chunk(x, 1.0-0.5) && own(x, v, ArcRA.tokens(1, 0.5, 0, 0.0));
+        assert 0.5 < 1.0 && SharePred.p_chunk(x, 1.0-0.5) && own(x.v, ArcRA.tokens(1, 0.5, 0, 0.0));
         fold tokenCounter(x, 1);
         fold arcInv(x);
         // assert false;

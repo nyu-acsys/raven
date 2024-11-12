@@ -82,12 +82,12 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     exists l: Int, lb: KOption, ub: KOption, ks: AK.T, chlds: AN.T, kmap: Map[Int, K], cmap: Map[Int, Ref] ::
     node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
     // Heap resources
-    && own(n, len, l, 1.0)
-    && own(n, rangeLb, lb, 1.0)
-    && own(n, rangeUb, ub, 1.0)
-    && own(n, keys, ks, 1.0)
+    && own(n.len, l, 1.0)
+    && own(n.rangeLb, lb, 1.0)
+    && own(n.rangeUb, ub, 1.0)
+    && own(n.keys, ks, 1.0)
     && AK.sorted_array_with_content(ks, l, kmap)
-    && own(n, ptrs, chlds, 1.0)
+    && own(n.ptrs, chlds, 1.0)
     && AN.arr(chlds, cmap)
   }
 
@@ -105,23 +105,23 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
       implicit ghost ks: AK.T, implicit ghost chlds: AN.T, implicit ghost kmap: Map[Int, K], implicit ghost cmap: Map[Int, Ref])
     requires node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
     // Heap resources
-    && own(n, len, l, 1.0)
-    && own(n, rangeLb, lb, 1.0)
-    && own(n, rangeUb, ub, 1.0)
-    && own(n, keys, ks, 1.0)
+    && own(n.len, l, 1.0)
+    && own(n.rangeLb, lb, 1.0)
+    && own(n.rangeUb, ub, 1.0)
+    && own(n.keys, ks, 1.0)
     && AK.sorted_array_with_content(ks, l, kmap)
-    && own(n, ptrs, chlds, 1.0)
+    && own(n.ptrs, chlds, 1.0)
     && AN.arr(chlds, cmap)
     requires k in keyset(flow_int)
     requires (i <= 0 || O.le(kmap[i-1], k)) && 0 <= i <= l
     ensures node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
     // Heap resources
-    && own(n, len, l, 1.0)
-    && own(n, rangeLb, lb, 1.0)
-    && own(n, rangeUb, ub, 1.0)
-    && own(n, keys, ks, 1.0)
+    && own(n.len, l, 1.0)
+    && own(n.rangeLb, lb, 1.0)
+    && own(n.rangeUb, ub, 1.0)
+    && own(n.keys, ks, 1.0)
     && AK.sorted_array_with_content(ks, l, kmap)
-    && own(n, ptrs, chlds, 1.0)
+    && own(n.ptrs, chlds, 1.0)
     && AN.arr(chlds, cmap)
     ensures cmap[0] == null  // x is a leaf
   {

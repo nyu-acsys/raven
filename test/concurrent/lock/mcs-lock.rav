@@ -20,8 +20,8 @@ interface MCSLock : Lock {
     exists t: Ref ::
       true
       && (b ==> t != null)
-      && (t == null ? true : exists n: Ref :: waiting_loc_inv(n) && own(t, succ, n, 0.5))
-      && own(l, tail, t, 1.0) 
+      && (t == null ? true : exists n: Ref :: waiting_loc_inv(n) && own(t.succ, n, 0.5))
+      && own(l.tail, t, 1.0) 
   }
 
   proc create(r: R)
@@ -52,7 +52,7 @@ interface MCSLock : Lock {
     val p: Ref := xchg(l.tail, n);
     
     if (p != null) {
-      p.succ := n; // needs own(p, succ, 1.0, v)
+      p.succ := n; // needs own(p.succ, 1.0, v)
       wait_on(n, l);
     }
   }

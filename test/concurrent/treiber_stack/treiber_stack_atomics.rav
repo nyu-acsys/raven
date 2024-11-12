@@ -17,11 +17,11 @@ module Stack[T: Type] {
   pred list(x: Ref; xs: TList) {
     x == null ? 
       xs == nil : 
-      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x, value, xs.head, q) && own(x, next, tl0, q) && list(tl0, xs.tail))))
+      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x.value, xs.head, q) && own(x.next, tl0, q) && list(tl0, xs.tail))))
   }
 
   pred stack(s: Ref; xs: TList) {
-    exists x: Ref :: (list(x, xs) && own(s, top, x, 1.0))
+    exists x: Ref :: (list(x, xs) && own(s.top, x, 1.0))
   }
 
   proc push(s: Ref, x: T, implicit ghost xs: TList)
@@ -44,7 +44,7 @@ module Stack[T: Type] {
 
     ghost val top1: Ref;
     unfold stack(s, xs1);
-    top1 :| list(top1, xs1) && own(s, top, top1, 1.0);
+    top1 :| list(top1, xs1) && own(s.top, top1, 1.0);
   
     var res: Bool := cas(s.top, topv, s0);
 
@@ -53,7 +53,7 @@ module Stack[T: Type] {
         // assert   
         //   (s0 == null ? 
         //     cons(x, xs1) == nil : 
-        //     (cons(x,xs1) != nil && (1.0 > 0.0 && (own(s0, value, cons(x, xs1).head, 1.0) && own(s0, next, top1, 1.0) && list(top1, cons(x, xs1).tail)))));
+        //     (cons(x,xs1) != nil && (1.0 > 0.0 && (own(s0.value, cons(x, xs1).head, 1.0) && own(s0.next, top1, 1.0) && list(top1, cons(x, xs1).tail)))));
         fold list(s0, cons(x, xs1))[q := 1.0]; 
         fold stack(s, cons(x, xs1));
         commitAU(phi);
@@ -99,11 +99,11 @@ module Stack[T: Type] {
         tl0, q :| 
           topv == null ? 
           xs0 == nil : 
-          (xs0 != nil && (q > 0.0 && (own(topv, value, xs0.head, q) && own(topv, next, tl0, q) && list(tl0, xs0.tail))));
+          (xs0 != nil && (q > 0.0 && (own(topv.value, xs0.head, q) && own(topv.next, tl0, q) && list(tl0, xs0.tail))));
       
         // assert topv == null ? 
         //   xs0 == nil : 
-        //   (xs0 != nil && (q/2.0 > 0.0 && (own(topv, value, xs0.head, q/2.0) && own(topv, next, tl0, q/2.0) && list(tl0, xs0.tail))));
+        //   (xs0 != nil && (q/2.0 > 0.0 && (own(topv.value, xs0.head, q/2.0) && own(topv.next, tl0, q/2.0) && list(tl0, xs0.tail))));
       
         fold list(topv, xs0)[q := q/2.0];
         fold stack(s, xs0);
@@ -122,7 +122,7 @@ module Stack[T: Type] {
 
     ghost val top1: Ref;
     unfold stack(s, xs1);
-    top1 :| list(top1, xs1) && own(s, top, top1, 1.0);
+    top1 :| list(top1, xs1) && own(s.top, top1, 1.0);
 
     var res: Bool := cas(s.top, topv, top_next);
 

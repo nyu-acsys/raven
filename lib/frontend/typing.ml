@@ -161,8 +161,8 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           Error.type_error (Expr.to_loc expr)
             (Expr.constr_to_string constr ^ " takes no arguments")
       (* Variables, fields, and call expressions *)
-      | Var qual_ident, args_list -> (
-          let* qual_ident, symbol =
+      | Var qual_ident, args_list ->
+        (let* qual_ident, symbol =
             Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
           in
           (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
@@ -378,10 +378,33 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           Error.type_error (Expr.to_loc expr)
             (Expr.constr_to_string constr ^ " takes exactly three arguments")
       (* Ownership predicates *)
-      | ( Own,
-          expr1
-          :: (App (Var qual_ident, [], expr_attr') as expr2)
-          :: expr3 :: expr4_opt ) ->
+      | ( Own, arg_list ) ->
+        let* expr1, expr2, expr3, expr4_opt =
+          match arg_list with
+          | App (Read, [expr1; (App (Var qual_ident, [], expr_attr') as expr2)], _) as expr12 :: expr3 :: expr4_opt ->
+            begin
+              try
+                let* qual_ident, symbol =
+                  Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
+                in
+                let+ symbol = Rewriter.Symbol.reify symbol in
+                match symbol with
+                | FieldDef _ -> expr1, expr2, expr3, expr4_opt
+                | _ -> failwith "retry below"
+              with _ ->
+              match expr4_opt with
+              | expr41 :: expr4_opt -> Rewriter.return (expr12, expr3, expr41, expr4_opt)
+              | _ -> Error.type_error (Expr.to_loc expr12) "Expected field location"
+            end
+          | expr1
+            :: (App (Var qual_ident, [], expr_attr') as expr2)
+            :: expr3 :: expr4_opt -> Rewriter.return (expr1, expr2, expr3, expr4_opt)
+          | _ ->
+            Error.type_error (Expr.to_loc expr)
+              (Expr.constr_to_string constr
+               ^ " takes either three or four arguments, and second argument is a \
+                  field name.")
+          in
           let* expr1 = process_expr expr1 Type.ref
           and* expr2 = process_expr expr2 Type.any in
 
@@ -406,11 +429,6 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr)
           in
           check_and_set expr Type.perm Type.perm expected_typ
-      | Own, _expr_list ->
-          Error.type_error (Expr.to_loc expr)
-            (Expr.constr_to_string constr
-            ^ " takes either three or four arguments, and second argument is a \
-               field name.")
       | AUPred call_name, token :: args_list ->
           let loc = Expr.to_loc expr in
           let* call_name, symbol = Rewriter.resolve_and_find loc call_name in

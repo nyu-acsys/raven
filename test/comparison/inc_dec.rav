@@ -1,7 +1,7 @@
 field c: Int
 
 pred counter(x: Ref; v: Int) {
-  own(x, c, v, 1.0)
+  own(x.c, v, 1.0)
 }
 
 proc incr(x: Ref, k: Int, implicit ghost v: Int) 

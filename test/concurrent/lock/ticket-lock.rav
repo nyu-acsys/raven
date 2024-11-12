@@ -17,13 +17,13 @@ module TicketLock[R: LockResource] {
 
   inv lock_inv(l: Ref; r: R) {
     exists n: Int, c: Int, b: Bool ::
-      own(l, next, n, 1.0) && n >= 0
-      && own(l, curr, c, 1.0)
+      own(l.next, n, 1.0) && n >= 0
+      && own(l.curr, c, 1.0)
       && (b ? 
-        own(l, tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
+        own(l.tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
         resource(r)
       )
-      && own(l, tickets,
+      && own(l.tickets,
         AuthDisjInts.auth_frag(
           IntSet.set({| i: Int :: 0 <= i && i < n |}),
           IntSet.set({||})
@@ -76,7 +76,7 @@ module TicketLock[R: LockResource] {
       while (nxt != crr)
         invariant lock_inv(l, r) && (
           nxt == crr ? resource(r) :
-            own(l, tickets, 
+            own(l.tickets, 
               AuthDisjInts.frag(IntSet.set({|nxt|}))  )
         )
       {

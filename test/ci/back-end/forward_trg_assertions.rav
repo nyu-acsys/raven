@@ -17,7 +17,7 @@ proc p() {
     var b: Bool := true;
 
     if (b) {
-        inhale forall x: Ref :: { t(x) } guard(x, b) ==> own(loc_id(x), f, 1, 1.0);
+        inhale forall x: Ref :: { t(x) } guard(x, b) ==> own(loc_id(x).f, 1, 1.0);
     }
     
 }

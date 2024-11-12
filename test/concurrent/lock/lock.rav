@@ -23,7 +23,7 @@ interface Lock[R: LockResource] {
 
   // Abstract predicate describing a lock 
   pred is_lock(l: Ref; r: R, b: Bool) {
-    own(l, agr, Agree.agree(r)) 
+    own(l.agr, Agree.agree(r)) 
     && lock_rep(l, b)
     && (b ? true : resource(r))
   }

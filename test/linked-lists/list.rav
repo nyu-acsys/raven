@@ -4,22 +4,22 @@ module List {
 
   pred lseg(x: Ref, y: Ref) {
     x == y ? true :
-    (exists z: Ref :: own(x, next, z, 1.0) && lseg(z, y))
+    (exists z: Ref :: own(x.next, z, 1.0) && lseg(z, y))
   }
 
   lemma append_tail(x: Ref, y: Ref, z: Ref)
-    requires lseg(x, y) && own(y, next, z, 1.0)
+    requires lseg(x, y) && own(y.next, z, 1.0)
     ensures lseg(x, z)
   {
     unfold lseg(x, y);
     if (x == y) {
       fold lseg(z, z);
-      assert y == z ? true : own(y, next, z, 1.0) && lseg(z, z);
+      assert y == z ? true : own(y.next, z, 1.0) && lseg(z, z);
       fold lseg(y, z);
     } else {
       val xnext: Ref = x.next;
       append_tail(xnext, y, z);
-      assert x == z ? true : own(x, next, xnext, 1.0) && lseg(xnext, z);
+      assert x == z ? true : own(x.next, xnext, 1.0) && lseg(xnext, z);
       fold lseg(x, z);
     }
   }

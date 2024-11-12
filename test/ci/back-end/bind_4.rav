@@ -1,8 +1,8 @@
 field f: Int
 
 proc p(x: Ref)
-  requires own(x, f, 5, 0.5)
+  requires own(x.f, 5, 0.5)
 {
   ghost var v: Int;
-  v :| own(x, f, v, 1.0);
+  v :| own(x.f, v, 1.0);
 }
