@@ -44,7 +44,9 @@ module Peterson[R: LockResource]
         returns (l: Ref)
         requires resource(r)
         ensures peterson_inv(l, r)
+        ensures own(l.wait_left, false, 0.5)
         ensures own(l.active_left, false, 0.5)
+        ensures own(l.wait_right, false, 0.5)
         ensures own(l.active_right, false, 0.5)
     {
         l := new(
