@@ -1278,8 +1278,7 @@ module ProcessCallable = struct
                           | [ lhs ] -> Expr.to_qual_ident lhs
                           | _ ->
                               Error.type_error stmt.stmt_loc
-                                "Expected exactly one left-hand side of field \
-                                 read"
+                                "Expected exactly one left-hand side expression of field read"
                         in
 
                         let field_read_desc =
@@ -1308,7 +1307,7 @@ module ProcessCallable = struct
                           | [ lhs ] -> Expr.to_qual_ident lhs
                           | _ ->
                               Error.type_error stmt.stmt_loc
-                                "Expected exactly one left-hand side of cas"
+                                "Expected exactly one left-hand side expression in cas"
                         in
 
                         let cas_desc =
@@ -1337,7 +1336,7 @@ module ProcessCallable = struct
                           disambiguate_process_expr e Type.any disam_tbl
                       | _ ->
                           Error.type_error stmt.stmt_loc
-                            "Expected identifier on left-hand side of bind")
+                            "Expected var identifier on left-hand side of bind")
                 in
                 let* bind_rhs =
                   disambiguate_process_expr bind_desc.bind_rhs Type.any
@@ -1363,8 +1362,7 @@ module ProcessCallable = struct
                       Rewriter.return var_type_expanded
                   | _ ->
                       Error.type_error stmt.stmt_loc
-                        "Expected variable identifier on left-hand side of \
-                         field read"
+                        "Expected var identifier on left-hand side of field read"
                 in
                 let field_read_expr =
                   Expr.App
@@ -1419,7 +1417,7 @@ module ProcessCallable = struct
                       Rewriter.return var_type_expanded
                   | _ ->
                       Error.type_error stmt.stmt_loc
-                        "Expected variable identifier on left-hand side of CAS"
+                        "Expected var identifier on left-hand side of cas"
                 in
                 let expr_attr =
                   { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot }
