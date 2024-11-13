@@ -1,4 +1,4 @@
-.PHONY: codegen build test
+.PHONY: codegen build test install_emacs
 
 build: tree-sitter-raven.so bindings.gyp
 
@@ -11,6 +11,9 @@ Cargo.toml src: grammar.js
 
 tree-sitter-raven.so: Cargo.toml src
 	cc -shared -fPIC -g -O3 -I src src/parser.c -o libtree-sitter-raven.so
+
+install_emacs: tree-sitter-raven.so
+	cp ./libtree-sitter-raven.so ~/.emacs.d/tree-sitter/
 
 bindings bindings.gyp node_modules:
 	npm install
