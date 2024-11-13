@@ -1,0 +1,67 @@
+include "../concurrent/lock/lock.rav"
+
+module LCList[LockF: Lock] {
+
+    field next: Ref
+    field lock: Bool
+    field value: Int
+
+    // module N : LockResource {
+    //     rep type T = (Ref, Int)
+
+    //     pred resource(r: T) {
+    //         exists nx: Ref, vx: Int :: nodePred(r#0, nx, vx, r#1)
+    //     }
+
+    //     pred nodePred(n: Ref, nx: Ref, vx: Int, v: Int) {
+    //         own(n.next, nx, 1.0) && own(n.value, vx, 1.0) && (v <= vx)
+    //     }
+
+    //     lemma exclusive(r: T)
+    //         requires resource(r) && resource(r)
+    //         ensures false
+    //     {
+    //         ghost var nx1: Ref; ghost var nx2: Ref;
+    //         ghost var vx1: Int; ghost var vx2: Int;
+    //         unfold resource(r){nx1 :| nx, vx1 :| vx};
+    //         unfold resource(r){nx2 :| nx, vx2 :| vx};
+    //         unfold nodePred((r#0), nx1, vx1, (r#1));
+    //         unfold nodePred(r#0, nx2, vx2, r#1);
+    //     }
+    // }
+
+    // module L = LockF[N]
+
+    pred is_list(x: Ref, v: Int) {
+            (exists nx: Ref, b: Bool, vx: Int ::
+                (x == null ? true : 
+                (own(x.lock, b, 1.0) &&
+                (b ? true : own(x.next, nx, 1.0) && own(x.value, vx, 1.0) 
+                            && (v <= vx) && is_list(nx, vx))))) 
+    }
+
+    lemma is_list_null()
+        ensures is_list(null, 0)
+    {
+        // assert null == null ? true : 
+        //     (own(null.lock, false, 1.0) &&
+        //         (false ? true : own(null.next, null, 1.0) && own(null.value, 0, 1.0) 
+        //                     && (0 <= 0) && is_list(null, 0)));
+        // fold is_list(null, 0)[nx := null, b := false, vx := 0];
+
+        fold is_list(null, 0)[nx := null, b := false, vx := 0];
+        // assume false;
+    }
+
+    proc create() 
+        returns (hd: Ref)
+        ensures is_list(hd, 0)
+    {
+        hd := new(next: null, lock: false, value: 0);
+        is_list_null();
+        fold is_list(hd, 0)[nx := null, b := false, vx := 0];
+        // assert false;
+    }
+
+}
+
