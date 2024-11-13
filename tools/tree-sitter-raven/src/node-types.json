@@ -1,51 +1,5 @@
 [
   {
-    "type": "add_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_minus",
-          "named": true
-        },
-        {
-          "type": "op_plus",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "and_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_eqs",
-          "named": true
-        },
-        {
-          "type": "op_and",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "assign_stmt",
     "named": true,
     "fields": {
@@ -96,7 +50,7 @@
         "required": false,
         "types": [
           {
-            "type": "op_comma",
+            "type": "expr",
             "named": true
           }
         ]
@@ -172,6 +126,164 @@
         },
         {
           "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_add",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_minus",
+          "named": true
+        },
+        {
+          "type": "op_plus",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_equality",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_eqeq",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_logical",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_and",
+          "named": true
+        },
+        {
+          "type": "op_iff",
+          "named": true
+        },
+        {
+          "type": "op_implies",
+          "named": true
+        },
+        {
+          "type": "op_or",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_mul",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_div",
+          "named": true
+        },
+        {
+          "type": "op_mul",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_relation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_geq",
+          "named": true
+        },
+        {
+          "type": "op_gt",
+          "named": true
+        },
+        {
+          "type": "op_leq",
+          "named": true
+        },
+        {
+          "type": "op_lt",
+          "named": true
+        },
+        {
+          "type": "op_subseteq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_sets",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_in",
+          "named": true
+        },
+        {
+          "type": "op_not_in",
           "named": true
         }
       ]
@@ -264,7 +376,32 @@
   {
     "type": "call",
     "named": true,
-    "fields": {},
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": true,
@@ -397,7 +534,7 @@
         "required": false,
         "types": [
           {
-            "type": "op_comma",
+            "type": "expr",
             "named": true
           }
         ]
@@ -485,7 +622,32 @@
   {
     "type": "compr_expr",
     "named": true,
-    "fields": {},
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
       "multiple": true,
       "required": true,
@@ -662,29 +824,6 @@
     "fields": {}
   },
   {
-    "type": "div_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_negatives",
-          "named": true
-        },
-        {
-          "type": "op_div",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "dot_expr",
     "named": true,
     "fields": {},
@@ -723,29 +862,6 @@
     }
   },
   {
-    "type": "eq_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_neqs",
-          "named": true
-        },
-        {
-          "type": "op_eq",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "expr",
     "named": true,
     "fields": {},
@@ -754,236 +870,51 @@
       "required": true,
       "types": [
         {
-          "type": "expr_with_eqs",
+          "type": "binop_add",
           "named": true
         },
         {
-          "type": "iff_expr",
+          "type": "binop_equality",
           "named": true
         },
         {
-          "type": "impl_expr",
+          "type": "binop_logical",
           "named": true
         },
         {
-          "type": "quantified_expr",
+          "type": "binop_mul",
           "named": true
         },
         {
-          "type": "ternary_expr",
+          "type": "binop_relation",
           "named": true
         },
         {
-          "type": "tuple_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_ands",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "and_expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_eqs",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_div",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "div_expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_negatives",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_eqs",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "eq_expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_neqs",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_ins",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_not_ins",
-          "named": true
-        },
-        {
-          "type": "in_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_minus",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_mul",
-          "named": true
-        },
-        {
-          "type": "minus_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_mul",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_div",
-          "named": true
-        },
-        {
-          "type": "mul_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_negatives",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_nots",
-          "named": true
-        },
-        {
-          "type": "negative_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_neqs",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_ins",
-          "named": true
-        },
-        {
-          "type": "neq_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_not_ins",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "not_in_expr",
-          "named": true
-        },
-        {
-          "type": "value_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_nots",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": false,
-      "required": true,
-      "types": [
-        {
-          "type": "not_expr",
+          "type": "binop_sets",
           "named": true
         },
         {
           "type": "primary_expr",
           "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "expr_with_ors",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
+        },
         {
-          "type": "expr_with_ands",
+          "type": "quantified",
           "named": true
         },
         {
-          "type": "or_expr",
+          "type": "ternary",
+          "named": true
+        },
+        {
+          "type": "tuple",
+          "named": true
+        },
+        {
+          "type": "unop_logical",
+          "named": true
+        },
+        {
+          "type": "unop_numeric",
           "named": true
         }
       ]
@@ -1159,6 +1090,11 @@
     }
   },
   {
+    "type": "identifier",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "if_then_else_stmt",
     "named": true,
     "fields": {},
@@ -1264,92 +1200,15 @@
     }
   },
   {
-    "type": "iff_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "impl_expr",
-          "named": true
-        },
-        {
-          "type": "op_iff",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "impl_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_ors",
-          "named": true
-        },
-        {
-          "type": "op_implies",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "import_dir",
     "named": true,
     "fields": {},
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
         {
           "type": "kwd_import",
-          "named": true
-        },
-        {
-          "type": "mod_identifier",
-          "named": true
-        },
-        {
-          "type": "qual_ident",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "in_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_not_ins",
-          "named": true
-        },
-        {
-          "type": "op_in",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
           "named": true
         }
       ]
@@ -1784,27 +1643,9 @@
     }
   },
   {
-    "type": "minus_expr",
+    "type": "mod_identifier",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_mul",
-          "named": true
-        },
-        {
-          "type": "op_minus",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
-          "named": true
-        }
-      ]
-    }
+    "fields": {}
   },
   {
     "type": "module_def",
@@ -1877,6 +1718,10 @@
         },
         {
           "type": "module_inst_args",
+          "named": true
+        },
+        {
+          "type": "op_eq",
           "named": true
         }
       ]
@@ -1969,7 +1814,7 @@
         "required": true,
         "types": [
           {
-            "type": "identifier",
+            "type": "mod_identifier",
             "named": true
           }
         ]
@@ -2031,71 +1876,6 @@
     }
   },
   {
-    "type": "mul_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr_with_div",
-          "named": true
-        },
-        {
-          "type": "op_mul",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "negative_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "op_minus",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "neq_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_ins",
-          "named": true
-        },
-        {
-          "type": "op_neq",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
     "type": "new_expr",
     "named": true,
     "fields": {
@@ -2127,53 +1907,15 @@
           "named": true
         },
         {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
           "type": "kwd_new",
           "named": true
         },
         {
           "type": "op_comma",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "not_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "op_not",
-          "named": true
-        },
-        {
-          "type": "primary_expr",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "not_in_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "op_not_in",
-          "named": true
-        },
-        {
-          "type": "parenthesized_value_expr",
-          "named": true
-        },
-        {
-          "type": "value_expr",
           "named": true
         }
       ]
@@ -2244,6 +1986,21 @@
     "fields": {}
   },
   {
+    "type": "op_eqeq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_geq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_gt",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "op_iff",
     "named": true,
     "fields": {}
@@ -2255,6 +2012,16 @@
   },
   {
     "type": "op_in",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_leq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_lt",
     "named": true,
     "fields": {}
   },
@@ -2304,27 +2071,9 @@
     "fields": {}
   },
   {
-    "type": "or_expr",
+    "type": "op_subseteq",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_ands",
-          "named": true
-        },
-        {
-          "type": "op_or",
-          "named": true
-        }
-      ]
-    }
+    "fields": {}
   },
   {
     "type": "own_expr",
@@ -2335,7 +2084,7 @@
         "required": false,
         "types": [
           {
-            "type": "op_comma",
+            "type": "expr",
             "named": true
           }
         ]
@@ -2369,29 +2118,6 @@
         },
         {
           "type": "kwd_own",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "parenthesized_value_expr",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "delim_lparen",
-          "named": true
-        },
-        {
-          "type": "delim_rparen",
-          "named": true
-        },
-        {
-          "type": "value_expr",
           "named": true
         }
       ]
@@ -2510,7 +2236,7 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": true,
+      "multiple": false,
       "required": true,
       "types": [
         {
@@ -2533,18 +2259,6 @@
       "required": true,
       "types": [
         {
-          "type": "delim_lparen",
-          "named": true
-        },
-        {
-          "type": "delim_rparen",
-          "named": true
-        },
-        {
-          "type": "identifier",
-          "named": true
-        },
-        {
           "type": "op_dot",
           "named": true
         },
@@ -2560,12 +2274,12 @@
     }
   },
   {
-    "type": "quantified_expr",
+    "type": "quantified",
     "named": true,
     "fields": {
       "variable": {
         "multiple": true,
-        "required": false,
+        "required": true,
         "types": [
           {
             "type": "bound_var",
@@ -2690,7 +2404,7 @@
       "required": true,
       "types": [
         {
-          "type": "identifier",
+          "type": "mod_identifier",
           "named": true
         },
         {
@@ -2979,7 +2693,7 @@
     }
   },
   {
-    "type": "ternary_expr",
+    "type": "ternary",
     "named": true,
     "fields": {},
     "children": {
@@ -2988,18 +2702,6 @@
       "types": [
         {
           "type": "expr",
-          "named": true
-        },
-        {
-          "type": "expr_with_eqs",
-          "named": true
-        },
-        {
-          "type": "iff_expr",
-          "named": true
-        },
-        {
-          "type": "impl_expr",
           "named": true
         },
         {
@@ -3022,7 +2724,7 @@
         "required": false,
         "types": [
           {
-            "type": "op_comma",
+            "type": "expr",
             "named": true
           }
         ]
@@ -3058,7 +2760,7 @@
     }
   },
   {
-    "type": "tuple_expr",
+    "type": "tuple",
     "named": true,
     "fields": {
       "proj": {
@@ -3336,19 +3038,38 @@
     }
   },
   {
-    "type": "value_expr",
+    "type": "unop_logical",
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
         {
-          "type": "add_expr",
+          "type": "expr",
           "named": true
         },
         {
-          "type": "expr_with_minus",
+          "type": "op_not",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unop_numeric",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_minus",
           "named": true
         }
       ]
@@ -3583,6 +3304,10 @@
   },
   {
     "type": "\"",
+    "named": false
+  },
+  {
+    "type": "#",
     "named": false
   },
   {
@@ -3842,10 +3567,6 @@
     "named": false
   },
   {
-    "type": "identifier",
-    "named": true
-  },
-  {
     "type": "if",
     "named": false
   },
@@ -3884,10 +3605,6 @@
   {
     "type": "lemma",
     "named": false
-  },
-  {
-    "type": "mod_identifier",
-    "named": true
   },
   {
     "type": "module",
@@ -3938,6 +3655,10 @@
     "named": true
   },
   {
+    "type": "subseteq",
+    "named": false
+  },
+  {
     "type": "true",
     "named": false
   },
@@ -3951,6 +3672,10 @@
   },
   {
     "type": "val",
+    "named": false
+  },
+  {
+    "type": "var",
     "named": false
   },
   {

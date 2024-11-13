@@ -1,0 +1,6 @@
+interface Lifetime {
+  rep type T1
+  rep type T2
+  
+  func hello(a: T1) returns (b: T2)
+}

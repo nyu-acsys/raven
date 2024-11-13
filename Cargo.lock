@@ -556,6 +556,8 @@ version = "0.1.0"
 dependencies = [
  "jwalk",
  "ravenfmt",
+ "tree-sitter",
+ "tree-sitter-raven",
  "walkdir",
 ]
 

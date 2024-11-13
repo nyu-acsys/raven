@@ -1,0 +1,1368 @@
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/iterated-star/dutch-flag.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/ite_preds.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/test/comparison/arc_ra.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/test/linked-lists/list.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/lock/spin-lock.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/dutch-flag.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/ite_preds.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc_ra.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/linked-lists/list.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/lock/spin-lock.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/lock/spin-lock.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_monotonic.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up_sequential.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/lock/spin-lock.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/linked-lists/list.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc_ra.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/ite_preds.rav: true
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_compr.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/ite_preds.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/dutch-flag.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/dutch-flag.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/ite_preds.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc_ra.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/linked-lists/list.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/lock/spin-lock.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/dutch-flag.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/ite_preds.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc_ra.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/linked-lists/list.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/lock/spin-lock.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/iterated-star/dutch-flag.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/ci/back-end/ite_preds.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/comparison/arc_ra.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/linked-lists/list.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/_build/default/test/concurrent/lock/spin-lock.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/lock/spin-lock.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_monotonic.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up_sequential.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/lock/spin-lock.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/test/linked-lists/list.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/test/comparison/arc_ra.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/fpu_fail.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/ite_preds.rav: true
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/fail/tuple.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_compr.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/ite_preds.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/iterated-star/dutch-flag.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/iterated-star/dutch-flag.rav: true
+checking field_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_typing.rav: false
+checking datatype_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/datatype_test.rav: true
+checking data_type_inherit.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type_inherit.rav: true
+checking type_alias_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_2.rav: true
+checking field_type_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/field_type_test.rav: true
+checking custom_fields_data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/custom_fields_data_type.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/tuple.rav: true
+checking data_type.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/data_type.rav: true
+checking cas_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/cas_rewriter_test.rav: true
+checking bool_perm_typecheck.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/bool_perm_typecheck.rav: true
+checking own_expr_rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/own_expr_rewriter_test.rav: true
+checking loop-rewriter_test.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop-rewriter_test.rav: true
+checking exhale_existential_qual_pred_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/exhale_existential_qual_pred_elim.rav: true
+checking adt.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/adt.rav: true
+checking simple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/simple.rav: true
+checking type_alias_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_1.rav: true
+checking predicates.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/predicates.rav: true
+checking map_empty_set.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_empty_set.rav: true
+checking loop_inv_vars.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/loop_inv_vars.rav: true
+checking inst_mod_frac_field.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/inst_mod_frac_field.rav: true
+checking merge_inherited_members.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/merge_inherited_members.rav: true
+checking tuple.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/fail/tuple.rav: true
+checking parametric_frac.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/parametric_frac.rav: true
+checking binders_typing.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/binders_typing.rav: false
+checking invariant_alloc_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc_fail.rav: true
+checking invariant_alloc.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/atomics/invariant_alloc.rav: true
+checking type_alias_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/type_alias_3.rav: true
+checking map_compr.rav
+parse status: /home/jacob/Programming/raven/test/ci/front-end/map_compr.rav: true
+checking anti-aliasing.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/anti-aliasing.rav: false
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/treiber_stack_atomics.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/atomic_spec/counter_no_inv.rav: true
+checking nat_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/nat_ra_fpu.rav: true
+checking witness_comp.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_comp.rav: true
+checking iterated_sep_star_encoding.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated_sep_star_encoding.rav: true
+checking witness_placeholders.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/witness_placeholders.rav: true
+checking bind_2.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_2.rav: true
+checking array-max.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/array-max.rav: true
+checking dutch-flag.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag.rav: true
+checking dutch-flag_unsound.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/iterated-star/dutch-flag_unsound.rav: true
+checking frac_ra_fpu.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/frac_ra_fpu.rav: true
+checking pred_vs_inv.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/pred_vs_inv.rav: true
+checking bind_4.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_4.rav: true
+checking inhale_exhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/inhale_exhale.rav: true
+checking bind_3.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/bind_3.rav: true
+checking while_loop.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/while_loop.rav: true
+checking masks_1.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/masks_1.rav: true
+checking missing_permissions.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/missing_permissions.rav: true
+checking fpu_fail.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/fail/fpu_fail.rav: true
+checking agree_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/agree_inhale.rav: true
+checking exhale_existential_quant_elim.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/exhale_existential_quant_elim.rav: true
+checking auth_inhale.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/auth_inhale.rav: true
+checking ite_preds.rav
+parse status: /home/jacob/Programming/raven/test/ci/back-end/ite_preds.rav: true
+checking arc.rav
+parse status: /home/jacob/Programming/raven/test/comparison/arc.rav: true
+checking arc_ra.rav
+parse status: /home/jacob/Programming/raven/test/comparison/arc_ra.rav: true
+checking list.rav
+parse status: /home/jacob/Programming/raven/test/linked-lists/list.rav: true
+checking treiber_stack_atomics.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/treiber_stack/treiber_stack_atomics.rav: true
+checking single-node_working.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/single-node_working.rav: true
+checking ccm_instances.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/ccm_instances.rav: true
+checking give-up.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up.rav: true
+checking flows_ra.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/flows_ra.rav: true
+checking give-up_sequential.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/templates/give-up_sequential.rav: true
+checking counter.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter.rav: true
+checking counter_no_inv.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_no_inv.rav: true
+checking counter_monotonic.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/counter/counter_monotonic.rav: true
+checking spin-lock.rav
+parse status: /home/jacob/Programming/raven/test/concurrent/lock/spin-lock.rav: true

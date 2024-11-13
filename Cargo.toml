@@ -12,9 +12,17 @@ path = "scripts/format.rs"
 [dependencies]
 walkdir = "2.5.0"
 jwalk = "0.5"
+tree-sitter-raven = { path = "./tools/tree-sitter-raven/" }
+tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter.git", tag = "v0.22.6" }
 
 [dev-dependencies]
 ravenfmt = { path = "./tools/ravenfmt/" }
+
+[[bin]]
+name = "tscheck"
+test = false
+bench = false
+path = "scripts/tscheck.rs"
 
 [workspace]
 members = [
