@@ -5,69 +5,93 @@
   (comment)
   (string)
   (identifier)
+  (mod_identifier)
+  (literal)
 ] @leaf
 
-; Allow blank line before
+
+; Allow a blank line before any include statement
+; that comes after an include statement
+(
+ (include_stmt)
+ .
+ (include_stmt) @allow_blank_line_before
+)
+
 [
-  (defn)
+  (member_def)
 ] @allow_blank_line_before
 
 
 ; Surround spaces
 [
-  (binop_op)
-  (qmark) (ternary_colon)
-  (kwd_bind)
+  (kwd_spec)
+  (kwd_inv)
+  (kwd_au)
   (kwd_atomic)
-  (kwd_import)
-  (kwd_field)
-  (kwd_pred)
-  (kwd_proc)
-  (kwd_requires)
-  (kwd_ensures)
-  (kwd_returns)
-  (kwd_return)
-  (kwd_assert)
-  (kwd_assume)
-  (kwd_havoc)
-  (kwd_with)
-  (kwd_val)
-  (kwd_if)
-  (kwd_else)
-  (kwd_while)
-  (kwd_invariant)
-  (kwd_fold)
-  (kwd_unfold)
-  (kwd_var)
-  (kwd_quantifier)
-  (kwd_modifier)
-  (kwd_include)
-  (kwd_interface)
-  (kwd_module)
-  (kwd_rep)
-  (kwd_type)
-  (kwd_data)
-  (kwd_case)
-  (kwd_auto)
-  (kwd_lemma)
   (kwd_axiom)
+  (kwd_atomic_token)
+  (kwd_auto)
+  (kwd_bool)
+  (kwd_cas)
+  (kwd_case)
+  (kwd_data)
+  (kwd_else)
+  (kwd_ensures)
+  (kwd_const)
+  (kwd_field)
   (kwd_func)
-  (kwd_inhale)
-  (kwd_exhale)
-  (coloncolon)
-  (trigger)
-  (eq)
-  (coloneq)
+  (kwd_ghost)
+  (kwd_havoc)
+  (kwd_if)
+  (kwd_include)
+  (kwd_module)
+  (kwd_invariant)
+  (kwd_import)
+  (kwd_implicit)
+  (kwd_lemma)
+  (kwd_rep)
+  (kwd_new)
+  (kwd_perm)
+  (kwd_proc)
+  (kwd_real)
+  (kwd_requires)
+  (kwd_return)
+  (kwd_returns)
+  (kwd_type)
+  (kwd_var)
+  (kwd_with)
+  (kwd_while)
+
+  (op_implies)
+  (op_iff)
+  (op_eq)
+  (op_eqeq)
+  (op_neq)
+  (op_leq)
+  (op_geq)
+  (op_lt)
+  (op_gt)
+  (op_or)
+  (op_and)
+  (op_subseteq)
+  (op_in)
+  (op_not_in)
+  (op_not)
+  (op_plus)
+  (op_minus)
+  (op_div)
+  (op_mul)
+  (op_coloneq)
+  (op_coloncolon)
+  (op_dot)
+  (op_qmark)
+  (op_colonpipe)
 ] @prepend_space @append_space
 (kwd_own) @prepend_space
+(op_colon) @append_space
+(kwd_quantifier) @append_space
 
-; Append spaces
-[
-  (seperator)
-] @append_input_spaced_softline
-
-
-(comment) @append_hardline @allow_blank_line_before
 
 ; Input softlines before and after all comments. This means that the input
 ; decides if a comment should have line breaks before or after. A line comment
@@ -82,16 +106,16 @@
 (
   (block_comment) @append_input_softline
   .
-  [ (seperator) ]* @do_nothing
+  [ (op_comma) (op_semicolon) ]* @do_nothing
 )
+
+(comment) @append_hardline @allow_blank_line_before
 
 ; Append line breaks. If there is a comment following, we don't add anything,
 ; because the input softlines and spaces above will already have sorted out the
 ; formatting.
 (
-  [
-    (func_defn) (axiom_defn) (pred_defn) (lemma_defn) (proc_defn) (field_defn) (val_defn) (interface_defn) (import_stmt) (module_defn)
-  ] @append_spaced_softline
+ (member_def) . (op_semicolon) @append_spaced_softline
   .
   [
     (block_comment)
@@ -99,18 +123,15 @@
   ]* @do_nothing
 )
 
-; Put breaks between defns
 (
- (defn)
- .
- (defn) @prepend_hardline
-)
-
-; Put breaks between statements
-(
- (stmt)
- .
- (stmt) @prepend_spaced_softline
+ (member_def)
+  .
+  [
+    (block_comment)
+    (comment)
+  ]* @do_nothing
+  .
+  (member_def) @prepend_spaced_softline
 )
 
 (block_comment) @multi_line_indent_all
@@ -122,110 +143,111 @@
   _ @prepend_input_softline
 )
 
-; Append softlines, unless followed by comments.
+; Surround the module header with indentations
+(module_def (kwd_module) @append_indent_start (module_inst) @prepend_space @prepend_indent_end)
+(module_def (kwd_module) @append_indent_start (module_impl) @prepend_indent_end)
+; Surround the parameter list & return type with indentations
+(module_def (module_header (mod_identifier) @append_indent_start) @append_indent_end)
+(module_param_list (delim_lbracket) @append_begin_scope @append_indent_start (delim_rbracket) @prepend_end_scope @prepend_indent_end
+                   (#scope_id! "module_params"))
+(module_param_list (op_comma) @append_spaced_scoped_softline (#scope_id! "module_params"))
+(module_inst_args (delim_lbracket) @append_begin_scope @append_indent_start (delim_rbracket) @prepend_end_scope @prepend_indent_end
+                  (#scope_id! "module_inst_params"))
+(module_inst_args (op_comma) @append_spaced_scoped_softline (#scope_id! "module_inst_params"))
+(proc_def (proc_kind) @append_indent_start (proc_decl) @append_indent_end)
+(func_def (func_decl (_) @append_indent_start) (delim_lbrace) @append_indent_end)
+(func_def (func_decl (_) @append_indent_start) @append_indent_end .)
+(data_expr (delim_lbrace) @append_begin_scope @append_indent_start @append_empty_scoped_softline
+           (delim_rbrace) @prepend_end_scope @prepend_indent_end @prepend_empty_scoped_softline
+           (#scope_id! "data_expr_body"))
+(data_expr (case_defn) (op_semicolon)? @append_spaced_scoped_softline (#scope_id! "data_expr_body"))
+(variant_args (delim_lparen) @append_begin_scope @append_indent_start
+              (delim_rparen) @prepend_end_scope @prepend_indent_end
+              (#scope_id! "variant_args"))
+(variant_args (op_comma) @append_spaced_scoped_softline (#scope_id! "variant_args"))
+(callable_decl (delim_lparen) @append_begin_scope @append_indent_start
+               (delim_rparen) @prepend_end_scope @prepend_indent_end
+               (#scope_id! "callable_decl_args"))
+(callable_decl (var_decls_with_modifiers (op_comma) @append_spaced_scoped_softline
+                                         (#scope_id! "callable_decl_args")))
+(contract) @prepend_input_softline
+(returns_clause (delim_lparen) @append_begin_scope @append_indent_start
+                (delim_rparen) @prepend_end_scope @prepend_indent_end
+                (#scope_id! "returns_clause")) @prepend_input_softline
+(returns_clause (var_decls_with_modifiers (op_comma) @append_spaced_scoped_softline) (#scope_id! "variant_args"))
+(tuple (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
+       (delim_rparen) @prepend_end_scope @prepend_indent_end
+       (#scope_id! "tuple"))
+(tuple (op_comma) @append_spaced_scoped_softline (#scope_id! "tuple"))
+(own_expr (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
+          (delim_rparen) @prepend_end_scope @prepend_indent_end
+          (#scope_id! "own_scope"))
+(own_expr (op_comma) @append_spaced_scoped_softline (#scope_id! "own_scope"))
+(call (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
+      (delim_rparen) @prepend_end_scope @prepend_indent_end
+      (#scope_id! "call_scope"))
+(call (op_comma) @append_spaced_scoped_softline (#scope_id! "call_scope"))
+(type_expr_map (delim_lbracket) (op_comma) @append_space (delim_rbracket))
+(type_expr_app (delim_lbracket) @append_begin_scope @append_indent_start
+               (delim_rbracket) @prepend_end_scope @prepend_indent_end
+               (#scope_id! "ty_app"))
+(type_expr_app (op_comma) @append_spaced_scoped_softline (#scope_id! "ty_app"))
+(module_param_list (delim_lbracket) @append_begin_scope @append_indent_start
+                   (delim_rbracket) @prepend_end_scope @prepend_indent_end
+                   (#scope_id! "module_params"))
+(module_param_list (op_comma) @append_spaced_scoped_softline (#scope_id! "module_params"))
 (
-  [
-   (seperator) (end_stmt)
-  ] @append_spaced_softline
-  .
-  [(block_comment) (comment)]* @do_nothing
-)
-
-; This patterns is duplicated for all nodes that can contain curly braces.
-; Hoping to be able to generalise them like this:
-; (_
-;   .
-;   "{" @prepend_space
-;   (#for! block declaration_list enum_variant_list field_declaration_list)
-; )
-; Perhaps even the built in #match! can do this
-
-(module_defn name: (identifier) @prepend_space)
-(interface_defn typecons: ((colon) (type) @prepend_space))
-(module_defn typecons: ((colon) (type) @prepend_space))
-
-(func_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
-
-(axiom_defn name: (identifier) @prepend_space @append_indent_start _ @append_indent_end .)
-(lemma_defn name: (identifier) @prepend_space @append_indent_start body: (proc_body))
-(proc_defn name: (identifier) @prepend_space @append_indent_start (proc_body))
-(rep_defn name: (identifier) @append_indent_start (data_defn))
-(rep_defn name: (identifier) @append_indent_start (type) @append_indent_end)
-(case_defn) @prepend_spaced_softline
-
-
-
-(func_defn returns: (returns_clause) @prepend_space)
-(proc_defn returns: (returns_clause) @prepend_space)
-(func_defn returns: (returns_clause) @prepend_spaced_softline)
-(proc_defn returns: (returns_clause) @prepend_spaced_softline)
-
-(func_defn io: (io_spec_clause) @prepend_spaced_softline)
-(axiom_defn io: (io_spec_clause) @prepend_spaced_softline)
-(lemma_defn io: (io_spec_clause) @prepend_spaced_softline)
-(proc_defn io: (io_spec_clause) @prepend_spaced_softline)
-
-
-(interface_defn (interface_body) @prepend_space !parameters)
-(module_defn (interface_body) @prepend_space !parameters)
-(interface_defn parameters: (type_cons) @append_indent_start body: (interface_body) @prepend_indent_end @prepend_space)
-(module_defn parameters: (type_cons) @append_indent_start body: (interface_body) @prepend_indent_end @prepend_space)
-(module_defn parameters: (type_cons) @append_indent_start type: ((_) (type) @prepend_indent_end @prepend_space))
-(data_defn body: (data_body) @prepend_indent_end @prepend_space)
-(data_defn body: (data_body case: (case_defn) @append_spaced_softline) )
-(func_defn body: (proc_body) @prepend_space @prepend_indent_end)
-(lemma_defn body: (proc_body) @prepend_space @prepend_indent_end)
-(proc_defn body: (proc_body) @prepend_space @prepend_indent_end)
-
-(data_defn (lcurly) @append_spaced_softline @append_indent_start)
-(data_defn (rcurly) @prepend_spaced_softline @prepend_indent_end)
-
-[(data_defn !body)
-(data_defn !body)
-(func_defn !body)
-(lemma_defn !body)
-(proc_defn !body)
-(pred_defn !body)] @append_spaced_softline
-
-(pred_defn name: (identifier) @append_indent_start (pred_body) @prepend_indent_end)
-(pred_body
-  .
-  (lcurly) @prepend_input_softline @append_spaced_softline @append_indent_start
-  _
-  (rcurly) @prepend_input_softline @prepend_spaced_softline @prepend_indent_end
-  .)
-
-(proc_body
-  .
-  (lcurly) @prepend_input_softline @append_spaced_softline @append_indent_start
-  _
-  (rcurly) @prepend_input_softline @prepend_spaced_softline @prepend_indent_end
-  .)
-
-(interface_body
-  .
-  (lcurly) @append_spaced_softline @append_indent_start
-  _
-  (rcurly) @prepend_spaced_softline @prepend_indent_end
-  .)
-(map_literal_l) @append_input_softline @append_indent_start
-(map_literal_r) @prepend_input_softline @prepend_indent_end
-
-(ghost_code
-  .
-  (lghost) @append_spaced_softline @append_indent_start
-  _
-  (rghost) @prepend_spaced_softline @prepend_indent_end
-  .)
-
-(arg vartype: (type) @prepend_space)
-(type_con supertype: _ @prepend_space)
+ ([(stmt)
+  (stmt_desc)
+  (stmt_wo_trailing_substmt)
+  (stmt_no_short_if)
+  (stmt_no_short_if_desc)
+  (if_then_else_stmt_no_short_if)
+  (while_stmt_no_short_if)] (op_semicolon) @append_spaced_softline
+ .
+ [(stmt)
+  (stmt_desc)
+  (stmt_wo_trailing_substmt)
+  (stmt_no_short_if)
+  (stmt_no_short_if_desc)
+  (if_then_else_stmt_no_short_if)
+  (while_stmt_no_short_if)])
+ )
+(
+ ([(stmt)
+  (stmt_desc)
+  (stmt_wo_trailing_substmt)
+  (stmt_no_short_if)
+  (stmt_no_short_if_desc)
+  (if_then_else_stmt_no_short_if)
+  (while_stmt_no_short_if)]
+ .
+ [(stmt)
+  (stmt_desc)
+  (stmt_wo_trailing_substmt)
+  (stmt_no_short_if)
+  (stmt_no_short_if_desc)
+  (if_then_else_stmt_no_short_if)
+  (while_stmt_no_short_if)] @prepend_spaced_softline)
+ )
+(module_inst (delim_lbrace) @append_indent_start @append_spaced_softline
+             (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
+(block (delim_lbrace) @append_indent_start @append_spaced_softline
+       (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
+(func_def (delim_lbrace) @append_indent_start @append_spaced_softline @prepend_space
+          (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
+(proc_def (block (delim_lbrace) @prepend_space))
+(ghost_block (delim_lghostbrace) @append_indent_start @append_spaced_softline
+             (delim_rghostbrace) @prepend_indent_end @prepend_spaced_softline)
+(if_then_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
+(if_then_else_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
+(while_stmt (block (delim_lbrace) @prepend_space))
+(while_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
 
 ; Make the invariant clauses spaced
-(while_stmt . (kwd_while) @append_indent_start)
-(while_stmt (invariant_spec_clause) @prepend_spaced_softline)
+( (kwd_while) @append_indent_start )
+( (kwd_while) (loop_contract) @prepend_spaced_softline )
 ; Make the last invariant clause unindented
-(while_stmt (proc_body) @prepend_indent_end .)
+( (kwd_while) [(block) (stmt_no_short_if)] @prepend_space @prepend_indent_end .)
+[ (op_semicolon) (op_comma) ] @prepend_antispace
 
-(type_cons) @prepend_antispace
-[ (seperator) (end_stmt) ] @prepend_antispace
