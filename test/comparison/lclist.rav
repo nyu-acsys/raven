@@ -1,36 +1,10 @@
 include "../concurrent/lock/lock.rav"
 
-module LCList[LockF: Lock] {
+module LCList {
 
     field next: Ref
     field lock: Bool
     field value: Int
-
-    // module N : LockResource {
-    //     rep type T = (Ref, Int)
-
-    //     pred resource(r: T) {
-    //         exists nx: Ref, vx: Int :: nodePred(r#0, nx, vx, r#1)
-    //     }
-
-    //     pred nodePred(n: Ref, nx: Ref, vx: Int, v: Int) {
-    //         own(n.next, nx, 1.0) && own(n.value, vx, 1.0) && (v <= vx)
-    //     }
-
-    //     lemma exclusive(r: T)
-    //         requires resource(r) && resource(r)
-    //         ensures false
-    //     {
-    //         ghost var nx1: Ref; ghost var nx2: Ref;
-    //         ghost var vx1: Int; ghost var vx2: Int;
-    //         unfold resource(r){nx1 :| nx, vx1 :| vx};
-    //         unfold resource(r){nx2 :| nx, vx2 :| vx};
-    //         unfold nodePred((r#0), nx1, vx1, (r#1));
-    //         unfold nodePred(r#0, nx2, vx2, r#1);
-    //     }
-    // }
-
-    // module L = LockF[N]
 
     pred is_list(x: Ref, v: Int) {
             (exists nx: Ref, b: Bool, vx: Int ::
@@ -43,14 +17,7 @@ module LCList[LockF: Lock] {
     lemma is_list_null()
         ensures is_list(null, 0)
     {
-        // assert null == null ? true : 
-        //     (own(null.lock, false, 1.0) &&
-        //         (false ? true : own(null.next, null, 1.0) && own(null.value, 0, 1.0) 
-        //                     && (0 <= 0) && is_list(null, 0)));
-        // fold is_list(null, 0)[nx := null, b := false, vx := 0];
-
-        fold is_list(null, 0)[nx := null, b := false, vx := 0];
-        // assume false;
+        assume false;
     }
 
     proc create() 
@@ -60,8 +27,172 @@ module LCList[LockF: Lock] {
         hd := new(next: null, lock: false, value: 0);
         is_list_null();
         fold is_list(hd, 0)[nx := null, b := false, vx := 0];
-        // assert false;
     }
+
+    proc acquire(x: Ref, implicit ghost b: Bool)
+        atomic requires own(x.lock, b, 1.0)
+        atomic ensures own(x.lock, true, 1.0) && b == false
+    {
+        ghost val phi: AtomicToken := bindAU();
+        b := openAU(phi);
+        
+        val res: Bool := cas(x.lock, false, true);
+
+        {!
+            if (res) {
+                commitAU(phi);
+            } else {
+                abortAU(phi);
+            }
+        !}
+
+        if (res) {
+            return;
+        } else {
+            b := openAU(phi);
+            acquire(x);
+            commitAU(phi);
+        }
+    }
+
+    proc release(x: Ref)
+        atomic requires own(x.lock, true, 1.0)
+        atomic ensures own(x.lock, false, 1.0)
+    {
+        ghost val phi: AtomicToken := bindAU();
+        openAU(phi);
+        x.lock := false;
+        commitAU(phi);
+        return;
+    }
+
+    proc traverse(p: Ref, c: Ref, k: Int, implicit ghost vp: Int)
+        returns (n1: Ref, n2: Ref, implicit ghost vn1: Int, 
+            implicit ghost vn2: Int, implicit ghost n3: Ref)
+        requires own(p.lock, true, 1.0)
+        requires own(p.next, c, 1.0) && own(p.value, vp, 1.0) 
+        requires is_list(c, vp) && c != null
+        ensures own(n1.lock, true, 1.0) 
+        ensures own(n1.next, n2, 1.0) && own(n1.value, vn1, 1.0)
+        ensures n2 != null ==> own(n2.lock, true, 1.0) 
+        ensures n2 != null ==> own(n2.next, n3, 1.0) && own(n2.value, vn2, 1.0)
+        ensures n2 != null ==> is_list(n3, vn2)
+        ensures n2 != null ==> k <= vn2
+    {
+        unfold is_list(c, vp);
+        acquire(c);
+        var vc: Int := c.value;
+        var n: Ref = c.next;
+        if (k <= vc) {
+            return (p, c, vp, vc, n);
+        } else {
+            release(p);
+            if (n == null) {
+                return (c, n, vc, 0, null);
+            } else {
+                var n1: Ref; var n2: Ref; 
+                ghost var vn1: Int; ghost var vn2: Int; ghost var n3: Ref;
+                n1, n2, vn1, vn2, n3 := traverse(c, n, k);
+                return (n1, n2, vn1, vn2, n3);
+            }
+            
+        }
+    }
+
+    proc find(hd: Ref, k: Int)
+        returns (n1: Ref, n2: Ref, implicit ghost vn1: Int, 
+            implicit ghost vn2: Int, implicit ghost n3: Ref)
+        requires is_list(hd, 0) && hd != null
+        ensures own(n1.lock, true, 1.0) 
+        ensures own(n1.next, n2, 1.0) && own(n1.value, vn1, 1.0)
+        ensures n2 != null ==> own(n2.lock, true, 1.0) 
+        ensures n2 != null ==> own(n2.next, n3, 1.0) && own(n2.value, vn2, 1.0)
+        ensures n2 != null ==> is_list(n3, vn2)
+        ensures n2 != null ==> k <= vn2
+    {
+        unfold is_list(hd, 0);
+        acquire(hd);
+        var n: Ref := hd.next;
+
+        if (n == null) {
+            // assume false;
+            ghost var vhd: Int := hd.value;
+            assert own(hd.next, n, 1.0) && own(hd.value, vhd, 1.0);
+            return (hd, n, vhd, 0, n);
+        } else {
+            var n1: Ref; var n2: Ref; 
+            ghost var vn1: Int; ghost var vn2: Int; ghost var n3: Ref;
+            n1, n2, vn1, vn2, n3 := traverse(hd, n, k);
+            return n1, n2, vn1, vn2, n3;
+        }
+    }
+
+    proc search(hd: Ref, k: Int)
+        returns (res: Bool)
+        requires is_list(hd, 0) && hd != null
+        ensures true
+    {
+        var p: Ref; var c: Ref; 
+        ghost var vp: Int; ghost var vc: Int; ghost var n: Ref;
+        p, c, vp, vc, n := find(hd, k);
+
+        if (c == null) {
+            return false;
+        } else {
+            var v: Int := c.value;
+            return (v == k);
+        }
+    }
+
+    proc insert(hd: Ref, k: Int)
+        returns (res: Bool)
+        requires is_list(hd, 0) && hd != null
+        ensures true
+    {
+        var p: Ref; var c: Ref; 
+        ghost var vp: Int; ghost var vc: Int; ghost var n: Ref;
+        p, c, vp, vc, n := find(hd, k);
+
+        if (c == null) {
+            var new_node: Ref;
+            new_node := new(next: null, value: k, lock: false);
+            p.next := new_node;
+            return true;
+        } else {
+            var v: Int := c.value;
+            if (v == k) {
+                return false;
+            } else {
+                var new_node: Ref;
+                new_node := new(next: c, value: k, lock: false);
+                p.next := new_node;
+                return true;
+            }
+        }
+    }
+
+    proc delete(hd: Ref, k: Int)
+        returns (res: Bool)
+        requires is_list(hd, 0) && hd != null
+        ensures true
+    {
+        var p: Ref; var c: Ref; 
+        ghost var vp: Int; ghost var vc: Int; ghost var n: Ref;
+        p, c, vp, vc, n := find(hd, k);
+
+        if (c == null) {
+            return false;
+        } else {
+            var v: Int := c.value;
+            if (v != k) {
+                return false;
+            } else {
+                var cn: Ref := c.next;
+                p.next := cn;
+                return true;
+            }
+        }
+    }    
 
 }
 
