@@ -1,0 +1,116 @@
+// REF: https://dada.cs.washington.edu/research/tr/1993/02/UW-CSE-93-02-02.pdf
+// REF: diaframe_heap_lang_examples/comparison/clh_lock.v (MPI-SWS gitlab)
+
+module CLHRequest {
+  field state: Bool; // Whether request is PENDING (true) or GRANTED (false)
+  field watch: Ref;  // Pointer to predecessor in queue --- we wait on its state
+
+  pred request_rep(r: Ref, b: Bool)
+  {
+    exists predreq: Ref :: own(r, watch, predreq, 1.0) && own(r, state, b, 1.0)
+      // TODO: Is this enough? Can we get additional assurance that predreq
+      // points to a valid CLHRequest? I guess we could recursively call
+      // request_rep here on predreq, but not sure if this supported in Raven.
+  }
+
+  // NOTE: Seems like is_request would just be redundant with request_rep here.
+  // I can't think of a reason right now to have a separate is_request predicate
+  // here (like with locks) --- locks have an additional resource field that
+  // they're protecting, which is why having an additional predicate makes
+  // sense, but requests here don't have the same structure.
+  // pred is_request() {}
+
+  proc create()
+    returns (req: Ref)
+    ensures request_rep(req, false)
+  {
+    req := new (state: false, watch: null);
+    fold request_rep(req, false);
+  }
+}
+
+interface CLHLock {
+  module R: Library.Type
+  module Agree = Library.Agree[R]
+
+  ghost field agr: Agree
+
+  // Resource protected by the lock
+  pred resource(r: R)
+
+  field tail: Ref; // Pointer to latest (tail) request in queue
+                   // (or: request to be watched by next requester)
+
+  pred lock_rep(l: Ref; b: Bool)
+  {
+    // What do we do with b: Bool here? I think the policy is basically: if the
+    // lock's request is GRANTED/false, the lock is unlocked. Otherwise, it is
+    // locked some other process and possibly has other competing acquisition
+    // requests in the queue.
+    exists req: Ref ::
+      own(l, tail, req, 1.0) &&
+      CLHRequest.request_rep(req, b)
+  }
+
+  // NOTE: Ripped directly from the lock.rav higher-order module for locks.
+  pred is_lock(l: Ref; r: R, b: Bool) {
+    own(l, agr, Agree.agree(r))
+    && lock_rep(l, b)
+    && (b ? true : resource(r))
+  }
+
+  // According to Craig, need to allocate a Request (node in Diaframe) for the lock
+  // and mark the Request as GRANTED (i.e. the lock is free). In Diaframe, the
+  // state field is false/true vs. GRANTED/PENDING in Craig's paper.
+  // It actually seems that in Diaframe, we combine the lock and the lock node
+  // initialization, i.e. why the allocation looks like ref (ref #false).
+  proc create(r: R)
+    returns (lk: Ref)
+    requires resource(r)
+    ensures is_lock(lk, false)
+  {
+    // NOTE: This won't work --- procedure calls are only allowed as top-level
+    // statements (for simplicity). We can't nest them inside an allocation.
+    // This should be fixed now, but previously we had:
+    // new (tail: CLHRequest.create(), agr: Agree.agree(r))
+    // NOTE: Agree.agree(r) is fine because agree, I think, is a *function*,
+    // i.e. it has no side-effects.
+    var lkreq: Ref := CLHRequest.create();
+    lk := new (tail: lkreq, agr: Agree.agree(r));
+  }
+
+  // acquire takes two arguments: a Ref to the lock and a Ref to a node that is
+  // associated with the acquiring process.
+  // acquire needs to set its own node's (aka request in Craig's parlance)
+  // "locked" ("state" in Craig's parlance) to True. Then it needs to perform
+  // an (atomic) fetch-and-store that replaces the lock's tail with a pointer
+  // to the acquiring node and the acquiring node's watching field with the lock's
+  // current tail.
+  proc acquire(lk: Ref, req: Ref)
+    requires is_lock(lk) && request_rep(req)
+  {
+    req.state := true;
+    // TODO: The "fetch-and-store" here needs to be atomic --- I think?
+    // NOTE: This won't work! Only 1 logically atomic step per statement. This
+    // is 2 steps: a read and a write. Should be fixed below, but it was
+    // originally:
+    // req.watch := lk.tail
+    currtail := lk.tail;
+    req.watch := currtail;
+    lk.tail := req;
+  }
+
+  // release takes one argument: a Ref to the node that is associated with the
+  // releasing process. It returns a Ref that represents the Request/node
+  // granted to it by its predecessor --- this is now the Request/node that the
+  // current process owns.
+  // TODO: How do we ensure that only the process holding the lock can release it?
+  proc release(req: Ref)
+    returns (predreq: Ref)
+    requires request_rep(req, false)
+    ensures request_rep(predreq)
+  {
+    req.state := false;
+    predreq := req.watch;
+  }
+}
