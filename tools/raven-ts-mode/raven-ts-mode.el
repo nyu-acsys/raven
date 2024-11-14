@@ -128,7 +128,10 @@ Return nil if there is no name or if NODE is not a defun node."
     (setq-local treesit-defun-type-regexp (rx (or "func" "proc" "lemma" "axiom" "pred")))
     (setq-local treesit-defun-name-function
                 nil)
-    (treesit-major-mode-setup)
-    (add-to-list 'auto-mode-alist '("\\.rav\\'" . raven-ts-mode))))
-
+    (treesit-major-mode-setup)))
+(add-to-list 'auto-mode-alist '("\\.rav\\'" . raven-ts-mode))
+(defun raven-ts-mode-indent ()
+  (interactive)
+  (shell-command (concat "ravenfmt " buffer-file-name)))
+(add-hook 'raven-ts-mode-hook (lambda () (interactive) ))
 (provide 'raven-ts-mode)

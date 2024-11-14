@@ -63,25 +63,10 @@
   (kwd_with)
   (kwd_while)
 
-  (op_implies)
-  (op_iff)
   (op_eq)
-  (op_eqeq)
-  (op_neq)
-  (op_leq)
-  (op_geq)
-  (op_lt)
-  (op_gt)
-  (op_or)
-  (op_and)
-  (op_subseteq)
   (op_in)
   (op_not_in)
   (op_not)
-  (op_plus)
-  (op_minus)
-  (op_div)
-  (op_mul)
   (op_coloneq)
   (op_coloncolon)
   (op_dot)
@@ -178,6 +163,15 @@
 (tuple (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
        (delim_rparen) @prepend_end_scope @prepend_indent_end
        (#scope_id! "tuple"))
+
+([(op_iff) (op_and) (op_or) (op_implies)
+  (op_neq) (op_eqeq)
+  (op_lt) (op_gt) (op_leq) (op_geq) (op_subseteq)
+  (op_mul) (op_div)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+  (#scope_id! "expr"))
+(binop_add [(op_plus) (op_minus)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+           (#scope_id! "binop_add"))
+
 (tuple (op_comma) @append_spaced_scoped_softline (#scope_id! "tuple"))
 (own_expr (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
           (delim_rparen) @prepend_end_scope @prepend_indent_end
@@ -196,6 +190,7 @@
                    (delim_rbracket) @prepend_end_scope @prepend_indent_end
                    (#scope_id! "module_params"))
 (module_param_list (op_comma) @append_spaced_scoped_softline (#scope_id! "module_params"))
+
 (
  ([(stmt)
   (stmt_desc)
@@ -234,7 +229,9 @@
              (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
 (block (delim_lbrace) @append_indent_start @append_spaced_softline
        (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
-(func_def (delim_lbrace) @append_indent_start @append_spaced_softline @prepend_space
+((expr)
+        @prepend_begin_scope @append_end_scope (#scope_id! "expr") )
+(func_def (delim_lbrace) @prepend_space @prepend_indent_start @append_spaced_softline
           (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
 (proc_def (block (delim_lbrace) @prepend_space))
 (ghost_block (delim_lghostbrace) @append_indent_start @append_spaced_softline
@@ -246,7 +243,8 @@
 
 ; Make the invariant clauses spaced
 ( (kwd_while) @append_indent_start )
-( (kwd_while) (loop_contract) @prepend_spaced_softline )
+(loop_contract (expr) @prepend_indent_start @append_indent_end)
+( (kwd_while) (loop_contract) @prepend_spaced_softline)
 ; Make the last invariant clause unindented
 ( (kwd_while) [(block) (stmt_no_short_if)] @prepend_space @prepend_indent_end .)
 [ (op_semicolon) (op_comma) ] @prepend_antispace
