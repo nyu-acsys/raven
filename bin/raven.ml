@@ -39,11 +39,15 @@ let parse_cu top_level_md_ident lexbuf =
 
   (incls, Ast.Module.set_name md top_level_md_ident)
 
-let check_cu tbl smt_env md front_end_out_chan =
+let check_cu ?(prog_stats = false) tbl smt_env md front_end_out_chan =
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl md in
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
+
+  (* if prog_stats then 
+    Stdlib.exit 0
+  else begin *)
 
   let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
 
@@ -65,6 +69,8 @@ let check_cu tbl smt_env md front_end_out_chan =
 
   let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
   (smt_env, tbl)
+
+  (* end *)
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
@@ -98,7 +104,7 @@ let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
   (smt_env, tbl)
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
+let parse_and_check_all smt_timeout smt_diagnostics no_library prog_stats file_names =
   (* Start backend solver session *)
   let smt_env = Backend.Smt_solver.init smt_diagnostics smt_timeout in
 
@@ -139,6 +145,10 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
           Logs.debug (fun m -> m "raven.parse_prog: Parsing file %s." file_name);
           let inchan, lexbuf = stream_of_file file_name in
           let includes, md = parse_cu Predefs.prog_ident lexbuf in
+
+          (* Hiding all includes when counting stats *)
+          let includes = if prog_stats then [] else includes in
+
           Stdio.In_channel.close inchan;
 
           let md =
@@ -171,7 +181,25 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
       empty_prog
   in
 
-  let _ = check_cu tbl smt_env md front_end_out_chan in
+  if prog_stats then 
+    let prog_stats = ProgStats.computeStats md in
+
+    Logs.app (fun m -> m
+      "PROGRAM STATISTICS:
+      concrete_decls: %i;
+      ghost_decls: %i;
+      concrete_stmts: %i;
+      ghost_stmts: %i;
+      spec_count: %i;"
+        prog_stats.concrete_decls
+        prog_stats.ghost_decls
+        prog_stats.concrete_stmts
+        prog_stats.ghost_stmts
+        prog_stats.spec_count
+    );
+    Stdlib.exit 0
+  else begin
+  let _ = check_cu ~prog_stats tbl smt_env md front_end_out_chan in
 
   (* Check all files *)
 
@@ -192,6 +220,7 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
 
   (*Checker.stop_session session;*)
   Logs.app (fun m -> m "Verification successful.")
+  end
 
 (** Command line interface *)
 
@@ -239,6 +268,10 @@ let no_library =
   let doc = "Skip standard library." in
   Arg.(value & flag & info [ "nostdlib" ] ~doc)
 
+let prog_stats =
+  let doc = "Output only program stats: concrete instruction steps, ghost instruction steps, and number of specification formulae" in
+  Arg.(value & flag & info [ "stats" ] ~doc)
+
 let smt_diagnostics =
   let doc = "Let Z3 produce diagostic output." in
   Arg.(value & flag & info [ "smt-info" ] ~doc)
@@ -249,9 +282,9 @@ let smt_timeout =
 
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files no_greeting no_library smt_timeout smt_diagnostics =
+let main () input_files no_greeting no_library prog_stats smt_timeout smt_diagnostics =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  try `Ok (parse_and_check_all smt_timeout smt_diagnostics no_library input_files) with
+  try `Ok (parse_and_check_all smt_timeout smt_diagnostics no_library prog_stats input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
       Logs.err (fun m -> m "%s" s);
       Logs.debug (fun m ->
@@ -269,6 +302,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ prog_stats $ smt_timeout $ smt_diagnostics))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

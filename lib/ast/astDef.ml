@@ -2362,4 +2362,147 @@ let merge_prog (prog1: Module.t) (prog2: Module.t) =
 let empty_prog =
   let mod_decl = { Module.empty_decl with mod_decl_name = Predefs.prog_ident } in
   { Module.mod_decl; mod_def = [] }
-  
+
+module ProgStats = struct
+  type prog_stats = {
+    concrete_decls: int;
+    ghost_decls: int;
+    concrete_stmts: int;
+    ghost_stmts: int;
+    spec_count: int;
+  }
+
+  let init_prog_stats = {
+    concrete_decls = 0;
+    ghost_decls = 0;
+    concrete_stmts = 0;
+    ghost_stmts = 0;
+    spec_count = 0;
+  }
+
+  let ghostify_prog_stats ps = { ps with
+    concrete_decls = 0;
+    ghost_decls = ps.concrete_decls + ps.ghost_decls;
+    concrete_stmts = 0;
+    ghost_stmts = ps.concrete_stmts + ps.ghost_stmts;
+  }
+
+  let merge_prog_stats ps1 ps2 =
+  {
+    concrete_decls = ps1.concrete_decls + ps2.concrete_decls;
+    ghost_decls = ps1.ghost_decls + ps2.ghost_decls;
+    concrete_stmts = ps1.concrete_stmts + ps2.concrete_stmts;
+    ghost_stmts = ps1.ghost_stmts + ps2.ghost_stmts;
+    spec_count = ps1.spec_count + ps2.spec_count;
+  }
+
+  let rec computeStats md : prog_stats =
+    List.fold md.Module.mod_def ~init:init_prog_stats ~f:(fun ps instr ->
+      match instr with
+      | Import _ -> ps
+      | SymbolDef s -> merge_prog_stats ps (computeSymbolStats s)
+    )
+
+  and computeSymbolStats s : prog_stats = 
+    match s with
+    | ModDef md -> computeStats md
+    | ModInst _ | TypeDef _ | VarDef _ -> { init_prog_stats with concrete_decls = 1; }
+    | FieldDef f ->
+      if f.field_is_ghost then
+        { init_prog_stats with ghost_decls = 1; }
+      else
+        { init_prog_stats with concrete_decls = 1; }
+    | CallDef c ->
+      computeCallableStats c
+    | _ -> init_prog_stats
+
+  and computeCallableStats c : prog_stats =
+    let callable_prog_stats = 
+      let call_kind = c.call_decl.call_decl_kind in
+
+      match call_kind with
+      | Func | Proc ->
+      { init_prog_stats with 
+        concrete_decls = 1;
+        spec_count = List.length (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond);
+      }
+      | _ ->
+      { init_prog_stats with 
+        ghost_decls = 1;
+        spec_count = List.length (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond);
+      }
+    in
+
+    match c.call_def with
+    | FuncDef _ -> callable_prog_stats
+    | ProcDef pr ->
+      match pr.proc_body with
+      | None -> callable_prog_stats
+      | Some s ->
+        let stmt_stats = computeStmtStats s c.call_decl in
+        merge_prog_stats callable_prog_stats stmt_stats
+
+  and computeStmtStats s proc_decl : prog_stats = 
+    match s.Stmt.stmt_desc with
+    | Stmt.Block block_desc -> 
+      (* if not block_desc.block_is_ghost then *)
+        List.fold block_desc.block_body ~init:init_prog_stats ~f:(fun ps s -> merge_prog_stats ps (computeStmtStats s proc_decl))
+      (* else *)
+        (* List.fold block_desc.block_body ~init:init_prog_stats ~f:(fun ps s -> merge_prog_stats ps (ghostify_prog_stats (computeStmtStats s proc_decl))) *)
+    | Basic b -> computeBasicStmtStats b proc_decl
+    | Loop loop_desc -> 
+      let loop_stats = {init_prog_stats with 
+        concrete_decls = 1; 
+        spec_count = List.length loop_desc.loop_contract;
+      } in
+      let body_stats = computeStmtStats loop_desc.loop_postbody proc_decl in
+
+      merge_prog_stats loop_stats body_stats
+
+    | Cond cond_desc -> 
+      let cond_stats = {init_prog_stats with 
+        concrete_decls = 1; 
+      } in
+      let cond_if_stats = computeStmtStats cond_desc.cond_then proc_decl in
+      let cond_else_stats = computeStmtStats cond_desc.cond_else proc_decl in
+
+      merge_prog_stats cond_stats 
+        (merge_prog_stats cond_if_stats cond_else_stats)
+
+  and computeBasicStmtStats b proc_decl : prog_stats =
+    match b with
+    | Stmt.VarDef var_def ->
+      init_prog_stats
+
+    | Assign assign_desc -> 
+      let is_ghost = try
+        (List.exists assign_desc.assign_lhs 
+          ~f:(fun e -> 
+            let qi = Expr.to_qual_ident e in
+            List.exists proc_decl.Callable.call_decl_locals ~f:(fun vd -> Ident.(vd.var_name = (QualIdent.to_ident qi)) )
+          )
+        )
+      with
+      | _ -> false 
+    
+      in
+      if is_ghost 
+        then { init_prog_stats with ghost_stmts = 1; }
+      else
+        { init_prog_stats with concrete_stmts = 1; }
+
+    | New _ | FieldRead _ | Cas _ | Havoc _ | Call _ | Return _ -> 
+      Logs.debug (fun m -> m 
+        "ProgStats: concrete_stmt: %a"
+        Stmt.pr_basic_stmt b
+      );
+      { init_prog_stats with concrete_stmts = 1; }
+    
+    | Spec _ | Bind _ | Use _ | AUAction _ | Fpu _ -> 
+      Logs.debug (fun m -> m 
+        "ProgStats: ghost_stmt: %a"
+        Stmt.pr_basic_stmt b
+      );
+      { init_prog_stats with ghost_stmts = 1; }
+    
+end
