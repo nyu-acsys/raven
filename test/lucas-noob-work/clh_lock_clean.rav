@@ -7,10 +7,6 @@ interface CLHLock {
   module BoolType : Library.Type {
     rep type T = Bool
   }
-  module FracBool = Library.Frac[BoolType]
-
-  import FracBool.frac_chunk
-  ghost field agr: Agree
 
   // ===========================================================================
   // Section defining loc (just a flag for storing node "locked" state)
@@ -114,8 +110,6 @@ interface CLHLock {
       if (!b) {
         // TODO: think this through a bit more
         fold acquired_node(node, r);
-        // NOTE: This line currently causes crash...won't dig further for now.
-        // fpu(pn, full_agr, frac_chunk(false, 1.0), frac_chunk(true, 1.0));
         assert ln != pn;
         // assert own(pn, full_agr, false, 1.0);
         assert own(pn, locked, b, 0.5);
@@ -147,6 +141,8 @@ interface CLHLock {
 
     unfold lock_inv(lk, r);
     var pn: Ref := xchg(lk, ln);
+    // NOTE: When we added [b_disj := false], we get an uncaught exception error
+    // with some stack trace.
     fold queued_loc(ln, r) [b_disj := false];
     fold lock_inv(lk, r);
 
