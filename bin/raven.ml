@@ -187,12 +187,13 @@ let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library pr
     let prog_stats = ProgStats.computeStats md in
 
     Logs.app (fun m -> m
-      "PROGRAM STATISTICS:
-      concrete_decls: %i;
-      ghost_decls: %i;
-      concrete_stmts: %i;
-      ghost_stmts: %i;
-      spec_count: %i;"
+"PROGRAM STATISTICS:
+
+concrete_decls: %i;
+ghost_decls: %i;
+concrete_stmts: %i;
+ghost_stmts: %i;
+spec_count: %i;"
         prog_stats.concrete_decls
         prog_stats.ghost_decls
         prog_stats.concrete_stmts
