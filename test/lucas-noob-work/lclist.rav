@@ -1,0 +1,79 @@
+include "spin-lock.rav"
+
+module Node {
+
+}
+
+module LCList {
+  module SpinLk: SpinLock;
+  field value: Int;
+  field next: Ref;
+  field l: SpinLk;
+
+  // NOTE: Does this preclude cycles? How?
+  pred lseg(x: Ref, y: Ref) {
+    x == y ? true :
+    (exists z: Ref :: own(x, next, z, 1.0) && lseg(z, y))
+  }
+
+  // TODO: This is probably not going to work...
+  pred sorted(x: Ref, y: Ref)
+    requires lseg(x, y)
+  {
+    forall a: Ref, b: Ref :: lseg(x, a) && lseg(a, b) && lseg(b, y) && (a.value <= b.value)
+  }
+
+  pred is_list(x: Ref, y: Ref) {
+    lseg(x, y) && sorted(x, y)
+  }
+
+  pred is_node(x: Ref) {
+
+  }
+
+  proc create_node(v: Int)
+    returns (ret: Ref)
+    ensures is_node(ret)
+  {
+    // TODO: How do we create a new Ref in Raven?
+    var x: Ref;
+    x := SpinLk.create(new(value: v, next: 0));
+    return x;
+  }
+
+  // TODO: Lemmas that do the work of actually moving pointers around to add or
+  // remove a node from the linked list
+  lemma insert_node(prevNode: Node, newNode: Node)
+    requires is_locked(prevNode)
+    // TODO: Ensure proper locking through ghost state
+  {
+    var next := prevNode.next;
+    prevNode.next := newNode;
+    newNode.next = next;
+  }
+
+  lemma remove_node(prevNode: Node, currNode: Node)
+    requires is_locked(currNode) && is_locked(prevNode)
+    // TODO: Again, ensure proper locking (both prev and curr nodes must be locked)
+  {
+    var nextNode := currNode;
+    prevNode.next := nextNode;
+  }
+
+
+  proc create_list() {}
+
+
+  proc locate() {
+    // TODO
+  }
+
+  proc remove() {
+    // TODO
+    // TODO: How do we handle garbage collection (i.e. deallocating currNode above)
+  }
+
+  proc add() {
+    // TODO
+  }
+}
