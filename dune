@@ -10,4 +10,4 @@
 
 (rule
  (alias format)
- (action (system "./scripts/format.sh")))
+ (action (system "cargo run --bin format")))

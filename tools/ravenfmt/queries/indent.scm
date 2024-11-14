@@ -230,7 +230,7 @@
 (block (delim_lbrace) @append_indent_start @append_spaced_softline
        (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
 ((expr)
-        @prepend_begin_scope @append_end_scope (#scope_id! "expr") )
+        @prepend_begin_scope @append_end_scope (#scope_id! "expr"))
 (func_def (delim_lbrace) @prepend_space @prepend_indent_start @append_spaced_softline
           (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
 (proc_def (block (delim_lbrace) @prepend_space))
@@ -240,6 +240,7 @@
 (if_then_else_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
 (while_stmt (block (delim_lbrace) @prepend_space))
 (while_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
+(quantified (op_comma) @append_spaced_scoped_softline (#scope_id! "expr"))
 
 ; Make the invariant clauses spaced
 ( (kwd_while) @append_indent_start )
