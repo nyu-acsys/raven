@@ -474,6 +474,8 @@ module Option = struct
 
   let iter (x : 'a option) ~(f : 'a -> (unit, 'c) t_ext) : (unit, 'c) t_ext =
     match x with None -> return () | Some v -> f v
+
+  let lazy_value ~default = function Some x -> return x | None -> default ()
 end
 
 module VarDecl = struct

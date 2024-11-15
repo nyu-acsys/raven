@@ -1036,60 +1036,75 @@ module ProcessCallable = struct
             else if
               QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident)
             then
-              match args with
-              | ref_expr :: field_expr :: fpu_exprs -> (
-                  let* ref_expr =
-                    disambiguate_process_expr ref_expr Type.ref disam_tbl
-                  in
+              let field_opt = function
+                | Expr.App (Var qual_ident, [], _) as field_expr ->
                   let* field_expr =
                     disambiguate_process_expr field_expr Type.any disam_tbl
                   in
-
-                  match field_expr with
-                  | App (Var field_qual_ident, [], _) -> (
-                      let* field_symbol =
-                        Rewriter.find_and_reify (Expr.to_loc field_expr)
-                          field_qual_ident
+                  let* field_qual_ident, symbol =
+                    Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+                  in
+                  let+ symbol = Rewriter.Symbol.reify symbol in
+                  begin match symbol with
+                    | FieldDef { field_type = App (Fld, [ given_type ], _); _ }  ->
+                      Some (field_qual_ident, given_type)
+                    | _ -> None
+                  end
+                | _ -> Rewriter.return None
+              in
+              let* ref_expr, field, fpu_exprs =
+                let* opt_list = 
+                  match args with
+                  | Expr.App (Read, [ref_expr; field_expr], _) :: expr2 :: expr3_opt ->
+                    let* field = field_opt field_expr in
+                    field |> Rewriter.Option.map ~f:(fun field ->
+                        Rewriter.return (ref_expr, field, expr2 :: expr3_opt))
+                  | _ -> Rewriter.return None
+                in
+                opt_list
+                |> Rewriter.Option.lazy_value ~default:(fun () ->
+                    match args with
+                    | expr1 :: expr2 :: expr3_opt ->
+                      let* field = field_opt expr2 in
+                      let* field =Rewriter.Option.map field ~f:(fun field_qual_ident ->
+                          Rewriter.return (expr1, field_qual_ident, expr3_opt))
                       in
-                      match field_symbol with
-                      | FieldDef
-                          { field_type = App (Fld, [ given_type ], _); _ } ->
-                          let+ fpu_exprs =
-                            Rewriter.List.map fpu_exprs ~f:(fun fpu_expr ->
-                                disambiguate_process_expr fpu_expr given_type
-                                  disam_tbl)
-                          in
+                      Rewriter.Option.lazy_value field
+                        ~default:(fun () -> Error.type_error (Expr.to_loc expr1) "Expected field location")
+                    | _ -> Error.type_error loc "Could not find field location in fpu"
+                  )
+              in
+              let* ref_expr =
+                disambiguate_process_expr ref_expr Type.ref disam_tbl
+              in
+              let field_qual_ident, given_type = field in
+              let+ fpu_exprs =
+                Rewriter.List.map fpu_exprs ~f:(fun fpu_expr ->
+                    disambiguate_process_expr fpu_expr given_type
+                      disam_tbl)
+              in
 
                           (* let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
                              let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in *)
-                          let old_val_expr, new_val_expr =
-                            match fpu_exprs with
-                            | [ old_val_expr; new_val_expr ] ->
-                                (Some old_val_expr, new_val_expr)
-                            | [ new_val_expr ] -> (None, new_val_expr)
-                            | _ ->
-                                Error.type_error loc
-                                  "fpu takes exactly three or four arguments"
-                          in
-
-                          ( Stmt.Basic
-                              (Fpu
-                                 {
-                                   fpu_ref = ref_expr;
-                                   fpu_field = field_qual_ident;
-                                   fpu_old_val = old_val_expr;
-                                   fpu_new_val = new_val_expr;
-                                 }),
-                            disam_tbl )
-                      | _ ->
-                          Error.type_error loc
-                            "fpu second argument expected to be a field name")
-                  | _ ->
-                      Error.type_error loc
-                        "fpu second argument expected to be a field name")
-              | _ ->
+              let old_val_expr, new_val_expr =
+                match fpu_exprs with
+                | [ old_val_expr; new_val_expr ] ->
+                  (Some old_val_expr, new_val_expr)
+                | [ new_val_expr ] -> (None, new_val_expr)
+                | _ ->
                   Error.type_error loc
                     "fpu takes exactly three or four arguments"
+              in
+              
+              ( Stmt.Basic
+                  (Fpu
+                     {
+                       fpu_ref = ref_expr;
+                       fpu_field = field_qual_ident;
+                       fpu_old_val = old_val_expr;
+                       fpu_new_val = new_val_expr;
+                     }),
+                disam_tbl )
             else Error.type_error loc "Unknown AU action"
         | _ ->
             Error.error loc
