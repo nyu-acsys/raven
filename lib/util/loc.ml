@@ -49,7 +49,7 @@ let merge l1 l2 =
   assert (String.equal (file_name l1) (file_name l2));
   let spos =
     let c = compare_position l1.loc_start l2.loc_start in
-    if c >= 0 then l1.loc_start else l2.loc_start
+    if c <= 0 then l1.loc_start else l2.loc_start
   in
   let epos =
     let c = compare_position l1.loc_end l2.loc_end in
