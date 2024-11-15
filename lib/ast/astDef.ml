@@ -1221,8 +1221,7 @@ module Stmt = struct
     use_kind : use_kind;
     use_name : qual_ident;
     use_args : expr list;
-    use_witnesses : (ident * expr) list option;
-    use_binds : (ident * ident) list option;
+    use_witnesses_or_binds : (ident * expr) list;
   }
 
   type auaction_kind =
@@ -1320,8 +1319,8 @@ module Stmt = struct
       | es ->
           fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
           bstm.bind_rhs)
-    | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ FieldRead (%a.%a) @]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
-    | Cas cs -> fprintf ppf "@[<2>%a@ :=@ Cas (%a.%a, %a, %a) @]" QualIdent.pr cs.cas_lhs Expr.pr cs.cas_ref QualIdent.pr cs.cas_field Expr.pr cs.cas_old_val Expr.pr cs.cas_new_val 
+    | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
+    | Cas cs -> fprintf ppf "@[<2>%a@ :=@ cas(%a.%a, %a, %a)@]" QualIdent.pr cs.cas_lhs Expr.pr cs.cas_ref QualIdent.pr cs.cas_field Expr.pr cs.cas_old_val Expr.pr cs.cas_new_val 
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1332,23 +1331,18 @@ module Stmt = struct
 
     | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
     | Use use_desc ->
-      fprintf ppf "@[<2>%s %a(@[%a@])[%a]{%a}  @]"
+      fprintf ppf "@[<2>%s %a(@[%a@])[%a]  @]"
         (use_kind_to_string use_desc.use_kind)
         QualIdent.pr use_desc.use_name
 
         Expr.pr_list use_desc.use_args
 
-        (Fmt.Dump.option (Util.Print.pr_list_comma (fun ppf (i,e) -> 
+        (Util.Print.pr_list_comma (fun ppf (i,e) -> 
           Stdlib.Format.fprintf ppf "%a := %a"
           Ident.pr i
           Expr.pr e
-        )))  use_desc.use_witnesses
+        ))  use_desc.use_witnesses_or_binds
 
-        (Fmt.Dump.option (Util.Print.pr_list_comma (fun ppf (i_b, i_e) -> 
-          Stdlib.Format.fprintf ppf "%a :| %a"
-          Ident.pr i_b
-          Ident.pr i_e
-        ))) use_desc.use_binds
 
     | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
     | Call cstm -> (
@@ -1567,20 +1561,14 @@ module Stmt = struct
           
         | Use use_desc ->
           let accesses = scan_expr_list accesses use_desc.use_args in
-          let accesses = match use_desc.use_witnesses with
-          | None -> accesses
-          | Some use_witnesses ->
-            scan_expr_list accesses (List.map use_witnesses ~f:(fun (i_e, wtns) -> wtns))
+          let accesses = match use_desc.use_kind with
+          | Fold | CloseInv ->
+            scan_expr_list accesses
+              (List.map use_desc.use_witnesses_or_binds ~f:(fun (i_e, wtns) -> wtns))
+          | Unfold | OpenInv ->
+            List.fold_left use_desc.use_witnesses_or_binds ~init:accesses
+              ~f:(fun accesses (i_e, wtns) -> Set.add accesses (QualIdent.from_ident i_e))
           in
-
-          let accesses = match use_desc.use_binds with
-            | None -> accesses
-            | Some use_binds_list ->
-              List.fold ~init:accesses use_binds_list ~f:(
-                fun acc (i_b, _i_e) -> 
-                  Set.add acc (QualIdent.from_ident i_b)
-              )
-            in
           accesses
 
         | AUAction _ -> accesses

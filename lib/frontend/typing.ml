@@ -1550,39 +1550,24 @@ module ProcessCallable = struct
                   process_callable_args stmt.stmt_loc pred_decl use_args
                 in
 
-                let* use_witnesses = match use_desc.use_witnesses with
-                | None -> Rewriter.return None
-                | Some iden_expr_list -> 
-                  let+ iden_expr_list = Rewriter.List.map iden_expr_list ~f:(fun (i, e) ->
-                    let+ e = disambiguate_process_expr e (Type.mk_any stmt.stmt_loc)disam_tbl in
-                    (i, e)
-                  ) in
-                  Some iden_expr_list 
+                let+ use_witnesses_or_binds = 
+                  Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
+                      match use_desc.use_kind with
+                      | Fold | CloseInv ->
+                        let+ e = disambiguate_process_expr e (Type.mk_any stmt.stmt_loc)disam_tbl in
+                        (i, e)
+                      | Unfold | OpenInv ->
+                        match e with
+                        | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
+                          let+ i = 
+                            disambiguate_ident (QualIdent.from_ident i) disam_tbl
+                          in
+                          (QualIdent.to_ident i, e) (* TODO: Check whether ident occurs bound in pred *)
+                        | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"
+                    ) 
                 in
 
-                let+ use_binds = match use_desc.use_binds with
-                | None -> Rewriter.return None
-                | Some iden_iden_list ->
-                  let+ iden_iden_list = Rewriter.List.map iden_iden_list ~f:(fun (bv, ev) ->
-                    let+ bv = 
-                      disambiguate_ident (QualIdent.from_ident bv) disam_tbl 
-                    in
-
-                    (* let+ ev = 
-                      disambiguate_ident (QualIdent.from_ident ev) disam_tbl
-                    in *)
-                    
-                    (
-                      QualIdent.to_ident bv, 
-                      ev
-                      (* QualIdent.to_ident ev *)
-                    )
-                  ) in
-
-                  Some iden_iden_list
-                in
-
-                ( Stmt.Basic (Use { use_desc with use_name; use_args; use_witnesses; use_binds }),
+                ( Stmt.Basic (Use { use_desc with use_name; use_args; use_witnesses_or_binds }),
                   disam_tbl )
             | New new_desc ->
                 let* new_qual_ident =

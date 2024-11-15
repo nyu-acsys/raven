@@ -832,32 +832,24 @@ module Stmt = struct
             let* use_args =
               List.map use_desc.use_args ~f:(Expr.rewrite_qual_idents ~f)
             in
-            let+ use_witnesses = match use_desc.use_witnesses with
-              | None -> return None
-              | Some use_wtnss -> 
-                let+ use_wtnss = List.map use_wtnss ~f:(fun (i, e) -> 
-                  let+ e = Expr.rewrite_qual_idents ~f e in
+            let+ use_witnesses_or_binds =  
+              match use_desc.use_kind with
+              | Fold | CloseInv ->
+                List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) -> 
+                    let+ e = Expr.rewrite_qual_idents ~f e in
+                    (i, e))
+              | Unfold | OpenInv ->
+                return @@ Base.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) -> 
+                    let i = QualIdent.to_ident (f (QualIdent.from_ident i)) in
                     (i, e)
-                ) in
-
-                Some use_wtnss
+                  )
             in
             
-            let use_binds = match use_desc.use_binds with
-              | None -> None
-              | Some use_bnds -> Some (
-                Base.List.map use_bnds ~f:(fun (i_b, i_ex) -> 
-                  let i_b = QualIdent.to_ident (f (QualIdent.from_ident i_b)) in
-                    (i_b, i_ex)
-                )
-              )
-            in
-
             {
               stmt with
               stmt_desc = Basic (Use { 
                   use_desc with 
-                  use_name; use_args; use_witnesses; use_binds 
+                  use_name; use_args; use_witnesses_or_binds
               });
             }
         | New new_desc ->

@@ -10,8 +10,8 @@ proc pr() {
     inhale q(5);
 
     ghost var i2: Int; ghost var b_sk: Bool;
-    unfold q(5){ 
-        i2 :| i2, 
-        b_sk :| b
-    };
+    unfold q(5)[
+        i2 := i2, 
+        b_sk := b
+    ];
 }

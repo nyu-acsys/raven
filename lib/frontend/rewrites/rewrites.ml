@@ -997,19 +997,25 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let new_body = Expr.alpha_renaming body renaming_map in
       let existential_var_idens_set = Expr.existential_vars new_body in
 
+      let user_exist_binds, user_exist_witnesses =
+        match use_desc.use_kind with
+        | Fold | CloseInv -> [], use_desc.use_witnesses_or_binds
+        | Unfold | OpenInv -> use_desc.use_witnesses_or_binds, []
+      in
+      
       let* user_exist_binds_renam_map = 
         Rewriter.List.fold_left 
-          (Option.value use_desc.use_binds ~default:[])
+          user_exist_binds
         ~init:(Map.empty (module QualIdent)) ~f:(
-          fun mp (bd_iden, exis_iden) ->
-            
-          match (Set.find existential_var_idens_set ~f:(
-            fun ex_var_iden ->
-              String.(ex_var_iden.ident_name = exis_iden.ident_name)
-          )) with
-          | None -> Rewriter.return mp
-          | Some v -> 
-
+          fun mp (bd_iden, exis_expr) ->
+            let exis_iden = Expr.to_qual_ident exis_expr |> QualIdent.unqualify in
+            match (Set.find existential_var_idens_set ~f:(
+                fun ex_var_iden ->
+                  String.(ex_var_iden.ident_name = exis_iden.ident_name)
+              )) with
+            | None -> Rewriter.return mp
+            | Some v -> 
+              
             Logs.debug (fun m -> m
               "Rewrites.rewrite_fold_unfold_stmts : 
                 bd_iden = %a
@@ -1019,7 +1025,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 Ident.pr exis_iden
             );
 
-            let+ bd_var_decl = 
+            let+ bd_var_decl =
+              
               let+ bd_var_symbol = Rewriter.find_and_reify loc (QualIdent.from_ident bd_iden) in
 
               begin match bd_var_symbol with
@@ -1036,7 +1043,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let user_witness_renam_map = 
         List.fold 
-          (Option.value use_desc.use_witnesses ~default:[])
+          user_exist_witnesses
         ~init:(Map.empty (module QualIdent)) ~f:(
           fun mp (iden, wtns_expr) ->
             
@@ -1089,7 +1096,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           | Unfold ->
               let inhale_stmt = 
                 let usr_binds_havocs = 
-                  List.map (Option.value ~default:[] use_desc.use_witnesses) ~f:(
+                  List.map use_desc.use_witnesses_or_binds ~f:(
                     fun (i, e) -> 
                       Stmt.mk_havoc ~loc (QualIdent.from_ident i)
                   )
