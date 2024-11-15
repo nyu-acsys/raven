@@ -43,17 +43,12 @@ module Stack[T: Type] {
     ghost val xs1: TList := openAU(phi);
 
     ghost val top1: Ref;
-    unfold stack(s, xs1);
-    top1 :| list(top1, xs1) && own(s.top, top1, 1.0);
-  
+    unfold stack(s, xs1)[top1 := x];
+    
     var res: Bool := cas(s.top, topv, s0);
 
     {!
       if (res) {
-        // assert   
-        //   (s0 == null ? 
-        //     cons(x, xs1) == nil : 
-        //     (cons(x,xs1) != nil && (1.0 > 0.0 && (own(s0.value, cons(x, xs1).head, 1.0) && own(s0.next, top1, 1.0) && list(top1, cons(x, xs1).tail)))));
         fold list(s0, cons(x, xs1))[q := 1.0]; 
         fold stack(s, cons(x, xs1));
         commitAU(phi);
@@ -86,25 +81,17 @@ module Stack[T: Type] {
     var topv: Ref := s.top;
   
     {!
+      ghost val q: Real;
+      ghost val tl0: Ref;
       if (topv == null) {
-        unfold list(topv, xs0);
-        fold list(topv, xs0);
+        unfold list(topv, xs0)[q := q];
+        fold list(topv, xs0)[q := q];
         fold stack(s, xs0);
         commitAU(phi, none);
       } else {
         ghost val q: Real;
         ghost val tl0: Ref;
-        unfold list(topv, xs0);
-
-        tl0, q :| 
-          topv == null ? 
-          xs0 == nil : 
-          (xs0 != nil && (q > 0.0 && (own(topv.value, xs0.head, q) && own(topv.next, tl0, q) && list(tl0, xs0.tail))));
-      
-        // assert topv == null ? 
-        //   xs0 == nil : 
-        //   (xs0 != nil && (q/2.0 > 0.0 && (own(topv.value, xs0.head, q/2.0) && own(topv.next, tl0, q/2.0) && list(tl0, xs0.tail))));
-      
+        unfold list(topv, xs0)[tl0 := tl0, q := q];
         fold list(topv, xs0)[q := q/2.0];
         fold stack(s, xs0);
         abortAU(phi);
@@ -121,8 +108,7 @@ module Stack[T: Type] {
     ghost val xs1: TList := openAU(phi);
 
     ghost val top1: Ref;
-    unfold stack(s, xs1);
-    top1 :| list(top1, xs1) && own(s.top, top1, 1.0);
+    unfold stack(s, xs1)[top1 := x];
 
     var res: Bool := cas(s.top, topv, top_next);
 
