@@ -115,6 +115,13 @@ Return nil if there is no name or if NODE is not a defun node."
        node "identifier")
       t))))
 
+(defun raven-auto-check-update ()
+  (interactive)
+  (let ((currdir buffer-file-name) (result 1))
+    (with-temp-buffer
+      (setq result (call-process "raven" nil t nil currdir)))
+    (setq mode-name (if (= result 0) '(" Raven: ✓") '(" Raven: !")))))
+
 (define-derived-mode raven-ts-mode prog-mode "Raven"
   "Major mode for editing Raven files, using tree-sitter library."
   :syntax-table raven-syntax-table
@@ -126,12 +133,14 @@ Return nil if there is no name or if NODE is not a defun node."
                   (builtin constant number)))
     (setq-local treesit-font-lock-settings raven--treesit-settings)
     (setq-local treesit-defun-type-regexp (rx (or "func" "proc" "lemma" "axiom" "pred")))
-    (setq-local treesit-defun-name-function
-                nil)
-    (treesit-major-mode-setup)))
+    (setq-local treesit-defun-name-function nil)
+    (treesit-major-mode-setup))
+  (raven-auto-check-update))
 (add-to-list 'auto-mode-alist '("\\.rav\\'" . raven-ts-mode))
 (defun raven-ts-mode-indent ()
   (interactive)
-  (shell-command (concat "ravenfmt " buffer-file-name)))
-(add-hook 'raven-ts-mode-hook (lambda () (interactive) ))
+  (if (eq major-mode 'raven-ts-mode)
+      (call-process "ravenfmt" nil nil nil buffer-file-name)))
+(add-hook 'after-save-hook 'raven-ts-mode-indent)
+(add-hook 'after-save-hook 'raven-auto-check-update)
 (provide 'raven-ts-mode)
