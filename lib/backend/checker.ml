@@ -54,19 +54,19 @@ let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) :
 
   Rewriter.return ()
 
-let rec check_stmt (stmt : Stmt.t) : unit t =
+let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Block block_desc ->
-      let* _ = Rewriter.List.iter block_desc.block_body ~f:check_stmt in
+      let* _ = Rewriter.List.iter block_desc.block_body ~f:(check_stmt curr_callable) in
       Rewriter.return ()
   | Cond ({ cond_test = Some test; _ } as cond_desc) ->
       let* _ = push_path_condn test in
-      let* _ = check_stmt cond_desc.cond_then in
+      let* _ = check_stmt curr_callable cond_desc.cond_then in
       let* _ = pop_path_condn in
 
       let* _ = push_path_condn (Expr.mk_not test) in
-      let* _ = check_stmt cond_desc.cond_else in
+      let* _ = check_stmt curr_callable cond_desc.cond_else in
       let* _ = pop_path_condn in
 
       Rewriter.return ()
@@ -90,7 +90,6 @@ let rec check_stmt (stmt : Stmt.t) : unit t =
               | true -> assume_expr spec.spec_form
               (* Rewriter.return () *)
               | false ->
-                  let* curr_callable = Rewriter.current_scope_id in
                   Error.fail_with (Stmt.spec_error_msg spec curr_callable)
               (* match (Stmt.spec_error_msg spec curr_callable) with
                  | None -> Error.verification_error stmt.stmt_loc "Assertion is not valid"
@@ -342,7 +341,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                        local.var_type))
             in
 
-            let* _ = check_stmt stmt in
+            let* _ = check_stmt fully_qual_name stmt in
 
             let* _ = pop in
 

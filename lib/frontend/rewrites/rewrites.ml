@@ -22,7 +22,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
             let error callee =
               ( Error.Verification,
                 Expr.to_loc spec.spec_form,
-                if Ident.(QualIdent.unqualify callee <> call_id) then
+                if Ident.(QualIdent.unqualify callee = call_id) then
                   "This loop invariant may not hold upon loop entry"
                 else "This loop invariant may not be maintained" )
             in
