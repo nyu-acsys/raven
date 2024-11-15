@@ -370,7 +370,7 @@ contract:
 }
 | m = contract_mods; ENSURES; e = expr {
   let spec =
-    Stc_form = e;
+    Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];

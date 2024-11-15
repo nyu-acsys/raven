@@ -98,7 +98,7 @@ let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
   (smt_env, tbl)
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
+let parse_and_check_all smt_timeout smt_diagnostics no_library file_names json_diagnostic =
   (* Start backend solver session *)
   let smt_env = Backend.Smt_solver.init smt_diagnostics smt_timeout in
 
@@ -106,6 +106,9 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
   let front_end_out_chan =
     Stdio.Out_channel.create front_end_processed_output_log
   in
+
+  (* Turn on diagnostics in json for tool input *)
+  let () = if json_diagnostic then (Config.json_diagnostic := true; ()) else () in
 
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
@@ -129,7 +132,7 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library file_names =
               front_end_out_chan*)
       check_cu tbl smt_env lib_prog front_end_out_chan
   in
-  
+
   (* Parse and check actual input program *)
   let rec parse_prog parsed to_parse prog =
     match to_parse with
@@ -244,14 +247,18 @@ let smt_diagnostics =
   Arg.(value & flag & info [ "smt-info" ] ~doc)
 
 let smt_timeout =
-  let doc = "Timeout for SMT solver in ms." in 
+  let doc = "Timeout for SMT solver in ms." in
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
+
+let json_diagnostic =
+  let doc = "Produce diagnostics as s-expressions for tool consumption" in
+  Arg.(value & flag & info [ "json-diagnostic" ] ~doc)
 
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files no_greeting no_library smt_timeout smt_diagnostics =
+let main () input_files no_greeting no_library smt_timeout smt_diagnostics json_diagnostic =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  try `Ok (parse_and_check_all smt_timeout smt_diagnostics no_library input_files) with
+  try `Ok (parse_and_check_all smt_timeout smt_diagnostics no_library input_files json_diagnostic) with
   | Sys_error s | Failure s | Invalid_argument s ->
       Logs.err (fun m -> m "%s" s);
       Logs.debug (fun m ->
@@ -269,6 +276,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ smt_timeout $ smt_diagnostics $ json_diagnostic))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)
