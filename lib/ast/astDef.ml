@@ -1066,19 +1066,28 @@ module Expr = struct
     | App (_, es, _) -> Set.union_list (module QualIdent) (List.map es ~f:au_preds)
     | Binder (_, _, _, e, _) -> au_preds e
 
-  let rec existential_vars ?(acc = Set.empty (module Ident)) (expr: t) : IdentSet.t = 
-  match expr with
-  | App (_, exprs, _) ->
-    List.fold exprs ~init:acc ~f:(fun acc e ->
-      existential_vars ~acc e
-      )
-  | Binder (Exists, vds, _, e, _) ->
-    let acc = List.fold vds ~init:acc ~f:(fun acc vd -> Set.add acc vd.var_name)
-    in
-    existential_vars ~acc e
-  | Binder (_, _, _, e, _) ->
-    existential_vars ~acc e
+  let rec existential_vars_type ?(acc = Map.empty (module Ident)) ?(pol = true) (expr: t) : Type.t IdentMap.t = 
+    match expr with
+    (* TODO: Biimplication? *)
+    | App (Impl, [expr1; expr2], _) ->
+      let acc = existential_vars_type ~acc ~pol:(not pol) expr1 in
+      existential_vars_type ~acc ~pol expr2
+    | App (Not, [expr], _) ->
+      existential_vars_type ~acc ~pol:(not pol) expr
+    | App (_, exprs, _) ->
+      List.fold exprs ~init:acc ~f:(fun acc e ->
+          existential_vars_type ~acc ~pol e
+        )
+    | Binder (b, vds, _, e, _) ->
+      let acc = match b, pol with
+      | Exists, true | Forall, false -> 
+        List.fold vds ~init:acc ~f:(fun acc vd -> Map.set acc ~key:vd.var_name ~data:vd.var_type)
+      | _ -> acc
+      in
+      existential_vars_type ~acc ~pol e
 
+  let existential_vars e = existential_vars_type e |> Map.keys |> List.fold ~f:Set.add ~init:(Set.empty (module Ident))
+  
   let rec supply_witnesses wtns_renam_map (expr: t) =
     let expr = alpha_renaming expr wtns_renam_map
     in

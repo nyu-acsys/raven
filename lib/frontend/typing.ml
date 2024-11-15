@@ -1513,27 +1513,43 @@ module ProcessCallable = struct
                 in
                 let* symbol = Rewriter.Symbol.reify symbol in
 
-                let pred_decl =
+                let pred_decl, pred_def =
                   match symbol with
                   | CallDef
                       {
                         call_decl = { call_decl_kind = Pred; _ } as pred_decl;
-                        _;
+                        call_def = FuncDef {func_body = pred_def}
                       } ->
-                      pred_decl
+                      pred_decl, pred_def
                   | CallDef
                       {
                         call_decl =
                           { call_decl_kind = Invariant; _ } as pred_decl;
-                        _;
+                        call_def = FuncDef {func_body = pred_def}
                       } ->
-                      pred_decl
+                      pred_decl, pred_def
                   | _ ->
                       Error.type_error stmt.stmt_loc
                         ("Expected predicate or invariant identifier, but found "
                         ^ QualIdent.to_string use_name)
                 in
 
+                let exists_vars =
+                  Option.value pred_def ~default:(Expr.mk_unit Loc.dummy)
+                  |> Expr.existential_vars_type
+                in
+                let find_type ident =
+                  let ty_opt = Map.fold exists_vars ~init:None ~f:(fun ~key ~data acc ->
+                      if Option.is_none acc
+                      && String.(Ident.name ident = Ident.name key)
+                      then Some data else acc)
+                  in
+                  match ty_opt with
+                  | Some ty -> ty
+                  | _ -> Error.type_error (Ident.to_loc ident)
+                           (Printf.sprintf !"Could not find existential variable %{Ident} in %s %{QualIdent}" ident (Symbol.kind symbol) use_desc.use_name)
+                in
+                
                 let* use_args =
                   Rewriter.List.map use_desc.use_args ~f:(fun expr ->
                       disambiguate_expr expr disam_tbl)
@@ -1547,15 +1563,17 @@ module ProcessCallable = struct
                   Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
                       match use_desc.use_kind with
                       | Fold ->
-                        let+ e = disambiguate_process_expr e (Type.mk_any stmt.stmt_loc)disam_tbl in
+                        let ty = find_type i in
+                        let+ e = disambiguate_process_expr e ty disam_tbl in
                         (i, e)
                       | Unfold ->
                         match e with
                         | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
-                          let+ i = 
-                            disambiguate_ident (QualIdent.from_ident i) disam_tbl
+                          let ty =
+                            find_type (QualIdent.unqualify qual_ident)
                           in
-                          (QualIdent.to_ident i, e) (* TODO: Check whether ident occurs bound in pred *)
+                          let+ ie = disambiguate_process_expr (Expr.mk_var ~typ:(Type.mk_any (Ident.to_loc i)) (QualIdent.from_ident i)) ty disam_tbl in
+                          (Expr.to_ident ie, e) 
                         | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"
                     ) 
                 in
