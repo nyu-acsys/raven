@@ -941,11 +941,6 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
   match stmt.stmt_desc with
   | Basic (Use use_desc) ->
-      assert (match use_desc.use_kind with 
-        | Fold | Unfold -> true 
-        | _ -> false
-      );
-
       let* symbol = Rewriter.find_and_reify stmt.stmt_loc use_desc.use_name in
 
       let pred_decl, body =
@@ -999,8 +994,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let user_exist_binds, user_exist_witnesses =
         match use_desc.use_kind with
-        | Fold | CloseInv -> [], use_desc.use_witnesses_or_binds
-        | Unfold | OpenInv -> use_desc.use_witnesses_or_binds, []
+        | Fold -> [], use_desc.use_witnesses_or_binds
+        | Unfold -> use_desc.use_witnesses_or_binds, []
       in
       
       let* user_exist_binds_renam_map = 
@@ -1124,8 +1119,6 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               in
 
               (inhale_stmt, exhale_stmt)
-              
-          | _ -> assert false
         in
 
         Stmt.mk_block_stmt ~loc [ exhale_stmt; inhale_stmt ]
@@ -2328,8 +2321,6 @@ module AtomicityAnalysis = struct
                         close_inv ~loc
                           (use_desc.use_name, use_desc.use_args)
                           atomicity_state
-                    | OpenInv | CloseInv ->
-                        Error.internal_error stmt.stmt_loc "Unsupported"
                   in
 
                   let* _ = Rewriter.set_user_state atomicity_state in

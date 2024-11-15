@@ -834,11 +834,11 @@ module Stmt = struct
             in
             let+ use_witnesses_or_binds =  
               match use_desc.use_kind with
-              | Fold | CloseInv ->
+              | Fold ->
                 List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) -> 
                     let+ e = Expr.rewrite_qual_idents ~f e in
                     (i, e))
-              | Unfold | OpenInv ->
+              | Unfold ->
                 return @@ Base.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) -> 
                     let i = QualIdent.to_ident (f (QualIdent.from_ident i)) in
                     (i, e)

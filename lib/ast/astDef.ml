@@ -1208,14 +1208,10 @@ module Stmt = struct
   type use_kind =
     | Fold
     | Unfold
-    | OpenInv
-    | CloseInv
 
   let use_kind_to_string = function
     | Fold -> "fold"
     | Unfold -> "unfold"
-    | OpenInv -> "openInv"
-    | CloseInv -> "closeInv"
 
   type use_desc = {
     use_kind : use_kind;
@@ -1562,10 +1558,10 @@ module Stmt = struct
         | Use use_desc ->
           let accesses = scan_expr_list accesses use_desc.use_args in
           let accesses = match use_desc.use_kind with
-          | Fold | CloseInv ->
+          | Fold  ->
             scan_expr_list accesses
               (List.map use_desc.use_witnesses_or_binds ~f:(fun (i_e, wtns) -> wtns))
-          | Unfold | OpenInv ->
+          | Unfold ->
             List.fold_left use_desc.use_witnesses_or_binds ~init:accesses
               ~f:(fun accesses (i_e, wtns) -> Set.add accesses (QualIdent.from_ident i_e))
           in

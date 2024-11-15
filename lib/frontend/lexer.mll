@@ -23,7 +23,6 @@ let _ =
       ("Bool", BOOL);
       ("cas", CAS);
       ("case", CASE);
-      ("closeInv", USE Stmt.CloseInv);
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
@@ -51,7 +50,6 @@ let _ =
       ("module", MODULE false);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
-      ("openInv", USE Stmt.OpenInv);
       ("own", OWN);
       ("Perm", PERM);
       ("pred", FUNC (Pred));

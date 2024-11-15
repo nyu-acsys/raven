@@ -1514,30 +1514,23 @@ module ProcessCallable = struct
                 let* symbol = Rewriter.Symbol.reify symbol in
 
                 let pred_decl =
-                  match (symbol, use_desc.use_kind) with
-                  | ( CallDef
-                        {
-                          call_decl = { call_decl_kind = Pred; _ } as pred_decl;
-                          _;
-                        },
-                      (Fold | Unfold) ) ->
+                  match symbol with
+                  | CallDef
+                      {
+                        call_decl = { call_decl_kind = Pred; _ } as pred_decl;
+                        _;
+                      } ->
                       pred_decl
-                  | ( CallDef
-                        {
-                          call_decl =
-                            { call_decl_kind = Invariant; _ } as pred_decl;
-                          _;
-                        },
-                      (Fold | Unfold) ) ->
+                  | CallDef
+                      {
+                        call_decl =
+                          { call_decl_kind = Invariant; _ } as pred_decl;
+                        _;
+                      } ->
                       pred_decl
-                  (* | CallDef { call_decl = ({call_decl_kind = Invariant; _} as pred_decl); _ }, (OpenInv | CloseInv) -> pred_decl *)
-                  | _, (Fold | Unfold) ->
-                      Error.type_error stmt.stmt_loc
-                        ("Expected predicate identifier, but found "
-                        ^ QualIdent.to_string use_name)
                   | _ ->
                       Error.type_error stmt.stmt_loc
-                        ("Expected invariant identifier, but found "
+                        ("Expected predicate or invariant identifier, but found "
                         ^ QualIdent.to_string use_name)
                 in
 
@@ -1553,10 +1546,10 @@ module ProcessCallable = struct
                 let+ use_witnesses_or_binds = 
                   Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
                       match use_desc.use_kind with
-                      | Fold | CloseInv ->
+                      | Fold ->
                         let+ e = disambiguate_process_expr e (Type.mk_any stmt.stmt_loc)disam_tbl in
                         (i, e)
-                      | Unfold | OpenInv ->
+                      | Unfold ->
                         match e with
                         | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
                           let+ i = 
