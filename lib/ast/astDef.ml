@@ -1178,6 +1178,12 @@ module Stmt = struct
     field_read_ref : expr
   }
 
+  type field_write_desc = { 
+    field_write_ref : expr;
+    field_write_field : qual_ident;
+    field_write_val : expr
+  }
+
   type cas_desc = { 
     cas_lhs : qual_ident;
     cas_field : qual_ident;
@@ -1252,6 +1258,7 @@ module Stmt = struct
     | Assign of assign_desc (* x *)
     | Bind of bind_desc (* x *)
     | FieldRead of field_read_desc
+    | FieldWrite of field_write_desc
     | Cas of cas_desc
     | Havoc of qual_ident (* x *)
     | Call of call_desc
@@ -1325,6 +1332,7 @@ module Stmt = struct
           fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
           bstm.bind_rhs)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
+    | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
     | Cas cs -> fprintf ppf "@[<2>%a@ :=@ cas(%a.%a, %a, %a)@]" QualIdent.pr cs.cas_lhs Expr.pr cs.cas_ref QualIdent.pr cs.cas_field Expr.pr cs.cas_old_val Expr.pr cs.cas_new_val 
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
@@ -1545,6 +1553,9 @@ module Stmt = struct
           let accesses = Set.add accesses fr_desc.field_read_lhs in
           scan_expr_list accesses [fr_desc.field_read_ref]
 
+        | FieldWrite fw_desc ->
+          scan_expr_list accesses [fw_desc.field_write_ref; fw_desc.field_write_val]
+
         | Cas cs_desc ->
           let accesses = Set.add accesses cs_desc.cas_lhs in
           scan_expr_list accesses [cs_desc.cas_ref; cs_desc.cas_old_val; cs_desc.cas_new_val]
@@ -1657,6 +1668,9 @@ module Stmt = struct
           else
             []
 
+        | FieldWrite fw_desc -> 
+            []
+
         | Cas cs_desc -> 
           if List.is_empty cs_desc.cas_lhs.qual_path then
             [cs_desc.cas_lhs.qual_base]
@@ -1680,8 +1694,10 @@ module Stmt = struct
         | Return _ ->
           []
           
-        | Use _ ->
-          []
+        | Use { use_kind = Unfold; use_witnesses_or_binds; _} ->
+          List.map ~f:fst use_witnesses_or_binds
+
+        | Use _ -> []
 
         | AUAction _ -> []
 
@@ -1739,6 +1755,9 @@ module Stmt = struct
 
         | FieldRead fr_desc -> 
           [fr_desc.field_read_field]
+
+        | FieldWrite fw_desc -> 
+          [fw_desc.field_write_field]
 
         | Cas cs_desc -> 
           [cs_desc.cas_field]
@@ -2484,7 +2503,7 @@ module ProgStats = struct
       else
         { init_prog_stats with concrete_stmts = 1; }
 
-    | New _ | FieldRead _ | Cas _ | Havoc _ | Call _ | Return _ -> 
+    | New _ | FieldRead _ | FieldWrite _ | Cas _ | Havoc _ | Call _ | Return _ -> 
       Logs.debug (fun m -> m 
         "ProgStats: concrete_stmt: %a"
         Stmt.pr_basic_stmt b

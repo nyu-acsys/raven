@@ -26,7 +26,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
                   "This loop invariant may not hold upon loop entry"
                 else "This loop invariant may not be maintained" )
             in
-            { spec with spec_error = spec.spec_error @ [error] })
+            { spec with spec_error = [error] })
       in
       let stmt =
         { stmt with stmt_desc = Loop { loop_desc with loop_contract } }
@@ -1294,6 +1294,10 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let exhale_stmts =
             List.map call_decl.call_decl_precond ~f:(fun spec ->
+                (*let spec_error = match spec.spec_error with
+                  | (Error.Verification, _, _) :: _ -> spec.spec_error
+                  | _ -> (Stmt.mk_const_spec_error error :: spec.spec_error
+                in*)
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
@@ -2212,6 +2216,18 @@ module AtomicityAnalysis = struct
           match symbol with
           | VarDef v ->
               if v.var_decl.var_ghost then Rewriter.return stmt
+              else
+                let atomicity_state = take_atomic_step ~loc atomicity_state in
+                let* _ = Rewriter.set_user_state atomicity_state in
+                Rewriter.return stmt
+          | _ -> Error.error stmt.stmt_loc "Expected a var_def")
+      | Basic (FieldWrite field_write_desc) -> (
+          let* symbol =
+            Rewriter.find_and_reify stmt.stmt_loc field_write_desc.field_write_field
+          in
+          match symbol with
+          | FieldDef fld ->
+              if fld.field_is_ghost then Rewriter.return stmt
               else
                 let atomicity_state = take_atomic_step ~loc atomicity_state in
                 let* _ = Rewriter.set_user_state atomicity_state in

@@ -4901,6 +4901,80 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
             Rewriter.return
               (Stmt.mk_block_stmt ~loc:s.stmt_loc [ assert_stmt; assign_stmt ])
           else Error.type_error s.stmt_loc "Expected a FracRA type."
+      | FieldWrite
+          {
+            field_write_ref = ref_expr;
+            field_write_field = field_name;
+            field_write_val = assign_rhs
+          } ->
+
+          let* field_symbol = Rewriter.find_and_reify s.stmt_loc field_name in
+
+          let field_symbol =
+            match field_symbol with
+            | FieldDef field_symbol -> field_symbol
+            | _ -> Error.type_error s.stmt_loc "Expected a field definition."
+          in
+
+          let field_ra =
+            Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol
+          in
+
+          let* orig_ra_name, ra_def, _ = Rewriter.find s.stmt_loc field_ra in
+
+          if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
+            let field_ra_type = Rewriter.ProgUtils.get_ra_rep_type field_ra in
+
+            let field_heap_name = field_heap_name field_name in
+            let field_heap_expr =
+              Expr.mk_var
+                ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type)
+                (QualIdent.from_ident field_heap_name)
+            in
+
+            let field_frac_destr =
+              QualIdent.append field_ra Predefs.lib_frac_chunk_destr2_ident
+            in
+            let field_frac_constr =
+              QualIdent.append field_ra Predefs.lib_frac_chunk_constr_ident
+            in
+
+            let assert_expr =
+              Expr.mk_app ~loc:s.stmt_loc ~typ:Type.bool Expr.Geq
+                [
+                  Expr.mk_app ~typ:Type.real (DataDestr field_frac_destr)
+                    [ Expr.mk_maplookup field_heap_expr ref_expr ];
+                  Expr.mk_real 1.;
+                ]
+            in
+
+            let new_val =
+              Expr.mk_app ~typ:field_ra_type (DataConstr field_frac_constr)
+                [ assign_rhs; Expr.mk_real 1. ]
+            in
+
+            let assert_stmt =
+              let error =
+                ( Error.Verification,
+                  s.stmt_loc,
+                  "Could not assert sufficient permissions to assign this field"
+                )
+              in
+              Stmt.mk_assert_expr ~loc:s.stmt_loc
+                ~spec_error:[ Stmt.mk_const_spec_error error ]
+                assert_expr
+            in
+            let assign_stmt =
+              Stmt.mk_assign ~loc:s.stmt_loc [ field_heap_expr ]
+                (Expr.mk_app
+                   ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type)
+                   MapUpdate
+                   [ field_heap_expr; ref_expr; new_val ])
+            in
+
+            Rewriter.return
+              (Stmt.mk_block_stmt ~loc:s.stmt_loc [ assert_stmt; assign_stmt ])
+          else Error.type_error s.stmt_loc "Expected a FracRA type."
       | Assign
           {
             assign_lhs = [ Expr.App (Read, [ ref_expr; field_expr ], _) ];

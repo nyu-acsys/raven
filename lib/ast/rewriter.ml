@@ -662,6 +662,16 @@ module Stmt = struct
                   (FieldRead
                      { field_read_lhs; field_read_field; field_read_ref });
             }
+        | FieldWrite field_write_desc ->
+            let* field_write_ref = f field_write_desc.field_write_ref in
+            let+ field_write_val = f field_write_desc.field_write_val in
+            {
+              stmt with
+              stmt_desc =
+                Basic
+                  (FieldWrite
+                     { field_write_desc with field_write_ref; field_write_val });
+            }
         | Cas cas_desc ->
             let cas_lhs = cas_desc.cas_lhs in
             let cas_field = cas_desc.cas_field in
@@ -797,6 +807,20 @@ module Stmt = struct
                   (FieldRead
                      { field_read_lhs; field_read_field; field_read_ref });
             }
+        | FieldWrite field_write_desc ->
+          let* field_write_val =
+            Expr.rewrite_qual_idents ~f field_write_desc.field_write_val
+          in
+          let field_write_field = f field_write_desc.field_write_field in
+          let+ field_write_ref =
+            Expr.rewrite_qual_idents ~f field_write_desc.field_write_ref
+          in
+          { stmt with
+            stmt_desc =
+              Basic
+                (FieldWrite
+                   { field_write_ref; field_write_field; field_write_val });
+          }
         | Cas cas_desc ->
             let cas_lhs = f cas_desc.cas_lhs in
             let cas_field = f cas_desc.cas_field in

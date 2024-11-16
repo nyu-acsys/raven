@@ -1204,7 +1204,7 @@ module ProcessCallable = struct
                           | VarDef { var_decl = { var_const = true; _ }; _ }
                             when not assign_desc.assign_is_init ->
                               Error.type_error (Expr.to_loc expr)
-                                "Cannot assign to val"
+                                (Printf.sprintf !"Cannot assign to val %{QualIdent}" qual_ident)
                           | VarDef _ -> ()
                           | _ ->
                               Error.type_error (Expr.to_loc expr)
@@ -1377,6 +1377,26 @@ module ProcessCallable = struct
                 in
                 let bind_desc = Stmt.{ bind_lhs; bind_rhs } in
                 Rewriter.return (Stmt.Basic (Bind bind_desc), disam_tbl)
+            | FieldWrite fw_desc ->
+              let* field_write_field, symbol =
+                Rewriter.resolve_and_find (QualIdent.to_loc fw_desc.field_write_field) fw_desc.field_write_field
+              in
+              let* symbol = Rewriter.Symbol.reify symbol in
+              let field_type = match symbol with
+                | FieldDef { field_type = App (Fld, [ field_type ], _); _ }  ->
+                  field_type
+                | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
+              in
+              let* field_write_ref =
+                disambiguate_process_expr fw_desc.field_write_ref Type.ref
+                  disam_tbl
+              in
+              let+ field_write_val =
+                disambiguate_process_expr fw_desc.field_write_val field_type
+                  disam_tbl
+              in
+              Stmt.Basic (FieldWrite { field_write_ref; field_write_field; field_write_val }), disam_tbl
+              
             | FieldRead fr_desc -> (
                 let* fr_var_qual_ident =
                   disambiguate_ident fr_desc.field_read_lhs disam_tbl

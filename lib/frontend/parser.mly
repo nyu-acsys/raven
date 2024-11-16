@@ -433,7 +433,10 @@ stmt_wo_trailing_substmt:
       | [Expr.App(Expr.Var x, _, _)] -> Basic (New { new_descr with new_lhs = x })
       | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) ("Result of allocation must be assigned to a single variable"))
   | Basic (Assign assign) ->
-      Basic (Assign { assign with assign_lhs = es })
+      (match es with
+      | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))] ->
+          Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = assign.assign_rhs })
+      | _ -> Basic (Assign { assign with assign_lhs = es }))
   | _ -> assert false
 }
 (* bind *)
