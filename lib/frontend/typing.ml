@@ -591,9 +591,9 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           Error.type_error (Expr.to_loc expr)
             (Expr.constr_to_string constr ^ " takes exactly three arguments")
       (* Read expressions *)
-      | Read, [ expr1; App (Var qual_ident, [], expr_attr') ] -> (
-          let* qual_ident, symbol =
-            Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
+      | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
+         let* qual_ident, symbol =
+            Rewriter.resolve_and_find (Expr.to_loc expr) field_ident
           in
           let* symbol = Rewriter.Symbol.reify symbol in
           match symbol with
@@ -601,16 +601,14 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
               process_expr
                 (App (DataDestr qual_ident, [ expr1 ], expr_attr))
                 expected_typ
-          | FieldDef { field_type = App (Fld, [ given_type ], _) as tp; _ } ->
-              let* expr1 = process_expr expr1 Type.ref in
-              let expr2 = Expr.App (Var qual_ident, [], expr_attr') in
-              let expr2 = Expr.set_type expr2 tp in
-              let expr = Expr.App (Read, [ expr1; expr2 ], expr_attr) in
-              check_and_set expr given_type given_type expected_typ
+          | FieldDef _ ->
+              Error.type_error (Expr.to_loc expr)
+                (Printf.sprintf !"Cannot read field %{QualIdent} in this context"
+                 field_ident)
           | _ ->
               Error.type_error (Expr.to_loc expr)
-                ("Expected field or destructor identifier, but found "
-                ^ QualIdent.to_string qual_ident))
+                (Printf.sprintf !"Expected destructor identifier, but found %s %{QualIdent}"
+                   (Symbol.kind symbol) qual_ident))
       | Read, _expr_list ->
           Error.type_error (Expr.to_loc expr)
             (Expr.constr_to_string constr ^ " takes exactly two arguments")
@@ -740,6 +738,7 @@ and process_callable_args loc callable_decl args_list =
       @@ Printf.sprintf "Too many arguments passed to %s"
            (Ident.to_string callable_decl.call_decl_name)
 
+          
 module ProcessCallable = struct
   module DisambiguationTbl = struct
     type t = ident ident_map list
@@ -884,6 +883,19 @@ module ProcessCallable = struct
     
     processed_expr
 
+  let disambiguate_process_field_read ref field disam_tbl =
+    let open Rewriter.Syntax in
+    let* field, symbol =
+      Rewriter.resolve_and_find (QualIdent.to_loc field) field
+    in
+    let* symbol = Rewriter.Symbol.reify symbol in
+    match symbol with
+    | FieldDef { field_type = App (Fld, [ given_type ], _); _ } ->
+      let+ ref = disambiguate_process_expr ref Type.ref disam_tbl in
+      ref, field, given_type
+    | _ -> Error.type_error (QualIdent.to_loc field) (Printf.sprintf !"Expected field identifier but found %s %{QualIdent}" (Symbol.kind symbol) field)
+
+  
   let process_stmt_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) :
       Stmt.spec Rewriter.t =
     let open Rewriter.Syntax in
@@ -1319,42 +1331,20 @@ module ProcessCallable = struct
           Error.type_error stmt_loc
             "Expected var identifier on left-hand side of field read"
       in
-      let field_read_expr =
-        Expr.App
-          ( Read,
-            [
-              fr_desc.field_read_ref;
-              App
-                ( Var fr_desc.field_read_field,
-                  [],
-                  {
-                    Expr.expr_loc = stmt_loc;
-                    expr_type = Type.bot;
-                  } );
-            ],
-            { Expr.expr_loc = stmt_loc; expr_type = Type.bot } )
+      let* field_read_ref, field_read_field, field_type =
+        disambiguate_process_field_read fr_desc.field_read_ref fr_desc.field_read_field disam_tbl
       in
+      let+ _ = check_and_set (Expr.mk_var ~typ:fr_type fr_var_qual_ident) fr_type field_type field_type in
       
-      let+ field_read_expr =
-        disambiguate_process_expr field_read_expr fr_type disam_tbl
+      let field_read_desc =
+        Stmt.
+          {
+            field_read_lhs = fr_var_qual_ident;
+            field_read_field;
+            field_read_ref;
+          }
       in
-      
-      begin match field_read_expr with
-        | App
-            ( Read,
-              [ field_read_ref; App (Var field_read_field, [], _) ],
-              _ ) ->
-          let field_read_desc =
-            Stmt.
-              {
-                field_read_lhs = fr_var_qual_ident;
-                field_read_field;
-                field_read_ref;
-              }
-          in
-          (Stmt.FieldRead field_read_desc, disam_tbl)
-        | _ -> failwith "Unexpected error during type checking."
-      end
+      (Stmt.FieldRead field_read_desc, disam_tbl)
     | Cas cs_desc -> (
         let* cs_var_qual_ident =
           disambiguate_ident cs_desc.cas_lhs disam_tbl
