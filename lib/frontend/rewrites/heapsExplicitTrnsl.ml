@@ -223,9 +223,9 @@ let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal
 let generate_inv_function ~loc (universal_quants : universal_quants)
     (conds : conditions) (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t
     =
-  (* Logs.debug (fun m -> m "heapsExplicitTrnsl.generate_inv_function: Generating inv function for %a" Expr.pr inv_expr);
+   Logs.debug (fun m -> m "heapsExplicitTrnsl.generate_inv_function: Generating inv function for %a" Expr.pr inv_expr);
      Logs.debug (fun m -> m "arg_expr: %a" Expr.pr arg_expr);
-     Logs.debug (fun m -> m "inv_expr_type: %a; arg_expr_type: %a" Type.pr (Expr.to_type inv_expr) Type.pr (Expr.to_type arg_expr)); *)
+     Logs.debug (fun m -> m "inv_expr_type: %a; arg_expr_type: %a" Type.pr (Expr.to_type inv_expr) Type.pr (Expr.to_type arg_expr)); 
   let open Rewriter.Syntax in
   let* tp1 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type inv_expr)
   and* tp2 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type arg_expr) in
@@ -635,7 +635,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
 
   let* mod_def =
     let type_ident = Rewriter.ProgUtils.heap_utils_rep_type_ident loc in
-    let type_tp_expr = Type.mk_var loc (QualIdent.from_ident type_ident) in
+    let type_tp_expr = Type.mk_var (QualIdent.from_ident type_ident) in
 
     let type_def =
       {
@@ -654,7 +654,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
             type_tp_expr;
         var_init =
           Some
-            (Expr.mk_var ~loc ~typ:fld_elem_type
+            (Expr.mk_var ~typ:fld_elem_type
                (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
       }
     in
@@ -740,7 +740,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
               (Expr.mk_maplookup ~loc
                 (Expr.from_var_decl heap_formal_arg)
                 (Expr.mk_null ()))
-              (Expr.mk_var ~loc ~typ:type_tp_expr
+              (Expr.mk_var ~typ:type_tp_expr
                 (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
             in
 
@@ -1196,7 +1196,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         let pred_heap_elem_type =
-          Type.mk_var loc pred_heap_elem_type_qual_ident
+          Type.mk_var pred_heap_elem_type_qual_ident
         in
 
         let* pred_in_types = Rewriter.ProgUtils.pred_in_types pred_name in
@@ -1303,7 +1303,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
           Rewriter.ProgUtils.get_au_utils_rep_type loc call_name
         in
 
-        let au_heap_elem_type = Type.mk_var loc au_heap_elem_type_qual_ident in
+        let au_heap_elem_type = Type.mk_var au_heap_elem_type_qual_ident in
 
         (* Done so that Ident is aware of this name being used; prevents the same name from being generated again during SSA transform *)
         let _ = Ident.fresh loc (au_heap_name call_name).ident_name in
@@ -1422,7 +1422,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       let field_expr =
-        Expr.mk_var ~loc:stmt.stmt_loc ~typ:field_symbol.field_type
+        Expr.mk_var ~typ:field_symbol.field_type
           fpu_desc.fpu_field
       in
 
@@ -1893,7 +1893,7 @@ module TrnslInhale = struct
 
                       Stmt.mk_assign
                         ~loc:(Expr.to_loc bind_desc.bind_rhs)
-                        [ Expr.from_var_decl var_decl ]
+                        [ var_decl.var_name |> QualIdent.from_ident ]
                         rhs)
                 in
 
@@ -2113,7 +2113,7 @@ module TrnslInhale = struct
 
         (* field$Heap := field$Heap2 *)
         let eq_stmt =
-          Stmt.mk_assign ~loc [ field_heap_expr ] field_heap2_expr
+          Stmt.mk_assign ~loc [ field_heap_expr |> Expr.to_qual_ident ] field_heap2_expr
         in
 
         let assume_heap_valid =
@@ -2151,7 +2151,7 @@ module TrnslInhale = struct
           Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident
         in
 
-        let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
+        let heap_elem_type = Type.mk_var heap_elem_type_qual_iden in
 
         let call_name = call_qual_ident in
         let au_heap_name = au_heap_name call_name in
@@ -2348,7 +2348,7 @@ module TrnslInhale = struct
         in
 
         (* au$Heap := au$Heap2 *)
-        let eq_stmt = Stmt.mk_assign ~loc [ au_heap_expr ] au_heap2_expr in
+        let eq_stmt = Stmt.mk_assign ~loc [ au_heap_expr |> Expr.to_qual_ident ] au_heap2_expr in
 
         let assume_heap_valid =
           Stmt.mk_assume_expr ~loc
@@ -2408,7 +2408,7 @@ module TrnslInhale = struct
                   in
 
                   let heap_elem_type =
-                    Type.mk_var loc heap_elem_type_qual_iden
+                    Type.mk_var heap_elem_type_qual_iden
                   in
 
                   let pred_name = qual_ident in
@@ -2657,7 +2657,7 @@ module TrnslInhale = struct
 
                   (* pred$Heap := pred$Heap2 *)
                   let eq_stmt =
-                    Stmt.mk_assign ~loc [ pred_heap_expr ] pred_heap2_expr
+                    Stmt.mk_assign ~loc [ pred_heap_expr |> Expr.to_qual_ident ] pred_heap2_expr
                   in
 
                   let assume_heap_valid =
@@ -2764,7 +2764,7 @@ module TrnslInhale = struct
           Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident
         in
 
-        let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
+        let heap_elem_type = Type.mk_var heap_elem_type_qual_iden in
 
         let call_name = call_qual_ident in
         let au_heap_name = au_heap_name call_name in
@@ -2855,7 +2855,7 @@ module TrnslInhale = struct
                   in
 
                   let heap_elem_type =
-                    Type.mk_var loc heap_elem_type_qual_iden
+                    Type.mk_var heap_elem_type_qual_iden
                   in
 
                   let pred_name = qual_ident in
@@ -4150,7 +4150,7 @@ module TrnslExhale = struct
 
         (* field$Heap := field$Heap2 *)
         let eq_stmt =
-          Stmt.mk_assign ~loc [ field_heap_expr ] field_heap2_expr
+          Stmt.mk_assign ~loc [ field_heap_expr |> Expr.to_qual_ident ] field_heap2_expr
         in
 
         let assert_heap_valid =
@@ -4183,7 +4183,7 @@ module TrnslExhale = struct
           Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident
         in
 
-        let heap_elem_type = Type.mk_var loc heap_elem_type_qual_iden in
+        let heap_elem_type = Type.mk_var heap_elem_type_qual_iden in
 
         let call_name = call_qual_ident in
         let au_heap_name = au_heap_name call_name in
@@ -4377,7 +4377,7 @@ module TrnslExhale = struct
         in
 
         (* pred$Heap := pred$Heap2 *)
-        let eq_stmt = Stmt.mk_assign ~loc [ au_heap_expr ] au_heap2_expr in
+        let eq_stmt = Stmt.mk_assign ~loc [ au_heap_expr |> Expr.to_qual_ident ] au_heap2_expr in
 
         let assert_heap_valid =
           Stmt.mk_assert_expr ~loc ~spec_error
@@ -4439,7 +4439,7 @@ module TrnslExhale = struct
                   in
 
                   let heap_elem_type =
-                    Type.mk_var loc heap_elem_type_qual_iden
+                    Type.mk_var heap_elem_type_qual_iden
                   in
 
                   let pred_name = qual_ident in
@@ -4687,7 +4687,7 @@ module TrnslExhale = struct
 
                   (* pred$Heap := pred$Heap2 *)
                   let eq_stmt =
-                    Stmt.mk_assign ~loc [ pred_heap_expr ] pred_heap2_expr
+                    Stmt.mk_assign ~loc [ pred_heap_expr |> Expr.to_qual_ident ] pred_heap2_expr
                   in
 
                   let assert_heap_valid =
@@ -4726,8 +4726,10 @@ end
 let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match s.stmt_desc with
-  | Stmt.Basic basic_stmt -> (
+  | Stmt.Basic basic_stmt -> begin
       match basic_stmt with
+      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Cas _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ ->
+        Rewriter.return s
       | Spec (spec_kind, spec) -> (
           match spec_kind with
           | Inhale ->
@@ -4893,7 +4895,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
             let assign_stmt =
               Stmt.mk_assign ~loc:s.stmt_loc
-                [ Expr.from_var_decl lhs_var ]
+                [ fr_desc.field_read_lhs ]
                 (Expr.mk_app ~typ:lhs_var.var_type (DataDestr field_val_destr)
                    [ Expr.mk_maplookup field_heap_expr fr_desc.field_read_ref ])
             in
@@ -4965,7 +4967,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
                 assert_expr
             in
             let assign_stmt =
-              Stmt.mk_assign ~loc:s.stmt_loc [ field_heap_expr ]
+              Stmt.mk_assign ~loc:s.stmt_loc [ field_heap_expr |> Expr.to_qual_ident ]
                 (Expr.mk_app
                    ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type)
                    MapUpdate
@@ -4975,82 +4977,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
             Rewriter.return
               (Stmt.mk_block_stmt ~loc:s.stmt_loc [ assert_stmt; assign_stmt ])
           else Error.type_error s.stmt_loc "Expected a FracRA type."
-      | Assign
-          {
-            assign_lhs = [ Expr.App (Read, [ ref_expr; field_expr ], _) ];
-            assign_rhs;
-            _;
-          } ->
-          let field_name = Expr.to_qual_ident field_expr in
-
-          let* field_symbol = Rewriter.find_and_reify s.stmt_loc field_name in
-
-          let field_symbol =
-            match field_symbol with
-            | FieldDef field_symbol -> field_symbol
-            | _ -> Error.type_error s.stmt_loc "Expected a field definition."
-          in
-
-          let field_ra =
-            Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol
-          in
-
-          let* orig_ra_name, ra_def, _ = Rewriter.find s.stmt_loc field_ra in
-
-          if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
-            let field_ra_type = Rewriter.ProgUtils.get_ra_rep_type field_ra in
-
-            let field_heap_name = field_heap_name field_name in
-            let field_heap_expr =
-              Expr.mk_var
-                ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type)
-                (QualIdent.from_ident field_heap_name)
-            in
-
-            let field_frac_destr =
-              QualIdent.append field_ra Predefs.lib_frac_chunk_destr2_ident
-            in
-            let field_frac_constr =
-              QualIdent.append field_ra Predefs.lib_frac_chunk_constr_ident
-            in
-
-            let assert_expr =
-              Expr.mk_app ~loc:s.stmt_loc ~typ:Type.bool Expr.Geq
-                [
-                  Expr.mk_app ~typ:Type.real (DataDestr field_frac_destr)
-                    [ Expr.mk_maplookup field_heap_expr ref_expr ];
-                  Expr.mk_real 1.;
-                ]
-            in
-
-            let new_val =
-              Expr.mk_app ~typ:field_ra_type (DataConstr field_frac_constr)
-                [ assign_rhs; Expr.mk_real 1. ]
-            in
-
-            let assert_stmt =
-              let error =
-                ( Error.Verification,
-                  s.stmt_loc,
-                  "Could not assert sufficient permissions to assign this field"
-                )
-              in
-              Stmt.mk_assert_expr ~loc:s.stmt_loc
-                ~spec_error:[ Stmt.mk_const_spec_error error ]
-                assert_expr
-            in
-            let assign_stmt =
-              Stmt.mk_assign ~loc:s.stmt_loc [ field_heap_expr ]
-                (Expr.mk_app
-                   ~typ:(Type.mk_map s.stmt_loc Type.ref field_ra_type)
-                   MapUpdate
-                   [ field_heap_expr; ref_expr; new_val ])
-            in
-
-            Rewriter.return
-              (Stmt.mk_block_stmt ~loc:s.stmt_loc [ assert_stmt; assign_stmt ])
-          else Error.type_error s.stmt_loc "Expected a FracRA type."
-      | _ -> Rewriter.return s)
+    end
   | _ ->
       let* s = Rewriter.Stmt.descend s ~f:rewrite_make_heaps_explicit in
 

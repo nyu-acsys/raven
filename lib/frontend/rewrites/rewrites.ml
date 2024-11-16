@@ -99,7 +99,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
                   var_implicit = false;
                 }
                 :: formals,
-                Expr.mk_var ~loc:(Expr.to_loc inner_expr) ~typ:data key
+                Expr.set_loc (Expr.mk_var ~typ:data key) (Expr.to_loc inner_expr)
                 :: actuals ))
       in
 
@@ -603,7 +603,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let set_ret_vals_to_initial_args =
           List.map (Map.to_alist loop_ret_renaming_map)
             ~f:(fun (old_var, new_expr) ->
-              Stmt.mk_assign ~loc [ new_expr ]
+              Stmt.mk_assign ~loc [ new_expr |> Expr.to_qual_ident ]
                 (Map.find_exn loop_arg_renaming_map old_var))
         in
 
@@ -746,7 +746,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let postconds_exhale_stmts =
         if Callable.is_atomic callable_decl then
           let atomic_token_var =
-            Expr.mk_var ~loc ~typ:Type.atomic_token
+            Expr.mk_var ~typ:Type.atomic_token
               (QualIdent.from_ident
                  (Rewriter.ProgUtils.callable_au_token_ident ~loc
                     callable_decl.call_decl_name))
@@ -840,8 +840,8 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             let inhale_expr =
               Expr.mk_app ~typ:Type.perm ~loc:stmt.stmt_loc Expr.Own
                 [
-                  Expr.mk_var ~loc:stmt.stmt_loc ~typ:Type.ref new_desc.new_lhs;
-                  Expr.mk_var ~loc:stmt.stmt_loc ~typ:field_type field_name;
+                  Expr.mk_var ~typ:Type.ref new_desc.new_lhs;
+                  Expr.mk_var ~typ:field_type field_name;
                   field_val;
                 ]
             in
@@ -885,46 +885,15 @@ let rec rewrite_cas_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
              (Expr.from_var_decl new_var_decl)
              cas_desc.cas_old_val)
       in
-      let* symbol = Rewriter.find_and_reify stmt.stmt_loc cas_desc.cas_lhs in
-      let lhs_var_decl =
-        match symbol with
-        | VarDef v -> v.var_decl
-        | _ ->
-            Error.error stmt.stmt_loc
-              ("Expected a variable (3); found " ^ Symbol.to_string symbol)
-      in
-      let lhs_expr = Expr.from_var_decl lhs_var_decl in
       let then1_ =
-        Stmt.mk_assign ~loc:stmt.stmt_loc [ lhs_expr ] (Expr.mk_bool true)
-      in
-      let* field_symbol =
-        Rewriter.find_and_reify stmt.stmt_loc cas_desc.cas_field
-      in
-      let field_type, field_underlying_type =
-        match field_symbol with
-        | FieldDef f -> (
-            match f.field_type with
-            | App (Fld, [ tp_expr ], _) -> (f.field_type, tp_expr)
-            | _ -> Error.type_error stmt.stmt_loc "Expected field identifier.")
-        | _ -> Error.error stmt.stmt_loc "Expected a field_def"
-      in
-      let expr_attr = Expr.mk_attr stmt.stmt_loc field_underlying_type in
-      let field_expr_attr = Expr.mk_attr stmt.stmt_loc field_type in
-      let read_expr =
-        Expr.App
-          ( Read,
-            [
-              cas_desc.cas_ref;
-              Expr.App (Var cas_desc.cas_field, [], field_expr_attr);
-            ],
-            expr_attr )
+        Stmt.mk_assign ~loc:stmt.stmt_loc [ cas_desc.cas_lhs ] (Expr.mk_bool true)
       in
       let then2_ =
-        Stmt.mk_assign ~loc:stmt.stmt_loc [ read_expr ] cas_desc.cas_new_val
+        Stmt.mk_field_write ~loc:stmt.stmt_loc cas_desc.cas_ref cas_desc.cas_field cas_desc.cas_new_val
       in
       let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ then1_; then2_ ] in
       let else_ =
-        Stmt.mk_assign ~loc:stmt.stmt_loc [ lhs_expr ] (Expr.mk_bool false)
+        Stmt.mk_assign ~loc:stmt.stmt_loc [ cas_desc.cas_lhs ] (Expr.mk_bool false)
       in
       let ite_stmt = Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_ in
       let new_stmts =
@@ -1314,7 +1283,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let reassign_lhs_stmt =
             Stmt.mk_assign ~loc:stmt.stmt_loc
-              (List.map lhs_list ~f:Expr.from_var_decl)
+              (List.map lhs_list ~f:(fun decl -> QualIdent.from_ident decl.var_name))
               (Expr.mk_tuple new_lhs_list)
           in
 
@@ -1350,14 +1319,14 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let new_assign_stmt =
-            Stmt.mk_assign ~loc:stmt.stmt_loc new_lhs_list
+            Stmt.mk_assign ~loc:stmt.stmt_loc (List.map new_lhs_list ~f:Expr.to_qual_ident)
               (Expr.mk_app ~loc:stmt.stmt_loc ~typ:ret_typ
                  (Expr.Var call_desc.call_name) call_desc.call_args)
           in
 
           let reassign_lhs_stmt =
             Stmt.mk_assign ~loc:stmt.stmt_loc
-              (List.map lhs_list ~f:Expr.from_var_decl)
+              (List.map lhs_list ~f:(fun decl -> QualIdent.from_ident decl.var_name))
               (Expr.mk_tuple new_lhs_list)
           in
 
@@ -1418,7 +1387,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
               let* callable_fully_qual_name = Rewriter.current_scope_id in
 
               let atomic_token_var =
-                Expr.mk_var ~loc ~typ:Type.atomic_token
+                Expr.mk_var ~typ:Type.atomic_token
                   (QualIdent.from_ident
                      (Rewriter.ProgUtils.callable_au_token_ident ~loc
                         c.call_decl.call_decl_name))
@@ -1607,7 +1576,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
 
         let frac_type =
           Type.mk_fld f.field_loc
-            (Type.mk_var f.field_loc
+            (Type.mk_var
                (QualIdent.append frac_mod_name (Ident.make f.field_loc "T" 0)))
         in
 
@@ -1675,7 +1644,7 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
         in
 
         let frac_type =
-          Type.mk_var (Expr.to_loc expr)
+          Type.mk_var
             (QualIdent.append frac_mod_name
                (Ident.make (Expr.to_loc expr) "T" 0))
         in
@@ -1746,7 +1715,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
                   in
 
                   let frac_type =
-                    Type.mk_var (Expr.to_loc expr)
+                    Type.mk_var 
                       (QualIdent.append frac_mod_name
                          (Ident.make (Expr.to_loc expr) "T" 0))
                   in
@@ -1803,7 +1772,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let frac_type =
-            Type.mk_var loc
+            Type.mk_var
               (QualIdent.append frac_mod_name (Ident.make loc "T" 0))
           in
           let new_expr =
@@ -2155,26 +2124,14 @@ module AtomicityAnalysis = struct
             Rewriter.return stmt
       | Basic (Assign assign_desc) ->
           let* is_assign_desc_lhs_ghost =
-            Rewriter.List.for_all assign_desc.assign_lhs ~f:(fun expr ->
-                match expr with
-                | App (Var qual_iden, [], _) -> (
-                    let* symbol =
-                      Rewriter.find_and_reify stmt.stmt_loc qual_iden
-                    in
-                    match symbol with
-                    | VarDef v -> Rewriter.return v.var_decl.var_ghost
-                    | _ -> Error.error stmt.stmt_loc "Expected a var_def"
-                )
-                | App (Read, [ loc_expr; field_expr ], _) ->
-                    let* field_symbol = Rewriter.find_and_reify loc (Expr.to_qual_ident field_expr) in
-
-                    begin match field_symbol with
-                    | FieldDef f ->
-                      Rewriter.return @@ f.field_is_ghost
-                    | _ ->
-                      Rewriter.return false
-                    end
-                | _ -> Error.error stmt.stmt_loc "Expected a variable")
+            Rewriter.List.for_all assign_desc.assign_lhs ~f:(fun qual_ident ->
+                let* symbol =
+                  Rewriter.find_and_reify stmt.stmt_loc qual_ident
+                in
+                match symbol with
+                | VarDef v -> Rewriter.return v.var_decl.var_ghost
+                | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              )
           in
 
           if is_assign_desc_lhs_ghost then Rewriter.return stmt
@@ -2368,7 +2325,7 @@ module AtomicityAnalysis = struct
 
               let assign_stmt =
                 Stmt.mk_assign ~loc
-                  [ Expr.from_var_decl qual_iden_var.var_decl ]
+                  [ qual_iden ]
                   (Expr.from_var_decl au_token_var.var_decl)
               in
 
@@ -2714,11 +2671,10 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
             Expr.alpha_renaming assign_stmt.assign_rhs subst_map
           in
           let* assign_lhs =
-            Rewriter.List.map assign_stmt.assign_lhs ~f:(fun lhs_expr ->
+            Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
                 let* var_map = Rewriter.current_user_state in
 
-                if Expr.is_ident lhs_expr then (
-                  let local_var = Expr.to_ident lhs_expr in
+                let local_var = QualIdent.to_ident qual_ident in
 
                   Logs.debug (fun m ->
                       m
@@ -2747,8 +2703,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                   let+ _ = Rewriter.set_user_state var_map in
 
-                  Expr.from_var_decl new_var_decl)
-                else Rewriter.return lhs_expr)
+                  QualIdent.from_ident new_var_decl.var_name)
           in
 
           Rewriter.return
@@ -2902,7 +2857,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
             let new_var_decl = Map.find_exn new_var_map var in
 
             Stmt.mk_assign ~loc:s.stmt_loc
-              [ Expr.from_var_decl new_var_decl ]
+              [ QualIdent.from_ident new_var_decl.var_name ]
               (Expr.from_var_decl old_var_decl))
       in
 
@@ -2916,7 +2871,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
             let new_var_decl = Map.find_exn new_var_map var in
 
             Stmt.mk_assign ~loc:s.stmt_loc
-              [ Expr.from_var_decl new_var_decl ]
+              [ QualIdent.from_ident new_var_decl.var_name ]
               (Expr.from_var_decl old_var_decl))
       in
 
@@ -3001,14 +2956,27 @@ let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
 
   match s.stmt_desc with
   | Basic (Assign assign_stmt) ->
-      let assume_stmt =
-        Stmt.mk_assume_expr ~loc:s.stmt_loc
-          (Expr.mk_eq
-             (Expr.mk_tuple assign_stmt.assign_lhs)
-             assign_stmt.assign_rhs)
-      in
+    let+ assign_lhs =
+      Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
+          let* qual_ident, symbol =
+            Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+          in
+          let+ symbol = Rewriter.Symbol.reify symbol in
+          match symbol with
+          | VarDef { var_decl; _ } ->
+            Expr.mk_var ~typ:var_decl.var_type qual_ident 
+          | _ -> assert false
+        )
+    in
 
-      Rewriter.return assume_stmt
+    let assume_stmt =
+      Stmt.mk_assume_expr ~loc:s.stmt_loc
+        (Expr.mk_eq
+           (Expr.mk_tuple assign_lhs)
+           assign_stmt.assign_rhs)
+    in
+
+    assume_stmt
   | _ ->
       let* s = Rewriter.Stmt.descend s ~f:rewrite_assign_stmts in
 

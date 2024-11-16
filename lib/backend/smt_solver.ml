@@ -316,7 +316,7 @@ let declare_tuple_sort (arity : int) : command =
 
   let destrs_sorts =
     Base.List.map2_exn destrs params ~f:(fun destr param ->
-        (destr, Ast.Type.mk_var Util.Loc.dummy param))
+        (destr, Ast.Type.mk_var param))
   in
 
   mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])

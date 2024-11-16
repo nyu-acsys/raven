@@ -425,7 +425,7 @@ stmt_wo_trailing_substmt:
   Stmt.(Basic (Assign assign))
 }
 (* assignment / allocation *)
-| es = separated_nonempty_list(COMMA, expr); COLONEQ; e = new_or_expr; SEMICOLON {
+| es = separated_nonempty_list(COMMA, expr); COLONEQ; e = assign_rhs; SEMICOLON {
   let open Stmt in
   match e with
   | Basic (New new_descr) ->
@@ -436,7 +436,14 @@ stmt_wo_trailing_substmt:
       (match es with
       | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))] ->
           Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = assign.assign_rhs })
-      | _ -> Basic (Assign { assign with assign_lhs = es }))
+      | _ ->
+          let vs = List.map (function
+            | Expr.(App (Var qual_ident, [], _))
+              when QualIdent.is_local qual_ident -> qual_ident
+            | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
+              es 
+          in
+          Basic (Assign { assign with assign_lhs = vs }))
   | _ -> assert false
 }
 (* bind *)
@@ -549,7 +556,7 @@ with_clause:
     | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
 }
   
-new_or_expr:
+assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   let new_descr = Stmt.{
     new_lhs = QualIdent.from_ident (Ident.make Loc.dummy "" 0);
@@ -1007,10 +1014,10 @@ type_expr:
 | REF { Type.mk_ref (Loc.make $startpos $endpos) }
 | PERM { Type.mk_perm (Loc.make $startpos $endpos)}
 | ATOMICTOKEN { Type.mk_atomic_token (Loc.make $startpos $endpos) }
-//| x = IDENT { Type.mk_var (Loc.make $startpos $endpos) (QualIdent.from_ident x) }
+//| x = IDENT { Type.mk_var (QualIdent.from_ident x) }
 | SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
 | MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
-| x = mod_ident { Type.mk_var (Loc.make $startpos $endpos) x }
+| x = mod_ident { Type.mk_var x }
 | LPAREN ts = type_expr_list RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }

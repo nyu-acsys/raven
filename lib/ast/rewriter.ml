@@ -641,11 +641,10 @@ module Stmt = struct
                 Basic (Spec (sk, { spec with spec_form = new_spec_form }));
             }
         | Assign assign ->
-            let* assign_lhs = List.map assign.assign_lhs ~f in
             let+ assign_rhs = f assign.assign_rhs in
             {
               stmt with
-              stmt_desc = Basic (Assign { assign with assign_lhs; assign_rhs });
+              stmt_desc = Basic (Assign { assign with assign_rhs });
             }
         | Bind bind_desc ->
             let* bind_lhs = List.map bind_desc.bind_lhs ~f in
@@ -781,10 +780,8 @@ module Stmt = struct
             in
             { stmt with stmt_desc = Basic (VarDef { var_decl; var_init }) }
         | Assign assign ->
-            let+ assign_rhs = Expr.rewrite_qual_idents ~f assign.assign_rhs
-            and+ assign_lhs =
-              List.map assign.assign_lhs ~f:(Expr.rewrite_qual_idents ~f)
-            in
+            let+ assign_rhs = Expr.rewrite_qual_idents ~f assign.assign_rhs in
+            let assign_lhs = Base.List.map assign.assign_lhs ~f in
             {
               stmt with
               stmt_desc = Basic (Assign { assign with assign_lhs; assign_rhs });
@@ -1279,8 +1276,7 @@ module Symbol = struct
         Some tp_expr
     | ModDef { mod_decl = { mod_decl_rep = Some rep_id; _ }; _ } ->
         let+ tp_expr =
-          AstDef.Type.mk_var (QualIdent.to_loc name)
-            (QualIdent.append name rep_id)
+          AstDef.Type.mk_var (QualIdent.append name rep_id)
           |> Type.rewrite_qual_idents ~f:(QualIdent.requalify subst)
         in
         Some tp_expr
@@ -1351,8 +1347,8 @@ let find_and_reify loc name : (AstDef.Module.symbol, 'a) t_ext =
       m "Rewriter.find_and_reify: symbol = %a" Symbol.pr symbol);*)
   Symbol.reify symbol
 
-let is_local loc qual_ident s =
-  let s, qual_ident = resolve loc qual_ident s in
+let is_local qual_ident s =
+  let s, qual_ident = resolve (QualIdent.to_loc qual_ident) qual_ident s in
   (s, Base.List.is_empty qual_ident.qual_path)
 
 module ProgUtils = struct
@@ -1640,7 +1636,6 @@ module ProgUtils = struct
 
   let get_ra_rep_type (ra_qual_iden : qual_ident) : type_expr =
     AstDef.Type.mk_var
-      (QualIdent.to_loc ra_qual_iden)
       (QualIdent.append ra_qual_iden
          (Ident.make (QualIdent.to_loc ra_qual_iden) "T" 0))
 
@@ -1842,7 +1837,7 @@ module ProgUtils = struct
       QualIdent.append field_utils_module (heap_utils_id_ident loc)
     in
 
-    return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:field_elem_type
+    return @@ AstDef.Expr.mk_var id_qual_ident ~typ:field_elem_type
 
   let get_pred_utils_id loc pred_name : expr t =
     let open Syntax in
@@ -1852,13 +1847,13 @@ module ProgUtils = struct
 
     let* pred_elem_type_name = get_pred_utils_rep_type loc pred_name in
 
-    let pred_elem_type = AstDef.Type.mk_var loc pred_elem_type_name in
+    let pred_elem_type = AstDef.Type.mk_var pred_elem_type_name in
 
     let id_qual_ident =
       QualIdent.append pred_utils_module (heap_utils_id_ident loc)
     in
 
-    return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:pred_elem_type
+    return @@ AstDef.Expr.mk_var id_qual_ident ~typ:pred_elem_type
 
   let get_au_utils_id loc call_name : expr t =
     let open Syntax in
@@ -1868,13 +1863,13 @@ module ProgUtils = struct
 
     let* call_elem_type_name = get_au_utils_rep_type loc call_name in
 
-    let call_elem_type = AstDef.Type.mk_var loc call_elem_type_name in
+    let call_elem_type = AstDef.Type.mk_var call_elem_type_name in
 
     let id_qual_ident =
       QualIdent.append call_utils_module (heap_utils_id_ident loc)
     in
 
-    return @@ AstDef.Expr.mk_var ~loc id_qual_ident ~typ:call_elem_type
+    return @@ AstDef.Expr.mk_var id_qual_ident ~typ:call_elem_type
 
   (* ======================== *)
   
@@ -1987,7 +1982,7 @@ module ProgUtils = struct
     AstDef.Type.mk_map
       (QualIdent.to_loc pred_name)
       (AstDef.Type.mk_prod (QualIdent.to_loc pred_name) pred_in_types)
-      (AstDef.Type.mk_var (QualIdent.to_loc pred_name) pred_rep_type)
+      (AstDef.Type.mk_var pred_rep_type)
 
   let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
     let open Syntax in

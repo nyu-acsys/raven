@@ -365,7 +365,7 @@ module Type = struct
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
   let mk_data id decls loc = App (Data (id, decls), [], mk_attr loc)
-  let mk_var loc qid = App (Var qid, [], mk_attr loc)
+  let mk_var qid = App (Var qid, [], mk_attr (QualIdent.to_loc qid))
   let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
   let mk_prod loc tp_list = 
     match tp_list with
@@ -387,7 +387,7 @@ module Type = struct
   let map = mk_map Loc.dummy
   let perm = mk_perm Loc.dummy
   let data id decls = mk_data id decls Loc.dummy
-  let var qid = mk_var Loc.dummy qid
+  let var qid = mk_var qid
   let atomic_token = mk_atomic_token Loc.dummy
 
   (** Equality and Subtyping *)
@@ -443,7 +443,7 @@ module Type = struct
           
   (** Auxiliary utility functions *)
   
-  let mk_var_decl ?(loc = Loc.dummy) ?(const = false) ?(ghost = false) ?(implicit = false) name tp =
+  let mk_var_decl ?(const = false) ?(ghost = false) ?(implicit = false) name ?(loc = Ident.to_loc name) tp =
     { var_name = name; var_loc = loc; var_type = tp; var_const = const; var_ghost = ghost; var_implicit = implicit }
 
   let is_num tp =
@@ -764,8 +764,8 @@ module Expr = struct
   let mk_app ?(loc = Loc.dummy) ~typ c es =
     App (c, es, mk_attr loc typ)
 
-  let mk_var ?(loc = Loc.dummy) ~typ (qual_ident: qual_ident) = 
-    mk_app ~loc ~typ (Var qual_ident) []
+  let mk_var ~typ (qual_ident: qual_ident) = 
+    mk_app ~loc:(QualIdent.to_loc qual_ident) ~typ (Var qual_ident) []
 
   let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) ?(trigs = []) b vs e =
     match vs with 
@@ -866,7 +866,7 @@ module Expr = struct
     App (MapLookUp, [ e1; e2 ], mk_attr loc t)
   
   let from_var_decl (var_decl:var_decl) =
-    mk_var ~loc:var_decl.var_loc ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
+    mk_var ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
 
   (** Auxiliary functions *)
 
@@ -1169,7 +1169,7 @@ module Stmt = struct
     new_args : (qual_ident * expr option) list;
   }
 
-  type assign_desc = { assign_lhs : expr list; assign_rhs : expr; assign_is_init : bool }
+  type assign_desc = { assign_lhs : qual_ident list; assign_rhs : expr; assign_is_init : bool }
   type bind_desc = { bind_lhs : expr list; bind_rhs : expr }
 
   type field_read_desc = { 
@@ -1322,8 +1322,8 @@ module Stmt = struct
     | Assign astm -> (
         match astm.assign_lhs with
         | [] -> Expr.pr ppf astm.assign_rhs
-        | es ->
-            fprintf ppf "@[<2>%a@ :=@ %a@]" Expr.pr_list es Expr.pr
+        | vs ->
+            fprintf ppf "@[<2>%a@ :=@ %a@]" QualIdent.pr_list vs Expr.pr
               astm.assign_rhs)
     | Bind bstm -> (
       match bstm.bind_lhs with
@@ -1497,6 +1497,11 @@ module Stmt = struct
   let mk_assign ~loc lhs rhs =
     { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs; assign_is_init = false }); stmt_loc = loc }
 
+  let mk_field_write ~loc ref field v =
+    { stmt_desc = Basic (FieldWrite {field_write_ref = ref; field_write_field = field; field_write_val = v});
+      stmt_loc = loc
+    }
+  
   let mk_return ~loc e = { stmt_desc = Basic (Return e); stmt_loc = loc }
 
   let mk_bind ~loc lhs rhs =
@@ -1544,7 +1549,10 @@ module Stmt = struct
           Set.add accesses new_desc.new_lhs
 
         | Assign assign_desc ->
-          scan_expr_list accesses (assign_desc.assign_rhs :: assign_desc.assign_lhs)
+          let accesses =
+            List.fold assign_desc.assign_lhs ~init:accesses ~f:Set.add
+          in
+          scan_expr_list accesses [assign_desc.assign_rhs]
         
         | Bind bind_desc ->
           scan_expr_list accesses (bind_desc.bind_rhs :: bind_desc.bind_lhs)
@@ -1641,15 +1649,8 @@ module Stmt = struct
             []
 
         | Assign assign_desc ->
-          List.filter_map assign_desc.assign_lhs ~f:(fun e -> 
-            match e with
-            | App (Var qi, _, _) -> 
-              if List.is_empty qi.qual_path then
-                Some qi.qual_base
-              else
-                None
-            | _ -> None
-          )
+          List.map assign_desc.assign_lhs ~f:QualIdent.unqualify
+          
 
         | Bind bind_desc ->
           List.filter_map bind_desc.bind_lhs ~f:(fun e -> 
@@ -1748,7 +1749,7 @@ module Stmt = struct
           []
 
         | Assign assign_desc ->
-          List.concat_map (assign_desc.assign_rhs :: assign_desc.assign_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
+          Expr.expr_fields_accessed assign_desc.assign_rhs
         
         | Bind bind_desc ->
           List.concat_map (bind_desc.bind_rhs :: bind_desc.bind_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
@@ -2489,8 +2490,7 @@ module ProgStats = struct
     | Assign assign_desc -> 
       let is_ghost = try
         (List.exists assign_desc.assign_lhs 
-          ~f:(fun e -> 
-            let qi = Expr.to_qual_ident e in
+          ~f:(fun qi -> 
             List.exists proc_decl.Callable.call_decl_locals ~f:(fun vd -> Ident.(vd.var_name = (QualIdent.to_ident qi)) )
           )
         )

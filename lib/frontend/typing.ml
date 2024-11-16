@@ -797,16 +797,17 @@ module ProcessCallable = struct
   let disambiguate_ident (qual_ident : qual_ident)
       (disam_tbl : DisambiguationTbl.t) : qual_ident Rewriter.t =
     let open Rewriter.Syntax in
-    if List.is_empty qual_ident.qual_path then
+    if QualIdent.is_local qual_ident then
+      let ident = qual_ident |> QualIdent.unqualify in
       let* base =
         if Predefs.is_qual_ident_au_cmnd qual_ident then
-          Rewriter.return qual_ident.qual_base
+          Rewriter.return ident
         else
-          match DisambiguationTbl.find disam_tbl qual_ident.qual_base with
+          match DisambiguationTbl.find disam_tbl ident with
           | Some iden -> Rewriter.return iden
           | None ->
               let* is_local =
-                Rewriter.is_local qual_ident.qual_base.ident_loc qual_ident
+                Rewriter.is_local qual_ident
               in
               if is_local then
                 (* if variable is local and it doesn't exist in DisambiguationTbl, then it is not defined in scope *)
@@ -895,226 +896,719 @@ module ProcessCallable = struct
      (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
      () *)
 
-  let process_au_action_stmt (stmt : Stmt.stmt_desc) (loc : location)
+  let process_au_action_stmt (assign_lhs: qual_ident list) (var_decls_lhs: var_decl list) assign_rhs (loc : location)
       (disam_tbl : DisambiguationTbl.t) :
-      (Stmt.stmt_desc * DisambiguationTbl.t) Rewriter.t =
+      (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
-    match stmt with
-    | Basic (Assign assign_desc) -> (
-        Logs.debug (fun m ->
-            m "process_au_action_stmt: Assign: %a" Stmt.pr_basic_stmt
-              (Assign assign_desc));
-        match assign_desc.assign_rhs with
-        | App (Var qual_ident, args, expr_attr) ->
-            if
-              QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident)
-            then
-              match (args, assign_desc.assign_lhs) with
-              | [], [ token ] -> (
-                  let+ token_expr =
-                    disambiguate_process_expr token Type.atomic_token disam_tbl
-                  in
+    match assign_rhs with
+    | Expr.App (Var qual_ident, args, expr_attr) ->
+      (* bindAU *)
+      if
+        QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident)
+      then
+        match (args, assign_lhs) with
+        | [], [ token_qual_ident ] -> 
+          (* TODO: check type Type.atomic_token *)
+          Rewriter.return
+            ( Stmt.AUAction { auaction_kind = BindAU token_qual_ident },
+            disam_tbl )
+        | _ -> Error.type_error loc "bindAU takes exactly one argument"
+      else
+      (* openAU *) 
+      if
+        QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident)
+      then              
+        let bound_vars =
+          Base.List.map2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
+              Expr.mk_var ~typ:var_decl.var_type qual_ident)
+        in
 
-                  match token_expr with
-                  | App (Var token_qual_ident, [], _) ->
-                      ( Stmt.Basic
-                          (AUAction { auaction_kind = BindAU token_qual_ident }),
-                        disam_tbl )
-                  | _ ->
-                      Error.type_error (Expr.to_loc token)
-                        "The left-hand side of this ghost assignment must be a ghost variable")
-              | _ -> Error.type_error loc "bindAU takes exactly one argument"
-            else if
-              QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident)
-            then
-              
-              let* bound_vars =
-                Rewriter.List.map assign_desc.assign_lhs ~f:(fun expr ->
-                    let+ expr =
-                      disambiguate_process_expr expr Type.any disam_tbl
-                    in
-                    match expr with
-                    | App (Var qual_ident, [], _) -> expr
-                    | _ ->
-                        Error.type_error loc
-                          "openAU bound_variables expected to be a variable")
-              in
+        match args with
+        | [ token ] -> (
+            let* token_expr =
+              disambiguate_process_expr token Type.atomic_token disam_tbl
+            in
 
-              match args with
-              | [ token ] -> (
-                  let* token_expr =
-                    disambiguate_process_expr token Type.atomic_token disam_tbl
-                  in
-
-                  match token_expr with
-                  | App (Var token_qual_ident, [], _) ->
-                      Rewriter.return
-                        ( Stmt.Basic
-                            (AUAction
-                               {
-                                 auaction_kind =
-                                   OpenAU (token_qual_ident, None, bound_vars);
-                               }),
-                          disam_tbl )
-                  | _ ->
-                      Error.type_error loc
-                        "openAU token expected to be a variable")
-              | [ token; proc_name ] -> (
-                  let* token_expr =
-                    disambiguate_process_expr token Type.atomic_token disam_tbl
-                  in
-                  let+ proc_name_expr =
-                    disambiguate_process_expr proc_name Type.any disam_tbl
-                  in
-
-                  match (token_expr, proc_name_expr) with
-                  | ( App (Var token_qual_ident, [], _),
-                      App (Var proc_qual_ident, [], _) ) ->
-                      ( Stmt.Basic
-                          (AUAction
-                             {
-                               auaction_kind =
-                                 OpenAU
-                                   ( token_qual_ident,
-                                     Some proc_qual_ident,
-                                     bound_vars );
-                             }),
-                        disam_tbl )
-                  | _ ->
-                      Error.type_error loc
-                        "openAU token and process name expected to be a \
-                         variable")
-              | _ ->
-                  Error.type_error loc
-                    "openAU takes exactly one or two arguments"
-            else if
-              QualIdent.(
-                qual_ident = QualIdent.from_ident Predefs.commitAU_ident)
-            then
-              match args with
-              | token :: args -> (
-                  let* token_expr =
-                    disambiguate_process_expr token Type.atomic_token disam_tbl
-                  in
-
-                  let+ args =
-                    Rewriter.List.map args ~f:(fun arg ->
-                        disambiguate_process_expr arg Type.any disam_tbl)
-                  in
-
-                  match token_expr with
-                  | App (Var token_qual_ident, [], _) ->
-                      ( Stmt.Basic
-                          (AUAction
-                             {
-                               auaction_kind = CommitAU (token_qual_ident, args);
-                             }),
-                        disam_tbl )
-                  | _ ->
-                      Error.type_error loc
-                        "commitAU token expected to be a variable")
-              | _ -> Error.type_error loc "commitAU takes at least one argument"
-            else if
-              QualIdent.(
-                qual_ident = QualIdent.from_ident Predefs.abortAU_ident)
-            then
-              match args with
-              | [ token ] -> (
-                  let+ token_expr =
-                    disambiguate_process_expr token Type.atomic_token disam_tbl
-                  in
-
-                  match token_expr with
-                  | App (Var token_qual_ident, [], _) ->
-                      ( Stmt.Basic
-                          (AUAction { auaction_kind = AbortAU token_qual_ident }),
-                        disam_tbl )
-                  | _ ->
-                      Error.type_error loc
-                        "abortAU token expected to be a variable")
-              | _ -> Error.type_error loc "abortAU takes exactly one argument"
-            else if
-              QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident)
-            then
-              let field_opt = function
-                | Expr.App (Var qual_ident, [], _) as field_expr ->
-                  let* field_expr =
-                    disambiguate_process_expr field_expr Type.any disam_tbl
-                  in
-                  let* field_qual_ident, symbol =
-                    Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
-                  in
-                  let+ symbol = Rewriter.Symbol.reify symbol in
-                  begin match symbol with
-                    | FieldDef { field_type = App (Fld, [ given_type ], _); _ }  ->
-                      Some (field_qual_ident, given_type)
-                    | _ -> None
-                  end
-                | _ -> Rewriter.return None
-              in
-              let* ref_expr, field, fpu_exprs =
-                let* opt_list = 
-                  match args with
-                  | Expr.App (Read, [ref_expr; field_expr], _) :: expr2 :: expr3_opt ->
-                    let* field = field_opt field_expr in
-                    field |> Rewriter.Option.map ~f:(fun field ->
-                        Rewriter.return (ref_expr, field, expr2 :: expr3_opt))
-                  | _ -> Rewriter.return None
-                in
-                opt_list
-                |> Rewriter.Option.lazy_value ~default:(fun () ->
-                    match args with
-                    | expr1 :: expr2 :: expr3_opt ->
-                      let* field = field_opt expr2 in
-                      let* field =Rewriter.Option.map field ~f:(fun field_qual_ident ->
-                          Rewriter.return (expr1, field_qual_ident, expr3_opt))
-                      in
-                      Rewriter.Option.lazy_value field
-                        ~default:(fun () -> Error.type_error (Expr.to_loc expr1) "Expected field location")
-                    | _ -> Error.type_error loc "Could not find field location in fpu"
-                  )
-              in
-              let* ref_expr =
-                disambiguate_process_expr ref_expr Type.ref disam_tbl
-              in
-              let field_qual_ident, given_type = field in
-              let+ fpu_exprs =
-                Rewriter.List.map fpu_exprs ~f:(fun fpu_expr ->
-                    disambiguate_process_expr fpu_expr given_type
-                      disam_tbl)
-              in
-
-                          (* let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
-                             let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in *)
-              let old_val_expr, new_val_expr =
-                match fpu_exprs with
-                | [ old_val_expr; new_val_expr ] ->
-                  (Some old_val_expr, new_val_expr)
-                | [ new_val_expr ] -> (None, new_val_expr)
-                | _ ->
-                  Error.type_error loc
-                    "fpu takes exactly three or four arguments"
-              in
-              
-              ( Stmt.Basic
-                  (Fpu
+            match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              Rewriter.return
+                ( Stmt.AUAction
+                    {
+                      auaction_kind =
+                        OpenAU (token_qual_ident, None, bound_vars);
+                    },
+                  disam_tbl )
+            | _ ->
+              Error.type_error loc
+                "openAU token expected to be a variable")
+        | [ token; proc_name ] -> (
+            let* token_expr =
+              disambiguate_process_expr token Type.atomic_token disam_tbl
+            in
+            let+ proc_name_expr =
+              disambiguate_process_expr proc_name Type.any disam_tbl
+            in
+            
+            match (token_expr, proc_name_expr) with
+            | ( App (Var token_qual_ident, [], _),
+                App (Var proc_qual_ident, [], _) ) ->
+              ( Stmt.AUAction
                      {
-                       fpu_ref = ref_expr;
-                       fpu_field = field_qual_ident;
-                       fpu_old_val = old_val_expr;
-                       fpu_new_val = new_val_expr;
-                     }),
+                       auaction_kind =
+                         OpenAU
+                           ( token_qual_ident,
+                             Some proc_qual_ident,
+                             bound_vars );
+                     },
                 disam_tbl )
-            else Error.type_error loc "Unknown AU action"
+            | _ ->
+              Error.type_error loc
+                "openAU token and process name expected to be a \
+                 variable")
         | _ ->
-            Error.error loc
-              "Internal error: process_au_action_stmt called with non-callable \
-               expression")
+          Error.type_error loc
+            "openAU takes exactly one or two arguments"
+      else if
+        QualIdent.(
+          qual_ident = QualIdent.from_ident Predefs.commitAU_ident)
+      then
+        match args with
+        | token :: args -> (
+            let* token_expr =
+              disambiguate_process_expr token Type.atomic_token disam_tbl
+            in
+            
+            let+ args =
+              Rewriter.List.map args ~f:(fun arg ->
+                  disambiguate_process_expr arg Type.any disam_tbl)
+            in
+            
+            match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              ( Stmt.AUAction
+                     {
+                       auaction_kind = CommitAU (token_qual_ident, args);
+                     },
+                disam_tbl )
+            | _ ->
+              Error.type_error loc
+                "commitAU token expected to be a variable")
+        | _ -> Error.type_error loc "commitAU takes at least one argument"
+      else if
+        QualIdent.(
+          qual_ident = QualIdent.from_ident Predefs.abortAU_ident)
+      then
+        match args with
+        | [ token ] -> (
+            let+ token_expr =
+              disambiguate_process_expr token Type.atomic_token disam_tbl
+            in
+            
+            match token_expr with
+            | App (Var token_qual_ident, [], _) ->
+              ( Stmt.AUAction { auaction_kind = AbortAU token_qual_ident },
+                disam_tbl )
+            | _ ->
+              Error.type_error loc
+                "abortAU token expected to be a variable")
+        | _ -> Error.type_error loc "abortAU takes exactly one argument"
+      else if
+        QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident)
+      then
+        let field_opt = function
+          | Expr.App (Var qual_ident, [], _) as field_expr ->
+            let* field_expr =
+              disambiguate_process_expr field_expr Type.any disam_tbl
+            in
+            let* field_qual_ident, symbol =
+              Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+            in
+            let+ symbol = Rewriter.Symbol.reify symbol in
+            begin match symbol with
+              | FieldDef { field_type = App (Fld, [ given_type ], _); _ }  ->
+                Some (field_qual_ident, given_type)
+              | _ -> None
+            end
+          | _ -> Rewriter.return None
+        in
+        let* ref_expr, field, fpu_exprs =
+          let* opt_list = 
+            match args with
+            | Expr.App (Read, [ref_expr; field_expr], _) :: expr2 :: expr3_opt ->
+              let* field = field_opt field_expr in
+              field |> Rewriter.Option.map ~f:(fun field ->
+                  Rewriter.return (ref_expr, field, expr2 :: expr3_opt))
+            | _ -> Rewriter.return None
+          in
+          opt_list
+          |> Rewriter.Option.lazy_value ~default:(fun () ->
+              match args with
+              | expr1 :: expr2 :: expr3_opt ->
+                let* field = field_opt expr2 in
+                let* field =Rewriter.Option.map field ~f:(fun field_qual_ident ->
+                    Rewriter.return (expr1, field_qual_ident, expr3_opt))
+                in
+                Rewriter.Option.lazy_value field
+                  ~default:(fun () -> Error.type_error (Expr.to_loc expr1) "Expected field location")
+              | _ -> Error.type_error loc "Could not find field location in fpu"
+            )
+        in
+        let* ref_expr =
+          disambiguate_process_expr ref_expr Type.ref disam_tbl
+        in
+        let field_qual_ident, given_type = field in
+        let+ fpu_exprs =
+          Rewriter.List.map fpu_exprs ~f:(fun fpu_expr ->
+              disambiguate_process_expr fpu_expr given_type
+                disam_tbl)
+        in
+        
+        (* let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
+                             let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in *)
+        let old_val_expr, new_val_expr =
+          match fpu_exprs with
+          | [ old_val_expr; new_val_expr ] ->
+            (Some old_val_expr, new_val_expr)
+          | [ new_val_expr ] -> (None, new_val_expr)
+          | _ ->
+            Error.type_error loc
+              "fpu takes exactly three or four arguments"
+        in
+        
+        ( Stmt.Fpu
+               {
+                 fpu_ref = ref_expr;
+                 fpu_field = field_qual_ident;
+                 fpu_old_val = old_val_expr;
+                 fpu_new_val = new_val_expr;
+               },
+          disam_tbl )
+      else Error.type_error loc "Unknown AU action"
     | _ ->
-        Error.error loc
-          "Internal error: process_au_action_stmt called with non-assignment \
-           statement"
+      Error.error loc
+        "Internal error: process_au_action_stmt called with non-callable \
+         expression"
 
+  let rec process_basic_stmt (expected_return_type : Type.t)
+      (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc: Loc.t) (disam_tbl : DisambiguationTbl.t) :
+      (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
+    let open Rewriter.Syntax in
+    match basic_stmt with
+    | VarDef var_def ->
+      let* var_decl =
+        ProcessTypeExpr.process_var_decl var_def.var_decl
+      in
+      let var_decl, disam_tbl' =
+        DisambiguationTbl.add_var_decl var_decl disam_tbl
+      in
+      let* _ =
+        Rewriter.introduce_symbol
+          (VarDef { var_decl; var_init = None })
+      in
+      let var = QualIdent.from_ident var_decl.var_name in
+      begin match var_def.var_init with
+        | None ->
+          Rewriter.return @@ (Stmt.Havoc var, disam_tbl')
+        | Some expr ->
+          let assign_desc =
+            Stmt.
+              {
+                assign_lhs = [ var_def.var_decl.var_name |> QualIdent.from_ident ];
+                assign_rhs = expr;
+                assign_is_init = true;
+              }
+          in
+          
+          process_basic_stmt 
+            expected_return_type
+            (Assign assign_desc)
+            stmt_loc
+            disam_tbl'
+      end
+    | Spec (sk, spec) ->
+      let+ spec = process_stmt_spec disam_tbl spec in
+      (Stmt.Spec (sk, spec), disam_tbl)
+    | Assign assign_desc -> begin
+        let* assign_lhs, var_decls_lhs =
+          Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], []) ~f:(fun qual_ident (assign_lhs, var_decls_lhs) ->
+              let* qual_ident = disambiguate_ident qual_ident disam_tbl in
+              let* qual_ident, symbol =
+                Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+              in
+              let+ symbol = Rewriter.Symbol.reify symbol in
+              match symbol with
+              | VarDef { var_decl; _ } when not var_decl.var_const || assign_desc.assign_is_init ->
+                qual_ident :: assign_lhs, var_decl :: var_decls_lhs
+              | _ ->
+                Error.type_error (QualIdent.to_loc qual_ident)
+                  (Printf.sprintf !"Cannot assign to %s %{QualIdent}" (Symbol.kind symbol) qual_ident)
+            )
+        in
+
+        match assign_desc.assign_rhs with
+        (* Field read *)
+        | App (Read, [ ref_expr; field_expr ], _) ->
+          Logs.debug (fun m ->
+              m "process_stmt: read_assign_rhs: %a" Expr.pr
+                assign_desc.assign_rhs);
+          let field_qual_ident = Expr.to_qual_ident field_expr in
+          let field_read_lhs =
+            match assign_desc.assign_lhs with
+            | [ lhs ] -> lhs
+            | _ ->
+              Error.type_error stmt_loc
+                "Expected exactly one variable on left-hand side of field read"
+          in
+          
+          let field_read_desc =
+            Stmt.
+              {
+                field_read_lhs;
+                field_read_field = field_qual_ident;
+                field_read_ref = ref_expr;
+              }
+          in
+          process_basic_stmt expected_return_type (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
+        (* AU action *)
+        | App (Var qual_ident, _, _) as assign_rhs when Predefs.is_qual_ident_au_cmnd qual_ident ->
+          process_au_action_stmt assign_lhs var_decls_lhs assign_rhs stmt_loc disam_tbl
+        | _ -> 
+          Logs.debug (fun m ->
+              m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
+                (Assign assign_desc));
+          
+          let expected_type =
+            Type.mk_prod
+              (Expr.to_loc assign_desc.assign_rhs)
+              (List.map var_decls_lhs ~f:(fun var -> var.var_type))
+          in
+
+          let* assign_rhs =
+            disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
+          in
+
+          Logs.debug (fun m ->
+              m "process_stmt: disam_assign_rhs: %a" Expr.pr
+                assign_rhs);
+                  
+          let+ assign_rhs_callable_opt =
+            match assign_rhs with
+            | App (Var qual_ident, args, _) -> (
+              let* qual_ident, symbol =
+                Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+              in
+              let+ symbol = Rewriter.Symbol.reify symbol in
+              match symbol with CallDef call_def -> Some (symbol, qual_ident, args) | _ -> None)
+            | _ -> Rewriter.return None
+          in
+                  
+
+          match assign_rhs_callable_opt with
+          | Some (symbol, proc_qual_ident, args) ->
+            begin
+              Logs.debug (fun m ->
+                  m "process_stmt: assign_rhs_qual_ident: %a; %b"
+                    QualIdent.pr proc_qual_ident
+                    QualIdent.(
+                      proc_qual_ident
+                      = QualIdent.from_ident Predefs.bindAU_ident));
+              
+              let (call_desc : Stmt.call_desc) =
+                {
+                  call_lhs =
+                    List.map var_decls_lhs ~f:(fun var -> var.var_name |> QualIdent.from_ident);
+                  call_name = proc_qual_ident;
+                  call_args = args;
+                }
+              in                      
+              (Stmt.Call call_desc, disam_tbl)
+            end
+          | None ->
+            match assign_rhs with 
+            | App
+                ( Cas,
+                  [
+                    App (Read, [ ref_expr; field_expr ], _);
+                    old_val_expr;
+                    new_val_expr;
+                  ],
+                  _ ) ->
+              Logs.debug (fun m ->
+                  m "process_stmt: cas_assign_rhs: %a" Expr.pr
+                    assign_rhs);
+              let field_qual_ident = Expr.to_qual_ident field_expr in
+              let cas_lhs =
+                match var_decls_lhs with
+                | [ lhs ] -> lhs.var_name |> QualIdent.from_ident
+                | _ ->
+                  Error.type_error stmt_loc
+                    "Expected exactly one variable on left-hand side of cas"
+              in
+              
+              let cas_desc =
+                Stmt.
+                  {
+                    cas_lhs;
+                    cas_field = field_qual_ident;
+                    cas_ref = ref_expr;
+                    cas_old_val = old_val_expr;
+                    cas_new_val = new_val_expr;
+                  }
+              in
+              (Stmt.Cas cas_desc, disam_tbl)
+            | _ ->
+              let assign_desc =
+                Stmt.{ assign_desc with assign_lhs; assign_rhs }
+              in
+              (Stmt.Assign assign_desc, disam_tbl)
+      end
+    | Bind bind_desc ->
+      let* bind_lhs =
+        Rewriter.List.map bind_desc.bind_lhs ~f:(fun e ->
+            match e with
+            | App (Var qual_ident, [], _)
+              when not (QualIdent.is_qualified qual_ident) ->
+              disambiguate_process_expr e Type.any disam_tbl
+            | _ ->
+              Error.type_error stmt_loc
+                "Expected var identifier on left-hand side of bind")
+      in
+      let* bind_rhs =
+        disambiguate_process_expr bind_desc.bind_rhs Type.any
+          disam_tbl
+      in
+      let bind_desc = Stmt.{ bind_lhs; bind_rhs } in
+      Rewriter.return (Stmt.Bind bind_desc, disam_tbl)
+    | FieldWrite fw_desc ->
+      let* field_write_field, symbol =
+        Rewriter.resolve_and_find (QualIdent.to_loc fw_desc.field_write_field) fw_desc.field_write_field
+      in
+      let* symbol = Rewriter.Symbol.reify symbol in
+      let field_type = match symbol with
+        | FieldDef { field_type = App (Fld, [ field_type ], _); _ }  ->
+          field_type
+        | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
+      in
+      let* field_write_ref =
+        disambiguate_process_expr fw_desc.field_write_ref Type.ref
+          disam_tbl
+      in
+      let+ field_write_val =
+        disambiguate_process_expr fw_desc.field_write_val field_type
+          disam_tbl
+      in
+      Stmt.FieldWrite { field_write_ref; field_write_field; field_write_val }, disam_tbl
+      
+    | FieldRead fr_desc -> 
+      let* fr_var_qual_ident =
+        disambiguate_ident fr_desc.field_read_lhs disam_tbl
+      in
+      let* fr_var_qual_ident, symbol =
+        Rewriter.resolve_and_find stmt_loc fr_var_qual_ident
+      in
+      let* symbol = Rewriter.Symbol.reify symbol in
+      let* fr_type =
+        match symbol with
+        | VarDef var_def ->
+          let* var_type_expanded =
+            ProcessTypeExpr.expand_type_expr
+              var_def.var_decl.var_type
+          in
+          Rewriter.return var_type_expanded
+        | _ ->
+          Error.type_error stmt_loc
+            "Expected var identifier on left-hand side of field read"
+      in
+      let field_read_expr =
+        Expr.App
+          ( Read,
+            [
+              fr_desc.field_read_ref;
+              App
+                ( Var fr_desc.field_read_field,
+                  [],
+                  {
+                    Expr.expr_loc = stmt_loc;
+                    expr_type = Type.bot;
+                  } );
+            ],
+            { Expr.expr_loc = stmt_loc; expr_type = Type.bot } )
+      in
+      
+      let+ field_read_expr =
+        disambiguate_process_expr field_read_expr fr_type disam_tbl
+      in
+      
+      begin match field_read_expr with
+        | App
+            ( Read,
+              [ field_read_ref; App (Var field_read_field, [], _) ],
+              _ ) ->
+          let field_read_desc =
+            Stmt.
+              {
+                field_read_lhs = fr_var_qual_ident;
+                field_read_field;
+                field_read_ref;
+              }
+          in
+          (Stmt.FieldRead field_read_desc, disam_tbl)
+        | _ -> failwith "Unexpected error during type checking."
+      end
+    | Cas cs_desc -> (
+        let* cs_var_qual_ident =
+          disambiguate_ident cs_desc.cas_lhs disam_tbl
+        in
+        let* cs_var_qual_ident, symbol =
+          Rewriter.resolve_and_find stmt_loc cs_var_qual_ident
+        in
+        let* symbol = Rewriter.Symbol.reify symbol in
+        let* cs_type =
+          match symbol with
+          | VarDef var_def ->
+            let* var_type_expanded =
+              ProcessTypeExpr.expand_type_expr
+                var_def.var_decl.var_type
+            in
+            Rewriter.return var_type_expanded
+          | _ ->
+            Error.type_error stmt_loc
+              "Expected var identifier on left-hand side of cas"
+        in
+        let expr_attr =
+          { Expr.expr_loc = stmt_loc; expr_type = Type.bot }
+        in
+        let cas_expr =
+          Expr.App
+            ( Cas,
+              [
+                App
+                  ( Read,
+                    [
+                      cs_desc.cas_ref;
+                      App (Var cs_desc.cas_field, [], expr_attr);
+                    ],
+                    expr_attr );
+                cs_desc.cas_old_val;
+                cs_desc.cas_new_val;
+              ],
+              { Expr.expr_loc = stmt_loc; expr_type = Type.bool }
+            )
+        in
+        
+        let+ cas_expr =
+          disambiguate_process_expr cas_expr cs_type disam_tbl
+        in
+        
+        match cas_expr with
+        | App
+            ( Cas,
+              [
+                App (Read, [ cas_ref; App (Var cas_field, [], _) ], _);
+                cas_old_val;
+                cas_new_val;
+              ],
+              _ ) ->
+          let cas_desc =
+            Stmt.
+              {
+                cas_lhs = cs_var_qual_ident;
+                cas_field;
+                cas_ref;
+                cas_old_val;
+                cas_new_val;
+              }
+          in
+          (Stmt.Cas cas_desc, disam_tbl)
+        | _ -> failwith "Unexpected error during type checking.")
+    | Havoc qual_ident ->
+      let* qual_ident = disambiguate_ident qual_ident disam_tbl in
+      Rewriter.return (Stmt.Havoc qual_ident, disam_tbl)
+    | Return expr ->
+      let+ expr =
+        disambiguate_process_expr expr expected_return_type disam_tbl
+      in
+      (Stmt.Return expr, disam_tbl)
+    | Use use_desc ->
+      let* use_name, symbol =
+        let* id = disambiguate_ident use_desc.use_name disam_tbl in
+        Rewriter.resolve_and_find stmt_loc id
+      in
+      let* symbol = Rewriter.Symbol.reify symbol in
+      
+      let pred_decl, pred_def =
+        match symbol with
+        | CallDef
+            {
+              call_decl = { call_decl_kind = Pred; _ } as pred_decl;
+              call_def = FuncDef {func_body = pred_def}
+            } ->
+          pred_decl, pred_def
+        | CallDef
+            {
+              call_decl =
+                { call_decl_kind = Invariant; _ } as pred_decl;
+              call_def = FuncDef {func_body = pred_def}
+            } ->
+          pred_decl, pred_def
+        | _ ->
+          Error.type_error stmt_loc
+            ("Expected predicate or invariant identifier, but found "
+             ^ QualIdent.to_string use_name)
+      in
+      
+      let exists_vars =
+        Option.value pred_def ~default:(Expr.mk_unit Loc.dummy)
+        |> Expr.existential_vars_type
+      in
+      let find_type ident =
+        let ty_opt = Map.fold exists_vars ~init:None ~f:(fun ~key ~data acc ->
+            if Option.is_none acc
+            && String.(Ident.name ident = Ident.name key)
+            then Some data else acc)
+        in
+        match ty_opt with
+        | Some ty -> ty
+        | _ -> Error.type_error (Ident.to_loc ident)
+                 (Printf.sprintf !"Could not find existential variable %{Ident} in %s %{QualIdent}" ident (Symbol.kind symbol) use_desc.use_name)
+      in
+      
+      let* use_args =
+        Rewriter.List.map use_desc.use_args ~f:(fun expr ->
+            disambiguate_expr expr disam_tbl)
+      in
+      
+      let* use_args =
+        process_callable_args stmt_loc pred_decl use_args
+      in
+      
+      let+ use_witnesses_or_binds = 
+        Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
+            match use_desc.use_kind with
+            | Fold ->
+              let ty = find_type i in
+              let+ e = disambiguate_process_expr e ty disam_tbl in
+              (i, e)
+            | Unfold ->
+              match e with
+              | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
+                let ty =
+                  find_type (QualIdent.unqualify qual_ident)
+                in
+                let+ ie = disambiguate_process_expr (Expr.mk_var ~typ:(Type.mk_any (Ident.to_loc i)) (QualIdent.from_ident i)) ty disam_tbl in
+                (Expr.to_ident ie, e) 
+              | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"
+          ) 
+      in
+      
+      ( Stmt.Use { use_desc with use_name; use_args; use_witnesses_or_binds },
+        disam_tbl )
+    | New new_desc ->
+      let* new_qual_ident =
+        disambiguate_ident new_desc.new_lhs disam_tbl
+      in
+      let* new_qual_ident, symbol =
+        Rewriter.resolve_and_find stmt_loc new_qual_ident
+      in
+      let* symbol = Rewriter.Symbol.reify symbol in
+      let var_decl =
+        match symbol with
+        | VarDef var_def -> var_def.var_decl
+        | _ ->
+          Error.type_error stmt_loc
+            "Expected variable identifier on left-hand side of new"
+      in
+      let* var_type_expanded =
+        ProcessTypeExpr.expand_type_expr var_decl.var_type
+      in
+      
+      if Type.equal var_type_expanded Type.ref then
+        let process_field_init (field_name, expr_opt) =
+          let* field_name, symbol =
+            Rewriter.resolve_and_find stmt_loc field_name
+          in
+          let* field_type =
+            Rewriter.Symbol.reify_field_type stmt_loc symbol
+          in
+          let+ expr_opt =
+            Rewriter.Option.map expr_opt ~f:(fun expr ->
+                disambiguate_process_expr expr field_type disam_tbl)
+          in
+          (field_name, expr_opt)
+        in
+        let+ new_args =
+          Rewriter.List.map new_desc.new_args ~f:process_field_init
+        in
+        
+        let new_desc = Stmt.{ new_lhs = new_qual_ident; new_args } in
+        
+        (Stmt.New new_desc, disam_tbl)
+      else
+        type_mismatch_error stmt_loc Type.ref var_decl.var_type
+      (* The following constructs are not expected here because the parser stores these commands as Assign stmts.
+         The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform
+         them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc.
+
+         This function is not expected to go over these parts of the AST again. If the following constructs are
+         discovered by this function, then something unexpected has happened. *)
+      (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
+    | Call call_desc -> (
+        let* call_lhs =
+          Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
+              let* qual_iden = disambiguate_ident qual_iden disam_tbl in
+              Rewriter.resolve stmt_loc qual_iden)
+        in
+        let* call_lhs_types =
+          Rewriter.List.map call_lhs ~f:(fun qual_iden ->
+              let* qual_iden, symbol =
+                Rewriter.resolve_and_find stmt_loc qual_iden
+              in
+              let* symbol = Rewriter.Symbol.reify symbol in
+              match symbol with
+              | VarDef var_def ->
+                let* var_type_expanded =
+                  ProcessTypeExpr.expand_type_expr
+                    var_def.var_decl.var_type
+                in
+                Rewriter.return var_type_expanded
+              | _ ->
+                Error.type_error stmt_loc
+                  "Expected variable identifier on left-hand side of \
+                   call")
+        in
+        
+        let expected_return_type =
+          Type.mk_prod stmt_loc call_lhs_types
+        in
+        
+        let+ call_expr =
+          Expr.App
+            ( Var call_desc.call_name,
+              call_desc.call_args,
+              { Expr.expr_loc = stmt_loc; expr_type = Type.bot } )
+          |> fun expr ->
+          disambiguate_process_expr expr expected_return_type disam_tbl
+        in
+
+        match call_expr with
+        | App (Var proc_qual_ident, args, _expr_attr) ->
+          let (call_desc : Stmt.call_desc) =
+            {
+              call_lhs;
+              call_name = proc_qual_ident;
+              call_args = args;
+            }
+          in
+          
+          (Stmt.Call call_desc, disam_tbl)
+        | _ -> failwith "Unexpected error during type checking.")
+    | AUAction _au_action_kind ->
+      internal_error stmt_loc
+        "Did not expect AU action stmts in AST at this stage."
+    | Fpu _fpu_desc ->
+      internal_error stmt_loc
+        "Did not expect Fpu stmts in AST at this stage."
+        
   let process_stmt ?(new_scope = true) (expected_return_type : Type.t)
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
       (Stmt.t * DisambiguationTbl.t) Rewriter.t =
@@ -1140,571 +1634,11 @@ module ProcessCallable = struct
             in
 
             (Stmt.Block { block_desc with block_body = stmt_list }, disam_tbl)
-        | Basic basic_stmt -> (
-            match basic_stmt with
-            | VarDef var_def ->
-                let* var_decl =
-                  ProcessTypeExpr.process_var_decl var_def.var_decl
-                in
-                let var_decl, disam_tbl' =
-                  DisambiguationTbl.add_var_decl var_decl disam_tbl
-                in
-                let* _ =
-                  Rewriter.introduce_symbol
-                    (VarDef { var_decl; var_init = None })
-                in
-                let+ stmt, disam_tbl' =
-                  let var = QualIdent.from_ident var_decl.var_name in
-                  match var_def.var_init with
-                  | None ->
-                      Rewriter.return @@ (Stmt.Basic (Havoc var), disam_tbl')
-                  | Some expr ->
-                      (* let* expr = disambiguate_process_expr expr var_decl.var_type disam_tbl in *)
-                      let var_expr = Expr.from_var_decl var_def.var_decl in
-
-                      (* Expr.App (Var var, [], {expr_loc = stmt.stmt_loc; expr_type = var_decl.var_type}) in *)
-                      let assign_desc =
-                        Stmt.
-                          {
-                            assign_lhs = [ var_expr ];
-                            assign_rhs = expr;
-                            assign_is_init = true;
-                          }
-                      in
-
-                      let+ stmt, disam_tbl' =
-                        process_stmt
-                          {
-                            stmt_desc = Stmt.Basic (Assign assign_desc);
-                            stmt_loc = stmt.stmt_loc;
-                          }
-                          disam_tbl'
-                      in
-
-                      (stmt.stmt_desc, disam_tbl')
-                in
-                (stmt, disam_tbl')
-            | Spec (sk, spec) ->
-                let+ spec = process_stmt_spec disam_tbl spec in
-                (Stmt.Basic (Spec (sk, spec)), disam_tbl)
-            | Assign assign_desc -> (
-                let* assign_lhs =
-                  Rewriter.List.map assign_desc.assign_lhs ~f:(fun expr ->
-                      disambiguate_process_expr expr Type.any disam_tbl)
-                in
-
-                let* _ =
-                  Rewriter.List.iter assign_lhs ~f:(fun expr ->
-                      match expr with
-                      | App (Var qual_ident, [], _) -> (
-                          let+ _, symbol =
-                            Rewriter.resolve_and_find stmt.stmt_loc qual_ident
-                          in
-                          match Rewriter.Symbol.orig_symbol symbol with
-                          | VarDef { var_decl = { var_const = true; _ }; _ }
-                            when not assign_desc.assign_is_init ->
-                              Error.type_error (Expr.to_loc expr)
-                                (Printf.sprintf !"Cannot assign to val %{QualIdent}" qual_ident)
-                          | VarDef _ -> ()
-                          | _ ->
-                              Error.type_error (Expr.to_loc expr)
-                                "Expected assignable expression on left-hand \
-                                 side of assignment")
-                      | App (Read, [ ref_expr; field_expr ], _) ->
-                          Rewriter.return ()
-                      | _ ->
-                          Error.type_error (Expr.to_loc expr)
-                            "Expected assignable expression on left-hand side \
-                             of assignment")
-                in
-
-                Logs.debug (fun m ->
-                    m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
-                      (Assign assign_desc));
-                let* disam_assign_rhs =
-                  disambiguate_expr assign_desc.assign_rhs disam_tbl
-                in
-
-                Logs.debug (fun m ->
-                    m "process_stmt: disam_assign_rhs: %a" Expr.pr
-                      disam_assign_rhs);
-
-                let* is_assign_rhs_callable =
-                  match disam_assign_rhs with
-                  | App (Var qual_ident, _, _) -> (
-                      if Predefs.is_qual_ident_au_cmnd qual_ident then
-                        Rewriter.return true
-                      else
-                        let+ _, symbol, _ =
-                          Logs.debug (fun m ->
-                              m
-                                "process_stmt: disam_find: \
-                                 assign_rhs_qual_ident: %a"
-                                QualIdent.pr qual_ident);
-                          Rewriter.find stmt.stmt_loc qual_ident
-                        in
-                        match symbol with CallDef _ -> true | _ -> false)
-                  | _ -> Rewriter.return false
-                in
-
-                match is_assign_rhs_callable with
-                | true -> (
-                    match assign_desc.assign_rhs with
-                    | App (Var proc_qual_ident, args, expr_attr) -> (
-                        Logs.debug (fun m ->
-                            m "process_stmt: assign_rhs_qual_ident: %a; %b"
-                              QualIdent.pr proc_qual_ident
-                              QualIdent.(
-                                proc_qual_ident
-                                = QualIdent.from_ident Predefs.bindAU_ident));
-                        if Predefs.is_qual_ident_au_cmnd proc_qual_ident then
-                          process_au_action_stmt stmt.stmt_desc stmt.stmt_loc
-                            disam_tbl
-                        else
-                          let expected_return_type =
-                            Type.mk_prod
-                              (Expr.to_loc assign_desc.assign_rhs)
-                              (List.map assign_lhs ~f:Expr.to_type)
-                          in
-
-                          let+ call_expr =
-                            Expr.App (Var proc_qual_ident, args, expr_attr)
-                            |> fun expr ->
-                            disambiguate_process_expr expr expected_return_type
-                              disam_tbl
-                          in
-
-                          match call_expr with
-                          | App (Var proc_qual_ident, args, _expr_attr) ->
-                              let (call_desc : Stmt.call_desc) =
-                                {
-                                  call_lhs =
-                                    List.map assign_lhs ~f:Expr.to_qual_ident;
-                                  call_name = proc_qual_ident;
-                                  call_args = args;
-                                }
-                              in
-
-                              (Stmt.Basic (Call call_desc), disam_tbl)
-                          | _ ->
-                              failwith "Unexpected error during type checking.")
-                    | _ -> failwith "Unexpected error during type checking.")
-                | false -> (
-                    let expected_type =
-                      Type.mk_prod stmt.stmt_loc
-                        (List.map assign_lhs ~f:Expr.to_type)
-                    in
-
-                    let+ assign_rhs =
-                      disambiguate_process_expr assign_desc.assign_rhs
-                        expected_type disam_tbl
-                    in
-
-                    match assign_rhs with
-                    | App (Read, [ ref_expr; field_expr ], _) ->
-                        Logs.debug (fun m ->
-                            m "process_stmt: read_assign_rhs: %a" Expr.pr
-                              assign_rhs);
-                        let field_qual_ident = Expr.to_qual_ident field_expr in
-                        let field_read_lhs =
-                          match assign_lhs with
-                          | [ lhs ] -> Expr.to_qual_ident lhs
-                          | _ ->
-                              Error.type_error stmt.stmt_loc
-                                "Expected exactly one left-hand side expression of field read"
-                        in
-
-                        let field_read_desc =
-                          Stmt.
-                            {
-                              field_read_lhs;
-                              field_read_field = field_qual_ident;
-                              field_read_ref = ref_expr;
-                            }
-                        in
-                        (Stmt.Basic (FieldRead field_read_desc), disam_tbl)
-                    | App
-                        ( Cas,
-                          [
-                            App (Read, [ ref_expr; field_expr ], _);
-                            old_val_expr;
-                            new_val_expr;
-                          ],
-                          _ ) ->
-                        Logs.debug (fun m ->
-                            m "process_stmt: cas_assign_rhs: %a" Expr.pr
-                              assign_rhs);
-                        let field_qual_ident = Expr.to_qual_ident field_expr in
-                        let cas_lhs =
-                          match assign_lhs with
-                          | [ lhs ] -> Expr.to_qual_ident lhs
-                          | _ ->
-                              Error.type_error stmt.stmt_loc
-                                "Expected exactly one left-hand side expression in cas"
-                        in
-
-                        let cas_desc =
-                          Stmt.
-                            {
-                              cas_lhs;
-                              cas_field = field_qual_ident;
-                              cas_ref = ref_expr;
-                              cas_old_val = old_val_expr;
-                              cas_new_val = new_val_expr;
-                            }
-                        in
-                        (Stmt.Basic (Cas cas_desc), disam_tbl)
-                    | _ ->
-                        let assign_desc =
-                          Stmt.{ assign_desc with assign_lhs; assign_rhs }
-                        in
-
-                        (Stmt.Basic (Assign assign_desc), disam_tbl)))
-            | Bind bind_desc ->
-                let* bind_lhs =
-                  Rewriter.List.map bind_desc.bind_lhs ~f:(fun e ->
-                      match e with
-                      | App (Var qual_ident, [], _)
-                        when not (QualIdent.is_qualified qual_ident) ->
-                          disambiguate_process_expr e Type.any disam_tbl
-                      | _ ->
-                          Error.type_error stmt.stmt_loc
-                            "Expected var identifier on left-hand side of bind")
-                in
-                let* bind_rhs =
-                  disambiguate_process_expr bind_desc.bind_rhs Type.any
-                    disam_tbl
-                in
-                let bind_desc = Stmt.{ bind_lhs; bind_rhs } in
-                Rewriter.return (Stmt.Basic (Bind bind_desc), disam_tbl)
-            | FieldWrite fw_desc ->
-              let* field_write_field, symbol =
-                Rewriter.resolve_and_find (QualIdent.to_loc fw_desc.field_write_field) fw_desc.field_write_field
-              in
-              let* symbol = Rewriter.Symbol.reify symbol in
-              let field_type = match symbol with
-                | FieldDef { field_type = App (Fld, [ field_type ], _); _ }  ->
-                  field_type
-                | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
-              in
-              let* field_write_ref =
-                disambiguate_process_expr fw_desc.field_write_ref Type.ref
-                  disam_tbl
-              in
-              let+ field_write_val =
-                disambiguate_process_expr fw_desc.field_write_val field_type
-                  disam_tbl
-              in
-              Stmt.Basic (FieldWrite { field_write_ref; field_write_field; field_write_val }), disam_tbl
-              
-            | FieldRead fr_desc -> (
-                let* fr_var_qual_ident =
-                  disambiguate_ident fr_desc.field_read_lhs disam_tbl
-                in
-                let* fr_var_qual_ident, symbol =
-                  Rewriter.resolve_and_find stmt.stmt_loc fr_var_qual_ident
-                in
-                let* symbol = Rewriter.Symbol.reify symbol in
-                let* fr_type =
-                  match symbol with
-                  | VarDef var_def ->
-                      let* var_type_expanded =
-                        ProcessTypeExpr.expand_type_expr
-                          var_def.var_decl.var_type
-                      in
-                      Rewriter.return var_type_expanded
-                  | _ ->
-                      Error.type_error stmt.stmt_loc
-                        "Expected var identifier on left-hand side of field read"
-                in
-                let field_read_expr =
-                  Expr.App
-                    ( Read,
-                      [
-                        fr_desc.field_read_ref;
-                        App
-                          ( Var fr_desc.field_read_field,
-                            [],
-                            {
-                              Expr.expr_loc = stmt.stmt_loc;
-                              expr_type = Type.bot;
-                            } );
-                      ],
-                      { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot } )
-                in
-
-                let+ field_read_expr =
-                  disambiguate_process_expr field_read_expr fr_type disam_tbl
-                in
-
-                match field_read_expr with
-                | App
-                    ( Read,
-                      [ field_read_ref; App (Var field_read_field, [], _) ],
-                      _ ) ->
-                    let field_read_desc =
-                      Stmt.
-                        {
-                          field_read_lhs = fr_var_qual_ident;
-                          field_read_field;
-                          field_read_ref;
-                        }
-                    in
-                    (Stmt.Basic (FieldRead field_read_desc), disam_tbl)
-                | _ -> failwith "Unexpected error during type checking.")
-            | Cas cs_desc -> (
-                let* cs_var_qual_ident =
-                  disambiguate_ident cs_desc.cas_lhs disam_tbl
-                in
-                let* cs_var_qual_ident, symbol =
-                  Rewriter.resolve_and_find stmt.stmt_loc cs_var_qual_ident
-                in
-                let* symbol = Rewriter.Symbol.reify symbol in
-                let* cs_type =
-                  match symbol with
-                  | VarDef var_def ->
-                      let* var_type_expanded =
-                        ProcessTypeExpr.expand_type_expr
-                          var_def.var_decl.var_type
-                      in
-                      Rewriter.return var_type_expanded
-                  | _ ->
-                      Error.type_error stmt.stmt_loc
-                        "Expected var identifier on left-hand side of cas"
-                in
-                let expr_attr =
-                  { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot }
-                in
-                let cas_expr =
-                  Expr.App
-                    ( Cas,
-                      [
-                        App
-                          ( Read,
-                            [
-                              cs_desc.cas_ref;
-                              App (Var cs_desc.cas_field, [], expr_attr);
-                            ],
-                            expr_attr );
-                        cs_desc.cas_old_val;
-                        cs_desc.cas_new_val;
-                      ],
-                      { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bool }
-                    )
-                in
-
-                let+ cas_expr =
-                  disambiguate_process_expr cas_expr cs_type disam_tbl
-                in
-
-                match cas_expr with
-                | App
-                    ( Cas,
-                      [
-                        App (Read, [ cas_ref; App (Var cas_field, [], _) ], _);
-                        cas_old_val;
-                        cas_new_val;
-                      ],
-                      _ ) ->
-                    let cas_desc =
-                      Stmt.
-                        {
-                          cas_lhs = cs_var_qual_ident;
-                          cas_field;
-                          cas_ref;
-                          cas_old_val;
-                          cas_new_val;
-                        }
-                    in
-                    (Stmt.Basic (Cas cas_desc), disam_tbl)
-                | _ -> failwith "Unexpected error during type checking.")
-            | Havoc qual_ident ->
-                let* qual_ident = disambiguate_ident qual_ident disam_tbl in
-                Rewriter.return (Stmt.Basic (Havoc qual_ident), disam_tbl)
-            | Return expr ->
-                let+ expr =
-                  disambiguate_process_expr expr expected_return_type disam_tbl
-                in
-                (Stmt.Basic (Return expr), disam_tbl)
-            | Use use_desc ->
-                let* use_name, symbol =
-                  let* id = disambiguate_ident use_desc.use_name disam_tbl in
-                  Rewriter.resolve_and_find stmt.stmt_loc id
-                in
-                let* symbol = Rewriter.Symbol.reify symbol in
-
-                let pred_decl, pred_def =
-                  match symbol with
-                  | CallDef
-                      {
-                        call_decl = { call_decl_kind = Pred; _ } as pred_decl;
-                        call_def = FuncDef {func_body = pred_def}
-                      } ->
-                      pred_decl, pred_def
-                  | CallDef
-                      {
-                        call_decl =
-                          { call_decl_kind = Invariant; _ } as pred_decl;
-                        call_def = FuncDef {func_body = pred_def}
-                      } ->
-                      pred_decl, pred_def
-                  | _ ->
-                      Error.type_error stmt.stmt_loc
-                        ("Expected predicate or invariant identifier, but found "
-                        ^ QualIdent.to_string use_name)
-                in
-
-                let exists_vars =
-                  Option.value pred_def ~default:(Expr.mk_unit Loc.dummy)
-                  |> Expr.existential_vars_type
-                in
-                let find_type ident =
-                  let ty_opt = Map.fold exists_vars ~init:None ~f:(fun ~key ~data acc ->
-                      if Option.is_none acc
-                      && String.(Ident.name ident = Ident.name key)
-                      then Some data else acc)
-                  in
-                  match ty_opt with
-                  | Some ty -> ty
-                  | _ -> Error.type_error (Ident.to_loc ident)
-                           (Printf.sprintf !"Could not find existential variable %{Ident} in %s %{QualIdent}" ident (Symbol.kind symbol) use_desc.use_name)
-                in
-                
-                let* use_args =
-                  Rewriter.List.map use_desc.use_args ~f:(fun expr ->
-                      disambiguate_expr expr disam_tbl)
-                in
-
-                let* use_args =
-                  process_callable_args stmt.stmt_loc pred_decl use_args
-                in
-
-                let+ use_witnesses_or_binds = 
-                  Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
-                      match use_desc.use_kind with
-                      | Fold ->
-                        let ty = find_type i in
-                        let+ e = disambiguate_process_expr e ty disam_tbl in
-                        (i, e)
-                      | Unfold ->
-                        match e with
-                        | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
-                          let ty =
-                            find_type (QualIdent.unqualify qual_ident)
-                          in
-                          let+ ie = disambiguate_process_expr (Expr.mk_var ~typ:(Type.mk_any (Ident.to_loc i)) (QualIdent.from_ident i)) ty disam_tbl in
-                          (Expr.to_ident ie, e) 
-                        | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"
-                    ) 
-                in
-
-                ( Stmt.Basic (Use { use_desc with use_name; use_args; use_witnesses_or_binds }),
-                  disam_tbl )
-            | New new_desc ->
-                let* new_qual_ident =
-                  disambiguate_ident new_desc.new_lhs disam_tbl
-                in
-                let* new_qual_ident, symbol =
-                  Rewriter.resolve_and_find stmt.stmt_loc new_qual_ident
-                in
-                let* symbol = Rewriter.Symbol.reify symbol in
-                let var_decl =
-                  match symbol with
-                  | VarDef var_def -> var_def.var_decl
-                  | _ ->
-                      Error.type_error stmt.stmt_loc
-                        "Expected variable identifier on left-hand side of new"
-                in
-                let* var_type_expanded =
-                  ProcessTypeExpr.expand_type_expr var_decl.var_type
-                in
-
-                if Type.equal var_type_expanded Type.ref then
-                  let process_field_init (field_name, expr_opt) =
-                    let* field_name, symbol =
-                      Rewriter.resolve_and_find stmt.stmt_loc field_name
-                    in
-                    let* field_type =
-                      Rewriter.Symbol.reify_field_type stmt.stmt_loc symbol
-                    in
-                    let+ expr_opt =
-                      Rewriter.Option.map expr_opt ~f:(fun expr ->
-                          disambiguate_process_expr expr field_type disam_tbl)
-                    in
-                    (field_name, expr_opt)
-                  in
-                  let+ new_args =
-                    Rewriter.List.map new_desc.new_args ~f:process_field_init
-                  in
-
-                  let new_desc = Stmt.{ new_lhs = new_qual_ident; new_args } in
-
-                  (Stmt.Basic (New new_desc), disam_tbl)
-                else
-                  type_mismatch_error stmt.stmt_loc Type.ref var_decl.var_type
-            (* The following constructs are not expected here because the parser stores these commands as Assign stmts.
-               The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform
-               them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc.
-
-               This function is not expected to go over these parts of the AST again. If the following constructs are
-               discovered by this function, then something unexpected has happened. *)
-            (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
-            | Call call_desc -> (
-                let* call_lhs =
-                  Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
-                      let* qual_iden = disambiguate_ident qual_iden disam_tbl in
-                      Rewriter.resolve stmt.stmt_loc qual_iden)
-                in
-                let* call_lhs_types =
-                  Rewriter.List.map call_lhs ~f:(fun qual_iden ->
-                      let* qual_iden, symbol =
-                        Rewriter.resolve_and_find stmt.stmt_loc qual_iden
-                      in
-                      let* symbol = Rewriter.Symbol.reify symbol in
-                      match symbol with
-                      | VarDef var_def ->
-                          let* var_type_expanded =
-                            ProcessTypeExpr.expand_type_expr
-                              var_def.var_decl.var_type
-                          in
-                          Rewriter.return var_type_expanded
-                      | _ ->
-                          Error.type_error stmt.stmt_loc
-                            "Expected variable identifier on left-hand side of \
-                             call")
-                in
-
-                let expected_return_type =
-                  Type.mk_prod stmt.stmt_loc call_lhs_types
-                in
-
-                let+ call_expr =
-                  Expr.App
-                    ( Var call_desc.call_name,
-                      call_desc.call_args,
-                      { Expr.expr_loc = stmt.stmt_loc; expr_type = Type.bot } )
-                  |> fun expr ->
-                  disambiguate_process_expr expr expected_return_type disam_tbl
-                in
-
-                match call_expr with
-                | App (Var proc_qual_ident, args, _expr_attr) ->
-                    let (call_desc : Stmt.call_desc) =
-                      {
-                        call_lhs;
-                        call_name = proc_qual_ident;
-                        call_args = args;
-                      }
-                    in
-
-                    (Stmt.Basic (Call call_desc), disam_tbl)
-                | _ -> failwith "Unexpected error during type checking.")
-            | AUAction _au_action_kind ->
-                internal_error (Stmt.to_loc stmt)
-                  "Did not expect AU action stmts in AST at this stage."
-            | Fpu _fpu_desc ->
-                internal_error (Stmt.to_loc stmt)
-                  "Did not expect Fpu stmts in AST at this stage.")
+        | Basic basic_stmt ->
+          let+ basic_stmt, disam_tbl' =
+            process_basic_stmt expected_return_type basic_stmt (Stmt.to_loc stmt) disam_tbl
+          in
+          (Stmt.Basic basic_stmt, disam_tbl')
         | Loop loop_desc ->
             let* loop_contract =
               Rewriter.List.map loop_desc.loop_contract
