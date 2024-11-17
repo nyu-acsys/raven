@@ -12,9 +12,7 @@ module Lock {
   {
     l := new(bit:false);
     
-    {! 
-      fold lock(l, false);
-    !}
+    fold lock(l, false);
   }
 
   proc acquire(l: Ref, implicit ghost b: Bool)
@@ -28,13 +26,10 @@ module Lock {
    	val res: Bool = cas(l.bit, false, true); 
 
     {!
+      fold lock(l, res || b1);
       if (res) {
-        fold lock(l, true);
-        commitAU(phi);
-        
+        commitAU(phi);        
       } else {
-        fold lock(l, b1);
-        // fold lock(l, false); // <-- this is not working
         abortAU(phi);
       }	
     !}
@@ -52,18 +47,14 @@ module Lock {
     atomic ensures lock(l, false)
   {
     ghost var phi: AtomicToken;
-    {! 
-      phi := bindAU();
-      openAU(phi);
-      unfold lock(l, true);
-    !}
- 
+    phi := bindAU();
+    openAU(phi);
+    unfold lock(l, true);
+    
     l.(Lock.bit) := false;
     
-    {!
-      fold lock(l, false);
-      commitAU(phi);
-    !}
+    fold lock(l, false);
+    commitAU(phi);
   }
 }
 
@@ -255,12 +246,12 @@ module IntSetNodeImpl : NodeImpl {
     } else {
       if (dop == insertOp()) {
         res := (k !in v);
-        c_ret := v ++ {| k |};
         n.value := v ++ {| k |};
+        c_ret := n.value;
       } else {
         res := (k in v);
-        c_ret := v -- {| k |};
         n.value := v -- {| k |};
+        c_ret := n.value;
       }
     }
 

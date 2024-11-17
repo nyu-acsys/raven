@@ -728,6 +728,8 @@ and process_callable_args loc is_ghost_scope callable_decl args_list =
   let open Rewriter.Syntax in
   let callable_formals =
     match callable_decl.call_decl_kind with
+    | Proc when is_ghost_scope ->
+      Error.type_error loc "Cannot call procedure in ghost context"
     | Pred | Invariant ->
       callable_decl.call_decl_formals @ callable_decl.call_decl_returns
     | _ -> callable_decl.call_decl_formals

@@ -10,11 +10,11 @@ interface ShareablePredicate {
         requires p_chunk(x, 1.0)
         ensures true
     
-    proc split(x: Ref, f: Real)
+    axiom split(x: Ref, f: Real)
         requires p_chunk(x, f)
         ensures p_chunk(x, f / 2.0) && p_chunk(x, f / 2.0)
 
-    proc merge(x: Ref, f1: Real, f2: Real)
+    axiom merge(x: Ref, f1: Real, f2: Real)
         requires p_chunk(x, f1) && p_chunk(x, f2)
         requires f1+f2 <= 1.0
         ensures p_chunk(x, f1+f2)
