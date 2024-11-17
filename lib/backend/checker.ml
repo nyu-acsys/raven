@@ -38,7 +38,7 @@ let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) :
                     Rewriter.resolve constr_qual_ident
                   in
 
-                  assert (Poly.(constr_fully_qual_name = constr_qual_ident));
+                  assert (QualIdent.(constr_fully_qual_name = constr_qual_ident));
 
                   Rewriter.return (constr_fully_qual_name, destr_list))
             in
@@ -175,12 +175,9 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         | [] -> Rewriter.return ()
         | _ -> assume_expr post_cond_expr)
   | FuncDef { func_body = Some expr } -> (
-      if
-        Poly.(
-          call_decl.call_decl_kind = Pred
-          || call_decl.call_decl_kind = Invariant)
-      then Rewriter.return ()
-      else
+      match call_decl.call_decl_kind with
+      | Pred | Invariant -> Rewriter.return ()
+      | _ ->
         (* let cmd =
            SmtLibAST.mk_define_fun ~loc:call_decl.call_decl_loc fully_qual_name
            (List.map call_decl.call_decl_formals ~f:(fun arg -> (QualIdent.from_ident arg.var_name, arg.var_type)))

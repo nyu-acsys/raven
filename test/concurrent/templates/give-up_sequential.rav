@@ -122,8 +122,8 @@ module GiveUpTemplate[Node: NodeImpl] {
   module Keyset_K = KeysetRA[K_Type]
   module AuthKeyset_K = Library.Auth[Keyset_K]
 
-  field authSet: AuthSetRef
-  field authKS: AuthKeyset_K
+  ghost field authSet: AuthSetRef
+  ghost field authKS: AuthKeyset_K
 
   pred globalRes(r: Ref, c: Set[K]; fp: Set[Ref], inset: Map[Ref, Set[K]]) {
     own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
@@ -388,7 +388,7 @@ module GiveUpTemplate[Node: NodeImpl] {
 
       c1 := keyset_theorem(r, dop, k, contents[n], c_n, c, res1, keyset(inset[n], outset[n]));
 
-      var contents1: Map[Ref, Set[K]] := contents[n := c_n];
+      ghost var contents1: Map[Ref, Set[K]] := contents[n := c_n];
 
       assert own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c1 )));
 

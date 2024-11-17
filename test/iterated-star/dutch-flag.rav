@@ -25,7 +25,7 @@ module DutchFlag[Arr: IArray] {
     }
 
     proc dutchFlag(a: Arr, implicit ghost m: Map[Int, Int])
-        returns (m2: Map[Int, Int])
+        returns (ghost m2: Map[Int, Int])
         requires access(a,m)
         requires forall i: Int :: 0 <= i && i < Arr.len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
         ensures access(a,m2) && ordered(m2, Arr.len(a))

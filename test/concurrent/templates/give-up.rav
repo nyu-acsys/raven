@@ -158,9 +158,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
   module AuthKeyset_K = Library.Auth[Keyset_K]
   module AuthFlow_K = Library.Auth[Flow_K]
 
-  field authSet: AuthSetRef
-  field authKS: AuthKeyset_K
-  field authFlow: AuthFlow_K
+  ghost field authSet: AuthSetRef
+  ghost field authKS: AuthKeyset_K
+  ghost field authFlow: AuthFlow_K
   field lock: Int
 
   proc lockNode(n: Ref, implicit ghost b: Int)
@@ -172,12 +172,12 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic ensures own(n.lock, 0, 1.0)
 
   proc lockNodeHigh(r: Ref, n: Ref, implicit ghost c: Set[K])
-    returns (c_n : Set[K], i_n: Flow_K)
+    returns (ghost c_n : Set[K], ghost i_n: Flow_K)
     requires inFP(r, n)
     atomic requires css(r, c)
     atomic ensures css(r, c) && nodePred(r, n, c_n, i_n) && inFP(r, n)
   {
-    var phi: AtomicToken := bindAU();
+    ghost var phi: AtomicToken := bindAU();
 
     ghost var g_i0: Flow_K;
     ghost var lockval0: Map[Ref, Int];
@@ -201,13 +201,13 @@ interface GiveUpTemplate[Node: NodeImpl] {
     return contents0[n], intf0[n];
   }
 
-  proc unlockNodeHigh(r: Ref, n: Ref, c_n: Set[K], i_n: Flow_K, implicit ghost c: Set[K])
+  proc unlockNodeHigh(r: Ref, n: Ref, ghost c_n: Set[K], ghost i_n: Flow_K, implicit ghost c: Set[K])
     requires inFP(r, n)
     requires nodePred(r, n, c_n, i_n)
     atomic requires css(r, c)
     atomic ensures css(r, c) && inFP(r, n)
   {
-    var phi: AtomicToken := bindAU();
+    ghost var phi: AtomicToken := bindAU();
 
     ghost var g_i1: Flow_K;
     ghost var lockval1: Map[Ref, Int];
@@ -391,7 +391,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
   }
 
   proc traverse(r: Ref, n: Ref, k: K, implicit ghost c: Set[K])
-    returns (nn: Ref, cnn: Set[K], i_nn: Flow_K)
+    returns (nn: Ref, ghost cnn: Set[K], ghost i_nn: Flow_K)
     requires inFP(r, n)
     atomic requires css(r, c)
     atomic ensures css(r, c)

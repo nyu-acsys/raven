@@ -7,20 +7,20 @@ inv p2(x: Int) {
 }
 
 proc p(implicit ghost x: Int)
-  returns (y: Int)
+  returns (ghost y: Int)
   atomic requires p1(x)
   atomic requires p2(x)
   atomic ensures p1(y)
 {
-  var phi: AtomicToken := bindAU();
+  ghost var phi: AtomicToken := bindAU();
 
-  var x0: Int := openAU(phi);
+  ghost var x0: Int := openAU(phi);
 
   var m: Int = 5;
   abortAU(phi);
 
 
-  var x1: Int := openAU(phi);
+  ghost var x1: Int := openAU(phi);
   unfold p1(x1);
   unfold p2(x1);
   fold p1(x1);

@@ -217,7 +217,10 @@ type 'a qual_ident_hashtbl = 'a QualIdentHashtbl.t
 
 module Type = struct
   module T = struct
-    type type_attr = { type_loc : Loc.t [@hash.ignore] [@compare.ignore] }
+    type type_attr = {
+      type_loc : Loc.t; [@hash.ignore] [@compare.ignore]
+      type_ghost: bool [@hash.ignore] [@compare.ignore]
+    }
 
     and var_decl = {
       var_name : Ident.t;
@@ -262,7 +265,15 @@ module Type = struct
   let attr_of = function App (_, _, attr) -> attr
   let to_loc t = t |> attr_of |> fun attr -> attr.type_loc
 
-
+  let is_ghost t = t |> attr_of |> fun attr -> attr.type_ghost
+  let set_ghost b =
+    let rec f = 
+      function App (constr, args, attr) ->
+        let args = List.map args ~f in
+        App (constr, args, { attr with type_ghost = b })
+    in f
+  let set_ghost_to t1 t2 = set_ghost (is_ghost t1) t2
+  
   (** Pretty printing types *)
 
   let ref_type_string = "Ref"
@@ -348,8 +359,8 @@ module Type = struct
 
   (** Constructors *)
 
-  let dummy_attr = { type_loc = Loc.dummy }
-  let mk_attr loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc }
+  let dummy_attr = { type_loc = Loc.dummy; type_ghost = false }
+  let mk_attr loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = false }
   let mk_app ?(loc = Loc.dummy) t ts = App (t, ts, mk_attr loc)
 
   let mk_int loc = App (Int, [], mk_attr loc)
@@ -366,7 +377,7 @@ module Type = struct
   let mk_perm loc = App (Perm, [], mk_attr loc)
   let mk_data id decls loc = App (Data (id, decls), [], mk_attr loc)
   let mk_var qid = App (Var qid, [], mk_attr (QualIdent.to_loc qid))
-  let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc)
+  let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc) |> set_ghost true
   let mk_prod loc tp_list = 
     match tp_list with
     | [] -> mk_unit loc
@@ -385,11 +396,11 @@ module Type = struct
   let set = mk_set Loc.dummy bot
   let set_typed tp = mk_set Loc.dummy tp
   let map = mk_map Loc.dummy
-  let perm = mk_perm Loc.dummy
+  let perm = mk_perm Loc.dummy |> set_ghost true
   let data id decls = mk_data id decls Loc.dummy
   let var qid = mk_var qid
   let atomic_token = mk_atomic_token Loc.dummy
-
+  
   (** Equality and Subtyping *)
 
   (*let equal tp1 tp2 = ((compare tp1 tp2) = 0)*)
@@ -444,7 +455,7 @@ module Type = struct
   (** Auxiliary utility functions *)
   
   let mk_var_decl ?(const = false) ?(ghost = false) ?(implicit = false) name ?(loc = Ident.to_loc name) tp =
-    { var_name = name; var_loc = loc; var_type = tp; var_const = const; var_ghost = ghost; var_implicit = implicit }
+    { var_name = name; var_loc = loc; var_type = tp |> set_ghost ghost; var_const = const; var_ghost = ghost; var_implicit = implicit }
 
   let is_num tp =
     equal tp real || equal tp int
@@ -1847,7 +1858,7 @@ module Callable = struct
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
-    call_decl_is_auto : bool;
+    call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
     call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
     call_decl_loc : location;  (** source location of declaration *)
   }
@@ -1870,7 +1881,7 @@ module Callable = struct
   let pr_call_decl has_body ppf call_decl =
     let open Stdlib.Format in
     let auto_modifier = match call_decl.call_decl_is_auto with
-      | true -> "auto "
+      | true -> "auto"
       | false -> ""
     in
     let kind =
@@ -1952,9 +1963,9 @@ module Callable = struct
           ~f:(fun r -> r.var_type)
       in
       begin match returns with
-      | [] -> Type.unit
-      | [t] -> t
-      | ts -> Type.mk_prod call_decl.call_decl_loc ts
+        | [] -> Type.unit
+        | [t] -> t
+        | ts -> Type.mk_prod call_decl.call_decl_loc ts
       end
     | Pred | Invariant -> Type.perm
 

@@ -6,6 +6,7 @@ open Util
 type 'a state = {
   state_table : SymbolTbl.t;
   state_update_table : bool;
+  state_ghost_scope : bool list;
   state_new_symbols : Module.symbol list list;
   state_user_data : 'a;
 }
@@ -56,6 +57,7 @@ let eval ?(update = true) m tbl =
     {
       state_table = tbl;
       state_update_table = update;
+      state_ghost_scope = [];
       state_new_symbols = [];
       state_user_data = ();
     }
@@ -104,10 +106,20 @@ let current_module_name s : 'a state * qual_ident =
 
 let update_table f s = ({ s with state_table = f s.state_table }, ())
 
+let is_ghost_scope s = (s, List.hd_exn s.state_ghost_scope)
+
+let exit_ghost s = ({ s with state_ghost_scope = List.tl_exn s.state_ghost_scope }, ())
+let enter_ghost b s = ({ s with state_ghost_scope = b :: s.state_ghost_scope }, ())
+
+let exit_block s = exit_ghost s
+let enter_block block s =
+  let is_ghost_scope = List.hd_exn s.state_ghost_scope || block.Stmt.block_is_ghost in
+  enter_ghost is_ghost_scope s
+
 let exit_module (mdef : Module.t) s =
   (* Logs.debug (fun m -> m "exit_module: %a" Module.pr (mdef)); *)
   let tbl = s.state_table in
-  let new_symbols, mdef =
+  let state_new_symbols, mdef =
     match s.state_new_symbols with
     | symbols :: new_symbols ->
         (* Logs.debug (fun m -> m "exit_module: %a;\nnew symbols: %a" Ident.pr (mdef.mod_decl.mod_decl_name) (Print.pr_list_comma AstDef.Symbol.pr) symbols); *)
@@ -118,7 +130,8 @@ let exit_module (mdef : Module.t) s =
         assert (List.is_empty new_symbols);
         (new_symbols, mdef)
   in
-  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols = new_symbols },
+  let state_ghost_scope = List.tl_exn s.state_ghost_scope in
+  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols; state_ghost_scope },
     mdef )
 
 let exit_callable (call_def : Callable.t) s =
@@ -131,7 +144,7 @@ let exit_callable (call_def : Callable.t) s =
       Logs.debug (fun m -> m "exit_callable: proc_body = %a" AstDef.Stmt.pr pp);
      | _ -> ()); *)
   let tbl = s.state_table in
-  let new_symbols, call_def =
+  let state_new_symbols, call_def =
     match s.state_new_symbols with
     | new_callable_symbols :: new_mod_symbols :: new_symbols ->
         let open Callable in
@@ -160,16 +173,18 @@ let exit_callable (call_def : Callable.t) s =
       (*Logs.debug (fun m -> m "exit_callable: No New Symbols");*)
         (new_symbols, call_def)
   in
-  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols = new_symbols },
+  let state_ghost_scope = List.tl_exn s.state_ghost_scope in
+  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols; state_ghost_scope },
     call_def )
 
 let enter symbol s =
   (*Logs.debug (fun m ->
       m "Rewriter.enter: symbol = %a" Ident.pr (AstDef.Symbol.to_name symbol));*)
   (* Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Symbol.pr (symbol)); *)
-  let _ =
+  let is_ghost_scope =
     match symbol with
-    | Module.ModDef _ | CallDef _ -> ()
+    | Module.CallDef { call_decl = { call_decl_kind = (Lemma | Pred); _}; _ } -> true
+    | ModDef _ | CallDef _ -> false
     | _ -> failwith "enter: expected module or callable symbol"
   in
   let symbol_loc = Symbol.to_loc symbol in
@@ -177,6 +192,7 @@ let enter symbol s =
   ( {
       s with
       state_table = SymbolTbl.enter symbol_loc symbol_ident s.state_table;
+      state_ghost_scope = is_ghost_scope :: s.state_ghost_scope;
       state_new_symbols = [] :: s.state_new_symbols;
     },
     () )
@@ -249,6 +265,7 @@ let introduce_typecheck_symbol ~loc
         if s.state_table.tbl_curr.scope_is_local then
           let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
           let curr_scope_symbols = List.hd_exn s.state_new_symbols in
+          let curr_ghost_scope = List.hd_exn s.state_ghost_scope in
 
           let empty_module =
             Module.{ mod_decl = empty_decl; mod_def = [] }
@@ -271,6 +288,7 @@ let introduce_typecheck_symbol ~loc
               s with
               state_table = SymbolTbl.enter loc curr_scope_name s.state_table;
               state_new_symbols = curr_scope_symbols :: s.state_new_symbols;
+              state_ghost_scope = curr_ghost_scope :: s.state_ghost_scope
             }
           in
 
@@ -314,16 +332,16 @@ let introduce_toplevel_symbol ~loc
   with
   | Some _, _ | _, false -> (s, symbol_qual_ident)
   | None, true ->
-      let ((s, scope_new_symbols_list)
-            : 'a state * (ident * Module.symbol list) list) =
+      let s, scope_new_symbols_list, ghost_scope_list =
         let rec pop_fn (topscope : qual_ident) (s : 'a state)
-            (scope_new_symbols_list : (ident * Module.symbol list) list) :
-            'a state * (ident * Module.symbol list) list =
+            (scope_new_symbols_list : (ident * Module.symbol list) list)
+            (ghost_scope_list : bool list)  =
           if QualIdent.equal s.state_table.tbl_curr.scope_id topscope then
-            (s, scope_new_symbols_list)
+            (s, scope_new_symbols_list, ghost_scope_list)
           else
             let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
             let curr_scope_symbols = List.hd_exn s.state_new_symbols in
+            let curr_ghost_scope = List.hd_exn s.state_ghost_scope in
             let scope_new_symbols_list =
               (curr_scope_name, curr_scope_symbols) :: scope_new_symbols_list
             in
@@ -335,10 +353,10 @@ let introduce_toplevel_symbol ~loc
 
             let s, _m = exit_module empty_module s in
 
-            pop_fn topscope s scope_new_symbols_list
+            pop_fn topscope s scope_new_symbols_list (curr_ghost_scope :: ghost_scope_list)
         in
 
-        pop_fn topscope_name s []
+        pop_fn topscope_name s [] []
       in
 
       let s, _ = declare_symbol symbol s in
@@ -356,12 +374,13 @@ let introduce_toplevel_symbol ~loc
       in
 
       let s =
-        List.fold scope_new_symbols_list ~init:s
-          ~f:(fun s (scope_name, scope_symbols) ->
+        List.fold2_exn scope_new_symbols_list ghost_scope_list ~init:s
+          ~f:(fun s (scope_name, scope_symbols) ghost_scope ->
             {
               s with
               state_table = SymbolTbl.enter loc scope_name s.state_table;
               state_new_symbols = scope_symbols :: s.state_new_symbols;
+              state_ghost_scope = ghost_scope :: s.state_ghost_scope
             }
             (* since we don't have the actual ModDef/CallDef, cannot call Rewriter.enter.
                Instead, manually implementing its functionality using SymbolTbl.enter. *))
@@ -589,7 +608,9 @@ module Stmt = struct
     let open Syntax in
     match stmt.stmt_desc with
     | Block block_desc ->
-        let+ stmt_list = List.map block_desc.block_body ~f in
+        let* _ = enter_block block_desc in
+        let* stmt_list = List.map block_desc.block_body ~f in
+        let+ () = exit_block in
         {
           stmt with
           stmt_desc = Block { block_desc with block_body = stmt_list };

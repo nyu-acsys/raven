@@ -8,7 +8,7 @@ proc incr(x: Ref, implicit ghost v: Int)
   atomic requires counter(x, v)
   atomic ensures counter(x, v + 1)
 {
-  var phi: AtomicToken := bindAU();
+  ghost var phi: AtomicToken := bindAU();
 
   var v1: Int;
 
@@ -22,7 +22,7 @@ proc incr(x: Ref, implicit ghost v: Int)
   
   var new_v1 : Int := v1 + 1;
 
-  var v3: Int := openAU(phi);
+  ghost var v3: Int := openAU(phi);
 
   unfold counter(x,v3);
 
@@ -39,7 +39,7 @@ proc incr(x: Ref, implicit ghost v: Int)
   !}
 
   if (!res) {
-    var v4: Int := openAU(phi);
+    ghost var v4: Int := openAU(phi);
     incr(x);
     commitAU(phi);
   }
@@ -52,9 +52,9 @@ proc read(x: Ref, implicit ghost v: Int)
   ensures v2 == v
 
 {
-  var phi: AtomicToken := bindAU();
+  ghost var phi: AtomicToken := bindAU();
 
-  var v1: Int := openAU(phi);
+  ghost var v1: Int := openAU(phi);
   unfold counter(x, v1);
 
   var v3: Int := x.c;

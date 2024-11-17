@@ -96,17 +96,19 @@ module ProcessTypeExpr = struct
             match qual_ident_def with
             | None ->
                 Rewriter.return
-                @@ Type.App (Var qual_ident, tp_expr_list, tp_attr)
+                @@ (Type.App (Var qual_ident, tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
             | Some (App (Data _, _, _)) ->
                 Rewriter.return
-                @@ Type.App (Var qual_ident, tp_expr_list, tp_attr)
-            | Some tp_expr -> expand_type_expr tp_expr)
+                @@ (Type.App (Var qual_ident, tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
+            | Some tp_expr1 ->
+              let+ exp_typ = expand_type_expr tp_expr1 in
+              exp_typ |> Type.set_ghost_to tp_expr)
         | Var qual_iden, _ -> unexpected_functor_error tp_attr.type_loc
         | _ ->
             let+ expanded_tp_expr_list =
               Rewriter.List.map tp_expr_list ~f:expand_type_expr
             in
-            Type.App (constr, expanded_tp_expr_list, tp_attr))
+            Type.App (constr, expanded_tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
 
   let process_var_decl (var_decl : var_decl) : var_decl Rewriter.t =
     let open Rewriter.Syntax in
@@ -124,6 +126,7 @@ end
 let check_and_set (expr : expr) (given_typ_lb : type_expr)
     (given_typ_ub : type_expr) (expected_typ : type_expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
+  let expected_ghost = Type.is_ghost expected_typ in
   let+ given_typ_lb =
     try ProcessTypeExpr.expand_type_expr given_typ_lb
     with Msg msgs ->
@@ -131,13 +134,19 @@ let check_and_set (expr : expr) (given_typ_lb : type_expr)
         (List.map msgs ~f:(fun (lbl, _loc, msg) -> (lbl, Expr.to_loc expr, msg)))
   and+ given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub
   and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ in
-  let typ = Type.meet given_typ_ub expected_typ in
+  let _ =
+    if not @@ expected_ghost && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb) then
+      let _ = Logs.debug (fun m -> m !"Failed with %{Expr}" expr) in
+      Error.type_error (Expr.to_loc expr) "Cannot use ghost state in non-ghost context"
+  in            
+  let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
   if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
   else type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
 
 (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ] *)
 let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
-    =
+  =
+  Logs.debug (fun m -> m !"process_expr: %{Expr} %b" expr (Type.is_ghost expected_typ));
   let open Rewriter.Syntax in
   match expr with
   | App (constr, expr_list, expr_attr) -> (
@@ -174,14 +183,14 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           | CallDef callable ->
               let callable_decl = Callable.to_decl callable in
               let* args_list =
-                process_callable_args (Expr.to_loc expr) callable_decl args_list
+                process_callable_args (Expr.to_loc expr) (expected_typ |> Type.is_ghost) callable_decl args_list
               in
               let given_typ = Callable.return_type callable_decl in
               let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
               check_and_set expr given_typ given_typ expected_typ
           | VarDef _ | FieldDef _ ->
               let given_typ =
-                match (symbol, args_list) with
+                match symbol, args_list with
                 | VarDef var_def, [] -> var_def.var_decl.var_type
                 | FieldDef field_def, [] -> field_def.field_type
                 | _ ->
@@ -200,10 +209,11 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       (* Unary expressions *)
       | (Not | Uminus), [ expr_arg ] ->
           let given_type_ub =
-            match constr with
+            let ty = match constr with
             | Uminus -> Type.num
             | Not -> Type.bool
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr_arg = process_expr expr_arg given_type_ub in
           let given_type_lb = Expr.to_type expr_arg in
@@ -220,7 +230,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           [ expr1; expr2 ] ) ->
           (* infer and propagated expected type of expr1 *)
           let expected_typ1 =
-            match constr with
+            let ty = match constr with
             | TupleLookUp -> Type.(any)
             | MapLookUp -> Type.(map bot expected_typ)
             | Diff | Union | Inter ->
@@ -231,12 +241,13 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | Impl -> Type.bool (* antecedent must be pure *)
             | Elem | Eq -> Type.any
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr1 = process_expr expr1 expected_typ1 in
           let typ1 = Expr.to_type expr1 in
           (* infer and propagated expected type of expr2 *)
           let expected_typ2 =
-            match constr with
+            let ty = match constr with
             | TupleLookUp -> Type.int
             | MapLookUp -> Type.map_dom typ1
             | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | Subseteq
@@ -245,13 +256,14 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | And | Or | Impl -> Type.perm
             | Elem -> Type.(set_typed typ1)
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr2 = process_expr expr2 expected_typ2 in
           let typ2 = Expr.to_type expr2 in
 
           (* backpropagate typ2 to expr1 if needed *)
           let expected_typ1 =
-            match constr with
+            let ty = match constr with
             | TupleLookUp ->
                 let _lookup_type = Type.tuple_lookup typ1 (Expr.to_int expr2) in
                 (* above lookup checks well-formedness of typ1 *)
@@ -263,6 +275,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | And | Or | Impl -> Type.perm
             | Elem -> Type.set_elem typ2
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr1 =
             if Type.equal expected_typ1 typ1 then Rewriter.return expr1
@@ -270,15 +283,17 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           in
 
           let expected_typ =
-            if not @@ Type.is_any expected_typ then expected_typ
-            else
-              match constr with
-              | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
-              | MapLookUp -> Type.map_codom typ1
-              | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod -> typ2
-              | And | Or | Impl -> expected_typ
-              | Subseteq | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
-              | _ -> assert false
+            let ty =
+              if not @@ Type.is_any expected_typ then expected_typ
+              else
+                match constr with
+                | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
+                | MapLookUp -> Type.map_codom typ1
+                | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod -> typ2
+                | And | Or | Impl -> expected_typ
+                | Subseteq | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
+                | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
 
           (* recompute expr and check against its expected type *)
@@ -315,37 +330,41 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       | (Ite | MapUpdate), [ expr1; expr2; expr3 ] ->
           (* infer and propagate expected type of expr1 *)
           let expected_typ1 =
-            match constr with
+            let ty = match constr with
             | Ite -> Type.bool
             | MapUpdate -> Type.(map bot any)
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr1 = process_expr expr1 expected_typ1 in
           let typ1 = Expr.to_type expr1 in
           (* infer and propagate expected type of expr2 *)
           let expected_typ2 =
-            match constr with
+            let ty = match constr with
             | Ite -> expected_typ
             | MapUpdate -> Type.map_dom typ1
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr2 = process_expr expr2 expected_typ2 in
           let typ2 = Expr.to_type expr2 in
           (* infer and propagate expected type of expr3 *)
           let expected_typ3 =
-            match constr with
+            let ty = match constr with
             | Ite -> expected_typ
             | MapUpdate -> Type.map_codom typ1
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr3 = process_expr expr3 expected_typ3 in
           let typ3 = Expr.to_type expr3 in
           (* backpropagate typ3 to expr2 if needed *)
           let expected_typ2 =
-            match constr with
+            let ty = match constr with
             | Ite -> Type.join typ2 typ3
             | MapUpdate -> typ2
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr2 =
             if Type.equal expected_typ2 typ2 then Rewriter.return expr2
@@ -354,10 +373,11 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           let typ2 = Expr.to_type expr2 in
           (* backpropagate typ3 and typ2 to expr1 if needed *)
           let expected_typ1 =
-            match constr with
+            let ty = match constr with
             | Ite -> Type.bool
             | MapUpdate -> Type.map typ2 typ3
             | _ -> assert false
+            in ty |> Type.set_ghost_to expected_typ
           in
           let* expr1 =
             if Type.equal expected_typ1 typ1 then Rewriter.return expr1
@@ -404,12 +424,12 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                ^ " takes either three or four arguments, and second argument is a \
                   field name.")
           in
-          let* expr1 = process_expr expr1 Type.ref
-          and* expr2 = process_expr expr2 Type.any in
+          let* expr1 = process_expr expr1 (Type.ref |> Type.set_ghost_to expected_typ)
+          and* expr2 = process_expr expr2 (Type.any |> Type.set_ghost_to expected_typ) in
 
           let field_type =
             match Expr.to_type expr2 with
-            | App (Fld, [ tp_expr ], _) -> tp_expr
+            | App (Fld, [ tp_expr ], _) -> tp_expr |> Type.set_ghost_to expected_typ
             | _ ->
                 Error.type_error (Expr.to_loc expr2)
                   "Expected field identifier."
@@ -421,7 +441,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
               Error.type_error (Expr.to_loc expr)
                 "Own takes either three or four arguments."
             else
-              Rewriter.List.map expr4_opt ~f:(fun e -> process_expr e Type.real)
+              Rewriter.List.map expr4_opt ~f:(fun e -> process_expr e (Type.real |> Type.set_ghost_to expected_typ))
           in
           (* Reconstruct and check expr *)
           let expr =
@@ -446,7 +466,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           else
             let* token = process_expr token Type.atomic_token in
             let* args_list =
-              process_callable_args loc callable_decl args_list
+              process_callable_args loc true callable_decl args_list
             in
             let expr =
               Expr.App (AUPred call_name, token :: args_list, expr_attr)
@@ -477,12 +497,13 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           else
             let* token = process_expr token Type.atomic_token in
             let* args_list =
-              process_callable_args loc callable_decl args_list
+              process_callable_args loc true callable_decl args_list
             in
             let* ret_val =
               process_expr ret_val
                 (Type.mk_prod loc
                    (List.map callable_decl.call_decl_returns ~f:(fun v ->
+                        Logs.debug (fun m -> m !"ret_arg: %{Ident} %b" v.var_name (v.var_type |> Type.is_ghost));
                         v.var_type)))
             in
             let expr =
@@ -504,7 +525,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           in
           let constr_arg_types_list =
             List.map constr_decl.constr_args ~f:(fun var_decl ->
-                var_decl.var_type)
+                var_decl.var_type |> Type.set_ghost_to expected_typ)
           in
           let* maybe_args_list =
             Rewriter.List.map2 args_list constr_arg_types_list
@@ -532,7 +553,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | DestrDef destr -> destr
             | _tp_env -> Error.type_error loc "Expected data destructor"
           in
-          let* expr1 = process_expr expr1 destr.destr_arg in
+          let* expr1 = process_expr expr1 (destr.destr_arg |> Type.set_ghost_to expected_typ) in
           let given_typ = destr.destr_return_type in
           let expr = Expr.App (constr, [ expr1 ], expr_attr) in
           check_and_set expr given_typ given_typ expected_typ
@@ -551,25 +572,26 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
               in
               let* symbol = Rewriter.Symbol.reify symbol in
               match symbol with
-              | FieldDef { field_type = App (Fld, [ given_type ], _) as tp; _ }
+              | FieldDef { field_type = App (Fld, [ expected_fld_typ ], _) as tp; _ }
                 ->
+                  let expected_fld_typ = expected_fld_typ |> Type.set_ghost_to expected_typ in
                   let* expanded_type =
-                    ProcessTypeExpr.expand_type_expr given_type
+                    ProcessTypeExpr.expand_type_expr expected_fld_typ
                   in
                   if
                     Type.(
                       expanded_type = int || expanded_type = bool
                       || expanded_type = ref)
                   then
-                    let* expr11 = process_expr expr11 Type.ref in
+                    let* expr11 = process_expr expr11 (Type.ref |> Type.set_ghost_to expected_typ) in
                     let expr12 = Expr.App (Var qual_ident, [], expr_attr') in
                     let expr12 = Expr.set_type expr12 tp in
-                    let* expr2 = process_expr expr2 given_type in
-                    let* expr3 = process_expr expr3 given_type in
+                    let* expr2 = process_expr expr2 expected_fld_typ in
+                    let* expr3 = process_expr expr3 expected_fld_typ in
                     let expr1 =
                       Expr.App (Read, [ expr11; expr12 ], expr_attr'')
                     in
-                    let expr1 = Expr.set_type expr1 given_type in
+                    let expr1 = Expr.set_type expr1 expected_fld_typ in
                     let expr =
                       Expr.App (Cas, [ expr1; expr2; expr3 ], expr_attr)
                     in
@@ -577,7 +599,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                   else
                     Error.type_error (Expr.to_loc expr)
                       ("CAS only allowed over int, bool and ref; but found "
-                     ^ Type.to_string given_type)
+                     ^ Type.to_string expected_fld_typ)
               | _ ->
                   Error.type_error (Expr.to_loc expr)
                     ("Expected field identifier, but found "
@@ -618,7 +640,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           let* member_expr_list, elem_typ =
             Rewriter.List.fold_right member_expr_list
               ~f:(fun mexpr (member_expr_list, elem_typ) ->
-                let+ mexpr = process_expr mexpr elem_typ in
+                let+ mexpr = process_expr mexpr (elem_typ |> Type.set_ghost_to expected_typ) in
                 (mexpr :: member_expr_list, Expr.to_type mexpr))
               ~init:([], Type.any)
           in
@@ -660,7 +682,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           let* trgs =
             Rewriter.List.map trgs ~f:(fun trg ->
                 Rewriter.List.map trg ~f:(fun expr ->
-                    process_expr expr Type.any))
+                    process_expr expr (Type.any |> Type.set_ghost true)))
           in
 
           (* TODO: Add additional checks for triggers *)
@@ -668,7 +690,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           let expr =
             Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr)
           in
-          check_and_set expr Type.bool Type.perm inner_typ
+          check_and_set expr Type.bool (Type.perm |> Type.set_ghost_to expected_typ) inner_typ
       | Compr ->
           let var_decl =
             match var_decl_list with
@@ -679,10 +701,11 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           in
           
           let inner_expr_expected_typ =
-            match expected_typ with
+            let ty = match expected_typ with
             | App (Set, _, _) -> Type.bool
             | App (Map, [ _; tp ], _) -> tp
             | _ -> Type.any
+            in ty |> Type.set_ghost_to expected_typ
           in
 
           let* inner_expr = process_expr inner_expr inner_expr_expected_typ in
@@ -701,14 +724,20 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
 
 (* end of process_expr *)
 
-and process_callable_args loc callable_decl args_list =
+and process_callable_args loc is_ghost_scope callable_decl args_list =
+  let open Rewriter.Syntax in
   let callable_formals =
     match callable_decl.call_decl_kind with
     | Pred | Invariant ->
-        callable_decl.call_decl_formals @ callable_decl.call_decl_returns
+      callable_decl.call_decl_formals @ callable_decl.call_decl_returns
     | _ -> callable_decl.call_decl_formals
   in
-
+  let is_ghost_call =
+    match callable_decl.call_decl_kind with
+    | Pred | Invariant | Lemma -> true
+    | _ -> false
+  in
+  
   (* Check if too few arguments given. *)
   let _ =
     List.drop callable_formals (List.length args_list)
@@ -723,12 +752,11 @@ and process_callable_args loc callable_decl args_list =
   let provided_formals = List.take callable_formals (List.length args_list) in
   let explicit_formal_types =
     List.map provided_formals ~f:(fun var_decl ->
-        (*ProcessTypeExpr.process_type_expr*) var_decl.Type.var_type)
+        var_decl.Type.var_type)
   in
-  let open Rewriter.Syntax in
   match%bind
     Rewriter.List.map2 args_list explicit_formal_types ~f:(fun expr tp_expr ->
-        process_expr expr tp_expr)
+        process_expr expr (tp_expr |> Type.set_ghost (Type.is_ghost tp_expr || is_ghost_call || is_ghost_scope)))
   with
   | Ok args_list -> Rewriter.return args_list
   | Unequal_lengths ->
@@ -814,7 +842,7 @@ module ProcessCallable = struct
                      (Ident.to_string qual_ident.qual_base)
               else Rewriter.return qual_ident.qual_base
       in
-      Rewriter.return (QualIdent.make [] base)
+      Rewriter.return (QualIdent.make [] base |> QualIdent.set_loc (QualIdent.to_loc qual_ident))
     else Rewriter.return qual_ident
 
   let rec disambiguate_expr (expr : expr) (disam_tbl : DisambiguationTbl.t) :
@@ -889,9 +917,9 @@ module ProcessCallable = struct
     in
     let* symbol = Rewriter.Symbol.reify symbol in
     match symbol with
-    | FieldDef { field_type = App (Fld, [ given_type ], _); _ } ->
+    | FieldDef { field_type = App (Fld, [ field_type ], _); _ } ->
       let+ ref = disambiguate_process_expr ref Type.ref disam_tbl in
-      ref, field, given_type
+      ref, field, field_type
     | _ -> Error.type_error (QualIdent.to_loc field) (Printf.sprintf !"Expected field identifier but found %s %{QualIdent}" (Symbol.kind symbol) field)
 
   
@@ -913,6 +941,11 @@ module ProcessCallable = struct
     let open Rewriter.Syntax in
     match assign_rhs with
     | Expr.App (Var qual_ident, args, expr_attr) ->
+      let _ = List.iter2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
+          if var_decl.var_type |> Type.is_ghost then () else
+            Error.type_error (qual_ident |> QualIdent.to_loc) "Ghost command cannot assign to non-ghost variable"
+        )
+      in
       (* bindAU *)
       if
         QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident)
@@ -991,7 +1024,7 @@ module ProcessCallable = struct
             
             let+ args =
               Rewriter.List.map args ~f:(fun arg ->
-                  disambiguate_process_expr arg Type.any disam_tbl)
+                  disambiguate_process_expr arg (Type.any |> Type.set_ghost true) disam_tbl)
             in
             
             match token_expr with
@@ -1027,10 +1060,7 @@ module ProcessCallable = struct
         QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident)
       then
         let field_opt = function
-          | Expr.App (Var qual_ident, [], _) as field_expr ->
-            let* field_expr =
-              disambiguate_process_expr field_expr Type.any disam_tbl
-            in
+          | Expr.App (Var qual_ident, [], _) ->
             let* field_qual_ident, symbol =
               Rewriter.resolve_and_find qual_ident
             in
@@ -1065,7 +1095,7 @@ module ProcessCallable = struct
             )
         in
         let* ref_expr =
-          disambiguate_process_expr ref_expr Type.ref disam_tbl
+          disambiguate_process_expr ref_expr (Type.ref |> Type.set_ghost true) disam_tbl
         in
         let field_qual_ident, given_type = field in
         let+ fpu_exprs =
@@ -1112,6 +1142,14 @@ module ProcessCallable = struct
       let var_decl, disam_tbl' =
         DisambiguationTbl.add_var_decl var_decl disam_tbl
       in
+      let* is_ghost_scope = Rewriter.is_ghost_scope in
+      let var_decl =
+        let var_ghost = var_decl.var_ghost || is_ghost_scope in 
+        { var_decl with
+          var_type = var_decl.var_type |> Type.set_ghost var_ghost;
+          var_ghost
+        }
+      in
       let* _ =
         Rewriter.introduce_symbol
           (VarDef { var_decl; var_init = None })
@@ -1140,19 +1178,24 @@ module ProcessCallable = struct
       let+ spec = process_stmt_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
     | Assign assign_desc -> begin
+        let* is_ghost_scope = Rewriter.is_ghost_scope in
         let* assign_lhs, var_decls_lhs =
-          Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], []) ~f:(fun qual_ident (assign_lhs, var_decls_lhs) ->
-              let* qual_ident = disambiguate_ident qual_ident disam_tbl in
+          Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], [])
+            ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
+              let* qual_ident = disambiguate_ident orig_qual_ident disam_tbl in
               let* qual_ident, symbol =
                 Rewriter.resolve_and_find qual_ident
               in
               let+ symbol = Rewriter.Symbol.reify symbol in
               match symbol with
+              | VarDef { var_decl; _ } when is_ghost_scope && not var_decl.var_ghost ->
+                Error.type_error (QualIdent.to_loc qual_ident)
+                  (Printf.sprintf !"Cannot assign to non-ghost var %{QualIdent} in ghost context" orig_qual_ident)
               | VarDef { var_decl; _ } when not var_decl.var_const || assign_desc.assign_is_init ->
                 qual_ident :: assign_lhs, var_decl :: var_decls_lhs
               | _ ->
                 Error.type_error (QualIdent.to_loc qual_ident)
-                  (Printf.sprintf !"Cannot assign to %s %{QualIdent}" (Symbol.kind symbol) qual_ident)
+                  (Printf.sprintf !"Cannot assign to %s %{QualIdent}" (Symbol.kind symbol) orig_qual_ident)
             )
         in
 
@@ -1187,13 +1230,13 @@ module ProcessCallable = struct
           Logs.debug (fun m ->
               m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
                 (Assign assign_desc));
-          
+
           let expected_type =
             Type.mk_prod
               (Expr.to_loc assign_desc.assign_rhs)
               (List.map var_decls_lhs ~f:(fun var -> var.var_type))
+            |> fun ty -> if is_ghost_scope then ty |> Type.set_ghost true else ty
           in
-
           let* assign_rhs =
             disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
           in
@@ -1279,17 +1322,17 @@ module ProcessCallable = struct
             match e with
             | App (Var qual_ident, [], _)
               when not (QualIdent.is_qualified qual_ident) ->
-              disambiguate_process_expr e Type.any disam_tbl
+              disambiguate_process_expr e (Type.any |> Type.set_ghost true) disam_tbl
             | _ ->
               Error.type_error stmt_loc
                 "Expected var identifier on left-hand side of bind")
       in
-      let* bind_rhs =
-        disambiguate_process_expr bind_desc.bind_rhs Type.any
+      let+ bind_rhs =
+        disambiguate_process_expr bind_desc.bind_rhs (Type.any |> Type.set_ghost true)
           disam_tbl
       in
       let bind_desc = Stmt.{ bind_lhs; bind_rhs } in
-      Rewriter.return (Stmt.Bind bind_desc, disam_tbl)
+      Stmt.Bind bind_desc, disam_tbl
     | FieldWrite fw_desc ->
       let* field_write_field, symbol =
         Rewriter.resolve_and_find fw_desc.field_write_field
@@ -1333,7 +1376,7 @@ module ProcessCallable = struct
       let* field_read_ref, field_read_field, field_type =
         disambiguate_process_field_read fr_desc.field_read_ref fr_desc.field_read_field disam_tbl
       in
-      let+ _ = check_and_set (Expr.mk_var ~typ:fr_type fr_var_qual_ident) fr_type field_type field_type in
+      let+ _ = check_and_set (Expr.mk_var ~typ:fr_type fr_var_qual_ident) fr_type field_type (field_type |> Type.set_ghost_to fr_type) in
       
       let field_read_desc =
         Stmt.
@@ -1461,14 +1504,14 @@ module ProcessCallable = struct
         | _ -> Error.type_error (Ident.to_loc ident)
                  (Printf.sprintf !"Could not find existential variable %{Ident} in %s %{QualIdent}" ident (Symbol.kind symbol) use_desc.use_name)
       in
-      
+
       let* use_args =
         Rewriter.List.map use_desc.use_args ~f:(fun expr ->
             disambiguate_expr expr disam_tbl)
       in
       
       let* use_args =
-        process_callable_args stmt_loc pred_decl use_args
+        process_callable_args stmt_loc true pred_decl use_args
       in
       
       let+ use_witnesses_or_binds = 
@@ -1476,7 +1519,7 @@ module ProcessCallable = struct
             match use_desc.use_kind with
             | Fold ->
               let ty = find_type i in
-              let+ e = disambiguate_process_expr e ty disam_tbl in
+              let+ e = disambiguate_process_expr e (ty |> Type.set_ghost true) disam_tbl in
               (i, e)
             | Unfold ->
               match e with
@@ -1484,7 +1527,7 @@ module ProcessCallable = struct
                 let ty =
                   find_type (QualIdent.unqualify qual_ident)
                 in
-                let+ ie = disambiguate_process_expr (Expr.mk_var ~typ:(Type.mk_any (Ident.to_loc i)) (QualIdent.from_ident i)) ty disam_tbl in
+                let+ ie = disambiguate_process_expr (Expr.mk_var ~typ:(Type.mk_any (Ident.to_loc i)) (QualIdent.from_ident i)) (ty |> Type.set_ghost true) disam_tbl in
                 (Expr.to_ident ie, e) 
               | _ -> Error.type_error (Expr.to_loc e) "Expected local identifier"
           ) 
@@ -1607,11 +1650,12 @@ module ProcessCallable = struct
       let+ stmt_desc, disam_tbl =
         match stmt.Stmt.stmt_desc with
         | Block block_desc ->
+            let* () = Rewriter.enter_block block_desc in
             let disam_tbl =
               if new_scope then DisambiguationTbl.push disam_tbl else disam_tbl
             in
 
-            let+ disam_tbl, stmt_list =
+            let* disam_tbl, stmt_list =
               Rewriter.List.fold_map block_desc.block_body ~init:disam_tbl
                 ~f:(fun disam_tbl stmt ->
                   let+ stmt, disam_tbl = process_stmt stmt disam_tbl in
@@ -1621,6 +1665,7 @@ module ProcessCallable = struct
             let disam_tbl =
               if new_scope then DisambiguationTbl.pop disam_tbl else disam_tbl
             in
+            let+ () = Rewriter.exit_block in
 
             (Stmt.Block { block_desc with block_body = stmt_list }, disam_tbl)
         | Basic basic_stmt ->
@@ -1660,7 +1705,8 @@ module ProcessCallable = struct
             let* cond_test =
               Rewriter.Option.map
                 ~f:(fun test ->
-                  disambiguate_process_expr test Type.bool disam_tbl)
+                    let* is_ghost = Rewriter.is_ghost_scope in
+                    disambiguate_process_expr test (Type.bool |> Type.set_ghost is_ghost) disam_tbl)
                 cond_desc.cond_test
             in
 
@@ -1733,6 +1779,7 @@ module ProcessCallable = struct
       Rewriter.List.map call_decl.call_decl_postcond
         ~f:(process_stmt_spec disam_tbl)
     in
+    
     Logs.debug (fun m -> m "done processing pre/post cond");
     let call_decl =
       {

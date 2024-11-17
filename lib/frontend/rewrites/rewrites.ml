@@ -82,7 +82,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
         Map.filter_keys free_vars ~f:(fun qual_ident ->
             not
               (List.exists v_l ~f:(fun v_l ->
-                   Poly.(QualIdent.from_ident v_l.var_name = qual_ident))))
+                   QualIdent.(QualIdent.from_ident v_l.var_name = qual_ident))))
       in
 
       let formal_var_decls, actual_arg_exprs =

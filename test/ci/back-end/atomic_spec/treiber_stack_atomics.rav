@@ -26,8 +26,8 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   atomic requires is_stack(s, xs)
   atomic ensures is_stack(s, cons(x, xs))
 {
-  var phi: AtomicToken := bindAU();
-  var xs0: IntList := openAU(phi);
+  ghost var phi: AtomicToken := bindAU();
+  ghost var xs0: IntList := openAU(phi);
 
   unfold is_stack(s, xs0);
   var hd: Ref := s.head;
@@ -38,7 +38,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   var s0 : Ref;
   s0 := new(value: x, next: hd);
 
-  var xs1: IntList := openAU(phi);
+  ghost var xs1: IntList := openAU(phi);
 
   ghost var hd1: Ref;
   unfold is_stack(s, xs1);
@@ -63,7 +63,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   !}
 
   if (!res) { 
-    var xs2: IntList := openAU(phi);
+    ghost var xs2: IntList := openAU(phi);
     assert is_stack(s, xs2);
     push(s, x);
     commitAU(phi);
@@ -80,8 +80,8 @@ proc pop(s: Ref, implicit ghost xs: IntList)
       (is_stack(s, xs) && result == none()) : 
       (is_stack(s, xs.tl) && result == some(xs.elem))
 {
-  var phi: AtomicToken := bindAU();
-  var xs0: IntList := openAU(phi);
+  ghost var phi: AtomicToken := bindAU();
+  ghost var xs0: IntList := openAU(phi);
 
   unfold is_stack(s, xs0);
 
@@ -120,7 +120,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
   var hd_next: Ref := hd.next;
   var hd_value: Int := hd.value;
 
-  var xs1: IntList := openAU(phi);
+  ghost var xs1: IntList := openAU(phi);
 
   ghost var hd1: Ref;
   unfold is_stack(s, xs1);
@@ -147,7 +147,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
 
     return some(hd_value);
   } else { 
-    var xs2: IntList := openAU(phi);
+    ghost var xs2: IntList := openAU(phi);
     assert is_stack(s, xs2);
     var ret: IntOption := pop(s);
     commitAU(phi, ret);

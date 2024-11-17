@@ -159,7 +159,7 @@ field_def:
 | g = ghost_modifier; FIELD x = IDENT; COLON; t = type_expr {
     let decl =
       Module.{ field_name = x;
-               field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t;
+               field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t |> Type.set_ghost g;
                field_is_ghost = g;
                field_loc = Loc.make $startpos $endpos
            }
@@ -203,7 +203,20 @@ proc_def:
         Error.syntax_error loc "Axiom declarations cannot have bodies. Did you mean to declare a lemma?"
     | _ -> () 
   in
-  let def = { def with call_decl = { def.call_decl with call_decl_kind; call_decl_is_auto } } in
+  let def =
+    let ghostify_decls =
+      Base.List.map ~f:(fun decl -> Type.{ decl with var_ghost = true; var_type = set_ghost true decl.var_type })
+    in
+    let call_decl_formals, call_decl_returns =
+      match call_decl_kind with
+      | Lemma | Pred | Invariant ->
+          (*ghostify_decls*) def.call_decl.call_decl_formals,
+          ghostify_decls def.call_decl.call_decl_returns
+      | _ ->
+          def.call_decl.call_decl_formals,
+          def.call_decl.call_decl_returns
+    in
+    { def with call_decl = { def.call_decl with call_decl_kind; call_decl_is_auto; call_decl_formals; call_decl_returns } } in
   let proc_body = Option.map body ~f:(fun s ->
     Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(body) $endpos(body) })
   in
@@ -330,20 +343,15 @@ return_params:
 | (* empty *) { [] }
    
 var_decls_with_modifiers:
-| var_decl_with_modifiers var_decl_with_modifiers_list { $1 :: $2 }
-| /* empty */ { [] }
-;
-
-var_decl_with_modifiers_list:
-| COMMA var_decl_with_modifiers var_decl_with_modifiers_list { $2 :: $3 }
-| /* empty */ { [] }
+| decls = separated_list (COMMA, var_decl_with_modifiers) { decls }
 ;
 
 var_decl_with_modifiers:
 | m = var_modifier; decl = bound_var {
-  let ghost, implicit = m in
+  let implicit, ghost = m in
   let decl =
     Type.{ decl with
+           var_type = decl.var_type |> Type.set_ghost ghost;
            var_ghost = ghost;
            var_implicit = implicit;
          }
@@ -529,7 +537,7 @@ with_clause:
         let nondet_var =
           Type.{ var_name = Ident.fresh loc "$nondet";
                  var_loc = loc; 
-                 var_type = Type.bool;
+                 var_type = Type.bool |> Type.set_ghost true;
                  var_const = true;
                  var_ghost = true;
                  var_implicit = false; }
@@ -579,6 +587,7 @@ var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(EQ, expr)) {
   let decl =
     Type.{ decl with
+           var_type = decl.var_type |> Type.set_ghost g;
            var_ghost = g;
            var_const = v;
          }
@@ -588,6 +597,7 @@ var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr {
   let decl =
     Type.{ decl with
+           var_type = decl.var_type |> Type.set_ghost g;
            var_ghost = g;
            var_const = v;
          }

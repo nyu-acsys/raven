@@ -21,8 +21,8 @@ module Lock {
     atomic requires lock(l, b)
     atomic ensures lock(l, true) && b == false
   {
-    val phi: AtomicToken := bindAU();
-    val b1: Bool := openAU(phi);
+    ghost val phi: AtomicToken := bindAU();
+    ghost val b1: Bool := openAU(phi);
     unfold lock(l, b1); 
 
    	val res: Bool = cas(l.bit, false, true); 
@@ -40,7 +40,7 @@ module Lock {
     !}
 
     if (!res) {
-      val b2: Bool := openAU(phi);
+      ghost val b2: Bool := openAU(phi);
 			assert lock(l, b2);
 			acquire(l);
 			commitAU(phi);
@@ -51,7 +51,7 @@ module Lock {
     atomic requires lock(l, true)
     atomic ensures lock(l, false)
   {
-    var phi: AtomicToken;
+    ghost var phi: AtomicToken;
     {! 
       phi := bindAU();
       openAU(phi);
@@ -151,7 +151,7 @@ interface SingleNodeTemplate[Node: NodeImpl] {
 
   import Node.Spec._
 
-  field frac: Set[K];
+  ghost field frac: Set[K];
 
   pred cssR(r: Ref, c: Set[K]) {
       exists b: Bool :: own(r.frac, c, 0.5) && own(r.lock, b, 1.0) && 
@@ -174,9 +174,7 @@ interface SingleNodeTemplate[Node: NodeImpl] {
   {
     r := Node.create();
     r := new(lock:false, frac:{||});
-    assert own(r.frac, {||}, 0.5) && own(r.lock, false, 1.0) && 
-      (false ? true : (Node.nodeR(r, {||}) && own(r.frac, {||}, 0.5)));
-    fold cssR(r, {||});
+    fold cssR(r, {||})[b := false];
   }
 
   proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
@@ -185,61 +183,32 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     atomic requires cssR(r, c)
     atomic ensures cssR(r, c_ret) && opSpec(dop, k, c, c_ret, res)
   {
-    var phi: AtomicToken := bindAU();
+    ghost var phi: AtomicToken := bindAU();
 
-    var c0: Set[K];
+    ghost var c0: Set[K];
     ghost var b: Bool;
 
     c0 := openAU(phi);
-    unfold cssR(r, c0);
-    b :| own(r.frac, c0, 0.5) && own(r.lock, b, 1.0) && (b ? true : (Node.nodeR(r, c0) && own(r.frac, c0, 0.5)));
+    unfold cssR(r, c0)[b := b];
     lockNode(r, b);
-    assert b == false;
-    assert own(r.frac, c0, 0.5) && own(r.lock, true, 1.0) && 
-      (true ? true : (Node.nodeR(r, c0) && own(r.frac, c0, 0.5)));
-
+    
     fold cssR(r, c0);
-    assert Node.nodeR(r, c0) && own(r.frac, c0, 0.5);
     abortAU(phi);
 
     var res1: Bool;
-    var c1: Set[K];
+    ghost var c1: Set[K];
 
     res1, c1 := Node.decisiveOp(dop, r, k, c0);
 
     ghost var b2: Bool;
-    var c2: Set[K] := openAU(phi);
-
-    unfold cssR(r, c2);
-    b2 :| own(r.frac, c2, 0.5) && own(r.lock, b2, 1.0) && 
-      (b2 ? true : (Node.nodeR(r, c2) && own(r.frac, c2, 0.5)));
-
-
-    assert !b2 ==> Node.nodeR(r, c1) && Node.nodeR(r, c2);
-
-    {!
-      if (!b2) {
-        Node.nodeSepStar(r, c1, c2);
-        assert false;
-      } else {
-        assert b2 == true;
-      }
-    !}
-
-    assert b2 == true;
-    assert c2 == c0;
-
-    fpu(r, frac, c2, c1);
+    ghost var c2: Set[K] := openAU(phi);
+    unfold cssR(r, c2)[b2 := b];
+    fpu(r.frac, c2, c1);
 
     unlockNode(r);
 
-    assert own(r.frac, c1, 0.5) && own(r.lock, false, 1.0) && 
-      (false ? true : (Node.nodeR(r, c1) && own(r.frac, c1, 0.5)));
-    fold cssR(r, c1);
-    
+    fold cssR(r, c1);    
     commitAU(phi, res1, c1);
-
-    // assert false;
 
     return res1, c1;
 
@@ -282,16 +251,16 @@ module IntSetNodeImpl : NodeImpl {
     
     if (dop == searchOp()) {
       res := (k in v);
-      c_ret := c;
+      c_ret := v;
     } else {
       if (dop == insertOp()) {
-        res := (k !in c);
-        c_ret := c ++ {| k |};
-        n.value := c_ret;
+        res := (k !in v);
+        c_ret := v ++ {| k |};
+        n.value := v ++ {| k |};
       } else {
-        res := (k in c);
-        c_ret := c -- {| k |};
-        n.value := c_ret;
+        res := (k in v);
+        c_ret := v -- {| k |};
+        n.value := v -- {| k |};
       }
     }
 

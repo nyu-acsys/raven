@@ -250,7 +250,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       {
         Type.var_name = arg_ident;
         var_loc = loc;
-        var_type = arg_type;
+        var_type = arg_type |> Type.set_ghost false;
         var_const = true;
         var_ghost = false;
         var_implicit = false;
@@ -269,7 +269,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       {
         Type.var_name = Ident.fresh loc "$ret";
         var_loc = loc;
-        var_type = ret_type;
+        var_type = ret_type |> Type.set_ghost false;
         var_const = true;
         var_ghost = false;
         var_implicit = false;
@@ -482,18 +482,18 @@ let generate_skolem_function (universal_quants : universal_quants)
         {
           Type.var_name = v_decl.var_name;
           var_loc = loc;
-          var_type = v_decl.var_type;
+          var_type = v_decl.var_type |> Type.set_ghost true;
           var_const = true;
-          var_ghost = false;
+          var_ghost = true;
           var_implicit = false;
         })
     @ List.map optn_args ~f:(fun (v_decl, _) ->
           {
             Type.var_name = v_decl.var_name;
             var_loc = loc;
-            var_type = v_decl.var_type;
+            var_type = v_decl.var_type |> Type.set_ghost true;
             var_const = true;
-            var_ghost = false;
+            var_ghost = true;
             var_implicit = false;
           })
   in
@@ -503,9 +503,9 @@ let generate_skolem_function (universal_quants : universal_quants)
       Type.var_name =
         Ident.fresh loc ("ret_" ^ Ident.to_string var_decl.var_name);
       var_loc = loc;
-      var_type = var_decl.var_type;
+      var_type = var_decl.var_type |> Type.set_ghost true;
       var_const = true;
-      var_ghost = false;
+      var_ghost = true;
       var_implicit = false;
     }
   in
@@ -649,7 +649,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     let var_def =
       {
         Stmt.var_decl =
-          Type.mk_var_decl ~loc ~const:true
+          Type.mk_var_decl ~loc ~const:true ~ghost:true 
             (ProgUtils.heap_utils_id_ident loc)
             type_tp_expr;
         var_init =
@@ -660,7 +660,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     in
 
     let heap_formal_arg = 
-      Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "h")
+      Type.mk_var_decl ~loc ~const:true (*~ghost:true*) (Ident.fresh loc "h")
       (Type.mk_map loc in_arg_typ type_tp_expr) 
     in
     let heap_valid_fn_decl =
@@ -1112,7 +1112,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             var_loc = loc;
             var_type = Type.mk_map loc Type.ref field_elem_type;
             var_const = false;
-            var_ghost = true;
+            var_ghost = false;
             var_implicit = false;
           }
         in
@@ -1154,7 +1154,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             var_loc = loc;
             var_type = Type.mk_map loc Type.ref field_elem_type;
             var_const = false;
-            var_ghost = true;
+            var_ghost = false;
             var_implicit = false;
           }
         in
@@ -1212,8 +1212,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
               Type.mk_map loc
                 (Type.mk_prod loc pred_in_types)
                 pred_heap_elem_type;
-            var_const = false;
-            var_ghost = true;
+            var_const = true;
+            var_ghost = false;
             var_implicit = false;
           }
         in
@@ -1259,7 +1259,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
                 (Type.mk_prod loc pred_in_types)
                 pred_heap_elem_type;
             var_const = false;
-            var_ghost = true;
+            var_ghost = false;
             var_implicit = false;
           }
         in
@@ -1314,7 +1314,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             var_loc = loc;
             var_type = Type.mk_map loc Type.atomic_token au_heap_elem_type;
             var_const = false;
-            var_ghost = true;
+            var_ghost = false;
             var_implicit = false;
           }
         in
@@ -1326,9 +1326,9 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             {
               Type.var_name = Ident.fresh loc "tok";
               var_loc = loc;
-              var_type = Type.atomic_token;
+              var_type = Type.atomic_token |> Type.set_ghost true;
               var_const = false;
-              var_ghost = false;
+              var_ghost = true;
               var_implicit = false;
             }
           in
@@ -1354,7 +1354,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             var_loc = loc;
             var_type = Type.mk_map loc Type.atomic_token au_heap_elem_type;
             var_const = false;
-            var_ghost = true;
+            var_ghost = false;
             var_implicit = false;
           }
         in
@@ -1366,7 +1366,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
               var_loc = loc;
               var_type = Type.atomic_token;
               var_const = false;
-              var_ghost = false;
+              var_ghost = true;
               var_implicit = false;
             }
           in
@@ -1497,7 +1497,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
   | Basic (Bind bind_desc) ->
       let exis_vars =
         List.map bind_desc.bind_lhs ~f:(fun e ->
-            Type.mk_var_decl ~loc:stmt.stmt_loc
+            Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true 
               (Ident.fresh stmt.stmt_loc "$bind")
               (Expr.to_type e))
       in
@@ -2197,7 +2197,7 @@ module TrnslInhale = struct
             var_loc = loc;
             var_type = Type.atomic_token;
             var_const = false;
-            var_ghost = false;
+            var_ghost = true;
             var_implicit = false;
           }
         in
@@ -2459,7 +2459,7 @@ module TrnslInhale = struct
                         {
                           Type.var_name = Ident.fresh loc "in";
                           var_loc = Expr.to_loc e;
-                          var_type = tp;
+                          var_type = tp |> Type.set_ghost false;
                           var_const = false;
                           var_ghost = false;
                           var_implicit = false;
@@ -3273,7 +3273,7 @@ module TrnslExhale = struct
                             ("witness_"
                             ^ Ident.to_string iden);
                         var_loc = loc;
-                        var_type = Expr.to_type witness;
+                        var_type = Expr.to_type witness |> Type.set_ghost false;
                         var_const = true;
                         var_ghost = false;
                         var_implicit = false;
@@ -3807,7 +3807,7 @@ module TrnslExhale = struct
           | App (Var ident, [], _) ->
               if
                 List.exists exists ~f:(fun var_decl ->
-                    Poly.(QualIdent.from_ident var_decl.var_name = ident))
+                    QualIdent.(QualIdent.from_ident var_decl.var_name = ident))
               then
                 Rewriter.return
                   (Map.singleton
@@ -4225,7 +4225,7 @@ module TrnslExhale = struct
             var_loc = loc;
             var_type = Type.atomic_token;
             var_const = false;
-            var_ghost = false;
+            var_ghost = true;
             var_implicit = false;
           }
         in
@@ -4486,7 +4486,7 @@ module TrnslExhale = struct
                         {
                           Type.var_name = Ident.fresh loc "in";
                           var_loc = Expr.to_loc e;
-                          var_type = tp;
+                          var_type = tp |> Type.set_ghost false;
                           var_const = false;
                           var_ghost = false;
                           var_implicit = false;

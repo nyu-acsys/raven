@@ -275,6 +275,8 @@ let resolve name (tbl : t) :
            (alias_qual_ident, QualIdent.set_loc (QualIdent.to_loc name) orig_qual_ident, subst))
   in
   go_backward true tbl.tbl_curr tbl.tbl_path
+  |> Option.map ~f:(fun (alias_qual_ident, orig_qual_ident, subst) ->
+      (alias_qual_ident, orig_qual_ident |> QualIdent.set_loc (QualIdent.to_loc name), subst))
 
 (** Like [resolve] but throws an exception if [name] is not found in [tbl]. *)
 let resolve_exn name tbl =

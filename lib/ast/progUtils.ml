@@ -155,7 +155,7 @@ let find_highest_valid_scope_type_expr loc (tp : type_expr) :
       (* Logs.debug (fun m -> m "ProgUtils.find_highest_valid_scope_type_expr: scope_found = %a" AstDef.QualIdent.pr (QualIdent.from_list new_qi)); *)
       QualIdent.from_list new_qi)
 
-(** Takes a type expression `tp` and introduces a module which implements Library.Type whose rep type T is `tp`. ~f here is expected to be Typing.process_symbol, but it's not hardcoded to prevent recursive dependencies  *)
+(** Takes a type expression `tp` and introduces a module that implements Library.Type whose rep type T is `tp`. ~f here is expected to be Typing.process_symbol, but it's not hardcoded to prevent recursive dependencies  *)
 let intros_type_module ~(loc : location)
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     (tp : AstDef.type_expr) : qual_ident t =

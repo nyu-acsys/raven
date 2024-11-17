@@ -59,7 +59,7 @@ module Stack[T: Type] {
     !}
 
     if (!res) { 
-      var xs2: TList := openAU(phi);
+      ghost val xs2: TList := openAU(phi);
       push(s, x);
       commitAU(phi);
     }

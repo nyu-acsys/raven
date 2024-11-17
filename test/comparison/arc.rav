@@ -3,7 +3,7 @@ include "arc_ra.rav"
 
 interface ARC {
     field c: Int
-    field v: ArcRA
+    ghost field v: ArcRA
 
     module SharePred: ShareablePredicate
 
@@ -53,7 +53,7 @@ interface ARC {
         //assert a.ArcRA.authCount - a.ArcRA.fragCount == b.ArcRA.authCount - b.ArcRA.fragCount;
         //assert a.ArcRA.authPerm - a.ArcRA.fragPerm == b.ArcRA.authPerm - b.ArcRA.fragPerm;
         //assert ArcRA.fpuAllowed(a, b);
-        fpu(x, v, 
+        fpu(x.v, 
             ArcRA.tokens(n, q, 0, 0.0), 
             ArcRA.tokens(n+1, q + q1, 1, q1)
         );
@@ -81,7 +81,7 @@ interface ARC {
         unfold token(x);
         q1 :| SharePred.p_chunk(x, q1) && own(x.v, ArcRA.tokens(0, 0.0, 1, q1));
 
-        fpu(x, v, 
+        fpu(x.v, 
             ArcRA.tokens(n, q, 1, q1), 
             ArcRA.tokens(n-1, q - q1, 0, 0.0)
         );
