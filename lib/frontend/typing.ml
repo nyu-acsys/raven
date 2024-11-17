@@ -31,11 +31,10 @@ module ProcessTypeExpr = struct
   let rec process_type_expr (tp_expr : type_expr) : type_expr Rewriter.t =
     let open Type in
     let open Rewriter.Syntax in
-    let loc = Type.to_loc tp_expr in
     match tp_expr with
     | App (Var qual_ident, [], tp_attr) -> (
         let+ fully_qualified_qual_ident, symbol =
-          Rewriter.resolve_and_find loc qual_ident
+          Rewriter.resolve_and_find qual_ident
         in
         match Rewriter.Symbol.orig_symbol symbol with
         | TypeDef _tp_alias -> App (Var fully_qualified_qual_ident, [], tp_attr)
@@ -89,7 +88,7 @@ module ProcessTypeExpr = struct
         | Var qual_iden, [] -> (
             (* Var types with args not supported. Polymorphic types need to be instantiated as separate modules before using. *)
             let* qual_ident, symbol =
-              Rewriter.resolve_and_find (Type.to_loc tp_expr) qual_iden
+              Rewriter.resolve_and_find qual_iden
             in
             let* qual_ident_def =
               Rewriter.Symbol.reify_type_def (Type.to_loc tp_expr) symbol
@@ -163,7 +162,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       (* Variables, fields, and call expressions *)
       | Var qual_ident, args_list ->
         (let* qual_ident, symbol =
-            Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
+            Rewriter.resolve_and_find qual_ident
           in
           (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
           let* symbol = Rewriter.Symbol.reify symbol in
@@ -385,7 +384,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             begin
               try
                 let* qual_ident, symbol =
-                  Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
+                  Rewriter.resolve_and_find qual_ident
                 in
                 let+ symbol = Rewriter.Symbol.reify symbol in
                 match symbol with
@@ -431,7 +430,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           check_and_set expr Type.perm Type.perm expected_typ
       | AUPred call_name, token :: args_list ->
           let loc = Expr.to_loc expr in
-          let* call_name, symbol = Rewriter.resolve_and_find loc call_name in
+          let* call_name, symbol = Rewriter.resolve_and_find call_name in
 
           let* callable_decl =
             let+ symbol = Rewriter.Symbol.reify symbol in
@@ -459,7 +458,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       | AUPredCommit call_name, token :: args_list
         when List.length args_list >= 1 ->
           let loc = Expr.to_loc expr in
-          let* call_name, symbol = Rewriter.resolve_and_find loc call_name in
+          let* call_name, symbol = Rewriter.resolve_and_find call_name in
 
           let* callable_decl =
             let+ symbol = Rewriter.Symbol.reify symbol in
@@ -497,7 +496,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       | DataConstr constr_ident, args_list ->
           let loc = QualIdent.to_loc constr_ident in
           let* constr_decl =
-            let* symbol = Rewriter.find loc constr_ident in
+            let* symbol = Rewriter.find constr_ident in
             let+ symbol = Rewriter.Symbol.reify symbol in
             match symbol with
             | ConstrDef constr -> constr
@@ -527,7 +526,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       | DataDestr destr_qual_ident, [ expr1 ] ->
           let loc = QualIdent.to_loc destr_qual_ident in
           let* destr =
-            let* symbol = Rewriter.find loc destr_qual_ident in
+            let* symbol = Rewriter.find destr_qual_ident in
             let+ symbol = Rewriter.Symbol.reify symbol in
             match symbol with
             | DestrDef destr -> destr
@@ -548,7 +547,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                 [ expr11; App (Var qual_ident, [], expr_attr') ],
                 expr_attr'' ) -> (
               let* qual_ident, symbol =
-                Rewriter.resolve_and_find (Expr.to_loc expr) qual_ident
+                Rewriter.resolve_and_find qual_ident
               in
               let* symbol = Rewriter.Symbol.reify symbol in
               match symbol with
@@ -593,7 +592,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       (* Read expressions *)
       | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
          let* qual_ident, symbol =
-            Rewriter.resolve_and_find (Expr.to_loc expr) field_ident
+            Rewriter.resolve_and_find field_ident
           in
           let* symbol = Rewriter.Symbol.reify symbol in
           match symbol with
@@ -886,7 +885,7 @@ module ProcessCallable = struct
   let disambiguate_process_field_read ref field disam_tbl =
     let open Rewriter.Syntax in
     let* field, symbol =
-      Rewriter.resolve_and_find (QualIdent.to_loc field) field
+      Rewriter.resolve_and_find field
     in
     let* symbol = Rewriter.Symbol.reify symbol in
     match symbol with
@@ -1033,7 +1032,7 @@ module ProcessCallable = struct
               disambiguate_process_expr field_expr Type.any disam_tbl
             in
             let* field_qual_ident, symbol =
-              Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+              Rewriter.resolve_and_find qual_ident
             in
             let+ symbol = Rewriter.Symbol.reify symbol in
             begin match symbol with
@@ -1145,7 +1144,7 @@ module ProcessCallable = struct
           Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], []) ~f:(fun qual_ident (assign_lhs, var_decls_lhs) ->
               let* qual_ident = disambiguate_ident qual_ident disam_tbl in
               let* qual_ident, symbol =
-                Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+                Rewriter.resolve_and_find qual_ident
               in
               let+ symbol = Rewriter.Symbol.reify symbol in
               match symbol with
@@ -1207,7 +1206,7 @@ module ProcessCallable = struct
             match assign_rhs with
             | App (Var qual_ident, args, _) -> (
               let* qual_ident, symbol =
-                Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+                Rewriter.resolve_and_find qual_ident
               in
               let+ symbol = Rewriter.Symbol.reify symbol in
               match symbol with CallDef call_def -> Some (symbol, qual_ident, args) | _ -> None)
@@ -1293,7 +1292,7 @@ module ProcessCallable = struct
       Rewriter.return (Stmt.Bind bind_desc, disam_tbl)
     | FieldWrite fw_desc ->
       let* field_write_field, symbol =
-        Rewriter.resolve_and_find (QualIdent.to_loc fw_desc.field_write_field) fw_desc.field_write_field
+        Rewriter.resolve_and_find fw_desc.field_write_field
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       let field_type = match symbol with
@@ -1316,7 +1315,7 @@ module ProcessCallable = struct
         disambiguate_ident fr_desc.field_read_lhs disam_tbl
       in
       let* fr_var_qual_ident, symbol =
-        Rewriter.resolve_and_find stmt_loc fr_var_qual_ident
+        Rewriter.resolve_and_find fr_var_qual_ident
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       let* fr_type =
@@ -1350,7 +1349,7 @@ module ProcessCallable = struct
           disambiguate_ident cs_desc.cas_lhs disam_tbl
         in
         let* cs_var_qual_ident, symbol =
-          Rewriter.resolve_and_find stmt_loc cs_var_qual_ident
+          Rewriter.resolve_and_find cs_var_qual_ident
         in
         let* symbol = Rewriter.Symbol.reify symbol in
         let* cs_type =
@@ -1422,7 +1421,7 @@ module ProcessCallable = struct
     | Use use_desc ->
       let* use_name, symbol =
         let* id = disambiguate_ident use_desc.use_name disam_tbl in
-        Rewriter.resolve_and_find stmt_loc id
+        Rewriter.resolve_and_find id
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       
@@ -1498,7 +1497,7 @@ module ProcessCallable = struct
         disambiguate_ident new_desc.new_lhs disam_tbl
       in
       let* new_qual_ident, symbol =
-        Rewriter.resolve_and_find stmt_loc new_qual_ident
+        Rewriter.resolve_and_find new_qual_ident
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       let var_decl =
@@ -1515,7 +1514,7 @@ module ProcessCallable = struct
       if Type.equal var_type_expanded Type.ref then
         let process_field_init (field_name, expr_opt) =
           let* field_name, symbol =
-            Rewriter.resolve_and_find stmt_loc field_name
+            Rewriter.resolve_and_find field_name
           in
           let* field_type =
             Rewriter.Symbol.reify_field_type stmt_loc symbol
@@ -1546,12 +1545,12 @@ module ProcessCallable = struct
         let* call_lhs =
           Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
               let* qual_iden = disambiguate_ident qual_iden disam_tbl in
-              Rewriter.resolve stmt_loc qual_iden)
+              Rewriter.resolve qual_iden)
         in
         let* call_lhs_types =
           Rewriter.List.map call_lhs ~f:(fun qual_iden ->
               let* qual_iden, symbol =
-                Rewriter.resolve_and_find stmt_loc qual_iden
+                Rewriter.resolve_and_find qual_iden
               in
               let* symbol = Rewriter.Symbol.reify symbol in
               match symbol with
@@ -1804,7 +1803,7 @@ module ProcessModule = struct
           match tp_expr with
           | App (Data (_, variant_decl_list), [], _tp_attr) ->
               let* fully_qualified_tp_name =
-                Rewriter.resolve type_def.type_def_loc
+                Rewriter.resolve
                   (QualIdent.from_ident type_def.type_def_name)
               in
 
@@ -1837,7 +1836,7 @@ module ProcessModule = struct
               in
 
               let* fully_qualified_tp_name =
-                Rewriter.resolve type_def.type_def_loc
+                Rewriter.resolve
                   (QualIdent.from_ident type_def.type_def_name)
               in
 
@@ -1889,7 +1888,7 @@ module ProcessModule = struct
       match field.field_type with
       | App (Var qual_ident, [], tp_attr) -> (
           let* fully_qualified_qual_ident, symbol =
-            Rewriter.resolve_and_find (Type.to_loc field.field_type) qual_ident
+            Rewriter.resolve_and_find qual_ident
           in
           match Rewriter.Symbol.orig_symbol symbol with
           | ModDef { mod_decl = { mod_decl_is_ra = true; _ }; _ } ->
@@ -2217,9 +2216,9 @@ module ProcessModule = struct
   let check_module_type mod_ident int_ident =
     let open Rewriter.Syntax in
     let+ qual_mod_ident, mod_symbol =
-      Rewriter.resolve_and_find (QualIdent.to_loc mod_ident) mod_ident
+      Rewriter.resolve_and_find mod_ident
     and+ qual_int_ident, _int_symbol =
-      Rewriter.resolve_and_find (QualIdent.to_loc int_ident) int_ident
+      Rewriter.resolve_and_find int_ident
     in
     let interfaces =
       Rewriter.Symbol.extract mod_symbol ~f:(fun _subst -> function
@@ -2279,7 +2278,7 @@ module ProcessModule = struct
                 Module.ModDef mod_def
             | ModInst mod_inst ->
                 let* mod_inst_type =
-                  Rewriter.resolve mod_inst.mod_inst_loc mod_inst.mod_inst_type
+                  Rewriter.resolve mod_inst.mod_inst_type
                 in
                 let symbol = Module.ModInst { mod_inst with mod_inst_type } in
                 let* to_check =
@@ -2287,7 +2286,7 @@ module ProcessModule = struct
                     ~f:(fun (mod_inst_func, mod_inst_args) ->
                       let* _ = Rewriter.declare_symbol symbol in
                       let+ qual_functor_ident, functor_symbol =
-                        Rewriter.resolve_and_find mod_inst.mod_inst_loc
+                        Rewriter.resolve_and_find
                           mod_inst_func
                       in
                       let formals =
@@ -2356,7 +2355,7 @@ module ProcessModule = struct
                 (QualIdent.from_ident (Symbol.to_name (ModDef m))))
         in
 
-        Rewriter.resolve m.mod_decl.mod_decl_loc
+        Rewriter.resolve 
           (QualIdent.from_ident (Symbol.to_name (ModDef m)))
     in
 
@@ -2491,7 +2490,7 @@ module ProcessModule = struct
                   (Symbol.to_name (ModDef m))
                   mid);
             let* qual_interface_ident, interface_symbol =
-              Rewriter.resolve_and_find m.mod_decl.mod_decl_loc mid
+              Rewriter.resolve_and_find mid
             in
             let interface_symbol =
               Rewriter.Symbol.add_subst
@@ -2553,7 +2552,6 @@ module ProcessModule = struct
         ~f:(fun interface_ident ->
           let+ _qual_interface_ident, interface_symbol =
             Rewriter.resolve_and_find
-              (QualIdent.to_loc interface_ident)
               interface_ident
           in
           Rewriter.Symbol.extract interface_symbol ~f:(fun _ -> function
@@ -2571,7 +2569,7 @@ module ProcessModule = struct
     let* mod_decl_formals =
       Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun mod_inst ->
           let+ mod_inst_type =
-            Rewriter.resolve mod_inst.mod_inst_loc mod_inst.mod_inst_type
+            Rewriter.resolve mod_inst.mod_inst_type
           in
           { mod_inst with mod_inst_type })
     in

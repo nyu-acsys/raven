@@ -14,16 +14,16 @@ let root_dependencies (tbl: SymbolTbl.t) (mdef: Module.t) (ag: Graph.t) =
     match sym with
     | ModDef mod_def -> analyze_module g ag mod_def
     | TypeDef type_def ->
-      let+ qid = Rewriter.resolve (Symbol.to_loc sym) (Symbol.to_name sym |> QualIdent.from_ident) in
+      let+ qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Option.map type_def.type_def_expr ~f:Type.symbols |> Option.value ~default:empty in
       Graph.add_edges g qid deps, ag
     | VarDef var_def ->
-      let+ qid = Rewriter.resolve (Symbol.to_loc sym) (Symbol.to_name sym |> QualIdent.from_ident) in
+      let+ qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Option.map var_def.var_init ~f:Expr.symbols |> Option.value ~default:empty in
       let deps = Set.union deps (Type.symbols var_def.var_decl.var_type) in
       Graph.add_edges g qid deps, ag
     | CallDef call_def -> 
-      let+ qid = Rewriter.resolve (Symbol.to_loc sym) (Symbol.to_name sym |> QualIdent.from_ident) in
+      let+ qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Callable.symbols call_def in
       Logs.debug (fun m -> m "Dependencies.root_dependencies: Adding dependencies of callable %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
       Graph.add_edges g qid deps,
@@ -58,7 +58,7 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t) (root_auto_g: Graph.t): QualIden
       let open Option.Syntax in
       let+ qid = Set.choose todos in
       (* let _, _, sym, sm = SymbolTbl.resolve_and_find_exn (QualIdent.to_loc qid) qid tbl in *)
-      let _, sym = Rewriter.eval ~update:false (Rewriter.find (QualIdent.to_loc qid) qid) tbl in
+      let _, sym = Rewriter.eval ~update:false (Rewriter.find qid) tbl in
       let subst = Rewriter.Symbol.subst sym in
       let orig_qid = Rewriter.Symbol.orig_qid sym in
       let _, reified_sym = Rewriter.eval ~update:false (Rewriter.Symbol.reify sym) tbl in

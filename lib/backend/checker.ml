@@ -35,7 +35,7 @@ let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) :
                   in
 
                   let* constr_fully_qual_name =
-                    Rewriter.resolve typ.type_def_loc constr_qual_ident
+                    Rewriter.resolve constr_qual_ident
                   in
 
                   assert (Poly.(constr_fully_qual_name = constr_qual_ident));
@@ -424,7 +424,7 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
   in
   let* _ = Rewriter.List.iter deps ~f:(fun dep ->
       let* dep_sym = Rewriter.List.map dep ~f:(fun qual_name ->
-          let+ symbol = Rewriter.find_and_reify Loc.dummy qual_name in
+          let+ symbol = Rewriter.find_and_reify qual_name in
           (qual_name, symbol))
       in
       Logs.debug (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) (List.map ~f:(fun (a,b) -> a) dep_sym));

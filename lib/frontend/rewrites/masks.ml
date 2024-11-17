@@ -5,13 +5,12 @@ open Util
 let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext
     =
   let open Rewriter.Syntax in
-  let loc = c.call_decl.call_decl_loc in
 
   let* new_mask =
     match c.call_decl.call_decl_kind with
     | Pred | Invariant -> (
         let* fully_qual_iden =
-          Rewriter.resolve loc (QualIdent.from_ident c.call_decl.call_decl_name)
+          Rewriter.resolve (QualIdent.from_ident c.call_decl.call_decl_name)
         in
 
         let mask_set =
@@ -27,7 +26,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext
 
             let* preds_symbols =
               Rewriter.List.map preds_list ~f:(fun pred ->
-                  Rewriter.find_and_reify loc pred)
+                  Rewriter.find_and_reify pred)
             in
 
             let mask_set =
@@ -66,7 +65,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext
 
         let* preds_symbols =
           Rewriter.List.map preds_list ~f:(fun pred ->
-              Rewriter.find_and_reify loc pred)
+              Rewriter.find_and_reify pred)
         in
 
         let mask_set =

@@ -277,11 +277,11 @@ let resolve name (tbl : t) :
   go_backward true tbl.tbl_curr tbl.tbl_path
 
 (** Like [resolve] but throws an exception if [name] is not found in [tbl]. *)
-let resolve_exn loc name tbl =
+let resolve_exn name tbl =
   (*Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
     Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));*)
   resolve name tbl
-  |> Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
+  |> Option.lazy_value ~default:(fun () -> unknown_ident_error (QualIdent.to_loc name) name)
 
 (** Resolve [name] relative to the current scope in [tbl] and return:
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is declared
@@ -302,7 +302,7 @@ let resolve_and_find name tbl :
   (alias_qual_ident, orig_qual_ident, symbol, subst)
 
 (** Like [resolve_and_find] but throws an exception if [name] is not found in [tbl]. *)
-let resolve_and_find_exn loc name (tbl : t) =
+let resolve_and_find_exn name (tbl : t) =
   (*Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: name: %a" QualIdent.pr name);
     Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
     Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn: tbl_scope_children: [%a]" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));
@@ -313,7 +313,7 @@ let resolve_and_find_exn loc name (tbl : t) =
              m "SymbolTbl.resolve_and_find_exn: %a fail: tbl_curr: %a"
                QualIdent.pr name QualIdent.pr tbl.tbl_curr.scope_id);*)
          (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
-         unknown_ident_error loc name)
+         unknown_ident_error (QualIdent.to_loc name) name)
 
 (** Find the symbol associated with [name] relative to the current scope in [tbl]. *)
 let find name tbl : (Module.symbol * QualIdent.subst) option =
@@ -378,7 +378,7 @@ let rec import import_instr (tbl : t) : t =
   let import_loc = import_instr.import_loc in
   let unresolved_imported_ident = import_instr.import_name in
   let _, imported_ident, symbol, _ =
-    resolve_and_find_exn import_loc unresolved_imported_ident tbl
+    resolve_and_find_exn unresolved_imported_ident tbl
   in
   let curr_scope = tbl.tbl_curr in
   let _ =
@@ -391,7 +391,7 @@ let rec import import_instr (tbl : t) : t =
                 QualIdent.append unresolved_imported_ident symbol_name
               in
               let _, symbol_fully_qual_ident, _, _ =
-                resolve_and_find_exn import_loc symbol_ident tbl
+                resolve_and_find_exn symbol_ident tbl
               in
               add_to_map (get_scope_entries curr_scope)
                 import_loc symbol_name (Import symbol_fully_qual_ident)
@@ -442,13 +442,12 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
           match mod_inst.mod_inst_def with
           | None ->
               let _, mod_inst_type, _mod_inst_symbol, _ =
-                resolve_and_find_exn mod_inst.mod_inst_loc
-                  mod_inst.mod_inst_type tbl
+                resolve_and_find_exn mod_inst.mod_inst_type tbl
               in
               (mod_inst_type, [])
           | Some (mod_inst_func, mod_inst_args) -> (
               let _, mod_inst_func, mod_inst_symbol, _subst1 =
-                resolve_and_find_exn mod_inst.mod_inst_loc mod_inst_func tbl
+                resolve_and_find_exn mod_inst_func tbl
               in
               let formals =
                 match mod_inst_symbol with
@@ -461,7 +460,7 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                       QualIdent.append mod_inst_func formal.mod_inst_name
                     in
                     let _, arg, _arg_symbol, _arg_subst =
-                      resolve_and_find_exn mod_inst.mod_inst_loc arg tbl
+                      resolve_and_find_exn arg tbl
                     in
                     (formal_id, QualIdent.to_list arg))
               in

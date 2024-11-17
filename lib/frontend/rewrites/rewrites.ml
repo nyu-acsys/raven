@@ -438,7 +438,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let+ curr_loop_arg_var_decls =
           Rewriter.List.map curr_loop_args ~f:(fun var ->
               let+ symbol =
-                Rewriter.find_and_reify var.ident_loc (QualIdent.from_ident var)
+                Rewriter.find_and_reify (QualIdent.from_ident var)
               in
 
               match symbol with
@@ -510,7 +510,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let+ curr_loop_ret_var_decls =
           Rewriter.List.map curr_loop_rets ~f:(fun var ->
               let+ symbol =
-                Rewriter.find_and_reify stmt.stmt_loc (QualIdent.from_ident var)
+                Rewriter.find_and_reify (QualIdent.from_ident var)
               in
 
               match symbol with
@@ -720,7 +720,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             m "Rewrites.rewrite_ret_stmts: curr_proc_name: %a" QualIdent.pr
               curr_proc_name);
 
-        let+ symbol = Rewriter.find_and_reify stmt.stmt_loc curr_proc_name in
+        let+ symbol = Rewriter.find_and_reify curr_proc_name in
 
         match symbol with
         | CallDef c ->
@@ -825,12 +825,12 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               match expr_optn with
               | Some expr -> Rewriter.return expr
               | None ->
-                  ProgUtils.get_field_utils_id stmt.stmt_loc field_name
+                  ProgUtils.get_field_utils_id field_name
             in
 
             let* field_type =
               let* field_symbol =
-                Rewriter.find_and_reify stmt.stmt_loc field_name
+                Rewriter.find_and_reify field_name
               in
               match field_symbol with
               | FieldDef f -> Rewriter.return f.field_type
@@ -910,7 +910,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
   match stmt.stmt_desc with
   | Basic (Use use_desc) ->
-      let* symbol = Rewriter.find_and_reify stmt.stmt_loc use_desc.use_name in
+      let* symbol = Rewriter.find_and_reify use_desc.use_name in
 
       let pred_decl, body =
         match symbol with
@@ -991,7 +991,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
             let+ bd_var_decl =
               
-              let+ bd_var_symbol = Rewriter.find_and_reify loc (QualIdent.from_ident bd_iden) in
+              let+ bd_var_symbol = Rewriter.find_and_reify (QualIdent.from_ident bd_iden) in
 
               begin match bd_var_symbol with
               | VarDef v -> v.var_decl
@@ -1100,7 +1100,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (Call call_desc) -> (
-      let* symbol = Rewriter.find_and_reify stmt.stmt_loc call_desc.call_name in
+      let* symbol = Rewriter.find_and_reify call_desc.call_name in
 
       let call_decl, call_def =
         match symbol with
@@ -1110,7 +1110,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* lhs_list =
         Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
-            let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+            let* symbol = Rewriter.find_and_reify qual_iden in
 
             match symbol with
             | VarDef v -> Rewriter.return v.var_decl
@@ -1509,7 +1509,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
 
             let* does_module_implement_ra =
               let* module_symbol =
-                Rewriter.find_and_reify f.field_loc module_name
+                Rewriter.find_and_reify module_name
               in
               ProgUtils.does_symbol_implement_ra module_symbol
             in
@@ -1639,7 +1639,7 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
               QualIdent.pr frac_mod_name 
           );
 
-          Rewriter.resolve (Expr.to_loc expr) frac_mod_name
+          Rewriter.resolve frac_mod_name
           
         in
 
@@ -1686,7 +1686,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
                 let* field_elem_type =
                   let+ field_symbol =
-                    Rewriter.find_and_reify (Expr.to_loc expr) field_name
+                    Rewriter.find_and_reify field_name
                   in
 
                   match field_symbol with
@@ -1740,7 +1740,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
         in
 
         let* field_elem_type =
-          let+ field_symbol = Rewriter.find_and_reify loc field_name in
+          let+ field_symbol = Rewriter.find_and_reify field_name in
 
           match field_symbol with
           | FieldDef f -> (
@@ -1758,7 +1758,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
           Rewriter.return old_expr
         else
           let* field_type =
-            let+ field_symbol = Rewriter.find_and_reify loc field_name in
+            let+ field_symbol = Rewriter.find_and_reify field_name in
 
             match field_symbol with
             | FieldDef f -> f.field_type
@@ -2079,7 +2079,7 @@ module AtomicityAnalysis = struct
       let* curr_callable_name = Rewriter.current_scope_id in
       let* curr_callable =
         let* symbol =
-          Rewriter.find_and_reify stmt.stmt_loc curr_callable_name
+          Rewriter.find_and_reify curr_callable_name
         in
         match symbol with
         | CallDef c -> Rewriter.return c
@@ -2107,7 +2107,7 @@ module AtomicityAnalysis = struct
       | Basic (New new_desc) ->
           let* new_lhs =
             let* symbol =
-              Rewriter.find_and_reify stmt.stmt_loc new_desc.new_lhs
+              Rewriter.find_and_reify new_desc.new_lhs
             in
             match symbol with
             | VarDef v -> Rewriter.return v
@@ -2126,7 +2126,7 @@ module AtomicityAnalysis = struct
           let* is_assign_desc_lhs_ghost =
             Rewriter.List.for_all assign_desc.assign_lhs ~f:(fun qual_ident ->
                 let* symbol =
-                  Rewriter.find_and_reify stmt.stmt_loc qual_ident
+                  Rewriter.find_and_reify qual_ident
                 in
                 match symbol with
                 | VarDef v -> Rewriter.return v.var_decl.var_ghost
@@ -2156,7 +2156,7 @@ module AtomicityAnalysis = struct
                 match expr with
                 | App (Var qual_iden, [], _) -> (
                     let* symbol =
-                      Rewriter.find_and_reify stmt.stmt_loc qual_iden
+                      Rewriter.find_and_reify qual_iden
                     in
                     match symbol with
                     | VarDef v -> Rewriter.return v.var_decl.var_ghost
@@ -2168,7 +2168,7 @@ module AtomicityAnalysis = struct
           else Error.error stmt.stmt_loc "Cannot bind non-ghost variables"
       | Basic (FieldRead field_read_desc) -> (
           let* symbol =
-            Rewriter.find_and_reify stmt.stmt_loc field_read_desc.field_read_lhs
+            Rewriter.find_and_reify field_read_desc.field_read_lhs
           in
           match symbol with
           | VarDef v ->
@@ -2180,7 +2180,7 @@ module AtomicityAnalysis = struct
           | _ -> Error.error stmt.stmt_loc "Expected a var_def")
       | Basic (FieldWrite field_write_desc) -> (
           let* symbol =
-            Rewriter.find_and_reify stmt.stmt_loc field_write_desc.field_write_field
+            Rewriter.find_and_reify field_write_desc.field_write_field
           in
           match symbol with
           | FieldDef fld ->
@@ -2195,7 +2195,7 @@ module AtomicityAnalysis = struct
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return stmt
       | Basic (Havoc qual_iden) -> (
-          let* symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+          let* symbol = Rewriter.find_and_reify qual_iden in
           match symbol with
           | VarDef v ->
               if v.var_decl.var_ghost then Rewriter.return stmt
@@ -2209,7 +2209,7 @@ module AtomicityAnalysis = struct
           | _ -> Error.error stmt.stmt_loc "Expected a var_def")
       | Basic (Call call_desc) ->
           let* symbol =
-            Rewriter.find_and_reify stmt.stmt_loc call_desc.call_name
+            Rewriter.find_and_reify call_desc.call_name
           in
           let call_decl, call_def =
             match symbol with
@@ -2242,7 +2242,7 @@ module AtomicityAnalysis = struct
             let* is_call_lhs_ghost =
               Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
                   let* symbol =
-                    Rewriter.find_and_reify stmt.stmt_loc qual_iden
+                    Rewriter.find_and_reify qual_iden
                   in
                   match symbol with
                   | VarDef v -> Rewriter.return v.var_decl.var_ghost
@@ -2277,7 +2277,7 @@ module AtomicityAnalysis = struct
             Rewriter.return stmt
       | Basic (Use use_desc) -> (
           let* symbol =
-            Rewriter.find_and_reify stmt.stmt_loc use_desc.use_name
+            Rewriter.find_and_reify use_desc.use_name
           in
           match symbol with
           | CallDef c -> (
@@ -2305,7 +2305,7 @@ module AtomicityAnalysis = struct
           | BindAU qual_iden ->
               let loc = Stmt.to_loc stmt in
               let* qual_iden_var =
-                let+ symbol = Rewriter.find_and_reify stmt.stmt_loc qual_iden in
+                let+ symbol = Rewriter.find_and_reify qual_iden in
                 match symbol with
                 | VarDef v -> v
                 | _ -> Error.error stmt.stmt_loc "Expected a var_def"
@@ -2313,7 +2313,7 @@ module AtomicityAnalysis = struct
 
               let* au_token_var =
                 let+ symbol =
-                  Rewriter.find_and_reify stmt.stmt_loc
+                  Rewriter.find_and_reify
                     (QualIdent.from_ident
                        (ProgUtils.callable_au_token_ident ~loc
                           (QualIdent.unqualify curr_callable_name)))
@@ -2398,7 +2398,7 @@ module AtomicityAnalysis = struct
 
               let* callable_decl =
                 let+ symbol =
-                  Rewriter.find_and_reify stmt.stmt_loc opened_au_token.callable
+                  Rewriter.find_and_reify opened_au_token.callable
                 in
                 match symbol with
                 | CallDef c -> c.call_decl
@@ -2959,7 +2959,7 @@ let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
     let+ assign_lhs =
       Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
           let* qual_ident, symbol =
-            Rewriter.resolve_and_find (QualIdent.to_loc qual_ident) qual_ident
+            Rewriter.resolve_and_find qual_ident
           in
           let+ symbol = Rewriter.Symbol.reify symbol in
           match symbol with

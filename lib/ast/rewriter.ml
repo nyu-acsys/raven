@@ -1317,37 +1317,37 @@ module Symbol = struct
       subst
 end
 
-let resolve_and_find loc name : (QualIdent.t * Symbol.t, 'a) t_ext =
+let resolve_and_find name : (QualIdent.t * Symbol.t, 'a) t_ext =
   let open Syntax in
   let+ tbl = get_table in
   (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id)); *)
   (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children)); *)
   let alias_qual_ident, qual_ident, symbol, subst =
-    SymbolTbl.resolve_and_find_exn loc name tbl
+    SymbolTbl.resolve_and_find_exn name tbl
   in
   (qual_ident, (alias_qual_ident, symbol, subst))
 
-let resolve loc name : (QualIdent.t, 'a) t_ext =
+let resolve name : (QualIdent.t, 'a) t_ext =
   let open Syntax in
-  let+ qual_ident, _ = resolve_and_find loc name in
+  let+ qual_ident, _ = resolve_and_find name in
   (*Logs.debug (fun m ->
       m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name
         QualIdent.pr qual_ident);*)
   qual_ident
 
-let find loc name : (Symbol.t, 'a) t_ext =
+let find name : (Symbol.t, 'a) t_ext =
   let open Syntax in
-  let+ _, symbol = resolve_and_find loc name in
+  let+ _, symbol = resolve_and_find name in
   symbol
 
-let find_and_reify loc name : (AstDef.Module.symbol, 'a) t_ext =
+let find_and_reify name : (AstDef.Module.symbol, 'a) t_ext =
   let open Syntax in
-  let* symbol = find loc name in
+  let* symbol = find name in
   (*Logs.debug (fun m ->
       m "Rewriter.find_and_reify: symbol = %a" Symbol.pr symbol);*)
   Symbol.reify symbol
 
 let is_local qual_ident s =
-  let s, qual_ident = resolve (QualIdent.to_loc qual_ident) qual_ident s in
+  let s, qual_ident = resolve qual_ident s in
   (s, Base.List.is_empty qual_ident.qual_path)
 

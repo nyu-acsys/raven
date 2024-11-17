@@ -219,7 +219,7 @@ let rec does_symbol_implement_ra (symbol : AstDef.Module.symbol) : bool t =
   | ModInst mod_inst -> (
       let* does_type_implement_ra =
         let* mod_inst_type_symbol =
-          find_and_reify mod_inst.mod_inst_loc mod_inst.mod_inst_type
+          find_and_reify mod_inst.mod_inst_type
         in
         does_symbol_implement_ra mod_inst_type_symbol
       in
@@ -231,7 +231,7 @@ let rec does_symbol_implement_ra (symbol : AstDef.Module.symbol) : bool t =
         | Some (mod_inst_def_funct, mod_inst_def_args) ->
             let* mod_inst_def_funct_is_ra =
               let* mod_inst_def_funct_symbol =
-                find_and_reify mod_inst.mod_inst_loc mod_inst_def_funct
+                find_and_reify mod_inst_def_funct
               in
               does_symbol_implement_ra mod_inst_def_funct_symbol
             in
@@ -243,7 +243,7 @@ let rec does_type_implement_ra (tp : AstDef.type_expr) : bool t =
   let open Syntax in
   match tp with
   | App (Var qi, [], _) ->
-      let* symbol = find_and_reify (QualIdent.to_loc qi) (QualIdent.pop qi) in
+      let* symbol = find_and_reify (QualIdent.pop qi) in
       does_symbol_implement_ra symbol
   | _ -> return false
 
@@ -265,7 +265,7 @@ let field_get_ra_qual_iden (field : AstDef.Module.field_def) =
 let pred_get_ra_qual_iden pred_qual_iden =
   let open Syntax in
   let+ pred_fully_qual_iden =
-    resolve (QualIdent.to_loc pred_qual_iden) pred_qual_iden
+    resolve pred_qual_iden
   in
 
   QualIdent.append
@@ -277,7 +277,7 @@ let pred_get_ra_qual_iden pred_qual_iden =
 let au_get_ra_qual_iden call_qual_iden =
   let open Syntax in
   let+ call_fully_qual_iden =
-    resolve (QualIdent.to_loc call_qual_iden) call_qual_iden
+    resolve call_qual_iden
   in
 
   QualIdent.append
@@ -313,161 +313,161 @@ let get_ra_fpu_allowed_qual_ident (ra_qual_iden : qual_ident) : qual_ident =
 
 (* ======================== *)
 
-let field_utils_module_ident loc field_ident : ident =
-  Ident.make loc (serialize ("FieldUtils$" ^ Ident.to_string field_ident)) 0
+let field_utils_module_ident field_ident : ident =
+  Ident.make (Ident.to_loc field_ident) (serialize ("FieldUtils$" ^ Ident.to_string field_ident)) 0
 
-let pred_utils_module_ident loc pred_ident : ident =
-  Ident.make loc (serialize ("PredUtils$" ^ Ident.to_string pred_ident)) 0
+let pred_utils_module_ident pred_ident : ident =
+  Ident.make (Ident.to_loc pred_ident) (serialize ("PredUtils$" ^ Ident.to_string pred_ident)) 0
 
-let au_utils_module_ident loc callable_ident : ident =
-  Ident.make loc (serialize ("AUUtils$" ^ Ident.to_string callable_ident)) 0
+let au_utils_module_ident callable_ident : ident =
+  Ident.make (Ident.to_loc callable_ident) (serialize ("AUUtils$" ^ Ident.to_string callable_ident)) 0
 
 (* ======================== *)
 
-let get_field_utils_module loc field_name : qual_ident t =
+let get_field_utils_module field_name : qual_ident t =
   let open Syntax in
-  let+ field_fully_qual_name = resolve loc field_name in
+  let+ field_fully_qual_name = resolve field_name in
 
   QualIdent.make field_fully_qual_name.qual_path
-    (field_utils_module_ident loc field_fully_qual_name.qual_base)
+    (field_utils_module_ident field_fully_qual_name.qual_base)
 
-let get_pred_utils_module loc pred_name : qual_ident t =
+let get_pred_utils_module pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_fully_qual_name = resolve loc pred_name in
+  let+ pred_fully_qual_name = resolve pred_name in
 
   QualIdent.make pred_fully_qual_name.qual_path
-    (pred_utils_module_ident loc pred_fully_qual_name.qual_base)
+    (pred_utils_module_ident pred_fully_qual_name.qual_base)
 
-let get_au_utils_module loc call_name : qual_ident t =
+let get_au_utils_module call_name : qual_ident t =
   let open Syntax in
-  let+ call_fully_qual_name = resolve loc call_name in
+  let+ call_fully_qual_name = resolve call_name in
 
   QualIdent.make call_fully_qual_name.qual_path
-    (au_utils_module_ident loc call_fully_qual_name.qual_base)
+    (au_utils_module_ident call_fully_qual_name.qual_base)
 
 (* ======================== *)
 
 let heap_utils_rep_type_ident loc = Ident.make loc "T" 0
 
-let get_field_utils_rep_type loc field_name : qual_ident t =
+let get_field_utils_rep_type field_name : qual_ident t =
   let open Syntax in
-  let+ field_utils_module = get_field_utils_module loc field_name in
-  QualIdent.append field_utils_module (heap_utils_rep_type_ident loc)
+  let+ field_utils_module = get_field_utils_module field_name in
+  QualIdent.append field_utils_module (heap_utils_rep_type_ident (QualIdent.to_loc field_name))
 
-let get_pred_utils_rep_type loc pred_name : qual_ident t =
+let get_pred_utils_rep_type pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_utils_module = get_pred_utils_module loc pred_name in
-  QualIdent.append pred_utils_module (heap_utils_rep_type_ident loc)
+  let+ pred_utils_module = get_pred_utils_module pred_name in
+  QualIdent.append pred_utils_module (heap_utils_rep_type_ident (QualIdent.to_loc pred_name))
 
-let get_au_utils_rep_type loc call_name : qual_ident t =
+let get_au_utils_rep_type call_name : qual_ident t =
   let open Syntax in
-  let+ call_utils_module = get_au_utils_module loc call_name in
-  QualIdent.append call_utils_module (heap_utils_rep_type_ident loc)
+  let+ call_utils_module = get_au_utils_module call_name in
+  QualIdent.append call_utils_module (heap_utils_rep_type_ident (QualIdent.to_loc call_name))
 
 (* ======================== *)
 
 let heap_utils_comp_chunk_ident loc = Ident.make loc "heapChunkComp" 0
 
-let get_field_utils_comp loc field_name : qual_ident t =
+let get_field_utils_comp field_name : qual_ident t =
   let open Syntax in
-  let+ field_utils_module = get_field_utils_module loc field_name in
-  QualIdent.append field_utils_module (heap_utils_comp_chunk_ident loc)
+  let+ field_utils_module = get_field_utils_module field_name in
+  QualIdent.append field_utils_module (heap_utils_comp_chunk_ident (QualIdent.to_loc field_name))
 
-let get_pred_utils_comp loc pred_name : qual_ident t =
+let get_pred_utils_comp pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_utils_module = get_pred_utils_module loc pred_name in
-  QualIdent.append pred_utils_module (heap_utils_comp_chunk_ident loc)
+  let+ pred_utils_module = get_pred_utils_module pred_name in
+  QualIdent.append pred_utils_module (heap_utils_comp_chunk_ident (QualIdent.to_loc pred_name))
 
 let get_au_utils_comp loc call_name : qual_ident t =
   let open Syntax in
-  let+ call_utils_module = get_au_utils_module loc call_name in
-  QualIdent.append call_utils_module (heap_utils_comp_chunk_ident loc)
-
+  let+ call_utils_module = get_au_utils_module call_name in
+  QualIdent.append call_utils_module (heap_utils_comp_chunk_ident (QualIdent.to_loc call_name))
 (* ======================== *)
 
 let heap_utils_frame_chunk_ident loc = Ident.make loc "heapChunkFrame" 0
 
-let get_field_utils_frame loc field_name : qual_ident t =
+let get_field_utils_frame field_name : qual_ident t =
   let open Syntax in
-  let+ field_utils_module = get_field_utils_module loc field_name in
-  QualIdent.append field_utils_module (heap_utils_frame_chunk_ident loc)
+  let+ field_utils_module = get_field_utils_module field_name in
+  QualIdent.append field_utils_module (heap_utils_frame_chunk_ident (QualIdent.to_loc field_name))
 
-let get_pred_utils_frame loc pred_name : qual_ident t =
+let get_pred_utils_frame pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_utils_module = get_pred_utils_module loc pred_name in
-  QualIdent.append pred_utils_module (heap_utils_frame_chunk_ident loc)
+  let+ pred_utils_module = get_pred_utils_module pred_name in
+  QualIdent.append pred_utils_module (heap_utils_frame_chunk_ident (QualIdent.to_loc pred_name))
 
-let get_au_utils_frame loc call_name : qual_ident t =
+let get_au_utils_frame call_name : qual_ident t =
   let open Syntax in
-  let+ call_utils_module = get_au_utils_module loc call_name in
-  QualIdent.append call_utils_module (heap_utils_frame_chunk_ident loc)
+  let+ call_utils_module = get_au_utils_module call_name in
+  QualIdent.append call_utils_module (heap_utils_frame_chunk_ident (QualIdent.to_loc call_name))
 
 (* ======================== *)
 
 let heap_utils_valid_ident loc = Ident.make loc "valid" 0
 
-let get_field_utils_valid loc field_name : qual_ident t =
+let get_field_utils_valid field_name : qual_ident t =
   let open Syntax in
-  let+ field_utils_module = get_field_utils_module loc field_name in
-  QualIdent.append field_utils_module (heap_utils_valid_ident loc)
+  let+ field_utils_module = get_field_utils_module field_name in
+  QualIdent.append field_utils_module (heap_utils_valid_ident (QualIdent.to_loc field_name))
 
-let get_pred_utils_valid loc pred_name : qual_ident t =
+let get_pred_utils_valid pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_utils_module = get_pred_utils_module loc pred_name in
-  QualIdent.append pred_utils_module (heap_utils_valid_ident loc)
+  let+ pred_utils_module = get_pred_utils_module pred_name in
+  QualIdent.append pred_utils_module (heap_utils_valid_ident (QualIdent.to_loc pred_name))
 
-let get_au_utils_valid loc call_name : qual_ident t =
+let get_au_utils_valid call_name : qual_ident t =
   let open Syntax in
-  let+ call_utils_module = get_au_utils_module loc call_name in
-  QualIdent.append call_utils_module (heap_utils_valid_ident loc)
+  let+ call_utils_module = get_au_utils_module call_name in
+  QualIdent.append call_utils_module (heap_utils_valid_ident (QualIdent.to_loc call_name))
 
 (* ======================== *)
 
 let heap_utils_valid_inhale_ident loc = Ident.make loc "validInhale" 0
 
-let get_field_utils_valid_inhale loc field_name : qual_ident t =
+let get_field_utils_valid_inhale field_name : qual_ident t =
   let open Syntax in
-  let+ field_utils_module = get_field_utils_module loc field_name in
-  QualIdent.append field_utils_module (heap_utils_valid_inhale_ident loc)
+  let+ field_utils_module = get_field_utils_module field_name in
+  QualIdent.append field_utils_module (heap_utils_valid_inhale_ident (QualIdent.to_loc field_name))
 
 let get_pred_utils_valid_inhale loc pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_utils_module = get_pred_utils_module loc pred_name in
-  QualIdent.append pred_utils_module (heap_utils_valid_inhale_ident loc)
+  let+ pred_utils_module = get_pred_utils_module pred_name in
+  QualIdent.append pred_utils_module (heap_utils_valid_inhale_ident (QualIdent.to_loc pred_name))
 
-let get_au_utils_valid_inhale loc call_name : qual_ident t =
+let get_au_utils_valid_inhale call_name : qual_ident t =
   let open Syntax in
-  let+ call_utils_module = get_au_utils_module loc call_name in
-  QualIdent.append call_utils_module (heap_utils_valid_inhale_ident loc)
+  let+ call_utils_module = get_au_utils_module call_name in
+  QualIdent.append call_utils_module (heap_utils_valid_inhale_ident (QualIdent.to_loc call_name))
 
 (* ======================== *)
 
 let heap_utils_heapchunk_compare_ident loc = Ident.make loc "heapChunkCompare" 0
 
-let get_field_utils_heapchunk_compare loc field_name : qual_ident t =
+let get_field_utils_heapchunk_compare field_name : qual_ident t =
   let open Syntax in
-  let+ field_utils_module = get_field_utils_module loc field_name in
-  QualIdent.append field_utils_module (heap_utils_heapchunk_compare_ident loc)
+  let+ field_utils_module = get_field_utils_module field_name in
+  QualIdent.append field_utils_module (heap_utils_heapchunk_compare_ident (QualIdent.to_loc field_name))
 
-let get_pred_utils_heapchunk_compare loc pred_name : qual_ident t =
+let get_pred_utils_heapchunk_compare pred_name : qual_ident t =
   let open Syntax in
-  let+ pred_utils_module = get_pred_utils_module loc pred_name in
-  QualIdent.append pred_utils_module (heap_utils_heapchunk_compare_ident loc)
+  let+ pred_utils_module = get_pred_utils_module pred_name in
+  QualIdent.append pred_utils_module (heap_utils_heapchunk_compare_ident (QualIdent.to_loc pred_name))
 
-let get_au_utils_heapchunk_compare loc call_name : qual_ident t =
+let get_au_utils_heapchunk_compare call_name : qual_ident t =
   let open Syntax in
-  let+ call_utils_module = get_au_utils_module loc call_name in
-  QualIdent.append call_utils_module (heap_utils_heapchunk_compare_ident loc)
+  let+ call_utils_module = get_au_utils_module call_name in
+  QualIdent.append call_utils_module (heap_utils_heapchunk_compare_ident (QualIdent.to_loc call_name))
 
 (* ======================== *)
 
 let heap_utils_id_ident loc = Ident.make loc "id" 0
 
-let get_field_utils_id loc field_name : expr t =
+let get_field_utils_id field_name : expr t =
   let open Syntax in
-  let* field_utils_module = get_field_utils_module loc field_name in
+  let loc = (QualIdent.to_loc field_name) in
+  let* field_utils_module = get_field_utils_module field_name in
 
-  let* field = find_and_reify loc field_name in
+  let* field = find_and_reify field_name in
   let field_type =
     match field with
     | AstDef.Module.FieldDef { field_type; _ } -> field_type
@@ -490,11 +490,12 @@ let get_field_utils_id loc field_name : expr t =
 
 let get_pred_utils_id loc pred_name : expr t =
   let open Syntax in
-  let* pred_utils_module = get_pred_utils_module loc pred_name in
+  let loc = QualIdent.to_loc pred_name in
+  let* pred_utils_module = get_pred_utils_module pred_name in
 
-  let* pred = find_and_reify loc pred_name in
+  let* pred = find_and_reify pred_name in
 
-  let* pred_elem_type_name = get_pred_utils_rep_type loc pred_name in
+  let* pred_elem_type_name = get_pred_utils_rep_type pred_name in
 
   let pred_elem_type = AstDef.Type.mk_var pred_elem_type_name in
 
@@ -506,11 +507,12 @@ let get_pred_utils_id loc pred_name : expr t =
 
 let get_au_utils_id loc call_name : expr t =
   let open Syntax in
-  let* call_utils_module = get_au_utils_module loc call_name in
+  let loc = (QualIdent.to_loc call_name) in
+  let* call_utils_module = get_au_utils_module call_name in
 
-  let* call = find_and_reify loc call_name in
+  let* call = find_and_reify call_name in
 
-  let* call_elem_type_name = get_au_utils_rep_type loc call_name in
+  let* call_elem_type_name = get_au_utils_rep_type call_name in
 
   let call_elem_type = AstDef.Type.mk_var call_elem_type_name in
 
@@ -525,8 +527,8 @@ let get_au_utils_id loc call_name : expr t =
 let pred_ra_constr_qual_ident loc pred_name =
   let open Syntax in
   let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
-
-  let+ pred = find_and_reify loc pred_name in
+  let loc = (QualIdent.to_loc pred_name) in
+  let+ pred = find_and_reify pred_name in
   match pred with
   | AstDef.Module.CallDef c -> (
       match c.call_decl.call_decl_kind with
@@ -566,8 +568,8 @@ let pred_ra_count_destr_qual_ident loc pred_name =
 let pred_ra_val_destr_qual_ident loc pred_name =
   let open Syntax in
   let* pred_ra_qual_iden = pred_get_ra_qual_iden pred_name in
-
-  let+ pred = find_and_reify loc pred_name in
+  let loc = (QualIdent.to_loc pred_name) in
+  let+ pred = find_and_reify pred_name in
   match pred with
   | AstDef.Module.CallDef c -> (
       match c.call_decl.call_decl_kind with
@@ -586,7 +588,7 @@ let pred_ra_val_destr_qual_ident loc pred_name =
 
 let pred_in_types pred_name =
   let open Syntax in
-  let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
+  let+ pred = find_and_reify pred_name in
 
   match pred with
   | AstDef.Module.CallDef c
@@ -602,7 +604,7 @@ let pred_in_types pred_name =
 
 let pred_out_types pred_name =
   let open Syntax in
-  let+ pred = find_and_reify (AstDef.QualIdent.to_loc pred_name) pred_name in
+  let+ pred = find_and_reify pred_name in
 
   match pred with
   | AstDef.Module.CallDef c
@@ -621,7 +623,7 @@ let pred_heap_type pred_name =
   let* pred_in_types = pred_in_types pred_name in
 
   let+ pred_rep_type =
-    get_pred_utils_rep_type (QualIdent.to_loc pred_name) pred_name
+    get_pred_utils_rep_type pred_name
   in
 
   AstDef.Type.mk_map
@@ -639,7 +641,7 @@ let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
         | Var qual_ident -> (
             if AstDef.QualIdent.is_local qual_ident then return true
             else
-              let* _, symbol, _ = find (AstDef.Expr.to_loc expr) qual_ident in
+              let* _, symbol, _ = find qual_ident in
               match symbol with
               | CallDef c -> (
                   match c.call_decl.call_decl_kind with
@@ -662,7 +664,7 @@ let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
 let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
   let open Syntax in
   let* symbol =
-    find_and_reify (AstDef.QualIdent.to_loc qual_ident) qual_ident
+    find_and_reify qual_ident
   in
   match symbol with
   | AstDef.Module.ConstrDef constr_def -> (
@@ -675,7 +677,7 @@ let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
               "ProgUtils.get_data_destrs_from_constr: Expected a variable"
       in
 
-      let* symbol = find_and_reify (AstDef.QualIdent.to_loc tp_name) tp_name in
+      let* symbol = find_and_reify tp_name in
       match symbol with
       | AstDef.Module.TypeDef { type_def_expr = Some tp_expr; _ } -> (
           match tp_expr with
@@ -716,7 +718,7 @@ let rec expr_preds_mentioned (expr : AstDef.Expr.t) :
   match expr with
   | App (Var qual_ident, _, _) -> (
       let+ _, (_, symbol, _) =
-        resolve_and_find (AstDef.Expr.to_loc expr) qual_ident
+        resolve_and_find qual_ident
       in
 
       match symbol with
