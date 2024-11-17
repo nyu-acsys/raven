@@ -9,3 +9,7 @@ end
 module Rewriter = struct
   include Rewriter
 end
+
+module ProgUtils = struct
+  include ProgUtils
+end
