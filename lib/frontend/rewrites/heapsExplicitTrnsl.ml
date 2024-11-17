@@ -65,32 +65,32 @@ let unsupported_expr_error (expr : Expr.t) : 'a =
 
 let field_heap_name (field_name : qual_ident) =
   let field_name_str = QualIdent.to_string field_name in
-  let field_name_str = Rewriter.ProgUtils.serialize field_name_str in
+  let field_name_str = ProgUtils.serialize field_name_str in
   Ident.make Loc.dummy (field_name_str ^ "$Heap") 0
 
 let field_heap_name2 (field_name : qual_ident) =
   let field_name_str = QualIdent.to_string field_name in
-  let field_name_str = Rewriter.ProgUtils.serialize field_name_str in
+  let field_name_str = ProgUtils.serialize field_name_str in
   Ident.make Loc.dummy (field_name_str ^ "$Heap2") 0
 
 let pred_heap_name (pred_name : qual_ident) =
   let pred_name_str = QualIdent.to_string pred_name in
-  let pred_name_str = Rewriter.ProgUtils.serialize pred_name_str in
+  let pred_name_str = ProgUtils.serialize pred_name_str in
   Ident.make Loc.dummy (pred_name_str ^ "$Heap") 0
 
 let pred_heap_name2 (pred_name : qual_ident) =
   let pred_name_str = QualIdent.to_string pred_name in
-  let pred_name_str = Rewriter.ProgUtils.serialize pred_name_str in
+  let pred_name_str = ProgUtils.serialize pred_name_str in
   Ident.make Loc.dummy (pred_name_str ^ "$Heap2") 0
 
 let au_heap_name (callable_name : qual_ident) =
   let callable_name_str = QualIdent.to_string callable_name in
-  let callable_name_str = Rewriter.ProgUtils.serialize callable_name_str in
+  let callable_name_str = ProgUtils.serialize callable_name_str in
   Ident.make Loc.dummy (callable_name_str ^ "$AU_Heap") 0
 
 let au_heap_name2 (callable_name : qual_ident) =
   let callable_name_str = QualIdent.to_string callable_name in
-  let callable_name_str = Rewriter.ProgUtils.serialize callable_name_str in
+  let callable_name_str = ProgUtils.serialize callable_name_str in
   Ident.make Loc.dummy (callable_name_str ^ "$AU_Heap2") 0
 
 let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
@@ -236,7 +236,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
   else
     let inv_fn_ident =
       Ident.fresh loc
-        ("$inv_" ^ Rewriter.ProgUtils.serialize (Expr.to_string inv_expr))
+        ("$inv_" ^ ProgUtils.serialize (Expr.to_string inv_expr))
     in
 
     let* env_local_var_decls =
@@ -617,7 +617,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
 
   let open Rewriter.Syntax in
 
-  let fld_elem_type = Rewriter.ProgUtils.get_ra_rep_type ra_qual_ident in
+  let fld_elem_type = ProgUtils.get_ra_rep_type ra_qual_ident in
 
   let mod_decl =
     {
@@ -634,7 +634,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
   in
 
   let* mod_def =
-    let type_ident = Rewriter.ProgUtils.heap_utils_rep_type_ident loc in
+    let type_ident = ProgUtils.heap_utils_rep_type_ident loc in
     let type_tp_expr = Type.mk_var (QualIdent.from_ident type_ident) in
 
     let type_def =
@@ -650,12 +650,12 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
       {
         Stmt.var_decl =
           Type.mk_var_decl ~loc ~const:true
-            (Rewriter.ProgUtils.heap_utils_id_ident loc)
+            (ProgUtils.heap_utils_id_ident loc)
             type_tp_expr;
         var_init =
           Some
             (Expr.mk_var ~typ:fld_elem_type
-               (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
+               (ProgUtils.get_ra_id ra_qual_ident));
       }
     in
 
@@ -666,7 +666,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     let heap_valid_fn_decl =
       {
         Callable.call_decl_kind = Func;
-        call_decl_name = Rewriter.ProgUtils.heap_utils_valid_ident loc;
+        call_decl_name = ProgUtils.heap_utils_valid_ident loc;
         call_decl_formals = [ heap_formal_arg ];
         call_decl_returns =
           [
@@ -687,7 +687,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     in
 
     let ra_valid_fn_qual_ident =
-      Rewriter.ProgUtils.get_ra_valid_fn_qual_ident ra_qual_ident
+      ProgUtils.get_ra_valid_fn_qual_ident ra_qual_ident
     in
 
     let heap_valid_fn_body = 
@@ -720,7 +720,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     let heap_valid_inhale_fn_decl =
       { heap_valid_fn_decl with
         (* Callable.call_decl_kind = Func; *)
-        call_decl_name = Rewriter.ProgUtils.heap_utils_valid_inhale_ident loc;
+        call_decl_name = ProgUtils.heap_utils_valid_inhale_ident loc;
       }
     in
 
@@ -741,7 +741,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
                 (Expr.from_var_decl heap_formal_arg)
                 (Expr.mk_null ()))
               (Expr.mk_var ~typ:type_tp_expr
-                (Rewriter.ProgUtils.get_ra_id ra_qual_ident));
+                (ProgUtils.get_ra_id ra_qual_ident));
             in
 
             Expr.mk_and [
@@ -759,7 +759,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     let heap_add_chunk_fn_decl =
       {
         Callable.call_decl_kind = Func;
-        call_decl_name = Rewriter.ProgUtils.heap_utils_comp_chunk_ident loc;
+        call_decl_name = ProgUtils.heap_utils_comp_chunk_ident loc;
         call_decl_formals =
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1")
@@ -792,7 +792,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
                 Some
                   (Expr.mk_app ~loc ~typ:type_tp_expr
                      (Expr.Var
-                        (Rewriter.ProgUtils.get_ra_comp_fn_qual_ident
+                        (ProgUtils.get_ra_comp_fn_qual_ident
                            ra_qual_ident))
                      [
                        Expr.from_var_decl
@@ -808,7 +808,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     let heap_sub_chunk_fn_decl =
       {
         Callable.call_decl_kind = Func;
-        call_decl_name = Rewriter.ProgUtils.heap_utils_frame_chunk_ident loc;
+        call_decl_name = ProgUtils.heap_utils_frame_chunk_ident loc;
         call_decl_formals =
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1")
@@ -841,7 +841,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
                 Some
                   (Expr.mk_app ~loc ~typ:type_tp_expr
                      (Expr.Var
-                        (Rewriter.ProgUtils.get_ra_frame_fn_qual_ident
+                        (ProgUtils.get_ra_frame_fn_qual_ident
                            ra_qual_ident))
                      [
                        Expr.from_var_decl
@@ -858,7 +858,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
       {
         Callable.call_decl_kind = Func;
         call_decl_name =
-          Rewriter.ProgUtils.heap_utils_heapchunk_compare_ident loc;
+          ProgUtils.heap_utils_heapchunk_compare_ident loc;
         call_decl_formals =
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1")
@@ -928,10 +928,10 @@ let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t
   match symbol with
   | FieldDef f ->
       let* utils_module =
-        let is_field_def_real_heap = Rewriter.ProgUtils.is_field_def_real_heap f in
-        let ra_qual_ident = Rewriter.ProgUtils.field_get_ra_qual_iden f in
+        let is_field_def_real_heap = ProgUtils.is_field_def_real_heap f in
+        let ra_qual_ident = ProgUtils.field_get_ra_qual_iden f in
         let mod_ident =
-          Rewriter.ProgUtils.field_utils_module_ident f.field_loc f.field_name
+          ProgUtils.field_utils_module_ident f.field_loc f.field_name
         in
         generate_utils_module ~is_field:true ~is_frac_field:is_field_def_real_heap mod_ident ra_qual_ident f.field_loc
       in
@@ -956,7 +956,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
       in
 
       let* pred_ret_type_module =
-        Rewriter.ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
+        ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
           ~f:Typing.process_symbol pred_ret_type
       in
 
@@ -975,7 +975,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
         Module.ModInst
           {
             mod_inst_name =
-              Rewriter.ProgUtils.pred_to_ra_mod_ident ~loc
+              ProgUtils.pred_to_ra_mod_ident ~loc
                 c.call_decl.call_decl_name;
             mod_inst_type;
             mod_inst_def = Some (mod_inst_def_ra, [ pred_ret_type_module ]);
@@ -1001,7 +1001,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
 
       let* utils_module =
         generate_utils_module ~is_field:false
-          (Rewriter.ProgUtils.pred_utils_module_ident loc
+          (ProgUtils.pred_utils_module_ident loc
              c.call_decl.call_decl_name)
           pred_heap_ra ~in_arg_typ loc
       in
@@ -1029,7 +1029,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
         in
 
         let* proc_conrete_args_type_module =
-          Rewriter.ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
+          ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
             ~f:Typing.process_symbol proc_concrete_args_typ
         in
 
@@ -1040,7 +1040,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
         in
 
         let* proc_ret_type_module =
-          Rewriter.ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
+          ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
             ~f:Typing.process_symbol proc_ret_type
         in
 
@@ -1048,7 +1048,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
           Module.ModInst
             {
               mod_inst_name =
-                Rewriter.ProgUtils.au_to_ra_mod_ident ~loc
+                ProgUtils.au_to_ra_mod_ident ~loc
                   c.call_decl.call_decl_name;
               mod_inst_type = Predefs.lib_ra_mod_qual_ident;
               mod_inst_def =
@@ -1073,7 +1073,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
 
         let* utils_module =
           generate_utils_module ~is_field:false
-            (Rewriter.ProgUtils.au_utils_module_ident loc
+            (ProgUtils.au_utils_module_ident loc
                c.call_decl.call_decl_name)
             au_proc_heap_ra ~in_arg_typ loc
         in
@@ -1119,7 +1119,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
 
         let loc = Stmt.to_loc body in
         let* field_utils_id =
-          Rewriter.ProgUtils.get_field_utils_id loc field_name
+          ProgUtils.get_field_utils_id loc field_name
         in
 
         let assume_expr1 =
@@ -1192,14 +1192,14 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
   let* pred_heap_var_defs =
     Rewriter.List.map preds_list ~f:(fun pred_name ->
         let* pred_heap_elem_type_qual_ident =
-          Rewriter.ProgUtils.get_pred_utils_rep_type loc pred_name
+          ProgUtils.get_pred_utils_rep_type loc pred_name
         in
 
         let pred_heap_elem_type =
           Type.mk_var pred_heap_elem_type_qual_ident
         in
 
-        let* pred_in_types = Rewriter.ProgUtils.pred_in_types pred_name in
+        let* pred_in_types = ProgUtils.pred_in_types pred_name in
 
         (* Done so that Ident is aware of this name being used; prevents the same name from being generated again during SSA transform *)
         let _ = Ident.fresh loc (pred_heap_name pred_name).ident_name in
@@ -1220,7 +1220,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
 
         let loc = Stmt.to_loc body in
         let* pred_utils_id =
-          Rewriter.ProgUtils.get_pred_utils_id loc pred_name
+          ProgUtils.get_pred_utils_id loc pred_name
         in
 
         let assume_expr1 =
@@ -1300,7 +1300,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
   let* au_heap_var_defs =
     Rewriter.List.map au_preds_list ~f:(fun call_name ->
         let* au_heap_elem_type_qual_ident =
-          Rewriter.ProgUtils.get_au_utils_rep_type loc call_name
+          ProgUtils.get_au_utils_rep_type loc call_name
         in
 
         let au_heap_elem_type = Type.mk_var au_heap_elem_type_qual_ident in
@@ -1319,7 +1319,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
           }
         in
 
-        let* au_utils_id = Rewriter.ProgUtils.get_au_utils_id loc call_name in
+        let* au_utils_id = ProgUtils.get_au_utils_id loc call_name in
 
         let assume_expr1 =
           let in_var =
@@ -1427,8 +1427,8 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       let fpu_allowed_qual_iden =
-        let field_ra = Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol in
-        Rewriter.ProgUtils.get_ra_fpu_allowed_qual_ident field_ra
+        let field_ra = ProgUtils.field_get_ra_qual_iden field_symbol in
+        ProgUtils.get_ra_fpu_allowed_qual_ident field_ra
       in
 
       let* old_val =
@@ -1962,15 +1962,15 @@ module TrnslInhale = struct
         in
 
         let* (field_heapchunk_operator : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_comp (Expr.to_loc e2) field_name
+          ProgUtils.get_field_utils_comp (Expr.to_loc e2) field_name
         in
 
         let* (field_heap_valid_fn : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
+          ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
         let* (field_heap_valid_inhale_fn : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_valid_inhale (Expr.to_loc e2) field_name
+          ProgUtils.get_field_utils_valid_inhale (Expr.to_loc e2) field_name
         in
 
         let l_var =
@@ -2148,7 +2148,7 @@ module TrnslInhale = struct
               Expr.pr expr);
         let loc = Expr.to_loc expr in
         let* heap_elem_type_qual_iden =
-          Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident
+          ProgUtils.get_au_utils_rep_type loc call_qual_ident
         in
 
         let heap_elem_type = Type.mk_var heap_elem_type_qual_iden in
@@ -2171,23 +2171,23 @@ module TrnslInhale = struct
         in
 
         let* (au_heapchunk_operator : qual_ident) =
-          Rewriter.ProgUtils.get_au_utils_comp loc call_name
+          ProgUtils.get_au_utils_comp loc call_name
         in
 
         let* (au_heap_valid_fn : qual_ident) =
-          Rewriter.ProgUtils.get_au_utils_valid loc call_name
+          ProgUtils.get_au_utils_valid loc call_name
         in
 
         let* (au_heap_valid_inhale_fn : qual_ident) =
-          Rewriter.ProgUtils.get_au_utils_valid_inhale loc call_name
+          ProgUtils.get_au_utils_valid_inhale loc call_name
         in
 
         let* au_ra_uncommitted_constr =
-          Rewriter.ProgUtils.au_ra_uncommitted_constr_qual_ident loc
+          ProgUtils.au_ra_uncommitted_constr_qual_ident loc
             call_qual_ident
         in
         let* au_ra_committed_constr =
-          Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc
+          ProgUtils.au_ra_committed_constr_qual_ident loc
             call_qual_ident
         in
 
@@ -2374,7 +2374,7 @@ module TrnslInhale = struct
 
         Rewriter.return stmt
     | e -> (
-        let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
+        let* is_e_pure = ProgUtils.is_expr_pure e in
         if is_e_pure then
           let body_expr =
             match conds with [] -> e | _ -> Expr.mk_impl (Expr.mk_and conds) e
@@ -2404,7 +2404,7 @@ module TrnslInhale = struct
                        c.call_decl.call_decl_kind = Pred
                        || c.call_decl.call_decl_kind = Invariant) ->
                   let* heap_elem_type_qual_iden =
-                    Rewriter.ProgUtils.get_pred_utils_rep_type loc qual_ident
+                    ProgUtils.get_pred_utils_rep_type loc qual_ident
                   in
 
                   let heap_elem_type =
@@ -2433,27 +2433,27 @@ module TrnslInhale = struct
                   in
 
                   let* (pred_heapchunk_operator : qual_ident) =
-                    Rewriter.ProgUtils.get_pred_utils_comp loc pred_name
+                    ProgUtils.get_pred_utils_comp loc pred_name
                   in
 
                   let* (pred_heap_valid_fn : qual_ident) =
-                    Rewriter.ProgUtils.get_pred_utils_valid loc pred_name
+                    ProgUtils.get_pred_utils_valid loc pred_name
                   in
 
                   let* (pred_heap_valid_inhale_fn : qual_ident) =
-                    Rewriter.ProgUtils.get_pred_utils_valid_inhale loc pred_name
+                    ProgUtils.get_pred_utils_valid_inhale loc pred_name
                   in
 
                   let* pred_in_types =
-                    Rewriter.ProgUtils.pred_in_types qual_ident
+                    ProgUtils.pred_in_types qual_ident
                   in
 
                   let* pred_out_types =
-                    Rewriter.ProgUtils.pred_out_types qual_ident
+                    ProgUtils.pred_out_types qual_ident
                   in
 
                   let* pred_ra_constr =
-                    Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident
+                    ProgUtils.pred_ra_constr_qual_ident loc qual_ident
                   in
 
                   let in_vars =
@@ -2728,12 +2728,12 @@ module TrnslInhale = struct
         in
 
         let* (field_heapchunk_operator : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_heapchunk_compare (Expr.to_loc e2)
+          ProgUtils.get_field_utils_heapchunk_compare (Expr.to_loc e2)
             field_name
         in
 
         let* (field_heap_valid_fn : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
+          ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
         let assume_stmt =
@@ -2761,7 +2761,7 @@ module TrnslInhale = struct
               Expr.pr expr);
         let loc = Expr.to_loc expr in
         let* heap_elem_type_qual_iden =
-          Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident
+          ProgUtils.get_au_utils_rep_type loc call_qual_ident
         in
 
         let heap_elem_type = Type.mk_var heap_elem_type_qual_iden in
@@ -2776,15 +2776,15 @@ module TrnslInhale = struct
         in
 
         let* (au_heapchunk_operator : qual_ident) =
-          Rewriter.ProgUtils.get_au_utils_heapchunk_compare loc call_name
+          ProgUtils.get_au_utils_heapchunk_compare loc call_name
         in
 
         let* au_ra_uncommitted_constr =
-          Rewriter.ProgUtils.au_ra_uncommitted_constr_qual_ident loc
+          ProgUtils.au_ra_uncommitted_constr_qual_ident loc
             call_qual_ident
         in
         let* au_ra_committed_constr =
-          Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc
+          ProgUtils.au_ra_committed_constr_qual_ident loc
             call_qual_ident
         in
 
@@ -2821,7 +2821,7 @@ module TrnslInhale = struct
 
         Rewriter.return assume_stmt
     | e -> (
-        let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
+        let* is_e_pure = ProgUtils.is_expr_pure e in
         if is_e_pure then
           let body_expr =
             match conds with [] -> e | _ -> Expr.mk_impl (Expr.mk_and conds) e
@@ -2851,7 +2851,7 @@ module TrnslInhale = struct
                        c.call_decl.call_decl_kind = Pred
                        || c.call_decl.call_decl_kind = Invariant) ->
                   let* heap_elem_type_qual_iden =
-                    Rewriter.ProgUtils.get_pred_utils_rep_type loc qual_ident
+                    ProgUtils.get_pred_utils_rep_type loc qual_ident
                   in
 
                   let heap_elem_type =
@@ -2870,20 +2870,20 @@ module TrnslInhale = struct
                   in
 
                   let* (pred_heapchunk_operator : qual_ident) =
-                    Rewriter.ProgUtils.get_pred_utils_heapchunk_compare loc
+                    ProgUtils.get_pred_utils_heapchunk_compare loc
                       pred_name
                   in
 
                   let* pred_in_types =
-                    Rewriter.ProgUtils.pred_in_types qual_ident
+                    ProgUtils.pred_in_types qual_ident
                   in
 
                   let* pred_out_types =
-                    Rewriter.ProgUtils.pred_out_types qual_ident
+                    ProgUtils.pred_out_types qual_ident
                   in
 
                   let* pred_ra_constr =
-                    Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident
+                    ProgUtils.pred_ra_constr_qual_ident loc qual_ident
                   in
 
                   let assume_stmt =
@@ -3074,7 +3074,7 @@ module TrnslExhale = struct
     and elim_a (universal_quants : universal_quants) (conds : conditions)
         (expr : expr) : (expr * expr list) Rewriter.t =
       let open Rewriter.Syntax in
-      if%bind Rewriter.ProgUtils.is_expr_pure expr then Rewriter.return (expr, [])
+      if%bind ProgUtils.is_expr_pure expr then Rewriter.return (expr, [])
       else
         match expr with
         | App (Ite, [ c; e1; e2 ], expr_attr) ->
@@ -3610,21 +3610,21 @@ module TrnslExhale = struct
           | CallDef c when Poly.(c.call_decl.call_decl_kind = Pred || c.call_decl.call_decl_kind = Invariant) ->
               let pred_heap = pred_heap_name qual_ident in
               let* pred_in_types =
-                Rewriter.ProgUtils.pred_in_types qual_ident
+                ProgUtils.pred_in_types qual_ident
               in
               let* pred_out_types =
-                Rewriter.ProgUtils.pred_out_types qual_ident
+                ProgUtils.pred_out_types qual_ident
               in
 
               let* pred_heap_type =
-                Rewriter.ProgUtils.pred_heap_type qual_ident
+                ProgUtils.pred_heap_type qual_ident
               in
               let pred_heap_expr =
                 Expr.mk_var (QualIdent.from_ident pred_heap) ~typ:pred_heap_type
               in
 
               let* pred_val_destr =
-                Rewriter.ProgUtils.pred_ra_val_destr_qual_ident
+                ProgUtils.pred_ra_val_destr_qual_ident
                   (Expr.to_loc expr) qual_ident
               in
 
@@ -3840,7 +3840,7 @@ module TrnslExhale = struct
               Rewriter.return witness_map
           | App (DataConstr qual_iden, exprs, _) ->
               let* destrs =
-                Rewriter.ProgUtils.get_data_destrs_from_constr qual_iden
+                ProgUtils.get_data_destrs_from_constr qual_iden
               in
 
               let* destrs =
@@ -4003,11 +4003,11 @@ module TrnslExhale = struct
         in
 
         let* (field_heapchunk_operator : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_frame (Expr.to_loc e2) field_name
+          ProgUtils.get_field_utils_frame (Expr.to_loc e2) field_name
         in
 
         let* (field_heap_valid_fn : qual_ident) =
-          Rewriter.ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
+          ProgUtils.get_field_utils_valid (Expr.to_loc e2) field_name
         in
 
         let l_var =
@@ -4180,7 +4180,7 @@ module TrnslExhale = struct
     | App (AUPredCommit call_qual_ident, token :: args, _) ->
         let loc = Expr.to_loc expr in
         let* heap_elem_type_qual_iden =
-          Rewriter.ProgUtils.get_au_utils_rep_type loc call_qual_ident
+          ProgUtils.get_au_utils_rep_type loc call_qual_ident
         in
 
         let heap_elem_type = Type.mk_var heap_elem_type_qual_iden in
@@ -4203,19 +4203,19 @@ module TrnslExhale = struct
         in
 
         let* (au_heapchunk_operator : qual_ident) =
-          Rewriter.ProgUtils.get_au_utils_frame loc call_name
+          ProgUtils.get_au_utils_frame loc call_name
         in
 
         let* (au_heap_valid_fn : qual_ident) =
-          Rewriter.ProgUtils.get_au_utils_valid loc call_name
+          ProgUtils.get_au_utils_valid loc call_name
         in
 
         let* au_ra_uncommitted_constr =
-          Rewriter.ProgUtils.au_ra_uncommitted_constr_qual_ident loc
+          ProgUtils.au_ra_uncommitted_constr_qual_ident loc
             call_qual_ident
         in
         let* au_ra_committed_constr =
-          Rewriter.ProgUtils.au_ra_committed_constr_qual_ident loc
+          ProgUtils.au_ra_committed_constr_qual_ident loc
             call_qual_ident
         in
 
@@ -4403,7 +4403,7 @@ module TrnslExhale = struct
 
         Rewriter.return stmt
     | e -> (
-        let* is_e_pure = Rewriter.ProgUtils.is_expr_pure e in
+        let* is_e_pure = ProgUtils.is_expr_pure e in
         if is_e_pure then
           let assert_expr =
             Expr.mk_binder ~loc ~typ:Type.bool ~trigs:universal_quants.triggers
@@ -4435,7 +4435,7 @@ module TrnslExhale = struct
                        c.call_decl.call_decl_kind = Pred
                        || c.call_decl.call_decl_kind = Invariant) ->
                   let* heap_elem_type_qual_iden =
-                    Rewriter.ProgUtils.get_pred_utils_rep_type loc qual_ident
+                    ProgUtils.get_pred_utils_rep_type loc qual_ident
                   in
 
                   let heap_elem_type =
@@ -4464,23 +4464,23 @@ module TrnslExhale = struct
                   in
 
                   let* (pred_heapchunk_operator : qual_ident) =
-                    Rewriter.ProgUtils.get_pred_utils_frame loc pred_name
+                    ProgUtils.get_pred_utils_frame loc pred_name
                   in
 
                   let* (pred_heap_valid_fn : qual_ident) =
-                    Rewriter.ProgUtils.get_pred_utils_valid loc pred_name
+                    ProgUtils.get_pred_utils_valid loc pred_name
                   in
 
                   let* pred_in_types =
-                    Rewriter.ProgUtils.pred_in_types qual_ident
+                    ProgUtils.pred_in_types qual_ident
                   in
 
                   let* pred_out_types =
-                    Rewriter.ProgUtils.pred_out_types qual_ident
+                    ProgUtils.pred_out_types qual_ident
                   in
 
                   let* pred_ra_constr =
-                    Rewriter.ProgUtils.pred_ra_constr_qual_ident loc qual_ident
+                    ProgUtils.pred_ra_constr_qual_ident loc qual_ident
                   in
 
                   let in_vars =
@@ -4757,7 +4757,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
               in
               Rewriter.return stmt
           | Assert ->
-              let* is_e_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
+              let* is_e_pure = ProgUtils.is_expr_pure spec.spec_form in
               if is_e_pure then
                 (* let assume_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc spec.spec_form in *)
                 (* Rewriter.return (Stmt.mk_block_stmt ~loc:s.stmt_loc [s; assume_stmt]) *)
@@ -4848,7 +4848,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let field_ra =
-            Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol
+            ProgUtils.field_get_ra_qual_iden field_symbol
           in
           let field_read_ref_loc = fr_desc.field_read_ref |> Expr.to_loc in
           let loc = Loc.merge field_loc field_read_ref_loc in
@@ -4856,7 +4856,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
           let* orig_ra_name, ra_def, _ = Rewriter.find s.stmt_loc field_ra in
 
           if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
-            let field_ra_type = Rewriter.ProgUtils.get_ra_rep_type field_ra in
+            let field_ra_type = ProgUtils.get_ra_rep_type field_ra in
 
             let field_heap_name = field_heap_name field_name in
             let field_heap_expr =
@@ -4919,13 +4919,13 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let field_ra =
-            Rewriter.ProgUtils.field_get_ra_qual_iden field_symbol
+            ProgUtils.field_get_ra_qual_iden field_symbol
           in
 
           let* orig_ra_name, ra_def, _ = Rewriter.find s.stmt_loc field_ra in
 
           if QualIdent.(orig_ra_name = Predefs.lib_frac_mod_qual_ident) then
-            let field_ra_type = Rewriter.ProgUtils.get_ra_rep_type field_ra in
+            let field_ra_type = ProgUtils.get_ra_rep_type field_ra in
 
             let field_heap_name = field_heap_name field_name in
             let field_heap_expr =

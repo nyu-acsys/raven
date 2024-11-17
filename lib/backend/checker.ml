@@ -196,8 +196,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         let spec_expr =
           let extra_validInhale_trigs = 
             let qual_ident_suffix = QualIdent.unqualify fully_qual_name in
-            let heap_utils_valid_ident = Rewriter.ProgUtils.heap_utils_valid_ident Loc.dummy in
-            let heap_utils_valid_inhale_ident = Rewriter.ProgUtils.heap_utils_valid_inhale_ident Loc.dummy in
+            let heap_utils_valid_ident = ProgUtils.heap_utils_valid_ident Loc.dummy in
+            let heap_utils_valid_inhale_ident = ProgUtils.heap_utils_valid_inhale_ident Loc.dummy in
             let fully_qual_name_path = QualIdent.from_list (QualIdent.path fully_qual_name) in
 
             if Ident.(qual_ident_suffix = heap_utils_valid_inhale_ident) then begin
@@ -358,7 +358,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
             Rewriter.List.fold_left ~init:true
               (call_decl.call_decl_precond @ call_decl.call_decl_postcond)
               ~f:(fun acc spec ->
-                let* is_pure = Rewriter.ProgUtils.is_expr_pure spec.spec_form in
+                let* is_pure = ProgUtils.is_expr_pure spec.spec_form in
                 Rewriter.return (acc && is_pure))
           in
 

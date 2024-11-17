@@ -23,7 +23,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext
 
         match c.call_def with
         | FuncDef { func_body = Some body } ->
-            let* preds_list = Rewriter.ProgUtils.expr_preds_mentioned body in
+            let* preds_list = ProgUtils.expr_preds_mentioned body in
 
             let* preds_symbols =
               Rewriter.List.map preds_list ~f:(fun pred ->
@@ -52,7 +52,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext
         let* preds_list =
           Rewriter.List.fold_left specs ~init:[] ~f:(fun acc spec ->
               let+ preds =
-                Rewriter.ProgUtils.expr_preds_mentioned spec.spec_form
+                ProgUtils.expr_preds_mentioned spec.spec_form
               in
 
               preds @ acc)

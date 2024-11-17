@@ -211,7 +211,7 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
 
       let set_element_type = Type.set_elem (Expr.to_type expr1) in
       let typ_string =
-        Rewriter.ProgUtils.serialize (Type.to_string set_element_type)
+        ProgUtils.serialize (Type.to_string set_element_type)
       in
 
       let set_diff_fn_ident =
@@ -748,7 +748,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let atomic_token_var =
             Expr.mk_var ~typ:Type.atomic_token
               (QualIdent.from_ident
-                 (Rewriter.ProgUtils.callable_au_token_ident ~loc
+                 (ProgUtils.callable_au_token_ident ~loc
                     callable_decl.call_decl_name))
           in
 
@@ -825,7 +825,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               match expr_optn with
               | Some expr -> Rewriter.return expr
               | None ->
-                  Rewriter.ProgUtils.get_field_utils_id stmt.stmt_loc field_name
+                  ProgUtils.get_field_utils_id stmt.stmt_loc field_name
             in
 
             let* field_type =
@@ -1389,7 +1389,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
               let atomic_token_var =
                 Expr.mk_var ~typ:Type.atomic_token
                   (QualIdent.from_ident
-                     (Rewriter.ProgUtils.callable_au_token_ident ~loc
+                     (ProgUtils.callable_au_token_ident ~loc
                         c.call_decl.call_decl_name))
               in
 
@@ -1456,7 +1456,7 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
             let atomic_token_var =
               {
                 Type.var_name =
-                  Rewriter.ProgUtils.callable_au_token_ident ~loc
+                  ProgUtils.callable_au_token_ident ~loc
                     c.call_decl.call_decl_name;
                 var_loc = loc;
                 var_type = Type.atomic_token;
@@ -1511,7 +1511,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
               let* module_symbol =
                 Rewriter.find_and_reify f.field_loc module_name
               in
-              Rewriter.ProgUtils.does_symbol_implement_ra module_symbol
+              ProgUtils.does_symbol_implement_ra module_symbol
             in
 
             Rewriter.return does_module_implement_ra
@@ -1537,7 +1537,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
         in
 
         let* tp_module =
-          Rewriter.ProgUtils.intros_type_module ~loc:f.field_loc
+          ProgUtils.intros_type_module ~loc:f.field_loc
             ~f:Typing.process_symbol field_underlying_tp
         in
 
@@ -1545,7 +1545,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
           Module.ModInst
             {
               mod_inst_name =
-                Rewriter.ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc 
+                ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc 
                   f.field_name field_type;
               mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
               mod_inst_def =
@@ -1555,7 +1555,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
             }
         in
 
-        (* let* topscope_name = Rewriter.ProgUtils.find_highest_valid_scope_type_expr f.field_loc field_underlying_tp in
+        (* let* topscope_name = ProgUtils.find_highest_valid_scope_type_expr f.field_loc field_underlying_tp in
 
            let topscope_name = match topscope_name with
              | Some topscope_name -> topscope_name
@@ -1624,12 +1624,12 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
               "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: \
                tp_module: %a;\n ... & frac_mod_ident: %a"
               Type.pr field_type QualIdent.pr (QualIdent.from_ident
-              (Rewriter.ProgUtils.frac_field_to_frac_mod_ident
+              (ProgUtils.frac_field_to_frac_mod_ident
                  ~loc:(Expr.to_loc expr) field_name field_type)));
 
         let* frac_mod_name =
           let frac_mod_name = 
-            Rewriter.ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type
+            ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type
           in
 
           Logs.debug (fun m -> m
@@ -2315,7 +2315,7 @@ module AtomicityAnalysis = struct
                 let+ symbol =
                   Rewriter.find_and_reify stmt.stmt_loc
                     (QualIdent.from_ident
-                       (Rewriter.ProgUtils.callable_au_token_ident ~loc
+                       (ProgUtils.callable_au_token_ident ~loc
                           (QualIdent.unqualify curr_callable_name)))
                 in
                 match symbol with
@@ -2627,7 +2627,7 @@ let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
   | FuncDef _ -> Rewriter.return c
   | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
-      let* preds_list = Rewriter.ProgUtils.stmt_preds_mentioned body in
+      let* preds_list = ProgUtils.stmt_preds_mentioned body in
       let fields_list = Stmt.stmt_fields_accessed body in
       let au_preds_list = Set.to_list (Stmt.stmt_au_preds_referenced body) in
 
