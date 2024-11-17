@@ -39,12 +39,14 @@ let parse_cu top_level_md_ident lexbuf =
 
   (incls, Ast.Module.set_name md top_level_md_ident)
 
-let check_cu ?(prog_stats = false) tbl smt_env md front_end_out_chan =
+let check_cu ?(prog_stats = false) typecheck_only tbl smt_env md front_end_out_chan =
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl md in
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
+  if typecheck_only then (smt_env, tbl) else
+  
   (* if prog_stats then 
     Stdlib.exit 0
   else begin *)
@@ -104,7 +106,7 @@ let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
   (smt_env, tbl)
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all smt_timeout smt_diagnostics no_library prog_stats file_names =
+let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library prog_stats file_names =
   (* Start backend solver session *)
   let smt_env = Backend.Smt_solver.init smt_diagnostics smt_timeout in
 
@@ -133,7 +135,7 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library prog_stats file_n
       in
           (*  parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf
               front_end_out_chan*)
-      check_cu tbl smt_env lib_prog front_end_out_chan
+      check_cu typecheck_only tbl smt_env lib_prog front_end_out_chan
   in
   
   (* Parse and check actual input program *)
@@ -199,7 +201,7 @@ let parse_and_check_all smt_timeout smt_diagnostics no_library prog_stats file_n
     );
     Stdlib.exit 0
   else begin
-  let _ = check_cu ~prog_stats tbl smt_env md front_end_out_chan in
+  let _ = check_cu ~prog_stats typecheck_only tbl smt_env md front_end_out_chan in
 
   (* Check all files *)
 
@@ -276,15 +278,19 @@ let smt_diagnostics =
   let doc = "Let Z3 produce diagostic output." in
   Arg.(value & flag & info [ "smt-info" ] ~doc)
 
+let typecheck_only =
+  let doc = "Only type-check input program but do not verify it." in
+  Arg.(value & flag & info [ "typeonly" ] ~doc)
+
 let smt_timeout =
   let doc = "Timeout for SMT solver in ms." in 
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files no_greeting no_library prog_stats smt_timeout smt_diagnostics =
+let main () input_files no_greeting no_library typecheck_only prog_stats smt_timeout smt_diagnostics =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  try `Ok (parse_and_check_all smt_timeout smt_diagnostics no_library prog_stats input_files) with
+  try `Ok (parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library prog_stats input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
       Logs.err (fun m -> m "%s" s);
       Logs.debug (fun m ->
@@ -302,6 +308,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ prog_stats $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ prog_stats $ smt_timeout $ smt_diagnostics))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)
