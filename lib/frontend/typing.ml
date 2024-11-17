@@ -1651,6 +1651,11 @@ module ProcessCallable = struct
       let open Rewriter.Syntax in
       let+ stmt_desc, disam_tbl =
         match stmt.Stmt.stmt_desc with
+        | Basic basic_stmt ->
+          let+ basic_stmt, disam_tbl' =
+            process_basic_stmt expected_return_type basic_stmt (Stmt.to_loc stmt) disam_tbl
+          in
+          (Stmt.Basic basic_stmt, disam_tbl')
         | Block block_desc ->
             let* () = Rewriter.enter_block block_desc in
             let disam_tbl =
@@ -1670,11 +1675,6 @@ module ProcessCallable = struct
             let+ () = Rewriter.exit_block in
 
             (Stmt.Block { block_desc with block_body = stmt_list }, disam_tbl)
-        | Basic basic_stmt ->
-          let+ basic_stmt, disam_tbl' =
-            process_basic_stmt expected_return_type basic_stmt (Stmt.to_loc stmt) disam_tbl
-          in
-          (Stmt.Basic basic_stmt, disam_tbl')
         | Loop loop_desc ->
             let* loop_contract =
               Rewriter.List.map loop_desc.loop_contract
@@ -1688,7 +1688,8 @@ module ProcessCallable = struct
             let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
             let* loop_test =
-              disambiguate_process_expr loop_desc.loop_test Type.bool disam_tbl
+              let* is_ghost = Rewriter.is_ghost_scope in
+              disambiguate_process_expr loop_desc.loop_test (Type.bool |> Type.set_ghost is_ghost) disam_tbl
             in
 
             let disam_tbl = DisambiguationTbl.push disam_tbl in
