@@ -1136,6 +1136,23 @@ module ProcessCallable = struct
       (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc: Loc.t) (disam_tbl : DisambiguationTbl.t) :
       (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
+    let* is_ghost_scope = Rewriter.is_ghost_scope in
+    let get_assign_lhs orig_qual_ident ~is_init =
+      let* qual_ident = disambiguate_ident orig_qual_ident disam_tbl in
+      let* qual_ident, symbol =
+        Rewriter.resolve_and_find qual_ident
+      in
+      let+ symbol = Rewriter.Symbol.reify symbol in
+      match symbol with
+      | VarDef { var_decl; _ } when is_ghost_scope && not var_decl.var_ghost ->
+        Error.type_error (QualIdent.to_loc qual_ident)
+          (Printf.sprintf !"Cannot assign to non-ghost var %{QualIdent} in ghost context" orig_qual_ident)
+      | VarDef { var_decl; _ } when not var_decl.var_const || is_init ->
+        qual_ident, var_decl
+      | _ ->
+        Error.type_error (QualIdent.to_loc qual_ident)
+          (Printf.sprintf !"Cannot assign to %s %{QualIdent}" (Symbol.kind symbol) orig_qual_ident)
+    in
     match basic_stmt with
     | VarDef var_def ->
       let* var_decl =
@@ -1144,7 +1161,6 @@ module ProcessCallable = struct
       let var_decl, disam_tbl' =
         DisambiguationTbl.add_var_decl var_decl disam_tbl
       in
-      let* is_ghost_scope = Rewriter.is_ghost_scope in
       let var_decl =
         let var_ghost = var_decl.var_ghost || is_ghost_scope in 
         { var_decl with
@@ -1180,24 +1196,11 @@ module ProcessCallable = struct
       let+ spec = process_stmt_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
     | Assign assign_desc -> begin
-        let* is_ghost_scope = Rewriter.is_ghost_scope in
         let* assign_lhs, var_decls_lhs =
           Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], [])
             ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
-              let* qual_ident = disambiguate_ident orig_qual_ident disam_tbl in
-              let* qual_ident, symbol =
-                Rewriter.resolve_and_find qual_ident
-              in
-              let+ symbol = Rewriter.Symbol.reify symbol in
-              match symbol with
-              | VarDef { var_decl; _ } when is_ghost_scope && not var_decl.var_ghost ->
-                Error.type_error (QualIdent.to_loc qual_ident)
-                  (Printf.sprintf !"Cannot assign to non-ghost var %{QualIdent} in ghost context" orig_qual_ident)
-              | VarDef { var_decl; _ } when not var_decl.var_const || assign_desc.assign_is_init ->
+                let+ qual_ident, var_decl = get_assign_lhs orig_qual_ident ~is_init:assign_desc.assign_is_init in
                 qual_ident :: assign_lhs, var_decl :: var_decls_lhs
-              | _ ->
-                Error.type_error (QualIdent.to_loc qual_ident)
-                  (Printf.sprintf !"Cannot assign to %s %{QualIdent}" (Symbol.kind symbol) orig_qual_ident)
             )
         in
 
@@ -1222,6 +1225,7 @@ module ProcessCallable = struct
                 field_read_lhs;
                 field_read_field = field_qual_ident;
                 field_read_ref = ref_expr;
+                field_read_is_init = assign_desc.assign_is_init;
               }
           in
           process_basic_stmt expected_return_type (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
@@ -1356,24 +1360,9 @@ module ProcessCallable = struct
       Stmt.FieldWrite { field_write_ref; field_write_field; field_write_val }, disam_tbl
       
     | FieldRead fr_desc -> 
-      let* fr_var_qual_ident =
-        disambiguate_ident fr_desc.field_read_lhs disam_tbl
-      in
-      let* fr_var_qual_ident, symbol =
-        Rewriter.resolve_and_find fr_var_qual_ident
-      in
-      let* symbol = Rewriter.Symbol.reify symbol in
+      let* fr_var_qual_ident, var_decl = get_assign_lhs fr_desc.field_read_lhs ~is_init:fr_desc.field_read_is_init in
       let* fr_type =
-        match symbol with
-        | VarDef var_def ->
-          let* var_type_expanded =
-            ProcessTypeExpr.expand_type_expr
-              var_def.var_decl.var_type
-          in
-          Rewriter.return var_type_expanded
-        | _ ->
-          Error.type_error stmt_loc
-            "Expected var identifier on left-hand side of field read"
+        ProcessTypeExpr.expand_type_expr var_decl.var_type
       in
       let* field_read_ref, field_read_field, field_type =
         disambiguate_process_field_read fr_desc.field_read_ref fr_desc.field_read_field disam_tbl
@@ -1383,6 +1372,7 @@ module ProcessCallable = struct
       let field_read_desc =
         Stmt.
           {
+            fr_desc with
             field_read_lhs = fr_var_qual_ident;
             field_read_field;
             field_read_ref;
@@ -1390,24 +1380,23 @@ module ProcessCallable = struct
       in
       (Stmt.FieldRead field_read_desc, disam_tbl)
     | Cas cs_desc -> (
-        let* cs_var_qual_ident =
+        let _ =
+          if is_ghost_scope then
+            Error.type_error stmt_loc "Cannot use cas in a ghost context"
+        in
+        let* cs_var_qual_ident, var_decl = get_assign_lhs cs_desc.cas_lhs ~is_init:false in
+        (*let* cs_var_qual_ident =
           disambiguate_ident cs_desc.cas_lhs disam_tbl
         in
-        let* cs_var_qual_ident, symbol =
           Rewriter.resolve_and_find cs_var_qual_ident
         in
-        let* symbol = Rewriter.Symbol.reify symbol in
+        let* symbol = Rewriter.Symbol.reify symbol in*)
         let* cs_type =
-          match symbol with
-          | VarDef var_def ->
-            let* var_type_expanded =
-              ProcessTypeExpr.expand_type_expr
-                var_def.var_decl.var_type
-            in
-            Rewriter.return var_type_expanded
-          | _ ->
-            Error.type_error stmt_loc
-              "Expected var identifier on left-hand side of cas"
+          let* var_type_expanded =
+            ProcessTypeExpr.expand_type_expr
+              var_decl.var_type
+          in
+          Rewriter.return var_type_expanded
         in
         let expr_attr =
           { Expr.expr_loc = stmt_loc; expr_type = Type.bot }
@@ -1456,8 +1445,8 @@ module ProcessCallable = struct
           (Stmt.Cas cas_desc, disam_tbl)
         | _ -> failwith "Unexpected error during type checking.")
     | Havoc qual_ident ->
-      let* qual_ident = disambiguate_ident qual_ident disam_tbl in
-      Rewriter.return (Stmt.Havoc qual_ident, disam_tbl)
+      let+ qual_ident, _ = get_assign_lhs qual_ident ~is_init:false in
+      Stmt.Havoc qual_ident, disam_tbl
     | Return expr ->
       let+ expr =
         disambiguate_process_expr expr expected_return_type disam_tbl
@@ -1538,20 +1527,7 @@ module ProcessCallable = struct
       ( Stmt.Use { use_desc with use_name; use_args; use_witnesses_or_binds },
         disam_tbl )
     | New new_desc ->
-      let* new_qual_ident =
-        disambiguate_ident new_desc.new_lhs disam_tbl
-      in
-      let* new_qual_ident, symbol =
-        Rewriter.resolve_and_find new_qual_ident
-      in
-      let* symbol = Rewriter.Symbol.reify symbol in
-      let var_decl =
-        match symbol with
-        | VarDef var_def -> var_def.var_decl
-        | _ ->
-          Error.type_error stmt_loc
-            "Expected variable identifier on left-hand side of new"
-      in
+      let* new_qual_ident, var_decl = get_assign_lhs new_desc.new_lhs ~is_init:false in
       let* var_type_expanded =
         ProcessTypeExpr.expand_type_expr var_decl.var_type
       in
@@ -1587,28 +1563,16 @@ module ProcessCallable = struct
          discovered by this function, then something unexpected has happened. *)
       (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
     | Call call_desc -> (
-        let* call_lhs =
-          Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
-              let* qual_iden = disambiguate_ident qual_iden disam_tbl in
-              Rewriter.resolve qual_iden)
+        let* call_lhs, var_decls_lhs =
+          Rewriter.List.fold_right call_desc.call_lhs ~init:([], [])
+            ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
+                let+ qual_ident, var_decl = get_assign_lhs orig_qual_ident ~is_init:false in
+                qual_ident :: assign_lhs, var_decl :: var_decls_lhs
+            )
         in
         let* call_lhs_types =
-          Rewriter.List.map call_lhs ~f:(fun qual_iden ->
-              let* qual_iden, symbol =
-                Rewriter.resolve_and_find qual_iden
-              in
-              let* symbol = Rewriter.Symbol.reify symbol in
-              match symbol with
-              | VarDef var_def ->
-                let* var_type_expanded =
-                  ProcessTypeExpr.expand_type_expr
-                    var_def.var_decl.var_type
-                in
-                Rewriter.return var_type_expanded
-              | _ ->
-                Error.type_error stmt_loc
-                  "Expected variable identifier on left-hand side of \
-                   call")
+          Rewriter.List.map var_decls_lhs ~f:(fun var_decl ->
+              ProcessTypeExpr.expand_type_expr var_decl.var_type)
         in
         
         let expected_return_type =
@@ -1649,6 +1613,7 @@ module ProcessCallable = struct
     let rec process_stmt ?(new_scope = true) stmt disam_tbl =
       Logs.debug (fun m -> m "process_stmt: %a" Stmt.pr stmt);
       let open Rewriter.Syntax in
+      let* is_ghost_scope = Rewriter.is_ghost_scope in
       let+ stmt_desc, disam_tbl =
         match stmt.Stmt.stmt_desc with
         | Basic basic_stmt ->
@@ -1688,8 +1653,7 @@ module ProcessCallable = struct
             let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
             let* loop_test =
-              let* is_ghost = Rewriter.is_ghost_scope in
-              disambiguate_process_expr loop_desc.loop_test (Type.bool |> Type.set_ghost is_ghost) disam_tbl
+              disambiguate_process_expr loop_desc.loop_test (Type.bool |> Type.set_ghost is_ghost_scope) disam_tbl
             in
 
             let disam_tbl = DisambiguationTbl.push disam_tbl in
@@ -1708,8 +1672,7 @@ module ProcessCallable = struct
             let* cond_test =
               Rewriter.Option.map
                 ~f:(fun test ->
-                    let* is_ghost = Rewriter.is_ghost_scope in
-                    disambiguate_process_expr test (Type.bool |> Type.set_ghost is_ghost) disam_tbl)
+                    disambiguate_process_expr test (Type.bool |> Type.set_ghost is_ghost_scope) disam_tbl)
                 cond_desc.cond_test
             in
 

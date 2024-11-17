@@ -680,7 +680,7 @@ module Stmt = struct
               stmt_desc =
                 Basic
                   (FieldRead
-                     { field_read_lhs; field_read_field; field_read_ref });
+                     { field_read_desc with field_read_lhs; field_read_field; field_read_ref });
             }
         | FieldWrite field_write_desc ->
             let* field_write_ref = f field_write_desc.field_write_ref in
@@ -823,7 +823,7 @@ module Stmt = struct
               stmt_desc =
                 Basic
                   (FieldRead
-                     { field_read_lhs; field_read_field; field_read_ref });
+                     { field_read_desc with field_read_lhs; field_read_field; field_read_ref });
             }
         | FieldWrite field_write_desc ->
           let* field_write_val =

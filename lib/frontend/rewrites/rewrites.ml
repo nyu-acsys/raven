@@ -2071,11 +2071,12 @@ module AtomicityAnalysis = struct
         | _ -> false)
     | _ -> false
 
-  let rewrite_au_cmnds ~(ghost_block : bool) (stmt : Stmt.t) :
+  let rewrite_au_cmnds (stmt : Stmt.t) :
       (Stmt.t, atomicity_check) Rewriter.t_ext =
     let open Rewriter.Syntax in
-    let rec rewrite_au_cmnds ~(ghost_block : bool) (stmt : Stmt.t) :
-        (Stmt.t, atomicity_check) Rewriter.t_ext =
+    let rec rewrite_au_cmnds (stmt : Stmt.t) :
+      (Stmt.t, atomicity_check) Rewriter.t_ext =
+      let* is_ghost_scope = Rewriter.is_ghost_scope in
       let* curr_callable_name = Rewriter.current_scope_id in
       let* curr_callable =
         let* symbol =
@@ -2115,7 +2116,7 @@ module AtomicityAnalysis = struct
           in
 
           if new_lhs.var_decl.var_ghost then Rewriter.return stmt
-          else if ghost_block then
+          else if is_ghost_scope then
             Error.error stmt.stmt_loc
               "Cannot allocate non-ghost variables in a ghost block"
           else
@@ -2135,7 +2136,7 @@ module AtomicityAnalysis = struct
           in
 
           if is_assign_desc_lhs_ghost then Rewriter.return stmt
-          else if ghost_block then
+          else if is_ghost_scope then
             Error.error stmt.stmt_loc
               "Cannot assign to non-ghost variables in a ghost block"
           else if List.length assign_desc.assign_lhs > 1 then
@@ -2199,7 +2200,7 @@ module AtomicityAnalysis = struct
           match symbol with
           | VarDef v ->
               if v.var_decl.var_ghost then Rewriter.return stmt
-              else if ghost_block then
+              else if is_ghost_scope then
                 Error.error stmt.stmt_loc
                   "Cannot havoc non-ghost variables in a ghost block"
               else
@@ -2253,7 +2254,7 @@ module AtomicityAnalysis = struct
               (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
               || Poly.(call_decl.call_decl_kind = Lemma)
             then Rewriter.return stmt
-            else if ghost_block then
+            else if is_ghost_scope then
               Error.error stmt.stmt_loc
                 "Cannot assign to non-ghost variables in a ghost block"
             else if Callable.is_atomic call_decl then
@@ -2265,7 +2266,7 @@ module AtomicityAnalysis = struct
               let* _ = Rewriter.set_user_state atomicity_state in
               Rewriter.return stmt
       | Basic (Return return_expr) ->
-          if ghost_block then
+          if is_ghost_scope then
             Error.error stmt.stmt_loc "Cannot return in a ghost block"
           else if is_expr_atomic return_expr then
             let atomicity_state = take_atomic_step ~loc atomicity_state in
@@ -2517,20 +2518,20 @@ module AtomicityAnalysis = struct
 
               Rewriter.return new_stmt)
       | Block block_desc when block_desc.block_is_ghost ->
-          Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block:true)
+          Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
       | Block block_desc ->
-          Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block)
+          Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
       | Cond cond_desc ->
           let* then_stmt =
             Rewriter.Stmt.descend cond_desc.cond_then
-              ~f:(rewrite_au_cmnds ~ghost_block)
+              ~f:rewrite_au_cmnds
           in
           let* then_atomicity_state = Rewriter.current_user_state in
 
           let* _ = Rewriter.set_user_state atomicity_state in
           let* else_stmt =
             Rewriter.Stmt.descend cond_desc.cond_else
-              ~f:(rewrite_au_cmnds ~ghost_block)
+              ~f:rewrite_au_cmnds
           in
           let* else_atomicity_state = Rewriter.current_user_state in
 
@@ -2569,7 +2570,7 @@ module AtomicityAnalysis = struct
               }
             in
 
-            if ghost_block then Rewriter.return new_stmt
+            if is_ghost_scope then Rewriter.return new_stmt
             else
               let atomicity_state =
                 take_non_atomic_step ~loc else_atomicity_state
@@ -2579,10 +2580,10 @@ module AtomicityAnalysis = struct
           else
             Error.error stmt.stmt_loc
               "Inconsistent atomicity states in then and else branches"
-      | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_au_cmnds ~ghost_block)
+      | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
     in
 
-    let* stmt = rewrite_au_cmnds ~ghost_block stmt in
+    let* stmt = rewrite_au_cmnds stmt in
     let* atomicity_state = Rewriter.current_user_state in
 
     if
@@ -2611,7 +2612,7 @@ module AtomicityAnalysis = struct
                 ~default:(Set.empty (module QualIdent));
           }
         (Rewriter.Callable.rewrite_stmts
-           ~f:(rewrite_au_cmnds ~ghost_block:false)
+           ~f:rewrite_au_cmnds
            c)
     in
 

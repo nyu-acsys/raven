@@ -1186,7 +1186,8 @@ module Stmt = struct
   type field_read_desc = { 
     field_read_lhs : qual_ident;
     field_read_field : qual_ident;
-    field_read_ref : expr
+    field_read_ref : expr;
+    field_read_is_init : bool;
   }
 
   type field_write_desc = { 
@@ -1495,7 +1496,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
-  let mk_field_read ~loc lhs field ref = { stmt_desc = Basic (FieldRead {field_read_lhs = lhs; field_read_field = field; field_read_ref = ref}); stmt_loc = loc }
+  let mk_field_read ~loc lhs field ref =
+    { stmt_desc = Basic (FieldRead {field_read_lhs = lhs; field_read_field = field; field_read_ref = ref; field_read_is_init = false}); stmt_loc = loc }
 
   let mk_havoc ~loc x = { stmt_desc = Basic (Havoc x); stmt_loc = loc }
 
