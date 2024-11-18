@@ -23,19 +23,14 @@ proc incr(x: Ref, implicit ghost v: Int)
 
   var res: Bool := cas(x.c, v1, new_v1);
   
-  {! 
-    if (res) {
-      fold counter(x, new_v1);
-      commitAU(phi);
-    } else {
-      fold counter(x, v2);
-      abortAU(phi);
-    }
-  !}
-
   if (!res) {
+    fold counter(x, v2);
+    abortAU(phi);
     ghost var v3: Int := openAU(phi);
     incr(x);
+    commitAU(phi);
+  } else {
+    fold counter(x, new_v1);
     commitAU(phi);
   }
 }

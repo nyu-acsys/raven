@@ -47,20 +47,15 @@ module Stack[T: Type] {
     
     var res: Bool := cas(s.top, topv, s0);
 
-    {!
-      if (res) {
-        fold list(s0, cons(x, xs1))[q := 1.0]; 
-        fold stack(s, cons(x, xs1));
-        commitAU(phi);
-      } else {
-        fold stack(s, xs1);
-        abortAU(phi);
-      }
-    !}
-
     if (!res) { 
+      fold stack(s, xs1);
+      abortAU(phi);
       ghost val xs2: TList := openAU(phi);
       push(s, x);
+      commitAU(phi);
+    } else {
+      fold list(s0, cons(x, xs1))[q := 1.0]; 
+      fold stack(s, cons(x, xs1));
       commitAU(phi);
     }
   }
@@ -80,22 +75,21 @@ module Stack[T: Type] {
 
     var topv: Ref := s.top;
   
-    {!
-      ghost val q: Real;
-      ghost val tl0: Ref;
-      if (topv == null) {
-        unfold list(topv, xs0)[q := q];
-        fold list(topv, xs0)[q := q];
-        fold stack(s, xs0);
-        commitAU(phi, none);
-      } else {
-        unfold list(topv, xs0)[tl0 := tl0, q := q];
-        fold list(topv, xs0)[q := q/2.0];
-        fold stack(s, xs0);
-        abortAU(phi);
-      }
-    !}
-
+    
+    ghost val q: Real;
+    ghost val tl0: Ref;
+    if (topv == null) {
+      unfold list(topv, xs0)[q := q];
+      fold list(topv, xs0)[q := q];
+      fold stack(s, xs0);
+      commitAU(phi, none);
+    } else {
+      unfold list(topv, xs0)[tl0 := tl0, q := q];
+      fold list(topv, xs0)[q := q/2.0];
+      fold stack(s, xs0);
+      abortAU(phi);
+    }
+    
     if (topv == null) {
       return none;
     }
@@ -109,21 +103,14 @@ module Stack[T: Type] {
 
     var res: Bool := cas(s.top, topv, top_next);
 
-    {!
-      if (res) {
-        unfold list(top1, xs1);
-        fold stack(s, xs1.tail);
-        commitAU(phi, some(top_value));
-      } else {
-        fold stack(s, xs1);
-        abortAU(phi);
-      }
-
-    !}
-
     if (res) {
+      unfold list(top1, xs1);
+      fold stack(s, xs1.tail);
+      commitAU(phi, some(top_value));
       return some(top_value);
     } else { 
+      fold stack(s, xs1);
+      abortAU(phi);
       ghost val xs2: TList := openAU(phi);
       val ret: TOption := pop(s);
       commitAU(phi, ret);

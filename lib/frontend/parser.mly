@@ -456,8 +456,14 @@ stmt_wo_trailing_substmt:
 }
 (* bind *)
 | es = separated_nonempty_list(COMMA, expr); COLONPIPE; e = expr; SEMICOLON {
+  let vs = List.map (function
+    | Expr.(App (Var qual_ident, [], _))
+      when QualIdent.is_local qual_ident -> qual_ident
+    | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
+      es 
+  in
   let bind =
-    Stmt.{ bind_lhs = es;
+    Stmt.{ bind_lhs = vs;
            bind_rhs = e;
          }
   in

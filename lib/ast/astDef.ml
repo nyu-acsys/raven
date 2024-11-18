@@ -1181,7 +1181,7 @@ module Stmt = struct
   }
 
   type assign_desc = { assign_lhs : qual_ident list; assign_rhs : expr; assign_is_init : bool }
-  type bind_desc = { bind_lhs : expr list; bind_rhs : expr }
+  type bind_desc = { bind_lhs : qual_ident list; bind_rhs : expr }
 
   type field_read_desc = { 
     field_read_lhs : qual_ident;
@@ -1341,7 +1341,7 @@ module Stmt = struct
       match bstm.bind_lhs with
       | [] -> Expr.pr ppf bstm.bind_rhs
       | es ->
-          fprintf ppf "@[<2>%a@ :|@ %a@]" Expr.pr_list es Expr.pr
+          fprintf ppf "@[<2>%a@ :|@ %a@]" QualIdent.pr_list es Expr.pr
           bstm.bind_rhs)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
@@ -1568,7 +1568,10 @@ module Stmt = struct
           scan_expr_list accesses [assign_desc.assign_rhs]
         
         | Bind bind_desc ->
-          scan_expr_list accesses (bind_desc.bind_rhs :: bind_desc.bind_lhs)
+          let accesses =
+            List.fold bind_desc.bind_lhs ~init:accesses ~f:Set.add
+          in
+          scan_expr_list accesses [bind_desc.bind_rhs]
 
         | FieldRead fr_desc ->
           let accesses = Set.add accesses fr_desc.field_read_lhs in
@@ -1666,14 +1669,11 @@ module Stmt = struct
           
 
         | Bind bind_desc ->
-          List.filter_map bind_desc.bind_lhs ~f:(fun e -> 
-            match e with
-            | App (Var qi, _, _) -> 
-              if List.is_empty qi.qual_path then
-                Some qi.qual_base
+          List.filter_map bind_desc.bind_lhs ~f:(fun qi -> 
+            if QualIdent.is_local qi then
+                Some (QualIdent.unqualify qi)
               else
                 None
-            | _ -> None
           )
 
         | FieldRead fr_desc -> 
@@ -1765,7 +1765,7 @@ module Stmt = struct
           Expr.expr_fields_accessed assign_desc.assign_rhs
         
         | Bind bind_desc ->
-          List.concat_map (bind_desc.bind_rhs :: bind_desc.bind_lhs) ~f:(fun e -> Expr.expr_fields_accessed e)
+          Expr.expr_fields_accessed bind_desc.bind_rhs
 
         | FieldRead fr_desc -> 
           [fr_desc.field_read_field]

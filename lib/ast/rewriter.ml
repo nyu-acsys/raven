@@ -668,9 +668,8 @@ module Stmt = struct
               stmt_desc = Basic (Assign { assign with assign_rhs });
             }
         | Bind bind_desc ->
-            let* bind_lhs = List.map bind_desc.bind_lhs ~f in
             let+ bind_rhs = f bind_desc.bind_rhs in
-            { stmt with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
+            { stmt with stmt_desc = Basic (Bind { bind_desc with bind_rhs }) }
         | FieldRead field_read_desc ->
             let field_read_lhs = field_read_desc.field_read_lhs in
             let field_read_field = field_read_desc.field_read_field in
@@ -808,9 +807,8 @@ module Stmt = struct
               stmt_desc = Basic (Assign { assign with assign_lhs; assign_rhs });
             }
         | Bind bind_desc ->
-            let+ bind_lhs =
-              List.map bind_desc.bind_lhs ~f:(Expr.rewrite_qual_idents ~f)
-            and+ bind_rhs = Expr.rewrite_qual_idents ~f bind_desc.bind_rhs in
+            let bind_lhs = Base.List.map bind_desc.bind_lhs ~f in
+            let+ bind_rhs = Expr.rewrite_qual_idents ~f bind_desc.bind_rhs in
             { stmt with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
         | FieldRead field_read_desc ->
             let field_read_lhs = f field_read_desc.field_read_lhs in

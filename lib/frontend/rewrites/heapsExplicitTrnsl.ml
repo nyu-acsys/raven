@@ -1495,15 +1495,30 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
 let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
   | Basic (Bind bind_desc) ->
-      let exis_vars =
-        List.map bind_desc.bind_lhs ~f:(fun e ->
+    let open Rewriter.Syntax in
+    let+ bind_lhs =
+      Rewriter.List.map bind_desc.bind_lhs ~f:(fun qual_ident ->
+          let* qual_ident, symbol =
+            Rewriter.resolve_and_find qual_ident
+          in
+          let+ symbol = Rewriter.Symbol.reify symbol in
+          match symbol with
+          | VarDef { var_decl; _ } ->
+            Expr.mk_var ~typ:var_decl.var_type qual_ident 
+          | _ -> assert false
+        )
+    in
+
+
+    let exis_vars =
+        List.map bind_lhs ~f:(fun e ->
             Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true 
               (Ident.fresh stmt.stmt_loc "$bind")
               (Expr.to_type e))
       in
 
       let alpha_renaming_map =
-        List.fold2_exn bind_desc.bind_lhs exis_vars
+        List.fold2_exn bind_lhs exis_vars
           ~init:(Map.empty (module QualIdent))
           ~f:(fun renam_map e1 e2 ->
             Map.add_exn renam_map ~key:(Expr.to_qual_ident e1)
@@ -1532,7 +1547,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let new_stmt =
         Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ assert_stmt; assume_stmt ]
       in
-      Rewriter.return new_stmt
+      new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_binds
 
 type expr_match = { var_decl : var_decl; expr : expr option }
@@ -1856,10 +1871,9 @@ module TrnslInhale = struct
                   Stmt.pr stmt Expr.pr prev_expr);
 
             let* bind_lhs_var_decls =
-              Rewriter.List.map bind_desc.bind_lhs ~f:(fun var ->
+              Rewriter.List.map bind_desc.bind_lhs ~f:(fun qual_ident ->
                   let* symbol =
-                    Rewriter.find_and_reify
-                      (Expr.to_qual_ident var)
+                    Rewriter.find_and_reify qual_ident
                   in
                   match symbol with
                   | VarDef v -> Rewriter.return v.var_decl

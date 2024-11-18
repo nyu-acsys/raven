@@ -1137,14 +1137,14 @@ module ProcessCallable = struct
       (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
     let* is_ghost_scope = Rewriter.is_ghost_scope in
-    let get_assign_lhs orig_qual_ident ~is_init =
+    let get_assign_lhs ~is_init ?(is_ghost_cmd=false) orig_qual_ident =
       let* qual_ident = disambiguate_ident orig_qual_ident disam_tbl in
       let* qual_ident, symbol =
         Rewriter.resolve_and_find qual_ident
       in
       let+ symbol = Rewriter.Symbol.reify symbol in
       match symbol with
-      | VarDef { var_decl; _ } when is_ghost_scope && not var_decl.var_ghost ->
+      | VarDef { var_decl; _ } when (is_ghost_scope || is_ghost_cmd) && not var_decl.var_ghost ->
         Error.type_error (QualIdent.to_loc qual_ident)
           (Printf.sprintf !"Cannot assign to non-ghost var %{QualIdent} in ghost context" orig_qual_ident)
       | VarDef { var_decl; _ } when not var_decl.var_const || is_init ->
@@ -1323,15 +1323,12 @@ module ProcessCallable = struct
               (Stmt.Assign assign_desc, disam_tbl)
       end
     | Bind bind_desc ->
-      let* bind_lhs =
-        Rewriter.List.map bind_desc.bind_lhs ~f:(fun e ->
-            match e with
-            | App (Var qual_ident, [], _)
-              when not (QualIdent.is_qualified qual_ident) ->
-              disambiguate_process_expr e (Type.any |> Type.set_ghost true) disam_tbl
-            | _ ->
-              Error.type_error stmt_loc
-                "Expected var identifier on left-hand side of bind")
+      let* bind_lhs, _ =
+          Rewriter.List.fold_right bind_desc.bind_lhs ~init:([], [])
+            ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
+                let+ qual_ident, var_decl = get_assign_lhs orig_qual_ident ~is_ghost_cmd:true ~is_init:false in
+                qual_ident :: assign_lhs, var_decl :: var_decls_lhs
+            )
       in
       let+ bind_rhs =
         disambiguate_process_expr bind_desc.bind_rhs (Type.any |> Type.set_ghost true)
