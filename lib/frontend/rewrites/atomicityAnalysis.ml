@@ -169,38 +169,12 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         in
 
         if new_lhs.var_decl.var_ghost then Rewriter.return stmt
-        else if is_ghost_scope then
-          Error.error stmt.stmt_loc
-            "Cannot allocate non-ghost variables in a ghost block"
         else
           let atomicity_state = take_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return stmt
     | Basic (Assign assign_desc) ->
-        (*let* is_assign_desc_lhs_ghost =
-          Rewriter.List.for_all assign_desc.assign_lhs ~f:(fun qual_ident ->
-              let* symbol = Rewriter.find_and_reify qual_ident in
-              match symbol with
-              | VarDef v -> Rewriter.return v.var_decl.var_ghost
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def")
-        in
-
-        if is_assign_desc_lhs_ghost then Rewriter.return stmt
-        else if is_ghost_scope then
-          Error.error stmt.stmt_loc
-            "Cannot assign to non-ghost variables in a ghost block"
-        else if List.length assign_desc.assign_lhs > 1 then
-          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in
-          Rewriter.return stmt
-        else if is_expr_atomic assign_desc.assign_rhs then
-          let atomicity_state = take_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in
-          Rewriter.return stmt
-        else
-          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in*)
-          Rewriter.return stmt
+        Rewriter.return stmt
     | Basic (Bind bind_desc) ->
         Rewriter.return stmt
     | Basic (FieldRead field_read_desc) -> (
@@ -273,9 +247,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
             || Poly.(call_decl.call_decl_kind = Lemma)
           then Rewriter.return stmt
-          else if is_ghost_scope then
-            Error.error stmt.stmt_loc
-              "Cannot assign to non-ghost variables in a ghost block"
           else if Callable.is_atomic call_decl then
             let atomicity_state = take_atomic_step ~loc atomicity_state in
             let* _ = Rewriter.set_user_state atomicity_state in
