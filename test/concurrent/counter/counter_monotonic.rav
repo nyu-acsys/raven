@@ -6,7 +6,7 @@ field c: Int
 module AuthMaxNat = Auth[MaxNat]
 import AuthMaxNat._
 
-field h: AuthMaxNat
+ghost field h: AuthMaxNat
 
 inv counterInv(x: Ref) { 
   exists v: Int :: own(x.h, auth_frag(v,v)) && own(x.c, v, 1.0)
@@ -36,7 +36,7 @@ proc incr(x: Ref)
     incr(x);
   } else {
     // Frame preserving update of ghost resource x.h
-    fpu(x, h, auth_frag(v1,v1), auth_frag(new_v1,new_v1));
+    fpu(x.h, auth_frag(v1,v1), auth_frag(new_v1,new_v1));
     fold counterInv(x);
   }
 }

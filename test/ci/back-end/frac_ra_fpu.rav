@@ -6,7 +6,7 @@ module Main {
 
     module M2 = Library.Frac[M1]
 
-    field f : M2
+    ghost field f : M2
 
     proc test(x: Ref)
         // requires own(x.f, M2.frac_chunk(4, 1/2))

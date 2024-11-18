@@ -1,6 +1,0 @@
-proc p() {
-  ghost var x: Int;
-  x :| 5 < x && x < 7;
-
-  assert x == 6;
-}

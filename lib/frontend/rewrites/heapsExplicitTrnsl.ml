@@ -1527,8 +1527,8 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let error =
         ( Error.Verification,
-          stmt.stmt_loc,
-          "The body of bind stmt could not be shown" )
+          Expr.to_loc bind_desc.bind_rhs,
+          "The right-hand side of this bind statement may not hold" )
       in
       let assert_stmt =
         Stmt.mk_assert_expr ~loc:stmt.stmt_loc

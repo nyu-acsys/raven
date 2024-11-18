@@ -1068,6 +1068,9 @@ module ProcessCallable = struct
             in
             let+ symbol = Rewriter.Symbol.reify symbol in
             begin match symbol with
+              | FieldDef field_decl when not field_decl.field_is_ghost ->
+                Error.type_error (QualIdent.to_loc qual_ident)
+                  "Frame-preserving updates are only allowed on ghost fields"
               | FieldDef { field_type = App (Fld, [ given_type ], _); _ }  ->
                 Some (field_qual_ident, given_type)
               | _ -> None

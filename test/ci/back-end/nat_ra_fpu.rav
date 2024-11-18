@@ -1,5 +1,5 @@
 module Main {
-    field f : Library.Nat
+    ghost field f : Library.Nat
 
     proc test(x: Ref, k: Library.Nat)
         requires own(x.f, k)
