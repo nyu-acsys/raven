@@ -119,7 +119,11 @@ module QualIdent = struct
     | [] -> qid.qual_base
       
   let pr ppf qid =
-    Print.pr_list_sep "." Ident.pr ppf (to_list qid)
+    let path = match qid.qual_path with
+      | maybe_program :: path when String.(Ident.name maybe_program = "$Program") -> path
+      | path -> path
+    in
+    Print.pr_list_sep "." Ident.pr ppf (path @ [qid.qual_base])
 
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
 
