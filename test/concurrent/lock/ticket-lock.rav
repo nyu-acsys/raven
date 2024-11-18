@@ -35,7 +35,8 @@ module TicketLock[R: LockResource] {
     requires resource(r)
     ensures lock_inv(l, r)
   {
-    l := new (next: 0, curr: -1,
+    l := new (
+      next: 0, curr: -1,
       tickets: AuthDisjInts.auth_frag(
         IntSet.set({||}), IntSet.set({||})
       )
@@ -47,44 +48,34 @@ module TicketLock[R: LockResource] {
     requires lock_inv(l, r)
     ensures resource(r)
   {
-    ghost var lockAcq: Bool;
-    
+    ghost var lockAcq: Bool;    
     unfold lock_inv(l, r)[lockAcq := b];
     val nxt: Int := l.next;
     fold lock_inv(l, r)[b := lockAcq];
-    
+
     unfold lock_inv(l, r)[lockAcq := b];
     val res: Bool := cas(l.next, nxt, nxt+1);
-    {!
-      if (!res) {
-        fold lock_inv(l, r)[b := lockAcq];
-      } else {
-        fpu(l.tickets,
-            AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < nxt|}), IntSet.set({||})  ),
-            AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), IntSet.set({|nxt|})  )
-        );
-
-        fold lock_inv(l, r)[b := lockAcq];
-      }
-    !}
 
     if (!res) {
+      fold lock_inv(l, r)[b := lockAcq];
       acquire(l);
     } else {
-      var crr: Int = -1;
+      fpu(l.tickets,
+        AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < nxt|}), IntSet.set({||})  ),
+        AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), IntSet.set({|nxt|})  )
+      );
+      fold lock_inv(l, r)[b := lockAcq];
       
+      var crr: Int = -1;
       while (nxt != crr)
         invariant lock_inv(l, r) && (
           nxt == crr ? resource(r) :
-            own(l.tickets, 
-              AuthDisjInts.frag(IntSet.set({|nxt|}))  )
+            own(l.tickets, AuthDisjInts.frag(IntSet.set({|nxt|})))
         )
       {
-        ghost var lockAcq1: Bool;
-        unfold lock_inv(l, r)[ lockAcq1 := b ];
-        
+        unfold lock_inv(l, r)[ lockAcq := b ];
         crr := l.curr;
-        fold lock_inv(l, r)[ b := nxt == crr || lockAcq1];
+        fold lock_inv(l, r)[ b := nxt == crr || lockAcq];
       }
     } 
   }
@@ -96,11 +87,7 @@ module TicketLock[R: LockResource] {
     ghost var lockAcq: Bool;
     
     unfold lock_inv(l, r)[ lockAcq := b ];
-    {! 
-      assert lockAcq with {
-        if(!lockAcq) {R.exclusive(r);}
-      }
-    !}
+    {! if(!lockAcq) R.exclusive(r); !}
     
     val crr: Int := l.curr;
     fold lock_inv(l, r)[b := true];
