@@ -73,7 +73,6 @@
   (op_qmark)
   (op_colonpipe)
 ] @prepend_space @append_space
-(kwd_own) @prepend_space
 (op_colon) @append_space
 (kwd_quantifier) @append_space
 
