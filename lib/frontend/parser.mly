@@ -20,7 +20,7 @@ open Ast
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
 %token HAVOC NEW RETURN OWN AU
-%token IF ELSE WHILE CAS
+%token IF ELSE WHILE CAS SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
@@ -431,6 +431,18 @@ stmt_wo_trailing_substmt:
          }
   in
   Stmt.(Basic (Assign assign))
+}
+(* thread spawn *)
+| SPAWN; id = qual_ident; LPAREN; args = separated_list(COMMA, expr); RPAREN; SEMICOLON {
+  let open Stmt in
+  let call =
+    { call_lhs = [];
+      call_name = Expr.to_qual_ident id;
+      call_args = args;
+      call_is_spawn = true
+    }
+  in
+  Basic (Call call)
 }
 (* assignment / allocation *)
 | es = separated_nonempty_list(COMMA, expr); COLONEQ; e = assign_rhs; SEMICOLON {

@@ -1212,6 +1212,7 @@ module Stmt = struct
     call_lhs : qual_ident list;
     call_name : qual_ident;
     call_args : expr list;
+    call_is_spawn : bool;
   }
 
 
@@ -1377,7 +1378,7 @@ module Stmt = struct
     | Call cstm -> (
         match cstm.call_lhs with
         | [] ->
-            fprintf ppf "@[%a(@[%a@])@]" QualIdent.pr cstm.call_name
+            fprintf ppf "@[%s%a(@[%a@])@]" (if cstm.call_is_spawn then "spawn " else "") QualIdent.pr cstm.call_name
               Expr.pr_list cstm.call_args
         | _ ->
             fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" QualIdent.pr_list
@@ -1508,8 +1509,8 @@ module Stmt = struct
   let mk_cond ~loc ?(cond_if_assumes_false = false) test then_ else_ =
     { stmt_desc = Cond { cond_test = test; cond_then = then_; cond_else = else_; cond_if_assumes_false }; stmt_loc = loc }
 
-  let mk_call ~loc ?(lhs=[]) name args =
-    { stmt_desc = Basic (Call { call_lhs = lhs; call_name = name; call_args = args }); stmt_loc = loc }
+  let mk_call ~loc ?(lhs=[]) name args ~is_spawn =
+    { stmt_desc = Basic (Call { call_lhs = lhs; call_name = name; call_args = args; call_is_spawn = is_spawn }); stmt_loc = loc }
 
   let mk_assign ~loc lhs rhs =
     { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs; assign_is_init = false }); stmt_loc = loc }

@@ -217,7 +217,8 @@ let resolve name (tbl : t) :
               else Set.add inst_scopes target_qual_ident
             in
             go_forward new_inst_scopes tbl.tbl_root subst new_path
-            (* /// why do we jump to tbl.root from here? *)
+            (* /// why do we jump to tbl.root from here?
+               TW: Because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
         | Import qual_ident, _ ->
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
             let target_qual_ident = (*QualIdent.requalify subst*) qual_ident in
@@ -442,11 +443,6 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
     | ModInst mod_inst ->
         let mod_inst_qual_ident, subst =
           match mod_inst.mod_inst_def with
-          | None ->
-              let _, mod_inst_type, _mod_inst_symbol, _ =
-                resolve_and_find_exn mod_inst.mod_inst_type tbl
-              in
-              (mod_inst_type, [])
           | Some (mod_inst_func, mod_inst_args) -> (
               let _, mod_inst_func, mod_inst_symbol, _subst1 =
                 resolve_and_find_exn mod_inst_func tbl
@@ -467,12 +463,18 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                     (formal_id, QualIdent.to_list arg))
               in
               match res with
-              | Ok subst -> (mod_inst_func, subst)
+              | Ok subst ->
+                (mod_inst_func, subst)
               | Unequal_lengths ->
                   Error.type_error symbol_loc
                     (Printf.sprintf
                        !"Module %{QualIdent} expects %d arguments"
                        mod_inst_func (List.length formals)))
+          | None ->
+              let _, mod_inst_type, _mod_inst_symbol, _ =
+                resolve_and_find_exn mod_inst.mod_inst_type tbl
+              in
+              (mod_inst_type, [])
         in
         let is_abstract = mod_inst.mod_inst_is_interface in
         add_to_map

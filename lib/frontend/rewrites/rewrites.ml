@@ -620,7 +620,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           Stmt.mk_call ~loc ~lhs:lhs_list
             (QualIdent.from_ident loop_proc_name)
-            args_list
+            args_list ~is_spawn:false
         in
 
         (* TODO: Rename variables from curr_vars to loop_vars in loop body *)
@@ -700,7 +700,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
         Stmt.mk_call ~loc ~lhs:lhs_list
           (QualIdent.from_ident loop_proc_name)
-          args_list
+          args_list ~is_spawn:false
       in
 
       Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
@@ -1104,7 +1104,10 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let call_decl, call_def =
         match symbol with
-        | CallDef c -> (c.call_decl, c.call_def)
+        | CallDef c ->
+          if call_desc.call_is_spawn
+          then ({c.call_decl with call_decl_postcond = []; call_decl_returns= []}, c.call_def)
+          else (c.call_decl, c.call_def)
         | _ -> Error.error stmt.stmt_loc "Expected a call_def"
       in
 

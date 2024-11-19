@@ -1282,6 +1282,7 @@ module ProcessCallable = struct
                     List.map var_decls_lhs ~f:(fun var -> var.var_name |> QualIdent.from_ident);
                   call_name = proc_qual_ident;
                   call_args = args;
+                  call_is_spawn = false;
                 }
               in                      
               (Stmt.Call call_desc, disam_tbl)
@@ -1562,7 +1563,7 @@ module ProcessCallable = struct
          This function is not expected to go over these parts of the AST again. If the following constructs are
          discovered by this function, then something unexpected has happened. *)
       (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
-    | Call call_desc -> (
+    | Call call_desc -> (        
         let* call_lhs, var_decls_lhs =
           Rewriter.List.fold_right call_desc.call_lhs ~init:([], [])
             ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
@@ -1592,6 +1593,7 @@ module ProcessCallable = struct
         | App (Var proc_qual_ident, args, _expr_attr) ->
           let (call_desc : Stmt.call_desc) =
             {
+              call_desc with
               call_lhs;
               call_name = proc_qual_ident;
               call_args = args;

@@ -864,7 +864,7 @@ module Stmt = struct
             let call_name = f call.call_name in
             {
               stmt with
-              stmt_desc = Basic (Call { call_lhs; call_name; call_args });
+              stmt_desc = Basic (Call { call with call_lhs; call_name; call_args });
             }
         | Use use_desc ->
             let use_name = f use_desc.use_name in

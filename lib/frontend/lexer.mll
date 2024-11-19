@@ -61,6 +61,7 @@ let _ =
       ("returns", RETURNS);
       (* ("subseteq", SUBSETEQ); *)
       ("Set", SET);
+      ("spawn", SPAWN);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
       ("unfold", USE (Stmt.Unfold));
