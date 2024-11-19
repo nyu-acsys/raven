@@ -259,7 +259,7 @@ flycheck checker CHECKER. Return a list of errors."
 
 (flycheck-define-checker raven
   "A raven syntax checker using `raven`"
-  :command ("raven_wrapper.sh" source-original)
+  :command ("raven" source-original)
   :error-parser raven-ts-mode-parse-flycheck-error
   :modes raven-ts-mode)
 
