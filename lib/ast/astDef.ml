@@ -50,7 +50,12 @@ module Ident = struct
       fprintf ppf "@[<v> %a @]" pr_tuple_list (list_of_map)
   )
 
-  let make loc name num = { ident_name = name; ident_num = num; ident_loc = loc }
+  let make loc name num = 
+    let sanitized_name = (String.map name ~f:(fun c ->
+        if Char.(c = '^') then '&' else c
+    )) in
+
+    { ident_name = sanitized_name; ident_num = num; ident_loc = loc }
   let name id = id.ident_name
 
   let used_names = Hashtbl.create (module String)
@@ -62,9 +67,9 @@ module Ident = struct
         Hashtbl.find used_names name |> Option.value ~default:(-1)
       in
       let new_max = Int.max (last_index + 1) id in
-      (* Logs.debug (fun m -> m "Keyset: %d" (List.count (Hashtbl.keys used_names) ~f:(fun _ -> true))); *)
-      (* Logs.debug (fun m -> m "old id %s -> %d" name last_index); *)
-      (* Logs.debug (fun m -> m "fresh id %s -> %d" name new_max); *)
+      Logs.debug (fun m -> m "Keyset: %d" (List.count (Hashtbl.keys used_names) ~f:(fun _ -> true)));
+      Logs.debug (fun m -> m "old id %s -> %d" name last_index);
+      Logs.debug (fun m -> m "fresh id %s -> %d" name new_max);
       Hashtbl.set used_names ~key:name ~data:new_max;
       make loc name new_max
 end
