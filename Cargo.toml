@@ -1,0 +1,35 @@
+[package]
+name = "raven"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "format"
+test = false
+bench = false
+path = "scripts/format.rs"
+
+[dependencies]
+walkdir = "2.5.0"
+jwalk = "0.5"
+tree-sitter-raven = { path = "./tools/tree-sitter-raven/" }
+tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter.git", tag = "v0.22.6" }
+
+[dev-dependencies]
+ravenfmt = { path = "./tools/ravenfmt/" }
+
+[[bin]]
+name = "tscheck"
+test = false
+bench = false
+path = "scripts/tscheck.rs"
+
+[workspace]
+members = [
+  "tools/tree-sitter-raven",
+  "tools/ravenfmt",
+]
+resolver = "2"
+
+[patch.crates-io]
+tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter.git", tag = "v0.22.6" }

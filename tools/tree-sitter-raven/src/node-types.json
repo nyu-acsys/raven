@@ -1,0 +1,3717 @@
+[
+  {
+    "type": "assign_stmt",
+    "named": true,
+    "fields": {
+      "lhs_proj": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "new_expr",
+          "named": true
+        },
+        {
+          "type": "op_coloneq",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "au_expr",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_au",
+          "named": true
+        },
+        {
+          "type": "qual_ident",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bind_stmt",
+    "named": true,
+    "fields": {
+      "lhs_proj": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_colonpipe",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_add",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_minus",
+          "named": true
+        },
+        {
+          "type": "op_plus",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_equality",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_eqeq",
+          "named": true
+        },
+        {
+          "type": "op_neq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_logical",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_and",
+          "named": true
+        },
+        {
+          "type": "op_iff",
+          "named": true
+        },
+        {
+          "type": "op_implies",
+          "named": true
+        },
+        {
+          "type": "op_or",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_mul",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_div",
+          "named": true
+        },
+        {
+          "type": "op_mul",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_relation",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_geq",
+          "named": true
+        },
+        {
+          "type": "op_gt",
+          "named": true
+        },
+        {
+          "type": "op_leq",
+          "named": true
+        },
+        {
+          "type": "op_lt",
+          "named": true
+        },
+        {
+          "type": "op_subseteq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "binop_sets",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_in",
+          "named": true
+        },
+        {
+          "type": "op_not_in",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbrace",
+          "named": true
+        },
+        {
+          "type": "delim_rbrace",
+          "named": true
+        },
+        {
+          "type": "stmt_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "block_comment",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "comment_text",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bound_var",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "op_colon",
+          "named": true
+        },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "bound_var_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "op_colon",
+          "named": true
+        },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "call",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "call_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "call",
+          "named": true
+        },
+        {
+          "type": "qual_ident_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "call_opt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "call",
+          "named": true
+        },
+        {
+          "type": "map_update",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "callable_decl",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "contract",
+          "named": true
+        },
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "returns_clause",
+          "named": true
+        },
+        {
+          "type": "var_decls_with_modifiers",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "callable_decl_out_vars",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "contract",
+          "named": true
+        },
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        },
+        {
+          "type": "var_decls_with_modifiers",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "cas_expr",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_cas",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "case_defn",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "parameters": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "variant_args",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_case",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "comment",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "comment_text",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "compr_expr",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bound_var",
+          "named": true
+        },
+        {
+          "type": "delim_lbracepipe",
+          "named": true
+        },
+        {
+          "type": "delim_lbracketpipe",
+          "named": true
+        },
+        {
+          "type": "delim_rbracepipe",
+          "named": true
+        },
+        {
+          "type": "delim_rbracketpipe",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_coloncolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "contract",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "contract_modifier",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_ensures",
+          "named": true
+        },
+        {
+          "type": "kwd_requires",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "contract_modifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_atomic",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "data_expr",
+    "named": true,
+    "fields": {
+      "case": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "case_defn",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbrace",
+          "named": true
+        },
+        {
+          "type": "delim_rbrace",
+          "named": true
+        },
+        {
+          "type": "kwd_data",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "delim_lbrace",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_lbracepipe",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_lbracket",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_lbracketpipe",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_lghostbrace",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_lparen",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_rbrace",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_rbracepipe",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_rbracket",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_rbracketpipe",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_rghostbrace",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "delim_rparen",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "dot_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "call_opt",
+          "named": true
+        },
+        {
+          "type": "qual_ident_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "double_quote_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        },
+        {
+          "type": "string_fragment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "binop_add",
+          "named": true
+        },
+        {
+          "type": "binop_equality",
+          "named": true
+        },
+        {
+          "type": "binop_logical",
+          "named": true
+        },
+        {
+          "type": "binop_mul",
+          "named": true
+        },
+        {
+          "type": "binop_relation",
+          "named": true
+        },
+        {
+          "type": "binop_sets",
+          "named": true
+        },
+        {
+          "type": "primary_expr",
+          "named": true
+        },
+        {
+          "type": "quantified",
+          "named": true
+        },
+        {
+          "type": "ternary",
+          "named": true
+        },
+        {
+          "type": "tuple",
+          "named": true
+        },
+        {
+          "type": "unop_logical",
+          "named": true
+        },
+        {
+          "type": "unop_numeric",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "field_def",
+    "named": true,
+    "fields": {
+      "modifier": {
+        "multiple": false,
+        "required": false,
+        "types": [
+          {
+            "type": "ghost_modifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "kwd_field",
+          "named": true
+        },
+        {
+          "type": "op_colon",
+          "named": true
+        },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "float",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "func_decl",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "callable_decl",
+          "named": true
+        },
+        {
+          "type": "callable_decl_out_vars",
+          "named": true
+        },
+        {
+          "type": "kwd_func",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "func_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbrace",
+          "named": true
+        },
+        {
+          "type": "delim_rbrace",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "func_decl",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ghost_block",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lghostbrace",
+          "named": true
+        },
+        {
+          "type": "delim_rghostbrace",
+          "named": true
+        },
+        {
+          "type": "stmt_list",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ghost_modifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_ghost",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "hash",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "integer",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "havoc_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_havoc",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        },
+        {
+          "type": "qual_ident",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "identifier",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "if_then_else_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_else",
+          "named": true
+        },
+        {
+          "type": "kwd_if",
+          "named": true
+        },
+        {
+          "type": "stmt",
+          "named": true
+        },
+        {
+          "type": "stmt_no_short_if",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "if_then_else_stmt_no_short_if",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_else",
+          "named": true
+        },
+        {
+          "type": "kwd_if",
+          "named": true
+        },
+        {
+          "type": "stmt_no_short_if",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "if_then_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_if",
+          "named": true
+        },
+        {
+          "type": "stmt",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "import_dir",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_import",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "include_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_include",
+          "named": true
+        },
+        {
+          "type": "string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "integer",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_atomic",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_atomic_token",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_au",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_auto",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_axiom",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_bool",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_cas",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_case",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_const",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_data",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_else",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_ensures",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_field",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_func",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_ghost",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_havoc",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_if",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_implicit",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_import",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_include",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_int",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_inv",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_invariant",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_lemma",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_map",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_module",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_new",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_own",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_perm",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_proc",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_quantifier",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_real",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_ref",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_rep",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_requires",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_return",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_returns",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_set",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_spec",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_type",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_var",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_while",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_with",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "literal",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_const",
+          "named": true
+        },
+        {
+          "type": "number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lookup",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "hash",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "lookup_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "lookup",
+          "named": true
+        },
+        {
+          "type": "qual_ident_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "loop_contract",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_invariant",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "map_and_updates",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "map_update",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "map_update",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_coloneq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "member_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "field_def",
+          "named": true
+        },
+        {
+          "type": "func_def",
+          "named": true
+        },
+        {
+          "type": "import_dir",
+          "named": true
+        },
+        {
+          "type": "module_def",
+          "named": true
+        },
+        {
+          "type": "proc_def",
+          "named": true
+        },
+        {
+          "type": "type_def",
+          "named": true
+        },
+        {
+          "type": "var_def",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "mod_identifier",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "module_def",
+    "named": true,
+    "fields": {
+      "interface": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "kwd_module",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "module_header",
+          "named": true
+        },
+        {
+          "type": "module_impl",
+          "named": true
+        },
+        {
+          "type": "module_inst",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_header",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "mod_identifier",
+          "named": true
+        },
+        {
+          "type": "module_param_list",
+          "named": true
+        },
+        {
+          "type": "return_type",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_impl",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "mod_identifier",
+          "named": true
+        },
+        {
+          "type": "module_inst_args",
+          "named": true
+        },
+        {
+          "type": "op_eq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_inst",
+    "named": true,
+    "fields": {
+      "member_def_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "member_def",
+            "named": true
+          },
+          {
+            "type": "op_semicolon",
+            "named": true
+          }
+        ]
+      },
+      "ms": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "member_def",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbrace",
+          "named": true
+        },
+        {
+          "type": "delim_rbrace",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_inst_args",
+    "named": true,
+    "fields": {
+      "id": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "mod_identifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_param",
+    "named": true,
+    "fields": {
+      "inst_name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "mod_identifier",
+            "named": true
+          }
+        ]
+      },
+      "inst_type": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "op_colon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "module_param_list",
+    "named": true,
+    "fields": {
+      "module_parameter": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "module_param",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "new_expr",
+    "named": true,
+    "fields": {
+      "rhs_proj": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_colon",
+            "named": true
+          },
+          {
+            "type": "qual_ident",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_new",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "number",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "float",
+          "named": true
+        },
+        {
+          "type": "integer",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "op_and",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_colon",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_coloncolon",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_coloneq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_colonpipe",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_comma",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_div",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_dot",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_eq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_eqeq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_geq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_gt",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_iff",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_implies",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_in",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_leq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_lt",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_minus",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_mul",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_neq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_not",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_not_in",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_or",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_plus",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_qmark",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_semicolon",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "op_subseteq",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "own_expr",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_own",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "primary_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "au_expr",
+          "named": true
+        },
+        {
+          "type": "cas_expr",
+          "named": true
+        },
+        {
+          "type": "compr_expr",
+          "named": true
+        },
+        {
+          "type": "dot_expr",
+          "named": true
+        },
+        {
+          "type": "literal",
+          "named": true
+        },
+        {
+          "type": "lookup_expr",
+          "named": true
+        },
+        {
+          "type": "map_and_updates",
+          "named": true
+        },
+        {
+          "type": "own_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "proc_decl",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "callable_decl",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "proc_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "proc_decl",
+          "named": true
+        },
+        {
+          "type": "proc_kind",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "proc_kind",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_auto",
+          "named": true
+        },
+        {
+          "type": "kwd_axiom",
+          "named": true
+        },
+        {
+          "type": "kwd_lemma",
+          "named": true
+        },
+        {
+          "type": "kwd_proc",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "qual_ident",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "mod_identifier",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "qual_ident_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "op_dot",
+          "named": true
+        },
+        {
+          "type": "primary_expr",
+          "named": true
+        },
+        {
+          "type": "qual_ident",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "quantified",
+    "named": true,
+    "fields": {
+      "variable": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "bound_var",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_quantifier",
+          "named": true
+        },
+        {
+          "type": "op_coloncolon",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "trigger",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "resource_stmt",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_inv",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        },
+        {
+          "type": "qual_ident",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_stmt",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_return",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "return_type",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "mod_identifier",
+          "named": true
+        },
+        {
+          "type": "op_colon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "returns_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_returns",
+          "named": true
+        },
+        {
+          "type": "var_decls_with_modifiers",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "single_quote_string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "escape_sequence",
+          "named": true
+        },
+        {
+          "type": "string_fragment",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "fields": {
+      "files": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "include_stmt",
+            "named": true
+          }
+        ]
+      },
+      "member_def_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "member_def",
+            "named": true
+          },
+          {
+            "type": "op_semicolon",
+            "named": true
+          }
+        ]
+      },
+      "ms": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "member_def",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "spec_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_spec",
+          "named": true
+        },
+        {
+          "type": "with_clause",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "stmt_desc",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "stmt_desc",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "ghost_block",
+          "named": true
+        },
+        {
+          "type": "if_then_else_stmt",
+          "named": true
+        },
+        {
+          "type": "if_then_stmt",
+          "named": true
+        },
+        {
+          "type": "stmt_wo_trailing_substmt",
+          "named": true
+        },
+        {
+          "type": "while_stmt",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "stmt_list",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "stmt",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "stmt_no_short_if",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "stmt_no_short_if_desc",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "stmt_no_short_if_desc",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "if_then_else_stmt_no_short_if",
+          "named": true
+        },
+        {
+          "type": "stmt_wo_trailing_substmt",
+          "named": true
+        },
+        {
+          "type": "while_stmt_no_short_if",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "stmt_wo_trailing_substmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "assign_stmt",
+          "named": true
+        },
+        {
+          "type": "bind_stmt",
+          "named": true
+        },
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "call_expr",
+          "named": true
+        },
+        {
+          "type": "havoc_stmt",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        },
+        {
+          "type": "resource_stmt",
+          "named": true
+        },
+        {
+          "type": "return_stmt",
+          "named": true
+        },
+        {
+          "type": "spec_stmt",
+          "named": true
+        },
+        {
+          "type": "var_def",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "string",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "double_quote_string",
+          "named": true
+        },
+        {
+          "type": "single_quote_string",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "ternary",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_colon",
+          "named": true
+        },
+        {
+          "type": "op_qmark",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "trigger",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      },
+      "expr_list": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          },
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbrace",
+          "named": true
+        },
+        {
+          "type": "delim_rbrace",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "tuple",
+    "named": true,
+    "fields": {
+      "proj": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_decl",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_type",
+          "named": true
+        },
+        {
+          "type": "mod_identifier",
+          "named": true
+        },
+        {
+          "type": "type_mod",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "op_eq",
+          "named": true
+        },
+        {
+          "type": "type_decl",
+          "named": true
+        },
+        {
+          "type": "type_def_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_def_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "data_expr",
+          "named": true
+        },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_atomic_token",
+          "named": true
+        },
+        {
+          "type": "kwd_bool",
+          "named": true
+        },
+        {
+          "type": "kwd_int",
+          "named": true
+        },
+        {
+          "type": "kwd_perm",
+          "named": true
+        },
+        {
+          "type": "kwd_real",
+          "named": true
+        },
+        {
+          "type": "kwd_ref",
+          "named": true
+        },
+        {
+          "type": "kwd_set",
+          "named": true
+        },
+        {
+          "type": "mod_identifier",
+          "named": true
+        },
+        {
+          "type": "type_expr_app",
+          "named": true
+        },
+        {
+          "type": "type_expr_list",
+          "named": true
+        },
+        {
+          "type": "type_expr_map",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_expr_app",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      },
+      "caller": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_expr_list",
+    "named": true,
+    "fields": {
+      "type": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "type_expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_expr_map",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "kwd_map",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "type_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "type_mod",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_rep",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unop_logical",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_not",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "unop_numeric",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "op_minus",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_decls_with_modifiers",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "bound_var",
+            "named": true
+          },
+          {
+            "type": "var_modifier",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_def",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "bound_var_type",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "ghost_modifier",
+          "named": true
+        },
+        {
+          "type": "kwd_var",
+          "named": true
+        },
+        {
+          "type": "op_coloneq",
+          "named": true
+        },
+        {
+          "type": "op_eq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "var_modifier",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "kwd_ghost",
+          "named": true
+        },
+        {
+          "type": "kwd_implicit",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "variant_args",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "bound_var",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "while_stmt",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_while",
+          "named": true
+        },
+        {
+          "type": "loop_contract",
+          "named": true
+        },
+        {
+          "type": "stmt",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "while_stmt_no_short_if",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_while",
+          "named": true
+        },
+        {
+          "type": "stmt_no_short_if",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "with_clause",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "block",
+          "named": true
+        },
+        {
+          "type": "kwd_with",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "!",
+    "named": false
+  },
+  {
+    "type": "!=",
+    "named": false
+  },
+  {
+    "type": "!in",
+    "named": false
+  },
+  {
+    "type": "!}",
+    "named": false
+  },
+  {
+    "type": "\"",
+    "named": false
+  },
+  {
+    "type": "#",
+    "named": false
+  },
+  {
+    "type": "%",
+    "named": false
+  },
+  {
+    "type": "&&",
+    "named": false
+  },
+  {
+    "type": "'",
+    "named": false
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": "*",
+    "named": false
+  },
+  {
+    "type": "**",
+    "named": false
+  },
+  {
+    "type": "*/",
+    "named": false
+  },
+  {
+    "type": "+",
+    "named": false
+  },
+  {
+    "type": "++",
+    "named": false
+  },
+  {
+    "type": ",",
+    "named": false
+  },
+  {
+    "type": "-",
+    "named": false
+  },
+  {
+    "type": "--",
+    "named": false
+  },
+  {
+    "type": ".",
+    "named": false
+  },
+  {
+    "type": "/",
+    "named": false
+  },
+  {
+    "type": "/*",
+    "named": false
+  },
+  {
+    "type": "//",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": "::",
+    "named": false
+  },
+  {
+    "type": ":=",
+    "named": false
+  },
+  {
+    "type": ":|",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "<",
+    "named": false
+  },
+  {
+    "type": "<=",
+    "named": false
+  },
+  {
+    "type": "<=>",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "==",
+    "named": false
+  },
+  {
+    "type": "==>",
+    "named": false
+  },
+  {
+    "type": ">",
+    "named": false
+  },
+  {
+    "type": ">=",
+    "named": false
+  },
+  {
+    "type": "?",
+    "named": false
+  },
+  {
+    "type": "AtomicToken",
+    "named": false
+  },
+  {
+    "type": "Bool",
+    "named": false
+  },
+  {
+    "type": "Int",
+    "named": false
+  },
+  {
+    "type": "Map",
+    "named": false
+  },
+  {
+    "type": "Perm",
+    "named": false
+  },
+  {
+    "type": "Real",
+    "named": false
+  },
+  {
+    "type": "Ref",
+    "named": false
+  },
+  {
+    "type": "Set",
+    "named": false
+  },
+  {
+    "type": "[",
+    "named": false
+  },
+  {
+    "type": "[|",
+    "named": false
+  },
+  {
+    "type": "]",
+    "named": false
+  },
+  {
+    "type": "assert",
+    "named": false
+  },
+  {
+    "type": "assume",
+    "named": false
+  },
+  {
+    "type": "atomic",
+    "named": false
+  },
+  {
+    "type": "au",
+    "named": false
+  },
+  {
+    "type": "auto",
+    "named": false
+  },
+  {
+    "type": "axiom",
+    "named": false
+  },
+  {
+    "type": "cas",
+    "named": false
+  },
+  {
+    "type": "case",
+    "named": false
+  },
+  {
+    "type": "closeInv",
+    "named": false
+  },
+  {
+    "type": "data",
+    "named": false
+  },
+  {
+    "type": "else",
+    "named": false
+  },
+  {
+    "type": "ensures",
+    "named": false
+  },
+  {
+    "type": "escape_sequence",
+    "named": true
+  },
+  {
+    "type": "exhale",
+    "named": false
+  },
+  {
+    "type": "exists",
+    "named": false
+  },
+  {
+    "type": "false",
+    "named": false
+  },
+  {
+    "type": "field",
+    "named": false
+  },
+  {
+    "type": "fold",
+    "named": false
+  },
+  {
+    "type": "forall",
+    "named": false
+  },
+  {
+    "type": "func",
+    "named": false
+  },
+  {
+    "type": "ghost",
+    "named": false
+  },
+  {
+    "type": "havoc",
+    "named": false
+  },
+  {
+    "type": "if",
+    "named": false
+  },
+  {
+    "type": "implicit",
+    "named": false
+  },
+  {
+    "type": "import",
+    "named": false
+  },
+  {
+    "type": "in",
+    "named": false
+  },
+  {
+    "type": "include",
+    "named": false
+  },
+  {
+    "type": "inhale",
+    "named": false
+  },
+  {
+    "type": "interface",
+    "named": false
+  },
+  {
+    "type": "inv",
+    "named": false
+  },
+  {
+    "type": "invariant",
+    "named": false
+  },
+  {
+    "type": "lemma",
+    "named": false
+  },
+  {
+    "type": "module",
+    "named": false
+  },
+  {
+    "type": "new",
+    "named": false
+  },
+  {
+    "type": "null",
+    "named": false
+  },
+  {
+    "type": "openInv",
+    "named": false
+  },
+  {
+    "type": "own",
+    "named": false
+  },
+  {
+    "type": "pred",
+    "named": false
+  },
+  {
+    "type": "proc",
+    "named": false
+  },
+  {
+    "type": "rep",
+    "named": false
+  },
+  {
+    "type": "requires",
+    "named": false
+  },
+  {
+    "type": "return",
+    "named": false
+  },
+  {
+    "type": "returns",
+    "named": false
+  },
+  {
+    "type": "string_fragment",
+    "named": true
+  },
+  {
+    "type": "subseteq",
+    "named": false
+  },
+  {
+    "type": "true",
+    "named": false
+  },
+  {
+    "type": "type",
+    "named": false
+  },
+  {
+    "type": "unfold",
+    "named": false
+  },
+  {
+    "type": "val",
+    "named": false
+  },
+  {
+    "type": "var",
+    "named": false
+  },
+  {
+    "type": "while",
+    "named": false
+  },
+  {
+    "type": "with",
+    "named": false
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "{!",
+    "named": false
+  },
+  {
+    "type": "{|",
+    "named": false
+  },
+  {
+    "type": "|]",
+    "named": false
+  },
+  {
+    "type": "||",
+    "named": false
+  },
+  {
+    "type": "|}",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
+  }
+]

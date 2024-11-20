@@ -1,0 +1,1577 @@
+../../test/iterated-star/array-max.rav
+  pattern: 0
+    capture: 0 - leaf, start: (0, 0), end: (0, 24), text: `/* Encoding of arrays */`
+  pattern: 7
+    capture: 4 - prepend_input_softline, start: (0, 0), end: (0, 24), text: `/* Encoding of arrays */`
+  pattern: 12
+    capture: 10 - multi_line_indent_all, start: (0, 0), end: (0, 24), text: `/* Encoding of arrays */`
+  pattern: 0
+    capture: 0 - leaf, start: (0, 2), end: (0, 21), text: ` Encoding of arrays`
+  pattern: 2
+    capture: allow_blank_line_before, start: (2, 0), end: (15, 1)
+  pattern: 8
+    capture: 5 - append_input_softline, start: (0, 0), end: (0, 24), text: `/* Encoding of arrays */`
+  pattern: 13
+    capture: prepend_input_softline, start: (2, 0), end: (15, 1)
+  pattern: 3
+    capture: 2 - prepend_space, start: (2, 0), end: (2, 9), text: `interface`
+    capture: 3 - append_space, start: (2, 0), end: (2, 9), text: `interface`
+  pattern: 16
+    capture: 13 - append_indent_end, start: (2, 10), end: (2, 16), text: `IArray`
+    capture: 11 - append_indent_start, start: (2, 10), end: (2, 16), text: `IArray`
+  pattern: 0
+    capture: 0 - leaf, start: (2, 10), end: (2, 16), text: `IArray`
+  pattern: 14
+    capture: 11 - append_indent_start, start: (2, 0), end: (2, 9), text: `interface`
+    capture: prepend_space, start: (2, 17), end: (15, 1)
+    capture: prepend_indent_end, start: (2, 17), end: (15, 1)
+  pattern: 2
+    capture: 1 - allow_blank_line_before, start: (3, 2), end: (3, 12), text: `rep type T`
+  pattern: 3
+    capture: 2 - prepend_space, start: (3, 2), end: (3, 5), text: `rep`
+    capture: 3 - append_space, start: (3, 2), end: (3, 5), text: `rep`
+  pattern: 3
+    capture: 2 - prepend_space, start: (3, 6), end: (3, 10), text: `type`
+    capture: 3 - append_space, start: (3, 6), end: (3, 10), text: `type`
+  pattern: 0
+    capture: 0 - leaf, start: (3, 11), end: (3, 12), text: `T`
+  pattern: 2
+    capture: 1 - allow_blank_line_before, start: (5, 2), end: (5, 41), text: `func loc(a: T, i: Int) returns (r: Ref)`
+  pattern: 11
+    capture: 9 - prepend_spaced_softline, start: (5, 2), end: (5, 41), text: `func loc(a: T, i: Int) returns (r: Ref)`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (5, 2), end: (5, 41), text: `func loc(a: T, i: Int) returns (r: Ref)`
+    capture: 11 - append_indent_start, start: (5, 2), end: (5, 6), text: `func`
+  pattern: 3
+    capture: 2 - prepend_space, start: (5, 2), end: (5, 6), text: `func`
+    capture: 3 - append_space, start: (5, 2), end: (5, 6), text: `func`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (5, 2), end: (5, 41), text: `func loc(a: T, i: Int) returns (r: Ref)`
+    capture: 11 - append_indent_start, start: (5, 7), end: (5, 41), text: `loc(a: T, i: Int) returns (r: Ref)`
+  pattern: 0
+    capture: 0 - leaf, start: (5, 7), end: (5, 10), text: `loc`
+  pattern: 0
+    capture: 0 - leaf, start: (5, 11), end: (5, 12), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (5, 12), end: (5, 13), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (5, 14), end: (5, 15), text: `T`
+  pattern: 29
+    capture: 16 - append_spaced_scoped_softline, start: (5, 15), end: (5, 16), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (5, 15), end: (5, 16), text: `,`
+  pattern: 0
+    capture: 0 - leaf, start: (5, 17), end: (5, 18), text: `i`
+  pattern: 5
+    capture: 3 - append_space, start: (5, 18), end: (5, 19), text: `:`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (5, 10), end: (5, 11), text: `(`
+    capture: 11 - append_indent_start, start: (5, 10), end: (5, 11), text: `(`
+    capture: 15 - prepend_end_scope, start: (5, 23), end: (5, 24), text: `)`
+    capture: 12 - prepend_indent_end, start: (5, 23), end: (5, 24), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (5, 25), end: (5, 32), text: `returns`
+    capture: 3 - append_space, start: (5, 25), end: (5, 32), text: `returns`
+  pattern: 0
+    capture: 0 - leaf, start: (5, 34), end: (5, 35), text: `r`
+  pattern: 5
+    capture: 3 - append_space, start: (5, 35), end: (5, 36), text: `:`
+  pattern: 31
+    capture: 4 - prepend_input_softline, start: (5, 25), end: (5, 41), text: `returns (r: Ref)`
+    capture: 14 - append_begin_scope, start: (5, 33), end: (5, 34), text: `(`
+    capture: 11 - append_indent_start, start: (5, 33), end: (5, 34), text: `(`
+    capture: 15 - prepend_end_scope, start: (5, 40), end: (5, 41), text: `)`
+    capture: 12 - prepend_indent_end, start: (5, 40), end: (5, 41), text: `)`
+  pattern: 2
+    capture: 1 - allow_blank_line_before, start: (6, 2), end: (6, 33), text: `func len(a: T) returns (l: Int)`
+  pattern: 11
+    capture: 9 - prepend_spaced_softline, start: (6, 2), end: (6, 33), text: `func len(a: T) returns (l: Int)`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (6, 2), end: (6, 33), text: `func len(a: T) returns (l: Int)`
+    capture: 11 - append_indent_start, start: (6, 2), end: (6, 6), text: `func`
+  pattern: 3
+    capture: 2 - prepend_space, start: (6, 2), end: (6, 6), text: `func`
+    capture: 3 - append_space, start: (6, 2), end: (6, 6), text: `func`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (6, 2), end: (6, 33), text: `func len(a: T) returns (l: Int)`
+    capture: 11 - append_indent_start, start: (6, 7), end: (6, 33), text: `len(a: T) returns (l: Int)`
+  pattern: 0
+    capture: 0 - leaf, start: (6, 7), end: (6, 10), text: `len`
+  pattern: 0
+    capture: 0 - leaf, start: (6, 11), end: (6, 12), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (6, 12), end: (6, 13), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (6, 14), end: (6, 15), text: `T`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (6, 10), end: (6, 11), text: `(`
+    capture: 11 - append_indent_start, start: (6, 10), end: (6, 11), text: `(`
+    capture: 15 - prepend_end_scope, start: (6, 15), end: (6, 16), text: `)`
+    capture: 12 - prepend_indent_end, start: (6, 15), end: (6, 16), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (6, 17), end: (6, 24), text: `returns`
+    capture: 3 - append_space, start: (6, 17), end: (6, 24), text: `returns`
+  pattern: 0
+    capture: 0 - leaf, start: (6, 26), end: (6, 27), text: `l`
+  pattern: 5
+    capture: 3 - append_space, start: (6, 27), end: (6, 28), text: `:`
+  pattern: 31
+    capture: 4 - prepend_input_softline, start: (6, 17), end: (6, 33), text: `returns (l: Int)`
+    capture: 14 - append_begin_scope, start: (6, 25), end: (6, 26), text: `(`
+    capture: 11 - append_indent_start, start: (6, 25), end: (6, 26), text: `(`
+    capture: 15 - prepend_end_scope, start: (6, 32), end: (6, 33), text: `)`
+    capture: 12 - prepend_indent_end, start: (6, 32), end: (6, 33), text: `)`
+  pattern: 2
+    capture: 1 - allow_blank_line_before, start: (7, 2), end: (7, 35), text: `func first(r: Ref) returns (a: T)`
+  pattern: 11
+    capture: 9 - prepend_spaced_softline, start: (7, 2), end: (7, 35), text: `func first(r: Ref) returns (a: T)`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (7, 2), end: (7, 35), text: `func first(r: Ref) returns (a: T)`
+    capture: 11 - append_indent_start, start: (7, 2), end: (7, 6), text: `func`
+  pattern: 3
+    capture: 2 - prepend_space, start: (7, 2), end: (7, 6), text: `func`
+    capture: 3 - append_space, start: (7, 2), end: (7, 6), text: `func`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (7, 2), end: (7, 35), text: `func first(r: Ref) returns (a: T)`
+    capture: 11 - append_indent_start, start: (7, 7), end: (7, 35), text: `first(r: Ref) returns (a: T)`
+  pattern: 0
+    capture: 0 - leaf, start: (7, 7), end: (7, 12), text: `first`
+  pattern: 0
+    capture: 0 - leaf, start: (7, 13), end: (7, 14), text: `r`
+  pattern: 5
+    capture: 3 - append_space, start: (7, 14), end: (7, 15), text: `:`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (7, 12), end: (7, 13), text: `(`
+    capture: 11 - append_indent_start, start: (7, 12), end: (7, 13), text: `(`
+    capture: 15 - prepend_end_scope, start: (7, 19), end: (7, 20), text: `)`
+    capture: 12 - prepend_indent_end, start: (7, 19), end: (7, 20), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (7, 21), end: (7, 28), text: `returns`
+    capture: 3 - append_space, start: (7, 21), end: (7, 28), text: `returns`
+  pattern: 0
+    capture: 0 - leaf, start: (7, 30), end: (7, 31), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (7, 31), end: (7, 32), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (7, 33), end: (7, 34), text: `T`
+  pattern: 31
+    capture: 4 - prepend_input_softline, start: (7, 21), end: (7, 35), text: `returns (a: T)`
+    capture: 14 - append_begin_scope, start: (7, 29), end: (7, 30), text: `(`
+    capture: 11 - append_indent_start, start: (7, 29), end: (7, 30), text: `(`
+    capture: 15 - prepend_end_scope, start: (7, 34), end: (7, 35), text: `)`
+    capture: 12 - prepend_indent_end, start: (7, 34), end: (7, 35), text: `)`
+  pattern: 2
+    capture: 1 - allow_blank_line_before, start: (8, 2), end: (8, 38), text: `func second(r: Ref) returns (i: Int)`
+  pattern: 11
+    capture: 9 - prepend_spaced_softline, start: (8, 2), end: (8, 38), text: `func second(r: Ref) returns (i: Int)`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (8, 2), end: (8, 38), text: `func second(r: Ref) returns (i: Int)`
+    capture: 11 - append_indent_start, start: (8, 2), end: (8, 6), text: `func`
+  pattern: 3
+    capture: 2 - prepend_space, start: (8, 2), end: (8, 6), text: `func`
+    capture: 3 - append_space, start: (8, 2), end: (8, 6), text: `func`
+  pattern: 23
+    capture: 13 - append_indent_end, start: (8, 2), end: (8, 38), text: `func second(r: Ref) returns (i: Int)`
+    capture: 11 - append_indent_start, start: (8, 7), end: (8, 38), text: `second(r: Ref) returns (i: Int)`
+  pattern: 0
+    capture: 0 - leaf, start: (8, 7), end: (8, 13), text: `second`
+  pattern: 0
+    capture: 0 - leaf, start: (8, 14), end: (8, 15), text: `r`
+  pattern: 5
+    capture: 3 - append_space, start: (8, 15), end: (8, 16), text: `:`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (8, 13), end: (8, 14), text: `(`
+    capture: 11 - append_indent_start, start: (8, 13), end: (8, 14), text: `(`
+    capture: 15 - prepend_end_scope, start: (8, 20), end: (8, 21), text: `)`
+    capture: 12 - prepend_indent_end, start: (8, 20), end: (8, 21), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (8, 22), end: (8, 29), text: `returns`
+    capture: 3 - append_space, start: (8, 22), end: (8, 29), text: `returns`
+  pattern: 0
+    capture: 0 - leaf, start: (8, 31), end: (8, 32), text: `i`
+  pattern: 5
+    capture: 3 - append_space, start: (8, 32), end: (8, 33), text: `:`
+  pattern: 31
+    capture: 4 - prepend_input_softline, start: (8, 22), end: (8, 38), text: `returns (i: Int)`
+    capture: 14 - append_begin_scope, start: (8, 30), end: (8, 31), text: `(`
+    capture: 11 - append_indent_start, start: (8, 30), end: (8, 31), text: `(`
+    capture: 15 - prepend_end_scope, start: (8, 37), end: (8, 38), text: `)`
+    capture: 12 - prepend_indent_end, start: (8, 37), end: (8, 38), text: `)`
+  pattern: 2
+    capture: allow_blank_line_before, start: (10, 2), end: (11, 81)
+  pattern: 11
+    capture: prepend_spaced_softline, start: (10, 2), end: (11, 81)
+  pattern: 3
+    capture: 2 - prepend_space, start: (10, 2), end: (10, 6), text: `auto`
+    capture: 3 - append_space, start: (10, 2), end: (10, 6), text: `auto`
+  pattern: 3
+    capture: 2 - prepend_space, start: (10, 7), end: (10, 12), text: `lemma`
+    capture: 3 - append_space, start: (10, 7), end: (10, 12), text: `lemma`
+  pattern: 21
+    capture: 11 - append_indent_start, start: (10, 2), end: (10, 12), text: `auto lemma`
+    capture: append_indent_end, start: (10, 13), end: (11, 81)
+  pattern: 0
+    capture: 0 - leaf, start: (10, 13), end: (10, 21), text: `all_diff`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (10, 21), end: (10, 22), text: `(`
+    capture: 11 - append_indent_start, start: (10, 21), end: (10, 22), text: `(`
+    capture: 15 - prepend_end_scope, start: (10, 22), end: (10, 23), text: `)`
+    capture: 12 - prepend_indent_end, start: (10, 22), end: (10, 23), text: `)`
+  pattern: 30
+    capture: 4 - prepend_input_softline, start: (11, 4), end: (11, 81), text: `ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i`
+  pattern: 3
+    capture: 2 - prepend_space, start: (11, 4), end: (11, 11), text: `ensures`
+    capture: 3 - append_space, start: (11, 4), end: (11, 11), text: `ensures`
+  pattern: 34
+  pattern: 6
+    capture: 3 - append_space, start: (11, 12), end: (11, 18), text: `forall`
+  pattern: 0
+    capture: 0 - leaf, start: (11, 19), end: (11, 20), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (11, 20), end: (11, 21), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (11, 21), end: (11, 22), text: `T`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (11, 22), end: (11, 23), text: `,`
+  pattern: 0
+    capture: 0 - leaf, start: (11, 24), end: (11, 25), text: `i`
+  pattern: 5
+    capture: 3 - append_space, start: (11, 25), end: (11, 26), text: `:`
+  pattern: 3
+    capture: 2 - prepend_space, start: (11, 31), end: (11, 33), text: `::`
+    capture: 3 - append_space, start: (11, 31), end: (11, 33), text: `::`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 34), end: (11, 39), text: `first`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 40), end: (11, 43), text: `loc`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 44), end: (11, 45), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (11, 45), end: (11, 46), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (11, 45), end: (11, 46), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 47), end: (11, 48), text: `i`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (11, 43), end: (11, 44), text: `(`
+    capture: 11 - append_indent_start, start: (11, 43), end: (11, 44), text: `(`
+    capture: 19 - append_antispace, start: (11, 43), end: (11, 44), text: `(`
+    capture: 15 - prepend_end_scope, start: (11, 48), end: (11, 49), text: `)`
+    capture: 12 - prepend_indent_end, start: (11, 48), end: (11, 49), text: `)`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (11, 39), end: (11, 40), text: `(`
+    capture: 11 - append_indent_start, start: (11, 39), end: (11, 40), text: `(`
+    capture: 19 - append_antispace, start: (11, 39), end: (11, 40), text: `(`
+    capture: 15 - prepend_end_scope, start: (11, 49), end: (11, 50), text: `)`
+    capture: 12 - prepend_indent_end, start: (11, 49), end: (11, 50), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (11, 51), end: (11, 53), text: `==`
+    capture: 20 - prepend_spaced_scoped_softline, start: (11, 51), end: (11, 53), text: `==`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 54), end: (11, 55), text: `a`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (11, 56), end: (11, 58), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (11, 56), end: (11, 58), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 59), end: (11, 65), text: `second`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 66), end: (11, 69), text: `loc`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 70), end: (11, 71), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (11, 71), end: (11, 72), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (11, 71), end: (11, 72), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 73), end: (11, 74), text: `i`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (11, 69), end: (11, 70), text: `(`
+    capture: 11 - append_indent_start, start: (11, 69), end: (11, 70), text: `(`
+    capture: 19 - append_antispace, start: (11, 69), end: (11, 70), text: `(`
+    capture: 15 - prepend_end_scope, start: (11, 74), end: (11, 75), text: `)`
+    capture: 12 - prepend_indent_end, start: (11, 74), end: (11, 75), text: `)`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (11, 65), end: (11, 66), text: `(`
+    capture: 11 - append_indent_start, start: (11, 65), end: (11, 66), text: `(`
+    capture: 19 - append_antispace, start: (11, 65), end: (11, 66), text: `(`
+    capture: 15 - prepend_end_scope, start: (11, 75), end: (11, 76), text: `)`
+    capture: 12 - prepend_indent_end, start: (11, 75), end: (11, 76), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (11, 77), end: (11, 79), text: `==`
+    capture: 20 - prepend_spaced_scoped_softline, start: (11, 77), end: (11, 79), text: `==`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (11, 80), end: (11, 81), text: `i`
+  pattern: 2
+    capture: allow_blank_line_before, start: (13, 2), end: (14, 37)
+  pattern: 11
+    capture: prepend_spaced_softline, start: (13, 2), end: (14, 37)
+  pattern: 3
+    capture: 2 - prepend_space, start: (13, 2), end: (13, 6), text: `auto`
+    capture: 3 - append_space, start: (13, 2), end: (13, 6), text: `auto`
+  pattern: 3
+    capture: 2 - prepend_space, start: (13, 7), end: (13, 12), text: `lemma`
+    capture: 3 - append_space, start: (13, 7), end: (13, 12), text: `lemma`
+  pattern: 21
+    capture: 11 - append_indent_start, start: (13, 2), end: (13, 12), text: `auto lemma`
+    capture: append_indent_end, start: (13, 13), end: (14, 37)
+  pattern: 0
+    capture: 0 - leaf, start: (13, 13), end: (13, 23), text: `len_nonneg`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (13, 23), end: (13, 24), text: `(`
+    capture: 11 - append_indent_start, start: (13, 23), end: (13, 24), text: `(`
+    capture: 15 - prepend_end_scope, start: (13, 24), end: (13, 25), text: `)`
+    capture: 12 - prepend_indent_end, start: (13, 24), end: (13, 25), text: `)`
+  pattern: 30
+    capture: 4 - prepend_input_softline, start: (14, 4), end: (14, 37), text: `ensures forall a:T :: len(a) >= 0`
+  pattern: 3
+    capture: 2 - prepend_space, start: (14, 4), end: (14, 11), text: `ensures`
+    capture: 3 - append_space, start: (14, 4), end: (14, 11), text: `ensures`
+  pattern: 34
+  pattern: 6
+    capture: 3 - append_space, start: (14, 12), end: (14, 18), text: `forall`
+  pattern: 0
+    capture: 0 - leaf, start: (14, 19), end: (14, 20), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (14, 20), end: (14, 21), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (14, 21), end: (14, 22), text: `T`
+  pattern: 3
+    capture: 2 - prepend_space, start: (14, 23), end: (14, 25), text: `::`
+    capture: 3 - append_space, start: (14, 23), end: (14, 25), text: `::`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (14, 26), end: (14, 29), text: `len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (14, 30), end: (14, 31), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (14, 29), end: (14, 30), text: `(`
+    capture: 11 - append_indent_start, start: (14, 29), end: (14, 30), text: `(`
+    capture: 19 - append_antispace, start: (14, 29), end: (14, 30), text: `(`
+    capture: 15 - prepend_end_scope, start: (14, 31), end: (14, 32), text: `)`
+    capture: 12 - prepend_indent_end, start: (14, 31), end: (14, 32), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (14, 33), end: (14, 35), text: `>=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (14, 33), end: (14, 35), text: `>=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (14, 36), end: (14, 37), text: `0`
+  pattern: 49
+    capture: 11 - append_indent_start, start: (2, 17), end: (2, 18), text: `{`
+    capture: 8 - append_spaced_softline, start: (2, 17), end: (2, 18), text: `{`
+    capture: 12 - prepend_indent_end, start: (15, 0), end: (15, 1), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (15, 0), end: (15, 1), text: `}`
+  pattern: 2
+    capture: allow_blank_line_before, start: (17, 0), end: (95, 1)
+  pattern: 11
+    capture: prepend_spaced_softline, start: (17, 0), end: (95, 1)
+  pattern: 3
+    capture: 2 - prepend_space, start: (17, 0), end: (17, 6), text: `module`
+    capture: 3 - append_space, start: (17, 0), end: (17, 6), text: `module`
+  pattern: 16
+    capture: 13 - append_indent_end, start: (17, 7), end: (17, 26), text: `ArrayMax[M: IArray]`
+    capture: 11 - append_indent_start, start: (17, 7), end: (17, 15), text: `ArrayMax`
+  pattern: 0
+    capture: 0 - leaf, start: (17, 7), end: (17, 15), text: `ArrayMax`
+  pattern: 0
+    capture: 0 - leaf, start: (17, 16), end: (17, 17), text: `M`
+  pattern: 5
+    capture: 3 - append_space, start: (17, 17), end: (17, 18), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (17, 19), end: (17, 25), text: `IArray`
+  pattern: 17
+    capture: 14 - append_begin_scope, start: (17, 15), end: (17, 16), text: `[`
+    capture: 11 - append_indent_start, start: (17, 15), end: (17, 16), text: `[`
+    capture: 15 - prepend_end_scope, start: (17, 25), end: (17, 26), text: `]`
+    capture: 12 - prepend_indent_end, start: (17, 25), end: (17, 26), text: `]`
+  pattern: 45
+    capture: 14 - append_begin_scope, start: (17, 15), end: (17, 16), text: `[`
+    capture: 11 - append_indent_start, start: (17, 15), end: (17, 16), text: `[`
+    capture: 15 - prepend_end_scope, start: (17, 25), end: (17, 26), text: `]`
+    capture: 12 - prepend_indent_end, start: (17, 25), end: (17, 26), text: `]`
+  pattern: 14
+    capture: 11 - append_indent_start, start: (17, 0), end: (17, 6), text: `module`
+    capture: prepend_space, start: (17, 27), end: (95, 1)
+    capture: prepend_indent_end, start: (17, 27), end: (95, 1)
+  pattern: 2
+    capture: 1 - allow_blank_line_before, start: (18, 2), end: (18, 18), text: `field value: Int`
+  pattern: 3
+    capture: 2 - prepend_space, start: (18, 2), end: (18, 7), text: `field`
+    capture: 3 - append_space, start: (18, 2), end: (18, 7), text: `field`
+  pattern: 0
+    capture: 0 - leaf, start: (18, 8), end: (18, 13), text: `value`
+  pattern: 5
+    capture: 3 - append_space, start: (18, 13), end: (18, 14), text: `:`
+  pattern: 2
+    capture: allow_blank_line_before, start: (20, 2), end: (22, 3)
+  pattern: 11
+    capture: prepend_spaced_softline, start: (20, 2), end: (22, 3)
+  pattern: 3
+    capture: 2 - prepend_space, start: (20, 2), end: (20, 6), text: `pred`
+    capture: 3 - append_space, start: (20, 2), end: (20, 6), text: `pred`
+  pattern: 0
+    capture: 0 - leaf, start: (20, 7), end: (20, 10), text: `arr`
+  pattern: 0
+    capture: 0 - leaf, start: (20, 11), end: (20, 12), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (20, 12), end: (20, 13), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (20, 14), end: (20, 15), text: `M`
+  pattern: 29
+    capture: 16 - append_spaced_scoped_softline, start: (20, 15), end: (20, 16), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (20, 15), end: (20, 16), text: `,`
+  pattern: 0
+    capture: 0 - leaf, start: (20, 17), end: (20, 18), text: `m`
+  pattern: 5
+    capture: 3 - append_space, start: (20, 18), end: (20, 19), text: `:`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (20, 27), end: (20, 28), text: `,`
+  pattern: 42
+    capture: 3 - append_space, start: (20, 27), end: (20, 28), text: `,`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (20, 10), end: (20, 11), text: `(`
+    capture: 11 - append_indent_start, start: (20, 10), end: (20, 11), text: `(`
+    capture: 15 - prepend_end_scope, start: (20, 33), end: (20, 34), text: `)`
+    capture: 12 - prepend_indent_end, start: (20, 33), end: (20, 34), text: `)`
+  pattern: 22
+    capture: 11 - append_indent_start, start: (20, 2), end: (20, 6), text: `pred`
+    capture: 13 - append_indent_end, start: (20, 35), end: (20, 36), text: `{`
+  pattern: 22
+    capture: 11 - append_indent_start, start: (20, 7), end: (20, 34), text: `arr(a: M, m: Map[Int, Int])`
+    capture: 13 - append_indent_end, start: (20, 35), end: (20, 36), text: `{`
+  pattern: 34
+  pattern: 6
+    capture: 3 - append_space, start: (21, 4), end: (21, 10), text: `forall`
+  pattern: 0
+    capture: 0 - leaf, start: (21, 11), end: (21, 12), text: `j`
+  pattern: 5
+    capture: 3 - append_space, start: (21, 12), end: (21, 13), text: `:`
+  pattern: 3
+    capture: 2 - prepend_space, start: (21, 18), end: (21, 20), text: `::`
+    capture: 3 - append_space, start: (21, 18), end: (21, 20), text: `::`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 21), end: (21, 22), text: `0`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (21, 23), end: (21, 25), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (21, 23), end: (21, 25), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 26), end: (21, 27), text: `j`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (21, 28), end: (21, 29), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (21, 28), end: (21, 29), text: `<`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 30), end: (21, 35), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 36), end: (21, 37), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (21, 35), end: (21, 36), text: `(`
+    capture: 11 - append_indent_start, start: (21, 35), end: (21, 36), text: `(`
+    capture: 19 - append_antispace, start: (21, 35), end: (21, 36), text: `(`
+    capture: 15 - prepend_end_scope, start: (21, 37), end: (21, 38), text: `)`
+    capture: 12 - prepend_indent_end, start: (21, 37), end: (21, 38), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (21, 39), end: (21, 42), text: `==>`
+    capture: 20 - prepend_spaced_scoped_softline, start: (21, 39), end: (21, 42), text: `==>`
+  pattern: 34
+  pattern: 4
+    capture: 2 - prepend_space, start: (21, 43), end: (21, 46), text: `own`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 47), end: (21, 52), text: `M.loc`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 53), end: (21, 54), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (21, 54), end: (21, 55), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (21, 54), end: (21, 55), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 56), end: (21, 57), text: `j`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (21, 52), end: (21, 53), text: `(`
+    capture: 11 - append_indent_start, start: (21, 52), end: (21, 53), text: `(`
+    capture: 19 - append_antispace, start: (21, 52), end: (21, 53), text: `(`
+    capture: 15 - prepend_end_scope, start: (21, 57), end: (21, 58), text: `)`
+    capture: 12 - prepend_indent_end, start: (21, 57), end: (21, 58), text: `)`
+  pattern: 39
+    capture: 16 - append_spaced_scoped_softline, start: (21, 58), end: (21, 59), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (21, 58), end: (21, 59), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 60), end: (21, 65), text: `value`
+  pattern: 39
+    capture: 16 - append_spaced_scoped_softline, start: (21, 65), end: (21, 66), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (21, 65), end: (21, 66), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 67), end: (21, 68), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 69), end: (21, 70), text: `j`
+  pattern: 39
+    capture: 16 - append_spaced_scoped_softline, start: (21, 71), end: (21, 72), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (21, 71), end: (21, 72), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (21, 73), end: (21, 76), text: `1.0`
+  pattern: 38
+    capture: 14 - append_begin_scope, start: (21, 46), end: (21, 47), text: `(`
+    capture: 11 - append_indent_start, start: (21, 46), end: (21, 47), text: `(`
+    capture: 19 - append_antispace, start: (21, 46), end: (21, 47), text: `(`
+    capture: 15 - prepend_end_scope, start: (21, 76), end: (21, 77), text: `)`
+    capture: 12 - prepend_indent_end, start: (21, 76), end: (21, 77), text: `)`
+  pattern: 51
+    capture: 11 - append_indent_start, start: (20, 35), end: (20, 36), text: `{`
+    capture: 8 - append_spaced_softline, start: (20, 35), end: (20, 36), text: `{`
+    capture: 2 - prepend_space, start: (20, 35), end: (20, 36), text: `{`
+    capture: 12 - prepend_indent_end, start: (22, 2), end: (22, 3), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (22, 2), end: (22, 3), text: `}`
+  pattern: 2
+    capture: allow_blank_line_before, start: (24, 2), end: (26, 3)
+  pattern: 11
+    capture: prepend_spaced_softline, start: (24, 2), end: (26, 3)
+  pattern: 3
+    capture: 2 - prepend_space, start: (24, 2), end: (24, 6), text: `pred`
+    capture: 3 - append_space, start: (24, 2), end: (24, 6), text: `pred`
+  pattern: 0
+    capture: 0 - leaf, start: (24, 7), end: (24, 13), text: `is_max`
+  pattern: 0
+    capture: 0 - leaf, start: (24, 14), end: (24, 15), text: `i`
+  pattern: 5
+    capture: 3 - append_space, start: (24, 15), end: (24, 16), text: `:`
+  pattern: 29
+    capture: 16 - append_spaced_scoped_softline, start: (24, 20), end: (24, 21), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (24, 20), end: (24, 21), text: `,`
+  pattern: 0
+    capture: 0 - leaf, start: (24, 22), end: (24, 23), text: `m`
+  pattern: 5
+    capture: 3 - append_space, start: (24, 23), end: (24, 24), text: `:`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (24, 32), end: (24, 33), text: `,`
+  pattern: 42
+    capture: 3 - append_space, start: (24, 32), end: (24, 33), text: `,`
+  pattern: 29
+    capture: 16 - append_spaced_scoped_softline, start: (24, 38), end: (24, 39), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (24, 38), end: (24, 39), text: `,`
+  pattern: 0
+    capture: 0 - leaf, start: (24, 40), end: (24, 41), text: `u`
+  pattern: 5
+    capture: 3 - append_space, start: (24, 41), end: (24, 42), text: `:`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (24, 13), end: (24, 14), text: `(`
+    capture: 11 - append_indent_start, start: (24, 13), end: (24, 14), text: `(`
+    capture: 15 - prepend_end_scope, start: (24, 46), end: (24, 47), text: `)`
+    capture: 12 - prepend_indent_end, start: (24, 46), end: (24, 47), text: `)`
+  pattern: 22
+    capture: 11 - append_indent_start, start: (24, 2), end: (24, 6), text: `pred`
+    capture: 13 - append_indent_end, start: (24, 48), end: (24, 49), text: `{`
+  pattern: 22
+    capture: 11 - append_indent_start, start: (24, 7), end: (24, 47), text: `is_max(i: Int, m: Map[Int, Int], u: Int)`
+    capture: 13 - append_indent_end, start: (24, 48), end: (24, 49), text: `{`
+  pattern: 34
+  pattern: 6
+    capture: 3 - append_space, start: (25, 4), end: (25, 10), text: `forall`
+  pattern: 0
+    capture: 0 - leaf, start: (25, 11), end: (25, 12), text: `j`
+  pattern: 5
+    capture: 3 - append_space, start: (25, 12), end: (25, 13), text: `:`
+  pattern: 3
+    capture: 2 - prepend_space, start: (25, 18), end: (25, 20), text: `::`
+    capture: 3 - append_space, start: (25, 18), end: (25, 20), text: `::`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 21), end: (25, 22), text: `0`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (25, 23), end: (25, 25), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (25, 23), end: (25, 25), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 26), end: (25, 27), text: `j`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (25, 28), end: (25, 30), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (25, 28), end: (25, 30), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 31), end: (25, 32), text: `j`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (25, 33), end: (25, 34), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (25, 33), end: (25, 34), text: `<`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 35), end: (25, 36), text: `u`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (25, 37), end: (25, 40), text: `==>`
+    capture: 20 - prepend_spaced_scoped_softline, start: (25, 37), end: (25, 40), text: `==>`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 41), end: (25, 42), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 43), end: (25, 44), text: `j`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (25, 46), end: (25, 48), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (25, 46), end: (25, 48), text: `<=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 49), end: (25, 50), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (25, 51), end: (25, 52), text: `i`
+  pattern: 51
+    capture: 11 - append_indent_start, start: (24, 48), end: (24, 49), text: `{`
+    capture: 8 - append_spaced_softline, start: (24, 48), end: (24, 49), text: `{`
+    capture: 2 - prepend_space, start: (24, 48), end: (24, 49), text: `{`
+    capture: 12 - prepend_indent_end, start: (26, 2), end: (26, 3), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (26, 2), end: (26, 3), text: `}`
+  pattern: 2
+    capture: allow_blank_line_before, start: (28, 2), end: (72, 3)
+  pattern: 11
+    capture: prepend_spaced_softline, start: (28, 2), end: (72, 3)
+  pattern: 3
+    capture: 2 - prepend_space, start: (28, 2), end: (28, 6), text: `proc`
+    capture: 3 - append_space, start: (28, 2), end: (28, 6), text: `proc`
+  pattern: 21
+    capture: 11 - append_indent_start, start: (28, 2), end: (28, 6), text: `proc`
+    capture: append_indent_end, start: (28, 7), end: (33, 35)
+  pattern: 0
+    capture: 0 - leaf, start: (28, 7), end: (28, 10), text: `max`
+  pattern: 0
+    capture: 0 - leaf, start: (28, 11), end: (28, 12), text: `a`
+  pattern: 5
+    capture: 3 - append_space, start: (28, 12), end: (28, 13), text: `:`
+  pattern: 0
+    capture: 0 - leaf, start: (28, 14), end: (28, 15), text: `M`
+  pattern: 29
+    capture: 16 - append_spaced_scoped_softline, start: (28, 15), end: (28, 16), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (28, 15), end: (28, 16), text: `,`
+  pattern: 3
+    capture: 2 - prepend_space, start: (28, 17), end: (28, 25), text: `implicit`
+    capture: 3 - append_space, start: (28, 17), end: (28, 25), text: `implicit`
+  pattern: 3
+    capture: 2 - prepend_space, start: (28, 26), end: (28, 31), text: `ghost`
+    capture: 3 - append_space, start: (28, 26), end: (28, 31), text: `ghost`
+  pattern: 0
+    capture: 0 - leaf, start: (28, 32), end: (28, 33), text: `m`
+  pattern: 5
+    capture: 3 - append_space, start: (28, 33), end: (28, 34), text: `:`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (28, 42), end: (28, 43), text: `,`
+  pattern: 42
+    capture: 3 - append_space, start: (28, 42), end: (28, 43), text: `,`
+  pattern: 28
+    capture: 14 - append_begin_scope, start: (28, 10), end: (28, 11), text: `(`
+    capture: 11 - append_indent_start, start: (28, 10), end: (28, 11), text: `(`
+    capture: 15 - prepend_end_scope, start: (28, 48), end: (28, 49), text: `)`
+    capture: 12 - prepend_indent_end, start: (28, 48), end: (28, 49), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (29, 4), end: (29, 11), text: `returns`
+    capture: 3 - append_space, start: (29, 4), end: (29, 11), text: `returns`
+  pattern: 0
+    capture: 0 - leaf, start: (29, 13), end: (29, 14), text: `x`
+  pattern: 5
+    capture: 3 - append_space, start: (29, 14), end: (29, 15), text: `:`
+  pattern: 31
+    capture: 4 - prepend_input_softline, start: (29, 4), end: (29, 20), text: `returns (x: Int)`
+    capture: 14 - append_begin_scope, start: (29, 12), end: (29, 13), text: `(`
+    capture: 11 - append_indent_start, start: (29, 12), end: (29, 13), text: `(`
+    capture: 15 - prepend_end_scope, start: (29, 19), end: (29, 20), text: `)`
+    capture: 12 - prepend_indent_end, start: (29, 19), end: (29, 20), text: `)`
+  pattern: 30
+    capture: 4 - prepend_input_softline, start: (30, 4), end: (30, 22), text: `requires arr(a, m)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (30, 4), end: (30, 12), text: `requires`
+    capture: 3 - append_space, start: (30, 4), end: (30, 12), text: `requires`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (30, 13), end: (30, 16), text: `arr`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (30, 17), end: (30, 18), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (30, 18), end: (30, 19), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (30, 18), end: (30, 19), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (30, 20), end: (30, 21), text: `m`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (30, 16), end: (30, 17), text: `(`
+    capture: 11 - append_indent_start, start: (30, 16), end: (30, 17), text: `(`
+    capture: 19 - append_antispace, start: (30, 16), end: (30, 17), text: `(`
+    capture: 15 - prepend_end_scope, start: (30, 21), end: (30, 22), text: `)`
+    capture: 12 - prepend_indent_end, start: (30, 21), end: (30, 22), text: `)`
+  pattern: 30
+    capture: 4 - prepend_input_softline, start: (31, 4), end: (31, 22), text: `ensures  arr(a, m)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (31, 4), end: (31, 11), text: `ensures`
+    capture: 3 - append_space, start: (31, 4), end: (31, 11), text: `ensures`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (31, 13), end: (31, 16), text: `arr`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (31, 17), end: (31, 18), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (31, 18), end: (31, 19), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (31, 18), end: (31, 19), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (31, 20), end: (31, 21), text: `m`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (31, 16), end: (31, 17), text: `(`
+    capture: 11 - append_indent_start, start: (31, 16), end: (31, 17), text: `(`
+    capture: 19 - append_antispace, start: (31, 16), end: (31, 17), text: `(`
+    capture: 15 - prepend_end_scope, start: (31, 21), end: (31, 22), text: `)`
+    capture: 12 - prepend_indent_end, start: (31, 21), end: (31, 22), text: `)`
+  pattern: 30
+    capture: 4 - prepend_input_softline, start: (32, 4), end: (32, 63), text: `ensures  M.len(a) == 0 ? x == -1 : (0 <= x && x < M.len(a))`
+  pattern: 3
+    capture: 2 - prepend_space, start: (32, 4), end: (32, 11), text: `ensures`
+    capture: 3 - append_space, start: (32, 4), end: (32, 11), text: `ensures`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 13), end: (32, 18), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 19), end: (32, 20), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (32, 18), end: (32, 19), text: `(`
+    capture: 11 - append_indent_start, start: (32, 18), end: (32, 19), text: `(`
+    capture: 19 - append_antispace, start: (32, 18), end: (32, 19), text: `(`
+    capture: 15 - prepend_end_scope, start: (32, 20), end: (32, 21), text: `)`
+    capture: 12 - prepend_indent_end, start: (32, 20), end: (32, 21), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (32, 22), end: (32, 24), text: `==`
+    capture: 20 - prepend_spaced_scoped_softline, start: (32, 22), end: (32, 24), text: `==`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 25), end: (32, 26), text: `0`
+  pattern: 3
+    capture: 2 - prepend_space, start: (32, 27), end: (32, 28), text: `?`
+    capture: 3 - append_space, start: (32, 27), end: (32, 28), text: `?`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 29), end: (32, 30), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (32, 31), end: (32, 33), text: `==`
+    capture: 20 - prepend_spaced_scoped_softline, start: (32, 31), end: (32, 33), text: `==`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 35), end: (32, 36), text: `1`
+  pattern: 5
+    capture: 3 - append_space, start: (32, 37), end: (32, 38), text: `:`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 40), end: (32, 41), text: `0`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (32, 42), end: (32, 44), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (32, 42), end: (32, 44), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 45), end: (32, 46), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (32, 47), end: (32, 49), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (32, 47), end: (32, 49), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 50), end: (32, 51), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (32, 52), end: (32, 53), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (32, 52), end: (32, 53), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 54), end: (32, 59), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (32, 60), end: (32, 61), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (32, 59), end: (32, 60), text: `(`
+    capture: 11 - append_indent_start, start: (32, 59), end: (32, 60), text: `(`
+    capture: 19 - append_antispace, start: (32, 59), end: (32, 60), text: `(`
+    capture: 15 - prepend_end_scope, start: (32, 61), end: (32, 62), text: `)`
+    capture: 12 - prepend_indent_end, start: (32, 61), end: (32, 62), text: `)`
+  pattern: 30
+    capture: 4 - prepend_input_softline, start: (33, 4), end: (33, 35), text: `ensures  is_max(x, m, M.len(a))`
+  pattern: 3
+    capture: 2 - prepend_space, start: (33, 4), end: (33, 11), text: `ensures`
+    capture: 3 - append_space, start: (33, 4), end: (33, 11), text: `ensures`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (33, 13), end: (33, 19), text: `is_max`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (33, 20), end: (33, 21), text: `x`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (33, 21), end: (33, 22), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (33, 21), end: (33, 22), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (33, 23), end: (33, 24), text: `m`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (33, 24), end: (33, 25), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (33, 24), end: (33, 25), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (33, 26), end: (33, 31), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (33, 32), end: (33, 33), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (33, 31), end: (33, 32), text: `(`
+    capture: 11 - append_indent_start, start: (33, 31), end: (33, 32), text: `(`
+    capture: 19 - append_antispace, start: (33, 31), end: (33, 32), text: `(`
+    capture: 15 - prepend_end_scope, start: (33, 33), end: (33, 34), text: `)`
+    capture: 12 - prepend_indent_end, start: (33, 33), end: (33, 34), text: `)`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (33, 19), end: (33, 20), text: `(`
+    capture: 11 - append_indent_start, start: (33, 19), end: (33, 20), text: `(`
+    capture: 19 - append_antispace, start: (33, 19), end: (33, 20), text: `(`
+    capture: 15 - prepend_end_scope, start: (33, 34), end: (33, 35), text: `)`
+    capture: 12 - prepend_indent_end, start: (33, 34), end: (33, 35), text: `)`
+  pattern: 52
+    capture: 2 - prepend_space, start: (34, 2), end: (34, 3), text: `{`
+  pattern: 0
+    capture: 0 - leaf, start: (35, 4), end: (35, 70), text: `// No longer needed, since autoLemma dependencies have been added.`
+  pattern: 7
+    capture: 4 - prepend_input_softline, start: (35, 4), end: (35, 70), text: `// No longer needed, since autoLemma dependencies have been added.`
+  pattern: 9
+    capture: 7 - append_hardline, start: (35, 4), end: (35, 70), text: `// No longer needed, since autoLemma dependencies have been added.`
+    capture: 1 - allow_blank_line_before, start: (35, 4), end: (35, 70), text: `// No longer needed, since autoLemma dependencies have been added.`
+  pattern: 0
+    capture: 0 - leaf, start: (36, 4), end: (36, 20), text: `// M.all_diff();`
+  pattern: 7
+    capture: 4 - prepend_input_softline, start: (36, 4), end: (36, 20), text: `// M.all_diff();`
+  pattern: 9
+    capture: 7 - append_hardline, start: (36, 4), end: (36, 20), text: `// M.all_diff();`
+    capture: 1 - allow_blank_line_before, start: (36, 4), end: (36, 20), text: `// M.all_diff();`
+  pattern: 0
+    capture: 0 - leaf, start: (37, 4), end: (37, 22), text: `// M.len_nonneg();`
+  pattern: 7
+    capture: 4 - prepend_input_softline, start: (37, 4), end: (37, 22), text: `// M.len_nonneg();`
+  pattern: 9
+    capture: 7 - append_hardline, start: (37, 4), end: (37, 22), text: `// M.len_nonneg();`
+    capture: 1 - allow_blank_line_before, start: (37, 4), end: (37, 22), text: `// M.len_nonneg();`
+  pattern: 3
+    capture: 2 - prepend_space, start: (38, 4), end: (38, 7), text: `var`
+    capture: 3 - append_space, start: (38, 4), end: (38, 7), text: `var`
+  pattern: 0
+    capture: 0 - leaf, start: (38, 8), end: (38, 9), text: `z`
+  pattern: 5
+    capture: 3 - append_space, start: (38, 10), end: (38, 11), text: `:`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (38, 15), end: (38, 16), text: `;`
+  pattern: 48
+    capture: prepend_spaced_softline, start: (39, 4), end: (69, 5)
+  pattern: 3
+    capture: 2 - prepend_space, start: (39, 4), end: (39, 6), text: `if`
+    capture: 3 - append_space, start: (39, 4), end: (39, 6), text: `if`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (39, 8), end: (39, 13), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (39, 14), end: (39, 15), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (39, 13), end: (39, 14), text: `(`
+    capture: 11 - append_indent_start, start: (39, 13), end: (39, 14), text: `(`
+    capture: 19 - append_antispace, start: (39, 13), end: (39, 14), text: `(`
+    capture: 15 - prepend_end_scope, start: (39, 15), end: (39, 16), text: `)`
+    capture: 12 - prepend_indent_end, start: (39, 15), end: (39, 16), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (39, 17), end: (39, 19), text: `==`
+    capture: 20 - prepend_spaced_scoped_softline, start: (39, 17), end: (39, 19), text: `==`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (39, 20), end: (39, 21), text: `0`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (40, 6), end: (40, 7), text: `x`
+  pattern: 3
+    capture: 2 - prepend_space, start: (40, 8), end: (40, 10), text: `:=`
+    capture: 3 - append_space, start: (40, 8), end: (40, 10), text: `:=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (40, 12), end: (40, 13), text: `1`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (40, 13), end: (40, 14), text: `;`
+  pattern: 50
+    capture: 11 - append_indent_start, start: (39, 23), end: (39, 24), text: `{`
+    capture: 8 - append_spaced_softline, start: (39, 23), end: (39, 24), text: `{`
+    capture: 12 - prepend_indent_end, start: (41, 4), end: (41, 5), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (41, 4), end: (41, 5), text: `}`
+  pattern: 3
+    capture: 2 - prepend_space, start: (41, 6), end: (41, 10), text: `else`
+    capture: 3 - append_space, start: (41, 6), end: (41, 10), text: `else`
+  pattern: 55
+    capture: 2 - prepend_space, start: (41, 11), end: (41, 12), text: `{`
+  pattern: 3
+    capture: 2 - prepend_space, start: (42, 6), end: (42, 9), text: `var`
+    capture: 3 - append_space, start: (42, 6), end: (42, 9), text: `var`
+  pattern: 0
+    capture: 0 - leaf, start: (42, 10), end: (42, 11), text: `y`
+  pattern: 5
+    capture: 3 - append_space, start: (42, 11), end: (42, 12), text: `:`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (42, 16), end: (42, 17), text: `;`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (43, 6), end: (43, 13), text: `x := 0;`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (43, 6), end: (43, 7), text: `x`
+  pattern: 3
+    capture: 2 - prepend_space, start: (43, 8), end: (43, 10), text: `:=`
+    capture: 3 - append_space, start: (43, 8), end: (43, 10), text: `:=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (43, 11), end: (43, 12), text: `0`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (43, 12), end: (43, 13), text: `;`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (44, 6), end: (44, 24), text: `y := M.len(a) - 1;`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (44, 6), end: (44, 7), text: `y`
+  pattern: 3
+    capture: 2 - prepend_space, start: (44, 8), end: (44, 10), text: `:=`
+    capture: 3 - append_space, start: (44, 8), end: (44, 10), text: `:=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (44, 11), end: (44, 16), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (44, 17), end: (44, 18), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (44, 16), end: (44, 17), text: `(`
+    capture: 11 - append_indent_start, start: (44, 16), end: (44, 17), text: `(`
+    capture: 19 - append_antispace, start: (44, 16), end: (44, 17), text: `(`
+    capture: 15 - prepend_end_scope, start: (44, 18), end: (44, 19), text: `)`
+    capture: 12 - prepend_indent_end, start: (44, 18), end: (44, 19), text: `)`
+  pattern: 36
+    capture: 16 - append_spaced_scoped_softline, start: (44, 20), end: (44, 21), text: `-`
+    capture: 20 - prepend_spaced_scoped_softline, start: (44, 20), end: (44, 21), text: `-`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (44, 22), end: (44, 23), text: `1`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (44, 23), end: (44, 24), text: `;`
+  pattern: 48
+    capture: prepend_spaced_softline, start: (46, 6), end: (68, 7)
+  pattern: 3
+    capture: 2 - prepend_space, start: (46, 6), end: (46, 11), text: `while`
+    capture: 3 - append_space, start: (46, 6), end: (46, 11), text: `while`
+  pattern: 58
+    capture: 11 - append_indent_start, start: (46, 6), end: (46, 11), text: `while`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (46, 13), end: (46, 14), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (46, 15), end: (46, 17), text: `!=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (46, 15), end: (46, 17), text: `!=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (46, 18), end: (46, 19), text: `y`
+  pattern: 59
+    capture: 9 - prepend_spaced_softline, start: (47, 8), end: (47, 27), text: `invariant arr(a, m)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (47, 8), end: (47, 17), text: `invariant`
+    capture: 3 - append_space, start: (47, 8), end: (47, 17), text: `invariant`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (47, 18), end: (47, 21), text: `arr`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (47, 22), end: (47, 23), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (47, 23), end: (47, 24), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (47, 23), end: (47, 24), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (47, 25), end: (47, 26), text: `m`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (47, 21), end: (47, 22), text: `(`
+    capture: 11 - append_indent_start, start: (47, 21), end: (47, 22), text: `(`
+    capture: 19 - append_antispace, start: (47, 21), end: (47, 22), text: `(`
+    capture: 15 - prepend_end_scope, start: (47, 26), end: (47, 27), text: `)`
+    capture: 12 - prepend_indent_end, start: (47, 26), end: (47, 27), text: `)`
+  pattern: 59
+    capture: 9 - prepend_spaced_softline, start: (48, 8), end: (48, 50), text: `invariant 0 <= x && x <= y && y < M.len(a)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (48, 8), end: (48, 17), text: `invariant`
+    capture: 3 - append_space, start: (48, 8), end: (48, 17), text: `invariant`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 18), end: (48, 19), text: `0`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (48, 20), end: (48, 22), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (48, 20), end: (48, 22), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 23), end: (48, 24), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (48, 25), end: (48, 27), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (48, 25), end: (48, 27), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 28), end: (48, 29), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (48, 30), end: (48, 32), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (48, 30), end: (48, 32), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 33), end: (48, 34), text: `y`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (48, 35), end: (48, 37), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (48, 35), end: (48, 37), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 38), end: (48, 39), text: `y`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (48, 40), end: (48, 41), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (48, 40), end: (48, 41), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 42), end: (48, 47), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (48, 48), end: (48, 49), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (48, 47), end: (48, 48), text: `(`
+    capture: 11 - append_indent_start, start: (48, 47), end: (48, 48), text: `(`
+    capture: 19 - append_antispace, start: (48, 47), end: (48, 48), text: `(`
+    capture: 15 - prepend_end_scope, start: (48, 49), end: (48, 50), text: `)`
+    capture: 12 - prepend_indent_end, start: (48, 49), end: (48, 50), text: `)`
+  pattern: 59
+    capture: prepend_spaced_softline, start: (49, 8), end: (54, 25)
+  pattern: 3
+    capture: 2 - prepend_space, start: (49, 8), end: (49, 17), text: `invariant`
+    capture: 3 - append_space, start: (49, 8), end: (49, 17), text: `invariant`
+  pattern: 34
+  pattern: 34
+  pattern: 6
+    capture: 3 - append_space, start: (49, 22), end: (49, 28), text: `forall`
+  pattern: 0
+    capture: 0 - leaf, start: (49, 29), end: (49, 30), text: `i`
+  pattern: 5
+    capture: 3 - append_space, start: (49, 30), end: (49, 31), text: `:`
+  pattern: 3
+    capture: 2 - prepend_space, start: (49, 36), end: (49, 38), text: `::`
+    capture: 3 - append_space, start: (49, 36), end: (49, 38), text: `::`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 31), end: (50, 32), text: `0`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 33), end: (50, 35), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 33), end: (50, 35), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 36), end: (50, 37), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 38), end: (50, 40), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 38), end: (50, 40), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 41), end: (50, 42), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 43), end: (50, 44), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 43), end: (50, 44), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 45), end: (50, 46), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 48), end: (50, 50), text: `||`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 48), end: (50, 50), text: `||`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 52), end: (50, 53), text: `y`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 54), end: (50, 55), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 54), end: (50, 55), text: `<`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 56), end: (50, 57), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 58), end: (50, 60), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 58), end: (50, 60), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 61), end: (50, 62), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (50, 63), end: (50, 64), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (50, 63), end: (50, 64), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 65), end: (50, 70), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (50, 71), end: (50, 72), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (50, 70), end: (50, 71), text: `(`
+    capture: 11 - append_indent_start, start: (50, 70), end: (50, 71), text: `(`
+    capture: 19 - append_antispace, start: (50, 70), end: (50, 71), text: `(`
+    capture: 15 - prepend_end_scope, start: (50, 72), end: (50, 73), text: `)`
+    capture: 12 - prepend_indent_end, start: (50, 72), end: (50, 73), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (51, 24), end: (51, 27), text: `==>`
+    capture: 20 - prepend_spaced_scoped_softline, start: (51, 24), end: (51, 27), text: `==>`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (51, 28), end: (51, 29), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (51, 30), end: (51, 31), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (51, 33), end: (51, 34), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (51, 33), end: (51, 34), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (51, 35), end: (51, 36), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (51, 37), end: (51, 38), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (51, 41), end: (51, 43), text: `||`
+    capture: 20 - prepend_spaced_scoped_softline, start: (51, 41), end: (51, 43), text: `||`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 27), end: (52, 28), text: `0`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 29), end: (52, 31), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 29), end: (52, 31), text: `<=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 32), end: (52, 33), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 34), end: (52, 36), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 34), end: (52, 36), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 37), end: (52, 38), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 39), end: (52, 40), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 39), end: (52, 40), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 41), end: (52, 42), text: `x`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 44), end: (52, 46), text: `||`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 44), end: (52, 46), text: `||`
+  pattern: 34
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 48), end: (52, 49), text: `y`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 50), end: (52, 51), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 50), end: (52, 51), text: `<`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 52), end: (52, 53), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 54), end: (52, 56), text: `&&`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 54), end: (52, 56), text: `&&`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 57), end: (52, 58), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (52, 59), end: (52, 60), text: `<`
+    capture: 20 - prepend_spaced_scoped_softline, start: (52, 59), end: (52, 60), text: `<`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 61), end: (52, 66), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (52, 67), end: (52, 68), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (52, 66), end: (52, 67), text: `(`
+    capture: 11 - append_indent_start, start: (52, 66), end: (52, 67), text: `(`
+    capture: 19 - append_antispace, start: (52, 66), end: (52, 67), text: `(`
+    capture: 15 - prepend_end_scope, start: (52, 68), end: (52, 69), text: `)`
+    capture: 12 - prepend_indent_end, start: (52, 68), end: (52, 69), text: `)`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (53, 24), end: (53, 27), text: `==>`
+    capture: 20 - prepend_spaced_scoped_softline, start: (53, 24), end: (53, 27), text: `==>`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (53, 28), end: (53, 29), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (53, 30), end: (53, 31), text: `i`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (53, 33), end: (53, 35), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (53, 33), end: (53, 35), text: `<=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (53, 36), end: (53, 37), text: `m`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (53, 38), end: (53, 39), text: `y`
+  pattern: 60
+    capture: prepend_space, start: (55, 6), end: (68, 7)
+    capture: prepend_indent_end, start: (55, 6), end: (68, 7)
+  pattern: 56
+    capture: 2 - prepend_space, start: (55, 6), end: (55, 7), text: `{`
+  pattern: 0
+    capture: 0 - leaf, start: (56, 8), end: (56, 18), text: `M.all_diff`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (56, 18), end: (56, 19), text: `(`
+    capture: 11 - append_indent_start, start: (56, 18), end: (56, 19), text: `(`
+    capture: 19 - append_antispace, start: (56, 18), end: (56, 19), text: `(`
+    capture: 15 - prepend_end_scope, start: (56, 19), end: (56, 20), text: `)`
+    capture: 12 - prepend_indent_end, start: (56, 19), end: (56, 20), text: `)`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (56, 20), end: (56, 21), text: `;`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (57, 8), end: (57, 24), text: `unfold arr(a,m);`
+  pattern: 3
+    capture: 2 - prepend_space, start: (57, 8), end: (57, 14), text: `unfold`
+    capture: 3 - append_space, start: (57, 8), end: (57, 14), text: `unfold`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (57, 15), end: (57, 18), text: `arr`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (57, 19), end: (57, 20), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (57, 20), end: (57, 21), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (57, 20), end: (57, 21), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (57, 21), end: (57, 22), text: `m`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (57, 18), end: (57, 19), text: `(`
+    capture: 11 - append_indent_start, start: (57, 18), end: (57, 19), text: `(`
+    capture: 19 - append_antispace, start: (57, 18), end: (57, 19), text: `(`
+    capture: 15 - prepend_end_scope, start: (57, 22), end: (57, 23), text: `)`
+    capture: 12 - prepend_indent_end, start: (57, 22), end: (57, 23), text: `)`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (57, 23), end: (57, 24), text: `;`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (59, 8), end: (59, 44), text: `var tmp1 : Int  = M.loc(a, x).value;`
+  pattern: 3
+    capture: 2 - prepend_space, start: (59, 8), end: (59, 11), text: `var`
+    capture: 3 - append_space, start: (59, 8), end: (59, 11), text: `var`
+  pattern: 0
+    capture: 0 - leaf, start: (59, 12), end: (59, 16), text: `tmp1`
+  pattern: 5
+    capture: 3 - append_space, start: (59, 17), end: (59, 18), text: `:`
+  pattern: 3
+    capture: 2 - prepend_space, start: (59, 24), end: (59, 25), text: `=`
+    capture: 3 - append_space, start: (59, 24), end: (59, 25), text: `=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (59, 26), end: (59, 31), text: `M.loc`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (59, 32), end: (59, 33), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (59, 33), end: (59, 34), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (59, 33), end: (59, 34), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (59, 35), end: (59, 36), text: `x`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (59, 31), end: (59, 32), text: `(`
+    capture: 11 - append_indent_start, start: (59, 31), end: (59, 32), text: `(`
+    capture: 19 - append_antispace, start: (59, 31), end: (59, 32), text: `(`
+    capture: 15 - prepend_end_scope, start: (59, 36), end: (59, 37), text: `)`
+    capture: 12 - prepend_indent_end, start: (59, 36), end: (59, 37), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (59, 37), end: (59, 38), text: `.`
+    capture: 3 - append_space, start: (59, 37), end: (59, 38), text: `.`
+  pattern: 0
+    capture: 0 - leaf, start: (59, 38), end: (59, 43), text: `value`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (59, 43), end: (59, 44), text: `;`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (60, 8), end: (60, 43), text: `var tmp2 : Int = M.loc(a, y).value;`
+  pattern: 3
+    capture: 2 - prepend_space, start: (60, 8), end: (60, 11), text: `var`
+    capture: 3 - append_space, start: (60, 8), end: (60, 11), text: `var`
+  pattern: 0
+    capture: 0 - leaf, start: (60, 12), end: (60, 16), text: `tmp2`
+  pattern: 5
+    capture: 3 - append_space, start: (60, 17), end: (60, 18), text: `:`
+  pattern: 3
+    capture: 2 - prepend_space, start: (60, 23), end: (60, 24), text: `=`
+    capture: 3 - append_space, start: (60, 23), end: (60, 24), text: `=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (60, 25), end: (60, 30), text: `M.loc`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (60, 31), end: (60, 32), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (60, 32), end: (60, 33), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (60, 32), end: (60, 33), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (60, 34), end: (60, 35), text: `y`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (60, 30), end: (60, 31), text: `(`
+    capture: 11 - append_indent_start, start: (60, 30), end: (60, 31), text: `(`
+    capture: 19 - append_antispace, start: (60, 30), end: (60, 31), text: `(`
+    capture: 15 - prepend_end_scope, start: (60, 35), end: (60, 36), text: `)`
+    capture: 12 - prepend_indent_end, start: (60, 35), end: (60, 36), text: `)`
+  pattern: 3
+    capture: 2 - prepend_space, start: (60, 36), end: (60, 37), text: `.`
+    capture: 3 - append_space, start: (60, 36), end: (60, 37), text: `.`
+  pattern: 0
+    capture: 0 - leaf, start: (60, 37), end: (60, 42), text: `value`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (60, 42), end: (60, 43), text: `;`
+  pattern: 48
+    capture: prepend_spaced_softline, start: (62, 8), end: (66, 9)
+  pattern: 3
+    capture: 2 - prepend_space, start: (62, 8), end: (62, 10), text: `if`
+    capture: 3 - append_space, start: (62, 8), end: (62, 10), text: `if`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (62, 12), end: (62, 16), text: `tmp1`
+  pattern: 35
+    capture: 16 - append_spaced_scoped_softline, start: (62, 17), end: (62, 19), text: `<=`
+    capture: 20 - prepend_spaced_scoped_softline, start: (62, 17), end: (62, 19), text: `<=`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (62, 20), end: (62, 24), text: `tmp2`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (63, 10), end: (63, 11), text: `x`
+  pattern: 3
+    capture: 2 - prepend_space, start: (63, 12), end: (63, 14), text: `:=`
+    capture: 3 - append_space, start: (63, 12), end: (63, 14), text: `:=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (63, 15), end: (63, 16), text: `x`
+  pattern: 36
+    capture: 16 - append_spaced_scoped_softline, start: (63, 17), end: (63, 18), text: `+`
+    capture: 20 - prepend_spaced_scoped_softline, start: (63, 17), end: (63, 18), text: `+`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (63, 19), end: (63, 20), text: `1`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (63, 20), end: (63, 21), text: `;`
+  pattern: 50
+    capture: 11 - append_indent_start, start: (62, 26), end: (62, 27), text: `{`
+    capture: 8 - append_spaced_softline, start: (62, 26), end: (62, 27), text: `{`
+    capture: 12 - prepend_indent_end, start: (64, 8), end: (64, 9), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (64, 8), end: (64, 9), text: `}`
+  pattern: 3
+    capture: 2 - prepend_space, start: (64, 10), end: (64, 14), text: `else`
+    capture: 3 - append_space, start: (64, 10), end: (64, 14), text: `else`
+  pattern: 55
+    capture: 2 - prepend_space, start: (64, 15), end: (64, 16), text: `{`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (65, 10), end: (65, 11), text: `y`
+  pattern: 3
+    capture: 2 - prepend_space, start: (65, 12), end: (65, 14), text: `:=`
+    capture: 3 - append_space, start: (65, 12), end: (65, 14), text: `:=`
+  pattern: 34
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (65, 15), end: (65, 16), text: `y`
+  pattern: 36
+    capture: 16 - append_spaced_scoped_softline, start: (65, 17), end: (65, 18), text: `-`
+    capture: 20 - prepend_spaced_scoped_softline, start: (65, 17), end: (65, 18), text: `-`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (65, 19), end: (65, 20), text: `1`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (65, 20), end: (65, 21), text: `;`
+  pattern: 50
+    capture: 11 - append_indent_start, start: (64, 15), end: (64, 16), text: `{`
+    capture: 8 - append_spaced_softline, start: (64, 15), end: (64, 16), text: `{`
+    capture: 12 - prepend_indent_end, start: (66, 8), end: (66, 9), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (66, 8), end: (66, 9), text: `}`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (67, 8), end: (67, 22), text: `fold arr(a,m);`
+  pattern: 3
+    capture: 2 - prepend_space, start: (67, 8), end: (67, 12), text: `fold`
+    capture: 3 - append_space, start: (67, 8), end: (67, 12), text: `fold`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (67, 13), end: (67, 16), text: `arr`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (67, 17), end: (67, 18), text: `a`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (67, 18), end: (67, 19), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (67, 18), end: (67, 19), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (67, 19), end: (67, 20), text: `m`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (67, 16), end: (67, 17), text: `(`
+    capture: 11 - append_indent_start, start: (67, 16), end: (67, 17), text: `(`
+    capture: 19 - append_antispace, start: (67, 16), end: (67, 17), text: `(`
+    capture: 15 - prepend_end_scope, start: (67, 20), end: (67, 21), text: `)`
+    capture: 12 - prepend_indent_end, start: (67, 20), end: (67, 21), text: `)`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (67, 21), end: (67, 22), text: `;`
+  pattern: 50
+    capture: 11 - append_indent_start, start: (55, 6), end: (55, 7), text: `{`
+    capture: 8 - append_spaced_softline, start: (55, 6), end: (55, 7), text: `{`
+    capture: 12 - prepend_indent_end, start: (68, 6), end: (68, 7), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (68, 6), end: (68, 7), text: `}`
+  pattern: 50
+    capture: 11 - append_indent_start, start: (41, 11), end: (41, 12), text: `{`
+    capture: 8 - append_spaced_softline, start: (41, 11), end: (41, 12), text: `{`
+    capture: 12 - prepend_indent_end, start: (69, 4), end: (69, 5), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (69, 4), end: (69, 5), text: `}`
+  pattern: 48
+    capture: 9 - prepend_spaced_softline, start: (71, 4), end: (71, 32), text: `fold is_max(x, m, M.len(a));`
+  pattern: 3
+    capture: 2 - prepend_space, start: (71, 4), end: (71, 8), text: `fold`
+    capture: 3 - append_space, start: (71, 4), end: (71, 8), text: `fold`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (71, 9), end: (71, 15), text: `is_max`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (71, 16), end: (71, 17), text: `x`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (71, 17), end: (71, 18), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (71, 17), end: (71, 18), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (71, 19), end: (71, 20), text: `m`
+  pattern: 41
+    capture: 16 - append_spaced_scoped_softline, start: (71, 20), end: (71, 21), text: `,`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (71, 20), end: (71, 21), text: `,`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (71, 22), end: (71, 27), text: `M.len`
+  pattern: 34
+  pattern: 0
+    capture: 0 - leaf, start: (71, 28), end: (71, 29), text: `a`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (71, 27), end: (71, 28), text: `(`
+    capture: 11 - append_indent_start, start: (71, 27), end: (71, 28), text: `(`
+    capture: 19 - append_antispace, start: (71, 27), end: (71, 28), text: `(`
+    capture: 15 - prepend_end_scope, start: (71, 29), end: (71, 30), text: `)`
+    capture: 12 - prepend_indent_end, start: (71, 29), end: (71, 30), text: `)`
+  pattern: 40
+    capture: 14 - append_begin_scope, start: (71, 15), end: (71, 16), text: `(`
+    capture: 11 - append_indent_start, start: (71, 15), end: (71, 16), text: `(`
+    capture: 19 - append_antispace, start: (71, 15), end: (71, 16), text: `(`
+    capture: 15 - prepend_end_scope, start: (71, 30), end: (71, 31), text: `)`
+    capture: 12 - prepend_indent_end, start: (71, 30), end: (71, 31), text: `)`
+  pattern: 61
+    capture: 21 - prepend_antispace, start: (71, 31), end: (71, 32), text: `;`
+  pattern: 50
+    capture: 11 - append_indent_start, start: (34, 2), end: (34, 3), text: `{`
+    capture: 8 - append_spaced_softline, start: (34, 2), end: (34, 3), text: `{`
+    capture: 12 - prepend_indent_end, start: (72, 2), end: (72, 3), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (72, 2), end: (72, 3), text: `}`
+  pattern: 0
+    capture: leaf, start: (75, 0), end: (94, 2)
+  pattern: 7
+    capture: prepend_input_softline, start: (75, 0), end: (94, 2)
+  pattern: 12
+    capture: multi_line_indent_all, start: (75, 0), end: (94, 2)
+  pattern: 0
+    capture: leaf, start: (75, 2), end: (93, 1)
+  pattern: 0
+    capture: leaf, start: (87, 38), end: (88, 65)
+  pattern: 7
+    capture: prepend_input_softline, start: (87, 38), end: (88, 65)
+  pattern: 9
+    capture: append_hardline, start: (87, 38), end: (88, 65)
+    capture: allow_blank_line_before, start: (87, 38), end: (88, 65)
+  pattern: 49
+    capture: 11 - append_indent_start, start: (17, 27), end: (17, 28), text: `{`
+    capture: 8 - append_spaced_softline, start: (17, 27), end: (17, 28), text: `{`
+    capture: 12 - prepend_indent_end, start: (95, 0), end: (95, 1), text: `}`
+    capture: 9 - prepend_spaced_softline, start: (95, 0), end: (95, 1), text: `}`
+  pattern: 8
+    capture: append_input_softline, start: (75, 0), end: (94, 2)
+  pattern: 13
+    capture: 4 - prepend_input_softline, start: (95, 0), end: (95, 1), text: `}`
