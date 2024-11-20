@@ -1,5 +1,24 @@
 [
   {
+    "type": "assign_rhs",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "new_expr",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "assign_stmt",
     "named": true,
     "fields": {
@@ -19,11 +38,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
-          "named": true
-        },
-        {
-          "type": "new_expr",
+          "type": "assign_rhs",
           "named": true
         },
         {
@@ -140,7 +155,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "numeric_expr",
           "named": true
         },
         {
@@ -163,7 +178,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "numeric_expr",
           "named": true
         },
         {
@@ -186,7 +201,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "logical_expr",
           "named": true
         },
         {
@@ -217,7 +232,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "numeric_expr",
           "named": true
         },
         {
@@ -240,7 +255,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "numeric_expr",
           "named": true
         },
         {
@@ -275,7 +290,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "numeric_expr",
           "named": true
         },
         {
@@ -862,6 +877,29 @@
     }
   },
   {
+    "type": "existential_witness_or_bind",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "identifier",
+          "named": true
+        },
+        {
+          "type": "op_coloneq",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "expr",
     "named": true,
     "fields": {},
@@ -870,51 +908,19 @@
       "required": true,
       "types": [
         {
-          "type": "binop_add",
-          "named": true
-        },
-        {
-          "type": "binop_equality",
-          "named": true
-        },
-        {
-          "type": "binop_logical",
-          "named": true
-        },
-        {
-          "type": "binop_mul",
-          "named": true
-        },
-        {
-          "type": "binop_relation",
-          "named": true
-        },
-        {
-          "type": "binop_sets",
-          "named": true
-        },
-        {
           "type": "primary_expr",
           "named": true
         },
         {
-          "type": "quantified",
+          "type": "strictly_logical_expr",
           "named": true
         },
         {
-          "type": "ternary",
+          "type": "strictly_numeric_expr",
           "named": true
         },
         {
           "type": "tuple",
-          "named": true
-        },
-        {
-          "type": "unop_logical",
-          "named": true
-        },
-        {
-          "type": "unop_numeric",
           "named": true
         }
       ]
@@ -1429,12 +1435,22 @@
     "fields": {}
   },
   {
+    "type": "kwd_spawn",
+    "named": true,
+    "fields": {}
+  },
+  {
     "type": "kwd_spec",
     "named": true,
     "fields": {}
   },
   {
     "type": "kwd_type",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "kwd_use",
     "named": true,
     "fields": {}
   },
@@ -1467,6 +1483,29 @@
         },
         {
           "type": "number",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "logical_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "primary_expr",
+          "named": true
+        },
+        {
+          "type": "strictly_logical_expr",
+          "named": true
+        },
+        {
+          "type": "tuple",
           "named": true
         }
       ]
@@ -1941,6 +1980,29 @@
     }
   },
   {
+    "type": "numeric_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "primary_expr",
+          "named": true
+        },
+        {
+          "type": "strictly_numeric_expr",
+          "named": true
+        },
+        {
+          "type": "tuple",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "op_and",
     "named": true,
     "fields": {}
@@ -2293,11 +2355,11 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "kwd_quantifier",
           "named": true
         },
         {
-          "type": "kwd_quantifier",
+          "type": "logical_expr",
           "named": true
         },
         {
@@ -2501,6 +2563,52 @@
     }
   },
   {
+    "type": "spawn_stmt",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "op_comma",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "expr",
+          "named": true
+        },
+        {
+          "type": "kwd_spawn",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        },
+        {
+          "type": "qual_ident",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
     "type": "spec_stmt",
     "named": true,
     "fields": {},
@@ -2663,11 +2771,81 @@
           "named": true
         },
         {
+          "type": "spawn_stmt",
+          "named": true
+        },
+        {
           "type": "spec_stmt",
           "named": true
         },
         {
+          "type": "use_stmt",
+          "named": true
+        },
+        {
           "type": "var_def",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "strictly_logical_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "binop_equality",
+          "named": true
+        },
+        {
+          "type": "binop_logical",
+          "named": true
+        },
+        {
+          "type": "binop_relation",
+          "named": true
+        },
+        {
+          "type": "binop_sets",
+          "named": true
+        },
+        {
+          "type": "quantified",
+          "named": true
+        },
+        {
+          "type": "ternary",
+          "named": true
+        },
+        {
+          "type": "unop_logical",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "strictly_numeric_expr",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": true,
+      "types": [
+        {
+          "type": "binop_add",
+          "named": true
+        },
+        {
+          "type": "binop_mul",
+          "named": true
+        },
+        {
+          "type": "unop_numeric",
           "named": true
         }
       ]
@@ -2702,6 +2880,10 @@
       "types": [
         {
           "type": "expr",
+          "named": true
+        },
+        {
+          "type": "logical_expr",
           "named": true
         },
         {
@@ -3046,7 +3228,7 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "logical_expr",
           "named": true
         },
         {
@@ -3065,11 +3247,61 @@
       "required": true,
       "types": [
         {
-          "type": "expr",
+          "type": "numeric_expr",
           "named": true
         },
         {
           "type": "op_minus",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "use_stmt",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "expr",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lparen",
+          "named": true
+        },
+        {
+          "type": "delim_rparen",
+          "named": true
+        },
+        {
+          "type": "kwd_use",
+          "named": true
+        },
+        {
+          "type": "op_comma",
+          "named": true
+        },
+        {
+          "type": "op_semicolon",
+          "named": true
+        },
+        {
+          "type": "qual_ident",
+          "named": true
+        },
+        {
+          "type": "witness_stmt",
           "named": true
         }
       ]
@@ -3281,6 +3513,40 @@
         },
         {
           "type": "op_semicolon",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "witness_stmt",
+    "named": true,
+    "fields": {
+      "expr": {
+        "multiple": true,
+        "required": false,
+        "types": [
+          {
+            "type": "existential_witness_or_bind",
+            "named": true
+          }
+        ]
+      }
+    },
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "delim_lbracket",
+          "named": true
+        },
+        {
+          "type": "delim_rbracket",
+          "named": true
+        },
+        {
+          "type": "op_comma",
           "named": true
         }
       ]
@@ -3648,6 +3914,10 @@
   },
   {
     "type": "returns",
+    "named": false
+  },
+  {
+    "type": "spawn",
     "named": false
   },
   {

@@ -62,11 +62,13 @@
   (kwd_var)
   (kwd_with)
   (kwd_while)
+  (kwd_spawn)
+  (kwd_cas)
+  (kwd_use)
 
   (op_eq)
   (op_in)
   (op_not_in)
-  (op_not)
   (op_coloneq)
   (op_coloncolon)
   (op_dot)
@@ -162,14 +164,23 @@
 (tuple (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
        (delim_rparen) @prepend_end_scope @prepend_indent_end
        (#scope_id! "tuple"))
-
-([(op_iff) (op_and) (op_or) (op_implies)
-  (op_neq) (op_eqeq)
-  (op_lt) (op_gt) (op_leq) (op_geq) (op_subseteq)
-  (op_mul) (op_div)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
-  (#scope_id! "expr"))
-(binop_add [(op_plus) (op_minus)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
-           (#scope_id! "binop_add"))
+(ternary (op_qmark) @append_input_softline (op_colon) @append_input_softline)
+(binop_equality (#scope_id! "equality")) @prepend_begin_scope @append_end_scope
+(binop_logical (#scope_id! "logical")) @prepend_begin_scope @append_end_scope
+(binop_relation (#scope_id! "relation")) @prepend_begin_scope @append_end_scope
+(binop_add (#scope_id! "add")) @prepend_begin_scope @append_end_scope
+(binop_mul (#scope_id! "mul")) @prepend_begin_scope @append_end_scope
+([(op_iff) (op_and) (op_or) (op_implies)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+ (#scope_id! "logical"))
+([(op_neq) (op_eqeq)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+ (#scope_id! "equality"))
+([(op_lt) (op_gt) (op_leq) (op_geq) (op_subseteq)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+ (#scope_id! "relation"))
+([(op_in) (op_not_in)] @append_input_softline)
+([(op_mul) (op_div)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+ (#scope_id! "mul"))
+([(op_plus) (op_minus)] @append_spaced_scoped_softline @prepend_spaced_scoped_softline
+ (#scope_id! "add"))
 
 (tuple (op_comma) @append_spaced_scoped_softline (#scope_id! "tuple"))
 (own_expr (delim_lparen) @append_begin_scope @append_indent_start @append_antispace
@@ -197,7 +208,9 @@
   (stmt_no_short_if)
   (stmt_no_short_if_desc)
   (if_then_else_stmt_no_short_if)
-  (while_stmt_no_short_if)] (op_semicolon) @append_spaced_softline
+  (while_stmt_no_short_if)
+  (use_stmt)
+  (spawn_stmt)] (op_semicolon) @append_spaced_softline
  .
  [(stmt)
   (stmt_desc)
@@ -205,7 +218,9 @@
   (stmt_no_short_if)
   (stmt_no_short_if_desc)
   (if_then_else_stmt_no_short_if)
-  (while_stmt_no_short_if)])
+  (while_stmt_no_short_if)
+  (use_stmt)
+  (spawn_stmt)])
  )
 (
  ([(stmt)
@@ -214,7 +229,9 @@
   (stmt_no_short_if)
   (stmt_no_short_if_desc)
   (if_then_else_stmt_no_short_if)
-  (while_stmt_no_short_if)]
+  (while_stmt_no_short_if)
+  (use_stmt)
+  (spawn_stmt)]
  .
  [(stmt)
   (stmt_desc)
@@ -222,14 +239,14 @@
   (stmt_no_short_if)
   (stmt_no_short_if_desc)
   (if_then_else_stmt_no_short_if)
-  (while_stmt_no_short_if)] @prepend_spaced_softline)
+  (while_stmt_no_short_if)
+  (use_stmt)
+  (spawn_stmt)] @prepend_spaced_softline)
  )
 (module_inst (delim_lbrace) @append_indent_start @append_spaced_softline
              (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
 (block (delim_lbrace) @append_indent_start @append_spaced_softline
        (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
-((expr)
-        @prepend_begin_scope @append_end_scope (#scope_id! "expr"))
 (func_def (delim_lbrace) @prepend_space @prepend_indent_start @append_spaced_softline
           (delim_rbrace) @prepend_indent_end @prepend_spaced_softline)
 (proc_def (block (delim_lbrace) @prepend_space))
@@ -237,9 +254,23 @@
              (delim_rghostbrace) @prepend_indent_end @prepend_spaced_softline)
 (if_then_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
 (if_then_else_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
+(if_then_else_stmt_no_short_if (delim_lparen) @prepend_space (delim_rparen) @append_space)
+(while_stmt_no_short_if (delim_lparen) @prepend_space (delim_rparen) @append_space)
 (while_stmt (block (delim_lbrace) @prepend_space))
 (while_stmt (stmt (stmt_desc (stmt_wo_trailing_substmt (block (delim_lbrace) @prepend_space)))))
-(quantified (op_comma) @append_spaced_scoped_softline (#scope_id! "expr"))
+(spawn_stmt (delim_lparen) @append_begin_scope (delim_rparen) @append_indent_end @prepend_end_scope (#scope_id! "spawn")) @append_indent_start
+(spawn_stmt (op_comma) @append_spaced_scoped_softline (#scope_id! "spawn"))
+(use_stmt (delim_lparen) @append_begin_scope (delim_rparen) @append_indent_end @prepend_end_scope (#scope_id! "use")) @append_indent_start
+(use_stmt (op_comma) @append_spaced_scoped_softline (#scope_id! "use"))
+(quantified (kwd_quantifier) @append_begin_scope
+            (op_coloncolon) @prepend_end_scope (#scope_id! "quantified"))
+(quantified (kwd_quantifier)
+            .
+            ((bound_var) . (op_comma) @append_spaced_scoped_softline)* . (bound_var)
+            .
+            (op_coloncolon)
+            (#scope_id! "quantified"))
+(quantified (op_coloncolon) @append_spaced_softline)
 
 ; Make the invariant clauses spaced
 ( (kwd_while) @append_indent_start )

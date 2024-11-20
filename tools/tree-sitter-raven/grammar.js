@@ -137,7 +137,8 @@ function negation(keywords, is_module) {
 }
 
 const keywords = {
-  kwd_spec: ["assert", "assume", "exhale", "inhale", "fold", "unfold"],
+  kwd_spec: ["assert", "assume", "exhale", "inhale"],
+  kwd_use: ["fold", "unfold"],
   kwd_inv: ["closeInv", "openInv", "inv"],
   kwd_au: ["au"],
   kwd_atomic: ["atomic"],
@@ -180,6 +181,8 @@ const keywords = {
   kwd_var: ["val", "var"],
   kwd_with: ["with"],
   kwd_while: ["while"],
+  kwd_cas: ["cas"],
+  kwd_spawn: ["spawn"],
   /* hack: keywords contains "in" to exclude "in" from identifiers */
   kwd_in: ["in"],
 }
@@ -387,12 +390,19 @@ class SyntaxRules {
       $.havoc_stmt,
       $.spec_stmt,
       $.return_stmt,
-      $.resource_stmt);
-  assign_stmt = ($) => seq(separated_nonempty_list($.expr, $.op_comma, "lhs_proj"), $.op_coloneq, choice($.new_expr, $.expr), $.op_semicolon);
+      $.resource_stmt,
+      $.spawn_stmt,
+      $.use_stmt);
+  assign_stmt = ($) => seq(separated_nonempty_list($.expr, $.op_comma, "lhs_proj"), $.op_coloneq, $.assign_rhs, $.op_semicolon);
+  assign_rhs = ($) => choice($.new_expr, $.expr);
+  spawn_stmt = ($) => seq($.kwd_spawn, $.qual_ident, $.delim_lparen, separated_list($.op_comma, $.expr, "arg"), $.delim_rparen, $.op_semicolon);
   bind_stmt = ($) => seq(separated_nonempty_list($.expr, $.op_comma, "lhs_proj"), $.op_colonpipe, $.expr, $.op_semicolon);
   havoc_stmt = ($) => seq($.kwd_havoc, $.qual_ident, $.op_semicolon);
   with_clause = ($) => choice($.op_semicolon, seq($.kwd_with, $.block));
   spec_stmt = ($) => seq($.kwd_spec, $.expr, $.with_clause);
+  use_stmt = ($) => seq($.kwd_use, $.qual_ident, $.delim_lparen, separated_list($.expr, $.op_comma, "arg"), $.delim_rparen, optional($.witness_stmt), $.op_semicolon);
+  witness_stmt = ($) => seq($.delim_lbracket, separated_list($.existential_witness_or_bind, $.op_comma, "expr"), $.delim_rbracket);
+  existential_witness_or_bind = ($) => seq($.identifier, $.op_coloneq, $.expr);
   return_stmt = ($) => seq($.kwd_return, separated_list($.expr, $.op_comma, "expr"), $.op_semicolon);
   resource_stmt = ($) => seq($.kwd_inv, $.qual_ident, $.delim_lparen, separated_list($.expr, $.op_comma, "expr"), $.delim_rparen, $.op_semicolon);
   new_expr = ($) => seq($.kwd_new, $.delim_lparen,
@@ -416,19 +426,23 @@ function relation($) {
 }
 
 const expr_parsers = {
-  expr: ($) => prec.left(choice($.tuple, $.quantified, $.ternary, $.binop_logical, $.binop_equality, $.binop_relation, $.binop_sets, $.binop_add, $.binop_mul, $.unop_numeric, $.unop_logical, $.primary_expr)),
+  expr: ($) => prec.left(choice($.strictly_logical_expr, $.strictly_numeric_expr, $.primary_expr, $.tuple)),
+  strictly_logical_expr: ($) => prec.left(choice($.quantified, $.ternary, $.binop_logical, $.binop_equality, $.binop_relation, $.binop_sets, $.unop_logical)),
+  strictly_numeric_expr: ($) => prec.left(choice($.binop_add, $.binop_mul, $.unop_numeric)),
+  logical_expr: ($) => prec.left(choice($.strictly_logical_expr, $.tuple, $.primary_expr)),
+  numeric_expr: ($) => prec.left(choice($.strictly_numeric_expr, $.tuple, $.primary_expr)),
   tuple: ($) => prec.left(seq($.delim_lparen, separated_nonempty_list($.expr, $.op_comma, "proj"), $.delim_rparen)),
-  quantified: ($) => seq($.kwd_quantifier, separated_nonempty_list($.bound_var, $.op_comma, "variable"), $.op_coloncolon, repeat($.trigger), $.expr),
-  ternary: ($) => prec.right(seq($.expr, $.op_qmark, $.expr, $.op_colon, $.expr)),
+  quantified: ($) => seq($.kwd_quantifier, separated_nonempty_list($.bound_var, $.op_comma, "variable"), $.op_coloncolon, repeat($.trigger), $.logical_expr),
+  ternary: ($) => prec.right(seq($.logical_expr, $.op_qmark, $.expr, $.op_colon, $.expr)),
   trigger: ($) => seq($.delim_lbrace, expr_list($), $.delim_rbrace),
-  binop_logical: ($) => prec.left(seq($.expr, choice($.op_iff, $.op_implies, $.op_or, $.op_and), $.expr)),
-  binop_equality: ($) => prec.left(seq($.expr, choice($.op_eqeq, $.op_neq), $.expr)),
-  binop_relation: ($) => prec.left(seq($.expr, repeat1(seq(relation($), $.expr)))),
-  binop_sets: ($) => prec.left(seq($.expr, choice($.op_in, $.op_not_in), $.expr)),
-  binop_add: ($) => prec.left(seq($.expr, choice($.op_plus, $.op_minus), $.expr)),
-  binop_mul: ($) => prec.left(seq($.expr, choice($.op_mul, $.op_div), $.expr)),
-  unop_numeric: ($) => prec.left(seq(choice($.op_minus), $.expr)),
-  unop_logical: ($) => prec.left(seq($.op_not, $.expr)),
+  binop_add: ($) => prec.left(seq($.numeric_expr, choice($.op_plus, $.op_minus), $.numeric_expr)),
+  binop_mul: ($) => prec.left(seq($.numeric_expr, choice($.op_mul, $.op_div), $.numeric_expr)),
+  binop_equality: ($) => prec.left(seq($.numeric_expr, choice($.op_eqeq, $.op_neq), $.numeric_expr)),
+  binop_logical: ($) => prec.left(seq($.logical_expr, choice($.op_iff, $.op_implies, $.op_or, $.op_and), $.logical_expr)),
+  binop_sets: ($) => prec.left(seq($.numeric_expr, choice($.op_in, $.op_not_in), $.numeric_expr)),
+  binop_relation: ($) => prec.left(seq($.numeric_expr, repeat1(seq(relation($), $.numeric_expr)))),
+  unop_numeric: ($) => prec.left(seq(choice($.op_minus), $.numeric_expr)),
+  unop_logical: ($) => prec.left(seq($.op_not, $.logical_expr)),
   primary_expr: ($) => choice($.literal, $.map_and_updates, $.compr_expr, $.dot_expr, $.own_expr, $.cas_expr, $.au_expr, $.lookup_expr),
   map_and_updates: ($) => seq($.delim_lparen, $.expr, $.delim_rparen, repeat($.map_update)),
   map_update: ($) => seq($.delim_lbracket, $.expr, $.op_coloneq, $.expr, $.delim_rbracket),

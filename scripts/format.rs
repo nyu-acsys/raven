@@ -11,7 +11,7 @@ fn main() -> std::io::Result<()> {
         println!("formatting {}", file_name);
         let file = file.into_os_string().into_string().map_err(|e| Error::new(ErrorKind::Other, format!("could not format {:?} as string", e)))?;
         println!("running: {}", ["cargo", "run", "-p", "ravenfmt", "--", "-p", &file].join(" "));
-        Command::new("cargo").arg("run").arg("-q").arg("-p").arg("ravenfmt").arg("--").arg("-p").spawn().expect("Failed to run ravenfmt").wait().expect("failed waiting on rust format process.");
+        Command::new("cargo").arg("run").arg("-q").arg("-p").arg("ravenfmt").arg("--").arg("-p").arg(file).spawn().expect("Failed to run ravenfmt").wait().expect("failed waiting on rust format process.");
 
     }
     Ok(())
