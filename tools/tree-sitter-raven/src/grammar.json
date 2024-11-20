@@ -103,6 +103,15 @@
           "name": "kwd_import"
         },
         {
+          "type": "SYMBOL",
+          "name": "import_name"
+        }
+      ]
+    },
+    "import_name": {
+      "type": "SEQ",
+      "members": [
+        {
           "type": "TOKEN",
           "content": {
             "type": "SEQ",

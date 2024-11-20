@@ -1210,15 +1210,24 @@
     "named": true,
     "fields": {},
     "children": {
-      "multiple": false,
+      "multiple": true,
       "required": true,
       "types": [
+        {
+          "type": "import_name",
+          "named": true
+        },
         {
           "type": "kwd_import",
           "named": true
         }
       ]
     }
+  },
+  {
+    "type": "import_name",
+    "named": true,
+    "fields": {}
   },
   {
     "type": "include_stmt",
