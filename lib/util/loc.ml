@@ -45,6 +45,10 @@ let file_name loc = loc.loc_start.pos_fname
 let to_end loc = { loc with loc_start = loc.loc_end }
 let to_start loc = { loc with loc_end = loc.loc_start }
 
+let start_index loc = loc.loc_start.pos_cnum
+let end_index loc = loc.loc_end.pos_cnum
+
+
 let merge l1 l2 =
   assert (String.equal (file_name l1) (file_name l2));
   let spos =

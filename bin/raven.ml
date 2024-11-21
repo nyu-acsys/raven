@@ -283,32 +283,41 @@ let typecheck_only =
   let doc = "Only type-check input program but do not verify it." in
   Arg.(value & flag & info [ "typeonly" ] ~doc)
 
+let lsp_mode =
+  let doc = "Format error messages for LSP integration." in
+  Arg.(value & flag & info [ "lsp-mode" ] ~doc)
+
 let smt_timeout =
   let doc = "Timeout for SMT solver in ms." in 
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
 let greeting = "Raven version " ^ Config.version
 
-let main () input_files no_greeting no_library typecheck_only prog_stats smt_timeout smt_diagnostics =
+let print_errors lsp_mode errs =
+  if lsp_mode then begin
+    Stdlib.print_endline (Error.errors_to_lsp_string errs);
+    Stdlib.exit 0
+  end
+  else begin
+    List.iter errs ~f:(fun e -> Logs.err (fun m -> m !"%{Error}" e));
+    Logs.debug (fun m ->
+        m "\n---------\n%s"
+        @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
+    Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
+  end
+
+let main () input_files no_greeting no_library typecheck_only lsp_mode prog_stats smt_timeout smt_diagnostics =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   try `Ok (parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library prog_stats input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
-      Logs.err (fun m -> m "%s" s);
-      Logs.debug (fun m ->
-          m "\n---------\n%s"
-          @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
-      Stdlib.exit 1 (* `Error (false, s) <- duplicates error output *)
+    print_errors lsp_mode [Internal, Loc.dummy, s]
   | Error.Msg es ->
-      List.iter es ~f:(fun e -> Logs.err (fun m -> m !"%{Error}" e));
-      Logs.debug (fun m ->
-          m "\n---------\n%s"
-          @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
-      Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
-
+    print_errors lsp_mode es
+      
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ prog_stats $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ prog_stats $ smt_timeout $ smt_diagnostics))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)
