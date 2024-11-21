@@ -78,27 +78,47 @@ let mk_exit ?loc () = Exit loc
 
 open Stdlib.Format
 
-let pr_ident ppf id = QualIdent.pr ppf id
+let pr_smt_ident ppf id = 
+  let smt_ident_sanitize_map = (
+    fun x -> 
+      if Char.(x = '\'') then 
+        '_' 
+      else 
+        x
+  ) in
 
-let rec pr_idents ppf = function
+  let sanitized_ident = QualIdent.sanitize smt_ident_sanitize_map id in
+
+  Logs.debug (fun m -> m 
+    "smtLibAST.pr_smt_ident: 
+      Original Ident: %a
+      Sanitized ident: %a"
+      QualIdent.pr id
+      QualIdent.pr sanitized_ident
+  );
+
+
+  QualIdent.pr ppf sanitized_ident
+
+let rec pr_smt_idents ppf = function
   | [] -> ()
-  | [ id ] -> pr_ident ppf id
-  | id :: ids -> fprintf ppf "%a@ %a" pr_ident id pr_idents ids
+  | [ id ] -> pr_smt_ident ppf id
+  | id :: ids -> fprintf ppf "%a@ %a" pr_smt_ident id pr_smt_idents ids
 
 let rec pr_sort ppf (sort : sort) =
   match sort with
   | App (Int, [], _) -> fprintf ppf "Int"
   | App (Real, [], _) -> fprintf ppf "Real"
   | App (Bool, [], _) -> fprintf ppf "Bool"
-  | App (Ref, [], _) -> pr_ident ppf PreambleConsts.loc_ident
-  | App (Var qual_iden, [], _) -> pr_ident ppf qual_iden
+  | App (Ref, [], _) -> pr_smt_ident ppf PreambleConsts.loc_ident
+  | App (Var qual_iden, [], _) -> pr_smt_ident ppf qual_iden
   | App (Set, [ srt ], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (Map, [ srt1; srt2 ], _) ->
       fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
-  | App (Data (id, _), [], _) -> pr_ident ppf id
+  | App (Data (id, _), [], _) -> pr_smt_ident ppf id
   | App (Prod, srts, _) ->
       fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length srts) pr_sorts srts
-  | App (AtomicToken, [], _) -> pr_ident ppf PreambleConsts.atomic_token_ident
+  | App (AtomicToken, [], _) -> pr_smt_ident ppf PreambleConsts.atomic_token_ident
   | App (Num, _, _)
   | App (Perm, _, _)
   | App (Bot, _, _)
@@ -117,7 +137,7 @@ and pr_sorts ppf = function
   | srt :: srts -> fprintf ppf "%a@ %a" pr_sort srt pr_sorts srts
 
 let pr_var_decl ppf (x, srt) =
-  fprintf ppf "@[<1>(%a@ %a)@]" pr_ident x pr_sort srt
+  fprintf ppf "@[<1>(%a@ %a)@]" pr_smt_ident x pr_sort srt
 
 let rec pr_var_decls ppf = function
   | [] -> ()
@@ -141,7 +161,7 @@ let term_constr_to_string loc (constr : Expr.constr) : string =
   | And -> "and"
   | Or -> "or"
   | Impl -> "=>"
-  | Var id -> QualIdent.to_string id
+  | Var id -> Stdlib.Format.asprintf "%a" pr_smt_ident id
   | Ite -> "ite"
   | _ ->
       Error.internal_error loc
@@ -227,7 +247,7 @@ and pr_list_pair_of_terms ppf = function
       fprintf ppf "(%a@ %a) %a" pr_term t1 pr_term t2 pr_list_pair_of_terms ts
 
 and pr_let_decl ppf (id, t) =
-  fprintf ppf "@[<2>(%a@ %a)@]" pr_ident id pr_term t
+  fprintf ppf "@[<2>(%a@ %a)@]" pr_smt_ident id pr_term t
 
 and pr_let_decls ppf = function
   | [] -> ()
@@ -256,24 +276,24 @@ let print_term out_ch t =
 let rec pr_adt_args ppf = function
   | [] -> ()
   | (id, srt) :: args ->
-      fprintf ppf "@ (%a@ %a)%a" pr_ident id pr_sort srt pr_adt_args args
+      fprintf ppf "@ (%a@ %a)%a" pr_smt_ident id pr_sort srt pr_adt_args args
 
 let rec pr_adt_constrs ppf = function
   | [] -> ()
   | (id, args) :: cnstrs ->
-      fprintf ppf "@ (%a%a)%a" pr_ident id pr_adt_args args pr_adt_constrs
+      fprintf ppf "@ (%a%a)%a" pr_smt_ident id pr_adt_args args pr_adt_constrs
         cnstrs
 
 (* let rec pr_adts ppf = function
    | [] -> ()
    | (id, cnstrs) :: adts ->
-       fprintf ppf "@ (%a%a)%a" pr_ident id pr_adt_constrs cnstrs pr_adts adts *)
+       fprintf ppf "@ (%a%a)%a" pr_smt_ident id pr_adt_constrs cnstrs pr_adts adts *)
 
 let rec pr_adt ppf (id, params, constrs) =
   match params with
-  | [] -> fprintf ppf "@[%a (%a)@]" pr_ident id pr_adt_constrs constrs
+  | [] -> fprintf ppf "@[%a (%a)@]" pr_smt_ident id pr_adt_constrs constrs
   | _ ->
-      fprintf ppf "@[%a (par (%a) (%a))@]" pr_ident id pr_idents params
+      fprintf ppf "@[%a (par (%a) (%a))@]" pr_smt_ident id pr_smt_idents params
         pr_adt_constrs constrs
 
 (* let rec pr_adts ppf adt_list =
@@ -287,24 +307,24 @@ let pr_command ppf = function
   | SetOption (o, v, _) -> fprintf ppf "@[<12>(set-option@ %s@ %s)@]@," o v
   | SetLogic (l, _) -> fprintf ppf "@[<11>(set-logic@ %s)@]@," l
   | DeclareSort (id, n, _) ->
-      fprintf ppf "@[<14>(declare-sort@ %a@ %d)@]@," pr_ident id n
+      fprintf ppf "@[<14>(declare-sort@ %a@ %d)@]@," pr_smt_ident id n
   | DeclareDatatype (adt, _) ->
       fprintf ppf "@[<19>(declare-datatype@ @[<2>%a@])@]@," pr_adt adt
   (* | DeclareDatatypes (adts, _) ->
       fprintf ppf "@[<19>(declare-datatypes@ @[<2>(%a)@])@]@," pr_adt adts *)
   | DefineSort (id, svs, srt, _) ->
-      fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@," pr_ident id pr_idents
+      fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@," pr_smt_ident id pr_smt_idents
         svs pr_sort srt
   | DeclareFun (id, srts, srt, _) ->
-      fprintf ppf "@[<13>(declare-fun@ %a@ @,(%a)@ %a)@]@," pr_ident id pr_sorts
+      fprintf ppf "@[<13>(declare-fun@ %a@ @,(%a)@ %a)@]@," pr_smt_ident id pr_sorts
         srts pr_sort srt
   | DeclareConst (id, srt, _) ->
-      fprintf ppf "@[<13>(declare-const@ %a@ %a)@]@," pr_ident id pr_sort srt
+      fprintf ppf "@[<13>(declare-const@ %a@ %a)@]@," pr_smt_ident id pr_sort srt
   | DefineFun (id, vs, srt, t, _) ->
-      fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@," pr_ident id
+      fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@," pr_smt_ident id
         pr_var_decls vs pr_sort srt pr_term t
   | DefineFunRec (id, vs, srt, t, _) ->
-      fprintf ppf "@[<12>(define-fun-rec@ %a@ (%a)@ %a@ %a)@]@," pr_ident id
+      fprintf ppf "@[<12>(define-fun-rec@ %a@ (%a)@ %a@ %a)@]@," pr_smt_ident id
         pr_var_decls vs pr_sort srt pr_term t
   (* | DefineFunsRec (defs, _) ->
       fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@," pr_list_pair_of_terms defs *)

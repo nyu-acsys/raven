@@ -51,11 +51,11 @@ module Ident = struct
   )
 
   let make loc name num = 
-    let sanitized_name = (String.map name ~f:(fun c ->
+    (* let sanitized_name = (String.map name ~f:(fun c ->
         if Char.(c = '^') then '&' else c
-    )) in
+    )) in *)
 
-    { ident_name = sanitized_name; ident_num = num; ident_loc = loc }
+    { ident_name = name; ident_num = num; ident_loc = loc }
   let name id = id.ident_name
 
   let used_names = Hashtbl.create (module String)
@@ -72,6 +72,10 @@ module Ident = struct
       Logs.debug (fun m -> m "fresh id %s -> %d" name new_max);
       Hashtbl.set used_names ~key:name ~data:new_max;
       make loc name new_max
+
+  let sanitize subst id = { id with
+    ident_name = String.map ~f:subst id.ident_name
+  }
 end
 
 type ident = Ident.t
@@ -206,6 +210,10 @@ module QualIdent = struct
   let requalify subst qid =
     let path = requalify_path subst (to_list qid) in
     from_list path
+
+  let sanitize subst qid = 
+    from_list
+      (List.map ~f:(fun iden -> Ident.sanitize subst iden) (to_list qid))
 end
 
 type qual_ident = QualIdent.t [@@deriving compare]

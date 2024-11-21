@@ -13,7 +13,7 @@ interface LCList {
     module SetRefRA = Library.SetRA[Ref_Type]
 
     module AuthSetRef = Library.Auth[SetRefRA]
-    field authSet: AuthSetRef
+    ghost field authSet: AuthSetRef
 
     pred inFP(r: Ref, n: Ref) {
         own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
@@ -87,12 +87,12 @@ interface LCList {
         ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
         ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
 
-        unfold css(r){
-            fp0 :| fp,
-            locks0 :| locks,
-            nexts0 :| nexts,
-            vals0 :| vals
-        };
+        unfold css(r)[
+            fp0 := fp,
+            locks0 := locks,
+            nexts0 := nexts,
+            vals0 := vals
+        ];
 
         cssInFp(r, n, fp0, locks0, nexts0, vals0);
         unfold cssR(r, fp0, locks0, nexts0, vals0);
@@ -131,12 +131,12 @@ interface LCList {
         ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
         ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
 
-        unfold css(r){
-            fp0 :| fp,
-            locks0 :| locks,
-            nexts0 :| nexts,
-            vals0 :| vals
-        };
+        unfold css(r)[
+            fp0 := fp,
+            locks0 := locks,
+            nexts0 := nexts,
+            vals0 := vals
+        ];
 
         cssInFp(r, n, fp0, locks0, nexts0, vals0);
         {!
@@ -231,12 +231,12 @@ interface LCList {
             ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
             ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
 
-            unfold css(r){
-                fp0 :| fp,
-                locks0 :| locks,
-                nexts0 :| nexts,
-                vals0 :| vals
-            };
+            unfold css(r)[
+                fp0 := fp,
+                locks0 := locks,
+                nexts0 := nexts,
+                vals0 := vals
+            ];
 
             unfold cssR(r, fp0, locks0, nexts0, vals0);
             assert r in fp0;
@@ -307,12 +307,12 @@ interface LCList {
                 ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
                 ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
 
-                unfold css(r){
-                    fp0 :| fp,
-                    locks0 :| locks,
-                    nexts0 :| nexts,
-                    vals0 :| vals
-                };
+                unfold css(r)[
+                    fp0 := fp,
+                    locks0 := locks,
+                    nexts0 := nexts,
+                    vals0 := vals
+                ];
 
                 unfold cssR(r, fp0, locks0, nexts0, vals0);
                 
@@ -365,12 +365,12 @@ interface LCList {
                     ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
                     ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
 
-                    unfold css(r){
-                        fp0 :| fp,
-                        locks0 :| locks,
-                        nexts0 :| nexts,
-                        vals0 :| vals
-                    };
+                    unfold css(r)[
+                        fp0 := fp,
+                        locks0 := locks,
+                        nexts0 := nexts,
+                        vals0 := vals
+                    ];
 
                     cssInFp(r, c, fp0, locks0, nexts0, vals0);
                     unfold cssR(r, fp0, locks0, nexts0, vals0);
@@ -438,12 +438,12 @@ interface LCList {
                     ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
                     ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
 
-                    unfold css(r){
-                        fp0 :| fp,
-                        locks0 :| locks,
-                        nexts0 :| nexts,
-                        vals0 :| vals
-                    };
+                    unfold css(r)[
+                        fp0 := fp,
+                        locks0 := locks,
+                        nexts0 := nexts,
+                        vals0 := vals
+                    ];
 
                     if (cn != null) {
                         cssInFp(r, cn, fp0, locks0, nexts0, vals0);
