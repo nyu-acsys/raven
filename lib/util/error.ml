@@ -56,8 +56,11 @@ let to_string (kind, (loc : Loc.t), msg) =
     Printf.sprintf !"%{Loc}%{String}%{String}." loc label msg
 
 let to_lsp_string ppf (kind, (loc : Loc.t), msg) =
-  Stdlib.Format.fprintf ppf !"@\n{ \"file\": \"%{String}\", \"start_line\": %d, \"start_col\": %d, \"end_line\": %d, \"end_col\": %d, \"kind\": \"%s\", \"message\": \"%s\" }"
-    (Loc.file_name loc) (Loc.start_line loc) (Loc.start_col loc) (Loc.end_line loc) (Loc.end_col loc) (error_kind_to_lsp_string kind) msg
+  let r = Str.regexp "\n" in
+  let split_msg = Str.split r msg in
+  let pr_string ppf s = Stdlib.Format.fprintf ppf "%s" s in
+  Stdlib.Format.fprintf ppf !"@\n{ \"file\": \"%{String}\", \"start_line\": %d, \"start_col\": %d, \"end_line\": %d, \"end_col\": %d, \"kind\": \"%s\", \"message\": [\"%a\"] }"
+    (Loc.file_name loc) (Loc.start_line loc) (Loc.start_col loc) (Loc.end_line loc) (Loc.end_col loc) (error_kind_to_lsp_string kind) (Print.pr_list_sep "\", \"" pr_string) split_msg
 
 let errors_to_lsp_string errs =
   let print_list ppf errs = Stdlib.Format.fprintf ppf "[@[<2>%a@]]" (Print.pr_list_comma to_lsp_string) errs in
