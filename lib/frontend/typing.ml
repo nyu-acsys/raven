@@ -264,10 +264,13 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           (* backpropagate typ2 to expr1 if needed *)
           let expected_typ1 =
             let ty = match constr with
-            | TupleLookUp ->
-                let _lookup_type = Type.tuple_lookup typ1 (Expr.to_int expr2) in
-                (* above lookup checks well-formedness of typ1 *)
-                typ1
+              | TupleLookUp ->
+                let idx = Expr.to_int expr2 in
+                begin match typ1 with
+                  | App (Prod, ts, _) when idx < List.length ts && idx >= 0 -> typ1
+                  | App (Prod, _, _) -> Error.type_error (Expr.to_loc expr2) "Index out of bounds"
+                  | App _ -> Error.type_error (Expr.to_loc expr1) "Expected product type"
+                end
             | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
             | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | Subseteq
             | Eq | Gt | Lt | Geq | Leq ->

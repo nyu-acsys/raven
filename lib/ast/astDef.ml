@@ -916,7 +916,7 @@ module Expr = struct
   let to_int expr = 
     match expr with
     | App (Int i, _, _) -> Int.of_int64_exn i
-    | _ -> Error.error (to_loc expr) "Expected Int expression"
+    | _ -> Error.type_error (to_loc expr) "Expected Int constant"
 
   let unfold_tuple expr =
     match expr with
