@@ -1,8 +1,12 @@
 name: Builds, tests & co
 
 on:
-  pull_request:
+  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
+    branches: [ "dev", "ci" ]
+  pull_request:
+    branches: [ "dev", "ci" ]
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -12,23 +16,16 @@ jobs:
   build:
     strategy:
       fail-fast: false
-      matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-        ocaml-compiler:
-          - "5.1"
 
-    runs-on: ${{ matrix.os }}
+    runs-on: self-hosted
 
     steps:
-      - name: Checkout tree
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set-up OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v2
         with:
-          ocaml-compiler: ${{ matrix.ocaml-compiler }}
+          ocaml-compiler: "5.1"
 
       - run: opam install . --deps-only --with-test
 
