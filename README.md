@@ -1,7 +1,7 @@
 # Raven
 ![Version 1.0](https://img.shields.io/badge/version-1.0-green.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE)
-[![Builds, tests & co](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml)
+[![Builds, tests & co](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml)
 
 <img align="right" width="150" src="logo.png"/>
 
