@@ -1,3 +1,7 @@
+16 nov, 2024:
+- fix ident sanitization bug identified by Lucas.
+- move statistics counting to after type-checking for greater accuracy.
+
 22 oct, 2024:
 - fix bug with existenials occuring in other variables' skolem function
     + [x] rewrite the entire elim_a functionality.
@@ -6,14 +10,15 @@
 - [x] exhale order of clause witness computation bug
 
 - [x] formalize masks
-- introduce fold existential witness notation
+- [x] introduce fold existential witness notation
 
-- move injectivity check outside.
+- [x] move injectivity check outside.
 - reorder rewrite passes to do inj checks for preds before rewriting fold/unfold
-    maybe by adding new lemmas
+    + maybe by adding new lemmas
 - sweep to add default triggers for every Quant
+    + fix missing triggers in all `Expr.mk_binder` calls
 
-- add forks
+- [x] add forks
 - toy around with preds as macros
 
 
@@ -31,13 +36,10 @@ Type-checking:
 - Revamp witness computation code
 
 - [x] Fix `return proc()` stmts
-- Allow parsing of `map[m1][m2]` expressions
-    iirc Thomas did implement a fix for this, but he thinks it was a bit hacky.
+- [x] Allow parsing of `map[m1][m2]` expressions
+    (Thomas did implement a fix for this, but needs review)
 
 - Parse field reads/writes/cas/fpu separately
-
-- Fix missing triggers in all `Expr.mk_binder` calls
-
 - Allow types to be used as modules implementing Library.Type
 
 
@@ -46,10 +48,3 @@ Type-checking:
 
 - [x] Fix dependency analysis wrt auto lemmas
 - [x] Investigate spurious "unknown"s in the middle of log files
-
-
-pred(a,b) {
-  \exists x^123, y :: 
-}
-
-fold pred(a_1, a_2)[x := ..., x := ]

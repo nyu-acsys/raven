@@ -3,7 +3,7 @@ include "arc_ra.rav"
 
 interface ARC[SharePred: ShareablePredicate] {
     field c: Int
-    field v: ArcRA
+    ghost field v: ArcRA
 
     // module SharePred: ShareablePredicate
 
@@ -267,6 +267,6 @@ interface ARC[SharePred: ShareablePredicate] {
         commitAU(phi, v);
         fold arcInv(x);
 
-        return 1;
+        return v;
     }
 }

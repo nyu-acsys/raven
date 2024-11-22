@@ -82,17 +82,17 @@ module Peterson[R: LockResource]
         ghost var or_l0: Bool; ghost var or_r0: Bool; 
         ghost var or_tl0: Bool; ghost var or_tr0: Bool;
 
-        unfold peterson_inv(l, r){
-            wl0 :| wl,
-            wr0 :| wr,
-            t0 :| t,
-            la0 :| la,
-            ra0 :| ra,
-            or_l0 :| or_l, 
-            or_r0 :| or_r, 
-            or_tl0 :| or_tl, 
-            or_tr0 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
 
         var wr : Bool := l.wait_right;
 
@@ -131,17 +131,17 @@ module Peterson[R: LockResource]
         ghost var or_l1: Bool; ghost var or_r1: Bool; 
         ghost var or_tl1: Bool; ghost var or_tr1: Bool;
 
-        unfold peterson_inv(l, r){
-            wl1 :| wl,
-            wr1 :| wr,
-            t1 :| t,
-            la1 :| la,
-            ra1 :| ra,
-            or_l1 :| or_l, 
-            or_r1 :| or_r, 
-            or_tl1 :| or_tl, 
-            or_tr1 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl1 := wl,
+            wr1 := wr,
+            t1 := t,
+            la1 := la,
+            ra1 := ra,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
 
         var curr_turn : Bool := l.turn;
         assert own(l.active_left, true, 1.0);
@@ -194,13 +194,13 @@ module Peterson[R: LockResource]
         ghost var or_l0: Bool; ghost var or_r0: Bool; 
         ghost var or_tl0: Bool; ghost var or_tr0: Bool;
 
-        unfold peterson_inv(l, r){
-            wl0 :| wl,
-            or_l0 :| or_l, 
-            or_r0 :| or_r, 
-            or_tl0 :| or_tl, 
-            or_tr0 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
         l.wait_left := true;
 
         fold peterson_inv(l, r)[
@@ -216,14 +216,14 @@ module Peterson[R: LockResource]
         ghost var or_l1: Bool; ghost var or_r1: Bool; 
         ghost var or_tl1: Bool; ghost var or_tr1: Bool;
 
-        unfold peterson_inv(l, r){
-            t1 :| t,
-            la1 :| la,
-            or_l1 :| or_l, 
-            or_r1 :| or_r, 
-            or_tl1 :| or_tl, 
-            or_tr1 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            t1 := t,
+            la1 := la,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
 
         // pass the turn to right
         l.turn := false;
@@ -252,17 +252,17 @@ module Peterson[R: LockResource]
         ghost var or_l0: Bool; ghost var or_r0: Bool; 
         ghost var or_tl0: Bool; ghost var or_tr0: Bool;
 
-        unfold peterson_inv(l, r){
-            wl0 :| wl,
-            wr0 :| wr,
-            t0 :| t,
-            la0 :| la,
-            ra0 :| ra,
-            or_l0 :| or_l, 
-            or_r0 :| or_r, 
-            or_tl0 :| or_tl, 
-            or_tr0 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
 
         l.wait_left := false;
         {! 
@@ -295,17 +295,17 @@ module Peterson[R: LockResource]
         ghost var or_l0: Bool; ghost var or_r0: Bool; 
         ghost var or_tl0: Bool; ghost var or_tr0: Bool;
 
-        unfold peterson_inv(l, r){
-            wl0 :| wl,
-            wr0 :| wr,
-            t0 :| t,
-            la0 :| la,
-            ra0 :| ra,
-            or_l0 :| or_l, 
-            or_r0 :| or_r, 
-            or_tl0 :| or_tl, 
-            or_tr0 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
 
         var wl : Bool := l.wait_left;
 
@@ -344,17 +344,17 @@ module Peterson[R: LockResource]
         ghost var or_l1: Bool; ghost var or_r1: Bool; 
         ghost var or_tl1: Bool; ghost var or_tr1: Bool;
 
-        unfold peterson_inv(l, r){
-            wl1 :| wl,
-            wr1 :| wr,
-            t1 :| t,
-            la1 :| la,
-            ra1 :| ra,
-            or_l1 :| or_l, 
-            or_r1 :| or_r, 
-            or_tl1 :| or_tl, 
-            or_tr1 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl1 := wl,
+            wr1 := wr,
+            t1 := t,
+            la1 := la,
+            ra1 := ra,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
 
         var curr_turn : Bool := l.turn;
         assert own(l.active_right, true, 1.0);
@@ -406,13 +406,13 @@ module Peterson[R: LockResource]
         ghost var or_l0: Bool; ghost var or_r0: Bool; 
         ghost var or_tl0: Bool; ghost var or_tr0: Bool;
 
-        unfold peterson_inv(l, r){
-            wr0 :| wr,
-            or_l0 :| or_l, 
-            or_r0 :| or_r, 
-            or_tl0 :| or_tl, 
-            or_tr0 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wr0 := wr,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
         l.wait_right := true;
 
         fold peterson_inv(l, r)[
@@ -428,14 +428,14 @@ module Peterson[R: LockResource]
         ghost var or_l1: Bool; ghost var or_r1: Bool; 
         ghost var or_tl1: Bool; ghost var or_tr1: Bool;
 
-        unfold peterson_inv(l, r){
-            t1 :| t,
-            ra1 :| ra,
-            or_l1 :| or_l, 
-            or_r1 :| or_r, 
-            or_tl1 :| or_tl, 
-            or_tr1 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            t1 := t,
+            ra1 := ra,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
 
         // pass the turn to left
         l.turn := true;
@@ -464,17 +464,17 @@ module Peterson[R: LockResource]
         ghost var or_l0: Bool; ghost var or_r0: Bool; 
         ghost var or_tl0: Bool; ghost var or_tr0: Bool;
 
-        unfold peterson_inv(l, r){
-            wl0 :| wl,
-            wr0 :| wr,
-            t0 :| t,
-            la0 :| la,
-            ra0 :| ra,
-            or_l0 :| or_l, 
-            or_r0 :| or_r, 
-            or_tl0 :| or_tl, 
-            or_tr0 :| or_tr
-        };
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
 
         l.wait_right := false;
         {! 
