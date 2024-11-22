@@ -190,10 +190,10 @@ let parse_and_check_all config file_names =
       (Set.empty (module String))
       (List.rev_map ~f:(fun file_name ->
              let norm_dir = normalizeFilename (Unix.getcwd ()) config.base_dir in
-             let file_name = normalizeFilename norm_dir file_name in
+             let norm_file_name = normalizeFilename norm_dir file_name in
              let file_dir  =
                if String.(config.base_dir <> "") then norm_dir
-               else Stdlib.Filename.dirname file_name
+               else Stdlib.Filename.dirname norm_file_name
              in
              (file_dir, file_name, false)) file_names)
       empty_prog
