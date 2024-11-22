@@ -3,6 +3,16 @@ open Util
 open Ast
 open Frontend
 
+type config = {
+  no_library: bool;
+  typecheck_only: bool;
+  lsp_mode: bool;
+  base_dir: string;
+  prog_stats: bool;
+  smt_timeout: int;
+  smt_diagnostics: bool;
+}
+
 let stream_of_file file_name =
   let inchan = Stdio.In_channel.create file_name in
   let lexbuf = Lexing.from_channel inchan in
@@ -39,13 +49,13 @@ let parse_cu top_level_md_ident lexbuf =
 
   (incls, Ast.Module.set_name md top_level_md_ident)
 
-let check_cu ?(prog_stats = false) typecheck_only tbl smt_env md front_end_out_chan =
+let check_cu config tbl smt_env md front_end_out_chan =
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl md in
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
-  if typecheck_only then (smt_env, tbl) else
+  if config.typecheck_only then (smt_env, tbl) else
   
   (* if prog_stats then 
     Stdlib.exit 0
@@ -106,9 +116,9 @@ let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
   (smt_env, tbl)
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library prog_stats file_names =
+let parse_and_check_all config file_names =
   (* Start backend solver session *)
-  let smt_env = Backend.Smt_solver.init smt_diagnostics smt_timeout in
+  let smt_env = Backend.Smt_solver.init config.smt_diagnostics config.smt_timeout in
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan =
@@ -118,7 +128,7 @@ let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library pr
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
   let smt_env, tbl =
-    if no_library then (smt_env, tbl)
+    if config.no_library then (smt_env, tbl)
     else
       let lib_prog =
         List.fold_right Library.sources ~init:empty_prog
@@ -135,21 +145,21 @@ let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library pr
       in
           (*  parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf
               front_end_out_chan*)
-      check_cu typecheck_only tbl smt_env lib_prog front_end_out_chan
+      check_cu config tbl smt_env lib_prog front_end_out_chan
   in
   
   (* Parse and check actual input program *)
   let rec parse_prog parsed to_parse prog =
     match to_parse with
     | [] -> prog
-    | (file_name, is_free) :: to_parse1 ->
+    | (file_dir, file_name, is_free) :: to_parse1 ->
         if not (Set.mem parsed file_name) then (
           Logs.debug (fun m -> m "raven.parse_prog: Parsing file %s." file_name);
           let inchan, lexbuf = stream_of_file file_name in
           let includes, md = parse_cu Predefs.prog_ident lexbuf in
 
           (* Hiding all includes when counting stats *)
-          let includes = if prog_stats then [] else includes in
+          let includes = if config.prog_stats then [] else includes in
 
           Stdio.In_channel.close inchan;
 
@@ -164,10 +174,9 @@ let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library pr
 
           let to_parse2 =
             List.fold_left includes ~init:to_parse1 ~f:(fun acc incl ->
-                let incl =
-                  normalizeFilename (Stdlib.Filename.dirname file_name) incl
-                in
-                acc @ [ (incl, true) ])
+                let incl = normalizeFilename file_dir incl in
+                let dir = Stdlib.Filename.dirname incl in
+                acc @ [ (dir, incl, true) ])
           in
           parse_prog parsed to_parse2 (merge_prog md prog))
         else (
@@ -179,11 +188,18 @@ let parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library pr
   let md =
     parse_prog
       (Set.empty (module String))
-      (List.map ~f:(fun f -> (f, false)) (List.rev file_names))
+      (List.rev_map ~f:(fun file_name ->
+             let norm_dir = normalizeFilename (Unix.getcwd ()) config.base_dir in
+             let file_name = normalizeFilename norm_dir file_name in
+             let file_dir  =
+               if String.(config.base_dir <> "") then norm_dir
+               else Stdlib.Filename.dirname file_name
+             in
+             (file_dir, file_name, false)) file_names)
       empty_prog
   in
 
-  if prog_stats then 
+  if config.prog_stats then 
     let prog_stats = ProgStats.computeStats md in
 
     Logs.app (fun m -> m
@@ -202,7 +218,7 @@ spec_count: %i;"
     );
     Stdlib.exit 0
   else begin
-  let _ = check_cu ~prog_stats typecheck_only tbl smt_env md front_end_out_chan in
+  let _ = check_cu config tbl smt_env md front_end_out_chan in
 
   (* Check all files *)
 
@@ -287,14 +303,18 @@ let lsp_mode =
   let doc = "Format error messages for LSP integration." in
   Arg.(value & flag & info [ "lsp-mode" ] ~doc)
 
+let base_dir =
+  let doc = "Base directory for resolving include directives. Default: current working directory." in
+  Arg.(value & opt string "" & info [ "base-dir"] ~doc)
+
 let smt_timeout =
   let doc = "Timeout for SMT solver in ms." in 
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
 let greeting = "Raven version " ^ Config.version
 
-let print_errors lsp_mode errs =
-  if lsp_mode then begin
+let print_errors config errs =
+  if config.lsp_mode then begin
     Stdlib.print_endline (Error.errors_to_lsp_string errs);
     Stdlib.exit 0
   end
@@ -306,18 +326,28 @@ let print_errors lsp_mode errs =
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode prog_stats smt_timeout smt_diagnostics =
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  try `Ok (parse_and_check_all typecheck_only smt_timeout smt_diagnostics no_library prog_stats input_files) with
+  let config = {
+    no_library;
+    typecheck_only;
+    lsp_mode;
+    prog_stats;
+    base_dir;
+    smt_timeout;
+    smt_diagnostics;
+  }
+  in
+  try `Ok (parse_and_check_all config input_files) with
   | Sys_error s | Failure s | Invalid_argument s ->
-    print_errors lsp_mode [Internal, Loc.dummy, s]
+    print_errors config [Internal, Loc.dummy, s]
   | Error.Msg es ->
-    print_errors lsp_mode es
+    print_errors config es
       
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ prog_stats $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)
