@@ -1,0 +1,13 @@
+field c: Int
+
+inv counterInv(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+proc make()
+  returns (x: Ref)
+  // ensures counterInv(x)
+{
+  x := new(c: 0);
+  fold counterInv(x);
+}

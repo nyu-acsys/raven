@@ -2,71 +2,84 @@
 
 open Base
 
-exception Msg of Loc.t * string
+type error_kind =
+  | Generic
+  | Lexical
+  | Syntax
+  | Type
+  | Internal
+  | Unsupported
+  | Verification
+  | RelatedLoc
+
+let error_kind_to_lsp_string = function
+  | Generic -> "Generic"
+  | Lexical -> "Lexical"
+  | Syntax -> "Syntax"
+  | Type -> "Type"
+  | Internal -> "Internal"
+  | Unsupported -> "Unsupported"
+  | Verification -> "Verification"
+  | RelatedLoc -> "RelatedLoc"
+
+
+let error_kind_to_string = function
+  | Generic -> "Error"
+  | Lexical -> "Lexical Error"
+  | Syntax -> "Syntax Error"
+  | Type -> "Type Error"
+  | Internal -> "Internal Error"
+  | Unsupported -> "Unsupported Error"
+  | Verification -> "Verification Error"
+  | RelatedLoc -> "Related Location"
+
+type t = error_kind * Loc.t * String.t
+
+exception Msg of t list
 exception Generic_Error of string
 
-let main_file = ref ""
-let set_main_file s = main_file := s
+let fail ?(lbl = Generic) loc msg = raise (Msg [ (lbl, loc, msg) ])
+let fail_with errors = raise (Msg errors)
 
-let fail loc msg = raise (Msg (loc, msg))
-
-let print_file_line line_num loc = 
-  let rec in_channel_line ic (line_num: int) =
-    let next_line = (match (Stdio.In_channel.input_line ic) with 
-    | None -> raise (Failure ("Cannot print line " ^ (Int.to_string line_num) ^ ", location: " ^ Loc.to_string loc))
-    | Some s -> s)
-
-    in
-
-    match line_num with
-    | 0 -> next_line
-    | _ -> in_channel_line ic (line_num-1)
-
+let to_string (kind, (loc : Loc.t), msg) =
+  let label =
+    kind |> error_kind_to_string |> fun lbl ->
+    Fmt.to_to_string
+      (fun ppf lbl ->
+        Fmt.pf ppf "%a: " Fmt.(styled Logs_fmt.err_style string) lbl)
+      lbl
   in
-
-  let ic = Stdio.In_channel.create !main_file in 
-    Stdio.printf "\n%d | %s\n" line_num (in_channel_line ic (line_num - 1))
-
-let print_error_loc (loc: Loc.t) =
-  let line_num = (loc.loc_start.pos_lnum) in 
-  print_file_line line_num loc;
-
-  Stdio.printf "%s%s\n" (String.make (String.length (Int.to_string line_num) + 2 + loc.loc_start.pos_cnum - loc.loc_start.pos_bol) ' ') (String.make (1 + loc.loc_end.pos_cnum - loc.loc_start.pos_cnum) '^');
-  Stdio.print_endline ""
-
-let to_string (loc: Loc.t) msg = 
-  if Loc.(loc = Loc.dummy)
-  then msg 
+  if Loc.(loc = Loc.dummy) then Printf.sprintf !"%{String}%{String}" label msg
   else
-    (*if !Config.flycheck_mode 
-    then Printf.sprintf "%s:%s" (flycheck_string_of_src_pos pos) msg*)
-    Printf.sprintf !"%{Loc}:\n%{String}" loc msg
+    (*if !Config.flycheck_mode
+          then Printf.sprintf "%s:%s" (flycheck_string_of_src_pos pos) msg*)
+    Printf.sprintf !"%{Loc}%{String}%{String}." loc label msg
 
-let to_string = function
-  | Msg (loc, msg) -> to_string loc msg      
-  | _ -> raise (Invalid_argument "ProgError.to_string: expected a program error exception")
+let to_lsp_string ppf (kind, (loc : Loc.t), msg) =
+  let r = Str.regexp "\n" in
+  let split_msg = Str.split r msg in
+  let pr_string ppf s = Stdlib.Format.fprintf ppf "%s" s in
+  Stdlib.Format.fprintf ppf !"@\n{ \"file\": \"%{String}\", \"start_line\": %d, \"start_col\": %d, \"end_line\": %d, \"end_col\": %d, \"kind\": \"%s\", \"message\": [\"%a\"] }"
+    (Loc.file_name loc) (Loc.start_line loc) (Loc.start_col loc) (Loc.end_line loc) (Loc.end_col loc) (error_kind_to_lsp_string kind) (Print.pr_list_sep "\", \"" pr_string) split_msg
 
-let print loc msg = Stdio.print_endline (to_string (Msg (loc, msg)))
-
-let mk_trace_info msg = "Trace Information: " ^ msg
-
-let mk_error_info msg = "Related Location: " ^ msg
+let errors_to_lsp_string errs =
+  let print_list ppf errs = Stdlib.Format.fprintf ppf "[@[<2>%a@]]" (Print.pr_list_comma to_lsp_string) errs in
+  Print.string_of_format print_list errs
 
 (** Predefined error messags *)
 
-let error loc msg = print_error_loc loc; fail loc @@ "Error: " ^ msg
-
-let error_simple msg = fail Loc.dummy @@ "Lexical Error: " ^ msg
-
-let lexical_error loc msg = print_error_loc loc; fail loc @@ "Lexical Error: " ^ msg
-
-let type_error loc msg = print_error_loc loc; fail loc @@ "Type Error: " ^ msg
-
-let syntax_error loc msg_opt = 
-  match msg_opt with 
-  | Some msg -> print_error_loc loc; fail loc @@ "Syntax Error: " ^ msg
-  | None -> print_error_loc loc; fail loc "Syntax Error"
+let internal_error loc msg = fail loc ~lbl:Internal msg
+let error loc msg = fail loc ~lbl:Generic msg
+let error_simple msg = fail Loc.dummy msg
+let lexical_error loc msg = fail loc ~lbl:Lexical msg
+let unsupported_error loc msg = fail loc ~lbl:Unsupported msg
+let type_error loc msg = fail loc ~lbl:Type msg
+let syntax_error loc msg = fail loc ~lbl:Syntax msg
 
 let redeclaration_error loc name =
-  print_error_loc loc; 
-   fail loc (Printf.sprintf !"Identifier %{String} has already been declared in this scope." name)
+  error loc
+    (Printf.sprintf
+       !"Identifier %{String} has already been declared in this scope"
+       name)
+
+let verification_error loc msg = fail loc ~lbl:Verification msg

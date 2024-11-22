@@ -1,0 +1,183 @@
+type IntOption = data {
+  case none;
+  case some(i: Int)
+}
+
+field head: Ref
+field next: Ref
+field value: Int
+
+type IntList = data {
+  case nil;
+  case cons(elem: Int, tl: IntList)
+}
+
+pred is_list(hd: Ref, xs: IntList) {
+  hd == null ? 
+    xs == nil() : 
+    (xs != nil() && (exists tl0: Ref, q:Real ::  q > 0.0 && (own(hd.value, xs.elem, q) && own(hd.next, tl0, q) && is_list(tl0, xs.tl))))
+}
+
+pred is_stack(s: Ref, xs: IntList) {
+  exists hd: Ref :: (is_list(hd, xs) && own(s.head, hd, 1.0))
+}
+
+proc push(s: Ref, x: Int, implicit ghost xs: IntList)
+  // atomic requires is_stack(s, xs)
+  // atomic ensures is_stack(s, cons(x, xs))
+{
+  // var xs0: IntList := openAU(phi);
+    var xs0: IntList;
+    inhale is_stack(s, xs0);
+
+
+  unfold is_stack(s, xs0);
+  var hd: Ref := s.head;
+  fold is_stack(s, xs0);
+
+  // abortAU(phi);
+    exhale is_stack(s, xs0);
+
+  var s0 : Ref;
+  s0 := new(value: x, next: hd);
+
+  // var xs1: IntList := openAU(phi);
+    var xs1: IntList;
+    inhale is_stack(s, xs1);
+
+  ghost var hd1: Ref;
+  unfold is_stack(s, xs1);
+  hd1 :| is_list(hd1, xs1) && own(s.head, hd1, 1.0);
+  
+  // var res := cas(s.head, hd, s0);
+    var res: Bool;
+    var curr_head: Ref := s.head;
+
+    if (curr_head == hd) {
+      s.(head) := s0;
+      res := true;
+    } else {
+      res := false;
+    }
+
+  {!
+    if (res) {
+      assert   
+        (s0 == null ? 
+          cons(x, xs1) == nil() : 
+          (cons(x,xs1) != nil() && (1.0 > 0.0 && (own(s0.value, cons(x, xs1).elem, 1.0) && own(s0.next, hd1, 1.0) && is_list(hd1, cons(x, xs1).tl)))));
+
+      fold is_list(s0, cons(x, xs1)); 
+      fold is_stack(s, cons(x, xs1));
+      // commitAU(phi);
+        exhale is_stack(s, cons(x, xs1));
+    } else {
+      fold is_stack(s, xs1);
+      // abortAU(phi);
+        exhale is_stack(s, xs1);
+    }
+  !}
+
+  if (!res) push(s, x);
+
+  // assert false;
+}
+
+proc pop(s: Ref, implicit ghost xs: IntList)
+  returns (result: IntOption)
+  // atomic requires is_stack(s, xs)
+  // atomic ensures 
+    // xs == nil() ? 
+    //   is_stack(s, xs) && result == none() : 
+    //   is_stack(s, xs.tl) && result == some(xs.elem)
+{
+
+  // var xs0: IntList := openAU(phi);
+    var xs0: IntList;
+    inhale is_stack(s, xs0);
+
+  unfold is_stack(s, xs0);
+
+  var hd: Ref := s.(head);
+  
+  {!
+    // assert hd != null;
+    if (hd == null) {
+      // assert false;
+      unfold is_list(hd, xs0);
+      fold is_list(hd, xs0)[q := 0.0];
+      fold is_stack(s, xs0);
+      // commitAU(phi, none());
+        var result0: IntOption := none();
+        exhale xs0 == nil() ? 
+          is_stack(s, xs0) && result0 == none() : 
+          is_stack(s, xs0.tl) && result0 == some(xs0.elem);
+    } else {
+      ghost var q:Real;
+      ghost var tl0: Ref;
+      unfold is_list(hd, xs0);
+
+      tl0, q :| 
+        hd == null ? 
+        xs0 == nil() : 
+        (xs0 != nil() && (q > 0.0 && (own(hd.value, xs0.elem, q) && own(hd.next, tl0, q) && is_list(tl0, xs0.tl))));
+      
+      assert hd == null ? 
+        xs0 == nil() : 
+        (xs0 != nil() && (q/2.0 > 0.0 && (own(hd.value, xs0.elem, q/2.0) && own(hd.next, tl0, q/2.0) && is_list(tl0, xs0.tl))));
+      
+      fold is_list(hd, xs0);
+      fold is_stack(s, xs0);
+      // abortAU(phi);
+        exhale is_stack(s, xs0);
+    }
+  !}
+
+  if (hd == null) {
+    return none();
+  }
+
+  var hd_next: Ref := hd.next;
+
+  // var xs1 := openAU(phi);
+    var xs1: IntList;
+    inhale is_stack(s, xs1);
+
+  ghost var hd1: Ref;
+  unfold is_stack(s, xs1);
+  hd1 :| is_list(hd1, xs1) && own(s.head, hd1, 1.0);
+  // var res := cas(s.head, hd, hd_next);
+    var res: Bool;
+    var curr_val: Ref := s.head;
+
+    if (curr_val == hd) {
+      s.head := hd_next;
+      res := true;
+    } else {
+      res := false;
+    }
+
+  {!
+    if (res) {
+      unfold is_list(hd1, xs1);
+      assert hd1 != null;
+      assert xs1 != nil();
+      fold is_stack(s, xs1.tl);
+      // commitAU(phi, some(hd.value));
+        var hd_val: Int := hd.value;
+        var result1: IntOption := some(hd_val);
+        exhale xs1 == nil() ? 
+            is_stack(s, xs1) && result1 == none() : 
+            is_stack(s, xs1.tl) && result1 == some(xs1.elem);
+    } else {
+      fold is_stack(s, xs1);
+      // abortAU(phi);
+        exhale is_stack(s, xs1);
+    }
+
+  !}
+
+  // if (!res) {pop(s);}
+
+  // else return some(hd.(value));
+}

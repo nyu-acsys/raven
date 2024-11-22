@@ -1,5 +1,5 @@
 (library
-  (name util)
-  (libraries base stdio)
-  (preprocess (pps ppx_hash ppx_compare ppx_custom_printf)))
-
+ (name util)
+ (libraries base str logs fmt logs.fmt stdio library)
+ (preprocess
+  (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf)))

@@ -1,0 +1,48 @@
+field c: Int
+
+inv counterInv(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+proc incr(x: Ref) 
+  requires counterInv(x)
+  ensures counterInv(x)
+{
+  var v1: Int;
+
+  unfold counterInv(x);
+  v1 := x.c;
+  fold counterInv(x);
+  
+  var new_v1 : Int := v1 + 1;
+  var res: Bool;
+
+  unfold counterInv(x);
+  res := cas(x.c, v1, new_v1);
+  fold counterInv(x);
+  
+  if (!res) {
+    incr(x); // retry
+  }
+}
+
+proc read(x: Ref)
+  returns (v: Int)
+  requires counterInv(x)
+  ensures counterInv(x)
+{
+  unfold counterInv(x);
+  v := x.c;
+  fold counterInv(x);
+
+  return v;
+}
+
+proc make()
+  returns (x: Ref)
+  ensures counterInv(x)
+{
+  x := new(c: 0);
+  // fold counterInv(x);
+  assume false;
+}

@@ -1,0 +1,5 @@
+proc p() {
+    var x: Map[Int, Set[Int]] = {| k:Int :: {||} |};
+
+    var y: Set[Int] = {| k:Int :: k > 5 |};
+}

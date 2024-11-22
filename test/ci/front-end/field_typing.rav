@@ -1,0 +1,9 @@
+module M1 {
+  field f: Bool
+}
+
+module M2 {
+  pred foo(x: Ref) {
+    own(x.M1.f, true, 1.0)
+  }
+}

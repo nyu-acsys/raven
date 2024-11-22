@@ -1,0 +1,421 @@
+include "./keyset_ra.rav"
+//import Library.KeysetRA
+
+interface Keyspace {
+  rep type T
+
+  val ks: Set[T]
+}
+
+module IntKeyspace : Keyspace {
+  rep type T = Int
+
+  val ks: Set[T] = {| k: Int :: true |}
+}
+
+interface SearchStructureSpec {
+  type K
+  val keyspace: Set[K]
+
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
+
+	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+    op == searchOp ? 
+      c_in == c_out && res == (k in c_in) :
+    (op == insertOp ?
+      c_out == c_in ++ {| k |} && res == (k !in c_in) :
+      c_out == c_in -- {| k |} && res == (k in c_in))
+	}
+}
+
+interface Node {
+  rep type T
+}
+
+interface NodeImpl {
+
+  module Spec : SearchStructureSpec
+  import Spec._
+
+  pred node(n: Ref; c: Set[K], inset: Set[K], outset: Map[Ref, Set[K]])
+
+  func outsets(outset: Map[Ref, Set[K]]) returns (ret: Set[K])
+  {
+    {| k: K :: exists r: Ref :: k in outset[r] |}
+  }
+
+  func keyset(inset: Set[K], outset: Map[Ref, Set[K]]) returns (ret: Set[K])
+  {
+    inset -- outsets(outset)
+  }
+
+  proc create()
+    returns (n: Ref)
+    ensures node(n, {||}, keyspace, {| k:Ref :: {||} |})
+
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost inset: Set[K], implicit ghost outset: Map[Ref, Set[K]])
+    returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
+    requires k in inset -- outsets(outset)
+    requires node(n, c, inset, outset)
+    ensures node(n, c1, inset, outset)
+    ensures succ ==> opSpec(dop, k, c, c1, res) 
+    ensures !succ ==> c == c1
+
+  proc findNext(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost inset: Set[K], implicit ghost outset: Map[Ref, Set[K]])
+    returns (ret: Bool, n1: Ref)
+    requires k in inset
+    requires node(n, c, inset, outset)
+    ensures node(n, c, inset, outset) && 
+      (ret ?   
+        k in outset[n1] :
+        k !in outsets(outset))
+
+  proc inRange(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost inset: Set[K], implicit ghost outset: Map[Ref, Set[K]])
+    returns (ret: Bool)
+    requires node(n, c, inset, outset)
+    ensures node(n, c, inset, outset) && (ret ==> k in inset)
+
+
+  lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K], inset1: Set[K], inset2: Set[K], outset1: Map[Ref, Set[K]], outset2: Map[Ref, Set[K]])
+    requires node(n, c1, inset1, outset1) && node(n, c2, inset2, outset2)
+    ensures false
+}
+
+// interface SearchStructure {
+//   module Spec: SearchStructureSpec
+//   import Spec._
+
+//   pred css(r: Ref, c: Set[K])
+
+//   // inv cssInv(r: Ref)
+
+//   proc create()
+//     returns (r: Ref)
+//     ensures css(r, {||})
+
+//   // proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+//   //   returns (res: Bool, implicit ghost c1: Set[K])
+//   //   requires k in keyset
+//   //   // requires cssInv(r)
+//   //   atomic requires cssR(r, c)
+//   //   atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
+// }
+
+
+module GiveUpTemplate[Node: NodeImpl] {
+  module Spec: SearchStructureSpec = Node.Spec
+  import Node.Spec._
+  import Node._
+
+  module Ref_Type : Library.Type {
+    rep type T = Ref
+  }
+
+  module SetRefRA = Library.SetRA[Ref_Type]
+
+  module AuthSetRef = Library.Auth[SetRefRA]
+  
+  module K_Type : Library.Type {
+    rep type T = K
+  }
+  
+  module Keyset_K = KeysetRA[K_Type]
+  module AuthKeyset_K = Library.Auth[Keyset_K]
+
+  ghost field authSet: AuthSetRef
+  ghost field authKS: AuthKeyset_K
+
+  pred globalRes(r: Ref, c: Set[K]; fp: Set[Ref], inset: Map[Ref, Set[K]]) {
+    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(fp))) && 
+    r in fp && inset[r] == keyspace
+  }
+
+  pred nodePred(r: Ref, n: Ref; c: Set[K], inset: Set[K], outset: Map[Ref, Set[K]]) {
+    own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(inset, outset), c ) )) &&
+    node(n, c, inset, outset)
+  }
+
+  pred inFP(r: Ref, n: Ref) {
+    own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+  }
+
+  pred cssR(r: Ref, c: Set[K], fp: Set[Ref], contents: Map[Ref, Set[K]], inset: Map[Ref, Set[K]], outset: Map[Ref, Map[Ref, Set[K]]]) {
+    (forall n: Ref :: n in fp ==> 
+        (nodePred(r, n, contents[n], inset[n], outset[n]))) 
+      && 
+      globalRes(r, c, fp, inset)
+  }
+
+  pred css(r: Ref, c: Set[K]) {
+    exists fp: Set[Ref], contents: Map[Ref, Set[K]], inset: Map[Ref, Set[K]], outset: Map[Ref, Map[Ref, Set[K]]] :: 
+      cssR(r, c, fp, contents, inset, outset)
+  }
+
+  proc create()
+    returns (r: Ref)
+    ensures css(r, {||})
+  {
+    r := Node.create();
+    r := new(
+      authKS:AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, {||}), Keyset_K.prodKS(keyspace, {||})),
+      authSet:AuthSetRef.auth(SetRefRA.set_constr({|r|}))
+    );
+
+    fold globalRes(r, {||}, {| r |}, {| r:Ref :: keyspace |});
+    fold nodePred(r, r, {||}, keyspace, {| k:Ref :: {||} |});
+    fold cssR(r, {||}, {| r |}, {| r:Ref :: {||} |}, {| r:Ref :: keyspace |}, {| r:Ref ::  ({| n:Ref :: {||} |}) |});
+    assert cssR(r, {||}, {| r |}, {| r:Ref :: {||} |}, {| r:Ref :: keyspace |}, {| r:Ref ::  ({| n:Ref :: {||} |}) |});
+    fold css(r, {||});
+  }
+
+  lemma cssInFp(r: Ref, n:Ref, c: Set[K], fp: Set[Ref], contents: Map[Ref, Set[K]], inset: Map[Ref, Set[K]], outset: Map[Ref, Map[Ref, Set[K]]])
+    requires cssR(r, c, fp, contents, inset, outset)
+    requires inFP(r, n)
+    ensures n in fp
+    ensures cssR(r, c, fp, contents, inset, outset)
+    ensures inFP(r, n)
+  {
+    unfold cssR(r, c, fp, contents, inset, outset);
+    unfold globalRes(r, c, fp, inset);
+    unfold inFP(r, n);
+
+    assert n in fp;
+
+    fold globalRes(r, c, fp, inset);
+    fold inFP(r, n);
+    fold cssR(r, c, fp, contents, inset, outset);
+  }
+
+  lemma fpInCss(r: Ref, n:Ref, c: Set[K], fp: Set[Ref], contents: Map[Ref, Set[K]], inset: Map[Ref, Set[K]], outset: Map[Ref, Map[Ref, Set[K]]])
+    requires cssR(r, c, fp, contents, inset, outset)
+    requires n in fp
+    ensures inFP(r, n)
+    ensures cssR(r, c, fp, contents, inset, outset)
+  {
+    unfold cssR(r, c, fp, contents, inset, outset);
+    unfold globalRes(r, c, fp, inset);
+
+    fpu(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(fp)), AuthSetRef.auth_frag(SetRefRA.set_constr(fp), SetRefRA.set_constr(fp)));
+
+    fold globalRes(r, c, fp, inset);
+    fold inFP(r, n);
+    fold cssR(r, c, fp, contents, inset, outset);
+  }
+
+  lemma flowIntStep(r: Ref, n: Ref, k: K, n1: Ref, c: Set[K], fp: Set[Ref], contents: Map[Ref, Set[K]], inset: Map[Ref, Set[K]], outset: Map[Ref, Map[Ref, Set[K]]], outset_n: Map[Ref, Set[K]])
+    requires cssR(r, c, fp, contents, inset, outset)
+    requires outset_n == outset[n]
+    requires k in outset_n[n1]
+    ensures cssR(r, c, fp, contents, inset, outset)
+    ensures k in inset[n1]
+    ensures n1 in fp
+  {
+    assume false;
+  }
+
+  proc traverse(r: Ref, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost fp: Set[Ref], implicit ghost contents: Map[Ref, Set[K]], implicit ghost inset: Map[Ref, Set[K]], implicit ghost outset: Map[Ref, Map[Ref, Set[K]]])
+    returns (ret: Ref)
+    requires inFP(r, n)
+    requires k in inset[n]
+    requires k in keyspace
+    requires cssR(r, c, fp, contents, inset, outset)
+    ensures cssR(r, c, fp, contents, inset, outset)
+    ensures k in keyset(inset[ret], outset[ret])
+    ensures inFP(r, ret)
+  {
+    cssInFp(r, n, c, fp, contents, inset, outset);
+
+    unfold cssR(r, c, fp, contents, inset, outset);
+
+    unfold nodePred(r, n, contents[n], inset[n], outset[n]);
+
+    var in_range: Bool := Node.inRange(n, k, contents[n], inset[n], outset[n]);
+
+    if (in_range) {
+      var succ: Bool;
+      var n1: Ref;
+      succ, n1 := Node.findNext(n, k, contents[n], inset[n], outset[n]);
+
+      fold nodePred(r, n, contents[n], inset[n], outset[n]);
+      fold cssR(r, c, fp, contents, inset, outset);
+
+      if (succ) {
+        flowIntStep(r, n, k, n1, c, fp, contents, inset, outset, outset[n]);
+
+        fpInCss(r, n1, c, fp, contents, inset, outset);
+
+        var n2: Ref := traverse(r, n1, k, c, fp, contents, inset, outset);
+        // assert false;
+        return n2;
+      } else {
+        // assert false;
+        return n;
+      }
+
+    } else {
+      fold nodePred(r, n, contents[n], inset[n], outset[n]);
+      unfold globalRes(r, c, fp, inset);
+      fold globalRes(r, c, fp, inset);
+      fold cssR(r, c, fp, contents, inset, outset);
+
+      fpInCss(r, r, c, fp, contents, inset, outset);
+      var n3: Ref := traverse(r, r, k, c, fp, contents, inset, outset);
+
+      // assert false;
+      return n3;
+    }
+
+    
+  }
+
+  lemma keyset_theorem(r: Ref, dop: Op, k: K, c_n: Set[K], c_n1: Set[K], c: Set[K], res: Bool, k_n: Set[K])
+    returns (c1: Set[K])
+    requires opSpec(dop, k, c_n, c_n1, res)
+    requires own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c)))
+    requires own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n)))
+    // requires own(r.authFlow, AuthFlow_K.auth(g_i))requires own(r.authFlow, AuthFlow_K.frag(g_i))
+    requires c_n1 subseteq k_n
+    requires k in k_n
+    requires k in keyspace
+
+    ensures opSpec(dop, k, c, c1, res)
+    ensures own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
+    ensures own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
+  {
+    // autoLemmas();
+
+    unfold opSpec(dop, k, c_n, c_n1, res);
+
+    if (dop == searchOp() || !res) {
+      c1 := c;
+      assert own(r.authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+      assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+      assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+      assert c_n subseteq c;
+      fold opSpec(dop, k, c, c1, res);
+    } else {
+      if (dop == insertOp()) {
+        c1 := c ++ {| k |};
+
+        assert own(r.authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert k !in c_n;
+        assert k !in c;
+
+        // assert false;
+        
+        fold opSpec(dop, k, c, c1, res);
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1))
+        ) with {
+          assert forall k: Keyset_K :: {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n))} {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1))}
+            Keyset_K.prodKS(keyspace, c) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n)) ==>
+            Keyset_K.prodKS(keyspace, c1) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1));
+        }
+        
+        fpu(r, authKS, 
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)),
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
+
+        // assert false;
+        
+      } else {
+        c1 := c -- {| k |};
+
+        assert own(r.authKS, AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert Keyset_K.valid(Keyset_K.frame(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
+        assert k in c_n;
+        assert k in c;
+        
+        fold opSpec(dop, k, c, c1, res);
+
+        assert AuthKeyset_K.fpuAllowed(
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
+          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1))
+        );
+        
+        fpu(r, authKS, 
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
+
+        // assert false;
+      }
+    }
+  }
+
+  proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+    requires k in keyspace
+    requires css(r, c)
+    ensures css(r, c1) && opSpec(dop, k, c, c1, res)
+  {
+    ghost var fp: Set[Ref];
+    ghost var contents: Map[Ref, Set[K]];
+    ghost var inset: Map[Ref, Set[K]];
+    ghost var outset: Map[Ref, Map[Ref, Set[K]]];
+
+    unfold css(r, c);
+    fp, contents, inset, outset :| cssR(r, c, fp, contents, inset, outset);
+
+    unfold cssR(r, c, fp, contents, inset, outset);
+    unfold globalRes(r, c, fp, inset);
+
+    assert r in fp;
+    fold globalRes(r, c, fp, inset);
+    fold cssR(r, c, fp, contents, inset, outset);
+
+    fpInCss(r, r, c, fp, contents, inset, outset);
+
+    var n: Ref := traverse(r, r, k, c, fp, contents, inset, outset);
+    var succ: Bool;
+    var res1: Bool;
+    var c_n: Set[K];
+
+    cssInFp(r, n, c, fp, contents, inset, outset);
+    unfold cssR(r, c, fp, contents, inset, outset);
+    unfold nodePred(r, n, contents[n], inset[n], outset[n]);
+    succ, res1, c_n := Node.decisiveOp(dop, n, k, contents[n], inset[n], outset[n]);
+
+    if (succ) {
+      var c_1: Set[K];
+
+      unfold globalRes(r, c, fp, inset);
+      unfold opSpec(dop, k, contents[n], c_n, res1);
+      fold opSpec(dop, k, contents[n], c_n, res1);
+
+      c1 := keyset_theorem(r, dop, k, contents[n], c_n, c, res1, keyset(inset[n], outset[n]));
+
+      ghost var contents1: Map[Ref, Set[K]] := contents[n := c_n];
+
+      assert own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c1 )));
+
+      fold globalRes(r, c1, fp, inset);
+      fold nodePred(r, n, contents1[n], inset[n], outset[n]);
+      fold cssR(r, c1, fp, contents1, inset, outset);
+      assert cssR(r, c1, fp, contents1, inset, outset);
+      fold css(r, c1);
+
+      // assert false;
+
+      return res1, c1;
+    } else {
+      fold nodePred(r, n, contents[n], inset[n], outset[n]);
+      fold cssR(r, c, fp, contents, inset, outset);
+      assert cssR(r, c, fp, contents, inset, outset);
+      fold css(r, c);
+
+      var res2: Bool;
+      var c2: Set[K];
+      res2, c2 := cssOp(dop, r, k, c);
+
+      // assert false;
+      return res2, c2;
+    }
+
+  }
+
+}
+	

@@ -1,0 +1,479 @@
+include "../concurrent/lock/lock.rav"
+
+interface LCList {
+
+    field next: Ref
+    field lock: Int
+    field value: Int
+
+    module Ref_Type : Library.Type {
+        rep type T = Ref
+    }
+
+    module SetRefRA = Library.SetRA[Ref_Type]
+
+    module AuthSetRef = Library.Auth[SetRefRA]
+    ghost field authSet: AuthSetRef
+
+    pred inFP(r: Ref, n: Ref) {
+        own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+    }
+
+    pred cssR(r: Ref, fp: Set[Ref], locks: Map[Ref, Int], nexts: Map[Ref, Ref], vals: Map[Ref, Int]) {
+        (r in fp && null !in fp) &&
+        (own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(fp)))) &&
+        (forall n: Ref :: n in fp && nexts[n] != null ==> nexts[n] in fp) &&
+        (forall n: Ref :: n in fp ==> 
+            own(n.lock, locks[n], 1.0) 
+            && (locks[n] == 1 ? true : own(n.next, nexts[n], 1.0) && own(n.value, vals[n], 1.0)))
+    }
+
+    inv css(r: Ref) {
+        exists fp: Set[Ref], locks: Map[Ref, Int], nexts: Map[Ref, Ref], vals: Map[Ref, Int] :: 
+            cssR(r, fp, locks, nexts, vals)
+    }
+
+    // utils
+
+    lemma cssInFp(r: Ref, n:Ref, fp: Set[Ref], locks: Map[Ref, Int], nexts: Map[Ref, Ref], vals: Map[Ref, Int])
+        requires cssR(r, fp, locks, nexts, vals)
+        requires inFP(r, n)
+        ensures n in fp
+        ensures cssR(r, fp, locks, nexts, vals)
+        ensures inFP(r, n)
+    {
+        unfold cssR(r, fp, locks, nexts, vals);
+        unfold inFP(r, n);
+
+        fold cssR(r, fp, locks, nexts, vals);
+        fold inFP(r, n);
+    }
+
+    lemma fpInCss(r: Ref, n:Ref, fp: Set[Ref], locks: Map[Ref, Int], nexts: Map[Ref, Ref], vals: Map[Ref, Int])
+        requires cssR(r, fp, locks, nexts, vals)
+        requires n in fp
+        ensures inFP(r, n)
+        ensures cssR(r, fp, locks, nexts, vals)
+    {
+        unfold cssR(r, fp, locks, nexts, vals);
+
+        fpu(r, authSet, 
+            AuthSetRef.auth(SetRefRA.set_constr(fp)), 
+            AuthSetRef.auth_frag(SetRefRA.set_constr(fp), SetRefRA.set_constr(fp))
+        );
+
+        fold cssR(r, fp, locks, nexts, vals);
+        fold inFP(r, n);
+    }
+
+    // lock spec
+
+    proc lockNode(n: Ref, implicit ghost b: Int)
+        atomic requires own(n.lock, b, 1.0)
+        atomic ensures own(n.lock, 1, 1.0) && b == 0
+
+    proc unlockNode(n: Ref)
+        atomic requires own(n.lock, 1, 1.0)
+        atomic ensures own(n.lock, 0, 1.0)
+
+    proc lockNodeHigh(r: Ref, n: Ref)
+        returns (nx : Ref, v: Int)
+        requires inFP(r, n)
+        requires css(r)
+        ensures own(n.next, nx, 1.0) && own(n.value, v, 1.0)
+        ensures inFP(r, n)
+        ensures nx != null ==> inFP(r, nx)
+    {
+        ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
+        ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+
+        unfold css(r)[
+            fp0 := fp,
+            locks0 := locks,
+            nexts0 := nexts,
+            vals0 := vals
+        ];
+
+        cssInFp(r, n, fp0, locks0, nexts0, vals0);
+        unfold cssR(r, fp0, locks0, nexts0, vals0);
+
+        lockNode(n, locks0[n]);
+
+        fold cssR(r, fp0, locks0[n := 1], nexts0, vals0);
+
+        ghost var n0: Ref := nexts0[n];
+        ghost var v0: Int := vals0[n];
+
+        assert n0 != null ==> n0 in fp0;
+        {!
+            if (n0 != null) {
+                fpInCss(r, n0, fp0, locks0[n := 1], nexts0, vals0);
+            }
+        !}
+
+        fold css(r)[
+            fp := fp0,
+            locks := locks0[n := 1],
+            nexts := nexts0,
+            vals := vals0
+        ];
+
+        return n0, v0;
+    }
+
+    proc unlockNodeHigh(r: Ref, n: Ref, nx : Ref, v: Int)
+        requires inFP(r, n)
+        requires css(r)
+        requires own(n.next, nx, 1.0) && own(n.value, v, 1.0)
+        requires nx != null ==> inFP(r, nx)
+        ensures nx != null ==> inFP(r, nx)
+    {
+        ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
+        ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+
+        unfold css(r)[
+            fp0 := fp,
+            locks0 := locks,
+            nexts0 := nexts,
+            vals0 := vals
+        ];
+
+        cssInFp(r, n, fp0, locks0, nexts0, vals0);
+        {!
+            if (nx != null) {
+                cssInFp(r, nx, fp0, locks0, nexts0, vals0);
+            }
+        !}
+        unfold cssR(r, fp0, locks0, nexts0, vals0);
+
+        unlockNode(n);
+
+        fold cssR(r, fp0, locks0[n := 0], nexts0[n := nx], vals0[n := v]);
+        fold css(r)[
+            fp := fp0,
+            locks := locks0[n := 0],
+            nexts := nexts0[n := nx],
+            vals := vals0[n := v]
+        ];
+    }
+
+    // algorithm
+
+    proc create() 
+        returns (r: Ref)
+        ensures css(r)
+    {
+        r := new(
+            next: null, 
+            lock: 0, 
+            value: 0, 
+            authSet:AuthSetRef.auth(SetRefRA.set_constr({|r|}))
+        );
+
+        ghost var fp: Set[Ref] := {|r|};
+        ghost var locks: Map[Ref, Int] := {| l: Ref :: 0 |};
+        ghost var nexts: Map[Ref, Ref] := {| l: Ref :: null |};
+        ghost var vals: Map[Ref, Int] := {| l: Ref :: 0 |};
+
+        fold cssR(r, fp, locks, nexts, vals);
+        assert cssR(r, fp, locks, nexts, vals);
+        fold css(r);
+    }
+
+    proc traverse(r: Ref, p: Ref, c: Ref, k: Int, implicit ghost vp: Int)
+        returns (n1: Ref, n2: Ref, implicit ghost vn1: Int, 
+            implicit ghost vn2: Int, implicit ghost n3: Ref)
+        requires css(r)
+        requires inFP(r, p)
+        requires own(p.next, c, 1.0) && own(p.value, vp, 1.0)
+        requires c != null && inFP(r, c)
+        ensures inFP(r, n1) 
+        ensures own(n1.next, n2, 1.0) && own(n1.value, vn1, 1.0)
+        ensures n2 != null ==> inFP(r, n2)
+        ensures n2 != null ==> own(n2.next, n3, 1.0) && own(n2.value, vn2, 1.0)
+        ensures n3 != null ==> inFP(r, n3)
+    {
+
+        var cn: Ref; var vc: Int;
+        cn, vc := lockNodeHigh(r, c);
+
+        vc := c.value;
+        cn := c.next;
+        
+        if (k <= vc) {
+            return (p, c, vp, vc, cn);
+        } else {
+
+            unlockNodeHigh(r, p, c, vp);
+
+            if (cn == null) {
+                return (c, cn, vc, 0, null);
+            } else {
+
+                var n1: Ref; var n2: Ref; 
+                ghost var vn1: Int; ghost var vn2: Int; ghost var n3: Ref;
+                n1, n2, vn1, vn2, n3 := traverse(r, c, cn, k, vc);
+                return (n1, n2, vn1, vn2, n3);
+            }
+        }
+    }
+
+    proc find(r: Ref, k: Int)
+        returns (p: Ref, c: Ref, vp: Int, vc: Int, cn: Ref)
+        requires css(r)
+        ensures inFP(r, p) 
+        ensures own(p.next, c, 1.0) && own(p.value, vp, 1.0) 
+        ensures c != null ==> inFP(r, c)
+        ensures c != null ==> own(c.next, cn, 1.0) && own(c.value, vc, 1.0)
+        ensures cn != null ==> inFP(r, cn)
+    {
+        {!
+            ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
+            ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+
+            unfold css(r)[
+                fp0 := fp,
+                locks0 := locks,
+                nexts0 := nexts,
+                vals0 := vals
+            ];
+
+            unfold cssR(r, fp0, locks0, nexts0, vals0);
+            assert r in fp0;
+            fold cssR(r, fp0, locks0, nexts0, vals0);
+
+            fpInCss(r, r, fp0, locks0, nexts0, vals0);
+
+            fold css(r)[
+                fp := fp0,
+                locks := locks0,
+                nexts := nexts0,
+                vals := vals0
+            ];
+        !}
+
+        ghost var n: Ref; ghost var v: Int;
+        n, v := lockNodeHigh(r, r);
+
+        if (n == null) {
+            ghost var vr: Int := r.value;
+            return r, n, vr, 0, n;
+        } else {
+            p, c, vp, vc, cn := traverse(r, r, n, k);
+            return p, c, vp, vc, cn;
+        }
+    }
+
+    proc search(r: Ref, k: Int)
+        returns (res: Bool)
+        requires css(r)
+        ensures true
+    {
+        var p: Ref; var c: Ref; 
+        ghost var vp: Int; ghost var vc: Int; ghost var cn: Ref;
+        p, c, vp, vc, cn := find(r, k);
+
+        if (c == null) {
+
+            unlockNodeHigh(r, p, c, vp);
+
+            return false;
+        } else {
+            var v: Int := c.value;
+
+            unlockNodeHigh(r, p, c, vp);
+            unlockNodeHigh(r, c, cn, vc);
+
+            return (v == k);
+        }
+    }
+
+    proc insert(r: Ref, k: Int)
+        returns (res: Bool)
+        requires css(r)
+        ensures true
+    {
+        var p: Ref; var c: Ref; 
+        ghost var vp: Int; ghost var vc: Int; ghost var cn: Ref;
+        p, c, vp, vc, cn := find(r, k);
+
+        if (c == null) {
+            var new_node: Ref;
+            new_node := new(next: null, value: k, lock: 0);
+            p.next := new_node;
+
+            {!
+
+                ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
+                ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+
+                unfold css(r)[
+                    fp0 := fp,
+                    locks0 := locks,
+                    nexts0 := nexts,
+                    vals0 := vals
+                ];
+
+                unfold cssR(r, fp0, locks0, nexts0, vals0);
+                
+                assert new_node !in fp0;
+
+                ghost var fp1: Set[Ref] := fp0 ++ {| new_node |};
+                ghost var locks1: Map[Ref, Int] := locks0[new_node := 0];
+                ghost var nexts1: Map[Ref, Ref] := nexts0[new_node := null];
+                ghost var vals1: Map[Ref, Int] := vals0[new_node := k];
+
+                fpu(r, authSet,
+                    AuthSetRef.auth(SetRefRA.set_constr(fp0)),
+                    AuthSetRef.auth_frag(
+                        SetRefRA.set_constr(fp1),
+                        SetRefRA.set_constr({| new_node |})
+                    )
+                );
+
+                fold cssR(r, fp1, locks1, nexts1, vals1);
+
+                fpInCss(r, new_node, fp1, locks1, nexts1, vals1);
+
+                fold css(r)[
+                    fp := fp1,
+                    locks := locks1,
+                    nexts := nexts1,
+                    vals := vals1
+                ];
+                
+            !}
+
+            unlockNodeHigh(r, p, new_node, vp);
+
+            return true;
+        } else {
+            var v: Int := c.value;
+            if (v == k) {
+
+                unlockNodeHigh(r, p, c, vp);
+                unlockNodeHigh(r, c, cn, vc);
+
+                return false;
+            } else {
+                var new_node: Ref;
+                new_node := new(next: c, value: k, lock: 0);
+                p.next := new_node;
+
+                {!
+
+                    ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
+                    ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+
+                    unfold css(r)[
+                        fp0 := fp,
+                        locks0 := locks,
+                        nexts0 := nexts,
+                        vals0 := vals
+                    ];
+
+                    cssInFp(r, c, fp0, locks0, nexts0, vals0);
+                    unfold cssR(r, fp0, locks0, nexts0, vals0);
+
+                    ghost var fp1: Set[Ref] := fp0 ++ {| new_node |};
+                    ghost var locks1: Map[Ref, Int] := locks0[new_node := 0];
+                    ghost var nexts1: Map[Ref, Ref] := nexts0[new_node := c];
+                    ghost var vals1: Map[Ref, Int] := vals0[new_node := k];
+
+                    fpu(r, authSet,
+                        AuthSetRef.auth(SetRefRA.set_constr(fp0)),
+                        AuthSetRef.auth_frag(
+                            SetRefRA.set_constr(fp1),
+                            SetRefRA.set_constr({| new_node |})
+                        )
+                    );
+
+                    fold cssR(r, fp1, locks1, nexts1, vals1);
+
+                    fpInCss(r, new_node, fp1, locks1, nexts1, vals1);
+
+                    fold css(r)[
+                        fp := fp1,
+                        locks := locks1,
+                        nexts := nexts1,
+                        vals := vals1
+                    ];
+                    
+                !}
+
+                unlockNodeHigh(r, p, new_node, vp);
+                unlockNodeHigh(r, c, cn, vc);
+
+                return true;
+            }
+        }
+    }
+
+    proc delete(r: Ref, k: Int)
+        returns (res: Bool)
+        requires css(r)
+        ensures true
+    {
+        var p: Ref; var c: Ref; 
+        ghost var vp: Int; ghost var vc: Int; ghost var cn: Ref;
+        p, c, vp, vc, cn := find(r, k);
+
+        if (c == null) {
+            unlockNodeHigh(r, p, c, vp);
+            return false;
+        } else {
+
+            var v: Int := c.value;
+            if (v != k) {
+                unlockNodeHigh(r, p, c, vp);
+                unlockNodeHigh(r, c, cn, vc);
+
+                return false;
+            } else {
+
+                p.next := cn;
+
+                {!
+
+                    ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
+                    ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+
+                    unfold css(r)[
+                        fp0 := fp,
+                        locks0 := locks,
+                        nexts0 := nexts,
+                        vals0 := vals
+                    ];
+
+                    if (cn != null) {
+                        cssInFp(r, cn, fp0, locks0, nexts0, vals0);
+                    }
+
+                    unfold cssR(r, fp0, locks0, nexts0, vals0);
+
+                    ghost var fp1: Set[Ref] := fp0;
+                    ghost var locks1: Map[Ref, Int] := locks0;
+                    ghost var nexts1: Map[Ref, Ref] := nexts0[p := cn];
+                    ghost var vals1: Map[Ref, Int] := vals0;
+
+                    fold cssR(r, fp1, locks1, nexts1, vals1);
+
+                    fold css(r)[
+                        fp := fp1,
+                        locks := locks1,
+                        nexts := nexts1,
+                        vals := vals1
+                    ];
+                    
+                !}
+
+                unlockNodeHigh(r, p, cn, vp);
+                unlockNodeHigh(r, c, cn, vc);
+
+                return true;
+            }
+        }
+
+
+    }
+}

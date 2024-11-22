@@ -1,0 +1,14 @@
+func sum(n: Int) returns (res: Int)
+  ensures res >= n
+{
+  n <= 0 ? 0 : n + sum(n-1)
+}
+
+/* The following verifies, as it should. */
+lemma sum_contract(n: Int)
+  ensures sum(n) >= n
+{
+  if (n > 0) {
+    sum_contract(n-1);
+  }
+}

@@ -1,0 +1,8 @@
+field f: Int
+
+proc p(x: Ref)
+  requires own(x.f, 5, 1.0)
+{
+  ghost var v: Int;
+  v :| own(x.f, v, 0.5);
+}

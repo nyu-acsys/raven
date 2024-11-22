@@ -1,0 +1,21 @@
+interface ShareablePredicate {
+    pred p();
+
+    pred p_chunk(x: Ref, f: Real);
+
+    proc allocate(x: Ref)
+        ensures p_chunk(x, 1.0)
+
+    proc deallocate(x: Ref)
+        requires p_chunk(x, 1.0)
+        ensures true
+    
+    axiom split(x: Ref, f: Real)
+        requires p_chunk(x, f)
+        ensures p_chunk(x, f / 2.0) && p_chunk(x, f / 2.0)
+
+    axiom merge(x: Ref, f1: Real, f2: Real)
+        requires p_chunk(x, f1) && p_chunk(x, f2)
+        requires f1+f2 <= 1.0
+        ensures p_chunk(x, f1+f2)
+}

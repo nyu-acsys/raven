@@ -1,0 +1,29 @@
+interface A {
+  type T
+}
+
+interface B {
+  module A1 : A
+
+  proc p1(x: A1.T) {
+    
+  }
+}
+
+interface C {
+  module A2 : A
+  proc p2(x: A2.T)
+}
+
+interface D[B1: B] : C {
+  module A2 = B1.A1
+
+
+  proc p2(x: A2.T) {
+    B1.p1(x);
+  }
+
+  // proc p2(x: B1.A1.T) {
+  //   B1.p1(x);
+  // }
+}

@@ -1,0 +1,14 @@
+field f: Int
+field g: Library.Nat
+
+proc p() {
+    var x: Ref;
+    x := new(f: 1, g: 1);
+    x := new(g: 1);
+
+    inhale own(x.f, 1, 1.0);
+    inhale own(x.g, 1);
+
+    exhale own(x.f, 1, 1.0);
+    exhale own(x.g, 1);
+}

@@ -1,0 +1,30 @@
+field f: Int
+
+inv inv1(x: Ref, v: Int) {
+  own(x.f, v, 1.0)
+}
+
+inv inv2(x: Ref, v: Int) {
+  inv1(x, v)
+}
+
+
+proc q(x: Ref, v: Int) 
+  requires inv1(x, v)
+  requires own(x.f, v, 1.0)
+  ensures false
+{
+  unfold inv1(x, v);
+  fold inv1(x, v);
+}
+
+proc p(x: Ref, v: Int) 
+  requires inv2(x, v)
+  ensures false
+{
+  unfold inv2(x,v);
+  fold inv2(x,v);
+  unfold inv1(x,v);
+  q(x, v);
+  fold inv1(x,v);
+}

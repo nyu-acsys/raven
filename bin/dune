@@ -1,4 +1,22 @@
 (executable
-  (name raven)
-  (libraries base config util ast frontend)
-  (preprocess (pps ppx_custom_printf)))
+ (name raven)
+ (public_name raven)
+ (libraries
+  base
+  cmdliner
+  fmt
+  fmt.cli
+  fmt.tty
+  logs
+  logs.cli
+  logs.fmt
+  config
+  util
+  ast
+  frontend
+  rewrites
+  backend
+  library)
+ (preprocess
+  (pps ppx_custom_printf))
+ (modes byte exe))

@@ -1,0 +1,65 @@
+include "lock.rav"
+
+module SpinLock[R: LockResource] {
+  field bit: Bool
+
+  import R.resource
+  
+  module Agree = Library.Agree[R]
+  ghost field agr: Agree
+
+  pred is_lock(l: Ref; r: R, b: Bool) {
+    own(l, agr, Agree.agree(r)) 
+    && own(l, bit, b, 1.0)
+    && (b ? true : resource(r))
+  }
+
+  proc create(r: R)
+    returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r, false)
+  {
+    l := new (bit: false, agr: Agree.agree(r));
+    fold is_lock(l, r, false);
+  }
+
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
+    atomic requires is_lock(l, r, b)
+    atomic ensures is_lock(l, r, true) && b == false && resource(r)
+  {
+    ghost val phi: AtomicToken = bindAU();
+        
+    ghost var b1: Bool;
+    r, b1 := openAU(phi); unfold is_lock(l, r, b1);
+
+    val res: Bool := cas(l.bit, false, true);
+    {!
+      fold is_lock(l, r, true);
+      if (res) {
+        commitAU(phi);
+      } else {
+        abortAU(phi);
+      }
+    !}
+
+    if (res) {
+      return;
+    }
+
+    r, b1 := openAU(phi);
+    acquire(l, r, b1);
+    commitAU(phi);
+  }
+  
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, false)
+  {
+    ghost val phi: AtomicToken = bindAU();  
+    r := openAU(phi);
+    unfold is_lock(l, r, true);
+    l.bit := false;
+    fold is_lock(l, r, false);
+    commitAU(phi);
+  }
+}

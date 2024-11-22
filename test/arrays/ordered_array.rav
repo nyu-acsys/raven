@@ -1,0 +1,241 @@
+include "array.rav"
+
+interface OrderedArray[E: Library.OrderedType] : Array {
+  import E.lt
+
+  func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
+  {
+    forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
+  }
+
+  pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E])
+  {
+    0 <= len <= length(a) && arr(a, m) && sorted_map_seg(m, 0, len)
+  }
+
+  auto lemma sorted_injective()
+    ensures forall m: Map[Int, E], i: Int, j: Int :: {sorted_map_seg(m, i, j)}
+       sorted_map_seg(m, i, j) ==> injective(m, i, j)
+  { }
+
+  func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
+    /*ensures 
+      i <= j && sorted_map_seg(m, i, j) ==>
+        i <= idx <= j &&
+        (m[idx] == k || idx == j || lt(k, m[idx])) &&
+        (i < idx ==> lt(m[idx - 1], k))*/
+  {
+    i < j && lt(m[i], k) ? map_find(m, i + 1, j, k) : i  
+  }
+
+  lemma map_find_spec(m: Map[Int, E], i: Int, j: Int, k: E)
+    ensures i <= j && sorted_map_seg(m, i, j) ==>
+        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
+        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
+        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
+  {
+    if (i < j && sorted_map_seg(m, i, j)) {
+      map_find_spec(m, i+1, j, k);
+    }
+  }
+
+  auto lemma map_find_spec_auto()
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
+        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
+        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
+        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
+  {
+    assert forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
+        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
+        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
+        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k)) with {
+      map_find_spec(m, i, j, k);
+    }
+  }
+
+  auto lemma map_find_content_set()
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {sorted_map_seg(m, i, j), map_find(m, i, j, k)}
+      i <= j && sorted_map_seg(m, i, j) ==> 
+        k !in set_of_map(m, i, map_find(m, i, j, k)) &&
+        k !in set_of_map(m, map_find(m, i, j, k) + 1, j)
+  { }
+
+  lemma map_insert_content_set(m: Map[Int, E], m1: Map[Int, E], idx: Int, k: E, len: Int, new_len: Int)
+    requires sorted_map_seg(m, 0, len)
+    //requires injective(m, 0, len)
+    requires idx == map_find(m, 0, len, k)
+    requires 0 <= idx <= len
+    requires k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
+    requires k !in set_of_map(m, 0, len) ==> new_len == len + 1 && m1 == map_shift(m, idx, idx + 1, len - idx)[idx := k]
+    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) ++ {| k |}
+  {
+    if (m[idx] == k && idx < len) {
+      //in_set_of_map(m, 0, len);
+      return;
+    }
+    var ms: Map[Int, E] := map_shift(m, idx, idx + 1, len - idx);
+
+    // prove set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
+    set_of_map_split(m, 0, idx, len);
+    set_of_map_equal(m, ms, 0, 0, idx);
+    set_of_map_equal(m, ms, idx, idx + 1, len - idx);
+    assert set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
+    // prove set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1)
+    inverse_update();
+    frame_set_of_map(ms, 0, idx);
+    frame_set_of_map(ms, idx + 1, len + 1); 
+    set_of_map_split(m1, 0, idx, len + 1);
+    assert set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1);
+  }
+
+  lemma map_delete_content_set(m: Map[Int, E], len: Int, idx: Int, k: E)
+    requires sorted_map_seg(m, 0, len)
+    requires idx == map_find(m, 0, len, k)
+    requires 0 <= idx <= len
+    //requires k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
+    //requires k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
+    ensures set_of_map((k in set_of_map(m, 0, len) ? map_shift(m, idx + 1, idx, len - (idx + 1)) : m), 0, 
+                       (k in set_of_map(m, 0, len) ? len - 1 : len)) == set_of_map(m, 0, len) -- {|k|}
+  {
+    //map_find_content_set(m, 0, len, idx, k);
+    //set_of_map_split(m, 0, idx, len);
+    
+    if (idx == len || m[idx] != k) {
+      return;
+    }
+    val m1: Map[Int, E] = map_shift(m, idx + 1, idx, len - (idx + 1));
+    // prove: set_of_map(m, 0, len) -- {k} == set_of_map(m1, 0, idx - 1) ++ set_of_map(m1, idx - 1, len - 1)
+    set_of_map_equal(m, m1, 0, 0, idx);
+    set_of_map_equal(m, m1, idx + 1, idx, len - (idx + 1));
+
+    //not_in_sorted_seg(m, 0, idx - 1, k);
+    //not_in_sorted_seg(m, idx + 1, len, k);
+  
+    set_of_map_split(m1, 0, idx, len - 1);
+  }
+
+  // Find key `k` in sorted array segment `a[0..len]` using binary search
+  proc arr_find(a: T, len: Int, k: E, implicit ghost m: Map[Int, E])
+    returns (found: Bool, idx: Int)
+    requires sorted_array_with_content(a, len, m)
+    requires 0 <= len <= length(a)
+    ensures sorted_array_with_content(a, len, m)
+    // what we actually care about
+    ensures idx == map_find(m, 0, len, k)
+    ensures found == (k in set_of_map(m, 0, len))
+  {
+    var lo: Int := 0;
+    var hi: Int := len;
+    
+    while (hi != lo)
+      invariant sorted_array_with_content(a, len, m)
+      // what we actually care about
+      invariant 0 <= lo <= hi <= len <= length(a)
+      invariant hi == len || m[lo] == k || lt(k, m[hi])
+      invariant 0 < lo ==> lt(m[lo - 1], k)
+      invariant hi < len - 1 ==> lt(k, m[hi + 1])
+    {
+      unfold sorted_array_with_content(a, len, m);
+      unfold arr(a, m);
+      var mid: Int := (hi + lo) / 2;
+      var amid: E := loc(a, mid).value;
+      var cmp: Int := E.compare(k, amid);
+      if (cmp < 0) {
+        hi := mid;      // look in first half
+      } else if (cmp > 0) {
+        lo := mid + 1;    // look in second half
+      } else {
+        // found it
+        hi := mid;
+        lo := mid;
+      }
+      fold arr(a, m);
+      fold sorted_array_with_content(a, len, m);
+    }
+    
+    idx := lo;
+    
+    if (idx == len) {
+      found := false;
+    } else {
+      unfold sorted_array_with_content(a, len, m);
+      unfold arr(a, m);
+      var alo: E := loc(a, lo).value;
+      found := !lt(k, alo);
+      fold arr(a, m);
+      fold sorted_array_with_content(a, len, m);
+    }
+
+    unfold sorted_array_with_content(a, len, m);
+    //map_find_in_set(m, 0, len, k);
+    fold sorted_array_with_content(a, len, m);
+  }
+
+  // Given a sorted array segment `a[0..len]`,
+  // insert `k` into `a[0..len+1]` while preserving sortedness.
+  // If `k` is already contained in `a[0..len]`, then do not modify `a`.
+  proc arr_insert(a: T, k: E, len: Int, implicit ghost m: Map[Int, E])
+    returns (idx: Int, new_len: Int, implicit ghost m1: Map[Int, E])
+    requires sorted_array_with_content(a, len, m)
+    requires 0 <= len < length(a)
+    ensures sorted_array_with_content(a, new_len, m1)
+    ensures idx == map_find(m, 0, len, k)
+    ensures k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
+    ensures k !in set_of_map(m, 0, len) ==> new_len == len + 1 && m1 == map_shift(m, idx, idx + 1, len - idx)[idx := k]
+  {
+    // find position for insertion
+    var i: Int;
+    var found: Bool;
+    found, i := arr_find(a, len, k, m);
+
+    unfold sorted_array_with_content(a, len, m);
+    fold sorted_array_with_content(a, len, m);
+    
+    // k already in C?
+    if (found) return i, len, m;
+    
+    unfold sorted_array_with_content(a, len, m);
+    arr_shift(a, i, i + 1, len - i, m);
+
+    unfold arr(a, map_shift(m, i, i + 1, len - i));
+    loc(a, i).value := k;
+    m1 := map_shift(m, i, i + 1, len - i)[i := k];
+    fold arr(a, m1);
+    fold sorted_array_with_content(a, len + 1, m1);
+
+    return i, len + 1, m1;
+  }
+
+  // Given a sorted array segment `a[0..len]`,
+  // delete `k` from the segment while preserving sortedness.
+  // If `k` is already contained in `a[0..len]`, then do not modify `a`.
+  proc arr_delete(a: T, k: E, len: Int, implicit ghost m: Map[Int, E])
+    returns (new_len: Int, idx: Int, implicit ghost m1: Map[Int, E])
+    requires 0 <= len <= length(a)
+    requires sorted_array_with_content(a, len, m)
+    ensures sorted_array_with_content(a, new_len, m1)
+    ensures idx == map_find(m, 0, len, k)
+    ensures k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
+    ensures k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
+  {
+    // find position for insertion
+    var found: Bool;
+    found, idx := arr_find(a, len, k, m);
+
+    unfold sorted_array_with_content(a, len, m);
+    fold sorted_array_with_content(a, len, m);
+    
+    // k !in C?
+    if (!found) {
+      return len, idx, m;
+    }
+    
+    // shift array entries a[i+1..len] by 1 entry to the left 
+    unfold sorted_array_with_content(a, len, m);
+    arr_shift(a, idx + 1, idx, len - (idx + 1), m);
+    m1 := map_shift(m, idx + 1, idx, len - (idx + 1));
+    fold sorted_array_with_content(a, len - 1, m1);
+    return len - 1, idx, m1;
+  }
+
+}

@@ -1,0 +1,4 @@
+proc p() {
+    var x: Map[Int, Map[Int, Int]];
+    var y: Int := x[1][2];
+}

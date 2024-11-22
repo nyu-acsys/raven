@@ -1,0 +1,92 @@
+include "lock.rav"
+
+interface MCSLock : Lock {
+  field tail: Ref
+  field head: Ref
+
+  field locked: Ref
+  field next: Ref
+
+  module IntType : Library.Type {
+    rep type T = Int
+  }
+
+  module IntSet = Library.DisjSet[IntType]
+  module ADS = Library.Auth[IntSet]
+
+  ghost field tickets: ADS
+
+  pred lock_rep(l: Ref; b: Bool) {
+    exists t: Ref ::
+      true
+      && (b ==> t != null)
+      && (t == null ? true : exists n: Ref :: waiting_loc_inv(n) && own(t.succ, n, 0.5))
+      && own(l.tail, t, 1.0) 
+  }
+
+  proc create(r: R)
+    returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r, false)
+  {
+    l := new (tail: null, agr: Agree.agree(r));
+    fold lock_rep(l, false);
+    fold is_lock(l, r, false);
+  }
+
+  proc wait_on(n: Ref, ghost l: Ref, implicit ghost: r: R, implicit ghost: b: Bool)
+  {
+    val lk: Bool := n.locked;
+    if (lk) {
+      wait_on(n, l);
+    } else {
+      l.head := n;
+    }
+  }
+
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
+    atomic requires is_lock(l, r, b)
+    atomic ensures is_lock(l, r, true) && b == false && resource(r) 
+  {
+    val n: Ref := new (locked: true, next: null);
+    val p: Ref := xchg(l.tail, n);
+    
+    if (p != null) {
+      p.succ := n; // needs own(p.succ, 1.0, v)
+      wait_on(n, l);
+    }
+  }
+
+  proc wait_for_succ(n: Ref, l: Ref, implicit ghost r: R) 
+  {
+    val s := n.next;
+    if (s == null) {
+      wait_for_succ(n, l);
+    }
+  }
+
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r, true) && resource(r)
+    atomic ensures is_lock(l, r, false)
+  {
+    val n: Ref := l.head;
+    var s: Ref := n.next;
+
+    var free : Bool := false;
+    if (s == null) {
+      val res: Bool := cas(l.tail, n, null);
+      if (res) {
+        free := true;
+      } else {
+        wait_for_succ(n, l);
+        free := false;
+      }
+    }
+
+    if (!free) {
+      s := n.next;
+      l.head := n;
+      s.locked := true;
+    }
+  }
+}

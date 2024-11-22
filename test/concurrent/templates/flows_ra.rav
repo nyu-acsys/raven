@@ -1,0 +1,230 @@
+include "./ccm.rav"
+
+import Library.Type
+import Library.CancellativeResourceAlgebra
+
+module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
+  rep type T = data {
+    case int(inf: Map[Ref, M], out: Map[Ref, M], dom: Set[Ref])
+    case top
+  }
+
+  /* The "all-zero" flow map */
+  val zeroFlow: Map[Ref, M] = {| n: Ref :: M.id |}
+
+   
+  /* The empty flow interface */
+  val id: T = int(zeroFlow, zeroFlow, {||})
+
+  func valid(i: T) 
+    returns (ret: Bool)
+  {
+    // not undefined
+    i != top
+    // Inflow and outflow properly defined
+    && (forall n: Ref :: {i.inf[n]} i.inf[n] != M.id ==> n in i.dom)
+    && (forall n: Ref :: {i.out[n]} i.out[n] != M.id ==> n !in i.dom)
+    // Inflow and outflow are valid
+    && (forall n: Ref :: {i.inf[n]} n in i.dom ==> M.valid(i.inf[n]))
+    && (forall n: Ref :: {i.out[n]} n !in i.dom ==> M.valid(i.out[n]))
+    // Empty domain ==> no outflow
+    && (i.dom == {||} ==> i.out == zeroFlow)
+  }
+
+  // Condition ensuring that two flow interfaces compose
+  func composable(i1: T, i2: T) 
+    returns (ret: Bool)
+  {
+    valid(i1) && valid(i2) && i1.dom ** i2.dom == {||}
+    // && (forall n: Ref :: n in i1.dom ==> i1.inf[n] == M.comp(i2.out[n], M.frame(i1.inf[n], i2.out[n])))
+    // && (forall n: Ref :: n in i2.dom ==> i2.inf[n] == M.comp(i1.out[n], M.frame(i2.inf[n], i1.out[n])))
+    && (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> M.valid(M.frame(i1.inf[n], i2.out[n])))
+    && (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i2.dom ==> M.valid(M.frame(i2.inf[n], i1.out[n])))
+  }
+
+  // Interface composition
+  func comp(i1: T, i2: T) returns (i: T)
+  {
+    composable(i1, i2) ?
+      int({| n: Ref :: n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) :
+             (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) : M.id) |},
+          {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
+          i1.dom ++ i2.dom) :
+      (i1 == id ? i2 : (i2 == id ? i1 : top))
+  }
+
+  // Folds definition of interface composition, avoiding M.frame
+  lemma compFold(i1: T, i2: T, i: T)
+    requires i != top
+    requires i.dom == i1.dom ++ i2.dom
+    requires i1.dom ** i2.dom == {||}
+    requires valid(i1) && valid(i2)
+    requires forall n: Ref :: {i.inf[n]} n in i.dom ==> M.valid(i.inf[n])
+    requires forall n: Ref :: {i1.inf[n]} {i.inf[n]} {i2.out[n]} n in i1.dom ==> i1.inf[n] == M.comp(i.inf[n], i2.out[n])
+    requires forall n: Ref :: {i.inf[n]} {i2.out[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(i.inf[n], i1.out[n])
+    requires forall n: Ref :: {i.inf[n]} n !in i.dom ==> i.inf[n] == M.id
+    requires forall n: Ref :: {i.out[n]} n !in i.dom ==> i.out[n] == M.comp(i1.out[n], i2.out[n])
+    requires forall n: Ref :: {i.out[n]} n in i.dom ==> i.out[n] == M.id
+    ensures comp(i1, i2) == i 
+  {
+    assert i == int({| n: Ref :: 
+                        n in i1.dom ? M.frame(i1.inf[n], i2.out[n]) : 
+                        (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) :
+                          M.id) |},
+                    {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
+                    i1.dom ++ i2.dom);
+  }
+
+  lemma compUnfold(i1: T, i2: T)
+    requires valid(comp(i1, i2))
+    ensures comp(i1, i2).dom == i1.dom ++ i2.dom
+    ensures i1.dom ** i2.dom == {||} 
+    ensures valid(i1) && valid(i2)
+    ensures forall n: Ref :: {i1.inf[n]} {i2.out[n]} n in i1.dom ==> i1.inf[n] == M.comp(comp(i1, i2).inf[n], i2.out[n])
+    ensures forall n: Ref :: {i2.inf[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
+    ensures forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
+  { }
+  
+  //auto lemma compValid()
+  //  ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
+  //{ }
+
+  // There are no non-trivial inverses
+  auto lemma compPositive()
+    ensures forall i1: T, i2: T :: {comp(i1, i2)} comp(i1, i2) == id ==> i1 == id && i2 == id
+  { }
+
+
+  /*lemma compAssocInvalid(i1: T, i2: T, i3: T)
+    requires !(valid(comp(i1, comp(i2, i3))))
+    requires !(valid(comp(comp(i1, i2), i3)))
+    ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
+  {
+    val i23: T := comp(i2, i3);
+    val i1_23: T := comp(i1, i23);
+    val i12: T := comp(i1, i2);
+    val i12_3: T := comp(i12, i3);
+  
+    //lemma_int_composable(I1, I23);
+    assert !(composable(i1, i23));
+ 
+    //lemma_int_composable(I12, I3);
+    assert !(composable(i12, i3));
+
+    if (i1 == id) {
+    } else if (i2 == id) {
+    } else if (i3 == id) {
+    } else if (i23 == id) {
+      //compPositive(i2, i3);
+    } else if (i12 == id) {
+      //compPositive(i1, i2);
+    } 
+  }*/
+
+
+  // Auxiliary lemma to prove that interface composition is associative
+  lemma compAssocValid(i1: T, i2: T, i3: T)
+    requires valid(comp(i1, comp(i2, i3)))
+    ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
+  {
+    val i23: T := comp(i2, i3);
+    val i: T := comp(i1, i23);
+  
+    val i12: T := int({| n: Ref :: n in i1.dom ++ i2.dom ? M.comp(i.inf[n], i3.out[n]) : M.id |},
+                      {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
+                      i1.dom ++ i2.dom);
+  
+    //compUnfold(i1, i23);
+    //compUnfold(i2, i3);
+
+    compFold(i1, i2, i12);
+    
+    compValid();
+   
+    compFold(i12, i3, i);
+  }
+
+  auto lemma compAssoc()
+        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+  {
+    assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
+      if (valid(comp(i1, comp(i2, i3)))) {
+        compAssocValid(i1, i2, i3);
+      } else if (valid(comp(comp(i1, i2), i3))) {
+        compAssocValid(i3, i2, i1);
+      }
+    }
+  }
+
+  // Interface frame
+  func frame(i1: T, i2: T) returns (i: T)
+  {
+    i2 == id ? i1 :
+    (valid(i1) && valid(i2) && i2.dom subseteq i1.dom?
+      int({| n: Ref :: 
+        n in i1.dom && n !in i2.dom ?
+          M.comp(i1.inf[n], i2.out[n]) :
+          M.id
+      |},
+      {| n: Ref :: 
+        n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : 
+          (n in i1.dom ? M.id : M.frame(i1.out[n], i2.out[n])) |},
+      i1.dom -- i2.dom) :
+      top)
+  }
+  
+  func contextualExt(i1: T, i2: T) returns (ret: Bool) {
+    valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
+    (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
+    (forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in i2.dom ==> i1.out[n] == i2.out[n])
+  }
+
+  func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
+  {
+    i1 == i2 
+    // contextualExt(i1, i2) 
+  }
+  
+  lemma replacement_theorem(i1: T, i2: T, j1: T)
+    requires valid(comp(i1, i2))
+    requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}
+    requires forall n: Ref :: {i2.out[n]} n in j1.dom -- i1.dom ==> i2.out[n] == M.id
+    ensures comp(j1, i2) != top
+    ensures contextualExt(comp(i1, i2), comp(j1, i2))
+  {
+    var i: T := comp(i1, i2);
+    var j: T := int(
+      {| n: Ref :: n in i.dom ?
+        (n in i1.dom ? M.comp(i.inf[n], M.frame(j1.inf[n], i1.inf[n]))
+          : i.inf[n]) : j1.inf[n] |},
+      {| n: Ref :: n !in j1.dom && n !in i2.dom ?
+        M.comp(j1.out[n], i2.out[n]) : M.id |},
+      j1.dom ++ i2.dom);
+
+    compUnfold(i1, i2);
+
+    assert forall n: Ref :: {j1.inf[n]} {i2.out[n]} n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
+      if (n in i1.dom) {
+        M.frameInv();
+      } 
+    }
+    //compAssoc();
+    compValid();
+    
+    /*assert forall n: Ref :: {j.inf[n]} n !in j.dom ==> j.inf[n] == M.id with {
+      if (n !in j.dom) {
+        assert n !in i1.dom && n !in i2.dom;
+      }
+    }*/
+    
+    compFold(j1, i2, j);
+  }
+
+  lemma frame_inflow_unfold(i1: T, i2: T, n: Ref) 
+    requires valid(frame(i1, i2))
+    requires n in i2.dom
+    ensures M.valid(M.frame(i2.inf[n], i1.inf[n]))
+  { 
+    assert frame(i1, i2).out[n] == M.frame(i2.inf[n], i1.inf[n]);
+  }
+}

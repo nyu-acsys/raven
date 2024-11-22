@@ -1,0 +1,17 @@
+pred p(i1: Int, i2: Int, b: Bool) {
+    true
+}
+
+pred q(i1: Int) {
+    exists i2: Int, b: Bool :: p(i1, i2, b)
+}
+
+proc pr() {
+    inhale q(5);
+
+    ghost var i2: Int; ghost var b_sk: Bool;
+    unfold q(5)[
+        i2 := i2, 
+        b_sk := b
+    ];
+}

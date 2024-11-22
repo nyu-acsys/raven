@@ -1,0 +1,7 @@
+(cram
+ (deps
+  %{project_root}/bin/raven.exe
+  %{project_root}/lib/library/base_types.rav
+  %{project_root}/lib/library/resource_algebra.rav
+  (:rav
+   (glob_files_rec *.rav))))

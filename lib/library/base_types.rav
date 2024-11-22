@@ -1,0 +1,52 @@
+interface Type {
+  rep type T
+}
+
+module Option[E: Type] : Type {
+  rep type T = data {
+    case none
+    case some(value: E)
+  }
+}
+
+module List[E: Type] : Type {
+  rep type T = data {
+    case nil
+    case cons(head: E, tail: T) 
+  }
+}
+
+// An ordered type
+interface OrderedType : Type {
+    
+  func lt(x: T, y: T) returns (res: Bool)
+
+  func le(x: T, y: T) returns (res: Bool) {
+    lt(x, y) || x == y
+  }
+
+  func compare(x: T, y: T) returns (res: Int)
+  {
+    x == y ? 0 : (lt(x, y) ? -1 : 1)
+  }
+
+  /*val bot: T
+  val top: T
+
+  auto axiom bot_smallest()
+    ensures forall a: T :: {lt(a, bot)} !lt(a, bot)
+  auto axiom top_largest()
+    ensures forall a: T :: {lt(top, a)} !lt(top, a)
+  auto axiom nontrivial()
+    ensures bot != top*/
+
+  auto axiom lt_irreflexive()
+    ensures forall a: T :: {lt(a, a)} !lt(a, a)
+  auto axiom lt_antisymmetric()
+    ensures forall a: T, b: T :: {lt(a, b)} {lt(b, a)} !lt(a, b) || !lt(b, a)
+  auto axiom lt_total()
+    ensures forall a: T, b: T :: {lt(a, b)} {lt(b, a)} lt(a, b) || lt(b, a) || a == b
+  auto axiom lt_transitive()
+    ensures forall a: T, b: T, c: T :: {lt(a, b), lt(b, c)} lt(a, b) && lt(b, c) ==> lt(a, c)
+
+}

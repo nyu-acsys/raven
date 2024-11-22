@@ -1,0 +1,499 @@
+include "../concurrent/lock/lock.rav"
+
+module Peterson[R: LockResource]
+{
+    import R.resource
+
+    // turn = true means left's turn
+    // turn = false means right's turn
+    field turn: Bool
+    field wait_left: Bool
+    field wait_right: Bool
+
+    // access = 0 means left has access
+    // access = 1 means right has access
+    // access = 2 means neither has access
+    ghost field access: Int
+
+    ghost field active_left: Bool
+    ghost field active_right: Bool
+
+    inv peterson_inv(l: Ref, r: R) {
+        exists wl: Bool, wr: Bool, t: Bool,
+            la: Bool, ra: Bool, 
+            or_l: Bool, or_r: Bool, or_tl: Bool, or_tr: Bool ::
+            own(l.wait_left, wl, 0.5)
+            && own(l.wait_right, wr, 0.5)
+            && own(l.turn, t, 1.0)
+            && own(l.active_left, la, 0.5) && (la ==> wl)
+            && own(l.active_right, ra, 0.5) && (ra ==> wr)
+            && (la && !ra ==> t == ra)
+            && (ra && !la ==> t == !la)
+            && (or_tl ? 
+                    (own(l.access, 0, 0.5) 
+                    && own(l.active_left, true, 0.5)
+                    && (t == ra)) :
+                (or_tr ? 
+                    (own(l.access, 1, 0.5) 
+                    && own(l.active_right, true, 0.5)
+                    && (t == !la)) :
+                (own(l.access, 2, 1.0) && resource(r))))
+    }
+
+    proc create(implicit ghost r: R)
+        returns (l: Ref)
+        requires resource(r)
+        ensures peterson_inv(l, r)
+        ensures own(l.wait_left, false, 0.5)
+        ensures own(l.active_left, false, 0.5)
+        ensures own(l.wait_right, false, 0.5)
+        ensures own(l.active_right, false, 0.5)
+    {
+        l := new(
+            turn: false, 
+            wait_left: false, 
+            wait_right: false,
+            active_left: false,
+            active_right: false,
+            access: 2
+        );
+
+        fold peterson_inv(l, r)[
+            wl := false,
+            wr := false,
+            t := false,
+            la := false,
+            ra := false,
+            or_l := false,
+            or_r := false, 
+            or_tl := false, 
+            or_tr := false
+        ];
+    }
+
+    proc wait_acquire_l(l: Ref, implicit ghost r: R) 
+        requires peterson_inv(l, r)
+        requires own(l.wait_left, true, 0.5)
+        requires own(l.active_left, true, 0.5)
+        ensures own(l.access, 0, 0.5) && resource(r)
+    {
+        ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
+        ghost var la0: Bool; ghost var ra0: Bool;
+        ghost var or_l0: Bool; ghost var or_r0: Bool; 
+        ghost var or_tl0: Bool; ghost var or_tr0: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
+
+        var wr : Bool := l.wait_right;
+
+        {!
+            if (!wr) {
+                fpu(l, access, 2, 0);
+                
+                fold peterson_inv(l, r)[
+                    wl := wl0,
+                    wr := wr0,
+                    t := t0,
+                    la := la0,
+                    ra := ra0,
+                    or_l := or_l0,
+                    or_r := or_r0, 
+                    or_tl := true, 
+                    or_tr := or_tr0
+                ];
+            } else {
+                fold peterson_inv(l, r)[
+                    wl := wl0,
+                    wr := wr0,
+                    t := t0,
+                    la := la0,
+                    ra := ra0,
+                    or_l := or_l0,
+                    or_r := or_r0, 
+                    or_tl := or_tl0, 
+                    or_tr := or_tr0
+                ];
+            }
+        !}
+
+        ghost var wl1: Bool; ghost var wr1: Bool; ghost var t1: Bool;
+        ghost var la1: Bool; ghost var ra1: Bool;
+        ghost var or_l1: Bool; ghost var or_r1: Bool; 
+        ghost var or_tl1: Bool; ghost var or_tr1: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl1 := wl,
+            wr1 := wr,
+            t1 := t,
+            la1 := la,
+            ra1 := ra,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
+
+        var curr_turn : Bool := l.turn;
+        assert own(l.active_left, true, 1.0);
+        {!
+            if (wr && curr_turn) {
+                assert own(l.access, 2, 1.0);
+                fpu(l, access, 2, 0);
+                
+                fold peterson_inv(l, r)[
+                    wl := wl1,
+                    wr := wr1,
+                    t := t1,
+                    la := la1,
+                    ra := ra1,
+                    or_l := or_l1,
+                    or_r := or_r1, 
+                    or_tl := true, 
+                    or_tr := or_tr1
+                ];
+            } else {
+                fold peterson_inv(l, r)[
+                    wl := wl1,
+                    wr := wr1,
+                    t := t1,
+                    la := la1,
+                    ra := ra1,
+                    or_l := or_l1,
+                    or_r := or_r1, 
+                    or_tl := or_tl1, 
+                    or_tr := or_tr1
+                ];
+            }
+        !}
+
+        if (wr && !curr_turn) {
+            wait_acquire_l(l, r);
+        } else {
+            return;
+        }
+    }
+
+    proc acquire_l(l: Ref, implicit ghost r: R) 
+        requires peterson_inv(l, r)
+        requires own(l.wait_left, false, 0.5)
+        requires own(l.active_left, false, 0.5)
+        ensures own(l.access, 0, 0.5) && resource(r)
+    {
+        ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
+        ghost var la0: Bool; ghost var ra0: Bool;
+        ghost var or_l0: Bool; ghost var or_r0: Bool; 
+        ghost var or_tl0: Bool; ghost var or_tr0: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
+        l.wait_left := true;
+
+        fold peterson_inv(l, r)[
+            wl := true,
+            or_l := or_l0,
+            or_r := or_r0, 
+            or_tl := or_tl0, 
+            or_tr := or_tr0
+        ];
+
+        ghost var wl1: Bool; ghost var wr1: Bool; ghost var t1: Bool;
+        ghost var la1: Bool; ghost var ra1: Bool;
+        ghost var or_l1: Bool; ghost var or_r1: Bool; 
+        ghost var or_tl1: Bool; ghost var or_tr1: Bool;
+
+        unfold peterson_inv(l, r)[
+            t1 := t,
+            la1 := la,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
+
+        // pass the turn to right
+        l.turn := false;
+        {! fpu(l, active_left, false, true); !}
+
+        fold peterson_inv(l, r)[
+            t := false,
+            la := true,
+            or_l := or_l1,
+            or_r := or_r1, 
+            or_tl := or_tl1, 
+            or_tr := or_tr1
+        ];
+
+        wait_acquire_l(l, r);
+    }
+
+    proc release_l(l: Ref, r: R)
+        requires peterson_inv(l, r)
+        requires own(l.wait_left, true, 0.5)
+        requires own(l.access, 0, 0.5) && resource(r)
+        ensures own(l.active_left, false, 0.5)
+    {
+        ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
+        ghost var la0: Bool; ghost var ra0: Bool;
+        ghost var or_l0: Bool; ghost var or_r0: Bool; 
+        ghost var or_tl0: Bool; ghost var or_tr0: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
+
+        l.wait_left := false;
+        {! 
+            fpu(l, active_left, true, false); 
+            fpu(l, access, 0, 2);
+        !}
+
+        fold peterson_inv(l, r)[
+            wl := false,
+            wr := wr0,
+            t := t0,
+            la := false,
+            ra := ra0,
+            or_l := or_l0,
+            or_r := or_r0, 
+            or_tl := false, 
+            or_tr := false
+        ];
+
+    }
+
+    proc wait_acquire_r(l: Ref, implicit ghost r: R) 
+        requires peterson_inv(l, r)
+        requires own(l.wait_right, true, 0.5)
+        requires own(l.active_right, true, 0.5)
+        ensures own(l.access, 1, 0.5) && resource(r)
+    {
+        ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
+        ghost var la0: Bool; ghost var ra0: Bool;
+        ghost var or_l0: Bool; ghost var or_r0: Bool; 
+        ghost var or_tl0: Bool; ghost var or_tr0: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
+
+        var wl : Bool := l.wait_left;
+
+        {!
+            if (!wl) {
+                fpu(l, access, 2, 1);
+                
+                fold peterson_inv(l, r)[
+                    wl := wl0,
+                    wr := wr0,
+                    t := t0,
+                    la := la0,
+                    ra := ra0,
+                    or_l := or_l0,
+                    or_r := or_r0, 
+                    or_tl := or_tl0, 
+                    or_tr := true
+                ];
+            } else {
+                fold peterson_inv(l, r)[
+                    wl := wl0,
+                    wr := wr0,
+                    t := t0,
+                    la := la0,
+                    ra := ra0,
+                    or_l := or_l0,
+                    or_r := or_r0, 
+                    or_tl := or_tl0, 
+                    or_tr := or_tr0
+                ];
+            }
+        !}
+
+        ghost var wl1: Bool; ghost var wr1: Bool; ghost var t1: Bool;
+        ghost var la1: Bool; ghost var ra1: Bool;
+        ghost var or_l1: Bool; ghost var or_r1: Bool; 
+        ghost var or_tl1: Bool; ghost var or_tr1: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl1 := wl,
+            wr1 := wr,
+            t1 := t,
+            la1 := la,
+            ra1 := ra,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
+
+        var curr_turn : Bool := l.turn;
+        assert own(l.active_right, true, 1.0);
+        {!
+            if (wl && !curr_turn) {
+                assert own(l.access, 2, 1.0);
+                fpu(l, access, 2, 1);
+                fold peterson_inv(l, r)[
+                    wl := wl1,
+                    wr := wr1,
+                    t := t1,
+                    la := la1,
+                    ra := ra1,
+                    or_l := or_l1,
+                    or_r := or_r1, 
+                    or_tl := false, 
+                    or_tr := true
+                ];
+            } else {
+                fold peterson_inv(l, r)[
+                    wl := wl1,
+                    wr := wr1,
+                    t := t1,
+                    la := la1,
+                    ra := ra1,
+                    or_l := or_l1,
+                    or_r := or_r1, 
+                    or_tl := or_tl1, 
+                    or_tr := or_tr1
+                ];
+            }
+        !}
+
+        if (wl && curr_turn) {
+            wait_acquire_r(l, r);
+        } else {
+            return;
+        }
+    }
+
+    proc acquire_r(l: Ref, implicit ghost r: R) 
+        requires peterson_inv(l, r)
+        requires own(l.wait_right, false, 0.5)
+        requires own(l.active_right, false, 0.5)
+        ensures own(l.access, 1, 0.5) && resource(r)
+    {
+        ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
+        ghost var la0: Bool; ghost var ra0: Bool;
+        ghost var or_l0: Bool; ghost var or_r0: Bool; 
+        ghost var or_tl0: Bool; ghost var or_tr0: Bool;
+
+        unfold peterson_inv(l, r)[
+            wr0 := wr,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
+        l.wait_right := true;
+
+        fold peterson_inv(l, r)[
+            wr := true,
+            or_l := or_l0,
+            or_r := or_r0, 
+            or_tl := or_tl0, 
+            or_tr := or_tr0
+        ];
+
+        ghost var wl1: Bool; ghost var wr1: Bool; ghost var t1: Bool;
+        ghost var la1: Bool; ghost var ra1: Bool;
+        ghost var or_l1: Bool; ghost var or_r1: Bool; 
+        ghost var or_tl1: Bool; ghost var or_tr1: Bool;
+
+        unfold peterson_inv(l, r)[
+            t1 := t,
+            ra1 := ra,
+            or_l1 := or_l, 
+            or_r1 := or_r, 
+            or_tl1 := or_tl, 
+            or_tr1 := or_tr
+        ];
+
+        // pass the turn to left
+        l.turn := true;
+        {! fpu(l, active_right, false, true); !}
+
+        fold peterson_inv(l, r)[
+            t := true,
+            ra := true,
+            or_l := or_l1,
+            or_r := or_r1, 
+            or_tl := or_tl1, 
+            or_tr := or_tr1
+        ];
+
+        wait_acquire_r(l, r);
+    }
+
+    proc release_r(l: Ref, r: R)
+        requires peterson_inv(l, r)
+        requires own(l.wait_right, true, 0.5)
+        requires own(l.access, 1, 0.5) && resource(r)
+        ensures own(l.active_right, false, 0.5)
+    {
+        ghost var wl0: Bool; ghost var wr0: Bool; ghost var t0: Bool;
+        ghost var la0: Bool; ghost var ra0: Bool;
+        ghost var or_l0: Bool; ghost var or_r0: Bool; 
+        ghost var or_tl0: Bool; ghost var or_tr0: Bool;
+
+        unfold peterson_inv(l, r)[
+            wl0 := wl,
+            wr0 := wr,
+            t0 := t,
+            la0 := la,
+            ra0 := ra,
+            or_l0 := or_l, 
+            or_r0 := or_r, 
+            or_tl0 := or_tl, 
+            or_tr0 := or_tr
+        ];
+
+        l.wait_right := false;
+        {! 
+            fpu(l, active_right, true, false); 
+            fpu(l, access, 1, 2);
+        !}
+
+        fold peterson_inv(l, r)[
+            wl := wl0,
+            wr := false,
+            t := t0,
+            la := la0,
+            ra := false,
+            or_l := or_l0,
+            or_r := or_r0, 
+            or_tl := false, 
+            or_tr := false
+        ];
+
+    }
+}
+

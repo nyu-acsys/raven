@@ -1,0 +1,12 @@
+proc p()
+    returns (ret: Bool)
+{
+    return true;
+}
+
+proc q()
+    returns (ret: Bool)
+    ensures ret == true
+{
+    return p();
+}

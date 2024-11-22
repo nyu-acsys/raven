@@ -13,52 +13,62 @@ let set_file_name lexbuf name =
 let keyword_table = Hashtbl.create 64
 let _ =
   List.iter (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
-    ([("assert", ASSERT);
-      ("assume", ASSUME);
+    ([("assert", SPEC Stmt.Assert);
+      ("assume", SPEC Stmt.Assume);
+      ("au", AU);
       ("atomic", ATOMIC);
+      ("axiom", AXIOM);
       ("AtomicToken", ATOMICTOKEN);
+      ("auto", AUTO);
       ("Bool", BOOL);
+      ("cas", CAS);
       ("case", CASE);
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
+      ("exhale", SPEC Stmt.Exhale);
+      ("exists", QUANT(Expr.Exists));
       ("false", CONSTVAL (Expr.Bool false));
       ("forall", QUANT(Expr.Forall));
-      ("exists", QUANT(Expr.Exists));
-      ("func", FUNC (Func));
+      ("fold", USE (Stmt.Fold));
       ("field", FIELD);
+      ("func", FUNC (Func));
       ("ghost", GHOST);
       ("havoc", HAVOC);
       ("if", IF);
       ("Int", INT);
-      ("interface", INTERFACE);
+      ("include", INCLUDE);
+      ("inhale", SPEC Stmt.Inhale);
+      ("interface", MODULE true);
       ("inv", FUNC (Invariant));
       ("invariant", INVARIANT);
       ("import", IMPORT);
       ("implicit", IMPLICIT);
-      ("lemma", PROC(Lemma));
+      ("lemma", LEMMA);
       ("rep", REP);
       ("Map", MAP);
-      ("module", MODULE);
+      ("module", MODULE false);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
       ("own", OWN);
       ("Perm", PERM);
       ("pred", FUNC (Pred));
-      ("proc", PROC (Proc));
+      ("proc", PROC);
       ("Ref", REF);
+      ("Real", REAL);
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);
-      ("subseteq", SUBSETEQ);
+      (* ("subseteq", SUBSETEQ); *)
       ("Set", SET);
+      ("spawn", SPAWN);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
+      ("unfold", USE (Stmt.Unfold));
       ("val", VAR true);
       ("var", VAR false);
+      ("with", WITH);
       ("while", WHILE);
-      ("fold", FOLD);
-      ("unfold", UNFOLD);
     ])
 
 let operator_table = Hashtbl.create 64
@@ -80,6 +90,7 @@ let _ =
      "!", NOT;
      "++", ADDOP Expr.Union;
      "--", DIFF;
+     "subseteq", SUBSETEQ;
      "**", MULTOP Expr.Inter;
      "+", ADDOP Expr.Plus;
      "-", MINUS;
@@ -93,7 +104,7 @@ let _ =
      ",", COMMA;
      ".", DOT;
      "?", QMARK;
-     "&*&", SEPSTAR
+     ":|", COLONPIPE;
      ]
     
 let lexical_error lexbuf msg =
@@ -103,8 +114,8 @@ let lexical_error lexbuf msg =
 
 }
 
-let operator_char = ['+''-''*''/''%''.'':'',''?''>''<''=''&''|''!'';']
-let operator = operator_char+ | "in" | "!in" | "subseteq"
+let operator_char = ['+''-''*''%''.'':'',''?''>''<''=''&''|''!'';']
+let operator = '/' | operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
 let lowercase_char = ['a'-'z''_']
@@ -112,6 +123,7 @@ let uppercase_char = ['A'-'Z']
 let ident = lowercase_char ('\'' | ident_char | digit_char)*
 let mod_ident = uppercase_char ('\'' | ident_char | digit_char)*
 let digits = digit_char+
+let float = digits '.' digits
 
 rule token = parse
   [' ' '\t'] { token lexbuf }
@@ -130,28 +142,31 @@ rule token = parse
 | ']' { RBRACKET }
 | "{!" { LGHOSTBRACE }
 | "!}" { RGHOSTBRACE }
+| "\"" (( ("\\" _) | [^ '"'] )* as str) "\"" { STRINGVAL (Scanf.unescaped str) }
 | operator as op
     { try
       Hashtbl.find operator_table op
     with Not_found ->
-      lexical_error lexbuf (Some("Unknown operator: " ^ op))
-    }
-| ident as name '#' (digit_char+ as num) { IDENT(Ident.make name (int_of_string num)) }
+      lexical_error lexbuf ("Unknown operator: " ^ op)
+  }
+| '#' (digit_char+ as num) { HASH(Int64.of_string num) }
+| ident as name '^' (digit_char+ as num) { IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num)) }
 | mod_ident as kw
     { try
       Hashtbl.find keyword_table kw
     with Not_found ->
-      MODIDENT (Ident.make kw 0)
+      MODIDENT (Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) kw 0)
     }
 | ident as kw
     { try
       Hashtbl.find keyword_table kw
     with Not_found ->
-      IDENT (Ident.make kw 0)
+      IDENT (Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) kw 0)
     }
 | digits as num { CONSTVAL (Expr.Int (Int64.of_string num)) }
+| float as num { CONSTVAL (Expr.Real (Float.of_string num)) }
 | eof { EOF }
-| _ { lexical_error lexbuf None }
+| _ { lexical_error lexbuf "Unexpected character" }
 
 and comments level = parse
 | "*/" { if level = 0 then token lexbuf

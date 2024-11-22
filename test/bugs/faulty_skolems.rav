@@ -1,0 +1,10 @@
+field f: Int
+
+func g(a: Int, b: Int) returns (r: Bool) { true }
+
+proc p() {
+    var x: Ref;
+    
+    inhale own(x.f, 5, 1.0);
+    exhale exists a: Int, b: Int :: g(a,b) ==> own(x.f, a, 1.0);
+}

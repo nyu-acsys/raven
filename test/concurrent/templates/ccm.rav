@@ -1,0 +1,48 @@
+import Library.Type
+
+interface CCM : Type {
+  val id: T
+  func comp(a:T, b:T) returns (ret:T)
+  
+  func frame(a:T, b:T) returns (ret:T)
+
+  func valid(a:T) returns (ret: Bool)
+
+  auto axiom idValid()
+    ensures valid(id)
+
+  auto axiom compAssoc()
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+
+  auto axiom compCommute()
+    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+
+  auto axiom compId()
+    ensures forall a:T :: {comp(a, id)} {frame(a, id)} comp(a, id) == a
+
+  auto axiom compValid()
+    ensures forall a:T, b:T :: {comp(a,b)} valid(a) && valid(b) ==> valid(comp(a, b)) 
+
+  auto axiom frameCompInv()
+    ensures forall a:T, b:T:: {comp(a,b)} frame(comp(a, b), b) == a
+        
+  lemma frameId()
+    ensures forall a:T :: {frame(a,id)} frame(a, id) == a
+  {}
+
+  // Better name? selfFrame? frameRefl?
+  lemma frameInv()
+    ensures forall a:T :: {frame(a,a)} frame(a, a) == id
+  {
+    assert forall a:T :: {frame(a,a)} frame(a, a) == id with {
+      assert frame(a, a) == frame(comp(a, id), a);  
+    }
+  }
+
+  auto axiom compFrameInv()
+   ensures forall a:T, b:T :: {frame(a,b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+
+  lemma frameFrame()
+    ensures forall a:T, b:T :: {valid(frame(a, b))} valid(frame(a, b)) ==> frame(a, frame(a, b)) == b
+  {}
+}

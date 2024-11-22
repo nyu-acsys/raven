@@ -1,0 +1,25 @@
+module Pair[T1: Library.Type, T2: Library.Type] : Library.Type {
+  rep type T = data {
+    case pair(fst: T1, snd: T2)
+  }
+}
+
+module Test {
+  module IntT: Library.Type {
+    rep type T = Int
+  }
+
+  module BoolT: Library.Type {
+    rep type T = Bool
+  }
+
+  module P = Pair[IntT, BoolT]
+
+  val q: P = P.pair(1, true)
+
+  module P2 = Pair[BoolT, P]
+
+  val p: P2 = P2.pair(true, P.pair(1, true))
+
+  val x: Bool = p.P2.fst
+}

@@ -1,0 +1,17 @@
+module NatAuth = Library.Auth[Library.Nat]
+
+field f: NatAuth
+
+proc p() {
+  var x: Ref;
+  var a1: Int;
+  var a2: Int;
+  var b: Int;
+
+  // assume (a1 != a2);
+
+  inhale own(x.f, NatAuth.auth_frag(a1, b));
+  inhale own(x.f, NatAuth.auth_frag(a2, b));
+
+  assert false;
+}

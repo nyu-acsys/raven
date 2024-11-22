@@ -1,0 +1,287 @@
+field key: Int
+field next: Ref
+
+pred list(start: Ref, end: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int]) {
+  ((start == end) ? s == {||} :
+    (own(start.next, nmap[start], 1.0) && own(start.key, kmap[start], 1.0) 
+      && kmap[start] in s && kmap[start] < kmap[nmap[start]] 
+      && list(nmap[start], end, s -- {| kmap[start] |}, nmap, kmap)))
+}
+
+proc list_lt1(x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
+  requires list(x, y, s, nmap, kmap)
+  ensures list(x, y, s, nmap, kmap)
+  ensures x != y ==> (forall i: Int :: i in s -- {| kmap[x] |} ==> kmap[x] < i)
+{
+  if (x != y) {
+    unfold list(x, y, s, nmap, kmap);
+    var xn: Ref := x.next;
+
+    if (xn != y) {
+      list_lt1(xn, y, s -- {| kmap[x] |}, nmap, kmap);
+      fold list(x, y, s, nmap, kmap); 
+    } else {
+      unfold list(xn, y, s -- {| kmap[x] |}, nmap, kmap);
+      fold list(xn, y, s -- {| kmap[x] |}, nmap, kmap);
+      fold list(x, y, s, nmap, kmap);
+    }
+  }
+}
+
+proc list_lt2(x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
+  requires list(x, y, s, nmap, kmap)
+  ensures list(x, y, s, nmap, kmap)
+  ensures x != y ==> kmap[x] < kmap[y]
+{ 
+  if (x != y) {
+    unfold list(x, y, s, nmap, kmap);
+    var xn: Ref := x.next;
+
+    if (xn != y) {
+      list_lt2(xn, y, s -- {| kmap[x] |}, nmap, kmap);
+    }
+    fold list(x, y, s, nmap, kmap);
+  }
+}
+
+
+proc append(x: Ref, y: Ref, z: Ref, s1: Set[Int], s2: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
+  requires list(x, y, s1, nmap, kmap)
+  requires list(y, z, s2, nmap, kmap)
+  ensures list(x, z, s1 ++ s2, nmap, kmap)
+{
+  if (x != y) {
+    
+    unfold list(x, y, s1, nmap, kmap);
+
+    var xn: Ref := x.next;
+
+    append(xn, y, z, s1 -- {| kmap[x] |}, s2, nmap, kmap);
+    
+    // assert list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+    // assert (own(x.next, nmap[x], 1.0));
+    // assert (own(x.key, kmap[x], 1.0));
+    // assert kmap[x] in s1 ++ s2;
+    // assert kmap[x] < kmap[xn];
+    // assert list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+    
+    // assert (xn != z ==> (forall i: Int :: i in (s1 -- {|kmap[x]|} ++ s2) -- {| kmap[xn] |} ==> kmap[xn] < i));
+    // assert (xn != z ==> kmap[xn] < kmap[z]);
+
+    if (xn == z) {
+
+      unfold list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+
+      // assert s1 -- {| kmap[x] |} ++ s2 == {||};
+      // assert s1 == {| kmap[x] |};
+
+      fold list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+      fold list(x, z, s1 ++ s2, nmap, kmap);
+
+      // assert false;
+
+    } else {
+
+      list_lt1(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+      list_lt2(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+
+      // assert list(xn, z, s1 -- {| kmap[x] |} ++ s2, nmap, kmap);
+      // assert (forall i: Int :: i in (s1 -- {|kmap[x]|} ++ s2) -- {| kmap[xn] |} ==> kmap[xn] < i);
+      // assert (kmap[xn] < kmap[z]);
+      // assert kmap[x] !in s2;
+      // assert s1 -- {| kmap[x] |} ++ s2 == (s1 ++ s2) -- {| kmap[x] |};
+      // assert x != z;
+
+      fold list(x, z, s1 ++ s2, nmap, kmap);
+
+      // assert false;
+    }
+  } else {
+
+    unfold list(x, y, s1, nmap, kmap);
+    // assert s1 == {||};
+
+    // assert false;
+  }
+}
+
+proc deque(x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int]) 
+  returns (xn: Ref)
+  requires list(x, y, s, nmap, kmap)
+  requires x != y
+  ensures xn == nmap[x]
+  ensures list(xn, y, s -- {| kmap[x] |}, nmap, kmap)
+{
+  unfold list(x, y, s, nmap, kmap);
+  xn := x.next;
+} 
+
+proc split(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
+  returns (p: Ref, c: Ref, s1: Set[Int], s2: Set[Int])
+  requires list(x, y, s, nmap, kmap)
+  requires kmap[x] < k <= kmap[y]
+  ensures list(x, p, s1, nmap, kmap)
+  ensures own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0)
+  ensures list(c, y, s2, nmap, kmap)
+  ensures kmap[p] < k <= kmap[c]
+  ensures nmap[p] == c
+  ensures s1 ++ {| kmap[p] |} ++ s2 == s
+  ensures (forall k1: Int :: k1 in s1 ==> k1 < k)
+{
+  unfold list(x, y, s, nmap, kmap);
+  assert (x != y);
+
+  p := x;
+  c := x.next;
+
+  assert list(c, y, s -- {| kmap[x] |}, nmap, kmap);
+
+  if (c == y) {
+
+    unfold list(c, y, s -- {| kmap[x] |}, nmap, kmap);
+    assert s == {| kmap[x] |};
+    s1 := {||};
+    fold list(x, p, s1, nmap, kmap);
+    assert own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0);
+    s2 := {||};
+    fold list(c, y, s2, nmap, kmap);
+
+  } else {
+    
+    s1 := {||};
+    fold list(x, p, s1, nmap, kmap);
+    assert own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0);
+    s2 := s -- {| kmap[p] |};
+    assert list(c, y, s2, nmap, kmap);
+    assert s1 ++ {| kmap[p] |} ++ s2 == s;
+    assert kmap[p] < k;
+
+    while (kmap[c] < k)
+      invariant list(x, p, s1, nmap, kmap)
+      invariant own(p.next, c, 1.0) && own(p.key, kmap[p], 1.0)
+      invariant list(c, y, s2, nmap, kmap)
+      invariant s1 ++ {| kmap[p] |} ++ s2 == s
+      invariant kmap[p] < k
+      invariant kmap[p] < kmap[c]
+      invariant nmap[p] == c
+      invariant (forall k1: Int :: k1 in s1 ==> k1 < k)
+    {
+      var pold: Ref := p;
+      p := c;
+
+      unfold list(c, y, s2, nmap, kmap);
+      // assert kmap[c] < k;
+      // assert c != y;
+
+      var cold: Ref := c;
+      c := cold.next;
+
+      assert list(x, pold, s1, nmap, kmap);
+      assert pold != p;
+      // assert nmap[pold] == p;
+      // assert own(pold.next, nmap[pold], 1.0) && own(pold.key, kmap[pold], 1.0);
+      // assert kmap[pold] in {| kmap[pold] |};
+      // assert kmap[pold] < kmap[p];
+      fold list(p, p, {||}, nmap, kmap);
+      fold list(pold, p, {| kmap[pold] |}, nmap, kmap);
+      append(x, pold, p, s1, {| kmap[pold] |}, nmap, kmap);
+      assert list(x, p, s1 ++ {| kmap[pold] |}, nmap, kmap);
+      // faulty assignment
+      var s1old: Set[Int] := s1;
+      s1 := s1old ++ {| kmap[pold] |};
+      assert list(x, p, s1, nmap, kmap);
+
+      var s2old: Set[Int] := s2;
+      s2 := s2old -- {| kmap[cold] |};
+      assert list(c, y, s2, nmap, kmap);
+      // assert false;
+    }
+
+  }
+}
+
+// proc update_maps_back(k: Int, n: Ref, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int], nmap1: Map[Ref, Ref], kmap1: Map[Ref, Int])
+//   requires list(x, y, s, nmap, kmap)
+//   requires kmap1[n] == k 
+//   requires forall a: Ref :: a != n ==> nmap1[a] == nmap[a] && kmap1[a] == kmap[a]
+//   requires k < kmap[x]
+//   requires n != x
+//   ensures list(x, y, s, nmap1, kmap1)
+// {
+//   if (x == y) {
+//     unfold list(x, y, s, nmap, kmap);
+//     fold list(x, y, s, nmap1, kmap1);
+//   } else {
+//     unfold list(x, y, s, nmap, kmap);
+//     var xn: Ref := x.next;
+
+//     assert list(xn, y, s -- {| kmap[x] |}, nmap, kmap);
+//     assert kmap1[n] < kmap[x];
+//     assert kmap[x] < kmap[xn];
+//     assert n != xn;
+//     update_maps_back(k, n, xn, y, s -- {| kmap[x] |}, nmap, kmap, nmap1, kmap1);
+//     assume false;
+//   }
+// }
+
+// proc insert_hd(k: Int, n: Ref, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
+//   returns (nmap1: Map[Ref, Ref], kmap1: Map[Ref, Int])
+//   requires list(x, y, s, nmap, kmap)
+//   requires own(n.next, c, 1.0) && own(n.key, k, 1.0)
+//   requires k < kmap[x]
+//   ensures list(n, y, s ++ {| k |}, nmap1, kmap1)
+//   // ensures nmap1[n] == x && kmap1[n] == k 
+//   // ensures forall a: Ref :: a != n ==> nmap1[a] == nmap[a] && kmap1[a] == kmap[a]  
+// {
+//   // nmap1 := nmap;
+//   // nmap1[n] := x;
+//   // kmap1 := kmap;
+//   // kmap1[n] := k;
+//   // assert own(n.next, nmap1[n], 1.0);
+//   // assert own(n.key, kmap1[n], 1.0);
+//   // fold list(x, x, {||}, nmap1, kmap1);
+//   // fold list(n, x, {| k |}, nmap1, kmap1);
+//   // // assume list(x, y, s, nmap1, kmap1);
+//   // update_maps_back(k, n, x, y, s, nmap, kmap, nmap1, kmap1);
+//   // assert list(x, y, s, nmap1, kmap1);
+//   // append(n, x, y, {| k |}, s, nmap1, kmap1);
+//   // assert list(n, y, s ++ {| k |}, nmap1, kmap1);
+//   // // assert false;
+//   assume false;
+// }
+
+
+// proc insert(k: Int, x: Ref, y: Ref, s: Set[Int], nmap: Map[Ref, Ref], kmap: Map[Ref, Int])
+//   returns (n: Ref, nmap1: Map[Ref, Ref], kmap1: Map[Ref, Int])
+//   requires list(x, y, s, nmap, kmap)
+//   requires kmap[x] < k <= kmap[y]
+//   requires k !in s
+//   ensures list(x, y, s ++ {| k |}, nmap1, kmap1)
+//   // ensures kmap1[n] == k
+//   // ensures forall a: Ref :: a != n ==> kmap1[a] == kmap[a]  
+// {
+//   var p: Ref;
+//   var c: Ref;
+//   var s1: Set[Int];
+//   var s2: Set[Int];
+//   p, c, s1, s2 := split(k, x, y, s, nmap, kmap);
+//   assert list(x, p, s1, nmap, kmap);
+//   assert list(c, y, s2, nmap, kmap);
+//   assert s1 ++ {| kmap[p] |} ++ s2 == s;
+//   assert (forall k1: Int :: k1 in s1 ==> k1 < k);
+//   assert kmap[p] < k <= kmap[c];
+//   // problem case : c == y, k == kmap[c]
+//   assume k != kmap[c];
+
+//   n := new(key: k, next: c);
+
+  
+//   // unfold list(c, y, s2, nmap, kmap);
+//   // assert c != y ==> kmap[c] in s2;
+//   // assert c == y ==> s2 == {||};
+//   // fold list(c, y, s2, nmap, kmap);
+//   // assert k != kmap[c];
+//   assume false;
+
+// }
+

@@ -1,0 +1,235 @@
+include "./flows_ra.rav"
+include "./ccm_instances.rav"
+include "./keyset_ra.rav"
+include "../lock/lock.rav"
+
+import Library.Type
+import Library.CancellativeResourceAlgebra
+
+interface Keyspace {
+  rep type T
+
+  val ks: Set[T]
+}
+
+module IntKeyspace : Keyspace {
+  rep type T = Int
+
+  val ks: Set[T] = {| k: Int :: true |}
+}
+
+interface SearchStructureSpec {
+  type K
+  val keyspace: Set[K]
+
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
+
+	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+    op == searchOp() ? 
+      c_in == c_out && res == (k in c_in) :
+    (op == insertOp() ?
+      c_out == c_in ++ {| k |} && res == (k !in c_in) :
+      c_out == c_in -- {| k |} && res == (k in c_in))
+	}
+}
+
+interface Node {
+  rep type T
+}
+
+interface NodeImpl {
+
+  module Spec : SearchStructureSpec
+  import Spec._
+
+  module K_Type : Library.Type {
+    rep type T = K
+  }
+
+  module Multiset_K = Multiset[K_Type]
+  module Flow_K = FlowsRA[Multiset_K]
+
+  import Flow_K._
+  import Multiset_K.elem
+
+  pred node(n: Ref; c: Set[K], i: Flow_K)
+
+  func inset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
+  {
+    {| k : K :: (i.inf[n])[k] > 0 |}
+  }
+
+  func insets(i: Flow_K.T) returns (ret: Set[K])
+  {
+    {| k : K :: exists n: Ref :: n in i.dom && k in inset(i, n) |}
+  }
+
+  func outset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
+  {
+    {| k : K :: (i.out[n])[k] > 0 |}
+  }
+
+  func outsets(i: Flow_K.T) returns (ret: Set[K])
+  {
+    {| k: K :: exists n: Ref :: n !in i.dom && k in outset(i,n) |}
+  }
+
+  func keyset(i: Flow_K.T) returns (ret: Set[K])
+  {
+    insets(i) -- outsets(i)
+  }
+
+  proc createRoot()
+    returns (r: Ref)
+    ensures node(r, {||}, 
+      Flow_K.int({| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
+
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
+    requires k in keyset(i_n)
+    requires node(n, c, i_n)
+    ensures node(n, c1, i_n)
+    ensures succ ==> opSpec(dop, k, c, c1, res) 
+    ensures !succ ==> c == c1
+
+  proc findNext(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (ret: Bool, n1: Ref)
+    requires k in inset(i_n, n)
+    requires node(n, c, i_n)
+    ensures node(n, c, i_n) && 
+      (ret ?   
+        k in outset(i_n, n1) :
+        k !in outsets(i_n))
+
+  proc inRange(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
+    returns (ret: Bool)
+    requires node(n, c, i_n)
+    ensures node(n, c, i_n) && (ret ==> k in inset(i_n, n))
+
+
+  lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K], i_n1: Flow_K, i_n2: Flow_K)
+    requires node(n, c1, i_n1) && node(n, c2, i_n2)
+    ensures false
+}
+
+interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
+  module Spec: SearchStructureSpec = Node.Spec
+  import Node.Spec._
+  import Node._
+  import Node.Flow_K._
+  import Node.Multiset_K.elem
+  import Node.Multiset_K.fromSet
+
+  module Ref_Type : Library.Type {
+    rep type T = Ref
+  }
+
+  module SetRefRA = Library.SetRA[Ref_Type]
+
+  module AuthSetRef = Library.Auth[SetRefRA]
+    
+  module Keyset_K = KeysetRA[K_Type]
+  module AuthKeyset_K = Library.Auth[Keyset_K]
+  module AuthFlow_K = Library.Auth[Flow_K]
+
+  ghost field authSet: AuthSetRef
+  ghost field authKS: AuthKeyset_K
+  ghost field authFlow: AuthFlow_K
+  ghost field lock: Ref
+
+  module N : LockResource {
+    rep type T = (Ref, Ref)
+
+    pred resource(r: T) {
+      exists c: Set[K], i_n: Flow_K :: 
+        nodePred(r#0, r#1, c, i_n)
+    }
+
+    pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
+      own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
+      own(r.authFlow, AuthFlow_K.frag(i_n)) &&
+      i_n.dom == {|n|} && 
+        Node.node(n, c, i_n)
+    }
+  }
+
+  module L = LockF[N]
+
+  pred globalinv(g_i: Flow_K, r: Ref) {
+    Flow_K.valid(g_i) &&
+    r in g_i.dom &&
+    outsets(g_i) == {||} &&
+    inset(g_i, r) == keyspace  
+  }
+
+  pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
+    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
+    own(r.authFlow, AuthFlow_K.auth(g_i)) &&
+    globalinv(g_i, r)
+  }
+
+  pred inFP(r: Ref, n: Ref) {
+    own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+  }
+
+  pred cssR(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int]) {
+    (forall n: Ref :: n in g_i.dom ==> 
+      (exists l: Ref ::
+        L.is_lock(l, (r, n), lockval[n] == 1) && own(n.lock, l, 1.0)))
+        && 
+    globalRes(r, c, g_i)
+  }
+
+  pred css(r: Ref, c: Set[K]) {
+    exists g_i: Flow_K, lockval: Map[Ref, Int] :: 
+      cssR(r, c, g_i, lockval)
+  }
+
+  lemma cssInFp(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int])
+    requires cssR(r, c, g_i, lockval)
+    requires inFP(r, n)
+    ensures n in g_i.dom
+    ensures cssR(r, c, g_i, lockval)
+    ensures inFP(r, n)
+  {
+    unfold cssR(r, c, g_i, lockval);
+    unfold globalRes(r, c, g_i);
+    unfold inFP(r, n);
+
+    fold globalRes(r, c, g_i);
+    fold inFP(r, n);
+    fold cssR(r, c, g_i, lockval);
+  }
+
+
+  lemma fpInCss(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int])
+    requires cssR(r, c, g_i, lockval)
+    requires n in g_i.dom
+    ensures inFP(r, n)
+    ensures cssR(r, c, g_i, lockval)
+  {
+    unfold cssR(r, c, g_i, lockval);
+    unfold globalRes(r, c, g_i);
+
+    fpu(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)), AuthSetRef.auth_frag(SetRefRA.set_constr(g_i.dom), SetRefRA.set_constr(g_i.dom)));
+
+    fold globalRes(r, c, g_i);
+    fold inFP(r, n);
+    fold cssR(r, c, g_i, lockval);
+  }
+
+  lemma root_fp(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int])
+    requires cssR(r, c, g_i, lockval)
+    ensures cssR(r, c, g_i, lockval)
+    ensures r in g_i.dom
+  {
+    unfold cssR(r, c, g_i, lockval);
+    unfold globalRes(r, c, g_i);
+    unfold globalinv(g_i, r);
+
+    fold globalinv(g_i, r);
+    fold globalRes(r, c, g_i);
+    fold cssR(r, c, g_i, lockval);
+  }
+}

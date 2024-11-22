@@ -1,0 +1,17 @@
+proc p() {
+  var s: Int := 0;
+  var p: Map[Int, Int] = {| v: Int :: 0  |};
+
+  while (s < 10) 
+    invariant s >= 0
+    invariant forall i: Int :: 0 <= i < s ==> p[i] == i
+    // invariant s <= 8
+  
+  {
+    p := p[s := s];
+    s := s + 1;
+  }
+
+  assert p[9] == 1;
+  assert false;
+}

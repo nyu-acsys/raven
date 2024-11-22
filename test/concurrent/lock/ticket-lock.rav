@@ -1,0 +1,102 @@
+include "lock.rav"
+
+module TicketLock[R: LockResource] {
+  import R.resource
+  
+  field next: Int
+  field curr: Int
+
+  module IntType : Library.Type {
+    rep type T = Int
+  }
+
+  module IntSet = Library.DisjSet[IntType]
+  module AuthDisjInts = Library.Auth[IntSet]
+ 
+  ghost field tickets: AuthDisjInts
+
+  inv lock_inv(l: Ref; r: R) {
+    exists n: Int, c: Int, b: Bool ::
+      own(l.next, n, 1.0) && n >= 0
+      && own(l.curr, c, 1.0)
+      && (b ? 
+        own(l.tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
+        resource(r)
+      )
+      && own(l.tickets,
+        AuthDisjInts.auth_frag(
+          IntSet.set({| i: Int :: 0 <= i && i < n |}),
+          IntSet.set({||})
+         )
+      )
+  }
+
+  proc create(r: R) returns (l: Ref)
+    requires resource(r)
+    ensures lock_inv(l, r)
+  {
+    l := new (
+      next: 0, curr: -1,
+      tickets: AuthDisjInts.auth_frag(
+        IntSet.set({||}), IntSet.set({||})
+      )
+    );
+    fold lock_inv(l, r)[b := false];
+  }
+  
+  proc acquire(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r)
+    ensures resource(r)
+  {
+    ghost var lockAcq: Bool;    
+    unfold lock_inv(l, r)[lockAcq := b];
+    val nxt: Int := l.next;
+    fold lock_inv(l, r)[b := lockAcq];
+
+    unfold lock_inv(l, r)[lockAcq := b];
+    val res: Bool := cas(l.next, nxt, nxt+1);
+
+    if (!res) {
+      fold lock_inv(l, r)[b := lockAcq];
+      acquire(l);
+    } else {
+      fpu(l.tickets,
+        AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < nxt|}), IntSet.set({||})  ),
+        AuthDisjInts.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), IntSet.set({|nxt|})  )
+      );
+      fold lock_inv(l, r)[b := lockAcq];
+      
+      var crr: Int = -1;
+      while (nxt != crr)
+        invariant lock_inv(l, r) && (
+          nxt == crr ? resource(r) :
+            own(l.tickets, AuthDisjInts.frag(IntSet.set({|nxt|})))
+        )
+      {
+        unfold lock_inv(l, r)[ lockAcq := b ];
+        crr := l.curr;
+        fold lock_inv(l, r)[ b := nxt == crr || lockAcq];
+      }
+    } 
+  }
+
+  proc release(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r) && resource(r)
+    ensures true
+  {
+    ghost var lockAcq: Bool;
+    
+    unfold lock_inv(l, r)[ lockAcq := b ];
+    {! if(!lockAcq) R.exclusive(r); !}
+    
+    val crr: Int := l.curr;
+    fold lock_inv(l, r)[b := true];
+    
+    val c1: Int := crr+1;
+    unfold lock_inv(l, r);
+
+    l.curr := c1;
+    
+    fold lock_inv(l, r)[b := false];
+  }
+}

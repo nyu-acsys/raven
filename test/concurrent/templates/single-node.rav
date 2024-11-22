@@ -1,0 +1,270 @@
+module Lock {
+
+  field bit: Bool
+  
+  pred lock(l: Ref, b: Bool) {
+    own(l.bit, b, 1.0) 
+  }
+
+  proc create()
+    returns (l: Ref)
+    ensures lock(l, false)
+  {
+    l := new(bit:false);
+    
+    fold lock(l, false);
+  }
+
+  proc acquire(l: Ref, implicit ghost b: Bool)
+    atomic requires lock(l, b)
+    atomic ensures lock(l, true) && b == false
+  {
+    ghost val phi: AtomicToken := bindAU();
+    ghost val b1: Bool := openAU(phi);
+    unfold lock(l, b1); 
+
+   	val res: Bool = cas(l.bit, false, true); 
+
+    {!
+      fold lock(l, res || b1);
+      if (res) {
+        commitAU(phi);        
+      } else {
+        abortAU(phi);
+      }	
+    !}
+
+    if (!res) {
+      ghost val b2: Bool := openAU(phi);
+			assert lock(l, b2);
+			acquire(l);
+			commitAU(phi);
+    }	
+  }
+
+  proc release(l: Ref)
+    atomic requires lock(l, true)
+    atomic ensures lock(l, false)
+  {
+    ghost var phi: AtomicToken;
+    phi := bindAU();
+    openAU(phi);
+    unfold lock(l, true);
+    
+    l.(Lock.bit) := false;
+    
+    fold lock(l, false);
+    commitAU(phi);
+  }
+}
+
+// interface Keyspace {
+//   rep type T
+
+//   val keyset: Set[T]
+// }
+
+// module IntKeyspace : Keyspace {
+//   rep type T = Int
+
+//   val keyset: Set[T] = {| k: Int :: true |}
+// }
+
+interface SearchStructureSpec {
+  type K
+  val keyset: Set[K]
+
+  type Op = data { case searchOp ; case insertOp ; case deleteOp }
+
+	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+    op == searchOp() ? 
+      c_in == c_out && res == (k in c_in) :
+    (op == insertOp() ?
+      c_out == c_in ++ {| k |} && res == (k !in c_in) :
+      c_out == c_in -- {| k |} && res == (k in c_in))
+	}
+}
+
+interface NodeImpl {
+
+  module Spec : SearchStructureSpec
+  // import Spec
+  import Spec.K
+  import Spec.Op
+  import Spec.opSpec
+  import Spec.keyset
+
+  pred nodeR(n: Ref; c: Set[K])
+
+  proc create()
+    returns (n: Ref)
+    ensures nodeR(n, {||})
+
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c1: Set[K])
+    requires k in keyset 
+    requires nodeR(n, c)
+    ensures nodeR(n, c1) && opSpec(dop, k, c, c1, res)
+
+  lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K])
+    requires nodeR(n, c1) && nodeR(n, c2)
+    ensures false
+}
+
+interface SearchStructure {
+
+  module Spec: SearchStructureSpec
+  import Spec.K
+  import Spec.Op
+  import Spec.opSpec
+  import Spec.keyset
+
+  pred cssR(r: Ref, c: Set[K])
+
+  // inv cssInv(r: Ref)
+
+  proc create()
+    returns (r: Ref)
+    ensures cssR(r, {||})
+
+  // proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+  //   returns (res: Bool, implicit ghost c1: Set[K])
+  //   requires k in keyset
+  //   // requires cssInv(r)
+  //   atomic requires cssR(r, c)
+  //   atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
+}
+
+interface SingleNodeTemplate[Node: NodeImpl] {
+  field lock: Bool
+
+  module Spec: SearchStructureSpec = Node.Spec
+
+  import Node.Spec._
+
+  ghost field frac: Set[K];
+
+  pred cssR(r: Ref, c: Set[K]) {
+      exists b: Bool :: own(r.frac, c, 0.5) && own(r.lock, b, 1.0) && 
+      (b ? true : (Node.nodeR(r, c) && own(r.frac, c, 0.5)))
+  }
+
+
+  proc lockNode(n: Ref, implicit ghost b: Bool)
+    atomic requires own(n.lock, b, 1.0)
+    atomic ensures own(n.lock, true, 1.0) && b == false
+
+  proc unlockNode(n: Ref)
+    atomic requires own(n.lock, true, 1.0)
+    atomic ensures own(n.lock, false, 1.0)
+
+
+  proc create()
+    returns (r: Ref)
+    ensures cssR(r, {||})
+  {
+    r := Node.create();
+    r := new(lock:false, frac:{||});
+    fold cssR(r, {||})[b := false];
+  }
+
+  proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c_ret: Set[K])
+    requires k in keyset
+    atomic requires cssR(r, c)
+    atomic ensures cssR(r, c_ret) && opSpec(dop, k, c, c_ret, res)
+  {
+    ghost var phi: AtomicToken := bindAU();
+
+    ghost var c0: Set[K];
+    ghost var b: Bool;
+
+    c0 := openAU(phi);
+    unfold cssR(r, c0)[b := b];
+    lockNode(r, b);
+    
+    fold cssR(r, c0);
+    abortAU(phi);
+
+    var res1: Bool;
+    ghost var c1: Set[K];
+
+    res1, c1 := Node.decisiveOp(dop, r, k, c0);
+
+    ghost var b2: Bool;
+    ghost var c2: Set[K] := openAU(phi);
+    unfold cssR(r, c2)[b2 := b];
+    fpu(r.frac, c2, c1);
+
+    unlockNode(r);
+
+    fold cssR(r, c1);    
+    commitAU(phi, res1, c1);
+
+    return res1, c1;
+
+  }
+}
+
+module IntSearchStructureSpec : SearchStructureSpec {
+  type K = Int
+  val keyset : Set[K] = {| k: Int :: k >= 0 |}
+}
+
+
+module IntSetNodeImpl : NodeImpl {
+  module Spec: SearchStructureSpec = IntSearchStructureSpec
+
+  import Spec._
+
+  field value: Set[K]
+
+  pred nodeR(n: Ref; c: Set[K]) {
+    own(n.value, c, 1.0)
+  }
+
+  proc create()
+    returns (n: Ref)
+    ensures nodeR(n, {||})
+  {
+    n := new(value:{||});
+    fold nodeR(n, {||});
+  }
+
+  proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K])
+    returns (res: Bool, implicit ghost c_ret: Set[K])
+    requires k in keyset
+    requires nodeR(n, c)
+    ensures nodeR(n, c_ret) && opSpec(dop, k, c, c_ret, res)
+  {
+    unfold nodeR(n, c);
+    var v: Set[K] = n.value;
+    
+    if (dop == searchOp()) {
+      res := (k in v);
+      c_ret := v;
+    } else {
+      if (dop == insertOp()) {
+        res := (k !in v);
+        n.value := v ++ {| k |};
+        c_ret := n.value;
+      } else {
+        res := (k in v);
+        n.value := v -- {| k |};
+        c_ret := n.value;
+      }
+    }
+
+    fold opSpec(dop, k, c, c_ret, res);
+    fold nodeR(n, c_ret);
+  }
+
+  lemma nodeSepStar(n: Ref, c1: Set[K], c2: Set[K])
+    requires nodeR(n, c1) && nodeR(n, c2)
+    ensures false
+  {
+    unfold nodeR(n, c1);
+    unfold nodeR(n, c2);
+    assert false;
+  }
+}

@@ -1,0 +1,20 @@
+pred p1(x: Int) {
+  x % 2 == 0
+}
+
+proc p(implicit ghost x: Int)
+  atomic requires p1(x)
+  atomic ensures p1(x+2) 
+{
+  ghost var phi: AtomicToken := bindAU();
+
+  ghost var x0: Int := openAU(phi);
+
+  var m: Int = 5;
+  abortAU(phi);
+
+  ghost var x1: Int := openAU(phi);
+  unfold p1(x1);
+  fold p1(x1 + 2);
+  commitAU(phi);
+}

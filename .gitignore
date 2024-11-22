@@ -1,8 +1,11 @@
 _build/
-dune-project
-*.smt2
 *~
 formalism/formalism.aux
 formalism/formalism.log
 formalism/formalism.synctex.gz
 .directory
+log*.smt2
+.vscode
+.DS_Store
+front_end_processed_output.log
+smt-encodings/*

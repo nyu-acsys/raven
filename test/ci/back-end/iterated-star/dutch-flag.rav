@@ -1,0 +1,96 @@
+interface IArray {
+  rep type T
+  
+  func loc(a: T, i: Int) returns (r: Ref)
+  func len(a: T) returns (l: Int)
+  func first(r: Ref) returns (a: T)
+  func second(r: Ref) returns (i: Int)
+  
+  auto lemma all_diff()
+    ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
+    
+  auto lemma len_nonneg()
+    ensures forall a:T :: len(a) >= 0
+}
+
+module DutchFlag[Arr: IArray] {
+    field value: Int;
+    
+    pred ordered(m: Map[Int, Int], len: Int) {
+        forall i: Int, j: Int :: 0 <= i && i < j && j < len ==> m[i] <= m[j]
+    }
+
+    pred access(a: Arr, implicit ghost m: Map[Int, Int]) {
+        forall i: Int :: 0 <= i && i < Arr.len(a) ==> own(Arr.loc(a, i).value, m[i], 1.0)
+    }
+
+    proc dutchFlag(a: Arr, implicit ghost m: Map[Int, Int])
+        returns (ghost m2: Map[Int, Int])
+        requires access(a,m)
+        requires forall i: Int :: 0 <= i && i < Arr.len(a) ==> m[i] == 0 || m[i] == 1 || m[i] == 2
+        ensures access(a,m2) && ordered(m2, Arr.len(a))
+        // ensures access(a,m) && ordered(m, Arr.len(a))
+    {
+        var unsorted : Int := 0;
+        var white : Int := 0;
+        var blue : Int := Arr.len(a);
+        m2 := m;
+
+        while (unsorted < blue)
+            invariant access(a, m2)
+            invariant 0 <= white && white <= unsorted && unsorted <= blue && blue <= Arr.len(a)
+            invariant forall i: Int :: 0 <= i && i < Arr.len(a) ==> m2[i] == 0 || m2[i] == 1 || m2[i] == 2
+            invariant forall i : Int :: 0 <= i && i < white ==> m2[i] == 0
+            invariant forall i : Int :: white <= i && i < unsorted ==> m2[i] == 1
+            invariant forall i : Int :: blue <= i && i < Arr.len(a) ==> m2[i] == 2
+        {
+            unfold access(a, m2);
+            // assert false;
+            var tmp : Int := Arr.loc(a,unsorted).value;
+            // assert false;
+
+
+            if (tmp == 1) {
+                unsorted := unsorted + 1;
+            } else if (tmp == 0) {
+                var tmp1 : Int := Arr.loc(a,white).value;
+                Arr.loc(a,unsorted).value := tmp1;
+                var tmp2 : Int = Arr.loc(a,white).value;
+                m2 := m2[unsorted := tmp2];
+
+                Arr.loc(a,white).value := tmp;
+                m2 := m2[white := tmp];
+
+                white := white + 1;
+                unsorted := unsorted + 1;
+            } else {
+                var tmp1 : Int = Arr.loc(a,blue - 1).value;
+                Arr.loc(a,unsorted).value := tmp1;
+
+                var tmp2 : Int = Arr.loc(a,blue - 1).value;
+                m2 := m2[unsorted := tmp2];
+
+                blue := blue - 1;
+                Arr.loc(a,blue).value := tmp;
+                m2 := m2[blue := tmp ];
+            }
+            fold access(a, m2);
+        }
+
+        fold ordered(m2, Arr.len(a));
+    }
+
+    proc test1(x: Ref, y: Ref)
+        requires own(x.value, 5, 0.75)
+        requires own(y.value, 5, 0.75)
+        ensures (x != y)
+        { }
+
+    proc test2(l: Ref)
+        requires own(l.value, 5, 1.0/2.0)
+        requires own(l.value, 5, 0.5)
+        ensures own(l.value, 5, 1.0)
+        { }
+
+}
+

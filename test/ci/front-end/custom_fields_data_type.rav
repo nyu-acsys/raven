@@ -1,0 +1,29 @@
+module IntTp : Library.Type {
+  rep type T = Int
+}
+
+module IntSetRA = Library.SetRA[IntTp]
+
+type T = Int
+
+
+field c: T
+field d: IntSetRA
+
+type Something = data { case onething(a: Int); case nothing } 
+
+field e: Something
+
+
+pred counter(x: Ref; v: Int) {
+  own(x.c, 0, 1.0) && own(x.d, IntSetRA.set_constr({|v|})) && own(x.e, onething(v), 1.0)
+}
+
+proc incr(x: Ref) 
+  requires counter(x, 0)
+  ensures counter(x, 0)
+{
+  unfold counter(x, 0);
+  fold counter(x, 0);
+  var v: Something = onething(5);
+}

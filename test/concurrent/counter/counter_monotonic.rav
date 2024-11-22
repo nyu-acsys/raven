@@ -1,0 +1,63 @@
+import Library.Auth
+import Library.MaxNat
+
+field c: Int
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+ghost field h: AuthMaxNat
+
+inv counterInv(x: Ref) { 
+  exists v: Int :: own(x.h, auth_frag(v,v)) && own(x.c, v, 1.0)
+}
+
+proc incr(x: Ref) 
+  requires counterInv(x)
+  ensures counterInv(x)
+{
+  var v1: Int;
+
+  unfold counterInv(x);
+  v1 := x.c;
+  fold counterInv(x);
+  
+  var new_v1 : Int := v1 + 1;
+  var res: Bool;
+
+  ghost var v2: Int;
+  unfold counterInv(x);
+  v2 :| own(x.c, v2, 1.0);
+  assert v1 <= v2;
+  res := cas(x.c, v1, new_v1);
+    
+  if (!res) {
+    fold counterInv(x);
+    incr(x);
+  } else {
+    // Frame preserving update of ghost resource x.h
+    fpu(x.h, auth_frag(v1,v1), auth_frag(new_v1,new_v1));
+    fold counterInv(x);
+  }
+}
+
+proc read(x: Ref)
+  returns (v: Int)
+  requires counterInv(x)
+  ensures counterInv(x)
+{
+  unfold counterInv(x);
+  v := x.c;
+  fold counterInv(x);
+
+  return v;
+}
+
+proc make()
+  returns (x: Ref)
+  ensures counterInv(x)
+{
+  x := new(c: 0);
+  // fold counterInv(x);
+  assume false;
+}
