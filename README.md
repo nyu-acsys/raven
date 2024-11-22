@@ -28,6 +28,8 @@ $ opam install . --deps
 $ dune build; dune install; dune runtest
 ```
 
+A [Visual Studio Code extension](https://github.com/nyu-acsys/raven-lang) for IDE integration is also available.
+
 ## Examples
 Several examples of Raven programs can be found in the [test](test) folder. The [ci](test/ci) folder contains many small examples that can be used to learn Raven's syntax for specific features. Complete verified implementations of concurrent data structures can be found in the [concurrent](test/concurrent) folder. Here are a few notable ones to get started, in roughly increasing order of complexity:
 1. [spin_lock](test/concurrent/lock/spin-lock.rav)
