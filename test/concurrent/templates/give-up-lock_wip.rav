@@ -24,12 +24,12 @@ interface SearchStructureSpec {
 
   type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
-	pred opSpec(op: Op, k: K, c_in: Set[K], c_out: Set[K], res: Bool) {
+	func opSpec(op: Op, k: K, c_in: Set[K]) returns (c_out_res: (Set[K], Bool)) {
     op == searchOp() ? 
-      c_in == c_out && res == (k in c_in) :
+      ((c_in, (k in c_in))) :
     (op == insertOp() ?
-      c_out == c_in ++ {| k |} && res == (k !in c_in) :
-      c_out == c_in -- {| k |} && res == (k in c_in))
+      ((c_in ++ {| k |}, (k !in c_in))) :
+      ((c_in -- {| k |}, (k in c_in))))
 	}
 }
 
@@ -89,7 +89,7 @@ interface NodeImpl {
     requires k in keyset(i_n)
     requires node(n, c, i_n)
     ensures node(n, c1, i_n)
-    ensures succ ==> opSpec(dop, k, c, c1, res) 
+    ensures succ ==> opSpec(dop, k, c) == ((c1, res)) 
     ensures !succ ==> c == c1
 
   proc findNext(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
@@ -173,63 +173,62 @@ interface GiveUpTemplate[Node: NodeImpl, LockF: Lock] {
     own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
   }
 
-  pred cssR(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int]) {
+  pred cssR(r: Ref, c: Set[K], g_i: Flow_K) {
     (forall n: Ref :: n in g_i.dom ==> 
-      (exists l: Ref ::
-        L.is_lock(l, (r, n), lockval[n] == 1) && own(n.lock, l, 1.0)))
-        && 
-    globalRes(r, c, g_i)
+      (exists l: Ref, b: Bool ::
+        own(n.lock, l, 1.0) && L.is_lock(l, (r, n), b)))
+    && globalRes(r, c, g_i)
   }
 
   pred css(r: Ref, c: Set[K]) {
-    exists g_i: Flow_K, lockval: Map[Ref, Int] :: 
-      cssR(r, c, g_i, lockval)
+    exists g_i: Flow_K :: 
+      cssR(r, c, g_i)
   }
 
-  lemma cssInFp(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int])
-    requires cssR(r, c, g_i, lockval)
+  lemma cssInFp(r: Ref, n:Ref, c: Set[K], g_i: Flow_K)
+    requires cssR(r, c, g_i)
     requires inFP(r, n)
     ensures n in g_i.dom
-    ensures cssR(r, c, g_i, lockval)
+    ensures cssR(r, c, g_i)
     ensures inFP(r, n)
   {
-    unfold cssR(r, c, g_i, lockval);
+    unfold cssR(r, c, g_i);
     unfold globalRes(r, c, g_i);
     unfold inFP(r, n);
 
     fold globalRes(r, c, g_i);
     fold inFP(r, n);
-    fold cssR(r, c, g_i, lockval);
+    fold cssR(r, c, g_i);
   }
 
 
-  lemma fpInCss(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int])
-    requires cssR(r, c, g_i, lockval)
+  lemma fpInCss(r: Ref, n:Ref, c: Set[K], g_i: Flow_K)
+    requires cssR(r, c, g_i)
     requires n in g_i.dom
     ensures inFP(r, n)
-    ensures cssR(r, c, g_i, lockval)
+    ensures cssR(r, c, g_i)
   {
-    unfold cssR(r, c, g_i, lockval);
+    unfold cssR(r, c, g_i);
     unfold globalRes(r, c, g_i);
 
     fpu(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)), AuthSetRef.auth_frag(SetRefRA.set_constr(g_i.dom), SetRefRA.set_constr(g_i.dom)));
 
     fold globalRes(r, c, g_i);
     fold inFP(r, n);
-    fold cssR(r, c, g_i, lockval);
+    fold cssR(r, c, g_i);
   }
 
-  lemma root_fp(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int])
-    requires cssR(r, c, g_i, lockval)
-    ensures cssR(r, c, g_i, lockval)
+  lemma root_fp(r: Ref, c: Set[K], g_i: Flow_K)
+    requires cssR(r, c, g_i)
+    ensures cssR(r, c, g_i)
     ensures r in g_i.dom
   {
-    unfold cssR(r, c, g_i, lockval);
+    unfold cssR(r, c, g_i);
     unfold globalRes(r, c, g_i);
     unfold globalinv(g_i, r);
 
     fold globalinv(g_i, r);
     fold globalRes(r, c, g_i);
-    fold cssR(r, c, g_i, lockval);
+    fold cssR(r, c, g_i);
   }
 }
