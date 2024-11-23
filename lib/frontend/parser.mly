@@ -207,16 +207,14 @@ proc_def:
     let ghostify_decls =
       Base.List.map ~f:(fun decl -> Type.{ decl with var_ghost = true; var_type = set_ghost true decl.var_type })
     in
-    let call_decl_formals, call_decl_returns =
+    let call_decl_returns =
       match call_decl_kind with
-      | Lemma | Pred | Invariant ->
-          (*ghostify_decls*) def.call_decl.call_decl_formals,
+      | Lemma ->
           ghostify_decls def.call_decl.call_decl_returns
       | _ ->
-          def.call_decl.call_decl_formals,
           def.call_decl.call_decl_returns
     in
-    { def with call_decl = { def.call_decl with call_decl_kind; call_decl_is_auto; call_decl_formals; call_decl_returns } } in
+    { def with call_decl = { def.call_decl with call_decl_kind; call_decl_is_auto; call_decl_returns } } in
   let proc_body = Option.map body ~f:(fun s ->
     Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos(body) $endpos(body) })
   in
@@ -231,7 +229,20 @@ proc_kind:
 func_def:
 | def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {
   let open Callable in
-  { def with call_def = FuncDef { func_body = body } }
+  let implicify_decls =
+    Base.List.map ~f:(fun decl ->
+      Type.{ decl with var_ghost = true; var_implicit = true; var_type = set_ghost true decl.var_type })
+  in
+  let call_decl_returns =
+    match def.call_decl.call_decl_kind with
+    | Pred | Invariant ->
+        implicify_decls def.call_decl.call_decl_returns
+    | _ ->
+        def.call_decl.call_decl_returns
+  in
+  { call_decl = { def.call_decl with call_decl_returns };
+    call_def = FuncDef { func_body = body }
+  }
 }
 
     

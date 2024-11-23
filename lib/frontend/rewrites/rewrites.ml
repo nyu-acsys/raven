@@ -930,7 +930,12 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         | _ -> Error.error stmt.stmt_loc "Expected a call_def"
       in
 
-      let renaming_map, fresh_dropped_args =
+      let truncated_formal_args, dropped_formal_args =
+        List.split_n (pred_decl.call_decl_formals @ pred_decl.call_decl_returns)
+          (List.length use_desc.use_args)
+      in
+
+      (*let renaming_map =
         (* let truncated_formal_args, dropped_formal_args = List.split_n pred_decl.call_decl_formals (List.length use_desc.use_args) in
 
            let fresh_dropped_args = List.map dropped_formal_args ~f:(fun var_decl ->
@@ -943,24 +948,52 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
              Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:arg_expr
            )
            in *)
-        let renaming_map =
-          List.fold2_exn
-            (pred_decl.call_decl_formals @ pred_decl.call_decl_returns)
-            use_desc.use_args
-            ~init:(Map.empty (module QualIdent))
-            ~f:(fun map var_decl arg_expr ->
+        List.fold2_exn
+          (truncated_formal_args @ dropped_formal_args)
+          (use_desc.use_args @ fresh_dropped_args_exprs)
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun map var_decl arg_expr ->
               Map.add_exn map
                 ~key:(QualIdent.from_ident var_decl.var_name)
                 ~data:arg_expr)
-        in
-
-        (* renaming_map, fresh_dropped_args *)
-        (renaming_map, ())
+      in*)
+      
+      let new_dropped_args =
+        List.map dropped_formal_args ~f:(fun var_decl ->
+            {
+              var_decl with
+              var_name =
+                Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name;
+              var_loc = stmt.stmt_loc;
+            })
       in
-
-      let new_body = Expr.alpha_renaming body renaming_map in
+      
+      let new_dropped_args_exprs =
+        List.map new_dropped_args ~f:Expr.from_var_decl
+      in
+      let* _ =
+        Rewriter.List.map new_dropped_args ~f:(fun var ->
+            Rewriter.introduce_symbol
+              (Module.VarDef { var_decl = var; var_init = None }))
+      in
+      
+      let new_renaming_map =
+        List.fold2_exn
+          (truncated_formal_args @ dropped_formal_args)
+          (use_desc.use_args @ new_dropped_args_exprs)
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun map var_decl arg_expr ->
+              Map.add_exn map
+                ~key:(QualIdent.from_ident var_decl.var_name)
+                ~data:arg_expr)
+      in
+      
+      let new_body =
+        Expr.alpha_renaming body new_renaming_map
+      in
+        
       let existential_var_idens_set = Expr.existential_vars new_body in
-
+      
       let user_exist_binds, user_exist_witnesses =
         match use_desc.use_kind with
         | Fold -> [], use_desc.use_witnesses_or_binds
@@ -1028,71 +1061,83 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       let pred_expr =
-        Expr.mk_app ~loc ~typ:Type.bool
-          (Expr.Var use_desc.use_name) use_desc.use_args
+          Expr.alpha_renaming 
+            (Expr.mk_app ~loc ~typ:Type.bool
+               (Expr.Var use_desc.use_name) (use_desc.use_args @ new_dropped_args_exprs))
+            new_renaming_map
       in
 
       let new_stmt =
-        let inhale_stmt, exhale_stmt =
-          match use_desc.use_kind with
-          | Fold ->
-            let inhale_stmt = 
-              Stmt.mk_inhale_expr ~loc
-                ~cmnt:("fold : " ^ Expr.to_string pred_expr)
+        match use_desc.use_kind with
+        | Fold ->
+          let bind_stmt =
+            Stmt.mk_bind ~loc:stmt.stmt_loc
+              (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
+              new_body
+          in
+
+          let inhale_stmt = 
+            Stmt.mk_inhale_expr ~loc
+              ~cmnt:("fold : " ^ Expr.to_string pred_expr)
               pred_expr 
+          in
+          
+          let exhale_stmt = 
+            let error =
+              ( Error.Verification,
+                stmt.stmt_loc,
+                "Failed to fold predicate. The body of the predicate may \
+                 not hold at this point" )
             in
-
-            let exhale_stmt = 
-              let error =
-                ( Error.Verification,
-                  stmt.stmt_loc,
-                  "Failed to fold predicate. The body of the predicate may \
-                   not hold at this point" )
-              in
-              Stmt.mk_exhale_expr ~loc
-                ~cmnt:("fold : " ^ Expr.to_string pred_expr)
-                ~spec_error:[ Stmt.mk_const_spec_error error ]
+            Stmt.mk_exhale_expr ~loc
+              ~cmnt:("fold : " ^ Expr.to_string pred_expr)
+              ~spec_error:[ Stmt.mk_const_spec_error error ]
               body_fold_expr
+          in
+          (match new_dropped_args with
+          | [] -> Stmt.mk_block_stmt ~loc [ exhale_stmt; inhale_stmt ]
+          | _ -> Stmt.mk_block_stmt ~loc [ bind_stmt; exhale_stmt; inhale_stmt ])
+
+        | Unfold ->
+          let inhale_stmt = 
+            let usr_binds_havocs = 
+              List.map use_desc.use_witnesses_or_binds ~f:(
+                fun (i, e) -> 
+                  Stmt.mk_havoc ~loc (QualIdent.from_ident i)
+              )
             in
+            
+            let pred_body_inhale_stmt = 
+              Stmt.mk_inhale_expr ~loc
+                ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
+                body_unfold_expr
+            in
+            
+            Stmt.mk_block_stmt ~loc (usr_binds_havocs @ [pred_body_inhale_stmt])
+          in
 
-            (inhale_stmt, exhale_stmt)
-
-          | Unfold ->
-              let inhale_stmt = 
-                let usr_binds_havocs = 
-                  List.map use_desc.use_witnesses_or_binds ~f:(
-                    fun (i, e) -> 
-                      Stmt.mk_havoc ~loc (QualIdent.from_ident i)
-                  )
-                in
-
-                let pred_body_inhale_stmt = 
-                  Stmt.mk_inhale_expr ~loc
-                    ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
-                  body_unfold_expr
-                in
-
-                Stmt.mk_block_stmt ~loc (usr_binds_havocs @ [pred_body_inhale_stmt])
-              in
-
-              let exhale_stmt = let error =
-                ( Error.Verification,
-                  stmt.stmt_loc,
-                  "Failed to unfold predicate. The predicate may not hold at \
-                   this point" )
-              in
-              Stmt.mk_exhale_expr ~loc
+          let bind_stmt =
+            Stmt.mk_bind ~loc:stmt.stmt_loc
+              (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
+              pred_expr
+          in
+          
+          let exhale_stmt =
+            let error =
+              ( Error.Verification,
+                stmt.stmt_loc,
+                "Failed to unfold predicate. The predicate may not hold at \
+                 this point" )
+            in
+            Stmt.mk_exhale_expr ~loc
                 ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
                 ~spec_error:[ Stmt.mk_const_spec_error error ]
                 pred_expr
-              in
-
-              (inhale_stmt, exhale_stmt)
-        in
-
-        Stmt.mk_block_stmt ~loc [ exhale_stmt; inhale_stmt ]
+          in
+          match new_dropped_args with
+          | [] -> Stmt.mk_block_stmt ~loc [ exhale_stmt; inhale_stmt ]
+          | _ -> Stmt.mk_block_stmt ~loc [ bind_stmt; exhale_stmt; inhale_stmt ]
       in
-
       Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_fold_unfold_stmts
 

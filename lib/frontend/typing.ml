@@ -746,12 +746,13 @@ and process_callable_args loc is_ghost_scope callable_decl args_list =
   (* Check if too few arguments given. *)
   let _ =
     List.drop callable_formals (List.length args_list)
-    |> List.exists ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit)
-    |> fun b ->
-    if b then
-      Error.type_error loc
-      @@ Printf.sprintf "Some explicit arguments are missing in this call to %s"
-           (Ident.to_string callable_decl.call_decl_name)
+    |> List.find ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit)
+    |> Option.iter ~f:(fun decl ->
+        assert (not decl.Type.var_implicit);
+        Error.type_error loc
+        @@ Printf.sprintf !"Explicit argument %s is missing in this call to %{Ident}"
+           (Ident.name decl.Type.var_name)
+           callable_decl.call_decl_name)
   in
 
   let provided_formals = List.take callable_formals (List.length args_list) in
