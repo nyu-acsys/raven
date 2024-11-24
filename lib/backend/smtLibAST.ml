@@ -112,7 +112,7 @@ let rec pr_sort ppf (sort : sort) =
   | App (Bool, [], _) -> fprintf ppf "Bool"
   | App (Ref, [], _) -> pr_smt_ident ppf PreambleConsts.loc_ident
   | App (Var qual_iden, [], _) -> pr_smt_ident ppf qual_iden
-  | App (Set, [ srt ], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
+  | App (Map, [ srt; App (Bool, _, _)], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (Map, [ srt1; srt2 ], _) ->
       fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
   | App (Data (id, _), [], _) -> pr_smt_ident ppf id

@@ -55,7 +55,7 @@ module ProcessTypeExpr = struct
         | ModInst _ -> unexpected_functor_error tp_attr.type_loc
         | _ -> Error.type_error tp_attr.type_loc "Expected type identifier.")
     | App (Var _, _, tp_attr) -> unexpected_functor_error tp_attr.type_loc
-    | App (((Set | Fld) as constr), tp_list, tp_attr) -> (
+    | App ((Fld as constr), tp_list, tp_attr) -> (
         match tp_list with
         | [ tp_arg ] ->
             let+ tp_arg' = process_type_expr tp_arg in
@@ -705,7 +705,6 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           
           let inner_expr_expected_typ =
             let ty = match expected_typ with
-            | App (Set, _, _) -> Type.bool
             | App (Map, [ _; tp ], _) -> tp
             | _ -> Type.any
             in ty |> Type.set_ghost_to expected_typ
@@ -1139,7 +1138,7 @@ module ProcessCallable = struct
         "Internal error: process_au_action_stmt called with non-callable \
          expression"
 
-  let rec process_basic_stmt (expected_return_type : Type.t)
+  let rec process_basic_stmt call_decl
       (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc: Loc.t) (disam_tbl : DisambiguationTbl.t) :
       (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
@@ -1192,9 +1191,8 @@ module ProcessCallable = struct
                 assign_is_init = true;
               }
           in
-          
           process_basic_stmt 
-            expected_return_type
+            call_decl
             (Assign assign_desc)
             stmt_loc
             disam_tbl'
@@ -1235,7 +1233,7 @@ module ProcessCallable = struct
                 field_read_is_init = assign_desc.assign_is_init;
               }
           in
-          process_basic_stmt expected_return_type (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
+          process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
         (* AU action *)
         | App (Var qual_ident, _, _) as assign_rhs when Predefs.is_qual_ident_au_cmnd qual_ident ->
           process_au_action_stmt assign_lhs var_decls_lhs assign_rhs stmt_loc disam_tbl
@@ -1453,6 +1451,10 @@ module ProcessCallable = struct
       let+ qual_ident, _ = get_assign_lhs qual_ident ~is_init:false in
       Stmt.Havoc qual_ident, disam_tbl
     | Return expr ->
+      let expected_return_type = Callable.return_type call_decl in
+      if is_ghost_scope && Poly.(call_decl.call_decl_kind = Proc) then
+        Error.type_error stmt_loc "Cannot return in a ghost block";
+
       let+ expr =
         disambiguate_process_expr expr expected_return_type disam_tbl
       in
@@ -1613,9 +1615,9 @@ module ProcessCallable = struct
       internal_error stmt_loc
         "Did not expect Fpu stmts in AST at this stage."
         
-  let process_stmt ?(new_scope = true) (expected_return_type : Type.t)
+  let process_stmt ?(new_scope = true) call_decl
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
-      (Stmt.t * DisambiguationTbl.t) Rewriter.t =
+    (Stmt.t * DisambiguationTbl.t) Rewriter.t =
     let rec process_stmt ?(new_scope = true) stmt disam_tbl =
       Logs.debug (fun m -> m "process_stmt: %a" Stmt.pr stmt);
       let open Rewriter.Syntax in
@@ -1624,7 +1626,7 @@ module ProcessCallable = struct
         match stmt.Stmt.stmt_desc with
         | Basic basic_stmt ->
           let+ basic_stmt, disam_tbl' =
-            process_basic_stmt expected_return_type basic_stmt (Stmt.to_loc stmt) disam_tbl
+            process_basic_stmt call_decl basic_stmt (Stmt.to_loc stmt) disam_tbl
           in
           (Stmt.Basic basic_stmt, disam_tbl')
         | Block block_desc ->
@@ -1779,7 +1781,6 @@ module ProcessCallable = struct
 
           func_def
       | ProcDef proc_def ->
-          let expected_return_type = Callable.return_type call_decl in
           let+ proc_body =
             Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
                 (* Logs.debug (fun m -> m "Typing.process_callable: Processing stmt: %a" Stmt.pr stmt); *)
@@ -1794,7 +1795,7 @@ module ProcessCallable = struct
                       (List.map disam_tbl ~f:Map.to_alist));
 
                 let+ stmt, _disam_tbl =
-                  process_stmt ~new_scope:false expected_return_type stmt
+                  process_stmt ~new_scope:false call_decl stmt
                     disam_tbl
                 in
                 stmt)

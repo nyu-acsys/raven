@@ -1,3 +1,0 @@
-proc p() {
-  var x: Map[Ref, Bool] := {| l: Ref :: false |};
-}

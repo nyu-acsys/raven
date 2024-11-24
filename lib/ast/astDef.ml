@@ -265,7 +265,6 @@ module Type = struct
       | Bot
       | Any
       | Var of QualIdent.t
-      | Set
       | Map
       | Fld
       | Data of QualIdent.t * variant_decl list
@@ -316,7 +315,6 @@ module Type = struct
     | Bot -> bot_type_string
     | Any -> any_type_string
     | Ref -> ref_type_string
-    | Set -> set_type_string
     | Map -> map_type_string
     | Fld -> fld_type_string
     | Perm -> perm_type_string
@@ -327,7 +325,7 @@ module Type = struct
 
   let rec pr_constr ppf t =
     match t with
-    | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | Set | AtomicToken
+    | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken
     | Map | Fld | Prod ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data (id, decls) ->
@@ -338,6 +336,8 @@ module Type = struct
   and pr ppf t =
     match t with
     | App (t1, [], _) -> pr_constr ppf t1
+    | App (Map, [t1; App (Bool, _, _)], _) ->
+      Stdlib.Format.fprintf ppf "Set[%a]" pr t1
     | App (Prod, ts, _) ->
       Stdlib.Format.fprintf ppf "(@[%a@])" (Print.pr_list_comma pr) ts
     | App (t1, ts, _) ->
@@ -388,7 +388,7 @@ module Type = struct
   let mk_any loc = App (Any, [], mk_attr loc)
   let mk_bot loc = App (Bot, [], mk_attr loc)
   let mk_ref loc = App (Ref, [], mk_attr loc)
-  let mk_set loc tp = App (Set, [tp], mk_attr loc)
+  let mk_set loc tp = App (Map, [tp; mk_bool loc], mk_attr loc)
   let mk_map loc tpi tpo = App (Map, [tpi; tpo], mk_attr loc)
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
@@ -444,7 +444,8 @@ module Type = struct
     match (t1, t2) with
     | App (Bot, [], _), t | t, App (Bot, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
-    | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [join t1 t2], a1)
+    | App (Map, [t1; App (Bool, [], a0)], a1), App (Map, [t2; App (Bool, [], _)], _a2) ->
+      App (Map, [join t1 t2; App (Bool, [], a0)], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [meet ti1 ti2; join to1 to2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:join ts1 ts2 |> function
@@ -458,7 +459,8 @@ module Type = struct
     match (t1, t2) with
     | App (Any, [], _), t | t, App (Any, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
-    | App (Set, [t1], a1), App (Set, [t2], _a2) -> App (Set, [meet t1 t2], a1)
+    | App (Map, [t1; App (Bool, [], a0)], a1), App (Map, [t2; App (Bool, [], _)], _a2) ->
+      App (Map, [meet t1 t2; App (Bool, [], a0)], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [join ti1 ti2; meet to1 to2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:meet ts1 ts2 |> function
@@ -480,7 +482,7 @@ module Type = struct
   let is_any tp_expr = equal tp_expr any
 
   let is_set tp_expr = match tp_expr with
-    | App (Set, _, _) -> true
+    | App (Map, [_; App(Bool, _, _)], _) -> true
     | _ -> false
   let is_ghost_var vdecl = vdecl.var_ghost
   let is_const_var vdecl = vdecl.var_const
@@ -498,7 +500,7 @@ module Type = struct
 
   
   let set_elem = function
-  | App (Set, elem :: _, _) -> elem
+  | App (Map, [elem; App (Bool, _, _)], _) -> elem
   | _ -> failwith "Expected Set type"
         
   let map_dom = function
@@ -762,11 +764,8 @@ module Expr = struct
     | ((Forall | Exists) as b), vs, trgs, e, _ ->
       Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a %a" (binder_to_string b)
       pr_var_decl_list vs pr_trgs trgs pr e
-    | Compr, vs, trgs, e, App (Set, _, _) ->
-        Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs
-          pr e
     | Compr, vs, trgs, e, _ ->
-        Stdlib.Format.fprintf ppf "[|@ @[%a@ ::@ %a@]@ |]" pr_var_decl_list vs
+        Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs
           pr e
 
   and pr_trgs ppf trgs = 

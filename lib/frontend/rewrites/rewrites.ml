@@ -118,7 +118,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
 
       let postcond =
         let spec_form =
-          if Type.is_set ret_typ then
+          (*if Type.is_set ret_typ then
             let var_decl = List.hd_exn v_l in
 
             Expr.mk_binder ~typ:Type.bool Forall [ var_decl ]
@@ -143,7 +143,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
                        inner_expr;
                      ];
                  ])
-          else
+          else*)
             (* Type.is_map ret_typ *)
             let var_decl = List.hd_exn v_l in
             let lookup_expr =

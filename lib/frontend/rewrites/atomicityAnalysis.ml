@@ -118,15 +118,6 @@ let close_au ~loc token atomicity_state : atomicity_check =
       { atomicity_state with au_opened; atomic_step_taken = false }
     else { atomicity_state with au_opened }
 
-let rec is_expr_atomic (expr : Expr.t) : bool =
-  match expr with
-  | App (constr, expr_args, _) -> (
-      match constr with
-      | Null | Int _ | Real _ | Bool _ -> true
-      | Var _ -> ( match expr_args with [] -> true | _ -> false)
-      | Read | Cas -> is_expr_atomic (List.hd_exn expr_args)
-      | _ -> false)
-  | _ -> false
 
 let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
     =
@@ -256,16 +247,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return stmt
     | Basic (Return return_expr) ->
-        if is_ghost_scope then
-          Error.error stmt.stmt_loc "Cannot return in a ghost block" (* TODO: move this to Typing *)
-        else if is_expr_atomic return_expr then
-          let atomicity_state = take_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in
-          Rewriter.return stmt
-        else
-          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
-          let* _ = Rewriter.set_user_state atomicity_state in
-          Rewriter.return stmt
+        let atomicity_state = take_atomic_step ~loc atomicity_state in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return stmt
     | Basic (Use use_desc) -> (
         let* symbol = Rewriter.find_and_reify use_desc.use_name in
         match symbol with
