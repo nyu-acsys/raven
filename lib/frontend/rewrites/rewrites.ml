@@ -1070,10 +1070,20 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let new_stmt =
         match use_desc.use_kind with
         | Fold ->
+          let spec_error =
+            let error =
+              ( Error.Verification,
+                stmt.stmt_loc,
+                "Failed to fold predicate. The body of the predicate may \
+                 not hold at this point" )
+            in
+            [ Stmt.mk_const_spec_error error ]
+          in
+          let spec_form = Stmt.mk_spec ~spec_error new_body in
           let bind_stmt =
             Stmt.mk_bind ~loc:stmt.stmt_loc
               (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
-              new_body
+              spec_form
           in
 
           let inhale_stmt = 
@@ -1083,15 +1093,9 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
           
           let exhale_stmt = 
-            let error =
-              ( Error.Verification,
-                stmt.stmt_loc,
-                "Failed to fold predicate. The body of the predicate may \
-                 not hold at this point" )
-            in
             Stmt.mk_exhale_expr ~loc
               ~cmnt:("fold : " ^ Expr.to_string pred_expr)
-              ~spec_error:[ Stmt.mk_const_spec_error error ]
+              ~spec_error
               body_fold_expr
           in
           (match new_dropped_args with
@@ -1116,22 +1120,27 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             Stmt.mk_block_stmt ~loc (usr_binds_havocs @ [pred_body_inhale_stmt])
           in
 
-          let bind_stmt =
-            Stmt.mk_bind ~loc:stmt.stmt_loc
-              (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
-              pred_expr
-          in
-          
-          let exhale_stmt =
+          let spec_error =
             let error =
               ( Error.Verification,
                 stmt.stmt_loc,
                 "Failed to unfold predicate. The predicate may not hold at \
                  this point" )
             in
+            [ Stmt.mk_const_spec_error error ]
+          in
+          
+          let bind_stmt =
+            Stmt.mk_bind ~loc:stmt.stmt_loc
+              (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
+              (Stmt.mk_spec pred_expr ~spec_error)
+          in
+          
+          let exhale_stmt =
+            
             Stmt.mk_exhale_expr ~loc
                 ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
-                ~spec_error:[ Stmt.mk_const_spec_error error ]
+                ~spec_error
                 pred_expr
           in
           match new_dropped_args with
@@ -1284,29 +1293,28 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
                { spec with spec_form }
              in *)
-          let error =
-            ( Error.Verification,
-              stmt.stmt_loc,
-              "A precondition may not hold for this call" )
+          let spec_error =
+            let error =
+              ( Error.Verification,
+                stmt.stmt_loc,
+                "A precondition may not hold for this call" )
+            in
+            [ Stmt.mk_const_spec_error error ]
           in
-
-          let assert_stmt =
-            Stmt.mk_assert_expr ~loc:stmt.stmt_loc
-              ~cmnt:("Assert stmt for Call: " ^ Stmt.to_string stmt)
-              ~spec_error:[ Stmt.mk_const_spec_error error ]
-                (* TODO: can we preserve the error messages for the individual preconditions here? *)
-              (Expr.mk_binder ~loc:stmt.stmt_loc Exists quant_dropped_args
-                 (Expr.mk_and
-                    (List.map call_decl.call_decl_precond ~f:(fun spec ->
-                         Expr.alpha_renaming spec.spec_form quant_renaming_map))))
-          in
-
-          let bind_stmt =
-            Stmt.mk_bind ~loc:stmt.stmt_loc
-              (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
+          let spec_form =
+            Stmt.mk_spec
+              ~cmnt:("Bind stmt for Call: " ^ Stmt.to_string stmt)
+              ~spec_error 
               (Expr.mk_and
                  (List.map call_decl.call_decl_precond ~f:(fun spec ->
                       Expr.alpha_renaming spec.spec_form new_renaming_map)))
+          in
+          
+          let bind_stmt =
+            (* TODO: can we preserve the error messages for the individual preconditions here? *)
+            Stmt.mk_bind ~loc:stmt.stmt_loc
+               (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
+               spec_form
           in
 
           let exhale_stmts =
@@ -1317,7 +1325,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 in*)
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
-                  ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
+                  ~spec_error:(spec_error @ spec.spec_error)
                   (Expr.alpha_renaming spec.spec_form new_renaming_map))
           in
 
@@ -1345,9 +1353,9 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               | [], [] -> exhale_stmts @ [ inhale_stmt ]
               | [], _ -> exhale_stmts @ [ inhale_stmt; reassign_lhs_stmt ]
               | _, [] ->
-                  (assert_stmt :: bind_stmt :: exhale_stmts) @ [ inhale_stmt ]
+                  (bind_stmt :: exhale_stmts) @ [ inhale_stmt ]
               | _, _ ->
-                  (assert_stmt :: bind_stmt :: exhale_stmts)
+                  (bind_stmt :: exhale_stmts)
                   @ [ inhale_stmt; reassign_lhs_stmt ])
           in
 
@@ -1937,7 +1945,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
                      out_arg1.var_loc,
                      "This output parameter may not be uniquely determined by the input parameter(s)")
                   in
-                  Stmt.mk_spec ~error:[fun _ -> error] spec_expr)
+                  Stmt.mk_spec ~spec_error:[fun _ -> error] spec_expr)
             in
 
             (in_args @ out_args1 @ out_args2, renamings1, renamings2, postconds)
@@ -2156,8 +2164,9 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
                 QualIdent.from_ident ident)
           in
 
-          let bind_rhs = Expr.alpha_renaming bind_stmt.bind_rhs subst_map in
-
+          let spec_form = Expr.alpha_renaming bind_stmt.bind_rhs.spec_form subst_map in
+          let bind_rhs = { bind_stmt.bind_rhs with spec_form } in
+          
           Rewriter.return
             Stmt.{ s with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
       | _ ->

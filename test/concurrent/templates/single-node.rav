@@ -2,7 +2,7 @@ module Lock {
 
   field bit: Bool
   
-  pred lock(l: Ref, b: Bool) {
+  pred lock(l: Ref; b: Bool) {
     own(l.bit, b, 1.0) 
   }
 

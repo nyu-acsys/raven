@@ -1340,10 +1340,11 @@ module ProcessCallable = struct
                 qual_ident :: assign_lhs, var_decl :: var_decls_lhs
             )
       in
-      let+ bind_rhs =
-        disambiguate_process_expr bind_desc.bind_rhs (Type.any |> Type.set_ghost true)
+      let+ spec_form =
+        disambiguate_process_expr bind_desc.bind_rhs.spec_form (Type.any |> Type.set_ghost true)
           disam_tbl
       in
+      let bind_rhs = { bind_desc.bind_rhs with spec_form } in
       let bind_desc = Stmt.{ bind_lhs; bind_rhs } in
       Stmt.Bind bind_desc, disam_tbl
     | FieldWrite fw_desc ->

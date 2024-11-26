@@ -377,7 +377,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
              loc,
              "This iterated separating conjunction may not be injective on the quantified variable(s)")
           in
-          Stmt.mk_spec ~error:[fun _ -> error] spec_expr1
+          Stmt.mk_spec ~spec_error:[fun _ -> error] spec_expr1
         ) in
 
         let postcond2 = (
@@ -415,7 +415,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
              loc,
              "This iterated separating conjunction may not be injective on the quantified variable(s)")
           in
-          Stmt.mk_spec ~error:[fun _ -> error] spec_expr2
+          Stmt.mk_spec ~spec_error:[fun _ -> error] spec_expr2
         ) in
         
         [], [postcond1; postcond2]
@@ -1525,23 +1525,29 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
               ~data:(Expr.from_var_decl e2))
       in
 
-      let error =
-        ( Error.Verification,
-          Expr.to_loc bind_desc.bind_rhs,
-          "The right-hand side of this bind statement may not hold" )
+      let spec_error =
+        match bind_desc.bind_rhs.spec_error with
+        | [] ->
+          let error =
+            ( Error.Verification,
+              Expr.to_loc bind_desc.bind_rhs.spec_form,
+              "The right-hand side of this bind statement may not hold" )
+          in
+          [Stmt.mk_const_spec_error error]
+        | errors -> errors
       in
       let assert_stmt =
         Stmt.mk_assert_expr ~loc:stmt.stmt_loc
           ~cmnt:("Bind stmt: " ^ Stmt.to_string stmt)
-          ~spec_error:[ Stmt.mk_const_spec_error error ]
+          ~spec_error
           (Expr.mk_binder Exists ~loc:stmt.stmt_loc exis_vars
-             (Expr.alpha_renaming bind_desc.bind_rhs alpha_renaming_map))
+             (Expr.alpha_renaming bind_desc.bind_rhs.spec_form alpha_renaming_map))
       in
 
       let assume_stmt =
         Stmt.mk_assume_expr ~loc:stmt.stmt_loc
           ~cmnt:("Bind stmt: " ^ Stmt.to_string stmt)
-          bind_desc.bind_rhs
+          bind_desc.bind_rhs.spec_form
       in
 
       let new_stmt =
@@ -1872,19 +1878,12 @@ module TrnslInhale = struct
 
             let* bind_lhs_var_decls =
               Rewriter.List.map bind_desc.bind_lhs ~f:(fun qual_ident ->
-                  let* symbol =
-                    Rewriter.find_and_reify qual_ident
-                  in
-                  match symbol with
-                  | VarDef v -> Rewriter.return v.var_decl
-                  | _ ->
-                      Error.error
-                        (Expr.to_loc bind_desc.bind_rhs)
-                        "Expected a variable declaration")
+                  let+ var_def = Rewriter.find_and_reify_var qual_ident in
+                  var_def.var_decl)
             in
 
             match
-              match_up_expr bind_desc.bind_rhs prev_expr bind_lhs_var_decls
+              match_up_expr bind_desc.bind_rhs.spec_form prev_expr bind_lhs_var_decls
             with
             | None ->
                 Logs.debug (fun m ->
@@ -1904,14 +1903,14 @@ module TrnslInhale = struct
                       let _, rhs = Map.find_exn var_map var_decl.var_name in
 
                       Stmt.mk_assign
-                        ~loc:(Expr.to_loc bind_desc.bind_rhs)
+                        ~loc:(Expr.to_loc bind_desc.bind_rhs.spec_form)
                         [ var_decl.var_name |> QualIdent.from_ident ]
                         rhs)
                 in
 
                 Rewriter.return
                   (Stmt.mk_block_stmt
-                     ~loc:(Expr.to_loc bind_desc.bind_rhs)
+                     ~loc:(Expr.to_loc bind_desc.bind_rhs.spec_form)
                      assign_stmts)))
     | _ ->
         let* () = Rewriter.set_user_state None in

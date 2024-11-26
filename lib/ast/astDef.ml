@@ -1197,7 +1197,11 @@ module Stmt = struct
   }
 
   type assign_desc = { assign_lhs : qual_ident list; assign_rhs : expr; assign_is_init : bool }
-  type bind_desc = { bind_lhs : qual_ident list; bind_rhs : expr }
+
+  type bind_desc = {
+    bind_lhs : qual_ident list;
+    bind_rhs : spec;
+  }
 
   type field_read_desc = { 
     field_read_lhs : qual_ident;
@@ -1356,10 +1360,10 @@ module Stmt = struct
               astm.assign_rhs)
     | Bind bstm -> (
       match bstm.bind_lhs with
-      | [] -> Expr.pr ppf bstm.bind_rhs
+      | [] -> Expr.pr ppf bstm.bind_rhs.spec_form
       | es ->
           fprintf ppf "@[<2>%a@ :|@ %a@]" QualIdent.pr_list es Expr.pr
-          bstm.bind_rhs)
+          bstm.bind_rhs.spec_form)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
     | Cas cs -> fprintf ppf "@[<2>%a@ :=@ cas(%a.%a, %a, %a)@]" QualIdent.pr cs.cas_lhs Expr.pr cs.cas_ref QualIdent.pr cs.cas_field Expr.pr cs.cas_old_val Expr.pr cs.cas_new_val 
@@ -1539,12 +1543,12 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?cmnt ?(error = []) e = 
+  let mk_spec ?(atomic = false) ?cmnt ?(spec_error = []) e = 
     {
       spec_form = e;
       spec_atomic = atomic;
       spec_comment = cmnt;
-      spec_error = error;
+      spec_error;
     }
 
   let to_loc s = s.stmt_loc
@@ -1588,7 +1592,7 @@ module Stmt = struct
           let accesses =
             List.fold bind_desc.bind_lhs ~init:accesses ~f:Set.add
           in
-          scan_expr_list accesses [bind_desc.bind_rhs]
+          scan_expr_list accesses [bind_desc.bind_rhs.spec_form]
 
         | FieldRead fr_desc ->
           let accesses = Set.add accesses fr_desc.field_read_lhs in
@@ -1782,7 +1786,7 @@ module Stmt = struct
           Expr.expr_fields_accessed assign_desc.assign_rhs
         
         | Bind bind_desc ->
-          Expr.expr_fields_accessed bind_desc.bind_rhs
+          Expr.expr_fields_accessed bind_desc.bind_rhs.spec_form
 
         | FieldRead fr_desc -> 
           [fr_desc.field_read_field]

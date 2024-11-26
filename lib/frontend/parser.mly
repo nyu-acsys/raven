@@ -487,7 +487,7 @@ stmt_wo_trailing_substmt:
   in
   let bind =
     Stmt.{ bind_lhs = vs;
-           bind_rhs = e;
+           bind_rhs = mk_spec e;
          }
   in
   Stmt.(Basic (Bind bind))
@@ -498,8 +498,8 @@ stmt_wo_trailing_substmt:
 }
 
 (* assume / assert / inhale / exhale *)
-| sk = SPEC; e = expr; mk_spec = with_clause {
-  mk_spec sk e
+| sk = SPEC; e = expr; mk_spec_stmt = with_clause {
+  mk_spec_stmt sk e
 }
 (*| contract_mods ASSERT expr with_clause {
   $4 (fst $1) $3 (mk_position (if $1 <> (false, false) then 1 else 2) 4) None
