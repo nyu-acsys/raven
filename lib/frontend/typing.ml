@@ -74,6 +74,9 @@ module ProcessTypeExpr = struct
     | App (Prod, tp_list, tp_attr) ->
         let+ tp_list = Rewriter.List.map tp_list ~f:process_type_expr in
         App (Prod, tp_list, tp_attr)
+    | App (AtomicToken qid, [], tp_attr) ->
+      let+ qid = Rewriter.resolve qid in
+      App (AtomicToken qid, [], tp_attr)
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
@@ -112,14 +115,9 @@ module ProcessTypeExpr = struct
 
   let process_var_decl (var_decl : var_decl) : var_decl Rewriter.t =
     let open Rewriter.Syntax in
-    if not (Type.equal var_decl.var_type Type.any) then
-      let* var_type = process_type_expr var_decl.var_type in
-      let+ var_type = expand_type_expr var_type in
-      { var_decl with var_type }
-    else
-      Error.error var_decl.var_loc
-      @@ Printf.sprintf "Type annotation missing for variable '%s'"
-           (Ident.to_string var_decl.var_name)
+    let* var_type = process_type_expr var_decl.var_type in
+    let+ var_type = expand_type_expr var_type in
+    { var_decl with var_type }
 end
 
 (* TODO: move this function inside of process_expr *)
@@ -467,7 +465,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           if not (Callable.is_atomic callable_decl) then
             Error.type_error loc "Expected procedure with atomic specification"
           else
-            let* token = process_expr token Type.atomic_token in
+            let* token = process_expr token (Type.atomic_token call_name) in
             let* args_list =
               process_callable_args loc true callable_decl args_list
             in
@@ -498,7 +496,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           if not (Callable.is_atomic callable_decl) then
             Error.type_error loc "Expected procedure with atomic specification"
           else
-            let* token = process_expr token Type.atomic_token in
+            let* token = process_expr token (Type.atomic_token call_name) in
             let* args_list =
               process_callable_args loc true callable_decl args_list
             in
@@ -956,12 +954,15 @@ module ProcessCallable = struct
         QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident)
       then
         match (args, assign_lhs) with
-        | [], [ token_qual_ident ] -> 
+        | [], [ token_qual_ident ] ->
+          let* proc_qual_ident = Rewriter.current_scope_id in
+          let* token = Rewriter.find_and_reify_var token_qual_ident in
+          let token_expr = Expr.mk_var ~typ:token.var_decl.var_type token_qual_ident in
+          let+ _ = process_expr token_expr (Type.atomic_token proc_qual_ident) in
           (* TODO: check type Type.atomic_token *)
-          Rewriter.return
-            ( Stmt.AUAction { auaction_kind = BindAU token_qual_ident },
+          ( Stmt.AUAction { auaction_kind = BindAU token_qual_ident },
             disam_tbl )
-        | _ -> Error.type_error loc "bindAU takes exactly one argument"
+        | _ -> Error.type_error loc "bindAU takes no arguments"
       else
       (* openAU *) 
       if
@@ -973,58 +974,33 @@ module ProcessCallable = struct
         in
 
         match args with
-        | [ token ] -> (
-            let* token_expr =
-              disambiguate_process_expr token Type.atomic_token disam_tbl
+        | [ token ] -> 
+            let* token =
+              disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
             in
-
-            match token_expr with
-            | App (Var token_qual_ident, [], _) ->
+            begin match Expr.to_type token with
+            | App (AtomicToken proc_qual_ident, [], _) ->
               Rewriter.return
                 ( Stmt.AUAction
                     {
                       auaction_kind =
-                        OpenAU (token_qual_ident, None, bound_vars);
+                        OpenAU (token, proc_qual_ident, bound_vars);
                     },
                   disam_tbl )
-            | _ ->
-              Error.type_error loc
-                "openAU token expected to be a variable")
-        | [ token; proc_name ] -> (
-            let* token_expr =
-              disambiguate_process_expr token Type.atomic_token disam_tbl
-            in
-            let+ proc_name_expr =
-              disambiguate_process_expr proc_name Type.any disam_tbl
-            in
-            
-            match (token_expr, proc_name_expr) with
-            | ( App (Var token_qual_ident, [], _),
-                App (Var proc_qual_ident, [], _) ) ->
-              ( Stmt.AUAction
-                     {
-                       auaction_kind =
-                         OpenAU
-                           ( token_qual_ident,
-                             Some proc_qual_ident,
-                             bound_vars );
-                     },
-                disam_tbl )
-            | _ ->
-              Error.type_error loc
-                "openAU token and process name expected to be a \
-                 variable")
+            | typ ->
+              type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
+            end
         | _ ->
           Error.type_error loc
-            "openAU takes exactly one or two arguments"
+            "openAU takes exactly one argument"
       else if
         QualIdent.(
           qual_ident = QualIdent.from_ident Predefs.commitAU_ident)
       then
         match args with
-        | token :: args -> (
-            let* token_expr =
-              disambiguate_process_expr token Type.atomic_token disam_tbl
+        | token :: args ->
+            let* token =
+              disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
             in
             
             let+ args =
@@ -1032,34 +1008,34 @@ module ProcessCallable = struct
                   disambiguate_process_expr arg (Type.any |> Type.set_ghost true) disam_tbl)
             in
             
-            match token_expr with
-            | App (Var token_qual_ident, [], _) ->
+            begin match Expr.to_type token with
+            | App (AtomicToken proc_qual_ident, [], _) ->
               ( Stmt.AUAction
-                     {
-                       auaction_kind = CommitAU (token_qual_ident, args);
-                     },
+                  {
+                    auaction_kind = CommitAU (token, args);
+                  },
                 disam_tbl )
-            | _ ->
-              Error.type_error loc
-                "commitAU token expected to be a variable")
+            | typ ->
+              type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
+            end
         | _ -> Error.type_error loc "commitAU takes at least one argument"
       else if
         QualIdent.(
           qual_ident = QualIdent.from_ident Predefs.abortAU_ident)
       then
         match args with
-        | [ token ] -> (
-            let+ token_expr =
-              disambiguate_process_expr token Type.atomic_token disam_tbl
+        | [ token ] -> 
+            let+ token =
+              disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
             in
             
-            match token_expr with
-            | App (Var token_qual_ident, [], _) ->
-              ( Stmt.AUAction { auaction_kind = AbortAU token_qual_ident },
+            begin match Expr.to_type token with
+            | App (AtomicToken proc_qual_ident, [], _) ->
+              ( Stmt.AUAction { auaction_kind = AbortAU token },
                 disam_tbl )
-            | _ ->
-              Error.type_error loc
-                "abortAU token expected to be a variable")
+            | typ ->
+              type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
+            end
         | _ -> Error.type_error loc "abortAU takes exactly one argument"
       else if
         QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident)
@@ -1164,15 +1140,43 @@ module ProcessCallable = struct
       let* var_decl =
         ProcessTypeExpr.process_var_decl var_def.var_decl
       in
-      let var_decl, disam_tbl' =
-        DisambiguationTbl.add_var_decl var_decl disam_tbl
+      let* curr_callable = Rewriter.current_scope_id in
+      let var_ghost = var_decl.var_ghost || is_ghost_scope in 
+      let* var_type =
+        match var_def.var_init with
+        | None -> Rewriter.return var_decl.var_type
+        | Some (App (Var qual_ident, _, _)) when Predefs.is_qual_ident_au_cmnd qual_ident ->
+          Rewriter.return @@
+          if Ident.(Predefs.bindAU_ident = QualIdent.unqualify qual_ident) then
+            Type.mk_atomic_token (QualIdent.to_loc qual_ident) curr_callable
+          else Type.meet var_decl.var_type Type.any
+        | Some (App (Read, [ _; field_expr ], _)) ->
+          let field_qual_ident = Expr.to_qual_ident field_expr in
+          let+ symbol = Rewriter.find_and_reify field_qual_ident in
+          begin match symbol with
+            | FieldDef { field_type = App (Fld, [typ], _); _ } -> typ
+            | DestrDef destr_def -> destr_def.destr_return_type
+            | _ -> Type.meet var_decl.var_type Type.any
+          end
+        | Some expr ->
+          let+ expr =
+            disambiguate_process_expr expr (var_decl.var_type |> Type.set_ghost var_ghost) disam_tbl
+          in
+          Expr.to_type expr
       in
       let var_decl =
-        let var_ghost = var_decl.var_ghost || is_ghost_scope in 
-        { var_decl with
-          var_type = var_decl.var_type |> Type.set_ghost var_ghost;
-          var_ghost
-        }
+        if not (Type.equal var_type Type.any) then
+          { var_decl with
+            var_type = var_type |> Type.set_ghost var_ghost;
+            var_ghost
+          }
+        else
+          Error.error var_decl.var_loc
+          @@ Printf.sprintf "Type annotation missing for variable %s"
+            (Ident.to_string var_decl.var_name)
+      in
+      let var_decl, disam_tbl' =
+        DisambiguationTbl.add_var_decl var_decl disam_tbl
       in
       let* _ =
         Rewriter.introduce_symbol

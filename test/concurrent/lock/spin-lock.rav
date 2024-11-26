@@ -23,7 +23,7 @@ module SpinLock[R: LockResource] : Lock {
     atomic requires is_lock(l, r, b)
     atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
-    ghost val phi: AtomicToken = bindAU();
+    ghost val phi := bindAU();
         
     ghost var b1: Bool;
     r, b1 := openAU(phi);
@@ -54,7 +54,7 @@ module SpinLock[R: LockResource] : Lock {
     atomic requires is_lock(l, r, true) && resource(r)
     atomic ensures is_lock(l, r, false)
   {
-    ghost val phi: AtomicToken = bindAU();  
+    ghost val phi := bindAU();  
     r := openAU(phi);
     unfold is_lock(l, r, true);
     unfold lock_rep(l, true);

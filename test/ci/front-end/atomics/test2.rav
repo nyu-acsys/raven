@@ -6,7 +6,7 @@ proc p(implicit ghost x: Int)
   atomic requires p1(x)
   atomic ensures p1(x+2) 
 {
-  ghost var phi: AtomicToken := bindAU();
+  ghost var phi: AtomicToken<p> := bindAU();
 
   ghost var x0: Int := openAU(phi);
 

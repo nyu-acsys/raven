@@ -114,8 +114,8 @@ let lexical_error lexbuf msg =
 
 }
 
-let operator_char = ['+''-''*''%''.'':'',''?''>''<''=''&''|''!'';']
-let operator = '/' | operator_char+ | "in" | "!in" | "subseteq"
+let operator_char = ['+''-''*''%''.'':'',''?''>''<''=''&''|''!']
+let operator = '/' | ';' | operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
 let lowercase_char = ['a'-'z''_']

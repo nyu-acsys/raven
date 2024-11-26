@@ -26,7 +26,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
   atomic requires is_stack(s, xs)
   atomic ensures is_stack(s, cons(x, xs))
 {
-  ghost var phi: AtomicToken := bindAU();
+  ghost var phi := bindAU();
   ghost var xs0: IntList := openAU(phi);
 
   unfold is_stack(s, xs0);
@@ -69,7 +69,7 @@ proc pop(s: Ref, implicit ghost xs: IntList)
       (is_stack(s, xs) && result == none()) : 
       (is_stack(s, xs.tl) && result == some(xs.elem))
 {
-  ghost var phi: AtomicToken := bindAU();
+  ghost var phi := bindAU();
   ghost var xs0: IntList := openAU(phi);
 
   unfold is_stack(s, xs0);

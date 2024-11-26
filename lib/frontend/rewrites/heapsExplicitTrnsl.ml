@@ -1069,7 +1069,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
             m "Generated au heap RA module: %a" Module.pr_symbol
               instantiated_au_proc_heap_ra);
 
-        let in_arg_typ = Type.atomic_token in
+        let in_arg_typ = Type.atomic_token (QualIdent.from_ident c.call_decl.call_decl_name) in
 
         let* utils_module =
           generate_utils_module ~is_field:false
@@ -1312,7 +1312,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
           {
             var_name = au_heap_name call_name;
             var_loc = loc;
-            var_type = Type.mk_map loc Type.atomic_token au_heap_elem_type;
+            var_type = Type.mk_map loc (Type.atomic_token call_name) au_heap_elem_type;
             var_const = false;
             var_ghost = false;
             var_implicit = false;
@@ -1326,7 +1326,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             {
               Type.var_name = Ident.fresh loc "tok";
               var_loc = loc;
-              var_type = Type.atomic_token |> Type.set_ghost true;
+              var_type = Type.atomic_token call_name |> Type.set_ghost true;
               var_const = false;
               var_ghost = true;
               var_implicit = false;
@@ -1352,7 +1352,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
           {
             var_name = au_heap_name2 call_name;
             var_loc = loc;
-            var_type = Type.mk_map loc Type.atomic_token au_heap_elem_type;
+            var_type = Type.mk_map loc (Type.atomic_token call_name) au_heap_elem_type;
             var_const = false;
             var_ghost = false;
             var_implicit = false;
@@ -1364,7 +1364,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             {
               Type.var_name = Ident.fresh loc "in";
               var_loc = loc;
-              var_type = Type.atomic_token;
+              var_type = Type.atomic_token call_name;
               var_const = false;
               var_ghost = true;
               var_implicit = false;
@@ -2209,7 +2209,7 @@ module TrnslInhale = struct
           {
             Type.var_name = Ident.fresh loc "tok";
             var_loc = loc;
-            var_type = Type.atomic_token;
+            var_type = Type.atomic_token call_name;
             var_const = false;
             var_ghost = true;
             var_implicit = false;
@@ -4237,7 +4237,7 @@ module TrnslExhale = struct
           {
             Type.var_name = Ident.fresh loc "tok";
             var_loc = loc;
-            var_type = Type.atomic_token;
+            var_type = Type.atomic_token call_name;
             var_const = false;
             var_ghost = true;
             var_implicit = false;

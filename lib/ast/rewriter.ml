@@ -1359,6 +1359,7 @@ let find name : (Symbol.t, 'a) t_ext =
   let+ _, symbol = resolve_and_find name in
   symbol
 
+
 let find_and_reify name : (AstDef.Module.symbol, 'a) t_ext =
   let open Syntax in
   let* symbol = find name in
@@ -1366,6 +1367,20 @@ let find_and_reify name : (AstDef.Module.symbol, 'a) t_ext =
       m "Rewriter.find_and_reify: symbol = %a" Symbol.pr symbol);*)
   Symbol.reify symbol
 
+let find_and_reify_var name : (AstDef.Stmt.var_def, 'a) t_ext =
+  let open Syntax in
+  let+ symbol = find_and_reify name in
+  match symbol with
+  | VarDef var_def -> var_def
+  | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected var or val but found %s" (AstDef.Symbol.kind symbol))
+
+let find_and_reify_callable name : (AstDef.Callable.t, 'a) t_ext =
+  let open Syntax in
+  let+ symbol = find_and_reify name in
+  match symbol with
+  | CallDef call_def -> call_def
+  | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected callable but found %s" (AstDef.Symbol.kind symbol))
+  
 let is_local qual_ident s =
   let s, qual_ident = resolve qual_ident s in
   (s, Base.List.is_empty qual_ident.qual_path)

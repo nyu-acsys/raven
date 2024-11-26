@@ -129,7 +129,7 @@ module QualIdent = struct
       
   let pr ppf qid =
     let path = match qid.qual_path with
-      | maybe_program :: path when String.(Ident.name maybe_program = "$Program") -> path
+      (*| maybe_program :: path when String.(Ident.name maybe_program = "$Program") -> path*)
       | path -> path
     in
     Print.pr_list_sep "." Ident.pr ppf (path @ [qid.qual_base])
@@ -268,7 +268,7 @@ module Type = struct
       | Map
       | Fld
       | Data of QualIdent.t * variant_decl list
-      | AtomicToken
+      | AtomicToken of QualIdent.t
       | Prod
 
     and t = App of constr * t list * type_attr
@@ -320,12 +320,12 @@ module Type = struct
     | Perm -> perm_type_string
     | Data (id, _) -> QualIdent.to_string id
     | Var id -> QualIdent.to_string id
-    | AtomicToken -> atomic_token_type_string
+    | AtomicToken id -> Printf.sprintf !"%s<%{QualIdent}>" atomic_token_type_string id
     | Prod -> prod_type_string
 
   let rec pr_constr ppf t =
     match t with
-    | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken
+    | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
     | Map | Fld | Prod ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data (id, decls) ->
@@ -394,7 +394,7 @@ module Type = struct
   let mk_perm loc = App (Perm, [], mk_attr loc)
   let mk_data id decls loc = App (Data (id, decls), [], mk_attr loc)
   let mk_var qid = App (Var qid, [], mk_attr (QualIdent.to_loc qid))
-  let mk_atomic_token loc = App (AtomicToken, [], mk_attr loc) |> set_ghost true
+  let mk_atomic_token loc qid = App (AtomicToken qid, [], mk_attr loc) |> set_ghost true
   let mk_prod loc tp_list = 
     match tp_list with
     | [] -> mk_unit loc
@@ -1266,9 +1266,9 @@ module Stmt = struct
 
   type auaction_kind =
     | BindAU of qual_ident
-    | OpenAU of (qual_ident * qual_ident option * expr list)
-    | AbortAU of qual_ident
-    | CommitAU of qual_ident * expr list
+    | OpenAU of expr * qual_ident * expr list
+    | AbortAU of expr
+    | CommitAU of expr * expr list
 
   let auaction_kind_to_string = function
     | BindAU _ -> "bindAU"
@@ -1398,8 +1398,8 @@ module Stmt = struct
               cstm.call_args)
     | AUAction { auaction_kind = BindAU token} ->
       fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
-    | AUAction { auaction_kind = OpenAU (token, proc, bound_vars)} ->
-      fprintf ppf "@[<2>%s(%a)@]" (auaction_kind_to_string (OpenAU (token, proc, bound_vars))) QualIdent.pr token
+    | AUAction { auaction_kind = OpenAU (token, call_ident, open_au_lhs)} ->
+      fprintf ppf "@[<2>%a := %s(%a)@]" Expr.pr_list open_au_lhs (auaction_kind_to_string (OpenAU (token, call_ident, open_au_lhs))) Expr.pr token
     | AUAction { auaction_kind; _} ->
       fprintf ppf "@[<2>%s()@]" (auaction_kind_to_string auaction_kind)
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
@@ -1900,7 +1900,7 @@ module Callable = struct
   let pr_call_decl has_body ppf call_decl =
     let open Stdlib.Format in
     let auto_modifier = match call_decl.call_decl_is_auto with
-      | true -> "auto"
+      | true -> "auto "
       | false -> ""
     in
     let kind =

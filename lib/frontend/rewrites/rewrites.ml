@@ -746,7 +746,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let postconds_exhale_stmts =
         if Callable.is_atomic callable_decl then
           let atomic_token_var =
-            Expr.mk_var ~typ:Type.atomic_token
+            Expr.mk_var ~typ:(Type.atomic_token curr_proc_name)
               (QualIdent.from_ident
                  (ProgUtils.callable_au_token_ident ~loc
                     callable_decl.call_decl_name))
@@ -1435,7 +1435,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
               let* callable_fully_qual_name = Rewriter.current_scope_id in
 
               let atomic_token_var =
-                Expr.mk_var ~typ:Type.atomic_token
+                Expr.mk_var ~typ:(Type.atomic_token callable_fully_qual_name)
                   (QualIdent.from_ident
                      (ProgUtils.callable_au_token_ident ~loc
                         c.call_decl.call_decl_name))
@@ -1499,6 +1499,7 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
       | None -> Rewriter.return c
       | Some body ->
           let loc = Stmt.to_loc body in
+          let* curr_proc_name = Rewriter.current_scope_id in
           if not (Callable.is_atomic c.call_decl) then Rewriter.return c
           else
             let atomic_token_var =
@@ -1507,7 +1508,7 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
                   ProgUtils.callable_au_token_ident ~loc
                     c.call_decl.call_decl_name;
                 var_loc = loc;
-                var_type = Type.atomic_token;
+                var_type = Type.atomic_token curr_proc_name;
                 var_const = false;
                 var_ghost = true;
                 var_implicit = false;

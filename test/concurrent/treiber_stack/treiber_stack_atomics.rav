@@ -28,11 +28,11 @@ module Stack[T: Type] {
     atomic requires stack(s, xs)
     atomic ensures stack(s, cons(x, xs))
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
     ghost val xs0: TList := openAU(phi);
 
-    unfold stack(s, xs0);
-    var topv: Ref := s.top;
+    unfold stack(s);
+    var topv := s.top;
     fold stack(s, xs0);
 
     abortAU(phi);
@@ -43,7 +43,7 @@ module Stack[T: Type] {
     ghost val xs1: TList := openAU(phi);
 
     ghost val top1: Ref;
-    unfold stack(s, xs1)[top1 := x];
+    unfold stack(s)[top1 := x];
     
     var res: Bool := cas(s.top, topv, s0);
 
@@ -68,23 +68,23 @@ module Stack[T: Type] {
         (stack(s, xs) && result == none) : 
         (stack(s, xs.tail) && result == some(xs.head))
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
     ghost val xs0: TList := openAU(phi);
 
-    unfold stack(s, xs0);
+    unfold stack(s);
 
-    var topv: Ref := s.top;
+    var topv := s.top;
   
     
     ghost val q: Real;
     ghost val tl0: Ref;
     if (topv == null) {
-      unfold list(topv, xs0)[q := q];
+      unfold list(topv)[q := q];
       fold list(topv, xs0)[q := q];
       fold stack(s, xs0);
       commitAU(phi, none);
     } else {
-      unfold list(topv, xs0)[tl0 := tl0, q := q];
+      unfold list(topv)[tl0 := tl0, q := q];
       fold list(topv, xs0)[q := q/2.0];
       fold stack(s, xs0);
       abortAU(phi);
@@ -94,17 +94,17 @@ module Stack[T: Type] {
       return none;
     }
 
-    val top_next: Ref := topv.next;
-    val top_value: T := topv.value;
+    val top_next := topv.next;
+    val top_value := topv.value;
 
     ghost val xs1: TList := openAU(phi);
     ghost val top1: Ref;
-    unfold stack(s, xs1)[top1 := x];
+    unfold stack(s)[top1 := x];
 
-    var res: Bool := cas(s.top, topv, top_next);
+    var res := cas(s.top, topv, top_next);
 
     if (res) {
-      unfold list(top1, xs1);
+      unfold list(top1);
       fold stack(s, xs1.tail);
       commitAU(phi, some(top_value));
       return some(top_value);
@@ -112,7 +112,7 @@ module Stack[T: Type] {
       fold stack(s, xs1);
       abortAU(phi);
       ghost val xs2: TList := openAU(phi);
-      val ret: TOption := pop(s);
+      val ret := pop(s);
       commitAU(phi, ret);
 
       return ret;

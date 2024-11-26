@@ -19,7 +19,7 @@ module Lock {
     atomic requires lock(l, b)
     atomic ensures lock(l, true) && b == false
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
     ghost val b1: Bool := openAU(phi);
     unfold lock(l, b1); 
 
@@ -46,8 +46,7 @@ module Lock {
     atomic requires lock(l, true)
     atomic ensures lock(l, false)
   {
-    ghost var phi: AtomicToken;
-    phi := bindAU();
+    ghost var phi := bindAU();
     openAU(phi);
     unfold lock(l, true);
     
@@ -174,7 +173,7 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     atomic requires cssR(r, c)
     atomic ensures cssR(r, c_ret) && opSpec(dop, k, c, c_ret, res)
   {
-    ghost var phi: AtomicToken := bindAU();
+    ghost var phi := bindAU();
 
     ghost var c0: Set[K];
     ghost var b: Bool;

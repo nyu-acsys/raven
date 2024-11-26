@@ -3,13 +3,11 @@ include "array.rav"
 interface OrderedArray[E: Library.OrderedType] : Array {
   import E.lt
 
-  func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
-  {
+  func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool) {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
   }
 
-  pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E])
-  {
+  pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E]) {
     0 <= len <= length(a) && arr(a, m) && sorted_map_seg(m, 0, len)
   }
 
@@ -62,7 +60,6 @@ interface OrderedArray[E: Library.OrderedType] : Array {
 
   lemma map_insert_content_set(m: Map[Int, E], m1: Map[Int, E], idx: Int, k: E, len: Int, new_len: Int)
     requires sorted_map_seg(m, 0, len)
-    //requires injective(m, 0, len)
     requires idx == map_find(m, 0, len, k)
     requires 0 <= idx <= len
     requires k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
@@ -70,10 +67,9 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) ++ {| k |}
   {
     if (m[idx] == k && idx < len) {
-      //in_set_of_map(m, 0, len);
       return;
     }
-    var ms: Map[Int, E] := map_shift(m, idx, idx + 1, len - idx);
+    var ms := map_shift(m, idx, idx + 1, len - idx);
 
     // prove set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
     set_of_map_split(m, 0, idx, len);
@@ -92,14 +88,9 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     requires sorted_map_seg(m, 0, len)
     requires idx == map_find(m, 0, len, k)
     requires 0 <= idx <= len
-    //requires k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    //requires k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
     ensures set_of_map((k in set_of_map(m, 0, len) ? map_shift(m, idx + 1, idx, len - (idx + 1)) : m), 0, 
                        (k in set_of_map(m, 0, len) ? len - 1 : len)) == set_of_map(m, 0, len) -- {|k|}
-  {
-    //map_find_content_set(m, 0, len, idx, k);
-    //set_of_map_split(m, 0, idx, len);
-    
+  {   
     if (idx == len || m[idx] != k) {
       return;
     }
@@ -107,10 +98,6 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     // prove: set_of_map(m, 0, len) -- {k} == set_of_map(m1, 0, idx - 1) ++ set_of_map(m1, idx - 1, len - 1)
     set_of_map_equal(m, m1, 0, 0, idx);
     set_of_map_equal(m, m1, idx + 1, idx, len - (idx + 1));
-
-    //not_in_sorted_seg(m, 0, idx - 1, k);
-    //not_in_sorted_seg(m, idx + 1, len, k);
-  
     set_of_map_split(m1, 0, idx, len - 1);
   }
 
@@ -124,8 +111,8 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     ensures idx == map_find(m, 0, len, k)
     ensures found == (k in set_of_map(m, 0, len))
   {
-    var lo: Int := 0;
-    var hi: Int := len;
+    var lo := 0;
+    var hi := len;
     
     while (hi != lo)
       invariant sorted_array_with_content(a, len, m)
@@ -137,7 +124,7 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     {
       unfold sorted_array_with_content(a, len, m);
       unfold arr(a, m);
-      var mid: Int := (hi + lo) / 2;
+      var mid := (hi + lo) / 2;
       var amid: E := loc(a, mid).value;
       var cmp: Int := E.compare(k, amid);
       if (cmp < 0) {
@@ -167,7 +154,6 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     }
 
     unfold sorted_array_with_content(a, len, m);
-    //map_find_in_set(m, 0, len, k);
     fold sorted_array_with_content(a, len, m);
   }
 

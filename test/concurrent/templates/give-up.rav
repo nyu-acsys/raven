@@ -177,7 +177,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires css(r, c)
     atomic ensures css(r, c) && nodePred(r, n, c_n, i_n) && inFP(r, n)
   {
-    ghost var phi: AtomicToken := bindAU();
+    ghost var phi := bindAU();
 
     ghost var g_i0: Flow_K;
     ghost var lockval0: Map[Ref, Int];
@@ -207,7 +207,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires css(r, c)
     atomic ensures css(r, c) && inFP(r, n)
   {
-    ghost var phi: AtomicToken := bindAU();
+    ghost var phi := bindAU();
 
     ghost var g_i1: Flow_K;
     ghost var lockval1: Map[Ref, Int];
@@ -399,7 +399,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ensures inFP(r, nn)
     ensures k in keyset(i_nn)
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
 
     ghost var c_n: Set[K];
     ghost var i_n: Flow_K;
@@ -551,7 +551,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires css(r, c)
     atomic ensures css(r, cc) && opSpec(dop, k, c) == ((cc, res))
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
 
     var n: Ref;
     var c_n: Set[K];

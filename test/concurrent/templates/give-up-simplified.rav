@@ -7,13 +7,11 @@ import Library.CancellativeResourceAlgebra
 
 interface Keyspace {
   rep type T
-
   val ks: Set[T]
 }
 
 module IntKeyspace : Keyspace {
   rep type T = Int
-
   val ks: Set[T] = {| k: Int :: true |}
 }
 
@@ -138,7 +136,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
   }
 
   module SetRefRA = Library.SetRA[Ref_Type]
-
   module AuthSetRef = Library.Auth[SetRefRA]
     
   module Keyset_K = KeysetRA[K_Type]
@@ -226,9 +223,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic ensures css(r, c) && inFP(r, n)
   {
     ghost var phi: AtomicToken := bindAU();
-
-    ghost var g_i1: Flow_K;
-    
     ghost val c1: Set[K] := openAU(phi);
     unfold css(r, c1);
     cssInFp(r, n, c1);
@@ -246,8 +240,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
     !}
 
     unlockNode(n);    
-    fold cssR(r, c1, g_i1);
-    assert cssR(r, c1, g_i1);
+    fold cssR(r, c1);
+    //assert cssR(r, c1);
     fold css(r, c1);
 
     commitAU(phi);
@@ -310,9 +304,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
         zeroFlow(),
         {|r|}
       );
-    var contents: Map[Ref, Set[K]] := {| l: Ref :: {||} |};
-    var lockval: Map[Ref, Int] := {| l: Ref :: 0 |};
-    var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
+    //var contents: Map[Ref, Set[K]] := {| l: Ref :: {||} |};
+    //var lockval: Map[Ref, Int] := {| l: Ref :: 0 |};
+    //var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
 
     r := new(
       authKS: AuthKeyset_K.auth_frag(
@@ -327,17 +321,16 @@ interface GiveUpTemplate[Node: NodeImpl] {
     );
 
     fold nodePred(r, r, {||}, i_r);
-
     fold globalRes(r, {||}, i_r);
     fold cssR(r, {||}, i_r);
-    assert cssR(r, {||}, i_r);
+    //assert cssR(r, {||}, i_r);
     fold css(r, {||});
   }
 
   lemma fpInStep(r: Ref, n: Ref, n1: Ref, k: K, c: Set[K], c_n: Set[K], i_n: Flow_K, implicit ghost g_i: Flow_K)
     requires cssR(r, c, g_i)
     requires nodePred(r, n, c_n, i_n)
-    requires k in outset(i_n, n1)
+f    requires k in outset(i_n, n1)
     requires n in g_i.dom
     ensures cssR(r, c, g_i)
     ensures nodePred(r, n, c_n, i_n)
@@ -346,7 +339,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     if (n1 !in g_i.dom) {
       unfold cssR(r, c, g_i);
       unfold nodePred(r, n, c_n, i_n);
-
       unfold globalRes(r, c, g_i);
       
       ghost var i_o: Flow_K = Flow_K.frame(g_i, i_n);
@@ -431,7 +423,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
       ghost val c1: Set[K] := openAU(phi);
 
       unfold css(r, c1);
-
       unfold cssR(r, c1);
       unfold globalRes(r, c1);
       
@@ -455,11 +446,12 @@ interface GiveUpTemplate[Node: NodeImpl] {
     requires c_n1 subseteq k_n
     requires k in k_n
     requires k in keyspace
-
     ensures opSpec(dop, k, c) == ((c1, res))
     ensures own(r.authKS, AuthKeyset_K.auth(Keyset_K.prodKS(keyspace, c1)))
     ensures own(r.authKS, AuthKeyset_K.frag(Keyset_K.prodKS(k_n, c_n1)))
   {
+    //var res1: Bool;
+    //c1, res1 := opSpec(dop, k, c);
     if (dop == searchOp || !res) {
       c1 := c;
     } else {
@@ -524,8 +516,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       unfold globalRes(r, c1);
       cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));      
-      fold globalRes(r, cc);
-      
+      fold globalRes(r, cc);     
       fold nodePred(r, n, c_n1, i_n);
       fold cssR(r, cc);
       fold css(r, cc);

@@ -3,7 +3,7 @@ open Ast
 open Util
 
 type au_token = {
-  token : QualIdent.t;
+  token : Expr.t;
   callable : QualIdent.t;
   callable_args : expr list;
   implicit_bound_vars : expr list;
@@ -92,7 +92,7 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
     atomicity_state : atomicity_check =
   if
     List.exists atomicity_state.au_opened ~f:(fun au ->
-        QualIdent.(au.token = token))
+        Expr.alpha_equal au.token token)
   then Error.error loc "Atomic token already opened"
   else
     {
@@ -106,12 +106,12 @@ let close_au ~loc token atomicity_state : atomicity_check =
   if
     not
       (List.exists atomicity_state.au_opened ~f:(fun au ->
-           QualIdent.(au.token = token)))
+           Expr.alpha_equal au.token token))
   then Error.error loc "Atomic token not already opened"
   else
     let au_opened =
       List.filter atomicity_state.au_opened ~f:(fun au ->
-          not QualIdent.(au.token = token))
+          not (Expr.alpha_equal au.token token))
     in
 
     if List.is_empty au_opened && List.is_empty atomicity_state.invs_opened then
@@ -126,20 +126,19 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
       (Stmt.t, atomicity_check) Rewriter.t_ext =
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let* curr_callable_name = Rewriter.current_scope_id in
-    let* curr_callable =
-      let* symbol = Rewriter.find_and_reify curr_callable_name in
-      match symbol with
-      | CallDef c -> Rewriter.return c
-      | _ -> Error.error stmt.stmt_loc "Expected a call_def"
-    in
 
-    let concrete_args =
-      List.filter curr_callable.call_decl.call_decl_formals ~f:(fun var_decl ->
-          not var_decl.var_implicit)
-    in
-    let implicit_args =
-      List.filter curr_callable.call_decl.call_decl_formals ~f:(fun var_decl ->
-          var_decl.var_implicit)
+    let callable_info call_ident =
+      let+ callable = Rewriter.find_and_reify_callable call_ident in
+     
+      let concrete_args =
+        List.filter callable.call_decl.call_decl_formals ~f:(fun var_decl ->
+            not var_decl.var_implicit)
+      in
+      let implicit_args =
+        List.filter callable.call_decl.call_decl_formals ~f:(fun var_decl ->
+            var_decl.var_implicit)
+      in
+      callable, concrete_args, implicit_args
     in
 
     Logs.debug (fun m ->
@@ -302,61 +301,57 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             in
 
             Rewriter.return assign_stmt
-        | OpenAU (token, callable, bound_vars) -> (
+        | OpenAU (token, call_ident, bound_vars) -> (
+            let* callable, concrete_args, implicit_args = callable_info call_ident in
             let exhale_stmt =
               Stmt.mk_exhale_expr
                 ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
                 ~loc
                 (Expr.mk_app ~loc ~typ:Type.perm (AUPred curr_callable_name)
-                   (Expr.mk_var ~typ:Type.atomic_token token
-                   :: List.map concrete_args ~f:Expr.from_var_decl))
+                   (token :: List.map concrete_args ~f:Expr.from_var_decl))
             in
 
-            match callable with
-            | Some _ ->
-                Error.error stmt.stmt_loc "Unsupported to open another callable"
-            | None ->
-                let alpha_renaming_map =
-                  List.fold2_exn implicit_args bound_vars
-                    ~init:(Map.empty (module QualIdent))
-                    ~f:(fun acc_map implicit_arg bound_var ->
-                      Map.add_exn acc_map
-                        ~key:(QualIdent.from_ident implicit_arg.var_name)
-                        ~data:bound_var)
-                in
+            let alpha_renaming_map =
+              List.fold2_exn implicit_args bound_vars
+                ~init:(Map.empty (module QualIdent))
+                ~f:(fun acc_map implicit_arg bound_var ->
+                    Map.add_exn acc_map
+                      ~key:(QualIdent.from_ident implicit_arg.var_name)
+                      ~data:bound_var)
+            in
 
-                let inhale_stmts =
-                  List.filter_map curr_callable.call_decl.call_decl_precond
-                    ~f:(fun spec ->
-                      if not spec.spec_atomic then None
-                      else
-                        Some
-                          (Stmt.mk_inhale_expr
-                             ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
-                             ~loc
-                             (Expr.alpha_renaming spec.spec_form
-                                alpha_renaming_map)))
-                in
+            let inhale_stmts =
+              List.filter_map callable.call_decl.call_decl_precond
+                ~f:(fun spec ->
+                    if not spec.spec_atomic then None
+                    else
+                      Some
+                        (Stmt.mk_inhale_expr
+                           ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
+                           ~loc
+                           (Expr.alpha_renaming spec.spec_form
+                              alpha_renaming_map)))
+            in
 
-                let atomicity_state =
-                  open_au ~loc
-                    ( token,
-                      curr_callable_name,
-                      List.map concrete_args ~f:Expr.from_var_decl,
-                      bound_vars )
-                    atomicity_state
-                in
-                let* _ = Rewriter.set_user_state atomicity_state in
+            let atomicity_state =
+              open_au ~loc
+                ( token,
+                  curr_callable_name,
+                  List.map concrete_args ~f:Expr.from_var_decl,
+                  bound_vars )
+                atomicity_state
+            in
+            let* _ = Rewriter.set_user_state atomicity_state in
+            
+            let new_stmt =
+              Stmt.mk_block_stmt ~loc (exhale_stmt :: inhale_stmts)
+            in
 
-                let new_stmt =
-                  Stmt.mk_block_stmt ~loc (exhale_stmt :: inhale_stmts)
-                in
-
-                Rewriter.return new_stmt)
+            Rewriter.return new_stmt)
         | AbortAU token | CommitAU (token, _) ->
             let opened_au_token =
               List.find atomicity_state.au_opened ~f:(fun au_token ->
-                  QualIdent.equal au_token.token token)
+                  Expr.alpha_equal au_token.token token)
             in
 
             let opened_au_token =
@@ -417,8 +412,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~loc
                       (Expr.mk_app ~loc ~typ:Type.perm
                          (AUPred opened_au_token.callable)
-                         (Expr.mk_var ~typ:Type.atomic_token
-                            opened_au_token.token
+                         (opened_au_token.token
                          :: opened_au_token.callable_args))
                   in
 
@@ -465,8 +459,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~loc
                       (Expr.mk_app ~loc ~typ:Type.perm
                          (AUPredCommit opened_au_token.callable)
-                         (Expr.mk_var ~typ:Type.atomic_token
-                            opened_au_token.token
+                         (opened_au_token.token
                           :: opened_au_token.callable_args
                          @ [ Expr.mk_tuple ret_exprs ]))
                   in
@@ -509,7 +502,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~f:Expr.alpha_equal)
           && List.for_all2_exn then_atomicity_state.au_opened
                else_atomicity_state.au_opened ~f:(fun au1 au2 ->
-                 QualIdent.equal au1.token au2.token
+                 Expr.alpha_equal au1.token au2.token
                  && QualIdent.equal au1.callable au2.callable
                  && List.for_all2_exn au1.callable_args au2.callable_args
                       ~f:Expr.alpha_equal

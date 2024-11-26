@@ -80,11 +80,9 @@ open Stdlib.Format
 
 let pr_smt_ident ppf id = 
   let smt_ident_sanitize_map = (
-    fun x -> 
-      if Char.(x = '\'') then 
-        '_' 
-      else 
-        x
+    function 
+    | '\'' -> '_'
+    | x -> x
   ) in
 
   let sanitized_ident = QualIdent.sanitize smt_ident_sanitize_map id in
@@ -118,7 +116,7 @@ let rec pr_sort ppf (sort : sort) =
   | App (Data (id, _), [], _) -> pr_smt_ident ppf id
   | App (Prod, srts, _) ->
       fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length srts) pr_sorts srts
-  | App (AtomicToken, [], _) -> pr_smt_ident ppf PreambleConsts.atomic_token_ident
+  | App (AtomicToken qid, [], _) -> pr_smt_ident ppf (PreambleConsts.atomic_token_ident)
   | App (Num, _, _)
   | App (Perm, _, _)
   | App (Bot, _, _)
