@@ -781,6 +781,41 @@ and process_callable_args loc is_ghost_scope callable_decl args_list =
       @@ Printf.sprintf "Too many arguments passed to %s"
            (Ident.to_string callable_decl.call_decl_name)
 
+and process_callable_returns loc is_ghost_scope callable_decl returns_list =
+  let open Rewriter.Syntax in
+  let callable_returns = callable_decl.Callable.call_decl_returns
+  in
+  let is_ghost_call =
+    match callable_decl.call_decl_kind with
+    | Pred | Invariant | Lemma -> true
+    | _ -> false
+  in
+  
+  (* Check if too few returns given. *)
+  let _ =
+    List.drop callable_returns (List.length returns_list)
+    |> List.find ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit)
+    |> Option.iter ~f:(fun decl ->
+        Error.type_error loc
+        @@ Printf.sprintf !"Explicit return value %s is missing"
+           (Ident.name decl.Type.var_name))
+  in
+
+  let provided_returns = List.take callable_returns (List.length returns_list) in
+  let explicit_return_types =
+    List.map provided_returns ~f:(fun var_decl -> var_decl.Type.var_type)
+  in
+  match%bind
+    Rewriter.List.map2 returns_list explicit_return_types ~f:(fun expr tp_expr ->
+        process_expr expr (tp_expr |> Type.set_ghost (Type.is_ghost tp_expr || is_ghost_call || is_ghost_scope)))
+  with
+  | Ok returns_list -> Rewriter.return returns_list
+  | Unequal_lengths ->
+      (* Catches if too many return values given. *)
+      Error.type_error loc
+      @@ Printf.sprintf "Too many values returned for %s"
+           (Ident.to_string callable_decl.call_decl_name)
+
           
 module ProcessCallable = struct
   module DisambiguationTbl = struct
@@ -951,112 +986,19 @@ module ProcessCallable = struct
      (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
      () *)
 
-  let process_au_action_stmt (assign_lhs: qual_ident list) (var_decls_lhs: var_decl list) assign_rhs (loc : location)
+  let process_au_action_stmt (assign_lhs: qual_ident list) (var_decls_lhs: var_decl list) qual_ident args (loc : location)
       (disam_tbl : DisambiguationTbl.t) :
       (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
-    match assign_rhs with
-    | Expr.App (Var qual_ident, args, expr_attr) ->
-      let _ = List.iter2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
-          if var_decl.var_type |> Type.is_ghost then () else
-            Error.type_error (qual_ident |> QualIdent.to_loc) "Ghost command cannot assign to non-ghost variable"
-        )
-      in
-      (* bindAU *)
-      if
-        QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident)
-      then
-        match (args, assign_lhs) with
-        | [], [ token_qual_ident ] ->
-          let* proc_qual_ident = Rewriter.current_scope_id in
-          let* token = Rewriter.find_and_reify_var token_qual_ident in
-          let token_expr = Expr.mk_var ~typ:token.var_decl.var_type token_qual_ident in
-          let+ _ = process_expr token_expr (Type.atomic_token proc_qual_ident) in
-          (* TODO: check type Type.atomic_token *)
-          ( Stmt.AUAction { auaction_kind = BindAU token_qual_ident },
-            disam_tbl )
-        | _ -> Error.type_error loc "bindAU takes no arguments"
-      else
-      (* openAU *) 
-      if
-        QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident)
-      then              
-        let bound_vars =
-          Base.List.map2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
-              Expr.mk_var ~typ:var_decl.var_type qual_ident)
-        in
-
-        match args with
-        | [ token ] -> 
-            let* token =
-              disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
-            in
-            begin match Expr.to_type token with
-            | App (AtomicToken proc_qual_ident, [], _) ->
-              Rewriter.return
-                ( Stmt.AUAction
-                    {
-                      auaction_kind =
-                        OpenAU (token, proc_qual_ident, bound_vars);
-                    },
-                  disam_tbl )
-            | typ ->
-              Logs.debug (fun m -> m "type_mismatch_error:1");
-              type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
-            end
-        | _ ->
-          Error.type_error loc
-            "openAU takes exactly one argument"
-      else if
-        QualIdent.(
-          qual_ident = QualIdent.from_ident Predefs.commitAU_ident)
-      then
-        match args with
-        | token :: args ->
-            let* token =
-              disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
-            in
-            
-            let+ args =
-              Rewriter.List.map args ~f:(fun arg ->
-                  disambiguate_process_expr arg (Type.any |> Type.set_ghost true) disam_tbl)
-            in
-            
-            begin match Expr.to_type token with
-            | App (AtomicToken proc_qual_ident, [], _) ->
-              ( Stmt.AUAction
-                  {
-                    auaction_kind = CommitAU (token, args);
-                  },
-                disam_tbl )
-            | typ ->
-              Logs.debug (fun m -> m "type_mismatch_error:2");
-              type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
-            end
-        | _ -> Error.type_error loc "commitAU takes at least one argument"
-      else if
-        QualIdent.(
-          qual_ident = QualIdent.from_ident Predefs.abortAU_ident)
-      then
-        match args with
-        | [ token ] -> 
-            let+ token =
-              disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
-            in
-            
-            begin match Expr.to_type token with
-            | App (AtomicToken proc_qual_ident, [], _) ->
-              ( Stmt.AUAction { auaction_kind = AbortAU token },
-                disam_tbl )
-            | typ ->
-              Logs.debug (fun m -> m "type_mismatch_error:3");
-              type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
-            end
-        | _ -> Error.type_error loc "abortAU takes exactly one argument"
-      else if
-        QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident)
-      then
-        let field_opt = function
+    let _ = List.iter2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
+        if var_decl.var_type |> Type.is_ghost then () else
+          Error.type_error (qual_ident |> QualIdent.to_loc) "Ghost command cannot assign to non-ghost variable"
+      )
+    in
+    match args with
+    | _ when QualIdent.(qual_ident = QualIdent.from_ident Predefs.fpu_ident) ->
+      (* fpu *)
+      let field_opt = function
           | Expr.App (Var qual_ident, [], _) ->
             let* field_qual_ident, symbol =
               Rewriter.resolve_and_find qual_ident
@@ -1086,7 +1028,7 @@ module ProcessCallable = struct
               match args with
               | expr1 :: expr2 :: expr3_opt ->
                 let* field = field_opt expr2 in
-                let* field =Rewriter.Option.map field ~f:(fun field_qual_ident ->
+                let* field = Rewriter.Option.map field ~f:(fun field_qual_ident ->
                     Rewriter.return (expr1, field_qual_ident, expr3_opt))
                 in
                 Rewriter.Option.lazy_value field
@@ -1124,12 +1066,91 @@ module ProcessCallable = struct
                  fpu_new_val = new_val_expr;
                },
           disam_tbl )
+    | _ when QualIdent.(qual_ident = QualIdent.from_ident Predefs.bindAU_ident) ->
+      (* bindAU *)
+        begin match args, assign_lhs with
+        | [], [ token_qual_ident ] ->
+          let* proc_qual_ident = Rewriter.current_scope_id in
+          let* token = Rewriter.find_and_reify_var token_qual_ident in
+          let token_expr = Expr.mk_var ~typ:token.var_decl.var_type token_qual_ident in
+          let+ _ = process_expr token_expr (Type.atomic_token proc_qual_ident) in
+          (* TODO: check type Type.atomic_token *)
+          ( Stmt.AUAction { auaction_kind = BindAU token_qual_ident },
+            disam_tbl )
+        | _ -> Error.type_error loc "bindAU takes no arguments"
+        end
+    | token :: args ->
+      let* token =
+        disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
+      in
+      let proc_qual_ident =
+        match Expr.to_type token with
+        | App (AtomicToken proc_qual_ident, [], _) -> proc_qual_ident
+        | typ ->
+          type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
+      in
+      (* openAU *) 
+      if
+        QualIdent.(qual_ident = QualIdent.from_ident Predefs.openAU_ident)
+      then
+        let implicit_vars =
+          Base.List.map2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
+              Expr.mk_var ~typ:var_decl.var_type qual_ident)
+        in
+        match args with
+        | _ :: _ ->
+          Error.type_error loc (Printf.sprintf !"%{QualIdent} expects exactly one argument" qual_ident)
+        | [] -> 
+          let* proc =
+            Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
+          in
+          let implicit_expected_types =
+            Base.List.filter_map proc.call_decl_formals ~f:(fun var_decl ->
+                if var_decl.var_implicit then Some var_decl.var_type
+                else None)
+          in
+          let args = Expr.mk_tuple implicit_vars in
+          let+ _ = process_expr args (Type.mk_prod  loc implicit_expected_types) in
+          ( Stmt.AUAction
+              {
+                auaction_kind =
+                  OpenAU (token, proc_qual_ident, implicit_vars);
+              },
+            disam_tbl )
+      else if
+        QualIdent.(
+          qual_ident = QualIdent.from_ident Predefs.commitAU_ident)
+      then
+        (* commitAU *)
+        let* returns =
+          Rewriter.List.map args ~f:(fun e -> disambiguate_expr e disam_tbl)
+        in
+        let* proc =
+          Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
+        in
+        let+ returns = process_callable_returns loc true proc returns in
+        ( Stmt.AUAction
+            {
+              auaction_kind = CommitAU (token, returns);
+            },
+          disam_tbl )
+      else if
+        QualIdent.(
+          qual_ident = QualIdent.from_ident Predefs.abortAU_ident)
+      then
+        (* abortAU *)
+        match args with
+        | _ :: _ ->
+          Error.type_error loc (Printf.sprintf !"%{QualIdent} expects exactly one argument" qual_ident)
+        | [] -> 
+          Rewriter.return
+            ( Stmt.AUAction { auaction_kind = AbortAU token },
+              disam_tbl )
       else Error.type_error loc "Unknown AU action"
     | _ ->
-      Error.error loc
-        "Internal error: process_au_action_stmt called with non-callable \
-         expression"
-
+      Error.type_error loc
+        (Printf.sprintf !"%{QualIdent} expects at least one argument" qual_ident)
+        
   let rec process_basic_stmt call_decl
       (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc: Loc.t) (disam_tbl : DisambiguationTbl.t) :
       (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
@@ -1255,8 +1276,8 @@ module ProcessCallable = struct
           in
           process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
         (* AU action *)
-        | App (Var qual_ident, _, _) as assign_rhs when Predefs.is_qual_ident_au_cmnd qual_ident ->
-          process_au_action_stmt assign_lhs var_decls_lhs assign_rhs stmt_loc disam_tbl
+        | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
+          process_au_action_stmt assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
         | _ -> 
           Logs.debug (fun m ->
               m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
@@ -1472,13 +1493,17 @@ module ProcessCallable = struct
       let+ qual_ident, _ = get_assign_lhs qual_ident ~is_init:false in
       Stmt.Havoc qual_ident, disam_tbl
     | Return expr ->
-      let expected_return_type = Callable.return_type call_decl in
-      if is_ghost_scope && Poly.(call_decl.call_decl_kind = Proc) then
+      if is_ghost_scope && Poly.(call_decl.Callable.call_decl_kind = Proc) then
         Error.type_error stmt_loc "Cannot return in a ghost block";
 
-      let+ expr =
-        disambiguate_process_expr expr expected_return_type disam_tbl
+      let* expr = disambiguate_expr expr disam_tbl in
+      let return_list = match expr with
+      | App (Tuple, return_list, _) -> return_list
+      | _ -> [expr]
       in
+
+      let+ return_list = process_callable_returns stmt_loc is_ghost_scope call_decl return_list in
+      let expr = Expr.mk_tuple ~loc:(Expr.to_loc expr) return_list in
       (Stmt.Return expr, disam_tbl)
     | Use use_desc ->
       let* use_name, symbol =

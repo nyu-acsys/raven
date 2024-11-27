@@ -50,6 +50,11 @@ module Syntax = struct
     bind m ~f
 
   let ( and* ) = both
+
+  let ( |+> ) m f = map m ~f
+
+  let ( |*> ) (m : 'c state -> 'c state * 'a) f = bind m ~f
+
 end
 
 let eval ?(update = true) m tbl =
@@ -1382,7 +1387,14 @@ let find_and_reify_callable name : (AstDef.Callable.t, 'a) t_ext =
   match symbol with
   | CallDef call_def -> call_def
   | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected callable but found %s" (AstDef.Symbol.kind symbol))
-  
+
+let find_and_reify_field name : (AstDef.Module.field_def, 'a) t_ext =
+  let open Syntax in
+  let+ symbol = find_and_reify name in
+  match symbol with
+  | FieldDef field -> field
+  | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected field but found %s" (AstDef.Symbol.kind symbol))
+
 let is_local qual_ident s =
   let s, qual_ident = resolve qual_ident s in
   (s, Base.List.is_empty qual_ident.qual_path)
