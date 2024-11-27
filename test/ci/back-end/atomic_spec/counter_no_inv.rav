@@ -13,7 +13,7 @@ proc incr(x: Ref, implicit ghost v: Int)
   
   ghost var v0: Int := openAU(phi);
   unfold counter(x, v0);
-  var v1: Int := x.c;
+  var v1 := x.c;
   fold counter(x, v0);
   abortAU(phi);
   var new_v1 : Int := v1 + 1;
@@ -21,7 +21,7 @@ proc incr(x: Ref, implicit ghost v: Int)
   ghost var v2: Int := openAU(phi);
   unfold counter(x,v2);
 
-  var res: Bool := cas(x.c, v1, new_v1);
+  var res := cas(x.c, v1, new_v1);
   
   if (!res) {
     fold counter(x, v2);
@@ -44,7 +44,7 @@ proc read(x: Ref, implicit ghost v: Int)
 
   ghost var v0: Int := openAU(phi);
   unfold counter(x, v0);
-  var v1: Int := x.c;
+  var v1 := x.c;
   fold counter(x, v0);
   commitAU(phi, v1);
 
