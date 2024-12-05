@@ -477,6 +477,23 @@ let generate_skolem_function (universal_quants : universal_quants)
     skolem_id
   in
 
+  (Logs.debug (fun m -> m 
+  "heapsExplicitTrnsl.generate_skolem_function INIT: \
+    skolem_fn_ident: %a \n \
+    universal_quants: %a \n \
+    var_decl: %a \n \
+    postconds: %a \n \
+    optn_args: %a \n \
+  "
+    Ident.pr skolem_fn_ident
+    Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
+    Type.pr_var_decl var_decl
+    Expr.pr_list postconds
+    (Util.Print.pr_list_comma (fun ppf (vd, e) ->
+      Stdlib.Format.fprintf ppf "%a -> %a" Type.pr_var_decl vd Expr.pr e
+    )) optn_args
+  ));
+
   let formal_var_decls =
     List.map univ_quants_list ~f:(fun (v, v_decl) ->
         {
