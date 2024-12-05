@@ -171,8 +171,8 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | Int _ -> (Type.int, Type.int)
             | Bool _ -> (Type.bool, Type.bool)
             | Empty ->
-                ( Type.(mk_set (Expr.to_loc expr) bot),
-                  Type.(mk_set (Expr.to_loc expr) any) )
+                ( Type.(mk_set (Expr.to_loc expr) any),
+                  Type.(mk_set (Expr.to_loc expr) bot) )
             | _ -> assert false
           in
           check_and_set expr given_type_lb given_type_ub expected_typ
@@ -245,8 +245,8 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | TupleLookUp -> Type.(any)
             | MapLookUp -> Type.(map bot expected_typ)
             | Diff | Union | Inter ->
-                Type.meet expected_typ Type.(set_typed any)
-            | Subseteq -> Type.(set_typed any)
+                Type.meet expected_typ Type.(set_typed bot)
+            | Subseteq -> Type.(set_typed bot)
             | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
             | And | Or -> Type.perm
             | Impl -> Type.bool (* antecedent must be pure *)
@@ -320,7 +320,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                 let typ = expr1 |> Expr.to_type |> Type.map_codom in
                 (typ, typ)
             | Diff | Union | Inter ->
-                (Type.(set_typed bot), Type.(set_typed any))
+                (Type.(set_typed any), Type.(set_typed bot))
             | Plus | Minus | Mult | Div | Mod ->
                 let typ = expr1 |> Expr.to_type in
                 (typ, typ)

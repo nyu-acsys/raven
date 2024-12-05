@@ -444,8 +444,6 @@ module Type = struct
     match (t1, t2) with
     | App (Bot, [], _), t | t, App (Bot, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
-    | App (Map, [t1; App (Bool, [], a0)], a1), App (Map, [t2; App (Bool, [], _)], _a2) ->
-      App (Map, [join t1 t2; App (Bool, [], a0)], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [meet ti1 ti2; join to1 to2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:join ts1 ts2 |> function
@@ -459,8 +457,6 @@ module Type = struct
     match (t1, t2) with
     | App (Any, [], _), t | t, App (Any, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
-    | App (Map, [t1; App (Bool, [], a0)], a1), App (Map, [t2; App (Bool, [], _)], _a2) ->
-      App (Map, [meet t1 t2; App (Bool, [], a0)], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [join ti1 ti2; meet to1 to2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:meet ts1 ts2 |> function
