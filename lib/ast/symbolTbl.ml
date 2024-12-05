@@ -444,12 +444,15 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
         let mod_inst_qual_ident, subst =
           match mod_inst.mod_inst_def with
           | Some (mod_inst_func, mod_inst_args) -> (
-              let _, mod_inst_func, mod_inst_symbol, _subst1 =
+              let _, mod_inst_func, mod_inst_symbol, subst1 =
                 resolve_and_find_exn mod_inst_func tbl
               in
               let formals =
                 match mod_inst_symbol with
-                | Module.ModDef mdef -> mdef.mod_decl.mod_decl_formals
+                | Module.ModDef mdef ->
+                  if List.is_empty subst1
+                  then mdef.mod_decl.mod_decl_formals
+                  else []
                 | _ -> Error.type_error symbol_loc "Expected module identifier"
               in
               let res =

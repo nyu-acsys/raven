@@ -1282,11 +1282,17 @@ module Symbol = struct
         let open Syntax in
         let+ tbl = get_table in
         let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
+        let symbol0 = match symbol, subst with
+          | ModDef mod_def, _ :: _ ->
+            let mod_decl = { mod_def.mod_decl with mod_decl_formals = [] } in
+            AstDef.Module.ModDef { mod_def with mod_decl }
+          | _ -> symbol
+        in
         let _, symbol1 =
           eval
             (Module.rewrite_qual_idents_in_symbol
                ~f:(QualIdent.requalify subst)
-               symbol)
+               symbol0)
             tbl_scope
         in
 
@@ -1335,7 +1341,8 @@ module Symbol = struct
   let subst (_name, _symbol, subst) = subst
   let extract (_name, symbol, subst) ~f = f (QualIdent.requalify subst) symbol
   let add_subst s (name, symbol, subst) = (name, symbol, s :: subst)
-
+  let is_derived (_, _, subst) = not @@ Base.List.is_empty subst
+  
   type t = QualIdent.t * AstDef.Module.symbol * QualIdent.subst
 
   let pr ppf (name, symbol, subst) =

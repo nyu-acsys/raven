@@ -2359,7 +2359,7 @@ module ProcessModule = struct
                       let formals =
                         Rewriter.Symbol.extract functor_symbol ~f:(fun subst ->
                           function
-                          | Ast.Module.ModDef mod_def ->
+                          | Ast.Module.ModDef mod_def when not @@ Rewriter.Symbol.is_derived functor_symbol ->
                               List.map mod_def.mod_decl.mod_decl_formals
                                 ~f:(fun mod_inst ->
                                   subst mod_inst.mod_inst_type)
