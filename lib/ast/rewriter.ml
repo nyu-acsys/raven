@@ -434,6 +434,11 @@ module List = struct
         (s, Base.List.Or_unequal_lengths.Ok res)
     | Unequal_lengths -> (s, Unequal_lengths)
 
+  let map2_exn (xs : 'a list) (ys : 'b list) ~f s =
+    match map2 xs ys ~f s with
+    | (s, Base.List.Or_unequal_lengths.Ok zs) -> (s, zs)
+    | _ -> failwith "Rewriter.List.map2 unequal length"
+
   let fold_right (xs : 'a list) ~(init : 'b) ~f : ('b, 'c) t_ext =
    fun s -> List.fold_right xs ~f:(fun x (s, acc) -> f x acc s) ~init:(s, init)
 
@@ -1394,6 +1399,14 @@ let find_and_reify_field name : (AstDef.Module.field_def, 'a) t_ext =
   match symbol with
   | FieldDef field -> field
   | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected field but found %s" (AstDef.Symbol.kind symbol))
+
+let find_and_reify_module name : (AstDef.Module.t, 'a) t_ext =
+  let open Syntax in
+  let+ symbol = find_and_reify name in
+  match symbol with
+  | ModDef m -> m
+  | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected module or interface but found %s" (AstDef.Symbol.kind symbol))
+
 
 let is_local qual_ident s =
   let s, qual_ident = resolve qual_ident s in

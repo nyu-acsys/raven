@@ -720,30 +720,60 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             m "Rewrites.rewrite_ret_stmts: curr_proc_name: %a" QualIdent.pr
               curr_proc_name);
 
-        let+ symbol = Rewriter.find_and_reify curr_proc_name in
-
-        match symbol with
-        | CallDef c ->
-            Logs.debug (fun m ->
-                m "Rewrites.rewrite_ret_stmts: curr_proc: %a" Callable.pr c);
-            c.call_decl
-        | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        Rewriter.find_and_reify_callable curr_proc_name |+> fun c -> c.call_decl
       in
 
       let ret_expr_list = Expr.unfold_tuple ret_expr in
 
+      let truncated_returns, dropped_returns =
+        List.split_n callable_decl.call_decl_returns
+          (List.length ret_expr_list)
+      in
+
+      (*let fresh_dropped_returns =
+        List.map dropped_formal_args ~f:(fun var_decl ->
+            {
+              var_decl with
+              var_name =
+                Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name;
+              var_loc = stmt.stmt_loc;
+            })
+      in*)
+
+      let dropped_returns_exprs =
+        List.map dropped_returns ~f:Expr.from_var_decl
+      in
+
+      let dropped_returns_vars =
+        List.map dropped_returns ~f:(fun decl -> QualIdent.from_ident decl.var_name)
+      in
+      
+      let ret_expr = Expr.mk_tuple (ret_expr_list @ dropped_returns_exprs) in
+      
+      (* Need to ensure that call_decl_returns and call_desc.call_lhs line up *)
       let renaming_map =
+        List.fold2_exn
+          callable_decl.call_decl_returns
+          (ret_expr_list @ dropped_returns_exprs)
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun map var_decl arg_expr ->
+              Map.add_exn map
+                ~key:(QualIdent.from_ident var_decl.var_name)
+                ~data:arg_expr)
+      in
+
+      (*let renaming_map =
         List.fold2_exn callable_decl.call_decl_returns ret_expr_list
           ~init:(Map.empty (module QualIdent))
           ~f:(fun map var_decl expr ->
             Map.add_exn map
               ~key:(QualIdent.from_ident var_decl.var_name)
               ~data:expr)
-      in
+      in*)
 
       let postconds_spec = callable_decl.call_decl_postcond in
 
-      let postconds_exhale_stmts =
+      let postcond, spec_error =
         if Callable.is_atomic callable_decl then
           let atomic_token_var =
             Expr.mk_var ~typ:(Type.atomic_token curr_proc_name)
@@ -762,34 +792,42 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let error =
             ( Error.Verification,
-              stmt.stmt_loc,
+              loc,
               "The atomic specification may not have been committed before \
                reaching this return point" )
           in
-
-          let loc = Stmt.to_loc stmt in
-          [
-            Stmt.mk_exhale_expr ~cmnt:("au_return_stmt") ~loc
-              ~spec_error:[ Stmt.mk_const_spec_error error ]
-              (Expr.mk_app ~loc ~typ:Type.perm
-                 (Expr.AUPredCommit curr_proc_name)
-                 ((atomic_token_var :: concrete_args_expr) @ [ ret_expr ]));
-          ]
+          [Expr.mk_app ~loc ~typ:Type.perm
+            (Expr.AUPredCommit curr_proc_name)
+            ((atomic_token_var :: concrete_args_expr) @ [ ret_expr ])],
+          [ Stmt.mk_const_spec_error error ]
         else
           List.map postconds_spec ~f:(fun spec ->
-              let expr = Expr.alpha_renaming spec.spec_form renaming_map in
-
-              let error =
-                ( Error.Verification,
-                  stmt.stmt_loc,
-                  "A postcondition may not hold at this return point" )
-              in
-
-              Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
-                ~cmnt:
-                  ("postconds added for ret_stmt: " ^ Stmt.to_string stmt)
-                ~spec_error:(Stmt.mk_const_spec_error error :: spec.spec_error)
-                expr)
+              Expr.alpha_renaming spec.spec_form renaming_map),
+          let error =
+            ( Error.Verification,
+              loc,
+              "A postcondition may not hold at this return point" )
+          in
+          [ Stmt.mk_const_spec_error error ]
+      in
+      
+      let bind_stmt =
+        match dropped_returns with
+        | [] -> Stmt.mk_skip ~loc
+        | _ ->
+          Stmt.mk_bind ~loc dropped_returns_vars
+            (Stmt.mk_spec
+               ~atomic:false
+               ~cmnt:("bind added for return stmt: " ^ Stmt.to_string stmt)
+               ~spec_error
+               (Expr.mk_and postcond))
+      in
+        
+      let postconds_exhale_stmts =
+        List.map postcond ~f:(fun expr ->
+            Stmt.mk_exhale_expr ~cmnt:("exhape added for return stmt: " ^ Stmt.to_string stmt) ~loc
+              ~spec_error
+              expr)
       in
 
       let assume_false =
@@ -799,7 +837,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let new_stmt =
         Stmt.mk_block_stmt ~loc:stmt.stmt_loc
-          (postconds_exhale_stmts @ [ assume_false ])
+          (bind_stmt :: postconds_exhale_stmts @ [ assume_false ])
       in
 
       Rewriter.return new_stmt

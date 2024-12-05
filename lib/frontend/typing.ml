@@ -1497,10 +1497,7 @@ module ProcessCallable = struct
         Error.type_error stmt_loc "Cannot return in a ghost block";
 
       let* expr = disambiguate_expr expr disam_tbl in
-      let return_list = match expr with
-      | App (Tuple, return_list, _) -> return_list
-      | _ -> [expr]
-      in
+      let return_list = Expr.unfold_tuple expr in
 
       let+ return_list = process_callable_returns stmt_loc is_ghost_scope call_decl return_list in
       let expr = Expr.mk_tuple ~loc:(Expr.to_loc expr) return_list in
@@ -1624,22 +1621,25 @@ module ProcessCallable = struct
                 qual_ident :: assign_lhs, var_decl :: var_decls_lhs
             )
         in
-        let* call_lhs_types =
-          Rewriter.List.map var_decls_lhs ~f:(fun var_decl ->
-              ProcessTypeExpr.expand_type_expr var_decl.var_type)
+        let* call_lhs_expr =
+          Rewriter.List.map2_exn call_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
+              let+ typ = ProcessTypeExpr.expand_type_expr var_decl.var_type in
+              Expr.mk_var ~typ qual_ident)
         in
+
+        let* call_decl = Rewriter.find_and_reify_callable call_desc.call_name |+> fun c -> c.call_decl in
+        let* call_lhs_expr = process_callable_returns stmt_loc is_ghost_scope call_decl call_lhs_expr in
         
-        let expected_return_type =
-          Type.mk_prod stmt_loc call_lhs_types
-        in
+        
+        let is_ghost = List.for_all call_lhs_expr ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost) in
         
         let+ call_expr =
           Expr.App
             ( Var call_desc.call_name,
               call_desc.call_args,
-              { Expr.expr_loc = stmt_loc; expr_type = Type.bot } )
+              { Expr.expr_loc = stmt_loc; expr_type = Type.any } )
           |> fun expr ->
-          disambiguate_process_expr expr expected_return_type disam_tbl
+          disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl
         in
 
         match call_expr with
@@ -2189,7 +2189,6 @@ module ProcessModule = struct
             with
             | Some mod_typ, orig_mod_typ
               when QualIdent.(mod_typ <> orig_mod_typ) ->
-                Logs.debug (fun m -> m !"%{QualIdent} %{QualIdent}" mod_typ orig_mod_typ);
                 Error.type_error loc
                   (Printf.sprintf
                      !"%s %{Ident} must implement interface %{QualIdent} \
@@ -2240,15 +2239,16 @@ module ProcessModule = struct
                !"Cannot redeclare interface %{Ident} from interface \
                  %{QualIdent} as module"
                ident interface_ident)
-        else if
-          QualIdent.(mod_inst.mod_inst_type <> orig_mod_inst.mod_inst_type)
-        then
-          Error.type_error loc
-            (Printf.sprintf
-               !"%s %{Ident} must implement interface %{QualIdent} according \
-                 to interface %{QualIdent}"
-               (Symbol.kind symbol |> String.capitalize)
-               ident orig_mod_inst.mod_inst_type interface_ident)
+        else
+          let* mod_inst_def = Rewriter.find_and_reify_module mod_inst.mod_inst_type in
+          if not @@ Set.mem mod_inst_def.mod_decl.mod_decl_interfaces orig_mod_inst.mod_inst_type then
+            let _ = Logs.debug (fun m -> m !"%{QualIdent} %{QualIdent}" mod_inst.mod_inst_type orig_mod_inst.mod_inst_type) in
+            Error.type_error loc
+              (Printf.sprintf
+                 !"%s %{Ident} must implement interface %{QualIdent} according \
+                   to interface %{QualIdent}"
+                 (Symbol.kind symbol |> String.capitalize)
+                 ident orig_mod_inst.mod_inst_type interface_ident)
         else
           match (mod_inst.mod_inst_def, orig_mod_inst.mod_inst_def) with
           | Some _, Some _ ->
