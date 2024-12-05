@@ -124,6 +124,18 @@ end
 let check_and_set (expr : expr) (given_typ_lb : type_expr)
     (given_typ_ub : type_expr) (expected_typ : type_expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
+
+  Logs.debug (fun m -> m "Frontend.typing.check_and_set: expr: %a;
+  given_typ_lb: %a
+  given_typ_ub: %a
+  expected_typ: %a"
+    Expr.pr expr
+    Type.pr given_typ_lb
+    Type.pr given_typ_ub
+    Type.pr expected_typ 
+  );
+
+
   let expected_ghost = Type.is_ghost expected_typ in
   let+ given_typ_lb =
     try ProcessTypeExpr.expand_type_expr given_typ_lb
@@ -139,12 +151,13 @@ let check_and_set (expr : expr) (given_typ_lb : type_expr)
   in            
   let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
   if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
-  else type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
+  else 
+    (Logs.debug (fun m -> m "type_mismatch_error:0"); type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub)
 
 (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ] *)
 let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
   =
-  Logs.debug (fun m -> m !"process_expr: %{Expr} %b" expr (Type.is_ghost expected_typ));
+  Logs.debug (fun m -> m !"process_expr: %{Expr}; isGhost: %b" expr (Type.is_ghost expected_typ));
   let open Rewriter.Syntax in
   match expr with
   | App (constr, expr_list, expr_attr) -> (
@@ -988,6 +1001,7 @@ module ProcessCallable = struct
                     },
                   disam_tbl )
             | typ ->
+              Logs.debug (fun m -> m "type_mismatch_error:1");
               type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
             end
         | _ ->
@@ -1016,6 +1030,7 @@ module ProcessCallable = struct
                   },
                 disam_tbl )
             | typ ->
+              Logs.debug (fun m -> m "type_mismatch_error:2");
               type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
             end
         | _ -> Error.type_error loc "commitAU takes at least one argument"
@@ -1034,6 +1049,7 @@ module ProcessCallable = struct
               ( Stmt.AUAction { auaction_kind = AbortAU token },
                 disam_tbl )
             | typ ->
+              Logs.debug (fun m -> m "type_mismatch_error:3");
               type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
             end
         | _ -> Error.type_error loc "abortAU takes exactly one argument"
@@ -1566,7 +1582,8 @@ module ProcessCallable = struct
         
         (Stmt.New new_desc, disam_tbl)
       else
-        type_mismatch_error stmt_loc Type.ref var_decl.var_type
+        (Logs.debug (fun m -> m "type_mismatch_error:4");
+        type_mismatch_error stmt_loc Type.ref var_decl.var_type)
       (* The following constructs are not expected here because the parser stores these commands as Assign stmts.
          The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform
          them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc.

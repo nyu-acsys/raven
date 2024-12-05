@@ -198,7 +198,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires css(r, c)
     atomic ensures css(r, c) && nodePred(r, n, c_n, i_n) && inFP(r, n)
   {
-    ghost var phi: AtomicToken := bindAU();
+    ghost var phi := bindAU();
 
     ghost var g_i0: Flow_K;
     
@@ -222,7 +222,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires css(r, c)
     atomic ensures css(r, c) && inFP(r, n)
   {
-    ghost var phi: AtomicToken := bindAU();
+    ghost var phi := bindAU();
     ghost val c1: Set[K] := openAU(phi);
     unfold css(r, c1);
     cssInFp(r, n, c1);
@@ -330,7 +330,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
   lemma fpInStep(r: Ref, n: Ref, n1: Ref, k: K, c: Set[K], c_n: Set[K], i_n: Flow_K, implicit ghost g_i: Flow_K)
     requires cssR(r, c, g_i)
     requires nodePred(r, n, c_n, i_n)
-f    requires k in outset(i_n, n1)
+    requires k in outset(i_n, n1)
     requires n in g_i.dom
     ensures cssR(r, c, g_i)
     ensures nodePred(r, n, c_n, i_n)
@@ -361,7 +361,7 @@ f    requires k in outset(i_n, n1)
     ensures inFP(r, nn)
     ensures k in keyset(i_nn)
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
         
     ghost var c_n: Set[K];
     ghost var i_n: Flow_K;
@@ -473,7 +473,7 @@ f    requires k in outset(i_n, n1)
     atomic requires css(r, c)
     atomic ensures css(r, cc) && opSpec(dop, k, c) == ((cc, res))
   {
-    ghost val phi: AtomicToken := bindAU();
+    ghost val phi := bindAU();
 
     var n: Ref;
     var c_n: Set[K];

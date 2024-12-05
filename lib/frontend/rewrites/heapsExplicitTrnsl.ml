@@ -3305,6 +3305,8 @@ module TrnslExhale = struct
             List.fold var_decls_skolem_idents ~init:(Map.empty (module QualIdent)) ~f:(
               fun map (vd, skolem_id) -> (
                 let skolemized_expr = 
+                  let univ_args = List.map univ_vars.univ_vars ~f:(fun (_, vd) -> Expr.from_var_decl vd) 
+                  in
                   let optn_args = begin
                     match Map.find witness_args_conds_exprs_map vd.var_name with
                     | None -> []
@@ -3314,7 +3316,7 @@ module TrnslExhale = struct
                       List.map env_local_var_decls_exprs ~f:(fun (_vd, expr) -> expr) 
                     end 
                   in
-                  Expr.mk_app ~loc ~typ:(vd.var_type) (Expr.Var (QualIdent.from_ident skolem_id)) optn_args
+                  Expr.mk_app ~loc ~typ:(vd.var_type) (Expr.Var (QualIdent.from_ident skolem_id)) (univ_args @ optn_args)
 
                 in
 
@@ -3752,7 +3754,9 @@ module TrnslExhale = struct
 
           if QualIdent.(orig_name = Predefs.lib_auth_mod_qual_ident) then
             match given_expr with
-            | App (DataConstr constr_ident, exprs, _) ->
+            | App (DataConstr constr_ident, exprs, _) 
+            | App (Var constr_ident, exprs, _) ->
+              (* #TODO: This exception is added to tackle the case of using AuthRA.auth() function, which is different from the AuthRA.auth_frag() data constructor. As such, this exception is not added in the explicit calculation which should ideally be fixed. *)
                 if
                   Ident.(
                     QualIdent.unqualify constr_ident
