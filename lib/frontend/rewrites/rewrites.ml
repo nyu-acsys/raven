@@ -1228,10 +1228,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             Rewriter.return (Expr.from_var_decl new_var_decl))
       in
 
-      let* ( quant_renaming_map,
-             quant_dropped_args,
-             new_renaming_map,
-             new_dropped_args ) =
+      let* new_renaming_map,
+           new_dropped_args =
         let truncated_formal_args, dropped_formal_args =
           List.split_n call_decl.call_decl_formals
             (List.length call_desc.call_args)
@@ -1264,35 +1262,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 ~data:arg_expr)
         in
 
-        let fresh_dropped_args2 =
-          List.map dropped_formal_args ~f:(fun var_decl ->
-              {
-                var_decl with
-                var_name =
-                  Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name;
-                var_loc = stmt.stmt_loc;
-              })
-        in
-
-        let fresh_dropped_args2_exprs =
-          List.map fresh_dropped_args2 ~f:Expr.from_var_decl
-        in
-
-        (* Need to ensure that call_decl_returns and call_desc.call_lhs line up *)
-        let renaming_map2 =
-          List.fold2_exn
-            (truncated_formal_args @ dropped_formal_args
-           @ call_decl.call_decl_returns)
-            (call_desc.call_args @ fresh_dropped_args2_exprs @ new_lhs_list)
-            ~init:(Map.empty (module QualIdent))
-            ~f:(fun map var_decl arg_expr ->
-              Map.add_exn map
-                ~key:(QualIdent.from_ident var_decl.var_name)
-                ~data:arg_expr)
-        in
-
         Rewriter.return
-          (renaming_map, fresh_dropped_args, renaming_map2, fresh_dropped_args2)
+          (renaming_map, fresh_dropped_args)
       in
 
       Logs.debug (fun m ->

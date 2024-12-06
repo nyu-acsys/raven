@@ -2714,7 +2714,9 @@ module TrnslInhale = struct
 
                   Rewriter.return stmt
               | _ -> Error.error loc "Expected a predicate definition")
-          | _ -> unsupported_expr_error expr)
+          | _ ->
+            Logs.debug (fun m -> m "Here1");
+            unsupported_expr_error expr)
 
   let rec trnsl_assume_expr ?cmnt ?spec_error ~loc (expr : expr) :
       Stmt.t Rewriter.t =
@@ -2730,7 +2732,7 @@ module TrnslInhale = struct
     let univ_vars_list =
       List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl)
     in
-
+    let* is_pure = ProgUtils.is_expr_pure expr in
     match expr with
     | App (Own, [ e1; e2; e3 ], _) ->
         (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))
@@ -2848,123 +2850,111 @@ module TrnslInhale = struct
         in
 
         Rewriter.return assume_stmt
-    | e -> (
-        let* is_e_pure = ProgUtils.is_expr_pure e in
-        if is_e_pure then
-          let body_expr =
-            match conds with [] -> e | _ -> Expr.mk_impl (Expr.mk_and conds) e
+    | e when is_pure ->
+      let body_expr =
+        match conds with [] -> e | _ -> Expr.mk_impl (Expr.mk_and conds) e
+      in
+      let assume_expr =
+        Expr.mk_binder ~loc ~typ:Type.bool ~trigs:universal_quants.triggers
+          Forall
+          (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d))
+          body_expr
+      in
+      Rewriter.return
+        (Stmt.mk_assume_expr ~loc
+           ~cmnt:
+             ((match cmnt with None -> "" | Some cmnt -> cmnt)
+              ^ "\nassume: "
+              ^ Stdlib.Format.asprintf "%a" Expr.pr
+                (Expr.mk_binder Forall univ_vars_list
+                   (Expr.mk_impl (Expr.mk_and conds) expr)))
+           assume_expr)
+    | App (Var qual_ident, args, _) -> 
+        let* c = Rewriter.find_and_reify_callable qual_ident in
+        let* heap_elem_type_qual_iden =
+          ProgUtils.get_pred_utils_rep_type qual_ident
+        in
+          
+        let heap_elem_type =
+          Type.mk_var heap_elem_type_qual_iden
+        in
+          
+        let pred_name = qual_ident in
+        let pred_heap_name = pred_heap_name pred_name in
+        let pred_heap_qual_ident =
+          QualIdent.from_ident pred_heap_name
+        in
+        let pred_heap_expr =
+          Expr.mk_var
+            ~typ:(Type.mk_map loc Type.ref heap_elem_type)
+            pred_heap_qual_ident
+        in
+        
+        let* (pred_heapchunk_operator : qual_ident) =
+          ProgUtils.get_pred_utils_heapchunk_compare
+            pred_name
+        in
+        
+        let* pred_in_types =
+          ProgUtils.pred_in_types qual_ident
+        in
+        
+        let* pred_out_types =
+          ProgUtils.pred_out_types qual_ident
+        in
+          
+        let* pred_ra_constr =
+          ProgUtils.pred_ra_constr_qual_ident loc qual_ident
+        in
+          
+        let assume_stmt =
+          let new_chunk =
+            let new_chunk_expr_list =
+              match c.call_decl.call_decl_kind with
+              | Pred ->
+                [
+                  Expr.mk_int 1;
+                  Expr.mk_tuple
+                    (List.drop args (List.length pred_in_types));
+                ]
+              | Invariant ->
+                [
+                  Expr.mk_tuple
+                    (List.drop args (List.length pred_in_types));
+                ]
+              | _ -> Error.internal_error loc "Expected a predicate or invariant definition"
+            in
+
+            Expr.mk_app ~loc ~typ:heap_elem_type
+              (Expr.DataConstr pred_ra_constr) new_chunk_expr_list
           in
-          let assume_expr =
-            Expr.mk_binder ~loc ~typ:Type.bool ~trigs:universal_quants.triggers
-              Forall
-              (List.map univ_quants_list ~f:(fun (_, v_d) -> v_d))
-              body_expr
-          in
-          Rewriter.return
-            (Stmt.mk_assume_expr ~loc
-               ~cmnt:
-                  ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                  ^ "\nassume: "
-                  ^ Stdlib.Format.asprintf "%a" Expr.pr
-                      (Expr.mk_binder Forall univ_vars_list
-                          (Expr.mk_impl (Expr.mk_and conds) expr)))
-               assume_expr)
-        else
-          match e with
-          | App (Var qual_ident, args, _) -> (
-              let* symbol = Rewriter.find_and_reify qual_ident in
-              match symbol with
-              | CallDef c
-                when Poly.(
-                       c.call_decl.call_decl_kind = Pred
-                       || c.call_decl.call_decl_kind = Invariant) ->
-                  let* heap_elem_type_qual_iden =
-                    ProgUtils.get_pred_utils_rep_type qual_ident
-                  in
-
-                  let heap_elem_type =
-                    Type.mk_var heap_elem_type_qual_iden
-                  in
-
-                  let pred_name = qual_ident in
-                  let pred_heap_name = pred_heap_name pred_name in
-                  let pred_heap_qual_ident =
-                    QualIdent.from_ident pred_heap_name
-                  in
-                  let pred_heap_expr =
-                    Expr.mk_var
-                      ~typ:(Type.mk_map loc Type.ref heap_elem_type)
-                      pred_heap_qual_ident
-                  in
-
-                  let* (pred_heapchunk_operator : qual_ident) =
-                    ProgUtils.get_pred_utils_heapchunk_compare
-                      pred_name
-                  in
-
-                  let* pred_in_types =
-                    ProgUtils.pred_in_types qual_ident
-                  in
-
-                  let* pred_out_types =
-                    ProgUtils.pred_out_types qual_ident
-                  in
-
-                  let* pred_ra_constr =
-                    ProgUtils.pred_ra_constr_qual_ident loc qual_ident
-                  in
-
-                  let assume_stmt =
-                    let new_chunk =
-                      let new_chunk_expr_list =
-                        match c.call_decl.call_decl_kind with
-                        | Pred ->
-                            [
-                              Expr.mk_int 1;
-                              Expr.mk_tuple
-                                (List.drop args (List.length pred_in_types));
-                            ]
-                        | Invariant ->
-                            [
-                              Expr.mk_tuple
-                                (List.drop args (List.length pred_in_types));
-                            ]
-                        | _ ->
-                            Error.error loc
-                              "Internal error: Expected a predicate or \
-                               invariant"
-                      in
-
-                      Expr.mk_app ~loc ~typ:heap_elem_type
-                        (Expr.DataConstr pred_ra_constr) new_chunk_expr_list
-                    in
-
-                    Stmt.mk_assume_expr ~loc
-                      ~cmnt:
-                        ((match cmnt with None -> "" | Some cmnt -> cmnt)
-                        ^ "\nassume: "
-                        ^ Stdlib.Format.asprintf "%a" Expr.pr
-                            (Expr.mk_binder Forall univ_vars_list
-                              (Expr.mk_impl (Expr.mk_and conds) expr)))
-                      (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
-                         (Expr.mk_impl ~loc
-                            (* m1(a,b,c) && l == f1(a, b, c) *)
-                            (Expr.mk_and ~loc conds)
-                            (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
-                            (Expr.mk_app ~loc ~typ:Type.bool
-                               (Expr.Var pred_heapchunk_operator)
-                               [
-                                 Expr.mk_maplookup ~loc pred_heap_expr
-                                   (Expr.mk_tuple
-                                      (List.take args
-                                         (List.length pred_in_types)));
-                                 new_chunk;
-                               ])))
-                  in
-
-                  Rewriter.return assume_stmt
-              | _ -> Error.error loc "Expected a predicate definition")
-          | _ -> unsupported_expr_error expr)
+            
+          Stmt.mk_assume_expr ~loc
+            ~cmnt:
+              ((match cmnt with None -> "" | Some cmnt -> cmnt)
+               ^ "\nassume: "
+               ^ Stdlib.Format.asprintf "%a" Expr.pr
+                 (Expr.mk_binder Forall univ_vars_list
+                    (Expr.mk_impl (Expr.mk_and conds) expr)))
+            (Expr.mk_binder ~loc ~typ:Type.bool Forall univ_vars_list
+               (Expr.mk_impl ~loc
+                  (* m1(a,b,c) && l == f1(a, b, c) *)
+                  (Expr.mk_and ~loc conds)
+                  (* pred$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                  (Expr.mk_app ~loc ~typ:Type.bool
+                     (Expr.Var pred_heapchunk_operator)
+                     [
+                       Expr.mk_maplookup ~loc pred_heap_expr
+                         (Expr.mk_tuple
+                            (List.take args
+                               (List.length pred_in_types)));
+                       new_chunk;
+                     ])))
+          in          
+          Rewriter.return assume_stmt
+    | _ ->
+      Logs.debug (fun m -> m "Here2");
+      unsupported_expr_error expr
 end
 
 module TrnslExhale = struct
@@ -4752,7 +4742,9 @@ module TrnslExhale = struct
 
                   Rewriter.return stmt
               | _ -> Error.error loc "Expected a predicate definition")
-          | _ -> unsupported_expr_error expr)
+          | _ ->
+            Logs.debug (fun m -> m "Here3");
+            unsupported_expr_error expr)
 end
 
 let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
