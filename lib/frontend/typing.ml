@@ -1975,9 +1975,15 @@ module ProcessModule = struct
       Rewriter.Option.map var.var_init ~f:(fun expr ->
           process_expr expr var_decl.var_type)
     in
-
-    let (var : Stmt.var_def) = { var_decl; var_init } in
-
+    let var_type =
+      var_init |> Option.map ~f:Expr.to_type |> Option.value ~default:var_decl.var_type
+    in
+    let _ = if Type.equal var_type Type.any then
+        Error.error var_decl.var_loc
+          @@ Printf.sprintf "Type annotation missing for variable %s"
+            (Ident.to_string var_decl.var_name)
+    in
+    let (var : Stmt.var_def) = { var_decl = { var_decl with var_type }; var_init } in
     Module.(VarDef var)
 
   let check_implements_symbol interface_ident (symbol : Symbol.t)
