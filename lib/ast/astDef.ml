@@ -397,8 +397,7 @@ module Type = struct
   let mk_atomic_token loc qid = App (AtomicToken qid, [], mk_attr loc) |> set_ghost true
   let mk_prod loc tp_list = 
     match tp_list with
-    | [] -> mk_unit loc
-    | tp :: [] -> tp
+    | [tp] -> tp
     | _ -> App (Prod, tp_list, mk_attr loc)
 
 
@@ -802,7 +801,7 @@ module Expr = struct
 
   let mk_tuple ?(loc = Loc.dummy) es = 
     match es with
-    | e :: [] -> e
+    | [e] -> e
     | _ -> mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
 
   let mk_tuple_lookup ?(loc = Loc.dummy) e i = 
