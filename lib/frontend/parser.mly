@@ -777,13 +777,14 @@ ghost_block:
 
 primary:
 | c = CONSTVAL { Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) c []) }
-| LPAREN; e = expr; RPAREN cont = map_update_opt { cont e }
+| LPAREN; es = separated_list(COMMA, expr); RPAREN {
+  Expr.mk_tuple ~loc:(Loc.make $startpos $endpos) es
+}
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = cas_expr { e }
 | e = au_expr { e }
-| e = lookup_expr { e }
 ;
 
 compr_expr:
@@ -817,19 +818,6 @@ au_expr:
 | AU; LPAREN; c = qual_ident; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident c)) es)
 }
-
-lookup_expr:
-| e1 = qual_ident_expr; e_fn = lookup; { e_fn e1 }
-| LPAREN; e1 = expr; RPAREN; e_fn = lookup; { e_fn e1 }
-
-lookup:
-| LBRACKET; e2 = expr; RBRACKET {
-  fun e1 -> Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2])
-}     
-| n = HASH {
-  let e2 = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
-  fun e1 -> Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
-}
     
 call_expr:
 | p = qual_ident_expr; es = call {
@@ -840,25 +828,12 @@ call:
 | LPAREN; es = separated_list(COMMA, expr); RPAREN { es }
   
 call_opt:
-| es = call; cont = map_update_opt {
+| es = call { 
   fun p ->
     let p_ident = Expr.to_qual_ident p in
-    let e =
-      Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc p) (Loc.make $startpos $endpos)) (Var p_ident) es)
-    in
-    cont e
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc p) (Loc.make $startpos $endpos)) (Var p_ident) es)
 }
-| cont = map_update_opt { cont }
-
-map_update_opt:
-| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET cont = map_update_opt {
-  fun e ->
-    let e_upd =
-      Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc e) (Loc.make $startpos $endpos)) MapUpdate [e; e2; e3])
-    in
-    cont e_upd
-}
-| (* empty *) { fun p -> p }
+| (* empty *) { fun e -> e }
   
 qual_ident_expr:
 | x = qual_ident { x }
@@ -883,9 +858,37 @@ ident:
 | x = IDENT {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
+
+lookup_or_update_expr:
+| e = primary; cont = lookup_or_update_opt { cont e }
+
+(*
+lookup_expr:
+| e1 = qual_ident_expr; e_fn = lookup; { e_fn e1 }
+| LPAREN; e1 = expr; RPAREN; e_fn = lookup; { e_fn e1 }*)
+
+lookup_or_update_opt:
+| (* empty *) { fun p -> p }
+| LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET cont = lookup_or_update_opt {
+  fun e ->
+    let e_upd =
+      Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc e) (Loc.make $startpos $endpos)) MapUpdate [e; e2; e3])
+    in
+    cont e_upd
+}
+| LBRACKET; e2 = expr; RBRACKET cont = lookup_or_update_opt {
+  fun e1 ->
+    let e1_lookup = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2]) in
+    cont e1_lookup
+}
+| n = HASH {
+  let e2 = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
+  fun e1 -> Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
+}
+
   
 unary_expr:
-| e = primary { e }
+| e = lookup_or_update_expr { e }
 (*| e = ident { e }*)
 | MINUS; e = unary_expr {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
@@ -1057,7 +1060,7 @@ type_expr:
 | SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
 | MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
 | x = mod_ident { Type.mk_var x }
-| LPAREN ts = type_expr_list RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
+| LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
     
@@ -1088,7 +1091,6 @@ patterns:
 
 expr:
 | e = quant_expr { e } 
-| LPAREN; e = expr; COMMA; es = expr_list; RPAREN { Expr.mk_tuple ~loc:(Loc.make $startpos $endpos) (e :: es) }
 ;
 
 expr_list:
