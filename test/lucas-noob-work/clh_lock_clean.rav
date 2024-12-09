@@ -4,9 +4,6 @@
 interface CLHLock {
   module R: Library.Type
   module Agree = Library.Agree[R]
-  module BoolType : Library.Type {
-    rep type T = Bool
-  }
 
   // ===========================================================================
   // Section defining loc (just a flag for storing node "locked" state)
@@ -15,6 +12,7 @@ interface CLHLock {
   field l_agr: Bool; // QUESTION: How do I use a unit type? Seems like it's
   // been deprecated for an empty tuple, but how do I define a tuple type? For
   // now, I guess I'll just have a bool that's always set to true.
+  field which_disj: Bool; // Hack to get disjunctions to work
 
   // ===========================================================================
   // Section defining node fields, predicates, and procedures
@@ -27,7 +25,8 @@ interface CLHLock {
       own(node, loc, ln, 1.0) &&
       own(ln, locked, false, 1.0) &&
       own(node, predecessor, pn, 1.0) &&
-      own(ln, l_agr, true, 1.0)
+      own(ln, l_agr, true, 1.0) &&
+      own(ln, which_disj, true, 1.0)
   }
 
   proc create_node()
@@ -35,10 +34,10 @@ interface CLHLock {
     ensures free_node(node)
   {
     var newloc: Ref;
-    newloc := new (locked: false, l_agr: true);
+    newloc := new (locked: false, l_agr: true, which_disj: true);
     node := new (loc: newloc, predecessor: null);
     // NOTE: Might need to be false
-    fold free_node(node) [b_disj := true];
+    fold free_node(node);
   }
 
   // ===========================================================================
@@ -49,6 +48,7 @@ interface CLHLock {
 
   // Structurally, the lock is a pointer to the tail loc in our implicit queue
   field tail: Ref
+  field agr: Agree
 
   // ===========================================================================
   // Predicates and invariants used for verification
@@ -72,7 +72,7 @@ interface CLHLock {
       queued_loc(ln, r) && own(ln, l_agr, true, 0.5) &&
       own(ln, locked, true, 0.5) &&
       own(node, predecessor, pn, 1.0) &&
-      own(pn, locked, false, 0.5) &&
+      own(pn, locked, false, 1.0) &&
       resource(r)
   }
 
@@ -101,7 +101,7 @@ interface CLHLock {
     ensures acquired_node(node, r)
   {
     ghost var branch: Bool;
-    unfold queued_loc(pn, r) {branch :| b_disj};
+    unfold queued_loc(pn, r) [branch := b_disj];
     var b: Bool := pn.locked;
     // assert (!b ==> resource(r) && own(pn, l_agr, true, 0.5) &&
     // own(pn, locked, b, 0.5));
@@ -141,8 +141,6 @@ interface CLHLock {
 
     unfold lock_inv(lk, r);
     var pn: Ref := xchg(lk, ln);
-    // NOTE: When we added [b_disj := false], we get an uncaught exception error
-    // with some stack trace.
     fold queued_loc(ln, r) [b_disj := false];
     fold lock_inv(lk, r);
 
