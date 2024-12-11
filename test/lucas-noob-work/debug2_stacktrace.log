@@ -1,0 +1,31 @@
+lucasdu@pop-os:~/research-workbench/raven/test/lucas-noob-work$ dune exec -- raven --shh clh_lock_clean.rav 
+Entering directory '/home/lucasdu/research-workbench/raven'
+Leaving directory '/home/lucasdu/research-workbench/raven'
+raven: internal error, uncaught exception:
+       Util.Error.Generic_Error("Unexpected solver output: (error \"line 9725 column 72: invalid declaration, function '$Program.CLHLock.$skolem_ln^1' (with the given signature) already declared\")")
+       Raised at Backend__Smt_solver.SmtSession.is_unsat in file "lib/backend/smt_solver.ml", line 138, characters 13-71
+       Called from Backend__Smt_solver.SmtSession.check_valid in file "lib/backend/smt_solver.ml", line 161, characters 14-30
+       Called from Backend__Smt_solver.check_valid in file "lib/backend/smt_solver.ml", line 288, characters 21-64
+       Called from Ast__Rewriter.Syntax.Let_syntax.bind in file "lib/ast/rewriter.ml", line 25, characters 22-27
+       Called from Ast__Rewriter.List.iter.(fun) in file "lib/ast/rewriter.ml", line 460, characters 24-29
+       Called from Base__List0.fold in file "src/list0.ml", line 43, characters 27-37
+       Called from Ast__Rewriter.List.iter in file "lib/ast/rewriter.ml", lines 459-461, characters 6-14
+       Called from Ast__Rewriter.Syntax.Let_syntax.bind in file "lib/ast/rewriter.ml", line 25, characters 22-27
+       Called from Ast__Rewriter.Syntax.Let_syntax.bind in file "lib/ast/rewriter.ml", line 25, characters 22-27
+       Called from Ast__Rewriter.Syntax.Let_syntax.bind in file "lib/ast/rewriter.ml", line 25, characters 22-27
+       Called from Ast__Rewriter.List.iter.(fun) in file "lib/ast/rewriter.ml", line 460, characters 24-29
+       Called from Base__List0.fold in file "src/list0.ml", line 43, characters 27-37
+       Called from Ast__Rewriter.List.iter in file "lib/ast/rewriter.ml", lines 459-461, characters 6-14
+       Called from Ast__Rewriter.List.iter.(fun) in file "lib/ast/rewriter.ml", line 460, characters 24-29
+       Called from Base__List0.fold in file "src/list0.ml", line 43, characters 27-37
+       Called from Ast__Rewriter.List.iter in file "lib/ast/rewriter.ml", lines 459-461, characters 6-14
+       Called from Ast__Rewriter.Syntax.Let_syntax.bind in file "lib/ast/rewriter.ml", line 25, characters 22-27
+       Called from Ast__Rewriter.eval_with_user_state.(fun) in file "lib/ast/rewriter.ml", line 74, characters 14-50
+       Called from Ast__Rewriter.eval in file "lib/ast/rewriter.ml", line 65, characters 18-23
+       Called from Backend__Checker.check_module in file "lib/backend/checker.ml", lines 446-449, characters 4-9
+       Called from Dune__exe__Raven.check_cu in file "bin/raven.ml", line 82, characters 16-69
+       Called from Dune__exe__Raven.parse_and_check_all in file "bin/raven.ml", line 221, characters 10-59
+       Called from Dune__exe__Raven.main in file "bin/raven.ml", line 341, characters 10-50
+       Called from Cmdliner_term.app.(fun) in file "cmdliner_term.ml", line 24, characters 19-24
+       Called from Cmdliner_term.ret.(fun) in file "cmdliner_term.ml", line 41, characters 25-32
+       Called from Cmdliner_eval.run_parser in file "cmdliner_eval.ml", line 35, characters 37-44

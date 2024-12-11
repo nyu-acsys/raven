@@ -1,0 +1,162 @@
+// REF: https://dada.cs.washington.edu/research/tr/1993/02/UW-CSE-93-02-02.pdf
+// REF: diaframe_heap_lang_examples/comparison/clh_lock.v (MPI-SWS gitlab)
+
+interface CLHLock {
+  module R: Library.Type
+  module Agree = Library.Agree[R]
+
+  // ===========================================================================
+  // Section defining loc (just a flag for storing node "locked" state)
+  // ===========================================================================
+  field locked: Bool;
+  field l_agr: Bool; // QUESTION: How do I use a unit type? Seems like it's
+  // been deprecated for an empty tuple, but how do I define a tuple type? For
+  // now, I guess I'll just have a bool that's always set to true.
+
+  // ===========================================================================
+  // Section defining node fields, predicates, and procedures
+  // ===========================================================================
+  field loc: Ref;
+  field predecessor: Ref;
+
+  pred free_node(node: Ref) {
+    exists ln: Ref, pn: Ref ::
+      own(node, loc, ln, 1.0) &&
+      own(ln, locked, false, 1.0) &&
+      own(node, predecessor, pn, 1.0) &&
+      own(ln, l_agr, true, 1.0)
+  }
+
+  proc create_node()
+    returns (node: Ref)
+    ensures free_node(node)
+  {
+    var newloc: Ref;
+    newloc := new (locked: false, l_agr: true);
+    node := new (loc: newloc, predecessor: null);
+    // NOTE: Might need to be false
+    fold free_node(node);
+  }
+
+  // ===========================================================================
+  // Lock definition
+  // ===========================================================================
+  // Resource protected by the lock
+  pred resource(r: R)
+
+  // Structurally, the lock is a pointer to the tail loc in our implicit queue
+  field tail: Ref
+  field agr: Agree
+
+  // ===========================================================================
+  // Predicates and invariants used for verification
+  // ===========================================================================
+  inv queued_loc(l: Ref, r: R) {
+    exists b_disj: Bool, b: Bool ::
+      (b_disj ? own(l, l_agr, true, 1.0) : own(l, locked, b, 0.5) &&
+      (!b ==> resource(r) && own(l, l_agr, true, 0.5) && own(l, locked, b, 0.5)))
+  }
+
+  inv lock_inv(lk: Ref, r: R) {
+    exists l: Ref ::
+      own(lk, tail, l, 1.0) &&
+      own(l, l_agr, true, 0.5) &&
+      queued_loc(l, r)
+  }
+
+  pred acquired_node(node: Ref, r: R) {
+    exists ln: Ref, pn: Ref ::
+      own(node, loc, ln, 1.0) &&
+      queued_loc(ln, r) && own(ln, l_agr, true, 0.5) &&
+      own(ln, locked, true, 0.5) &&
+      own(node, predecessor, pn, 1.0) &&
+      own(pn, locked, false, 1.0) &&
+      resource(r)
+  }
+
+  // ===========================================================================
+  // Actual procedures (with specifications) on locks
+  // ===========================================================================
+  proc create_lock(r: R)
+    returns (lk: Ref)
+    requires resource(r)
+    ensures lock_inv(lk, r)
+  {
+    var l: Ref;
+    l := new (locked: false, l_agr: true);
+    lk := new (tail: l, agr: Agree.agree(r));
+    fold queued_loc(l, r) [b_disj := false];
+    fold lock_inv(lk, r);
+  }
+
+  proc wait_on(lk: Ref, pn: Ref, ln: Ref, node: Ref, implicit ghost r: R)
+    requires lock_inv(lk, r) && queued_loc(ln, r) &&
+    own(node, loc, ln, 1.0) &&
+    own(node, predecessor, pn, 1.0) &&
+    own(ln, l_agr, true, 0.5) &&
+    own(ln, locked, true, 0.5) &&
+    queued_loc(pn, r) && own(pn, l_agr, true, 0.5)
+    ensures acquired_node(node, r)
+  {
+    ghost var branch: Bool;
+    unfold queued_loc(pn, r) [branch := b_disj];
+    var b: Bool := pn.locked;
+    // assert (!b ==> resource(r) && own(pn, l_agr, true, 0.5) &&
+    // own(pn, locked, b, 0.5));
+
+    {!
+      if (!b) {
+        fold acquired_node(node, r);
+        // TODO: think this through a bit more
+        // assert ln != pn;
+        // assert own(pn, full_agr, false, 1.0);
+        // assert own(pn, locked, b, 0.5);
+        fold queued_loc(pn, r) [b := b, b_disj := true];
+      } else {
+        fold queued_loc(pn, r) [b := b, b_disj := branch];
+        // TODO: Updates to ghost fields in ghost blocks are not allowed (when
+        // wrapped in a Frac) -- message Ekansh about this
+      }
+    !}
+
+    if (b) {
+      wait_on(lk, pn, ln, node, r);
+    }
+  }
+
+  proc xchg(lk: Ref, ln: Ref, implicit ghost t: Ref)
+    returns (pn: Ref)
+    atomic requires own(lk, tail, t, 1.0)
+    atomic ensures own(lk, tail, ln, 1.0) && pn == t
+
+  proc acquire(lk: Ref, node: Ref, implicit ghost r: R)
+    requires lock_inv(lk, r) && free_node(node)
+    ensures acquired_node(node, r)
+  {
+    unfold free_node(node);
+    var ln: Ref := node.loc;
+    ln.locked := true;
+
+    unfold lock_inv(lk, r);
+    var pn: Ref := xchg(lk, ln);
+    fold queued_loc(ln, r) [b_disj := false];
+    fold lock_inv(lk, r);
+
+    // Set new predecessor
+    node.predecessor := pn;
+    // Wait on the predecessor
+    wait_on(lk, pn, ln, node, r);
+  }
+
+  proc release(node: Ref, implicit ghost r: R)
+    requires acquired_node(node, r)
+    ensures free_node(node)
+  {
+    unfold acquired_node(node, r);
+    var ln: Ref := node.loc;
+    ln.locked := false;
+    var pn: Ref := node.predecessor;
+    node.loc := pn;
+    fold free_node(node);
+  }
+}
