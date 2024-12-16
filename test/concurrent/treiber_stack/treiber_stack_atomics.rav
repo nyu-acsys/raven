@@ -45,7 +45,7 @@ module Stack[T: Type] {
     ghost val top1: Ref;
     unfold stack(s)[top1 := x];
     
-    var res: Bool := cas(s.top, topv, s0);
+    var res := cas(s.top, topv, s0);
 
     if (!res) { 
       fold stack(s, xs1);
