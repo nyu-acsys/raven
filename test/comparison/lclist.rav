@@ -1,0 +1,85 @@
+include "../concurrent/lock/lock.rav"
+
+interface LCList {
+    
+    field next: Ref
+    field lock: Ref
+    field value: Int
+
+    module NodeResource: LockResource {
+        rep type T = (Ref, Int)
+
+        pred resource(r: T) {
+            exists nx: Ref, vx: Int :: 
+                own((r#0).next, nx, 1.0) 
+            && own((r#0).value, r#1, 1.0)
+            && ((r#1) <= vx) 
+            && is_list(nx, vx)
+        }
+
+        lemma exclusive(r: T)
+            requires resource(r) && resource(r)
+            ensures false
+        {
+            // unfold resource(r);
+            // unfold resource(r);
+            assume false;
+        }
+    }
+
+    module LCLock = Lock[NodeResource] 
+
+    import NodeResource._
+    import LCLock._
+    
+    pred is_list(n: Ref, v: Int) {
+            n == null ? true :
+            (exists b: Bool, l: Ref :: own(n.lock, l, 1.0) && is_lock(l, (n, v), b))
+    }
+
+    proc create() 
+        returns (r: Ref)
+        ensures is_list(r, 0)
+    {
+        // below fold generates an error "Internal Error: Expected inv function call (e/own)."
+        //fold is_list(null, 0);
+
+        // below assume makes it vacuous
+        // assume is_list(null, 0);
+
+        // below works as expected
+        inhale is_list(null, 0);
+        
+        r := new(next: null, value: 0, lock: null);
+
+        assert own(r.next, null, 1.0) 
+            && own(r.value, (r, 0)#1, 1.0)
+            && (0 <= 0) 
+            && is_list(null, 0);
+
+        // below fold generates "Internal Error: Expected inv function call (e/own)."
+        // fold resource((r, 0));
+
+        // below assert also makes it vacuous
+        // assume resource((r, 0));
+
+        // below works as expected
+        exhale own(r.next, null, 1.0) && own(r.value, 0, 1.0);
+        inhale resource((r,0));
+
+        var l: Ref;
+        l := LCLock.create((r,0));
+        r.lock := l;
+        assert is_lock(l, (r,0), false);
+        assert r != null;
+        assert r == null ? true : (own(r.lock, l, 1.0) && is_lock(l, (r, 0), false));
+        fold is_list(r, 0);
+        // assert false;
+    }
+
+
+
+
+
+}
+
