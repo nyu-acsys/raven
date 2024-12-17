@@ -2,6 +2,18 @@ interface Type {
   rep type T
 }
 
+module IntType: Type {
+  rep type T = Int
+}
+
+module BoolType: Type {
+  rep type T = Bool
+}
+
+module RefType: Type {
+  rep type T = Ref
+}
+
 module Option[E: Type] : Type {
   rep type T = data {
     case none

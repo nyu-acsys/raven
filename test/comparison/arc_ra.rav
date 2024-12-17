@@ -33,10 +33,16 @@ module ArcRA : Library.ResourceAlgebra {
             a.authPerm >= 0.0 && a.authPerm <= 1.0 &&
             a.fragCount >= 0 && 
             a.fragPerm >= 0.0 && a.fragPerm <= 1.0 &&
-            ((a.fragCount <= a.authCount &&
-            a.fragPerm <= a.authPerm ) || (a.authCount == 0 && a.authPerm == 0.0)) &&
-            ((a.authCount > 0 && a.authPerm > 0.0) || (a.fragCount > 0 && a.fragPerm > 0.0)) &&
-            (a.authCount > a.fragCount ==> a.authPerm > a.fragPerm))
+            (
+                (a.fragCount <= a.authCount && a.fragPerm <= a.authPerm ) || 
+                (a.authCount == 0 && a.authPerm == 0.0)
+            ) &&
+            (
+                (a.authCount > 0 && a.authPerm > 0.0) || 
+                (a.fragCount > 0 && a.fragPerm > 0.0)
+            ) &&
+            (a.authCount > a.fragCount ==> a.authPerm > a.fragPerm)) &&
+            (a.authCount == a.fragCount ==> a.authPerm == a.fragPerm)
     }
 
     func frame(a: T, b: T) returns (ret: T) {
@@ -65,7 +71,7 @@ module ArcRA : Library.ResourceAlgebra {
             a.authPerm - a.fragPerm == b.authPerm - b.fragPerm )
             :
         (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
-            a.authCount == a.fragCount :
+            a.authCount == a.fragCount && a.authPerm == a.fragPerm :
             false)
         )) : 
         false)

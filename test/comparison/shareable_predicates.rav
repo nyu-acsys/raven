@@ -4,10 +4,11 @@ interface ShareablePredicate {
     pred p_chunk(x: Ref, f: Real);
 
     proc allocate(x: Ref)
+        requires p()
         ensures p_chunk(x, 1.0)
 
     proc deallocate(x: Ref)
-        requires p_chunk(x, 1.0)
+        requires p()
         ensures true
     
     axiom split(x: Ref, f: Real)
@@ -18,4 +19,8 @@ interface ShareablePredicate {
         requires p_chunk(x, f1) && p_chunk(x, f2)
         requires f1+f2 <= 1.0
         ensures p_chunk(x, f1+f2)
+
+    lemma destroyShareable(x: Ref)
+        requires p_chunk(x, 1.0)
+        ensures p()
 }

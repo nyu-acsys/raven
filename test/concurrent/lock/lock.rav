@@ -29,10 +29,10 @@ interface Lock[R: LockResource] {
   }
 
   lemma exclusive(l: Ref, r: R)
-    requires is_lock(l, r, true) && resource(r)
+    requires is_lock(l, r, false) && resource(r)
     ensures false
   {
-    unfold is_lock(l, r, true);
+    unfold is_lock(l, r, false);
     R.exclusive(r);
   }
 
