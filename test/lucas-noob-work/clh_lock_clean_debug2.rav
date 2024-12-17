@@ -106,12 +106,17 @@ interface CLHLock {
 
     {!
       if (!b) {
+        assert own(pn, locked, b, 1.0);
         fold acquired_node(node, r);
         // TODO: think this through a bit more
         // assert ln != pn;
         // assert own(pn, full_agr, false, 1.0);
-        // assert own(pn, locked, b, 0.5);
-        fold queued_loc(pn, r) [b := b, b_disj := true];
+        assert !branch;
+        // exhale own(pn, l_agr, true, 1.0);
+        // inhale queued_loc(pn, r);
+        assert (true ? own(pn, l_agr, true, 1.0) : own(pn, locked, b, 0.5) &&
+      (!b ==> resource(r) && own(pn, l_agr, true, 0.5) && own(pn, locked, b, 0.5)));
+        fold queued_loc(pn, r);
       } else {
         fold queued_loc(pn, r) [b := b, b_disj := branch];
         // TODO: Updates to ghost fields in ghost blocks are not allowed (when
