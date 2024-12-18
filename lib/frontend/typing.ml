@@ -441,21 +441,35 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           let* expr1 = process_expr expr1 (Type.ref |> Type.set_ghost_to expected_typ)
           and* expr2 = process_expr expr2 (Type.any |> Type.set_ghost_to expected_typ) in
 
-          let field_type =
-            match Expr.to_type expr2 with
-            | App (Fld, [ tp_expr ], _) -> tp_expr |> Type.set_ghost_to expected_typ
+          let* field_type =
+            match expr2 with
+            | App (Var qual_ident, [], _) ->
+              let+ field_def = Rewriter.find_and_reify_field qual_ident in
+              field_def.field_type |> Type.field_val |> Type.set_ghost_to expected_typ
             | _ ->
                 Error.type_error (Expr.to_loc expr2)
                   "Expected field identifier."
           in
+          let* is_ra_type = ProgUtils.is_ra_type field_type in
           let* expr3 = process_expr expr3 field_type
+
           (* Implicitely case-split on heap RA vs. other RA *)
           and* expr4_opt =
-            if List.length expr4_opt > 1 then
+            match expr4_opt with
+            | [] -> 
+              if not is_ra_type 
+              then Rewriter.return [Expr.mk_real ~loc:(Expr.to_loc expr) 1.0]
+              else Rewriter.return []
+            | [e] ->
+              if is_ra_type
+              then Error.type_error (Expr.to_loc e)
+                  "Unexpected argument supplied to predicate 'own' with RA-valued field"
+              else
+              let+ e = process_expr e (Type.real |> Type.set_ghost_to expected_typ) in
+              [e]
+            | _ ->
               Error.type_error (Expr.to_loc expr)
-                "Own takes either three or four arguments."
-            else
-              Rewriter.List.map expr4_opt ~f:(fun e -> process_expr e (Type.real |> Type.set_ghost_to expected_typ))
+                "Too many arguments supplied to predicate 'own'"
           in
           (* Reconstruct and check expr *)
           let expr =
@@ -612,7 +626,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                     check_and_set expr Type.bool Type.bool expected_typ
                   else
                     Error.type_error (Expr.to_loc expr)
-                      ("CAS only allowed over int, bool and ref; but found "
+                      ("cas only allowed over word-sized types Int, Bool, and Ref but found "
                      ^ Type.to_string expected_fld_typ)
               | _ ->
                   Error.type_error (Expr.to_loc expr)
@@ -1394,6 +1408,8 @@ module ProcessCallable = struct
           field_type
         | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
       in
+      let* is_field_an_ra = ProgUtils.is_ra_type field_type in
+      let _ = if is_field_an_ra then Error.type_error stmt_loc "Cannot assign RA-valued field. Did you mean to use fpu?" in
       let* field_write_ref =
         disambiguate_process_expr fw_desc.field_write_ref Type.ref
           disam_tbl
