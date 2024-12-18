@@ -2528,6 +2528,16 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
   Logs.debug (fun m1 ->
       m1
+        "Rewrites.all_rewrites: Starting rewriter_skolemize_assume_stmts on \
+         module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m =
+    Rewriter.Module.rewrite_stmts
+      ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_skolemize_assume_stmts m
+  in
+
+  Logs.debug (fun m1 ->
+      m1
         "Rewrites.all_rewrites: Starting \
          rewriter_find_witness_elim_exists_from_exhale on module %a"
         Ident.pr m.mod_decl.mod_decl_name);

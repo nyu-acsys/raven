@@ -1871,6 +1871,26 @@ module TrnslInhale = struct
         | _ -> Rewriter.return stmt)
     | _ -> Rewriter.Stmt.descend stmt ~f:rewriter_skolemize_inhale_stmts
 
+  let rec rewriter_skolemize_assume_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
+    let open Rewriter.Syntax in
+    match stmt.stmt_desc with
+    | Basic (Spec (spec_kind, spec)) -> (
+        match spec_kind with
+        | Assume ->
+            let* e =
+              skolemize_inhale_expr
+                { univ_vars = []; triggers = [] }
+                (Map.empty (module QualIdent))
+                spec.spec_form
+            in
+
+            let spec = { spec with spec_form = e } in
+
+            Rewriter.return
+              { stmt with stmt_desc = Basic (Spec (spec_kind, spec)) }
+        | _ -> Rewriter.return stmt)
+    | _ -> Rewriter.Stmt.descend stmt ~f:rewriter_skolemize_assume_stmts
+
   let rec rewriter_eliminate_binds_for_inhale (stmt : Stmt.t) :
       (Stmt.t, expr option) Rewriter.t_ext =
     let open Rewriter.Syntax in
