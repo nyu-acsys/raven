@@ -494,6 +494,10 @@ module Type = struct
       | _ -> Error.error type_attr.type_loc "Expected type variable"
 
   
+  let field_val = function
+  | App (Fld, [val_typ], _) -> val_typ
+  | _ -> failwith "Expected field type"
+
   let set_elem = function
   | App (Map, [elem; App (Bool, _, _)], _) -> elem
   | _ -> failwith "Expected Set type"
@@ -1088,6 +1092,39 @@ module Expr = struct
     | App (_, es, _) -> Set.union_list (module QualIdent) (List.map es ~f:au_preds)
     | Binder (_, _, _, e, _) -> au_preds e
 
+
+  (** Lift quantifiers up, but only if no new quantifier alternations are introduced *)
+  (*let lift_quantifiers (expr: t) : t =
+      let rec merge sm zs xs ys ys2 =
+        match xs, ys with
+        | (x, typ1) :: xs1, (y, typ2) :: ys1 ->
+          if Type.(typ1 = typ2)
+          then merge (Map.add_exn ~key:x ~data:y sm) ((y, typ2) :: zs) xs1 (ys2 @ ys1) []
+          else merge sm zs xs ys1 ((y, typ2) :: ys2)
+        | [], _ -> sm, ys @ ys2 @ zs
+        | _, [] -> 
+          if List.is_empty ys2 then sm, xs @ zs
+          else merge sm (List.hd_exn xs :: zs) (List.tl_exn xs) ys2 []
+      in
+      let rec lift_op_same loc tvs op b fs =
+        let fs_same, fs_diff = List.partition_map ~f:(function
+          | Binder (Exists, 
+        let fs1, vs = 
+          List.fold_right ~f:(fun f (fs2, vs2) ->
+              let f1, vs1 = lift tvs (mk_binder b tvs f) in
+              let sm, vs = merge (Map.empty (module QualIdent)) [] vs1 vs2 [] in
+              subst_idents sm f1 :: fs2, vs) 
+            fs ~init:([], [])
+        in
+        match op with
+        | And -> mk_and ~loc fs1, vs
+        | Or -> mk_or ~loc fs1, vs
+        | _ -> assert false
+      in
+
+      and lift tvs = function e -> e
+      in*)
+  
   let rec existential_vars_type ?(acc = Map.empty (module Ident)) ?(pol = true) (expr: t) : Type.t IdentMap.t = 
     match expr with
     (* TODO: Biimplication? *)

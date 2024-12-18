@@ -1558,31 +1558,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
   | CallDef _ ->
       Rewriter.return symbol
   | FieldDef f ->
-      let* is_field_an_ra =
-        match f.field_type with
-        | App (Fld, [ App (Var qual_iden, args, _) ], _) ->
-            assert (List.is_empty args);
-
-            Logs.debug (fun m -> m
-              "Rewrites.rewrite_frac_field_types: \
-                field_def: %a
-                field_qual_iden: %a"
-                  Ident.pr f.field_name
-                  QualIdent.pr qual_iden
-            );
-
-            let module_name = QualIdent.pop qual_iden in
-
-            let* does_module_implement_ra =
-              let* module_symbol =
-                Rewriter.find_and_reify module_name
-              in
-              ProgUtils.does_symbol_implement_ra module_symbol
-            in
-
-            Rewriter.return does_module_implement_ra
-        | _ -> Rewriter.return false
-      in
+      let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 
       Logs.debug (fun m -> m
           "Rewrites.rewrite_frac_field_types:

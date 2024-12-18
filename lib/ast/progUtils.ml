@@ -206,45 +206,25 @@ let intros_type_module ~(loc : location)
      in *)
   introduce_typecheck_symbol ~loc ~f symbol
 
-let rec does_symbol_implement_ra (symbol : AstDef.Module.symbol) : bool t =
-  (*Logs.debug (fun m ->
-      m "ProgUtils.does_symbol_implement_ra: symbol = %a"
-        AstDef.Ident.pr
-        (AstDef.Symbol.to_name symbol));*)
+let is_ra_type (tp : AstDef.type_expr) : bool t =
   let open Syntax in
-  match symbol with
-  | ModDef mod_def ->
-      let mod_decl = mod_def.mod_decl in
-      return mod_decl.mod_decl_is_ra
-  | ModInst mod_inst -> (
-      let* does_type_implement_ra =
-        let* mod_inst_type_symbol =
-          find_and_reify mod_inst.mod_inst_type
-        in
-        does_symbol_implement_ra mod_inst_type_symbol
-      in
-
-      if does_type_implement_ra then return true
-      else
-        match mod_inst.mod_inst_def with
-        | None -> return false
-        | Some (mod_inst_def_funct, mod_inst_def_args) ->
-            let* mod_inst_def_funct_is_ra =
-              let* mod_inst_def_funct_symbol =
-                find_and_reify mod_inst_def_funct
-              in
-              does_symbol_implement_ra mod_inst_def_funct_symbol
-            in
-
-            return mod_inst_def_funct_is_ra)
-  | _ -> return false
-
-let rec does_type_implement_ra (tp : AstDef.type_expr) : bool t =
-  let open Syntax in
+  let rec does_ident_implement_ra qual_ident =
+    let* symbol = find qual_ident in
+    Symbol.extract symbol ~f:(fun subst -> function
+        | AstDef.Module.ModDef m -> return m.mod_decl.mod_decl_is_ra
+        | ModInst mod_inst -> 
+          let* is_ra = does_ident_implement_ra mod_inst.mod_inst_type in
+          if is_ra then return true
+          else
+            (match mod_inst.mod_inst_def with
+            | None -> return false
+            | Some (mod_inst_def_funct, mod_inst_def_args) ->
+                does_ident_implement_ra mod_inst_def_funct)
+        | _ -> return false)
+  in
   match tp with
   | App (Var qi, [], _) ->
-      let* symbol = find_and_reify (QualIdent.pop qi) in
-      does_symbol_implement_ra symbol
+    does_ident_implement_ra (QualIdent.pop qi)
   | _ -> return false
 
 let field_get_ra_qual_iden (field : AstDef.Module.field_def) =
@@ -255,12 +235,11 @@ let field_get_ra_qual_iden (field : AstDef.Module.field_def) =
         Error.error field.field_loc
           "ProgUtils.field_get_ra_module: Expected field definition"
   in
-
   match field_type with
   | App (Var qual_iden, [], _) -> QualIdent.pop qual_iden
   | _ ->
       Error.error field.field_loc
-        "ProgUtils.field_get_ra_module: Expected field type to be a variable"
+        "ProgUtils.field_get_ra_module: Expected field type to be a type identifier"
 
 let pred_get_ra_qual_iden pred_qual_iden =
   let open Syntax in
