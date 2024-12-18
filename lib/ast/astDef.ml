@@ -50,10 +50,15 @@ module Ident = struct
       fprintf ppf "@[<v> %a @]" pr_tuple_list (list_of_map)
   )
 
+  let sanitized_name name =
+    String.map name ~f:(fun c ->
+      match c with
+      | '^' -> '&'
+      | c -> c
+    )
+
   let make loc name num = 
-    (* let sanitized_name = (String.map name ~f:(fun c ->
-        if Char.(c = '^') then '&' else c
-    )) in *)
+    let name = sanitized_name name in 
 
     { ident_name = name; ident_num = num; ident_loc = loc }
   let name id = id.ident_name
@@ -61,8 +66,8 @@ module Ident = struct
   let used_names = Hashtbl.create (module String)
 
   let fresh loc =
-    
     fun ?(id = 0) (name : string) ->
+      let name = sanitized_name name in
       let last_index =
         Hashtbl.find used_names name |> Option.value ~default:(-1)
       in
