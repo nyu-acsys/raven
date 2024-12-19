@@ -1,0 +1,29 @@
+interface LockResource : Library.Type {
+  rep type T
+  pred resource(r: T)
+}
+
+interface Lock[R: LockResource] {
+  inv lock_inv(l: Ref; r: R)
+}
+
+module RWLockDuoLock {
+  module LkBResource : LockResource {
+    rep type T = (Ref, Ref)
+
+    pred resource(r: T) {
+      true
+    }
+  }
+
+  module LkB = Lock[LkBResource]
+
+  pred is_rwlock(l: Ref; lkA_ref: Ref, lkB_ref: Ref) {
+    LkB.lock_inv(lkB_ref, (l, lkA_ref))
+  }
+
+  // replacing `;` with `,` works:
+  // pred is_rwlock(l: Ref, lkA_ref: Ref, lkB_ref: Ref) {
+  //   LkB.lock_inv(lkB_ref, (l, lkA_ref))
+  // }
+} 
