@@ -2754,7 +2754,6 @@ module TrnslInhale = struct
                   Rewriter.return stmt
               | _ -> Error.error loc "Expected a predicate definition")
           | _ ->
-            Logs.debug (fun m -> m "Here1");
             unsupported_expr_error expr)
 
   let rec trnsl_assume_expr ?cmnt ?spec_error ~loc (expr : expr) :
@@ -3611,13 +3610,7 @@ module TrnslExhale = struct
                 "Expected field identifier."
           in
 
-          let field_elem_type =
-            match Expr.to_type field_expr with
-            | App (Fld, [ tp_expr ], _) -> tp_expr
-            | _ ->
-                Error.type_error (Expr.to_loc field_expr)
-                  "Expected field identifier."
-          in
+          let field_elem_type = field_expr |> Expr.to_type |> Type.field_val in
 
           let field_heap_name = field_heap_name field_name in
           let field_heap_type =
@@ -3814,7 +3807,9 @@ module TrnslExhale = struct
                 if
                   Ident.(
                     QualIdent.unqualify constr_ident
-                    = Predefs.lib_auth_frag_constr_ident)
+                    = Predefs.lib_auth_frag_constr_ident) || Ident.(
+                    QualIdent.unqualify constr_ident
+                    = Predefs.lib_auth_fun_ident)
                 then
                   let auth_chunk =
                     Expr.mk_app
@@ -3826,7 +3821,8 @@ module TrnslExhale = struct
                   in
                   core_witness_comp exists auth_chunk (List.hd_exn exprs) true
                   (* Error.error_simple "unimplemented" *)
-                else Rewriter.return (Map.empty (module Ident))
+                else
+                  Rewriter.return (Map.empty (module Ident))
             | _ ->
                 Error.type_error (Expr.to_loc given_expr)
                   "Expected a data constructor."
@@ -3847,7 +3843,8 @@ module TrnslExhale = struct
                       [ concrete_expr ]
                   in
                   core_witness_comp exists frac_chunk (List.hd_exn exprs) true
-                else Rewriter.return (Map.empty (module Ident))
+                else
+                  Rewriter.return (Map.empty (module Ident))
             | _ ->
                 Error.type_error (Expr.to_loc given_expr)
                   "Expected a data constructor."
@@ -3868,11 +3865,13 @@ module TrnslExhale = struct
                       [ concrete_expr ]
                   in
                   core_witness_comp exists agree_chunk (List.hd_exn exprs) true
-                else Rewriter.return (Map.empty (module Ident))
+                else
+                  Rewriter.return (Map.empty (module Ident))
             | _ ->
                 Error.type_error (Expr.to_loc given_expr)
                   "Expected a data constructor."
-          else Rewriter.return (Map.empty (module Ident))
+          else
+            Rewriter.return (Map.empty (module Ident))
       | true -> (
           match given_expr with
           | App (Var ident, [], _) ->
@@ -3885,7 +3884,8 @@ module TrnslExhale = struct
                      (module Ident)
                      (QualIdent.unqualify ident)
                      concrete_expr)
-              else Rewriter.return (Map.empty (module Ident))
+              else
+                Rewriter.return (Map.empty (module Ident))
           | App (Tuple, exprs, _) ->
               let indexed_exprs = List.mapi exprs ~f:(fun i expr -> (expr, i)) in
 
@@ -3954,9 +3954,9 @@ module TrnslExhale = struct
 
                     Rewriter.return witness_map)
               in
-
               Rewriter.return witness_map
-          | _ -> Rewriter.return (Map.empty (module Ident)))
+          | _ ->
+            Rewriter.return (Map.empty (module Ident)))
   end
 
   let rec rewriter_find_witness_elim_exists_from_exhale (stmt : Stmt.t) :
@@ -4798,7 +4798,6 @@ module TrnslExhale = struct
                   Rewriter.return stmt
               | _ -> Error.error loc "Expected a predicate definition")
           | _ ->
-            Logs.debug (fun m -> m "Here3");
             unsupported_expr_error expr)
 end
 

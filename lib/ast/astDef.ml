@@ -2373,7 +2373,8 @@ module Predefs = struct
   let lib_frac_chunk_destr2_ident = Ident.make Loc.dummy "frac_proj2" 0
 
   let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
-
+  
+  let lib_auth_fun_ident = Ident.make Loc.dummy "auth" 0
   
   let lib_auth_frag_constr_ident = Ident.make Loc.dummy "auth_frag" 0
   
