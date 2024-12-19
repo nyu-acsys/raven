@@ -1,0 +1,191 @@
+include "lock_invariant.rav"
+include "tokens.rav"
+
+module RWLockDuoLock[Tk: Tokens] {
+  field ctr: Int
+  field lkA_fld: Ref
+  field lkB_fld: Ref
+  
+  import Tk.SharePred
+  import Tk.noTokens
+  import Tk.tokenCounter
+  import Tk.token
+
+  module LkAResource : LockResource {
+    rep type T = Ref
+
+    pred resource(r: T) {
+      SharePred.p_chunk(r, 1.0)
+    }
+  }
+
+  module LkA = Lock[LkAResource]
+
+  module LkBResource : LockResource {
+    rep type T = (Ref, Ref)
+              //  l,   lkA_ref
+
+    pred resource(r: T) {
+      exists z: Int :: 
+        own( (r#0).ctr, z) && (
+            0 < z ?  (
+              tokenCounter(r#0, z) && LkA.locked(r#1)
+            ) : (
+            z == 0 ?  noTokens(r#0) :
+                      false
+            )
+        )
+    }
+  }
+
+  module LkB = Lock[LkBResource]
+
+  pred is_rwlock(l: Ref, lkA_ref: Ref, lkB_ref: Ref) {
+    own(l.lkA_fld, lkA_ref)
+    && own(l.lkB_fld, lkB_ref)
+    && LkA.lock_inv(lkA_ref, l)
+    && LkB.lock_inv(lkB_ref, (l, lkA_ref))
+  }
+
+  proc create()
+    returns (l: Ref)
+    requires SharePred.p()
+    ensures exists lkA_ref: Ref, lkB_ref: Ref :: 
+        is_rwlock(l, lkA_ref, lkB_ref)
+  {
+    SharePred.allocate(l);
+      fold LkAResource.resource(l);
+    var lkA_ref = LkA.create(l);
+
+    l := new(ctr: 0, lkA_fld: null, lkB_fld: null, Tk.v: TokenRA.noToken);
+      fold noTokens(l);
+      fold LkBResource.resource((l, lkA_ref));
+    var lkB_ref = LkB.create((l, lkA_ref));
+
+    l.lkA_fld := lkA_ref;
+    l.lkB_fld := lkB_ref;
+
+    fold is_rwlock(l, lkA_ref, lkB_ref);
+
+    // the following assert is used to 
+    // supply witnesses for the existential variables 
+    // in the post-condition.
+    assert is_rwlock(l, lkA_ref, lkB_ref);
+  }
+
+  proc acquire_reader(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
+    returns (n: Int)
+    requires is_rwlock(l, lkA_ref', lkB_ref')
+    ensures token(l)
+  {
+    unfold is_rwlock(l, lkA_ref', lkB_ref');
+    var lkA_ref: Ref := l.lkA_fld;
+    var lkB_ref: Ref := l.lkB_fld;
+
+    LkB.acquire(lkB_ref);
+
+
+    unfold LkBResource.resource((l, lkA_ref));
+    var old_val := l.ctr;
+    l.ctr := old_val + 1;
+
+    if (old_val == 0) {
+      LkA.acquire(lkA_ref);
+      Tk.token_mutate_generate(l);
+    } else {
+      Tk.token_mutate_incr(l, old_val);
+    }
+    
+    fold LkBResource.resource((l, lkA_ref));
+    LkB.release(lkB_ref);
+  }
+  
+  proc release_reader(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
+    requires is_rwlock(l, lkA_ref', lkB_ref') && token(l)
+    ensures true
+  {
+    unfold is_rwlock(l, lkA_ref', lkB_ref');
+    var lkA_ref: Ref := l.lkA_fld;
+    var lkB_ref: Ref := l.lkB_fld;
+
+    LkB.acquire(lkB_ref);
+
+    unfold LkBResource.resource((l, lkA_ref));
+    var old_val := l.ctr;
+    l.ctr := old_val - 1;
+
+    if (old_val == 1) {
+      Tk.token_mutate_decr_last(l);
+      fold LkAResource.resource(l);
+      LkA.release(lkA_ref);
+    } else if (old_val == 0) {
+      Tk.token_interact(l);
+    } else {
+      Tk.token_mutate_decr(l, old_val);
+    } 
+
+    fold LkBResource.resource((l, lkA_ref));
+    LkB.release(lkB_ref);
+  }
+
+  proc upgrade_reader(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
+    requires is_rwlock(l, lkA_ref', lkB_ref') && token(l)
+    ensures SharePred.p_chunk(l, 1.0)
+  {
+    unfold is_rwlock(l, lkA_ref', lkB_ref');
+    var lkA_ref: Ref := l.lkA_fld;
+    var lkB_ref: Ref := l.lkB_fld;
+
+    LkB.acquire(lkB_ref);
+
+    unfold LkBResource.resource((l, lkA_ref));
+    var old_val := l.ctr;
+    l.ctr := old_val - 1;
+    
+    {!
+      if (old_val == 1) {
+        Tk.token_mutate_decr_last(l);
+      } else if (old_val == 0) {
+        Tk.token_interact(l);
+      } else {
+        Tk.token_mutate_decr(l, old_val);
+      }
+    !}
+
+    fold LkBResource.resource((l, lkA_ref));
+    LkB.release(lkB_ref);
+
+    if (old_val == 1) {
+      // do nothing
+
+    } else {
+      LkA.acquire(lkA_ref);
+      unfold LkAResource.resource(l);
+    }
+  }
+
+  proc acquire_writer(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
+    requires is_rwlock(l, lkA_ref', lkB_ref')
+    ensures SharePred.p_chunk(l, 1.0) && LkA.locked(lkA_ref')
+  {
+    unfold is_rwlock(l, lkA_ref', lkB_ref');
+    var lkA_ref: Ref := l.lkA_fld;
+    var lkB_ref: Ref := l.lkB_fld;
+
+    LkA.acquire(lkA_ref);
+    unfold LkAResource.resource(l);
+
+  }
+
+  proc release_writer(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
+    requires is_rwlock(l, lkA_ref', lkB_ref') && LkA.locked(lkA_ref') && SharePred.p_chunk(l, 1.0)
+    ensures true
+  {
+    unfold is_rwlock(l, lkA_ref', lkB_ref');
+    var lkA_ref: Ref := l.lkA_fld;
+    var lkB_ref: Ref := l.lkB_fld;
+
+    fold LkAResource.resource(l);
+    LkA.release(lkA_ref);
+  }
+} 

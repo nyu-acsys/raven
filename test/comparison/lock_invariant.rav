@@ -1,0 +1,58 @@
+interface LockResource : Library.Type {
+  rep type T
+  
+  // Resource protected by a lock
+  pred resource(r: T)
+
+  // axiom exclusive(r: T)
+  //   requires resource(r) && resource(r)
+  //   ensures false
+}
+
+
+interface Lock[R: LockResource] {
+  import R.resource
+
+  module Agree = Library.Agree[R]
+
+  ghost field agr: Agree
+
+
+  // Lock representation invariant
+  pred lock_rep(l: Ref; b: Bool)
+
+  // Abstract predicate describing a lock 
+  inv lock_inv(l: Ref; r: R) {
+    exists b: Bool :: 
+      lock_rep(l, b)
+      && own(l.agr, Agree.agree(r)) 
+      && (b ? true : locked(l) && resource(r))
+  }
+
+  pred locked(l: Ref)
+
+  lemma lk_exclusive(l: Ref)
+    requires locked(l) && locked(l)
+    ensures false
+
+  // lemma exclusive(l: Ref, r: R)
+  //   requires lock_inv(l, r, false) && locked(l)
+  //   ensures false
+  // {
+  //   unfold is_lock(l, r, false);
+  //   lk_exclusive();
+  // }
+
+  proc create(r: R)
+    returns (l: Ref)
+    requires resource(r)
+    ensures lock_inv(l, r)
+
+  proc acquire(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r)
+    ensures lock_inv(l, r) && locked(l) && resource(r)
+
+  proc release(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r) && locked(l) && resource(r)
+    ensures lock_inv(l, r)
+}
