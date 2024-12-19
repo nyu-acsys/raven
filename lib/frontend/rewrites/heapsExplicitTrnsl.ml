@@ -1527,11 +1527,23 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
         )
     in
 
+    Logs.debug (fun m -> m 
+      "HeapExplicitTrnsl.rewrite_binds: bind_lhs = %a; bind_rhs = %a"
+        Expr.pr_list bind_lhs
+        Expr.pr bind_desc.bind_rhs.spec_form
+    );
 
     let exis_vars =
         List.map bind_lhs ~f:(fun e ->
+            let ident_name = 
+              if List.length bind_desc.bind_lhs = 1 then
+                "$bind_" ^ QualIdent.to_string (List.hd_exn bind_desc.bind_lhs)
+              else
+                "$bind"
+            in
+
             Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true 
-              (Ident.fresh stmt.stmt_loc "$bind")
+              (Ident.fresh stmt.stmt_loc ident_name)
               (Expr.to_type e))
       in
 
@@ -3177,6 +3189,11 @@ module TrnslExhale = struct
       let open Rewriter.Syntax in
       match expr with
       | Binder (Exists, var_decls, trgs, e, expr_attr) ->
+        Logs.debug (fun m -> m 
+            "WitnessComputation.elim_a1: expr = %a"
+              Expr.pr expr
+          );
+
           let loc =  expr_attr.expr_loc in
           let var_decls_skolem_idents = 
             List.map var_decls ~f:(
@@ -3705,7 +3722,10 @@ module TrnslExhale = struct
                 List.mapi
                   (List.drop args (List.length pred_in_types))
                   ~f:(fun i _ ->
-                    Expr.mk_tuple_lookup pred_heap_val_expanded_typ i)
+                    if List.length pred_out_types = 1 then
+                      pred_heap_val_expanded_typ
+                    else 
+                      Expr.mk_tuple_lookup pred_heap_val_expanded_typ i)
               in
 
               let out_args_concrete_exprs =

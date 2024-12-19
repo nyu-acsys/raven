@@ -87,13 +87,13 @@ let pr_smt_ident ppf id =
 
   let sanitized_ident = QualIdent.sanitize smt_ident_sanitize_map id in
 
-  Logs.debug (fun m -> m 
+  (* Logs.debug (fun m -> m 
     "smtLibAST.pr_smt_ident: 
       Original Ident: %a
       Sanitized ident: %a"
       QualIdent.pr id
       QualIdent.pr sanitized_ident
-  );
+  ); *)
 
 
   QualIdent.pr ppf sanitized_ident
