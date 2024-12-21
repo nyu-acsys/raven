@@ -209,7 +209,7 @@ proc_def:
     in
     let call_decl_returns =
       match call_decl_kind with
-      | Lemma ->
+      | Lemma | Pred | Invariant ->
           ghostify_decls def.call_decl.call_decl_returns
       | _ ->
           def.call_decl.call_decl_returns
@@ -450,7 +450,8 @@ stmt_wo_trailing_substmt:
     { call_lhs = [];
       call_name = Expr.to_qual_ident id;
       call_args = args;
-      call_is_spawn = true
+      call_is_spawn = true;
+      call_is_init = false;
     }
   in
   Basic (Call call)

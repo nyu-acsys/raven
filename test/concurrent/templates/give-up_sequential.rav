@@ -307,14 +307,14 @@ module GiveUpTemplate[Node: NodeImpl] {
         
         fold opSpec(dop, k, c, c1, res);
 
-        assert AuthKeyset_K.fpuAllowed(
+        /*assert AuthKeyset_K.fpuAllowed(
           AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
           AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1))
         ) with {
           assert forall k: Keyset_K :: {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n))} {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1))}
             Keyset_K.prodKS(keyspace, c) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n)) ==>
             Keyset_K.prodKS(keyspace, c1) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1));
-        }
+        }*/
         
         fpu(r, authKS, 
         AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)),
@@ -372,7 +372,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     var n: Ref := traverse(r, r, k, c, fp, contents, inset, outset);
     var succ: Bool;
     var res1: Bool;
-    var c_n: Set[K];
+    ghost var c_n: Set[K];
 
     cssInFp(r, n, c, fp, contents, inset, outset);
     unfold cssR(r, c, fp, contents, inset, outset);
@@ -380,7 +380,7 @@ module GiveUpTemplate[Node: NodeImpl] {
     succ, res1, c_n := Node.decisiveOp(dop, n, k, contents[n], inset[n], outset[n]);
 
     if (succ) {
-      var c_1: Set[K];
+      ghost var c_1: Set[K];
 
       unfold globalRes(r, c, fp, inset);
       unfold opSpec(dop, k, contents[n], c_n, res1);
@@ -408,7 +408,7 @@ module GiveUpTemplate[Node: NodeImpl] {
       fold css(r, c);
 
       var res2: Bool;
-      var c2: Set[K];
+      ghost var c2: Set[K];
       res2, c2 := cssOp(dop, r, k, c);
 
       // assert false;

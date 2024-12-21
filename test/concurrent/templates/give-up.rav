@@ -554,8 +554,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ghost val phi := bindAU();
 
     var n: Ref;
-    var c_n: Set[K];
-    var i_n: Flow_K;
+    ghost var c_n: Set[K];
+    ghost var i_n: Flow_K;
     ghost var g_i0: Flow_K;
     ghost var lockval0: Map[Ref, Int];
     ghost var contents0: Map[Ref, Set[K]];
@@ -575,7 +575,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     abortAU(phi);
 
     var succ: Bool;
-    var c_n1: Set[K];
+    ghost var c_n1: Set[K];
 
     unfold nodePred(r, n, c_n, i_n);
     //assert own(r.authFlow, AuthFlow_K.frag(i_n));

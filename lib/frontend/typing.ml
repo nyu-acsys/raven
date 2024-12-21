@@ -124,18 +124,6 @@ end
 let check_and_set (expr : expr) (given_typ_lb : type_expr)
     (given_typ_ub : type_expr) (expected_typ : type_expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
-
-  Logs.debug (fun m -> m "Frontend.typing.check_and_set: expr: %a;
-  given_typ_lb: %a
-  given_typ_ub: %a
-  expected_typ: %a"
-    Expr.pr expr
-    Type.pr given_typ_lb
-    Type.pr given_typ_ub
-    Type.pr expected_typ 
-  );
-
-
   let expected_ghost = Type.is_ghost expected_typ in
   let+ given_typ_lb =
     try ProcessTypeExpr.expand_type_expr given_typ_lb
@@ -151,13 +139,24 @@ let check_and_set (expr : expr) (given_typ_lb : type_expr)
   in            
   let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
   if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
-  else 
-    (Logs.debug (fun m -> m "type_mismatch_error:0"); type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub)
+  else begin
+    Logs.debug (fun m ->
+        m "Frontend.typing.check_and_set: expr: %a;
+  given_typ_lb: %a
+  given_typ_ub: %a
+  expected_typ: %a"
+          Expr.pr expr
+          Type.pr given_typ_lb
+          Type.pr given_typ_ub
+          Type.pr expected_typ 
+      );
+    type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
+  end
 
 (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ] *)
 let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
   =
-  Logs.debug (fun m -> m !"process_expr: %{Expr}; isGhost: %b" expr (Type.is_ghost expected_typ));
+  Logs.debug (fun m -> m !"process_expr: %{Expr}; expected: %{Type} is ghost: %b" expr expected_typ (Type.is_ghost expected_typ));
   let open Rewriter.Syntax in
   match expr with
   | App (constr, expr_list, expr_attr) -> (
@@ -685,7 +684,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                 | _ ->
                     tuple_arg_mismatch_error (Expr.to_loc expr) (List.length ts)
                 )
-            | _ -> List.map ~f:(fun e -> (e, Type.any)) elem_expr_list
+            | _ -> List.map ~f:(fun e -> (e, Type.any |> Type.set_ghost_to expected_typ)) elem_expr_list
           in
           let* elem_expr_list, elem_types =
             Rewriter.List.fold_right typed_elem_expr_list
@@ -772,7 +771,6 @@ and process_callable_args loc is_ghost_scope callable_decl args_list =
     List.drop callable_formals (List.length args_list)
     |> List.find ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit)
     |> Option.iter ~f:(fun decl ->
-        assert (not decl.Type.var_implicit);
         Error.type_error loc
         @@ Printf.sprintf !"Explicit argument %s is missing in this call to %{Ident}"
            (Ident.name decl.Type.var_name)
@@ -816,12 +814,14 @@ and process_callable_returns loc is_ghost_scope callable_decl returns_list =
   in
 
   let provided_returns = List.take callable_returns (List.length returns_list) in
-  let explicit_return_types =
-    List.map provided_returns ~f:(fun var_decl -> var_decl.Type.var_type)
-  in
   match%bind
-    Rewriter.List.map2 returns_list explicit_return_types ~f:(fun expr tp_expr ->
-        process_expr expr (tp_expr |> Type.set_ghost (Type.is_ghost tp_expr || is_ghost_call || is_ghost_scope)))
+    Rewriter.List.map2 returns_list provided_returns ~f:(fun expr var_decl ->
+        let tp_expr = var_decl.Type.var_type
+                      |> Type.set_ghost (Type.is_ghost var_decl.Type.var_type || is_ghost_call || is_ghost_scope)
+        in
+        let+ expr = process_expr expr tp_expr in
+        expr
+        )
   with
   | Ok returns_list -> Rewriter.return returns_list
   | Unequal_lengths ->
@@ -1296,24 +1296,13 @@ module ProcessCallable = struct
           Logs.debug (fun m ->
               m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
                 (Assign assign_desc));
-
-          let expected_type =
-            Type.mk_prod
-              (Expr.to_loc assign_desc.assign_rhs)
-              (List.map var_decls_lhs ~f:(fun var -> var.var_type))
-            |> fun ty -> if is_ghost_scope then ty |> Type.set_ghost true else ty
-          in
-          let* assign_rhs =
-            disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
-          in
-
-          Logs.debug (fun m ->
-              m "process_stmt: disam_assign_rhs: %a" Expr.pr
-                assign_rhs);
                   
-          let+ assign_rhs_callable_opt =
-            match assign_rhs with
+          let* assign_rhs_callable_opt =
+            match assign_desc.assign_rhs with
             | App (Var qual_ident, args, _) -> (
+              let* qual_ident =
+                disambiguate_ident qual_ident disam_tbl
+              in
               let* qual_ident, symbol =
                 Rewriter.resolve_and_find qual_ident
               in
@@ -1335,16 +1324,32 @@ module ProcessCallable = struct
               
               let (call_desc : Stmt.call_desc) =
                 {
-                  call_lhs =
-                    List.map var_decls_lhs ~f:(fun var -> var.var_name |> QualIdent.from_ident);
+                  call_lhs = assign_desc.assign_lhs;
+                  (*List.map var_decls_lhs ~f:(fun var -> var.var_name |> QualIdent.from_ident);*)
                   call_name = proc_qual_ident;
                   call_args = args;
                   call_is_spawn = false;
+                  call_is_init = assign_desc.assign_is_init
                 }
               in                      
-              (Stmt.Call call_desc, disam_tbl)
+              process_basic_stmt call_decl (Stmt.Call call_desc) stmt_loc disam_tbl
+              (*(Stmt.Call call_desc, disam_tbl)*)
             end
           | None ->
+            let expected_type =
+              Type.mk_prod
+                (Expr.to_loc assign_desc.assign_rhs)
+                (List.map var_decls_lhs ~f:(fun var -> var.var_type))
+              |> fun ty -> if is_ghost_scope then ty |> Type.set_ghost true else ty
+            in
+            let* assign_rhs =
+              disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
+            in
+            
+            Logs.debug (fun m ->
+                m "process_stmt: disam_assign_rhs: %a" Expr.pr
+                  assign_rhs);
+            
             match assign_rhs with 
             | App
                 ( Cas,
@@ -1376,12 +1381,12 @@ module ProcessCallable = struct
                     cas_new_val = new_val_expr;
                   }
               in
-              (Stmt.Cas cas_desc, disam_tbl)
+              Rewriter.return (Stmt.Cas cas_desc, disam_tbl)
             | _ ->
               let assign_desc =
                 Stmt.{ assign_desc with assign_lhs; assign_rhs }
               in
-              (Stmt.Assign assign_desc, disam_tbl)
+              Rewriter.return (Stmt.Assign assign_desc, disam_tbl)
       end
     | Bind bind_desc ->
       let* bind_lhs, _ =
@@ -1633,7 +1638,7 @@ module ProcessCallable = struct
         let* call_lhs, var_decls_lhs =
           Rewriter.List.fold_right call_desc.call_lhs ~init:([], [])
             ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
-                let+ qual_ident, var_decl = get_assign_lhs orig_qual_ident ~is_init:false in
+                let+ qual_ident, var_decl = get_assign_lhs orig_qual_ident ~is_init:call_desc.call_is_init in
                 qual_ident :: assign_lhs, var_decl :: var_decls_lhs
             )
         in
@@ -1645,9 +1650,19 @@ module ProcessCallable = struct
 
         let* call_decl = Rewriter.find_and_reify_callable call_desc.call_name |+> fun c -> c.call_decl in
         let* call_lhs_expr = process_callable_returns stmt_loc is_ghost_scope call_decl call_lhs_expr in
+        let* _ = Rewriter.List.map2_exn call_lhs_expr var_decls_lhs ~f:(fun e var_decl ->
+            let* typ = ProcessTypeExpr.expand_type_expr var_decl.var_type in
+            let e_typ = Expr.to_type e in
+            Logs.debug (fun m -> m !"expr: %{Expr}, e_typ: %b, typ: %b" e (e_typ |> Type.is_ghost) (typ |> Type.is_ghost));
+            check_and_set e e_typ e_typ typ)
+        in
         
-        
-        let is_ghost = List.for_all call_lhs_expr ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost) in
+        let is_ghost =
+          is_ghost_scope ||
+          match call_decl.call_decl_kind with
+          | Lemma -> true | _ -> false
+          (*List.for_all call_lhs_expr ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost) in*)
+        in
         
         let+ call_expr =
           Expr.App
@@ -1659,16 +1674,14 @@ module ProcessCallable = struct
         in
 
         match call_expr with
-        | App (Var proc_qual_ident, args, _expr_attr) ->
-          let (call_desc : Stmt.call_desc) =
-            {
-              call_desc with
+        | App (Var call_name, call_args, _expr_attr) ->
+          let call_desc =
+            { call_desc with
               call_lhs;
-              call_name = proc_qual_ident;
-              call_args = args;
+              call_name;
+              call_args;
             }
-          in
-          
+          in          
           (Stmt.Call call_desc, disam_tbl)
         | _ -> failwith "Unexpected error during type checking.")
     | AUAction _au_action_kind ->
