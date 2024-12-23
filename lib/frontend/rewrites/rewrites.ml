@@ -68,6 +68,65 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
 let rec rewrite_expand_types (tp_expr : type_expr) : type_expr Rewriter.t =
   Typing.ProcessTypeExpr.expand_type_expr tp_expr
 
+let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
+  let open Rewriter.Syntax in
+  match expr with
+  | App (Var qual_ident, args, _) when not @@ Set.mem seen qual_ident -> begin
+    let* symbol = Rewriter.find qual_ident in
+    match Rewriter.Symbol.orig_symbol symbol with
+    | CallDef { call_decl = { call_decl_kind = Pred; call_decl_is_auto = true; _ };
+                call_def = FuncDef {func_body = Some _} } ->
+      let* pred_def = Rewriter.find_and_reify_callable qual_ident in
+      let pred_decl = pred_def.call_decl in
+      let body = match pred_def.call_def with
+        | FuncDef { func_body = Some body } -> body
+        | _ -> assert false
+      in
+      let truncated_formal_args, dropped_formal_args =
+        List.split_n (pred_decl.call_decl_formals @ pred_decl.call_decl_returns)
+          (List.length args)
+      in
+      let loc = Expr.to_loc expr in
+      let new_dropped_args =
+        List.map dropped_formal_args ~f:(fun var_decl ->
+            {
+              var_decl with
+              var_name =
+                Ident.fresh loc var_decl.var_name.ident_name;
+              var_loc = loc;
+            })
+      in
+      
+      let new_dropped_args_exprs =
+        List.map new_dropped_args ~f:Expr.from_var_decl
+      in
+      let* _ =
+        Rewriter.List.map new_dropped_args ~f:(fun var ->
+            Rewriter.introduce_symbol
+              (Module.VarDef { var_decl = var; var_init = None }))
+      in
+      
+      let new_renaming_map =
+        List.fold2_exn
+          (truncated_formal_args @ dropped_formal_args)
+          (args @ new_dropped_args_exprs)
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun map var_decl arg_expr ->
+              Map.add_exn map
+                ~key:(QualIdent.from_ident var_decl.var_name)
+                ~data:arg_expr)
+      in
+      
+      let new_body =
+        Expr.mk_binder ~loc ~typ:(Expr.to_type expr) Exists new_dropped_args 
+          (Expr.alpha_renaming body new_renaming_map)
+      in
+      rewrite_inline_preds_expr (Set.add seen qual_ident) new_body
+    | _ -> Rewriter.Expr.descend expr ~f:(rewrite_inline_preds_expr seen)
+  end
+  | _ -> Rewriter.Expr.descend expr ~f:(rewrite_inline_preds_expr seen)
+
+
 let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
@@ -966,35 +1025,12 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
             (c.call_decl, Expr.set_loc spec (Stmt.to_loc stmt))
         | _ -> Error.error stmt.stmt_loc "Expected a call_def"
-      in
-
+      in        
+      
       let truncated_formal_args, dropped_formal_args =
         List.split_n (pred_decl.call_decl_formals @ pred_decl.call_decl_returns)
           (List.length use_desc.use_args)
       in
-
-      (*let renaming_map =
-        (* let truncated_formal_args, dropped_formal_args = List.split_n pred_decl.call_decl_formals (List.length use_desc.use_args) in
-
-           let fresh_dropped_args = List.map dropped_formal_args ~f:(fun var_decl ->
-             { var_decl with var_name = Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name; var_loc = stmt.stmt_loc; }
-           ) in
-
-           let fresh_dropped_args_exprs = List.map fresh_dropped_args ~f:(Expr.from_var_decl) in
-
-           let renaming_map = List.fold2_exn (truncated_formal_args @ dropped_formal_args) (use_desc.use_args @ fresh_dropped_args_exprs) ~init:((Map.empty (module QualIdent))) ~f:(fun map var_decl arg_expr ->
-             Map.add_exn map ~key:(QualIdent.from_ident var_decl.var_name) ~data:arg_expr
-           )
-           in *)
-        List.fold2_exn
-          (truncated_formal_args @ dropped_formal_args)
-          (use_desc.use_args @ fresh_dropped_args_exprs)
-          ~init:(Map.empty (module QualIdent))
-          ~f:(fun map var_decl arg_expr ->
-              Map.add_exn map
-                ~key:(QualIdent.from_ident var_decl.var_name)
-                ~data:arg_expr)
-      in*)
       
       let new_dropped_args =
         List.map dropped_formal_args ~f:(fun var_decl ->
@@ -2373,6 +2409,11 @@ let rec rewrites_phase_1 (m : Module.t) : Module.t Rewriter.t =
       m1 "Rewrites.all_rewrites: Starting rewrite_loops on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
+
+  Logs.debug (fun m1 ->
+      m1 "Rewrites.all_rewrites: Starting rewrite_inline_preds_expr on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_expressions ~f:(rewrite_inline_preds_expr (Set.empty (module QualIdent))) m in
 
   Rewriter.return m
 

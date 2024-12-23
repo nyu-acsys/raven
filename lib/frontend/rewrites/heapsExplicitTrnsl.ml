@@ -1979,7 +1979,6 @@ module TrnslInhale = struct
     let univ_vars_list =
       List.map univ_quants_list ~f:(fun (var, var_decl) -> var_decl)
     in
-
     match expr with
     | App (Own, [ e1; e2; e3 ], _) ->
         (* forall a, b, c :: m1(a, b, c) ==> own(f1(a, b, c), field, f2(a, b, c))

@@ -303,11 +303,11 @@ proc_decl:
 }
 
 func_decl:
-| k = FUNC; decl = callable_decl {
-  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = FuncDef { func_body = None } }
+| is_auto = option(AUTO); k = FUNC; decl = callable_decl {
+  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto <> None }; call_def = FuncDef { func_body = None } }
 }
-| k = FUNC; decl = callable_decl_out_vars {
-  Callable.{ call_decl = { decl with call_decl_kind = k }; call_def = ProcDef { proc_body = None } }
+| is_auto = option(AUTO); k = FUNC; decl = callable_decl_out_vars {
+  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto <> None }; call_def = FuncDef { func_body = None } }
 }
 
 callable_decl:
