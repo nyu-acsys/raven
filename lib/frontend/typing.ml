@@ -192,8 +192,17 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                 expected_typ
           | CallDef callable ->
               let callable_decl = Callable.to_decl callable in
+              let* is_ghost_scope = Rewriter.is_ghost_scope in 
+              let is_ghost_scope =
+                is_ghost_scope ||
+                match callable_decl.call_decl_kind with
+                | Lemma | Pred | Invariant -> true 
+                | Func -> expected_typ |> Type.is_ghost
+                (*List.for_all () ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost)*)
+                | _ -> false
+              in
               let* args_list =
-                process_callable_args (Expr.to_loc expr) (expected_typ |> Type.is_ghost) callable_decl args_list
+                process_callable_args (Expr.to_loc expr) is_ghost_scope callable_decl args_list
               in
               let given_typ = Callable.return_type callable_decl in
               let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
@@ -782,18 +791,21 @@ and process_callable_args loc is_ghost_scope callable_decl args_list =
     List.map provided_formals ~f:(fun var_decl ->
         var_decl.Type.var_type)
   in
+  let* _ = Rewriter.enter_ghost (is_ghost_call || is_ghost_scope) in
   match%bind
     Rewriter.List.map2 args_list explicit_formal_types ~f:(fun expr tp_expr ->
         process_expr expr (tp_expr |> Type.set_ghost (Type.is_ghost tp_expr || is_ghost_call || is_ghost_scope)))
   with
-  | Ok args_list -> Rewriter.return args_list
+  | Ok args_list ->
+    let+ _ = Rewriter.exit_ghost in
+    args_list
   | Unequal_lengths ->
       (* Catches if too many args given. *)
       Error.type_error loc
       @@ Printf.sprintf "Too many arguments passed to %s"
            (Ident.to_string callable_decl.call_decl_name)
 
-and process_callable_returns loc is_ghost_scope callable_decl returns_list =
+and process_callable_returns loc ~is_ghost_scope ~is_call callable_decl returns_list =
   let open Rewriter.Syntax in
   let callable_returns = callable_decl.Callable.call_decl_returns
   in
@@ -816,9 +828,14 @@ and process_callable_returns loc is_ghost_scope callable_decl returns_list =
   let provided_returns = List.take callable_returns (List.length returns_list) in
   match%bind
     Rewriter.List.map2 returns_list provided_returns ~f:(fun expr var_decl ->
-        let tp_expr = var_decl.Type.var_type
-                      |> Type.set_ghost (Type.is_ghost var_decl.Type.var_type || is_ghost_call || is_ghost_scope)
+        let is_ghost =
+          (if is_call
+           then Type.is_ghost (expr |> Expr.to_type)
+           else Type.is_ghost var_decl.Type.var_type)
+          || is_ghost_call || is_ghost_scope
         in
+        let tp_expr = var_decl.Type.var_type |> Type.set_ghost is_ghost in
+        Logs.debug (fun m -> m !"%{Ident} %{Type} %b" var_decl.var_name tp_expr is_ghost); 
         let+ expr = process_expr expr tp_expr in
         expr
         )
@@ -991,9 +1008,11 @@ module ProcessCallable = struct
   let process_stmt_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) :
       Stmt.spec Rewriter.t =
     let open Rewriter.Syntax in
-    let+ spec_form =
+    let* _ = Rewriter.enter_ghost true in
+    let* spec_form =
       disambiguate_process_expr spec.spec_form Type.perm disam_tbl
     in
+    let+ _ = Rewriter.exit_ghost in
     { spec with spec_form }
 
   (* let rec purify_expr (expr: expr) (tbl: SymbolTbl.t) : Stmt.var_def list * expr =
@@ -1142,7 +1161,7 @@ module ProcessCallable = struct
         let* proc =
           Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
         in
-        let+ returns = process_callable_returns loc true proc returns in
+        let+ returns = process_callable_returns loc ~is_ghost_scope:true ~is_call:false proc returns in
         ( Stmt.AUAction
             {
               auaction_kind = CommitAU (token, returns);
@@ -1520,7 +1539,7 @@ module ProcessCallable = struct
       let* expr = disambiguate_expr expr disam_tbl in
       let return_list = Expr.unfold_tuple expr in
 
-      let+ return_list = process_callable_returns stmt_loc is_ghost_scope call_decl return_list in
+      let+ return_list = process_callable_returns stmt_loc ~is_ghost_scope ~is_call:false call_decl return_list in
       let expr = Expr.mk_tuple ~loc:(Expr.to_loc expr) return_list in
       (Stmt.Return expr, disam_tbl)
     | Use use_desc ->
@@ -1629,8 +1648,7 @@ module ProcessCallable = struct
         
         (Stmt.New new_desc, disam_tbl)
       else
-        (Logs.debug (fun m -> m "type_mismatch_error:4");
-        type_mismatch_error stmt_loc Type.ref var_decl.var_type)
+        type_mismatch_error stmt_loc Type.ref var_decl.var_type
       (* The following constructs are not expected here because the parser stores these commands as Assign stmts.
          The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform
          them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc.
@@ -1651,24 +1669,19 @@ module ProcessCallable = struct
               let+ typ = ProcessTypeExpr.expand_type_expr var_decl.var_type in
               Expr.mk_var ~typ qual_ident)
         in
-
-        let* call_decl = Rewriter.find_and_reify_callable call_desc.call_name |+> fun c -> c.call_decl in
-        let* call_lhs_expr = process_callable_returns stmt_loc is_ghost_scope call_decl call_lhs_expr in
-        let* _ = Rewriter.List.map2_exn call_lhs_expr var_decls_lhs ~f:(fun e var_decl ->
-            let* typ = ProcessTypeExpr.expand_type_expr var_decl.var_type in
-            let e_typ = Expr.to_type e in
-            Logs.debug (fun m -> m !"expr: %{Expr}, e_typ: %b, typ: %b" e (e_typ |> Type.is_ghost) (typ |> Type.is_ghost));
-            check_and_set e e_typ e_typ typ)
-        in
         
+        let* call_decl = Rewriter.find_and_reify_callable call_desc.call_name |+> fun c -> c.call_decl in
+        let* call_lhs_expr = process_callable_returns stmt_loc ~is_ghost_scope ~is_call:true call_decl call_lhs_expr in
         let is_ghost =
           is_ghost_scope ||
           match call_decl.call_decl_kind with
-          | Lemma -> true | _ -> false
-          (*List.for_all call_lhs_expr ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost) in*)
+          | Lemma -> true 
+          | Func -> 
+            List.for_all call_lhs_expr ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost)
+          | _ -> false
         in
-        
-        let+ call_expr =
+        let* _ = Rewriter.enter_ghost is_ghost in
+        let* call_expr =
           Expr.App
             ( Var call_desc.call_name,
               call_desc.call_args,
@@ -1676,6 +1689,7 @@ module ProcessCallable = struct
           |> fun expr ->
           disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl
         in
+        let+ _ = Rewriter.exit_ghost in
 
         match call_expr with
         | App (Var call_name, call_args, _expr_attr) ->
