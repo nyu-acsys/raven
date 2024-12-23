@@ -22,7 +22,7 @@ interface Lock[R: LockResource] {
   pred lock_rep(l: Ref; b: Bool)
 
   // Abstract predicate describing a lock 
-  pred is_lock(l: Ref; r: R, b: Bool) {
+  auto pred is_lock(l: Ref; r: R, b: Bool) {
     own(l.agr, Agree.agree(r)) 
     && lock_rep(l, b)
     && (b ? true : resource(r))
@@ -32,7 +32,7 @@ interface Lock[R: LockResource] {
     requires is_lock(l, r, false) && resource(r)
     ensures false
   {
-    unfold is_lock(l, r, false);
+    //unfold is_lock(l, r, false);
     R.exclusive(r);
   }
 
