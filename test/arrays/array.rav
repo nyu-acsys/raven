@@ -18,7 +18,7 @@ interface Array[E: Library.Type] {
 
   val default_map: Map[Int, E] = {| i: Int :: default |}
 
-  pred arr(a: T; m: Map[Int, E]) {
+  auto pred arr(a: T; m: Map[Int, E]) {
     (forall j: Int :: {m[j]} 0 <= j < length(a) ==> own(loc(a, j).value, m[j], 1.0)) 
     && (forall j: Int :: {m[j]} (0 > j || j >= length(a)) ==> m[j] == default)
   }
@@ -179,12 +179,12 @@ interface Array[E: Library.Type] {
         invariant 0 <= dst <= dst + len <= length(a)
         invariant -1 <= i < len
       {
-        unfold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
+        //unfold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
         var tmp: E := loc(a, src + i).value;
         loc(a, dst + i).value := tmp;
-        ghost var m : Map[Int, E] = map_shift(amap, src + i, dst + i, len - i);
+        ghost var m : Map[Int, E] := map_shift(amap, src + i, dst + i, len - i);
         assert m == map_shift(amap, src + i + 1, dst + i + 1, len - i - 1)[dst + i := tmp];
-        fold arr(a, m);
+        //fold arr(a, m);
         i := i - 1;
       }
     } else if (src > dst) {
@@ -196,12 +196,12 @@ interface Array[E: Library.Type] {
         invariant 0 <= dst <= dst + len <= length(a)
         invariant 0 <= i <= len 
       {
-        unfold arr(a, map_shift(amap, src, dst, i));
+        //unfold arr(a, map_shift(amap, src, dst, i));
         var tmp: E := loc(a, src + i).value;
         loc(a, dst + i).value := tmp;
         ghost var m : Map[Int, E] = map_shift(amap, src, dst, i + 1);
         assert m == map_shift(amap, src, dst, i)[dst + i := tmp];
-        fold arr(a, m);
+        //fold arr(a, m);
         i := i + 1;
       }
     }
@@ -222,16 +222,16 @@ interface Array[E: Library.Type] {
       invariant 0 <= src <= src + len <= length(a)
       invariant 0 <= dst <= dst + len <= length(b)
     {
-      unfold arr(a, amap);
+      //unfold arr(a, amap);
       var tmp: E := loc(a, src + i).value;
-      fold arr(a, amap);
-      unfold arr(b, map_copy(bmap, amap, src, dst, i));
+      //fold arr(a, amap);
+      //unfold arr(b, map_copy(bmap, amap, src, dst, i));
       
       
       loc(b, dst + i).value := tmp;
       ghost var m: Map[Int, E] = map_copy(bmap, amap, src, dst, i + 1);
       assert m == map_copy(bmap, amap, src, dst, i)[dst + i := tmp];
-      fold arr(b, m);
+      //fold arr(b, m);
       i := i + 1;
     }
   }

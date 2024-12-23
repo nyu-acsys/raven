@@ -7,7 +7,7 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
   }
 
-  pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E]) {
+  auto pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E]) {
     0 <= len <= length(a) && arr(a, m) && sorted_map_seg(m, 0, len)
   }
 
@@ -122,8 +122,8 @@ interface OrderedArray[E: Library.OrderedType] : Array {
       invariant 0 < lo ==> lt(m[lo - 1], k)
       invariant hi < len - 1 ==> lt(k, m[hi + 1])
     {
-      unfold sorted_array_with_content(a, len, m);
-      unfold arr(a, m);
+      //unfold sorted_array_with_content(a, len, m);
+      //unfold arr(a, m);
       var mid := (hi + lo) / 2;
       var amid: E := loc(a, mid).value;
       var cmp: Int := E.compare(k, amid);
@@ -136,8 +136,8 @@ interface OrderedArray[E: Library.OrderedType] : Array {
         hi := mid;
         lo := mid;
       }
-      fold arr(a, m);
-      fold sorted_array_with_content(a, len, m);
+      //fold arr(a, m);
+      //fold sorted_array_with_content(a, len, m);
     }
     
     idx := lo;
@@ -145,16 +145,16 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     if (idx == len) {
       found := false;
     } else {
-      unfold sorted_array_with_content(a, len, m);
-      unfold arr(a, m);
+      //unfold sorted_array_with_content(a, len, m);
+      //unfold arr(a, m);
       var alo: E := loc(a, lo).value;
       found := !lt(k, alo);
-      fold arr(a, m);
-      fold sorted_array_with_content(a, len, m);
+      //fold arr(a, m);
+      //fold sorted_array_with_content(a, len, m);
     }
 
-    unfold sorted_array_with_content(a, len, m);
-    fold sorted_array_with_content(a, len, m);
+    //unfold sorted_array_with_content(a, len, m);
+    //fold sorted_array_with_content(a, len, m);
   }
 
   // Given a sorted array segment `a[0..len]`,
@@ -174,20 +174,20 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     var found: Bool;
     found, i := arr_find(a, len, k, m);
 
-    unfold sorted_array_with_content(a, len, m);
-    fold sorted_array_with_content(a, len, m);
+    //unfold sorted_array_with_content(a, len, m);
+    //fold sorted_array_with_content(a, len, m);
     
     // k already in C?
     if (found) return i, len, m;
     
-    unfold sorted_array_with_content(a, len, m);
+    //unfold sorted_array_with_content(a, len, m);
     arr_shift(a, i, i + 1, len - i, m);
 
-    unfold arr(a, map_shift(m, i, i + 1, len - i));
+    //unfold arr(a, map_shift(m, i, i + 1, len - i));
     loc(a, i).value := k;
     m1 := map_shift(m, i, i + 1, len - i)[i := k];
-    fold arr(a, m1);
-    fold sorted_array_with_content(a, len + 1, m1);
+    //fold arr(a, m1);
+    //fold sorted_array_with_content(a, len + 1, m1);
 
     return i, len + 1, m1;
   }
@@ -208,8 +208,8 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     var found: Bool;
     found, idx := arr_find(a, len, k, m);
 
-    unfold sorted_array_with_content(a, len, m);
-    fold sorted_array_with_content(a, len, m);
+    //unfold sorted_array_with_content(a, len, m);
+    //fold sorted_array_with_content(a, len, m);
     
     // k !in C?
     if (!found) {
@@ -217,10 +217,10 @@ interface OrderedArray[E: Library.OrderedType] : Array {
     }
     
     // shift array entries a[i+1..len] by 1 entry to the left 
-    unfold sorted_array_with_content(a, len, m);
+    //unfold sorted_array_with_content(a, len, m);
     arr_shift(a, idx + 1, idx, len - (idx + 1), m);
     m1 := map_shift(m, idx + 1, idx, len - (idx + 1));
-    fold sorted_array_with_content(a, len - 1, m1);
+    //fold sorted_array_with_content(a, len - 1, m1);
     return len - 1, idx, m1;
   }
 
