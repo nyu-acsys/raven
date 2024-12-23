@@ -85,7 +85,7 @@ interface LCList {
         ensures nx != null ==> inFP(r, nx)
     {
         ghost var fp0: Set[Ref]; ghost var locks0: Map[Ref, Int];
-        ghost var nexts0: Map[Ref, Ref]; ghost var vals0: Map[Ref, Int];
+        var nexts0: Map[Ref, Ref]; var vals0: Map[Ref, Int];
 
         unfold css(r)[
             fp0 := fp,
@@ -101,8 +101,8 @@ interface LCList {
 
         fold cssR(r, fp0, locks0[n := 1], nexts0, vals0);
 
-        ghost var n0: Ref := nexts0[n];
-        ghost var v0: Int := vals0[n];
+        var n0: Ref := nexts0[n];
+        var v0: Int := vals0[n];
 
         assert n0 != null ==> n0 in fp0;
         {!
@@ -180,9 +180,8 @@ interface LCList {
         fold css(r);
     }
 
-    proc traverse(r: Ref, p: Ref, c: Ref, k: Int, implicit ghost vp: Int)
-        returns (n1: Ref, n2: Ref, implicit ghost vn1: Int, 
-            implicit ghost vn2: Int, implicit ghost n3: Ref)
+    proc traverse(r: Ref, p: Ref, c: Ref, k: Int, vp: Int)
+        returns (n1: Ref, n2: Ref, vn1: Int, vn2: Int, n3: Ref)
         requires css(r)
         requires inFP(r, p)
         requires own(p.next, c, 1.0) && own(p.value, vp, 1.0)
@@ -211,7 +210,7 @@ interface LCList {
             } else {
 
                 var n1: Ref; var n2: Ref; 
-                ghost var vn1: Int; ghost var vn2: Int; ghost var n3: Ref;
+                var vn1: Int; var vn2: Int; var n3: Ref;
                 n1, n2, vn1, vn2, n3 := traverse(r, c, cn, k, vc);
                 return (n1, n2, vn1, vn2, n3);
             }
@@ -252,14 +251,14 @@ interface LCList {
             ];
         !}
 
-        ghost var n: Ref; ghost var v: Int;
+        var n: Ref; var v: Int;
         n, v := lockNodeHigh(r, r);
 
+        var vr: Int := r.value;
         if (n == null) {
-            ghost var vr: Int := r.value;
             return r, n, vr, 0, n;
         } else {
-            p, c, vp, vc, cn := traverse(r, r, n, k);
+            p, c, vp, vc, cn := traverse(r, r, n, k, vr);
             return p, c, vp, vc, cn;
         }
     }
@@ -270,7 +269,7 @@ interface LCList {
         ensures true
     {
         var p: Ref; var c: Ref; 
-        ghost var vp: Int; ghost var vc: Int; ghost var cn: Ref;
+        var vp: Int; var vc: Int; var cn: Ref;
         p, c, vp, vc, cn := find(r, k);
 
         if (c == null) {
@@ -294,7 +293,7 @@ interface LCList {
         ensures true
     {
         var p: Ref; var c: Ref; 
-        ghost var vp: Int; ghost var vc: Int; ghost var cn: Ref;
+        var vp: Int; var vc: Int; var cn: Ref;
         p, c, vp, vc, cn := find(r, k);
 
         if (c == null) {
@@ -415,7 +414,7 @@ interface LCList {
         ensures true
     {
         var p: Ref; var c: Ref; 
-        ghost var vp: Int; ghost var vc: Int; ghost var cn: Ref;
+        var vp: Int; var vc: Int; var cn: Ref;
         p, c, vp, vc, cn := find(r, k);
 
         if (c == null) {
