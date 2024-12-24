@@ -1,0 +1,70 @@
+module Dfrac[X: Library.Type] : Library.ResourceAlgebra {
+    rep type T = data {
+        case dfrac_null
+        case dfrac_chunk(chunk_proj1: X, chunk_proj2: Real)
+        case dfrac_disc(disc_proj1: X)
+        case dfrac_both(both_proj1: X, both_proj2: Real)
+        case dfrac_top
+    }
+
+    val id: T = dfrac_null
+
+    func valid(n:T) 
+        returns (ret:Bool) 
+    {
+        (n == dfrac_null) ? true :
+        (n == dfrac_chunk(n.chunk_proj1, n.chunk_proj2) ? (n.chunk_proj2 > 0.0 && n.chunk_proj2 <= 1.0) :
+        (n == dfrac_disc(n.disc_proj1) ? true :
+        (n == dfrac_both(n.both_proj1, n.both_proj2) ? (n.both_proj2 > 0.0 && n.both_proj2 < 1.0) :
+        (false))))
+    }
+
+    func comp(a:T, b:T) returns (ret:T) {
+        a == dfrac_null ? b :
+        (b == dfrac_null ? a :
+        (valid(a) && valid(b) ?
+            (a == dfrac_chunk(a.chunk_proj1, a.chunk_proj2) && b == dfrac_chunk(b.chunk_proj1, b.chunk_proj2) && a.chunk_proj1 == b.chunk_proj1 && a.chunk_proj2 + b.chunk_proj2 <= 1.0 ?
+                dfrac_chunk(a.chunk_proj1, a.chunk_proj2 + b.chunk_proj2) :
+            (a == dfrac_chunk(a.chunk_proj1, a.chunk_proj2) && b == dfrac_disc(b.disc_proj1) && a.chunk_proj1 == b.disc_proj1 && a.chunk_proj2 < 1.0 ?
+                dfrac_both(a.chunk_proj1, a.chunk_proj2) :
+            (a == dfrac_chunk(a.chunk_proj1, a.chunk_proj2) && b == dfrac_both(b.both_proj1, b.both_proj2) && a.chunk_proj1 == b.both_proj1 && a.chunk_proj2 + b.both_proj2 < 1.0 ?
+                dfrac_both(a.chunk_proj1, a.chunk_proj2 + b.both_proj2) :
+            (a == dfrac_disc(a.disc_proj1) && b == dfrac_chunk(b.chunk_proj1, b.chunk_proj2) && a.disc_proj1 == b.chunk_proj1 && b.chunk_proj2 < 1.0 ?
+                dfrac_both(a.disc_proj1, b.chunk_proj2) :
+            (a == dfrac_disc(a.disc_proj1) && b == dfrac_disc(b.disc_proj1) && a.disc_proj1 == b.disc_proj1 ?
+                dfrac_disc(a.disc_proj1) :
+            (a == dfrac_disc(a.disc_proj1) && b == dfrac_both(b.both_proj1, b.both_proj2) && a.disc_proj1 == b.both_proj1 && b.both_proj2 < 1.0 ?
+                dfrac_both(a.disc_proj1, b.both_proj2) :
+            (a == dfrac_both(a.both_proj1, a.both_proj2) && b == dfrac_chunk(b.chunk_proj1, b.chunk_proj2) && a.both_proj1 == b.chunk_proj1 && a.both_proj2 + b.chunk_proj2 < 1.0 ?
+                dfrac_both(a.both_proj1, a.both_proj2 + b.chunk_proj2) :
+            (a == dfrac_both(a.both_proj1, a.both_proj2) && b == dfrac_disc(b.disc_proj1) && a.both_proj1 == b.disc_proj1 && a.both_proj2 < 1.0 ?
+                dfrac_both(a.both_proj1, a.both_proj2) :
+            (a == dfrac_both(a.both_proj1, a.both_proj2) && b == dfrac_both(b.both_proj1, b.both_proj2) && a.both_proj1 == b.both_proj1 && a.both_proj2 + b.both_proj2 < 1.0 ?
+                dfrac_both(a.both_proj1, a.both_proj2 + b.both_proj2) :
+                dfrac_top))))))))) :
+            dfrac_top)
+        )
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        b == dfrac_null ? a :
+        (a == dfrac_chunk(a.chunk_proj1, a.chunk_proj2) && b == dfrac_chunk(b.chunk_proj1, b.chunk_proj2) && valid(a) && valid(b) && a.chunk_proj1 == b.chunk_proj1 && a.chunk_proj2 - b.chunk_proj2 >= 0.0 ?
+                (a.chunk_proj2 == b.chunk_proj2 ? dfrac_null : dfrac_chunk(a.chunk_proj1, a.chunk_proj2 - b.chunk_proj2)) :
+        (a == dfrac_disc(a.disc_proj1) && b == dfrac_disc(b.disc_proj1) && valid(a) && valid(b) && a.disc_proj1 == b.disc_proj1 ?
+            dfrac_disc(a.disc_proj1) :
+        (a == dfrac_both(a.both_proj1, a.both_proj2) && b == dfrac_chunk(b.chunk_proj1, b.chunk_proj2) && valid(a) && valid(b) && a.both_proj1 == b.chunk_proj1 && a.both_proj2 - b.chunk_proj2 >= 0.0 ?
+            (a.both_proj2 == b.chunk_proj2 ? dfrac_disc(a.both_proj1) : dfrac_both(a.both_proj1, a.both_proj2 - b.chunk_proj2)) :
+        (a == dfrac_both(a.both_proj1, a.both_proj2) && b == dfrac_disc(b.disc_proj1) && valid(a) && valid(b) && a.both_proj1 == b.disc_proj1 ?
+            dfrac_both(a.both_proj1, a.both_proj2) :
+        (a == dfrac_both(a.both_proj1, a.both_proj2) && b == dfrac_both(b.both_proj1, b.both_proj2) && valid(a) && valid(b) && a.both_proj1 == b.both_proj1 && a.both_proj2 - b.both_proj2 >= 0.0 ?
+            (a.both_proj2 == b.both_proj2 ? dfrac_disc(a.both_proj1) : dfrac_both(a.both_proj1, a.both_proj2 - b.both_proj2)) :
+            dfrac_top)))))
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+        (a == dfrac_chunk(a.chunk_proj1, 1.0) && b == dfrac_chunk(b.chunk_proj1, 1.0) ? true :
+        (a == dfrac_chunk(a.chunk_proj1, 1.0) && b == dfrac_disc(a.chunk_proj1) ? true :
+        false))
+    }
+}
+
