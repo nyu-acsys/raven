@@ -61,7 +61,6 @@ interface LCList {
             ghost var b: Bool;
             b :| is_lock(l, (n, vn), b);
             if (b == false) {
-                unfold is_lock(l, (n, vn), b);
                 unfold resource((n, vn));
                 unfold resource((n, vn));
             }
