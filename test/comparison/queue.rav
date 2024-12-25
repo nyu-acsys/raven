@@ -1,0 +1,154 @@
+
+interface Queue {
+
+    // definitions
+
+    module Option_Int = Library.Option[Library.IntType]
+    import Option_Int.some
+    import Option_Int.none
+
+    field head: Ref
+    field next: Ref
+    field value: Option_Int
+
+    // predicate p holds for all values stored in the queue
+    pred p(v: Option_Int)
+
+    lemma p_none()
+        ensures p(none)
+    
+    lemma p_dup(v: Option_Int)
+        requires p(v)
+        ensures p(v) && p(v)
+
+    pred node(n: Ref) {
+        exists v: Option_Int, nx: Ref :: 
+            own(n.next, nx) && own(n.value, v) && p(v) && is_queue(nx)
+    }
+
+    inv is_queue(n: Ref) {
+            n == null ? true : node(n)
+    }
+
+    inv queue(q: Ref) {
+        exists n: Ref :: own(q.head, n) && is_queue(n)
+    }
+
+    // algorithms
+
+    proc create()
+        returns (q: Ref)
+        ensures queue(q)
+    {
+        fold is_queue(null);
+        q := new(head: null);
+        fold queue(q);
+    }
+
+    proc dequeue(q: Ref)
+        returns (v: Option_Int)
+        requires queue(q)
+        ensures queue(q) && p(v)
+    {
+        unfold queue(q);
+        var hd: Ref := q.head;
+        fold queue(q);
+
+        if (hd == null) {
+            p_none();
+            return none;
+        }
+        
+        unfold is_queue(hd);
+        unfold node(hd);
+        var nx: Ref := hd.next;
+        fold node(hd);
+        fold is_queue(hd);
+
+        if (nx == null) {
+            p_none();
+            return none;
+        } else {
+            unfold queue(q);
+            var b: Bool := cas(q.head, hd, nx);
+            fold queue(q);
+
+
+            if (b) {
+                unfold is_queue(hd);
+                unfold node(hd);
+                v := hd.value;
+                p_dup(v);
+                fold node(hd);
+                fold is_queue(hd);
+                return v;
+            } else {
+                v := dequeue(q);
+                return v;
+            }
+        }
+    }
+
+    proc get_tail(hd: Ref)
+        returns (tl: Ref)
+        requires is_queue(hd) && hd != null
+        ensures is_queue(tl) && tl != null
+    {
+        unfold is_queue(hd);
+        unfold node(hd);
+        var nx: Ref := hd.next;
+        fold node(hd);
+        fold is_queue(hd);
+
+        if (nx == null) {
+            tl := hd;
+            return tl;
+        } else {
+            tl := get_tail(nx);
+            return tl;
+        }
+    }
+
+    proc set_tail(hd: Ref, n: Ref)
+        requires is_queue(hd) && hd != null
+        requires is_queue(n) && n != null
+    {
+        var tl: Ref := get_tail(hd);
+
+        unfold is_queue(tl);
+        unfold node(tl);
+        var b: Bool := cas(tl.next, null, n);
+        
+        fold node(tl);
+        fold is_queue(tl);
+
+        if (!b) {
+            set_tail(hd, n);
+        }
+    }
+
+    proc enqueue(q: Ref, v: Int)
+        requires queue(q) && p(some(v))
+        ensures queue(q)
+    {
+        var n: Ref;
+        n := new(next: null, value: some(v));
+
+        fold is_queue(null);
+        fold node(n);
+        fold is_queue(n);
+
+        unfold queue(q);
+        var hd: Ref := q.head;
+        fold queue(q);
+
+        if (hd == null) {
+            unfold queue(q);
+            q.head := n;
+            fold queue(q);
+        } else {
+            set_tail(hd, n);        
+        }
+    }
+
+}
