@@ -1,12 +1,14 @@
 include "lock_invariant.rav"
 include "tokens.rav"
 
-module RWLockDuoLock[Tk: Tokens] {
+module RWLockDuoLock[SharedPred: ShareablePredicate] {
   field ctr: Int
   field lkA_fld: Ref
   field lkB_fld: Ref
   
-  import Tk.SharePred
+  module Tk = Tokens[SharedPred]
+
+  import Tk.SharedPred
   import Tk.noTokens
   import Tk.tokenCounter
   import Tk.token
@@ -15,7 +17,7 @@ module RWLockDuoLock[Tk: Tokens] {
     rep type T = Ref
 
     pred resource(r: T) {
-      SharePred.p_chunk(r, 1.0)
+      SharedPred.p_chunk(r, 1.0)
     }
   }
 
@@ -31,7 +33,7 @@ module RWLockDuoLock[Tk: Tokens] {
             0 < z ?  (
               tokenCounter(r#0, z) && LkA.locked(r#1)
             ) : (
-            z == 0 ?  noTokens(r#0) :
+            z == 0 ?  noTokens(r#0, 1.0) :
                       false
             )
         )
@@ -49,16 +51,16 @@ module RWLockDuoLock[Tk: Tokens] {
 
   proc create()
     returns (l: Ref)
-    requires SharePred.p()
+    requires SharedPred.p()
     ensures exists lkA_ref: Ref, lkB_ref: Ref :: 
         is_rwlock(l, lkA_ref, lkB_ref)
   {
-    SharePred.allocate(l);
+    SharedPred.allocate(l);
       fold LkAResource.resource(l);
     var lkA_ref = LkA.create(l);
 
-    l := new(ctr: 0, lkA_fld: null, lkB_fld: null, Tk.v: TokenRA.noToken);
-      fold noTokens(l);
+    l := new(ctr: 0, lkA_fld: null, lkB_fld: null, Tk.v: TokenRA.noToken(1.0));
+      fold noTokens(l, 1.0);
       fold LkBResource.resource((l, lkA_ref));
     var lkB_ref = LkB.create((l, lkA_ref));
 
@@ -91,6 +93,7 @@ module RWLockDuoLock[Tk: Tokens] {
 
     if (old_val == 0) {
       LkA.acquire(lkA_ref);
+      unfold LkAResource.resource(l);
       Tk.token_mutate_generate(l);
     } else {
       Tk.token_mutate_incr(l, old_val);
@@ -119,7 +122,7 @@ module RWLockDuoLock[Tk: Tokens] {
       fold LkAResource.resource(l);
       LkA.release(lkA_ref);
     } else if (old_val == 0) {
-      Tk.token_interact(l);
+      Tk.token_interact(l, 1.0);
     } else {
       Tk.token_mutate_decr(l, old_val);
     } 
@@ -130,7 +133,7 @@ module RWLockDuoLock[Tk: Tokens] {
 
   proc upgrade_reader(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
     requires is_rwlock(l, lkA_ref', lkB_ref') && token(l)
-    ensures SharePred.p_chunk(l, 1.0)
+    ensures SharedPred.p_chunk(l, 1.0) && LkA.locked(lkA_ref')
   {
     unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
@@ -146,7 +149,7 @@ module RWLockDuoLock[Tk: Tokens] {
       if (old_val == 1) {
         Tk.token_mutate_decr_last(l);
       } else if (old_val == 0) {
-        Tk.token_interact(l);
+        Tk.token_interact(l, 1.0);
       } else {
         Tk.token_mutate_decr(l, old_val);
       }
@@ -166,7 +169,7 @@ module RWLockDuoLock[Tk: Tokens] {
 
   proc acquire_writer(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
     requires is_rwlock(l, lkA_ref', lkB_ref')
-    ensures SharePred.p_chunk(l, 1.0) && LkA.locked(lkA_ref')
+    ensures SharedPred.p_chunk(l, 1.0) && LkA.locked(lkA_ref')
   {
     unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
@@ -178,7 +181,7 @@ module RWLockDuoLock[Tk: Tokens] {
   }
 
   proc release_writer(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
-    requires is_rwlock(l, lkA_ref', lkB_ref') && LkA.locked(lkA_ref') && SharePred.p_chunk(l, 1.0)
+    requires is_rwlock(l, lkA_ref', lkB_ref') && LkA.locked(lkA_ref') && SharedPred.p_chunk(l, 1.0)
     ensures true
   {
     unfold is_rwlock(l, lkA_ref', lkB_ref');
