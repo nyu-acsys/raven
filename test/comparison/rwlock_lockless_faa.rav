@@ -1,0 +1,128 @@
+include "tokens.rav"
+
+interface RWLockLocklessFAA[SharedPred: ShareablePredicate] {
+    field ctr: Int
+
+    module Tk = Tokens[SharedPred]
+
+    import Tk.SharedPred
+    import Tk.noTokens
+    import Tk.tokenCounter
+    import Tk.token
+
+    inv is_rwlock(l: Ref) {
+        exists z: Int :: 
+            own(l.ctr, z)
+        && (z > 0 ? (tokenCounter(l, z)) : 
+            (z == 0 ? (noTokens(l, 1.0) && SharedPred.p_chunk(l, 1.0)) : 
+            (z == -1) && noTokens(l, 0.5)))
+    }
+
+    proc faa(x: Ref, w: Int, implicit ghost v: Int)
+        atomic requires own(x.ctr, v) 
+        atomic ensures own(x.ctr, v+w)
+
+    proc create()
+        returns (l: Ref)
+        requires SharedPred.p()
+        ensures is_rwlock(l)
+    {
+        SharedPred.allocate(l);
+        l := new(ctr: 0, Tk.v: TokenRA.noToken(1.0));
+        fold noTokens(l, 1.0);
+        fold is_rwlock(l);
+    }
+
+    proc acquire_reader(l: Ref)
+        requires is_rwlock(l)
+        ensures token(l)
+    {
+        unfold is_rwlock(l);
+        var z: Int := l.ctr;
+        fold is_rwlock(l);
+
+
+        if (z == -1) {
+            acquire_reader(l);
+        } else {
+            unfold is_rwlock(l);
+            var b: Bool := cas(l.ctr, z, z+1);
+
+            {!
+                if (b) {
+                    if (z == 0) {
+                        Tk.token_mutate_generate(l);
+                    } else {
+                        Tk.token_mutate_incr(l, z);
+                    }
+                }
+            !}
+            fold is_rwlock(l);
+            
+            if (!b) {
+                acquire_reader(l);
+            }
+        }
+    }
+
+    proc release_reader(l: Ref)
+        requires is_rwlock(l) && token(l)
+        ensures true
+    {
+        ghost var z: Int;
+
+        unfold is_rwlock(l)[z := z];
+        faa(l, -1);
+        {!
+            if (z > 1) {
+                Tk.token_mutate_decr(l, z);
+            } else if (z == 1) {
+                Tk.token_mutate_decr_last(l);
+            } else if (z == 0) {
+                Tk.token_noTokens_interact(l, 1.0);
+            } else {
+                Tk.token_noTokens_interact(l, 0.5);
+            }
+        !}
+        fold is_rwlock(l);
+    }
+
+    proc acquire_writer(l: Ref)
+        requires is_rwlock(l)
+        ensures SharedPred.p_chunk(l, 1.0) && noTokens(l, 0.5)
+    {
+        unfold is_rwlock(l);
+        var b: Bool := cas(l.ctr, 0, -1);
+        {!
+            if (b) {
+                Tk.noTokens_split(l, 1.0);
+            }
+        !}
+        fold is_rwlock(l);
+
+        if (!b) {
+            acquire_writer(l);
+        }
+    }
+
+    proc release_writer(l: Ref)
+        requires is_rwlock(l)
+        requires SharedPred.p_chunk(l, 1.0) && noTokens(l, 0.5)
+        ensures true
+    {
+        ghost var z: Int;
+        unfold is_rwlock(l)[z := z];
+        {!
+            if (z > 0) {
+                Tk.tokenCounter_noTokens_interact(l, z, 0.5);
+            } else if (z == 0) {
+                SharedPred.merge(l, 1.0, 1.0);
+                SharedPred.invalid(l, 2.0);
+            }
+        !}
+        assert z == -1;
+        l.ctr := 0;
+        Tk.noTokens_merge(l, 0.5, 0.5);
+        fold is_rwlock(l);
+    }
+}
