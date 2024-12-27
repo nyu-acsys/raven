@@ -2,7 +2,7 @@ include "shareable_predicates.rav"
 
 module TokenRA : Library.ResourceAlgebra {
     rep type T = data {
-        case noToken;
+        case noToken(frag: Real);
         case tokens(authCount: Int, authPerm: Real, fragCount: Int, fragPerm: Real);
         case identity;
         case top
@@ -19,10 +19,10 @@ module TokenRA : Library.ResourceAlgebra {
         (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
         valid(tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm)) ?
             tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm) :
-        // (a == noToken && b == noToken ?
-            // noToken :
+        (a == noToken(a.frag) && b == noToken(b.frag) && valid(noToken(a.frag + b.frag)) ?
+            noToken(a.frag + b.frag) :
             top
-        // )
+        )
         ) :
         top
         
@@ -30,7 +30,7 @@ module TokenRA : Library.ResourceAlgebra {
     }
 
     func valid(a: T) returns (ret: Bool) {
-        a == noToken || a == id ||
+        (a == noToken(a.frag) && a.frag > 0.0 && a.frag <= 1.0)  || a == id ||
         (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) &&
             a.authCount >= 0 && 
             a.authPerm >= 0.0 && a.authPerm <= 1.0 &&
@@ -52,8 +52,8 @@ module TokenRA : Library.ResourceAlgebra {
         b == id ?
             a :
         (
-            // a == noToken && b == noToken ?
-            // noToken :
+            a == noToken(a.frag) && b == noToken(b.frag) && valid(a) && valid(b) && valid(noToken(a.frag - b.frag)) ?
+            noToken(a.frag - b.frag) :
         (a == b ? 
             id :
         (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
@@ -67,12 +67,12 @@ module TokenRA : Library.ResourceAlgebra {
     func fpuAllowed(a: T, b: T) returns (ret: Bool) {
         a == b ? true : 
         (valid(a) && valid(b) ?
-        (a == noToken ?
-            (b == tokens(b.authCount, 1.0, b.authCount, 1.0)) :
+        (a == noToken(1.0) ?
+            (b == tokens(b.authCount, b.authPerm, b.authCount, b.fragPerm)) :
         (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
         b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) ?
             (a.authCount - a.fragCount == b.authCount - b.fragCount  &&
-            a.authPerm - a.fragPerm == b.authPerm - b.fragPerm )
+            a.authPerm - a.fragPerm == b.authPerm - b.fragPerm)
             :
         (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
             a.authCount == a.fragCount && a.authPerm == a.fragPerm :
@@ -82,43 +82,105 @@ module TokenRA : Library.ResourceAlgebra {
     }
 }
 
-interface Tokens {
-    module SharePred: ShareablePredicate
+module Tokens[SharedPred: ShareablePredicate] {
 
-    field v: TokenRA
+    ghost field v: TokenRA
 
-    pred noTokens(x: Ref) {
-        own(x.v, TokenRA.noToken)
+    pred noTokens(x: Ref, q: Real) {
+        own(x.v, TokenRA.noToken(q))
     }
 
     pred tokenCounter(x: Ref, n: Int) {
         exists q: Real :: 
-            q < 1.0 && own(x.v, TokenRA.tokens(n, q, 0, 0.0)) && 
-            (q > 0.0 ==> SharePred.p_chunk(x, 1.0-q))
+            q < 1.0 && own(x.v, TokenRA.tokens(n, q, 0, 0.0)) && SharedPred.p_chunk(x, 1.0-q)
     }
 
     pred token(x: Ref) {
-        exists q: Real :: SharePred.p_chunk(x, q) && own(x.v, TokenRA.tokens(0, 0.0, 1, q)) 
+        exists q: Real :: SharedPred.p_chunk(x, q) && own(x.v, TokenRA.tokens(0, 0.0, 1, q)) 
     }
 
-    lemma token_interact(x: Ref)
-        requires noTokens(x)
+    lemma token_noTokens_interact(x: Ref, q: Real)
+        requires noTokens(x, q)
         requires token(x)
         ensures false
+    {
+        unfold noTokens(x, q);
+        unfold token(x);
+    }
+
+    lemma tokenCounter_noTokens_interact(x: Ref, n: Int, q: Real)
+        requires tokenCounter(x, n)
+        requires noTokens(x, q)
+        ensures false
+    {
+        unfold tokenCounter(x, n);
+        unfold noTokens(x, q);
+    }
 
     lemma token_mutate_incr(x: Ref, n: Int)
         requires tokenCounter(x, n)
         ensures tokenCounter(x, n + 1) && token(x)
+    {
+        ghost var q: Real;
+        unfold tokenCounter(x, n)[q := q];
+        ghost var q': Real := (1.0-q) / 2.0;
+        SharedPred.split(x, 1.0-q);
+        fpu(x.v, TokenRA.tokens(n, q, 0, 0.0), TokenRA.tokens(n+1, q+q', 1, q'));
+        fold token(x)[q := q'];
+        fold tokenCounter(x, n + 1)[q := q + q'];
+    }
 
     lemma token_mutate_decr(x: Ref, n: Int)
         requires n > 1 && tokenCounter(x, n) && token(x)
         ensures tokenCounter(x, n - 1)
+    {
+        ghost var q: Real; ghost var q': Real;
+        unfold tokenCounter(x, n)[q := q];
+        unfold token(x)[q' := q];
+        SharedPred.merge(x, 1.0-q, q');
+        fpu(x.v, TokenRA.tokens(n, q, 1, q'), TokenRA.tokens(n-1, q-q', 0, 0.0));
+        fold tokenCounter(x, n - 1)[q := q - q'];
+    }
 
     lemma token_mutate_decr_last(x: Ref)
         requires tokenCounter(x, 1) && token(x)
-        ensures noTokens(x) && SharePred.p_chunk(x, 1.0)
+        ensures noTokens(x, 1.0) && SharedPred.p_chunk(x, 1.0)
+    {
+        ghost var q: Real; ghost var q': Real;
+        unfold tokenCounter(x, 1)[q := q];
+        unfold token(x)[q' := q];
+        SharedPred.merge(x, 1.0-q, q');
+        fpu(x.v, TokenRA.tokens(1, q, 1, q'), TokenRA.noToken(1.0));
+        fold noTokens(x, 1.0);
+    }
 
     lemma token_mutate_generate(x: Ref)
-        requires noTokens(x)
+        requires noTokens(x, 1.0) && SharedPred.p_chunk(x, 1.0)
         ensures tokenCounter(x, 1) && token(x)
+    {
+        unfold noTokens(x, 1.0);
+        fpu(x.v, TokenRA.noToken(1.0), TokenRA.tokens(1, 0.5, 1, 0.5));
+        SharedPred.split(x, 1.0);
+        fold token(x)[q := 0.5];
+        fold tokenCounter(x, 1)[q := 0.5];
+    }
+
+    lemma noTokens_split(x: Ref, q: Real)
+        requires noTokens(x, q)
+        ensures noTokens(x, q / 2.0) && noTokens(x, q / 2.0)
+    {
+        unfold noTokens(x, q);
+        fold noTokens(x, q / 2.0);
+        fold noTokens(x, q / 2.0);
+    }
+
+    lemma noTokens_merge(x: Ref, q1: Real, q2: Real)
+        requires noTokens(x, q1) && noTokens(x, q2)
+        ensures noTokens(x, q1+q2)
+    {
+        unfold noTokens(x, q1);
+        unfold noTokens(x, q2);
+        fold noTokens(x, q1+q2);
+    }
+
 }
