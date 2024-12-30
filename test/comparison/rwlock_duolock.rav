@@ -122,7 +122,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
       fold LkAResource.resource(l);
       LkA.release(lkA_ref);
     } else if (old_val == 0) {
-      Tk.token_interact(l, 1.0);
+      Tk.token_noTokens_interact(l, 1.0);
     } else {
       Tk.token_mutate_decr(l, old_val);
     } 
@@ -149,7 +149,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
       if (old_val == 1) {
         Tk.token_mutate_decr_last(l);
       } else if (old_val == 0) {
-        Tk.token_interact(l, 1.0);
+        Tk.token_noTokens_interact(l, 1.0);
       } else {
         Tk.token_mutate_decr(l, old_val);
       }
