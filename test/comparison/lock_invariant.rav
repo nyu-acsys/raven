@@ -49,10 +49,10 @@ interface Lock[R: LockResource] {
     ensures lock_inv(l, r)
 
   proc acquire(l: Ref, implicit ghost r: R)
-    requires lock_inv(l, r)
-    ensures lock_inv(l, r) && locked(l) && resource(r)
+    atomic requires lock_inv(l, r)
+    atomic ensures lock_inv(l, r) && locked(l) && resource(r)
 
   proc release(l: Ref, implicit ghost r: R)
-    requires lock_inv(l, r) && locked(l) && resource(r)
-    ensures lock_inv(l, r)
+    atomic requires lock_inv(l, r) && locked(l) && resource(r)
+    atomic ensures lock_inv(l, r)
 }
