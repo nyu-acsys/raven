@@ -1,0 +1,233 @@
+include "lock_invariant.rav"
+include "tokens.rav"
+
+interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
+
+    // definitions
+
+    field ctr: Int
+    field lk: Ref
+
+    module Tk = Tokens[SharedPred]
+
+    import Tk.SharedPred
+    import Tk.noTokens
+    import Tk.tokenCounter
+    import Tk.token
+
+    module LkResource : LockResource {
+        rep type T = Ref
+
+        pred resource(r: T) {
+            true
+        }
+    }
+
+    module Lk = Lock[LkResource]
+
+    inv readers_inv(l: Ref, lk_ref: Ref) {
+        exists z: Int, b: Bool :: 
+            own(l.ctr, z)
+        && (z > 0 ? (tokenCounter(l, z)) : 
+            ((z == 0) && noTokens(l, 0.5) &&
+            (b ? Lk.locked(lk_ref) : noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0))))
+    }
+
+    pred is_rwlock(l: Ref, lk_ref: Ref) {
+        own(l.lk, lk_ref)
+        && Lk.lock_inv(lk_ref, l)
+        && readers_inv(l, lk_ref)
+    }
+
+    proc faa(x: Ref, w: Int, implicit ghost v: Int)
+        atomic requires own(x.ctr, v) 
+        atomic ensures own(x.ctr, v+w)
+
+    // algorithms
+
+    proc create()
+        returns (l: Ref)
+        requires SharedPred.p()
+        ensures exists lk_ref: Ref :: is_rwlock(l, lk_ref)
+    {
+        SharedPred.allocate(l);
+        fold LkResource.resource(l);
+        var lk_ref = Lk.create(l);
+
+        l := new(ctr: 0, lk: lk_ref, Tk.v: TokenRA.noToken(1.0));
+        fold noTokens(l, 1.0);
+        Tk.noTokens_split(l, 1.0);
+
+        fold readers_inv(l, lk_ref)[z := 0, b := false];
+        fold is_rwlock(l, lk_ref);
+
+        // the following assert is used to 
+        // supply witnesses for the existential variables 
+        // in the post-condition.
+        assert is_rwlock(l, lk_ref);
+    }
+
+    proc acquire_reader(l: Ref, implicit ghost lk_ref': Ref)
+        requires is_rwlock(l, lk_ref')
+        ensures token(l)
+    {
+        unfold is_rwlock(l, lk_ref');
+        var lk_ref := l.lk;
+
+        Lk.acquire(lk_ref);
+
+        ghost var z: Int; ghost var b: Bool;
+        unfold readers_inv(l, lk_ref)[z := z, b := b];
+        faa(l, 1);
+        {!
+            if (z > 0) {
+                Tk.token_mutate_incr(l, z);
+            } else {
+                if (b) {
+                    Lk.lk_exclusive(lk_ref);
+                } else {
+                    Tk.noTokens_merge(l, 0.5, 0.5);
+                    Tk.token_mutate_generate(l);
+                }
+            }
+        !}
+        // supplying witness for b to suppress warning,
+        // but it is not necessary for verification
+        fold readers_inv(l, lk_ref)[b := true];
+
+        Lk.release(lk_ref);
+    }
+
+    proc release_reader(l: Ref, implicit ghost lk_ref: Ref)
+        requires is_rwlock(l, lk_ref) && token(l)
+        ensures true
+    {
+        unfold is_rwlock(l, lk_ref);
+
+        ghost var z: Int; ghost var b: Bool;
+        unfold readers_inv(l, lk_ref)[z := z, b := b];
+        faa(l, -1);
+        {!
+            if (z > 1) {
+                Tk.token_mutate_decr(l, z);
+            } else if (z == 1) {
+                Tk.token_mutate_decr_last(l);
+                Tk.noTokens_split(l, 1.0);
+            } else {
+                Tk.token_noTokens_interact(l, 0.5);
+            }
+        !}
+        fold readers_inv(l, lk_ref)[b := false];
+    }
+
+    proc duplicate_reader(l: Ref, implicit ghost lk_ref: Ref)
+        requires is_rwlock(l, lk_ref) && token(l)
+        ensures token(l) && token(l)
+    {
+        unfold is_rwlock(l, lk_ref);
+
+        ghost var z: Int; ghost var b: Bool;
+        unfold readers_inv(l, lk_ref)[z := z, b := b];
+        faa(l, 1);
+        {!
+            if (z > 0) {
+                Tk.token_mutate_incr(l, z);
+            } else {
+                Tk.token_noTokens_interact(l, 0.5);
+            }
+        !}
+        // supplying witness for b to suppress warning,
+        // but it is not necessary for verification
+        fold readers_inv(l, lk_ref)[b := false];
+    }
+
+    proc wait_for_readers(l: Ref, implicit ghost lk_ref: Ref)
+        requires readers_inv(l, lk_ref) && Lk.locked(lk_ref)
+        ensures noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
+    {
+        ghost var b: Bool;
+        unfold readers_inv(l, lk_ref)[b := b];
+        var z: Int := l.ctr;
+        {!
+            if (z == 0 && b == true) {
+                Lk.lk_exclusive(lk_ref);
+            }
+        !}
+        fold readers_inv(l, lk_ref)[b := true];
+
+        if (z != 0) {
+            wait_for_readers(l, lk_ref);
+        }
+    }
+
+    proc acquire_writer(l: Ref, implicit ghost lk_ref': Ref)
+        requires is_rwlock(l, lk_ref')
+        ensures noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
+    {
+        unfold is_rwlock(l, lk_ref');
+        var lk_ref := l.lk;
+
+        Lk.acquire(lk_ref);
+
+        wait_for_readers(l, lk_ref);
+    }
+
+    proc release_writer(l: Ref, implicit ghost lk_ref': Ref)
+        requires is_rwlock(l, lk_ref')
+        requires noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
+        ensures true
+    {
+        unfold is_rwlock(l, lk_ref');
+        var lk_ref := l.lk;
+
+        ghost var z: Int; ghost var b: Bool;
+        unfold readers_inv(l, lk_ref)[z := z, b := b];
+        {!
+            if (z > 0) {
+                Tk.tokenCounter_noTokens_interact(l, z, 0.5);
+            } else {
+                if (!b) {
+                    SharedPred.merge(l, 1.0, 1.0);
+                    SharedPred.invalid(l, 2.0);
+                }
+            }
+        !}
+        fold LkResource.resource(l);
+        Lk.release(lk_ref);
+        fold readers_inv(l, lk_ref)[z := z, b := false];
+    }
+
+    proc downgrade_writer(l: Ref, implicit ghost lk_ref': Ref)
+        requires is_rwlock(l, lk_ref')
+        requires noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
+        ensures token(l)
+    {
+        unfold is_rwlock(l, lk_ref');
+        ghost var z: Int; ghost var b: Bool;
+        unfold readers_inv(l, lk_ref')[z := z, b := b];
+        l.ctr := 1;
+        {!
+            if (z > 0) {
+                Tk.tokenCounter_noTokens_interact(l, z, 0.5);
+            } else {
+                if (!b) {
+                    SharedPred.merge(l, 1.0, 1.0);
+                    SharedPred.invalid(l, 2.0);
+                } else {
+                    Tk.noTokens_merge(l, 0.5, 0.5);
+                    Tk.token_mutate_generate(l);
+                }
+            }
+        !}
+        fold readers_inv(l, lk_ref')[b := true];
+
+        var lk_ref := l.lk;
+
+        fold LkResource.resource(l);
+        Lk.release(lk_ref);
+    }
+
+
+
+
+}
