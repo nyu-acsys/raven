@@ -152,6 +152,70 @@ module MaxNat : LatticeResourceAlgebra {
     }
 }
 
+module OptionRA[M: ResourceAlgebra] : ResourceAlgebra {
+    rep type T = data {
+        case some(value: M)
+        case none
+        case invalid
+    }
+
+    val id: T = none
+
+    func valid(a: T) returns (res: Bool) {
+        (a == some(a.value) ? M.valid(a.value) : a != invalid)
+    }
+
+    func comp(a: T, b: T) returns (res: T) {
+        (a == some(a.value) && b == some(b.value) ? some(M.comp(a.value, b.value)) :
+        (a == none ? b : 
+        (b == none ? a : 
+        invalid)))
+    }
+
+    func frame(a: T, b: T) returns (res: T) {
+        (a == b ? none :
+        (a == some(a.value) && b == some(b.value) ? some(M.frame(a.value, b.value)) :
+        (b == none ? a : 
+        invalid)))
+    }
+
+    func fpuAllowed(a: T, b: T) returns (res: Bool) {
+        (a == some(a.value) && b == some(b.value) ? M.valid(b.value) && M.fpuAllowed(a.value, b.value) :
+        (a == some(a.value) && b == none ? true :
+        false))
+    }
+}
+
+module Excl[X: Type] : ResourceAlgebra {
+    rep type T = data {
+        case excl(value: T)
+        case excl_null
+        case invalid
+    }
+
+    val id: T = excl_null
+
+    func valid(a: T) returns (res: Bool) {
+        (a != invalid)
+    }
+
+    func comp(a: T, b: T) returns (res: T) {
+        (a == excl_null ? b : 
+        (b == excl_null ? a : 
+        invalid))
+    }
+
+    func frame(a: T, b: T) returns (res: T) {
+        (a == b ? id : 
+        (b == excl_null ? a : 
+        invalid))
+    }
+
+    func fpuAllowed(a: T, b: T) returns (res: Bool) {
+        (a == excl(a.value) ? b != invalid : false)
+    }
+}
+
 module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     rep type T = data { 
         case frag(f_proj1: M)
