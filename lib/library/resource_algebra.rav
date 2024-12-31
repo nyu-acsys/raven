@@ -188,7 +188,7 @@ module OptionRA[M: ResourceAlgebra] : ResourceAlgebra {
 
 module Excl[X: Type] : ResourceAlgebra {
     rep type T = data {
-        case excl(value: T)
+        case excl(value: X)
         case excl_null
         case invalid
     }
