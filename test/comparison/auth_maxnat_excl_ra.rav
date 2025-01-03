@@ -1,0 +1,51 @@
+import Library.Type
+import Library.Auth
+import Library.Prod
+import Library.MaxNat
+import Library.Excl
+import Library.IntType
+
+module Int_Type : Library.Type {
+    rep type T = Int
+}
+
+// module Excl_Int = Excl[IntType]
+module Excl_Int = Excl[Int_Type]
+module ProdRA = Prod[MaxNat, Excl_Int]
+module CtrRA = Auth[ProdRA]
+
+field ctr: Int
+field lk: Ref
+ghost field ctr_ra: CtrRA
+
+func test1(d: Int) returns (res: ProdRA.M1) {
+    d
+}
+
+func test2(i: Int) returns (res: Excl_Int.X.T) {
+    i
+}
+
+func test3(i: Int) returns (res: ProdRA.M2) {
+    Excl.excl(test2(i))
+}
+
+func ctr_ra_prod(d: Int, i: Int) returns (res: ProdRA) {
+    (test(d), Excl.excl(i))
+}
+
+// func ctr_ra_auth(d: Int, i: Int) returns (res: CtrRA) {
+//     Auth.auth(Prod.prod(d, Excl.excl(i)))
+// }
+
+// func ctr_ra_frag(d: Int, i: Int) returns (res: CtrRA) {
+//     Auth.frag(Prod.prod(d, Excl.excl(i)))
+// }
+
+// lemma ctr_ra_frag_agr()
+//     requires own(l.ctr_ra, ctr_ra_auth(d1, i1))
+//     requires own(l.ctr_ra, ctr_ra_frag(d2, i2))
+//     ensures d1 <= d2 && i1 == i2
+// {
+//     assume false;
+// }
