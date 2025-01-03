@@ -1,0 +1,12 @@
+// Generates "[Error] Internal Error: retry below"
+// Would be nice to have a better error message here.
+
+module M {
+
+    field ctr: Int
+    field lk: Ref
+
+    pred is_rwlock(l: Ref, lk: Ref) {
+        own(l.lk, lk)
+    }
+}
