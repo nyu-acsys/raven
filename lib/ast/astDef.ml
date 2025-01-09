@@ -892,10 +892,22 @@ module Expr = struct
 
     App (Impl, [ e1; e2 ], mk_attr loc (Type.join (to_type e1) (to_type e2)))
 
+  let mk_ite ?(loc = Loc.dummy) e1 e2 e3 =
+    assert (Type.equal (to_type e1) Type.bool);
+    match e1 with
+    | App (Bool b, [], _) ->
+      if b then e2 else e3
+    | _ ->
+      App (Ite, [ e1; e2; e3 ], mk_attr loc (Type.join (to_type e2) (to_type e3)))
+
   let mk_maplookup ?(loc = Loc.dummy) e1 e2 =
     let t = Type.map_codom (to_type e1) in
     App (MapLookUp, [ e1; e2 ], mk_attr loc t)
-  
+
+  let mk_mapupdate ?(loc = Loc.dummy) e1 e2 e3 =
+    let t = to_type e1 in
+    App (MapUpdate, [ e1; e2; e3 ], mk_attr loc t)
+
   let from_var_decl (var_decl:var_decl) =
     mk_var ~typ:var_decl.var_type (QualIdent.from_ident var_decl.var_name)
 

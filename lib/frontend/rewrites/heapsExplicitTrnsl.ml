@@ -2148,7 +2148,25 @@ module TrnslInhale = struct
               ^ Stdlib.Format.asprintf "%a" Expr.pr
                   (Expr.mk_binder Forall univ_vars_list
                     (Expr.mk_impl (Expr.mk_and conds) expr)))
-            (Expr.mk_binder
+            (match univ_vars_list with
+             | [] ->
+               Expr.mk_eq ~loc
+                 field_heap2_expr
+                 (Expr.mk_ite ~loc
+                    (Expr.mk_and ~loc conds_subst)
+                    (Expr.mk_mapupdate ~loc
+                       field_heap_expr
+                       e1_subst
+                       (Expr.mk_app ~loc ~typ:field_type
+                         (Expr.Var field_heapchunk_operator)
+                         [
+                           Expr.mk_maplookup ~loc field_heap_expr e1_subst;
+                           e3_subst;
+                         ]))
+                    field_heap_expr
+                 )                 
+             | _ ->
+               Expr.mk_binder
                ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc field_heap2_expr l_expr ];
@@ -2389,7 +2407,24 @@ module TrnslInhale = struct
               ^ Stdlib.Format.asprintf "%a" Expr.pr
                   (Expr.mk_binder Forall univ_vars_list
                     (Expr.mk_impl (Expr.mk_and conds) expr)))
-            (Expr.mk_binder
+            (match univ_vars_list with
+             | [] ->
+               Expr.mk_eq ~loc
+                 au_heap2_expr
+                 (Expr.mk_ite ~loc
+                    (Expr.mk_and ~loc conds_subst)
+                    (Expr.mk_mapupdate ~loc
+                       au_heap_expr
+                       token_subst
+                       (Expr.mk_app ~loc ~typ:heap_elem_type
+                          (Expr.Var au_heapchunk_operator)
+                          [
+                            Expr.mk_maplookup ~loc au_heap_expr token_subst;
+                            new_chunk;
+                          ]))
+                    au_heap_expr)
+             | _ ->
+               Expr.mk_binder
                ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc au_heap2_expr new_token_expr ];
@@ -2683,7 +2718,27 @@ module TrnslInhale = struct
                         ^ Stdlib.Format.asprintf "%a" Expr.pr
                             (Expr.mk_binder Forall univ_vars_list
                               (Expr.mk_impl (Expr.mk_and conds) expr)))
-                      (Expr.mk_binder
+                      (match univ_vars_list with
+                       | [] ->
+                         Expr.mk_eq ~loc
+                           pred_heap2_expr
+                           (Expr.mk_ite ~loc
+                              (Expr.mk_and ~loc conds_subst)
+                              (Expr.mk_mapupdate ~loc
+                                 pred_heap_expr
+                                 actual_arg_in_exprs_subst_tuple
+                                 (Expr.mk_app ~loc ~typ:heap_elem_type
+                                    (Expr.Var pred_heapchunk_operator)
+                                    [
+                                      Expr.mk_maplookup ~loc pred_heap_expr
+                                        actual_arg_in_exprs_subst_tuple;
+                                      new_chunk;
+                                   ])
+                              )
+                              pred_heap_expr
+                           )
+                       | _ ->
+                         Expr.mk_binder
                          ~trigs: (
                            [
                              [
@@ -4195,6 +4250,22 @@ module TrnslExhale = struct
                  ^ Stdlib.Format.asprintf "%a" Expr.pr
                      (Expr.mk_binder Forall univ_vars_list
                         (Expr.mk_impl (Expr.mk_and conds) expr)))
+            (match univ_vars_list with
+             | [] ->
+               Expr.mk_eq ~loc
+                 field_heap2_expr
+                 (Expr.mk_ite ~loc 
+                    (Expr.mk_and ~loc conds_subst)
+                    (* field$Heap2[l] == field.comp( field$Heap[l], f2(a, b, c) ) *)
+                    (Expr.mk_mapupdate ~loc field_heap_expr e1_subst
+                       (Expr.mk_app ~loc ~typ:field_type (Expr.Var field_heapchunk_operator)
+                          [
+                            Expr.mk_maplookup ~loc field_heap_expr e1_subst;
+                            e3_subst;
+                          ]))
+                    field_heap_expr
+                 )
+            | _ ->
             (Expr.mk_binder
                ~trigs: (
                  [
@@ -4220,7 +4291,7 @@ module TrnslExhale = struct
                     Expr.mk_eq ~loc
                       (Expr.mk_maplookup ~loc field_heap2_expr l_expr)
                       (Expr.mk_maplookup ~loc field_heap_expr l_expr);
-                  ]))
+                  ])))
         in
 
         (* field$Heap := field$Heap2 *)
@@ -4427,7 +4498,24 @@ module TrnslExhale = struct
               ^ Stdlib.Format.asprintf "%a" Expr.pr
                   (Expr.mk_binder Forall univ_vars_list
                     (Expr.mk_impl (Expr.mk_and conds) expr)))
-            (Expr.mk_binder
+            (match univ_vars_list with
+             | [] ->
+               Expr.mk_eq ~loc
+                 au_heap2_expr
+                 (Expr.mk_ite ~loc
+                    (Expr.mk_and ~loc conds_subst)
+                    (Expr.mk_mapupdate ~loc
+                       au_heap_expr
+                       token_subst
+                       (Expr.mk_app ~loc ~typ:heap_elem_type
+                            (Expr.Var au_heapchunk_operator)
+                            [
+                              Expr.mk_maplookup ~loc au_heap_expr token_subst;
+                              new_chunk;
+                            ]))
+                    au_heap_expr)
+             | _ ->
+               Expr.mk_binder
                ~trigs: (
                  [
                    [ Expr.mk_maplookup ~loc au_heap2_expr new_token_expr ];
@@ -4723,7 +4811,24 @@ module TrnslExhale = struct
                         ^ Stdlib.Format.asprintf "%a" Expr.pr
                             (Expr.mk_binder Forall univ_vars_list
                               (Expr.mk_impl (Expr.mk_and conds) expr)))
-                      (Expr.mk_binder
+                      (match univ_vars_list with
+                       | [] ->
+                         Expr.mk_eq ~loc
+                           pred_heap2_expr
+                           (Expr.mk_ite ~loc
+                              (Expr.mk_and ~loc conds_subst)
+                              (Expr.mk_mapupdate ~loc
+                                 pred_heap_expr
+                                 actual_arg_in_exprs_subst_tuple
+                                 (Expr.mk_app ~loc ~typ:heap_elem_type
+                                   (Expr.Var pred_heapchunk_operator)
+                                   [
+                                     Expr.mk_maplookup ~loc pred_heap_expr
+                                       actual_arg_in_exprs_subst_tuple;
+                                     new_chunk;
+                                   ]))
+                              pred_heap_expr)
+                       | _ -> Expr.mk_binder
                          ~trigs: (
                            [
                              [
