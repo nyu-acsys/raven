@@ -21,6 +21,27 @@ interface RWLockLocklessFAA[SharedPred: ShareablePredicate] {
     proc faa(x: Ref, w: Int, implicit ghost v: Int)
         atomic requires own(x.ctr, v) 
         atomic ensures own(x.ctr, v+w)
+    {
+        ghost var phi := bindAU();
+        ghost var v0: Int := openAU(phi);
+        var v1: Int := x.ctr;
+        abortAU(phi);
+        var new_v1 : Int := v1 + w;
+
+        ghost var v2: Int := openAU(phi);
+
+        var res: Bool := cas(x.ctr, v1, new_v1);
+        
+        if (!res) {
+            abortAU(phi);
+            ghost var v3: Int := openAU(phi);
+            faa(x, w);
+            commitAU(phi);
+        } else {
+            commitAU(phi);
+        }
+    }
+
 
     proc create()
         returns (l: Ref)
