@@ -1,0 +1,272 @@
+include "lock_invariant.rav"
+include "tokens.rav"
+
+import Library.Type
+import Library.Auth
+import Library.Prod
+import Library.MaxNat
+import Library.Excl
+import Library.IntType
+
+interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
+
+    // the implementation is parametric over the bound
+    val bound: Int
+
+    axiom bound_gt_zero()
+        ensures bound >= 0
+
+    // instantiating necessary modules
+
+    // shareable predicate
+    module Tk = Tokens[SharedPred]
+
+    import Tk.SharedPred
+    import Tk.noTokens
+    import Tk.tokenCounter
+    import Tk.token
+
+    // Instantiation Auth[Prod[MaxNat, Excl(Int)]] RA  
+    module IntType : Library.Type {
+        rep type T = Int
+    }
+
+    module ExclInt = Excl[IntType]
+    module ProdRA = Prod[MaxNat, ExclInt]
+    module CtrRA = Auth[ProdRA]
+
+    func ctr_ra_auth(d: Int, i: Int) returns (res: CtrRA) {
+        CtrRA.auth(ProdRA.prod(d, ExclInt.excl(i)))
+    }
+
+    func ctr_ra_frag(d: Int, i: Int) returns (res: CtrRA) {
+        CtrRA.frag(ProdRA.prod(d, ExclInt.excl(i)))
+    }
+
+    ghost field ctr_ra: CtrRA
+
+    // Instantiating the lock module
+    module LkResource : LockResource {
+        rep type T = Ref
+
+        pred resource(r: T) {
+            exists i: Int :: own(r.ctr_ra, ctr_ra_frag(0, i))
+        }
+    }
+
+    module Lk = Lock[LkResource]
+
+    // definitions
+    field ctr: Int
+    field lk: Ref
+
+    inv readers_inv(l: Ref, lk_ref: Ref) {
+        exists z: Int, d: Int, i: Int, b: Bool :: 
+            own(l.ctr, z)
+        && (d >= 0 && i >= 0 && z == i - d)
+        && own(l.ctr_ra, ctr_ra_auth(d, i))
+        && (i > d ? (z <= bound && tokenCounter(l, z)) : 
+            ((z == 0) && noTokens(l, 0.5) &&
+            (b ? Lk.locked(lk_ref) : noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0))))
+    }
+
+    pred is_rwlock(l: Ref, lk_ref: Ref) {
+        own(l.lk, lk_ref)
+        && Lk.lock_inv(lk_ref, l)
+        && readers_inv(l, lk_ref)
+    }
+
+    proc faa(x: Ref, w: Int, implicit ghost v: Int)
+        atomic requires own(x.ctr, v) 
+        atomic ensures own(x.ctr, v+w)
+
+    // algorithms
+
+    proc create()
+        returns (l: Ref)
+        requires SharedPred.p()
+        ensures exists lk_ref: Ref :: is_rwlock(l, lk_ref)
+    {
+        SharedPred.allocate(l);
+        l := new(ctr_ra: CtrRA.auth_frag(ProdRA.prod(0, ExclInt.excl(0)), ProdRA.prod(0, ExclInt.excl(0))));
+        fold LkResource.resource(l)[i := 0];
+        var lk_ref = Lk.create(l);
+
+        l := new(ctr: 0, lk: lk_ref, Tk.v: TokenRA.noToken(1.0));
+        fold noTokens(l, 1.0);
+        Tk.noTokens_split(l, 1.0);
+
+        bound_gt_zero();
+        fold readers_inv(l, lk_ref)[z := 0, d := 0, i := 0, b := false];
+        fold is_rwlock(l, lk_ref);
+
+        // the following assert is used to 
+        // supply witnesses for the existential variables 
+        // in the post-condition.
+        assert is_rwlock(l, lk_ref);
+    }
+
+    proc acquire_reader_int(l: Ref, implicit ghost lk_ref: Ref, implicit ghost i: Int)
+        requires readers_inv(l, lk_ref) && Lk.locked(lk_ref) && own(l.ctr_ra, ctr_ra_frag(0, i))
+        ensures token(l) && Lk.locked(lk_ref) && own(l.ctr_ra, ctr_ra_frag(0, i+1))
+    {
+        ghost var b1: Bool; ghost var d1: Int; ghost var i1: Int;
+        unfold readers_inv(l, lk_ref)[d1 := d, i1 := i, b1 := b];
+        var z1: Int := l.ctr;
+        fpu(
+            l.ctr_ra,
+            CtrRA.auth(ProdRA.prod(d1, ExclInt.excl(i))),
+            CtrRA.auth_frag(ProdRA.prod(d1, ExclInt.excl(i)), ProdRA.prod(d1, ExclInt.excl_null))
+        );
+        fold readers_inv(l, lk_ref)[d := d1, i := i1, b := b1];
+
+        if (z1 < bound) {
+            ghost var z2: Int; ghost var b2: Bool; ghost var d2: Int; ghost var i2: Int;
+            unfold readers_inv(l, lk_ref)[z2 := z, d2 := d, i2 := i, b2 := b];
+            faa(l, 1);
+            {!
+                if (i2 > d2) {
+                    Tk.token_mutate_incr(l, z2);
+                    fpu(
+                        l.ctr_ra, 
+                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i)), ProdRA.prod(0, ExclInt.excl(i))),
+                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i+1)), ProdRA.prod(0, ExclInt.excl(i+1)))
+                    );
+                    fold readers_inv(l, lk_ref)[z := z2+1, d := d2, i := i+1, b := b2];
+                } else {
+                    if (b2) { Lk.lk_exclusive(lk_ref); }
+                    Tk.noTokens_merge(l, 0.5, 0.5);
+                    Tk.token_mutate_generate(l);
+                    fpu(
+                        l.ctr_ra, 
+                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i)), ProdRA.prod(0, ExclInt.excl(i))),
+                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i+1)), ProdRA.prod(0, ExclInt.excl(i+1)))
+                    );
+                    fold readers_inv(l, lk_ref)[z := z2+1, d := d2, i := i+1, b := b2];
+                }
+            !}
+        } else {
+            acquire_reader_int(l, lk_ref, i);
+        }
+    }
+
+    proc acquire_reader(l: Ref, implicit ghost lk_ref': Ref)
+        requires is_rwlock(l, lk_ref')
+        ensures token(l)
+    {
+        unfold is_rwlock(l, lk_ref');
+        var lk_ref := l.lk;
+
+        Lk.acquire(lk_ref);
+        
+        ghost var i: Int;
+        unfold LkResource.resource(l)[i := i];
+
+        acquire_reader_int(l, lk_ref, i);
+
+        fold LkResource.resource(l)[i := i+1];
+        Lk.release(lk_ref);
+    }
+
+    proc release_reader(l: Ref, implicit ghost lk_ref: Ref)
+        requires is_rwlock(l, lk_ref) && token(l)
+        ensures true
+    {
+        unfold is_rwlock(l, lk_ref);
+
+        ghost var z: Int; ghost var d: Int; ghost var i: Int; ghost var b: Bool;
+        unfold readers_inv(l, lk_ref)[z := z, d := d, i := i, b := b];
+        faa(l, -1);
+        {!
+            fpu(
+                l.ctr_ra,
+                CtrRA.auth(ProdRA.prod(d, ExclInt.excl(i))),
+                CtrRA.auth_frag(ProdRA.prod(d+1, ExclInt.excl(i)), ProdRA.prod(d+1, ExclInt.excl_null))
+            );
+            if (z > 1) {
+                Tk.token_mutate_decr(l, z);
+            } else if (z == 1) {
+                Tk.token_mutate_decr_last(l);
+                Tk.noTokens_split(l, 1.0);
+            } else {
+                Tk.token_noTokens_interact(l, 0.5);
+            }
+        !}
+        fold readers_inv(l, lk_ref)[z := z-1, d := d+1, i := i, b := false];
+    }
+
+    proc wait_for_readers(l: Ref, implicit ghost lk_ref: Ref, implicit ghost i: Int)
+        requires readers_inv(l, lk_ref) && Lk.locked(lk_ref) && own(l.ctr_ra, ctr_ra_frag(0, i))
+        ensures noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0) && own(l.ctr_ra, ctr_ra_frag(i, i))
+    {
+        ghost var d1: Int; ghost var i1: Int; ghost var b1: Bool;
+        unfold readers_inv(l, lk_ref)[d1 := d, i1 := i, b1 := b];
+        var z: Int := l.ctr;
+        {!
+            if (z == 0) {
+                if (b1) { Lk.lk_exclusive(lk_ref); }
+                fpu(
+                    l.ctr_ra,
+                    CtrRA.auth(ProdRA.prod(i, ExclInt.excl(i))),
+                    CtrRA.auth_frag(ProdRA.prod(i, ExclInt.excl(i)), ProdRA.prod(i, ExclInt.excl_null))
+                );
+                assert own(l.ctr_ra, ctr_ra_frag(i, i));
+            }
+        !}
+        fold readers_inv(l, lk_ref)[z := z, d := d1, i := i1, b := true];
+
+        if (z != 0) {
+            wait_for_readers(l, lk_ref, i);
+        }
+    }
+
+    proc acquire_writer(l: Ref, implicit ghost lk_ref': Ref)
+        requires is_rwlock(l, lk_ref')
+        ensures exists i: Int :: own(l.ctr_ra, ctr_ra_frag(i, i))
+        ensures noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0) 
+    {
+        unfold is_rwlock(l, lk_ref');
+        var lk_ref := l.lk;
+
+        Lk.acquire(lk_ref);
+
+        ghost var i: Int;
+        unfold LkResource.resource(l)[i := i];
+
+        wait_for_readers(l, lk_ref, i);
+
+        // the following assert is used to 
+        // supply witnesses for the existential variables 
+        // in the post-condition.
+        assert own(l.ctr_ra, ctr_ra_frag(i, i));
+    }
+
+    proc release_writer(l: Ref, implicit ghost lk_ref': Ref, implicit ghost i: Int)
+        requires is_rwlock(l, lk_ref')
+        requires own(l.ctr_ra, ctr_ra_frag(i, i)) && noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
+        ensures true
+    {
+        unfold is_rwlock(l, lk_ref');
+        var lk_ref := l.lk;
+
+        ghost var z1: Int; ghost var d1: Int; ghost var i1: Int; ghost var b1: Bool;
+        unfold readers_inv(l, lk_ref)[z1 := z, d1 := d, i1 := i, b1 := b];
+        {!
+            if (z1 > 0) {
+                Tk.tokenCounter_noTokens_interact(l, z1, 0.5);
+            } else {
+                if (!b1) {
+                    SharedPred.merge(l, 1.0, 1.0);
+                    SharedPred.invalid(l, 2.0);
+                }
+            }
+        !}
+        fold LkResource.resource(l)[i := i];
+        Lk.release(lk_ref);
+        fold readers_inv(l, lk_ref)[z := z1, d := d1, i := i1, b := false];
+    }
+
+
+
+
+}
