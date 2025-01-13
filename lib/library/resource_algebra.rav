@@ -128,6 +128,39 @@ module Nat : CancellativeResourceAlgebra {
     }
 }
 
+module Fraction : CancellativeResourceAlgebra {
+    rep type T = data {
+        case frac(value: Real)
+        case identity
+    }
+
+    val id: T = identity
+
+    func valid(n:T) returns (ret:Bool) { 
+        (n == frac(n.value) ? 0.0 < n.value && n.value <= 1.0 : true)
+    }
+
+    func comp(a:T, b:T) returns (ret:T) { 
+        (a == id ? b : 
+        (b == id ? a :
+        (a == frac(a.value) && b == frac(b.value) 
+            && valid(a) && valid(b) && valid(frac(a.value + b.value)) ? frac(a.value + b.value) :
+        frac(0.0))))
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        (b == id ? a :
+        (a == b ? id :
+        (a == frac(a.value) && b == frac(b.value) 
+            && valid(a) && valid(b) && valid(frac(a.value - b.value)) ? frac(a.value - b.value) :
+        frac(0.0))))
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+        a == frac(a.value) && b == frac(b.value) && valid(a) && valid(b) && b.value <= a.value
+    }
+}
+
 module MaxNat : LatticeResourceAlgebra {
     rep type T = Int
 
@@ -346,6 +379,49 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     }
 }
 
+module FracRA[M: ResourceAlgebra] : ResourceAlgebra {
+    rep type T = data {
+        case identity
+        case frac_chunk(frac_proj1: M, frac_proj2: Real)
+        case invalid
+    }
+
+    val id: T = identity
+
+    func valid(n:T) 
+        returns (ret:Bool) 
+    {
+        (n == frac_chunk(n.frac_proj1, n.frac_proj2) ? 
+            M.valid(n.frac_proj1) && (n.frac_proj2 > 0.0 && n.frac_proj2 <= 1.0) 
+        : (n == identity))
+    }
+
+    func comp(a:T, b:T) returns (ret:T) {
+        (a == id ? b :
+        (b == id ? a :
+        (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) 
+            && valid(a) && valid(b) && M.valid(M.comp(a.frac_proj1, b.frac_proj1))
+            && 0.0 < a.frac_proj2 + b.frac_proj2
+            && a.frac_proj2 + b.frac_proj2 <= 1.0 ? frac_chunk(M.comp(a.frac_proj1, b.frac_proj1), a.frac_proj2 + b.frac_proj2) :
+        invalid)))
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+        (b == id ? a :
+        (a == b ? id :
+        (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) 
+            && valid(a) && valid(b) && 0.0 < a.frac_proj2 - b.frac_proj2
+            && a.frac_proj2 - b.frac_proj2 < 1.0 ? frac_chunk(M.frame(a.frac_proj1, b.frac_proj1), a.frac_proj2 - b.frac_proj2) :
+        invalid)))
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+        a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) &&
+            a.frac_proj2 == b.frac_proj2 && M.fpuAllowed(a.frac_proj1, b.frac_proj1) && valid(b)
+    }
+}
+
+
 module Agree[X: Type] : LatticeResourceAlgebra {
     rep type T = data {
         case agree_null
@@ -497,7 +573,7 @@ module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra]: ResourceAlgebra {
   }
 
   func frame(a: T, b: T) returns (ret: T) {
-    b == id ? a : (a == prod(a.proj1, a.proj2) && b == prod(b.proj1, b.proj2) ? prod(M1.frame(a.proj1, b.proj1), M2.frame(a.proj2, b.proj2)) : prod(M1.id, M2.id))
+    prod(M1.frame(a.proj1, b.proj1), M2.frame(a.proj2, b.proj2))
   }
 
   func fpuAllowed(a: T, b: T) returns (ret: Bool) {
