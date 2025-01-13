@@ -105,7 +105,7 @@ module Tokens[SharedPred: ShareablePredicate] {
         ensures false
     {
         unfold noTokens(x, q);
-        unfold token(x);
+        unfold token(x); 
     }
 
     lemma tokenCounter_noTokens_interact(x: Ref, n: Int, q: Real)
@@ -163,6 +163,17 @@ module Tokens[SharedPred: ShareablePredicate] {
         SharedPred.split(x, 1.0);
         fold token(x)[q := 0.5];
         fold tokenCounter(x, 1)[q := 0.5];
+    }
+
+    lemma token_mutate_generate_n(x: Ref, n: Int)
+        requires noTokens(x, 1.0) && SharedPred.p_chunk(x, 1.0)
+        requires n > 0
+        ensures tokenCounter(x, n)
+    {
+        unfold noTokens(x, 1.0);
+        fpu(x.v, TokenRA.noToken(1.0), TokenRA.tokens(n, 0.5, n, 0.5));
+        SharedPred.split(x, 1.0);
+        fold tokenCounter(x, n)[q := 0.5];
     }
 
     lemma noTokens_split(x: Ref, q: Real)
