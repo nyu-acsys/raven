@@ -1,0 +1,122 @@
+interface CLHLock {
+  field locked: Bool;
+  field agr: ();
+  field loc: Ref;
+  field predecessor: Ref;
+
+  // Resource protected by the lock
+  pred resource()
+
+  field tail: Ref
+
+  inv queued_loc(l: Ref) {
+    exists b_disj: Bool, b: Bool ::
+      (b_disj ? own(l, agr, (), 1.0) : own(l, locked, b, 0.5) &&
+      (!b ==> resource() && own(l, agr, (), 0.5) && own(l, locked, b, 0.5)))
+  }
+
+  inv lock_inv(lk: Ref) {
+    exists l: Ref ::
+      own(lk, tail, l, 1.0) &&
+      own(l, agr, (), 0.5) &&
+      queued_loc(l)
+  }
+
+  auto pred acquired_node(node: Ref) {
+    exists ln: Ref, pn: Ref ::
+      own(node, loc, ln, 1.0) &&
+      queued_loc(ln) && own(ln, agr, (), 0.5) &&
+      own(ln, locked, true, 0.5) &&
+      own(node, predecessor, pn, 1.0) &&
+      own(pn, locked, false, 1.0) &&
+      queued_loc(pn) &&
+      resource()
+  }
+
+  auto pred free_node(node: Ref) {
+    exists ln: Ref, pn: Ref ::
+      own(node, loc, ln, 1.0) &&
+      own(ln, locked, false, 1.0) &&
+      own(node, predecessor, pn, 1.0) &&
+      queued_loc(ln)
+  }
+
+  proc create_node()
+    returns (node: Ref)
+    ensures free_node(node)
+  {
+    var newloc: Ref;
+    newloc := new (locked: false, agr: ());
+    node := new (loc: newloc, predecessor: null);
+    fold queued_loc(newloc)[b_disj := true];
+  }
+
+  proc create_lock()
+    returns (lk: Ref)
+    requires resource()
+    ensures lock_inv(lk)
+  {
+    var l: Ref;
+    l := new (locked: false, agr: ());
+    lk := new (tail: l);
+    fold queued_loc(l) [b_disj := false];
+    fold lock_inv(lk);
+  }
+
+  proc wait_on(lk: Ref, pn: Ref, ln: Ref, node: Ref)
+    requires lock_inv(lk) && queued_loc(ln) &&
+    own(node, loc, ln, 1.0) &&
+    own(node, predecessor, pn, 1.0) &&
+    own(ln, agr, (), 0.5) &&
+    own(ln, locked, true, 0.5) &&
+    queued_loc(pn) && own(pn, agr, (), 0.5)
+    ensures acquired_node(node)
+  {
+    ghost var branch: Bool;
+    unfold queued_loc(pn) [branch := b_disj];
+    var b: Bool := pn.locked;
+    
+    fold queued_loc(pn) [b := b, b_disj := !b || branch];
+    
+    if (b) {
+      wait_on(lk, pn, ln, node);
+    } 
+  }
+
+  proc xchg(lk: Ref, ln: Ref, implicit ghost t: Ref)
+    returns (pn: Ref)
+    atomic requires own(lk, tail, t, 1.0)
+    atomic ensures own(lk, tail, ln, 1.0) && pn == t
+
+  proc acquire(lk: Ref, node: Ref)
+    requires lock_inv(lk) && free_node(node)
+    ensures acquired_node(node)
+  {
+    var ln: Ref := node.loc;
+    ln.locked := true;
+
+    unfold lock_inv(lk);
+    unfold queued_loc(ln);
+    var pn: Ref := xchg(lk, ln);
+    fold queued_loc(ln) [b_disj := false];
+    fold lock_inv(lk);
+
+    // Set new predecessor
+    node.predecessor := pn;
+    // Wait on the predecessor
+    wait_on(lk, pn, ln, node);
+  }
+
+  proc release(lk: Ref, node: Ref)
+    requires acquired_node(node)
+    ensures free_node(node)
+  {
+    var ln: Ref := node.loc;
+    unfold queued_loc(ln);
+    ln.locked := false;
+    ghost var l: Ref;
+    fold queued_loc(ln)[b_disj := false];
+    var pn: Ref := node.predecessor;
+    node.loc := pn;
+  }
+}
