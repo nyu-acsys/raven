@@ -1,0 +1,88 @@
+module CASCounter {
+    import Library.Fraction
+
+    // module instantiations
+    module FracNat = Library.FracRA[Library.Nat]
+    // module ProdRA = Library.Prod[Fraction, Library.Nat]
+    // module OptProdRA = Library.OptionRA[ProdRA]
+    module CtrRA = Library.Auth[FracNat]
+
+    // definitions
+    field c: Int
+    ghost field gc: CtrRA 
+
+    func frac_auth_auth(v: Int) returns (res: CtrRA) {
+        CtrRA.auth(FracNat.frac_chunk(v, 1.0))
+    }
+
+    func frac_auth_frag(q: Real, v: Int) returns (res: CtrRA) {
+        CtrRA.frag(FracNat.frac_chunk(v, q))
+    }
+
+    auto pred counter_contribution(l: Ref, q: Real, n: Int) {
+        own(l.gc, frac_auth_frag(q, n))
+    }
+
+    inv is_counter(l: Ref) {
+        exists z: Int ::
+            own(l.c, z) && (z >= 0) && own(l.gc, frac_auth_auth(z))
+    }
+
+    // algorithms
+
+    proc make_counter()
+        returns (l: Ref)
+        requires true
+        ensures is_counter(l) && counter_contribution(l, 1.0, 0)
+    {
+        l := new(c: 0, gc: CtrRA.comp(frac_auth_auth(0), frac_auth_frag(1.0, 0)));
+        fold is_counter(l);
+    }
+
+    proc read_full_spec(l: Ref, implicit ghost n: Int)
+        returns (c: Int)
+        requires is_counter(l) && counter_contribution(l, 1.0, n)
+        ensures c == n && counter_contribution(l, 1.0, n)
+    {
+        unfold is_counter(l);
+        c := l.c;
+        fold is_counter(l);
+    }
+
+    proc read_partial_spec(l: Ref, implicit ghost q: Real, implicit ghost n: Int)
+        returns (c: Int)
+        requires is_counter(l) && counter_contribution(l, q, n)
+        ensures n <= c && counter_contribution(l, q, n)
+    {
+        unfold is_counter(l);
+        c := l.c;
+        fold is_counter(l);
+    }
+
+    proc incr(l: Ref, implicit ghost q: Real, implicit ghost n: Int)
+        requires is_counter(l) && counter_contribution(l, q, n)
+        ensures counter_contribution(l, q, n+1)
+    {
+        unfold is_counter(l);
+        var n1: Int := l.c;
+        fold is_counter(l);
+
+        unfold is_counter(l);
+        var b: Bool := cas(l.c, n1, n1+1);
+        {!
+            if (b) {
+                fpu(l.gc,
+                    CtrRA.comp(frac_auth_auth(n1), frac_auth_frag(q, n)),
+                    CtrRA.comp(frac_auth_auth(n1+1), frac_auth_frag(q, n+1))
+                );
+            }
+        !}
+        fold is_counter(l);
+
+        if (!b) {
+            incr(l, q, n);
+        }
+    }
+
+
+}
