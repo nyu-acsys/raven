@@ -1,13 +1,12 @@
 interface CLHLock {
   field locked: Bool;
-  field agr: ();
+  ghost field agr: ();
   field loc: Ref;
   field predecessor: Ref;
+  field tail: Ref
 
   // Resource protected by the lock
   pred resource()
-
-  field tail: Ref
 
   inv queued_loc(l: Ref) {
     exists b_disj: Bool, b: Bool ::
