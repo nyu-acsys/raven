@@ -130,6 +130,7 @@ interface ARC[SharePred: ShareablePredicate] {
 
     proc mk_arc() 
         returns (ret: Ref)
+        requires SharePred.p()
         ensures arcInv(ret) && token(ret)
     {
         var x: Ref;
@@ -253,7 +254,7 @@ interface ARC[SharePred: ShareablePredicate] {
         atomic requires token(x)
         atomic ensures 0 < ret && token(x)
     {
-        ghost val phi: AtomicToken = bindAU();
+        ghost val phi = bindAU();
         unfold arcInv(x);
         var v: Int = x.c;
         openAU(phi);

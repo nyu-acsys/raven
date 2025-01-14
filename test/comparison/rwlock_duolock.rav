@@ -171,7 +171,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
 
     LkA.acquire(lkA_ref);
     unfold LkAResource.resource(l);
-
   }
 
   proc release_writer(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
@@ -184,4 +183,4 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     fold LkAResource.resource(l);
     LkA.release(lkA_ref);
   }
-} 
+}

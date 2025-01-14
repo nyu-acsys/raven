@@ -9,3 +9,4 @@ log*.smt2
 .DS_Store
 front_end_processed_output.log
 smt-encodings/*
+benchmarks.csv
