@@ -57,9 +57,20 @@ let check_cu config tbl smt_env md front_end_out_chan =
 
   if config.typecheck_only then (smt_env, tbl) else
   
-  (* if prog_stats then 
+  if config.prog_stats 
+    && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library") 
+  then 
+    let _ = 
+      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr processed_md.mod_decl.mod_decl_name) 
+    in
+    let prog_stats = Rewrites.compute_stats tbl processed_md in
+
+    Logs.app (fun m -> m
+      "\nPROGRAM STATISTICS: \n%a"
+      Rewrites.ProgStats.pr prog_stats
+    );
     Stdlib.exit 0
-  else begin *)
+  else begin
 
   let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
 
@@ -81,8 +92,7 @@ let check_cu config tbl smt_env md front_end_out_chan =
 
   let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
   (smt_env, tbl)
-
-  (* end *)
+  end
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
@@ -158,9 +168,6 @@ let parse_and_check_all config file_names =
           let inchan, lexbuf = stream_of_file file_name in
           let includes, md = parse_cu Predefs.prog_ident lexbuf in
 
-          (* Hiding all includes when counting stats *)
-          let includes = if config.prog_stats then [] else includes in
-
           Stdio.In_channel.close inchan;
 
           let md =
@@ -199,25 +206,7 @@ let parse_and_check_all config file_names =
       empty_prog
   in
 
-  if config.prog_stats then 
-    let prog_stats = ProgStats.computeStats md in
-
-    Logs.app (fun m -> m
-"PROGRAM STATISTICS:
-
-concrete_decls: %i;
-ghost_decls: %i;
-concrete_stmts: %i;
-ghost_stmts: %i;
-spec_count: %i;"
-        prog_stats.concrete_decls
-        prog_stats.ghost_decls
-        prog_stats.concrete_stmts
-        prog_stats.ghost_stmts
-        prog_stats.spec_count
-    );
-    Stdlib.exit 0
-  else begin
+  begin
   let _ = check_cu config tbl smt_env md front_end_out_chan in
 
   (* Check all files *)

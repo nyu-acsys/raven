@@ -2632,3 +2632,261 @@ let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
   let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
 
   (tbl, m)
+
+module ProgStats = struct
+  type prog_stats = {
+    prog_decls: int;
+    proof_decls: int;
+    prog_instr: int;
+    proof_pred_instr: int;
+    proof_inv_instr: int;
+    proof_au_instr: int;
+    proof_remaining_instr: int; 
+    spec_count: int;
+  }
+
+  let pr ppf prog_stats =
+    let open Stdlib.Format in
+    fprintf ppf
+"Program Declarations: %d
+Proof Declarations: %d
+Program Instructions: %d
+Proof Instructions: %d
+    Proof Predicate Instructions: %d
+    Proof Invariant Instructions: %d
+    Proof Atomicity Instructions: %d
+    Proof Remaining Instructions: %d
+Specification Count: %d"
+      prog_stats.prog_decls 
+      prog_stats.proof_decls 
+      prog_stats.prog_instr
+      (prog_stats.proof_pred_instr + prog_stats.proof_inv_instr + prog_stats.proof_au_instr + prog_stats.proof_remaining_instr)
+      prog_stats.proof_pred_instr 
+      prog_stats.proof_inv_instr
+      prog_stats.proof_au_instr 
+      prog_stats.proof_remaining_instr
+      prog_stats.spec_count
+
+  let init_prog_stats = {
+    prog_decls = 0;
+    proof_decls = 0;
+    prog_instr = 0;
+    proof_pred_instr = 0;
+    proof_inv_instr = 0;
+    proof_au_instr = 0;
+    proof_remaining_instr = 0; 
+    spec_count = 0;
+  }
+
+  let merge_prog_stats ps1 ps2 =
+  {
+    prog_decls = ps1.prog_decls + ps2.prog_decls;
+    proof_decls = ps1.proof_decls + ps2.proof_decls;
+    prog_instr = ps1.prog_instr + ps2.prog_instr;
+    proof_pred_instr = ps1.proof_pred_instr + ps2.proof_pred_instr;
+    proof_inv_instr = ps1.proof_inv_instr + ps2.proof_inv_instr;
+    proof_au_instr = ps1.proof_au_instr + ps2.proof_au_instr;
+    proof_remaining_instr = ps1.proof_remaining_instr + ps2.proof_remaining_instr;
+    spec_count = ps1.spec_count + ps2.spec_count;
+  }
+
+  let rec computeStats md : prog_stats Rewriter.t =
+    let open Rewriter.Syntax in
+    Rewriter.List.fold_left md.Module.mod_def ~init:init_prog_stats ~f:(fun ps instr ->
+      match instr with
+      | Import _ -> Rewriter.return ps
+      | SymbolDef s -> 
+        let+ symbolStats = computeSymbolStats s in
+        merge_prog_stats ps symbolStats
+    )
+
+  and computeSymbolStats s : prog_stats Rewriter.t =
+    match s with
+    | ModDef md -> 
+      if md.mod_decl.mod_decl_is_free then
+        Rewriter.return init_prog_stats
+      else
+        computeStats md
+    | ModInst _ | TypeDef _ -> Rewriter.return { init_prog_stats with proof_decls = 1; }
+    | VarDef _ -> Rewriter.return { init_prog_stats with prog_decls = 1; }
+    | FieldDef f -> Rewriter.return @@
+      if f.field_is_ghost then
+        { init_prog_stats with proof_decls = 1; }
+      else
+        { init_prog_stats with prog_decls = 1; }
+    | CallDef c ->
+      computeCallableStats c
+    | _ -> Rewriter.return init_prog_stats
+
+  and computeCallableStats c : prog_stats Rewriter.t =
+    let open Rewriter.Syntax in 
+
+    if c.call_decl.call_decl_is_free then
+      Rewriter.return init_prog_stats
+    else
+
+    let callable_prog_stats = 
+      let call_kind = c.call_decl.call_decl_kind in
+
+      match call_kind with
+      | Func | Proc ->
+      { init_prog_stats with 
+        prog_decls = 1;
+        (* spec_count = List.length (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond); *)
+        spec_count = 
+          if List.is_empty (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond) then 0 else 1;
+      }
+      | Lemma ->
+        { init_prog_stats with
+          proof_decls = 1;
+          spec_count = 
+            if List.is_empty (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond) then 0 else 1
+        }
+      | _ ->
+      { init_prog_stats with 
+        proof_decls = 1;
+        spec_count = 0;
+      }
+    in
+
+    match c.call_def with
+    | FuncDef _ -> Rewriter.return callable_prog_stats
+    | ProcDef pr ->
+      match pr.proc_body with
+      | None -> Rewriter.return callable_prog_stats
+      | Some s ->
+        let+ stmt_stats = computeStmtStats s c.call_decl in
+        merge_prog_stats callable_prog_stats stmt_stats
+
+  and computeStmtStats s proc_decl : prog_stats Rewriter.t = 
+    let open Rewriter.Syntax in
+    match s.Stmt.stmt_desc with
+    | Stmt.Block block_desc -> 
+        Rewriter.List.fold_left block_desc.block_body ~init:init_prog_stats ~f:(fun ps s -> 
+          let+ stmt_stats = computeStmtStats s proc_decl in
+          merge_prog_stats ps stmt_stats)
+
+    | Basic b -> computeBasicStmtStats b proc_decl
+    | Loop loop_desc -> 
+      let loop_stats = {init_prog_stats with 
+        prog_instr = 1; 
+        (* spec_count = List.length loop_desc.loop_contract; *)
+        spec_count = 
+          if List.is_empty loop_desc.loop_contract then 0 else 1;
+      } in
+
+      let+ body_stats = computeStmtStats loop_desc.loop_postbody proc_decl in
+      merge_prog_stats loop_stats body_stats
+
+    | Cond cond_desc -> 
+      let cond_stats = {init_prog_stats with 
+        prog_instr = 1; 
+      } in
+      let* cond_if_stats = computeStmtStats cond_desc.cond_then proc_decl in
+      let+ cond_else_stats = computeStmtStats cond_desc.cond_else proc_decl in
+
+      merge_prog_stats cond_stats 
+        (merge_prog_stats cond_if_stats cond_else_stats)
+
+  and computeBasicStmtStats b proc_decl : prog_stats Rewriter.t =
+    let open Rewriter.Syntax in
+
+    Logs.debug (fun m -> m 
+      "ProgStats: basic_stmt: %a"
+      Stmt.pr_basic_stmt b
+    );
+    match b with
+    | Stmt.VarDef var_def ->
+      Rewriter.return init_prog_stats
+
+    | Assign assign_desc -> 
+      let+ is_ghost = 
+        Rewriter.List.fold_left ~init:false assign_desc.assign_lhs ~f:(fun b qi ->
+          let local_vd_optn = 
+            List.find proc_decl.call_decl_locals ~f:(
+              fun vd -> 
+                Ident.(vd.var_name = QualIdent.to_ident qi)
+            )
+          in
+
+          let+ v_decl = 
+            match local_vd_optn with
+            | Some vd -> Rewriter.return vd
+            | None ->
+              let+ v_def = Rewriter.find_and_reify_var qi in 
+              v_def.var_decl
+          in
+            b || v_decl.var_ghost
+        )
+      in
+
+      if is_ghost 
+        then { init_prog_stats with proof_remaining_instr = 1; }
+      else
+        { init_prog_stats with prog_instr = 1; }
+
+    | New new_desc ->
+      let+ (is_ghost, is_concrete) = Rewriter.List.fold_left ~init:(false, false) new_desc.new_args ~f:(fun (b1, b2) (qi, _) ->
+        Logs.debug (fun m -> m "Rewrites.ProgStats.computeBasicStmtStats: new_desc field = %a" QualIdent.pr qi);
+        let+ field_decl = Rewriter.find_and_reify_field qi in
+        b1 || field_decl.field_is_ghost, b2 || not field_decl.field_is_ghost
+      )
+      in
+
+      if is_ghost && is_concrete then
+        { init_prog_stats with prog_instr = 1; proof_remaining_instr = 1; }
+      else if is_ghost then
+        { init_prog_stats with proof_remaining_instr = 1; }
+      else
+        { init_prog_stats with prog_instr = 1; }
+    
+    | FieldRead field_read_desc ->
+      let+ field_def = Rewriter.find_and_reify_field field_read_desc.field_read_field in
+      let is_ghost = field_def.field_is_ghost in
+
+      if is_ghost then
+        { init_prog_stats with proof_remaining_instr = 1; }
+      else 
+        { init_prog_stats with prog_instr = 1; }
+    
+    | FieldWrite field_write_desc ->
+      let+ field_def = Rewriter.find_and_reify_field field_write_desc.field_write_field in
+      let is_ghost = field_def.field_is_ghost in
+
+      if is_ghost then
+        { init_prog_stats with proof_remaining_instr = 1; }
+      else 
+        { init_prog_stats with prog_instr = 1; }
+    
+    | Cas _ | Havoc _ | Call _ | Return _ -> 
+      Rewriter.return { init_prog_stats with prog_instr = 1; }
+    
+    | Spec _ | Bind _ | Fpu _ -> 
+      Rewriter.return { init_prog_stats with proof_remaining_instr = 1; }
+
+    | Use use_desc ->
+      let+ use_callable = Rewriter.find_and_reify_callable use_desc.use_name in
+
+      begin match use_callable.call_decl.call_decl_kind with
+      | Pred -> 
+        { init_prog_stats with proof_pred_instr = 1; }
+      | Invariant ->
+        { init_prog_stats with proof_inv_instr = 1; }
+      | _ ->
+        { init_prog_stats with proof_remaining_instr = 1; }
+      end
+
+
+    | AUAction {auaction_kind = BindAU _;} ->
+      Rewriter.return init_prog_stats
+    
+    | AUAction _ ->
+      Rewriter.return { init_prog_stats with proof_au_instr = 1; }
+end
+
+let compute_stats tbl m =
+  assert (SymbolTbl.curr_is_root tbl);
+
+  let tbl, prog_stats = Rewriter.eval (ProgStats.computeStats m) tbl in
+
+  prog_stats
