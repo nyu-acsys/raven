@@ -1,0 +1,76 @@
+interface ForkJoinResource : Library.Type {
+  rep type T
+  
+  // Resource returned by a forked thread
+  pred resource(r: T)
+}
+
+module ForkJoin[R: ForkJoinResource] {
+
+    module Excl = Library.Excl[Library.UnitRA]
+    module Result = Library.Option[R]
+
+    import Result._
+
+    field result: Result
+    ghost field excl: Excl
+
+    inv is_join(l: Ref) {
+        exists v: Result, b: Bool ::
+            own(l.result, v) 
+        && (v == some(v.value) ? 
+                (b ? own(l.excl, Excl.excl(())) : R.resource(v.value)) 
+            : true) 
+    }
+
+    pred join_handle(l: Ref) {
+        own(l.excl, Excl.excl(()))
+    }
+
+    // algorithms
+
+    proc make_join()
+        returns (l: Ref)
+        requires true
+        ensures is_join(l) && join_handle(l)
+    {
+        l := new(result: none, excl: Excl.excl(()));
+        fold join_handle(l);
+        // passing b to suppress warning
+        fold is_join(l)[b := true];
+    }
+
+    proc set(l: Ref, v: R)
+        requires is_join(l) && R.resource(v)
+        ensures true
+    {
+        unfold is_join(l);
+        l.result := some(v);
+        fold is_join(l)[b := false];
+    }
+
+    proc wait(l: Ref)
+        returns (v: R)
+        requires is_join(l) && join_handle(l)
+        ensures R.resource(v)
+    {
+        ghost var b: Bool;
+        unfold is_join(l)[b := b];
+        var w: Result := l.result;
+        {!
+            if (w == some(w.value)) {
+                unfold join_handle(l);
+                fold is_join(l)[b := true];
+            } else {
+                fold is_join(l)[b := b];
+            }
+        !}
+
+        if (w == some(w.value)) {
+            return w.value;
+        } else {
+            v := wait(l);
+            return v;
+        }
+    }
+}
