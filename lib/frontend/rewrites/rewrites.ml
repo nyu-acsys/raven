@@ -2802,8 +2802,9 @@ Specification Count: %d"
     | Assign assign_desc -> 
       let+ is_ghost = 
         Rewriter.List.fold_left ~init:false assign_desc.assign_lhs ~f:(fun b qi ->
+          let local_vars = proc_decl.call_decl_locals @ proc_decl.call_decl_returns in
           let local_vd_optn = 
-            List.find proc_decl.call_decl_locals ~f:(
+            List.find local_vars ~f:(
               fun vd -> 
                 Ident.(vd.var_name = QualIdent.to_ident qi)
             )

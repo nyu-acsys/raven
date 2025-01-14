@@ -32,6 +32,7 @@ CSV_FILE="./benchmarks.csv"
 echo "File,Program Declarations,Proof Declarations,Program Instructions,Proof Instructions,Proof Predicate Instructions,Proof Invariant Instructions,Proof Atomicity Instructions,Proof Remaining Instructions,Specification Count" > "$CSV_FILE"
 
 for file in "${FILES[@]}"; do
+  echo "Running file $file"
   output=$(raven "$file" --stats)
   
   # Extract statistics from the output
