@@ -2796,7 +2796,7 @@ Specification Count: %d"
       Stmt.pr_basic_stmt b
     ); *)
     match b with
-    | Stmt.VarDef var_def ->
+    | Stmt.VarDef _ | Havoc _ | AUAction {auaction_kind = BindAU _;} ->
       Rewriter.return init_prog_stats
 
     | Assign assign_desc -> 
@@ -2878,9 +2878,6 @@ Specification Count: %d"
     | Cas _ | Return _ -> 
       let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
-    
-    | Havoc _ ->
-      Rewriter.return init_prog_stats
 
     | Spec _ | Bind _ | Fpu _ -> 
       Rewriter.return { init_prog_stats with proof_remaining_instr = 1; }
@@ -2896,10 +2893,6 @@ Specification Count: %d"
       | _ ->
         { init_prog_stats with proof_remaining_instr = 1; }
       end
-
-
-    | AUAction {auaction_kind = BindAU _;} ->
-      Rewriter.return init_prog_stats
     
     | AUAction _ ->
       Rewriter.return { init_prog_stats with proof_au_instr = 1; }
