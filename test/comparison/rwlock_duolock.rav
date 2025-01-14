@@ -42,7 +42,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
 
   module LkB = Lock[LkBResource]
 
-  pred is_rwlock(l: Ref, lkA_ref: Ref, lkB_ref: Ref) {
+  auto pred is_rwlock(l: Ref, lkA_ref: Ref, lkB_ref: Ref) {
     own(l.lkA_fld, lkA_ref)
     && own(l.lkB_fld, lkB_ref)
     && LkA.lock_inv(lkA_ref, l)
@@ -67,8 +67,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     l.lkA_fld := lkA_ref;
     l.lkB_fld := lkB_ref;
 
-    fold is_rwlock(l, lkA_ref, lkB_ref);
-
     // the following assert is used to 
     // supply witnesses for the existential variables 
     // in the post-condition.
@@ -80,7 +78,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     requires is_rwlock(l, lkA_ref', lkB_ref')
     ensures token(l)
   {
-    unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
     var lkB_ref: Ref := l.lkB_fld;
 
@@ -107,7 +104,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     requires is_rwlock(l, lkA_ref', lkB_ref') && token(l)
     ensures true
   {
-    unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
     var lkB_ref: Ref := l.lkB_fld;
 
@@ -135,7 +131,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     requires is_rwlock(l, lkA_ref', lkB_ref') && token(l)
     ensures SharedPred.p_chunk(l, 1.0) && LkA.locked(lkA_ref')
   {
-    unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
     var lkB_ref: Ref := l.lkB_fld;
 
@@ -171,7 +166,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     requires is_rwlock(l, lkA_ref', lkB_ref')
     ensures SharedPred.p_chunk(l, 1.0) && LkA.locked(lkA_ref')
   {
-    unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
     var lkB_ref: Ref := l.lkB_fld;
 
@@ -184,7 +178,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     requires is_rwlock(l, lkA_ref', lkB_ref') && LkA.locked(lkA_ref') && SharedPred.p_chunk(l, 1.0)
     ensures true
   {
-    unfold is_rwlock(l, lkA_ref', lkB_ref');
     var lkA_ref: Ref := l.lkA_fld;
     var lkB_ref: Ref := l.lkB_fld;
 
