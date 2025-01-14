@@ -104,6 +104,28 @@ interface LatticeResourceAlgebra : ResourceAlgebra {
     {}
 }
 
+module UnitRA : ResourceAlgebra {
+    rep type T = ()
+
+    val id: T = ()
+
+    func valid(n: T) returns (ret: Bool) { 
+        true
+    }
+
+    func comp(a:T, b:T) returns (ret:T) { 
+      ()
+    }
+
+    func frame(a:T, b:T) returns (ret:T) {
+      ()
+    }
+
+    func fpuAllowed(a:T, b:T) returns (ret:Bool) {
+        true
+    }
+}
+
 module Nat : CancellativeResourceAlgebra {
     rep type T = Int
 
