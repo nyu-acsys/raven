@@ -2791,10 +2791,10 @@ Specification Count: %d"
   and computeBasicStmtStats b proc_decl : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
 
-    Logs.debug (fun m -> m 
+    (* Logs.debug (fun m -> m 
       "ProgStats: basic_stmt: %a"
       Stmt.pr_basic_stmt b
-    );
+    ); *)
     match b with
     | Stmt.VarDef var_def ->
       Rewriter.return init_prog_stats
@@ -2824,6 +2824,7 @@ Specification Count: %d"
       if is_ghost 
         then { init_prog_stats with proof_remaining_instr = 1; }
       else
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
         { init_prog_stats with prog_instr = 1; }
 
     | New new_desc ->
@@ -2835,10 +2836,12 @@ Specification Count: %d"
       in
 
       if is_ghost && is_concrete then
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
         { init_prog_stats with prog_instr = 1; proof_remaining_instr = 1; }
       else if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
         { init_prog_stats with prog_instr = 1; }
     
     | FieldRead field_read_desc ->
@@ -2848,6 +2851,7 @@ Specification Count: %d"
       if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else 
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
         { init_prog_stats with prog_instr = 1; }
     
     | FieldWrite field_write_desc ->
@@ -2857,11 +2861,27 @@ Specification Count: %d"
       if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else 
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
         { init_prog_stats with prog_instr = 1; }
     
-    | Cas _ | Havoc _ | Call _ | Return _ -> 
+    | Call call_desc ->
+      let+ callable = Rewriter.find_and_reify_callable call_desc.call_name in
+
+      begin match callable.call_decl.call_decl_kind with
+      | Lemma -> { init_prog_stats with proof_remaining_instr = 1; }
+      | Proc -> 
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        { init_prog_stats with prog_instr = 1; }
+      | _ -> { init_prog_stats with proof_remaining_instr = 1; }
+      end
+    
+    | Cas _ | Return _ -> 
+      let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
     
+    | Havoc _ ->
+      Rewriter.return init_prog_stats
+
     | Spec _ | Bind _ | Fpu _ -> 
       Rewriter.return { init_prog_stats with proof_remaining_instr = 1; }
 

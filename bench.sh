@@ -24,15 +24,18 @@ FILES=(
   "test/comparison/arc.rav"
   "test/concurrent/treiber_stack/treiber_stack_atomics.rav"
   "test/concurrent/counter/counter_monotonic.rav"
-  test/concurrent/templates/bplustree.rav
+  "test/concurrent/templates/bplustree.rav"
+  #
+  "test/comparison/tokens.rav"
 )
 
 # Initialize CSV file
 CSV_FILE="./benchmarks.csv"
-echo "File,Program Declarations,Proof Declarations,Program Instructions,Proof Instructions,Proof Predicate Instructions,Proof Invariant Instructions,Proof Atomicity Instructions,Proof Remaining Instructions,Specification Count" > "$CSV_FILE"
+echo "File,Line Count,Program Declarations,Proof Declarations,Program Instructions,Proof Instructions,Proof Predicate Instructions,Proof Invariant Instructions,Proof Atomicity Instructions,Proof Remaining Instructions,Specification Count" > "$CSV_FILE"
 
 for file in "${FILES[@]}"; do
   echo "Running file $file"
+  line_count=$(wc -l < "$file")
   output=$(raven "$file" --stats)
   
   # Extract statistics from the output
@@ -47,5 +50,5 @@ for file in "${FILES[@]}"; do
   specification_count=$(echo "$output" | grep "Specification Count" | awk '{print $3}')
   
   # Append statistics to CSV file
-  echo "$file,$program_declarations,$proof_declarations,$program_instructions,$proof_instructions,$proof_predicate_instructions,$proof_invariant_instructions,$proof_atomicity_instructions,$proof_remaining_instructions,$specification_count" >> "$CSV_FILE"
+  echo "$file,$line_count,$program_declarations,$proof_declarations,$program_instructions,$proof_instructions,$proof_predicate_instructions,$proof_invariant_instructions,$proof_atomicity_instructions,$proof_remaining_instructions,$specification_count" >> "$CSV_FILE"
 done
