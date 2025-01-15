@@ -7,7 +7,11 @@ module ForkJoinClient {
     module ClientResource : ForkJoinResource {
         rep type T = Ref
 
-        pred resource(r: T) {
+        module Result: Library.Type {
+            rep type T = ()
+        }
+
+        pred resource(r: T, v: Result) {
             own(r.f, 1)
         }
     }
@@ -17,33 +21,33 @@ module ForkJoinClient {
     // algorithms
 
     proc client_thread(l: Ref, fj: Ref, implicit ghost w: Int)
-        requires FJ.is_join(fj) && own(l.f, w)
+        requires FJ.is_join(fj, l) && own(l.f, w)
         ensures true
     {
         l.f := 1;
-        fold ClientResource.resource(l);
-        FJ.set(fj, l);
+        fold ClientResource.resource(l, ());
+        FJ.set(fj, l, ());
     }
 
-    // adding exists fj: Ref :: FJ.is_join(fj)
+    // adding exists fj: Ref, l: Ref :: FJ.is_join(fj, l)
     // to the postcondition because call to make_join
     // requires FJ.is_join() in the mask
     proc client()
         returns (res: Int)
         requires true
-        ensures exists fj: Ref :: FJ.is_join(fj)
+        ensures exists fj: Ref, l: Ref :: FJ.is_join(fj, l)
         ensures res == 1
     {
         var l: Ref;
         l := new(f: 0);
-        var fj: Ref := FJ.make_join();
+        var fj: Ref := FJ.make_join(l);
         spawn client_thread(l, fj);
-        l := FJ.wait(fj);
-        unfold ClientResource.resource(l);
+        var n := FJ.wait(fj, l);
+        unfold ClientResource.resource(l, ());
         res := l.f;
 
         // assert to supply witness for the 
         // existential in the post-condition
-        assert FJ.is_join(fj);
+        assert FJ.is_join(fj, l);
     }
 }
