@@ -60,8 +60,8 @@ module ArrayMax[M: IArray] {
         M.all_diff();
         unfold arr(a,m);
         
-        var tmp1 : Int  = M.loc(a, x).value;
-        var tmp2 : Int = M.loc(a, y).value;
+        var tmp1 : Int := M.loc(a, x).value;
+        var tmp2 : Int := M.loc(a, y).value;
         
         if (tmp1 <= tmp2) {
           x := x + 1;

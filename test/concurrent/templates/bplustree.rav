@@ -153,7 +153,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     pa := AN.alloc(2*b, null);
     r := new(len: 0, rangeLb: none, rangeUb: none, keys: ka, ptrs: pa);
     
-    val cmap: Map[Int, Ref] = {| i: Int :: 0 <= i < 2*b ? null : AN.default |};
+    val cmap: Map[Int, Ref] := {| i: Int :: 0 <= i < 2*b ? null : AN.default |};
     
     //fold AK.sorted_array_with_content(ka, 0, AK.default_map);
     fold node(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap));
@@ -189,7 +189,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     ghost var chlds: Map[Int, Ref];
     chlds :| AN.arr(n_ptrs, chlds);
     //unfold AN.arr(n_ptrs, chlds);
-    var chld0: Ref = AN.loc(n_ptrs, 0).AN.value;
+    var chld0: Ref := AN.loc(n_ptrs, 0).AN.value;
     
     if (chld0 == null) {  // Leaf node
       //fold AN.arr(n_ptrs, chlds);

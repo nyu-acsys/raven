@@ -199,7 +199,7 @@ interface Array[E: Library.Type] {
         //unfold arr(a, map_shift(amap, src, dst, i));
         var tmp: E := loc(a, src + i).value;
         loc(a, dst + i).value := tmp;
-        ghost var m : Map[Int, E] = map_shift(amap, src, dst, i + 1);
+        ghost var m : Map[Int, E] := map_shift(amap, src, dst, i + 1);
         assert m == map_shift(amap, src, dst, i)[dst + i := tmp];
         //fold arr(a, m);
         i := i + 1;
@@ -229,7 +229,7 @@ interface Array[E: Library.Type] {
       
       
       loc(b, dst + i).value := tmp;
-      ghost var m: Map[Int, E] = map_copy(bmap, amap, src, dst, i + 1);
+      ghost var m: Map[Int, E] := map_copy(bmap, amap, src, dst, i + 1);
       assert m == map_copy(bmap, amap, src, dst, i)[dst + i := tmp];
       //fold arr(b, m);
       i := i + 1;

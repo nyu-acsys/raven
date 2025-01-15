@@ -10,7 +10,7 @@ proc p(implicit ghost x: Int)
 
   ghost var x0: Int := openAU(phi);
 
-  var m: Int = 5;
+  var m: Int := 5;
   abortAU(phi);
 
   ghost var x1: Int := openAU(phi);

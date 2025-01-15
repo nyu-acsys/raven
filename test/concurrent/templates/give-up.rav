@@ -378,7 +378,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold globalRes(r, c, g_i);
       unfold globalinv(g_i, r);
 
-      ghost var i_o: Flow_K = Flow_K.frame(g_i, i_n);
+      ghost var i_o: Flow_K := Flow_K.frame(g_i, i_n);
       
       assert i_o.out[n1] == Multiset_K.frame(g_i.out[n1], i_n.out[n1]);
       assert k !in outset(g_i, n1);

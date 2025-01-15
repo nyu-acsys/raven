@@ -1,6 +1,6 @@
 proc p() {
   var s: Int := 0;
-  var p: Map[Int, Int] = {| v: Int :: 0  |};
+  var p: Map[Int, Int] := {| v: Int :: 0  |};
 
   while (s < 10) 
     invariant s >= 0

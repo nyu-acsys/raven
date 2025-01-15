@@ -9,8 +9,8 @@ proc p(x: Ref)
   ghost var phi: AtomicToken<p>;
   phi := bindAU();
   openAU(phi);
-  var m: Int = 5;
-  ghost var n: Int = 6;
+  var m: Int := 5;
+  ghost var n: Int := 6;
   {! 
     ghost var k: Bool;
     if (k) {

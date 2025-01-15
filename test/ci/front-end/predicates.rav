@@ -19,8 +19,8 @@ pred q() {
 
 proc p1() {
   var x: Ref;
-  var v1: Int = 1;
-  var v2: Int = 2;
+  var v1: Int := 1;
+  var v2: Int := 2;
 
   inhale p(x, v1);
   inhale p(x, v2);

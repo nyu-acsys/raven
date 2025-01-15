@@ -134,13 +134,13 @@ interface ARC {
         ensures token(x) && token(x)
     {
         unfold arcInv(x);
-        var old_count: Int = x.c;
+        var old_count: Int := x.c;
         fold arcInv(x);
 
-        var new_count: Int = old_count + 1; 
+        var new_count: Int := old_count + 1; 
         
         unfold arcInv(x);
-        var res: Bool = cas(x.c, old_count, new_count);
+        var res: Bool := cas(x.c, old_count, new_count);
 
         {!
         if (res) {
@@ -172,7 +172,7 @@ interface ARC {
         ensures 0 < ret && token(x)
     {
         unfold arcInv(x);
-        var v: Int = x.c;
+        var v: Int := x.c;
         {!
         assert v > 0 with {
             if (v <= 0) {
@@ -191,12 +191,12 @@ interface ARC {
         ensures (ret == true) ==> noTokens(x) && SharePred.p()
     {
         unfold arcInv(x);
-        var old_count: Int = x.c;
+        var old_count: Int := x.c;
         fold arcInv(x);
-        var new_count: Int = old_count - 1;
+        var new_count: Int := old_count - 1;
 
         unfold arcInv(x);
-        var res: Bool = cas(x.c, old_count, new_count);
+        var res: Bool := cas(x.c, old_count, new_count);
 
         {!
         if (res) {

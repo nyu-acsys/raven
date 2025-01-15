@@ -57,12 +57,12 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
   {
     SharedPred.allocate(l);
       fold LkAResource.resource(l);
-    var lkA_ref = LkA.create(l);
+    var lkA_ref := LkA.create(l);
 
     l := new(ctr: 0, lkA_fld: null, lkB_fld: null, Tk.v: TokenRA.noToken(1.0));
       fold noTokens(l, 1.0);
       fold LkBResource.resource((l, lkA_ref));
-    var lkB_ref = LkB.create((l, lkA_ref));
+    var lkB_ref := LkB.create((l, lkA_ref));
 
     l.lkA_fld := lkA_ref;
     l.lkB_fld := lkB_ref;

@@ -16,7 +16,7 @@ module List {
       fold lseg(z, z);
       fold lseg(y, z);
     } else {
-      val xnext: Ref = x.next;
+      val xnext: Ref := x.next;
       append_tail(xnext, y, z);
       fold lseg(x, z);
     }
@@ -26,7 +26,7 @@ module List {
     requires lseg(x, null)
     ensures lseg(x, null)
   {
-    var curr: Ref = x;
+    var curr: Ref := x;
     fold lseg(x, curr);
     while (curr != null)
       invariant lseg(x, curr) && lseg(curr, null)

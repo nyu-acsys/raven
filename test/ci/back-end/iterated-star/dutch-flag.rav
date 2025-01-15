@@ -55,7 +55,7 @@ module DutchFlag[Arr: IArray] {
             } else if (tmp == 0) {
                 var tmp1 : Int := Arr.loc(a,white).value;
                 Arr.loc(a,unsorted).value := tmp1;
-                var tmp2 : Int = Arr.loc(a,white).value;
+                var tmp2 : Int := Arr.loc(a,white).value;
                 m2 := m2[unsorted := tmp2];
 
                 Arr.loc(a,white).value := tmp;
@@ -64,10 +64,10 @@ module DutchFlag[Arr: IArray] {
                 white := white + 1;
                 unsorted := unsorted + 1;
             } else {
-                var tmp1 : Int = Arr.loc(a,blue - 1).value;
+                var tmp1 : Int := Arr.loc(a,blue - 1).value;
                 Arr.loc(a,unsorted).value := tmp1;
 
-                var tmp2 : Int = Arr.loc(a,blue - 1).value;
+                var tmp2 : Int := Arr.loc(a,blue - 1).value;
                 m2 := m2[unsorted := tmp2];
 
                 blue := blue - 1;

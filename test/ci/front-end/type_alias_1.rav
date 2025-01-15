@@ -1,5 +1,5 @@
 type T = Int
 
 proc p() {
-  var x: T = 1;
+  var x: T := 1;
 }

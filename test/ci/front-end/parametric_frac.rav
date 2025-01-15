@@ -24,9 +24,9 @@ module M[N: Library.Type] {
     ensures own(x.f, v, 1.0)
     
   {
-    var y: Int = 5;
-    var z: Set[Int] = {| k:Int :: k % 2 == 0  |};
-    var a: Map[Int, Int] = {| k: Int :: k%2 |};
+    var y: Int := 5;
+    var z: Set[Int] := {| k:Int :: k % 2 == 0  |};
+    var a: Map[Int, Int] := {| k: Int :: k%2 |};
 
     return v, 5;
   }

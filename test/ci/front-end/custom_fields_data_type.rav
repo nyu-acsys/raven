@@ -25,5 +25,5 @@ proc incr(x: Ref)
 {
   unfold counter(x, 0);
   fold counter(x, 0);
-  var v: Something = onething(5);
+  var v: Something := onething(5);
 }

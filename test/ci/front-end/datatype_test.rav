@@ -14,6 +14,6 @@ module M {
   val y : M2.T = M2.frac_chunk(x, 0.75)
 
   proc p() {
-    var y : M2.T = M2.frac_chunk(x, 0.75);
+    var y : M2.T := M2.frac_chunk(x, 0.75);
   }
 }
