@@ -1,0 +1,55 @@
+include "fork_join.rav"
+include "cas_counter.rav"
+
+module CASCounterClient {
+    import CASCounter._
+
+    module ClientResource: ForkJoinResource {
+        rep type T = (Ref, Int)
+
+        module Result: Library.Type {
+            rep type T = ()
+        }
+
+        pred resource(r: T, v: Result) {
+            counter_contribution(r#0, 0.5, r#1+1)
+        }
+    }
+
+    module FJ = ForkJoin[ClientResource]
+
+    // algorithms
+
+    proc thread_incr(l: Ref, fj: Ref, n: Int)
+        requires is_counter(l) && FJ.is_join(fj, (l, n))
+        requires counter_contribution(l, 0.5, n)
+        ensures true
+    {
+        incr(l, 0.5, n);
+        fold ClientResource.resource((l, n), ());
+        FJ.set(fj, (l, n), ());
+    }
+
+    // adding exists fj: Ref, l: Ref :: FJ.is_join(fj, l)
+    // to the postcondition because call to make_join
+    // requires FJ.is_join() in the mask
+    proc parallel_increment()
+        returns (res: Int)
+        requires true
+        ensures exists fj1: Ref, l: Ref :: FJ.is_join(fj1, (l, 0)) && is_counter(l)
+        ensures res == 2
+    {
+        var l: Ref := make_counter();
+        var fj1: Ref := FJ.make_join((l, 0));
+        spawn thread_incr(l, fj1, 0);
+        var fj2: Ref := FJ.make_join((l, 0));
+        spawn thread_incr(l, fj2, 0);
+        var n1 := FJ.wait(fj1, (l, 0));
+        var n2 := FJ.wait(fj2, (l, 0));
+        unfold ClientResource.resource((l,0), ());
+        unfold ClientResource.resource((l,0), ());
+        res := read_full_spec(l, 2);
+
+        assert FJ.is_join(fj1, (l, 0)) && is_counter(l);
+    }
+}
