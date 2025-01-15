@@ -1,0 +1,59 @@
+include "lock_invariant.rav"
+
+module TicketLockClient {
+
+    field f1: Int
+    field f2: Int
+
+    // Instantiating the lock module
+    module LkResource : LockResource {
+        rep type T = Ref
+
+        pred resource(r: T) {
+            exists z: Int :: own(r.f1, z) && own(r.f2, z)
+        }
+    }
+
+    module Lk = Lock[LkResource]
+
+    // algorithms
+
+    proc foo(l: Ref, lk: Ref, z: Int)
+        requires Lk.lock_inv(lk, l)
+        ensures true
+    {
+        Lk.acquire(lk);
+        unfold LkResource.resource(l);
+        l.f1 := z;
+        l.f2 := z;
+        fold LkResource.resource(l);
+        Lk.release(lk);
+    }
+
+    // adding exists l: Ref, lk: Ref :: LK.lock_inv(lk, l)
+    // to the postcondition because call to foo()
+    // requires LK.lock_inv() in the mask
+    proc run_foo()
+        requires true
+        ensures exists l: Ref, lk: Ref :: Lk.lock_inv(lk, l)
+    {
+        var l := new(f1: 0, f2: 0);
+        fold LkResource.resource(l);
+        var lk := Lk.create(l);
+
+        spawn foo(l, lk, 3);
+        spawn foo(l, lk, 5);
+
+        Lk.acquire(lk);
+        unfold LkResource.resource(l);
+        var v1 := l.f1;
+        var v2 := l.f2;
+
+        if (v1 != v2) {
+            // this section is unreachable as the program verifies 
+            assert false;
+        }
+
+        assert Lk.lock_inv(lk, l);
+    }
+}
