@@ -1,25 +1,27 @@
 interface ForkJoinResource : Library.Type {
   rep type T
+
+  module Result: Library.Type
   
   // Resource returned by a forked thread
-  pred resource(r: T)
+  pred resource(r: T, v: Result)
 }
 
 module ForkJoin[R: ForkJoinResource] {
 
     module Excl = Library.Excl[Library.UnitRA]
-    module Result = Library.Option[R]
+    module OptionResult = Library.Option[R.Result]
 
-    import Result._
+    import OptionResult._
 
-    field result: Result
+    field result: OptionResult
     ghost field excl: Excl
 
-    inv is_join(l: Ref) {
-        exists v: Result, b: Bool ::
+    inv is_join(l: Ref, r: R) {
+        exists v: OptionResult, b: Bool ::
             own(l.result, v) 
         && (v == some(v.value) ? 
-                (b ? own(l.excl, Excl.excl(())) : R.resource(v.value)) 
+                (b ? own(l.excl, Excl.excl(())) : R.resource(r, v.value)) 
             : true) 
     }
 
@@ -29,47 +31,47 @@ module ForkJoin[R: ForkJoinResource] {
 
     // algorithms
 
-    proc make_join()
+    proc make_join(r: R)
         returns (l: Ref)
         requires true
-        ensures is_join(l) && join_handle(l)
+        ensures is_join(l, r) && join_handle(l)
     {
         l := new(result: none, excl: Excl.excl(()));
         fold join_handle(l);
         // passing b to suppress warning
-        fold is_join(l)[b := true];
+        fold is_join(l, r)[b := true];
     }
 
-    proc set(l: Ref, v: R)
-        requires is_join(l) && R.resource(v)
+    proc set(l: Ref, r: R, v: R.Result)
+        requires is_join(l, r) && R.resource(r, v)
         ensures true
     {
-        unfold is_join(l);
+        unfold is_join(l, r);
         l.result := some(v);
-        fold is_join(l)[b := false];
+        fold is_join(l, r)[b := false];
     }
 
-    proc wait(l: Ref)
-        returns (v: R)
-        requires is_join(l) && join_handle(l)
-        ensures R.resource(v)
+    proc wait(l: Ref, r: R)
+        returns (v: R.Result)
+        requires is_join(l, r) && join_handle(l)
+        ensures R.resource(r, v)
     {
         ghost var b: Bool;
-        unfold is_join(l)[b := b];
-        var w: Result := l.result;
+        unfold is_join(l, r)[b := b];
+        var w: R.Result := l.result;
         {!
             if (w == some(w.value)) {
                 unfold join_handle(l);
-                fold is_join(l)[b := true];
+                fold is_join(l, r)[b := true];
             } else {
-                fold is_join(l)[b := b];
+                fold is_join(l, r)[b := b];
             }
         !}
 
         if (w == some(w.value)) {
             return w.value;
         } else {
-            v := wait(l);
+            v := wait(l, r);
             return v;
         }
     }
