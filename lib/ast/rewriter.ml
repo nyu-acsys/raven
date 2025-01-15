@@ -702,17 +702,27 @@ module Stmt = struct
                   (FieldWrite
                      { field_write_desc with field_write_ref; field_write_val });
             }
-        | Cas cas_desc ->
-            let cas_lhs = cas_desc.cas_lhs in
-            let cas_field = cas_desc.cas_field in
-            let* cas_ref = f cas_desc.cas_ref in
-            let* cas_old_val = f cas_desc.cas_old_val in
-            let+ cas_new_val = f cas_desc.cas_new_val in
+        | AtomicInbuilt ais_desc ->
+            let atomic_inbuilt_lhs = ais_desc.atomic_inbuilt_lhs in
+            let atomic_inbuilt_field = ais_desc.atomic_inbuilt_field in
+            let* atomic_inbuilt_ref = f ais_desc.atomic_inbuilt_ref in
+            let+ atomic_inbuilt_kind = match ais_desc.atomic_inbuilt_kind with
+            | Cas cas_desc -> 
+              let* cas_old_val = f cas_desc.cas_old_val in
+              let+ cas_new_val = f cas_desc.cas_new_val in
+              Stmt.Cas { cas_old_val; cas_new_val }
+            | Faa faa_desc ->
+              let+ faa_val = f faa_desc.faa_val in
+              Stmt.Faa { faa_val }
+            | Xchg xchg_desc ->
+              let+ xchg_new_val = f xchg_desc.xchg_new_val in
+              Stmt.Xchg { xchg_new_val }
+            in
             {
               stmt with
               stmt_desc =
                 Basic
-                  (Cas { cas_lhs; cas_field; cas_ref; cas_old_val; cas_new_val });
+                  (AtomicInbuilt { ais_desc with atomic_inbuilt_lhs; atomic_inbuilt_field; atomic_inbuilt_ref; atomic_inbuilt_kind });
             }
         | Return expr ->
             let+ expr = f expr in
@@ -849,21 +859,27 @@ module Stmt = struct
                 (FieldWrite
                    { field_write_ref; field_write_field; field_write_val });
           }
-        | Cas cas_desc ->
-            let cas_lhs = f cas_desc.cas_lhs in
-            let cas_field = f cas_desc.cas_field in
-            let* cas_ref = Expr.rewrite_qual_idents ~f cas_desc.cas_ref in
-            let* cas_old_val =
-              Expr.rewrite_qual_idents ~f cas_desc.cas_old_val
-            in
-            let+ cas_new_val =
-              Expr.rewrite_qual_idents ~f cas_desc.cas_new_val
+        | AtomicInbuilt ais_desc ->
+          let atomic_inbuilt_lhs = f ais_desc.atomic_inbuilt_lhs in
+          let atomic_inbuilt_field = f ais_desc.atomic_inbuilt_field in
+          let* atomic_inbuilt_ref = Expr.rewrite_qual_idents ~f ais_desc.atomic_inbuilt_ref in
+          let+ atomic_inbuilt_kind = match ais_desc.atomic_inbuilt_kind with
+            | Cas cas_desc -> 
+              let* cas_old_val = Expr.rewrite_qual_idents ~f cas_desc.cas_old_val in
+              let+ cas_new_val = Expr.rewrite_qual_idents ~f cas_desc.cas_new_val in
+              Stmt.Cas { cas_old_val; cas_new_val }
+            | Faa faa_desc ->
+              let+ faa_val = Expr.rewrite_qual_idents ~f faa_desc.faa_val in
+              Stmt.Faa { faa_val }
+            | Xchg xchg_desc ->
+              let+ xchg_new_val = Expr.rewrite_qual_idents ~f xchg_desc.xchg_new_val in
+              Stmt.Xchg { xchg_new_val }
             in
             {
               stmt with
               stmt_desc =
                 Basic
-                  (Cas { cas_lhs; cas_field; cas_ref; cas_old_val; cas_new_val });
+                  (AtomicInbuilt { ais_desc with atomic_inbuilt_lhs; atomic_inbuilt_field; atomic_inbuilt_ref; atomic_inbuilt_kind });
             }
         | Return expr ->
             let+ expr = Expr.rewrite_qual_idents ~f expr in

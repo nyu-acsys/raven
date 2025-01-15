@@ -189,7 +189,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               let* _ = Rewriter.set_user_state atomicity_state in
               Rewriter.return stmt
         | _ -> Error.error stmt.stmt_loc "Expected a var_def")
-    | Basic (Cas cas_desc) ->
+    | Basic (AtomicInbuilt ais_desc) ->
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt

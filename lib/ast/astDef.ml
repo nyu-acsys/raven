@@ -588,7 +588,6 @@ module Expr = struct
     (* Ternary operators *)
     | Ite
     | Own
-    | Cas
     | AUPred of QualIdent.t
     | AUPredCommit of QualIdent.t
     (* Variable arity operators *)
@@ -639,7 +638,6 @@ module Expr = struct
     | DataDestr id -> QualIdent.to_string id
     (*| Call (id, _) -> "call " ^ QualIdent.to_string id*)
     | Read -> "read"
-    | Cas -> "cas"
     | Uminus -> "-"
     | TupleLookUp -> "tuple_lookup"
     | MapLookUp -> "map_lookup"
@@ -678,7 +676,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Cas | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
+    | Setenum | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
@@ -1266,11 +1264,39 @@ module Stmt = struct
   }
 
   type cas_desc = { 
-    cas_lhs : qual_ident;
-    cas_field : qual_ident;
-    cas_ref : expr;
     cas_old_val : expr;
     cas_new_val : expr;
+  }
+
+  type faa_desc = {
+    faa_val : expr
+  }
+
+  type xchg_desc = {
+    xchg_new_val : expr
+  }
+
+  type atomic_inbuilt_kind =
+    | Cas of cas_desc
+    | Faa of faa_desc
+    | Xchg of xchg_desc
+
+  let atomic_inbuilt_args = function
+    | Cas cs -> [cs.cas_old_val; cs.cas_new_val]
+    | Faa fs -> [fs.faa_val]
+    | Xchg xs -> [xs.xchg_new_val]
+
+  let atomic_inbuilt_string = function
+    | Cas _ -> "cas"
+    | Faa _ -> "faa"
+    | Xchg _ -> "xchg"
+  
+  type atomic_inbuilt_desc = {
+    atomic_inbuilt_lhs : qual_ident;
+    atomic_inbuilt_field : qual_ident;
+    atomic_inbuilt_ref : expr;
+    atomic_inbuilt_is_init : bool;
+    atomic_inbuilt_kind : atomic_inbuilt_kind;
   }
 
   type call_desc = {
@@ -1342,7 +1368,7 @@ module Stmt = struct
     | Bind of bind_desc (* x *)
     | FieldRead of field_read_desc
     | FieldWrite of field_write_desc
-    | Cas of cas_desc
+    | AtomicInbuilt of atomic_inbuilt_desc
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
@@ -1416,7 +1442,10 @@ module Stmt = struct
           bstm.bind_rhs.spec_form)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
-    | Cas cs -> fprintf ppf "@[<2>%a@ :=@ cas(%a.%a, %a, %a)@]" QualIdent.pr cs.cas_lhs Expr.pr cs.cas_ref QualIdent.pr cs.cas_field Expr.pr cs.cas_old_val Expr.pr cs.cas_new_val 
+    | AtomicInbuilt ais ->
+      let kind = atomic_inbuilt_string ais.atomic_inbuilt_kind in
+      let args = atomic_inbuilt_args ais.atomic_inbuilt_kind in
+      fprintf ppf "@[<2>%a@ :=@ %s(%a.%a, %a)@]" QualIdent.pr ais.atomic_inbuilt_lhs kind Expr.pr ais.atomic_inbuilt_ref QualIdent.pr ais.atomic_inbuilt_field Expr.pr_list args
     | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1659,9 +1688,9 @@ module Stmt = struct
         | FieldWrite fw_desc ->
           scan_expr_list accesses [fw_desc.field_write_ref; fw_desc.field_write_val]
 
-        | Cas cs_desc ->
-          let accesses = Set.add accesses cs_desc.cas_lhs in
-          scan_expr_list accesses [cs_desc.cas_ref; cs_desc.cas_old_val; cs_desc.cas_new_val]
+        | AtomicInbuilt ais_desc ->
+          let accesses = Set.add accesses ais_desc.atomic_inbuilt_lhs in
+          scan_expr_list accesses (ais_desc.atomic_inbuilt_ref :: atomic_inbuilt_args ais_desc.atomic_inbuilt_kind)
             
         | Havoc x ->
           Set.add accesses x
@@ -1764,9 +1793,9 @@ module Stmt = struct
         | FieldWrite fw_desc -> 
             []
 
-        | Cas cs_desc -> 
-          if List.is_empty cs_desc.cas_lhs.qual_path then
-            [cs_desc.cas_lhs.qual_base]
+        | AtomicInbuilt ais_desc -> 
+          if List.is_empty ais_desc.atomic_inbuilt_lhs.qual_path then
+            [ais_desc.atomic_inbuilt_lhs.qual_base]
           else
             []
             
@@ -1852,8 +1881,8 @@ module Stmt = struct
         | FieldWrite fw_desc -> 
           [fw_desc.field_write_field]
 
-        | Cas cs_desc -> 
-          [cs_desc.cas_field]
+        | AtomicInbuilt ais_desc -> 
+          [ais_desc.atomic_inbuilt_field]
             
         | Havoc _ ->
           []

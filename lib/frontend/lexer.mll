@@ -28,6 +28,7 @@ let _ =
       ("ensures", ENSURES);
       ("exhale", SPEC Stmt.Exhale);
       ("exists", QUANT(Expr.Exists));
+      ("faa", FAA);
       ("false", CONSTVAL (Expr.Bool false));
       ("forall", QUANT(Expr.Forall));
       ("fold", USE (Stmt.Fold));
@@ -69,6 +70,7 @@ let _ =
       ("var", VAR false);
       ("with", WITH);
       ("while", WHILE);
+      ("xchg", XCHG);
     ])
 
 let operator_table = Hashtbl.create 64

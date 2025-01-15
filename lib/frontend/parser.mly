@@ -20,7 +20,7 @@ open Ast
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
 %token HAVOC NEW RETURN OWN AU
-%token IF ELSE WHILE CAS SPAWN
+%token IF ELSE WHILE CAS FAA XCHG SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
@@ -407,7 +407,7 @@ contract_mods:
 (** Statements *)
 
 stmt:
-| s = stmt_desc { Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos $endpos } }
+| ss = stmt_desc { List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos $endpos }) ss }
 
 stmt_desc:
 | s = stmt_wo_trailing_substmt { s }
@@ -418,7 +418,11 @@ stmt_desc:
 ;
 
 stmt_no_short_if:
-| s = stmt_no_short_if_desc { Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos $endpos } }
+| ss = stmt_no_short_if_desc {
+  Stmt.mk_block_stmt ~loc:(Loc.make $startpos $endpos) @@
+    List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos $endpos }) ss
+}
+    
     
 stmt_no_short_if_desc:
 | s = stmt_wo_trailing_substmt { s }
@@ -428,11 +432,11 @@ stmt_no_short_if_desc:
 
 stmt_wo_trailing_substmt:
 (* variable definition *)
-| def = var_def; SEMICOLON {
-    Basic (VarDef def)
+| def = local_var_def; SEMICOLON {
+    def
 }
 (* nested block *)
-| s = block { s }
+| s = block { [s] }
 (* procedure call *)
 | e = call_expr; SEMICOLON {
   let assign =
@@ -441,7 +445,7 @@ stmt_wo_trailing_substmt:
            assign_is_init = false;
          }
   in
-  Stmt.(Basic (Assign assign))
+  [Stmt.(Basic (Assign assign))]
 }
 (* thread spawn *)
 | SPAWN; id = qual_ident; LPAREN; args = separated_list(COMMA, expr); RPAREN; SEMICOLON {
@@ -454,29 +458,11 @@ stmt_wo_trailing_substmt:
       call_is_init = false;
     }
   in
-  Basic (Call call)
+  [Basic (Call call)]
 }
-(* assignment / allocation *)
-| es = separated_nonempty_list(COMMA, expr); COLONEQ; e = assign_rhs; SEMICOLON {
-  let open Stmt in
-  match e with
-  | Basic (New new_descr) ->
-      (match es with
-      | [Expr.App(Expr.Var x, _, _)] -> Basic (New { new_descr with new_lhs = x })
-      | _ -> Error.syntax_error (Loc.make $startpos(es) $endpos(es)) ("Result of allocation must be assigned to a single variable"))
-  | Basic (Assign assign) ->
-      (match es with
-      | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))] ->
-          Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = assign.assign_rhs })
-      | _ ->
-          let vs = List.map (function
-            | Expr.(App (Var qual_ident, [], _))
-              when QualIdent.is_local qual_ident -> qual_ident
-            | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
-              es 
-          in
-          Basic (Assign { assign with assign_lhs = vs }))
-  | _ -> assert false
+(* assignment / allocation / cas ... *)
+| es = separated_nonempty_list(COMMA, expr); COLONEQ; rhs = assign_rhs; SEMICOLON {
+  [rhs (es, false)]
 }
 (* bind *)
 | es = separated_nonempty_list(COMMA, expr); COLONPIPE; e = expr; SEMICOLON {
@@ -491,11 +477,11 @@ stmt_wo_trailing_substmt:
            bind_rhs = mk_spec e;
          }
   in
-  Stmt.(Basic (Bind bind))
+  [Stmt.(Basic (Bind bind))]
 }
 (* havoc *)
 | HAVOC; id = qual_ident; SEMICOLON { 
-  Stmt.(Basic (Havoc (Expr.to_qual_ident id)))
+  [Stmt.(Basic (Havoc (Expr.to_qual_ident id)))]
 }
 
 (* assume / assert / inhale / exhale *)
@@ -516,25 +502,25 @@ stmt_wo_trailing_substmt:
   | [e] -> e
   | es -> Expr.mk_tuple ~loc:(Loc.make $startpos(es) $endpos(es)) es
   in
-  Stmt.(Basic (Return e))
+  [Stmt.(Basic (Return e))]
 }
 (* unfold / fold / openInv / closeInv *)
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN; SEMICOLON {
-  Stmt.(Basic (Use {
+  [Stmt.(Basic (Use {
     use_kind = use_kind; 
     use_name = Expr.to_qual_ident id; 
     use_args = es;
     use_witnesses_or_binds = []
-  }))
+  }))]
 }
 | use_kind = USE; id = qual_ident; LPAREN; es = separated_list(COMMA, expr); RPAREN;
   LBRACKET wtns = separated_list(COMMA, existential_witness_or_bind) RBRACKET SEMICOLON {
-  Stmt.(Basic (Use {
+  [Stmt.(Basic (Use {
     use_kind = use_kind; 
     use_name = Expr.to_qual_ident id; 
     use_args = es;
     use_witnesses_or_binds = wtns
-  }))
+  }))]
 }
 ;
 
@@ -552,7 +538,7 @@ with_clause:
                  spec_comment = None;
                  spec_error = []; }
     in
-    Basic (Spec (sk, spec))
+    [Basic (Spec (sk, spec))]
 }
 | WITH b = block; {
   let open Stmt in
@@ -590,29 +576,115 @@ with_clause:
             cond_if_assumes_false = false;
         }
         in
-        mk_block [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]
+        [mk_block [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]]
     | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
 }
   
 assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
-  let new_descr = Stmt.{
-    new_lhs = QualIdent.from_ident (Ident.make Loc.dummy "" 0);
-    new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
-  }
-  in
-  Stmt.(Basic (New new_descr))
+  function 
+    | [Expr.App(Expr.Var x, _, _)], _ ->
+        let new_descr = Stmt.{
+          new_lhs = x;
+          new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
+        }  
+        in
+        Stmt.(Basic (New new_descr))
+    | es, _ -> Error.syntax_error (es |> List.hd |> Expr.to_loc) ("Result of allocation must be assigned to a single variable")
 }
 | e = expr {
-  let assign =
-    Stmt.{ assign_lhs = [];
-           assign_rhs = e;
-           assign_is_init = false
+  function 
+    | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))], _ ->
+        Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = e })
+    | es, assign_is_init ->
+        let vs = List.map (function
+          | Expr.(App (Var qual_ident, [], _))
+            when QualIdent.is_local qual_ident -> qual_ident
+          | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
+            es 
+        in
+        Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init })
+}
+| CAS LPAREN cas_ref = qual_ident DOT cas_fld = qual_ident COMMA cas_old_val = expr COMMA cas_new_val = expr RPAREN {
+  function
+    | [Expr.(App (Var qual_ident, [], _))], atomic_inbuilt_is_init
+      when QualIdent.is_local qual_ident ->
+        let cas_desc = Stmt.{ cas_old_val; cas_new_val } in
+        let ais_desc = Stmt.{
+          atomic_inbuilt_lhs = qual_ident;
+          atomic_inbuilt_ref = cas_ref;
+          atomic_inbuilt_field = Expr.to_qual_ident cas_fld;
+          atomic_inbuilt_is_init;
+          atomic_inbuilt_kind = Cas cas_desc;
+        }
+        in
+        Stmt.(Basic (AtomicInbuilt ais_desc))
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of cas"
+    | [], _ -> assert false
+}
+| FAA LPAREN faa_ref = qual_ident DOT faa_fld = qual_ident COMMA faa_val = expr RPAREN {
+  function
+    | [Expr.(App (Var qual_ident, [], _))], atomic_inbuilt_is_init
+      when QualIdent.is_local qual_ident ->
+        let faa_desc = Stmt.{ faa_val } in
+        let ais_desc = Stmt.{
+          atomic_inbuilt_lhs = qual_ident;
+          atomic_inbuilt_ref = faa_ref;
+          atomic_inbuilt_field = Expr.to_qual_ident faa_fld;
+          atomic_inbuilt_is_init;
+          atomic_inbuilt_kind = Faa faa_desc;
+        }
+        in
+        Stmt.(Basic (AtomicInbuilt ais_desc))
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
+    | [], _ -> assert false
+}
+| XCHG LPAREN xchg_ref = qual_ident DOT xchg_fld = qual_ident COMMA xchg_new_val = expr RPAREN {
+  function
+    | [Expr.(App (Var qual_ident, [], _))], atomic_inbuilt_is_init
+      when QualIdent.is_local qual_ident ->
+        let xchg_desc = Stmt.{ xchg_new_val } in
+        let ais_desc = Stmt.{
+          atomic_inbuilt_lhs = qual_ident;
+          atomic_inbuilt_ref = xchg_ref;
+          atomic_inbuilt_field = Expr.to_qual_ident xchg_fld;
+          atomic_inbuilt_is_init;
+          atomic_inbuilt_kind = Xchg xchg_desc;
+        }
+        in
+        Stmt.(Basic (AtomicInbuilt ais_desc))
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
+    | [], _ -> assert false
+}
+
+local_var_def:
+| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
+  let decl =
+    Type.{ decl with
+           var_type = decl.var_type |> Type.set_ghost g;
+           var_ghost = g;
+           var_const = v;
          }
   in
-  Stmt.(Basic (Assign assign))
+  match e with
+  | Some rhs ->
+      let stmt = rhs ([Expr.from_var_decl decl], true) in
+      let var_init =
+        match stmt with
+        | Stmt.Basic (Assign assign_desc) -> Some assign_desc.assign_rhs
+        | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Cas _; _ }) -> Some (Expr.mk_bool ~loc:(Loc.make $startpos(e) $endpos(e)) true)
+        | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Faa _; _ }) -> Some (Expr.mk_int ~loc:(Loc.make $startpos(e) $endpos(e)) 0)
+        | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Xchg xchg_desc; _ }) -> 
+            Some xchg_desc.Stmt.xchg_new_val
+        | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())
+        | _ -> None
+      in
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init })); stmt]
+  | None ->
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None }))]
 }
- 
+
+    
 var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(EQ, expr)) {
   let decl =
@@ -634,6 +706,9 @@ var_def:
   in
   Stmt.{ var_decl = decl; var_init = Some e }
 }
+
+
+
     
 ghost_modifier:
 | GHOST { true }
@@ -647,12 +722,15 @@ var_modifier:
 
   
 block:
-| LBRACE; stmts = stmt_list_opt; RBRACE { Stmt.mk_block stmts }
+| LBRACE; stmts = list(stmt); RBRACE { Stmt.mk_block (List.flatten stmts) }
 ;
 
-stmt_list_opt:
-| s = stmt; stmts = stmt_list_opt { s :: stmts }
-| (* empty *) { [] }
+ghost_block:
+| LGHOSTBRACE; stmts = list(stmt); RGHOSTBRACE {
+  [Stmt.mk_block ~ghost:true (List.flatten stmts)]
+}
+;
+
       
 (*
 assign_lhs_list:
@@ -671,12 +749,12 @@ if_then_stmt:
 | IF; LPAREN; e = expr; RPAREN; st = stmt  {
   let cond =
     Stmt.{ cond_test = Some e;
-           cond_then = st;
+           cond_then = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(st) $endpos(st)) st;
            cond_else = mk_skip ~loc:(Loc.make $endpos $endpos);
            cond_if_assumes_false = false;
          }
   in
-  Stmt.(Cond cond)
+  [Stmt.(Cond cond)]
 }
 ;
 
@@ -685,11 +763,11 @@ if_then_else_stmt:
   let cond =
     Stmt.{ cond_test = Some e;
            cond_then = st;
-           cond_else = se;
+           cond_else = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(se) $endpos(se)) se;
            cond_if_assumes_false = false;
          }
   in
-  Stmt.(Cond cond)
+  [Stmt.(Cond cond)]
 }
 ;
 
@@ -702,7 +780,7 @@ if_then_else_stmt_no_short_if:
            cond_if_assumes_false = false;
          }
   in
-  Stmt.(Cond cond)
+  [Stmt.(Cond cond)]
 }
 ;
   
@@ -715,17 +793,17 @@ while_stmt:
            loop_postbody = { stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) };
          }
   in
-  Stmt.Loop loop
+  [Stmt.Loop loop]
 }
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt {
   let loop =
     Stmt.{ loop_contract = [];
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
-           loop_postbody = s;
+           loop_postbody = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(s) $endpos(s)) s;
          }
   in
-  Stmt.Loop loop
+  [Stmt.Loop loop]
 }
 ;
 
@@ -738,7 +816,7 @@ while_stmt_no_short_if:
            loop_postbody = s;
          }
   in
-  Stmt.Loop loop
+  [Stmt.Loop loop]
 } 
 ;
 
@@ -769,11 +847,6 @@ loop_contract:
 }
 ;
 
-ghost_block:
-| LGHOSTBRACE; stmts = stmt_list_opt; RGHOSTBRACE {
-  Stmt.mk_block ~ghost:true stmts
-}
-;
 (** Expressions *)
 
 primary:
@@ -784,7 +857,6 @@ primary:
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
-| e = cas_expr { e }
 | e = au_expr { e }
 ;
 
@@ -810,10 +882,10 @@ own_expr:
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Own es)
 }
 
-cas_expr:
+(*cas_expr:
 | CAS; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Cas es)
-}
+}*)
 
 au_expr:
 | AU; LPAREN; c = qual_ident; es = expr_list; RPAREN {

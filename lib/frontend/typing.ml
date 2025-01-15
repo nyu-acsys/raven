@@ -596,57 +596,6 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
       | DataDestr _, _ ->
           Error.type_error (Expr.to_loc expr)
             (Expr.constr_to_string constr ^ " takes exactly one argument")
-      (* Cas expressions *)
-      | Cas, [ expr1; expr2; expr3 ] -> (
-          match expr1 with
-          | App
-              ( Read,
-                [ expr11; App (Var qual_ident, [], expr_attr') ],
-                expr_attr'' ) -> (
-              let* qual_ident, symbol =
-                Rewriter.resolve_and_find qual_ident
-              in
-              let* symbol = Rewriter.Symbol.reify symbol in
-              match symbol with
-              | FieldDef { field_type = App (Fld, [ expected_fld_typ ], _) as tp; _ }
-                ->
-                  let expected_fld_typ = expected_fld_typ |> Type.set_ghost_to expected_typ in
-                  let* expanded_type =
-                    ProcessTypeExpr.expand_type_expr expected_fld_typ
-                  in
-                  if
-                    Type.(
-                      expanded_type = int || expanded_type = bool
-                      || expanded_type = ref)
-                  then
-                    let* expr11 = process_expr expr11 (Type.ref |> Type.set_ghost_to expected_typ) in
-                    let expr12 = Expr.App (Var qual_ident, [], expr_attr') in
-                    let expr12 = Expr.set_type expr12 tp in
-                    let* expr2 = process_expr expr2 expected_fld_typ in
-                    let* expr3 = process_expr expr3 expected_fld_typ in
-                    let expr1 =
-                      Expr.App (Read, [ expr11; expr12 ], expr_attr'')
-                    in
-                    let expr1 = Expr.set_type expr1 expected_fld_typ in
-                    let expr =
-                      Expr.App (Cas, [ expr1; expr2; expr3 ], expr_attr)
-                    in
-                    check_and_set expr Type.bool Type.bool expected_typ
-                  else
-                    Error.type_error (Expr.to_loc expr)
-                      ("cas only allowed over word-sized types Int, Bool, and Ref but found "
-                     ^ Type.to_string expected_fld_typ)
-              | _ ->
-                  Error.type_error (Expr.to_loc expr)
-                    ("Expected field identifier, but found "
-                    ^ QualIdent.to_string qual_ident))
-          | _ ->
-              Error.type_error (Expr.to_loc expr)
-                ("Incorrect type in the first argument of "
-                ^ Expr.constr_to_string constr))
-      | Cas, _expr_list ->
-          Error.type_error (Expr.to_loc expr)
-            (Expr.constr_to_string constr ^ " takes exactly three arguments")
       (* Read expressions *)
       | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
          let* qual_ident, symbol =
@@ -1253,24 +1202,7 @@ module ProcessCallable = struct
           (VarDef { var_decl; var_init = None })
       in
       let var = QualIdent.from_ident var_decl.var_name in
-      begin match var_def.var_init with
-        | None ->
-          Rewriter.return @@ (Stmt.Havoc var, disam_tbl')
-        | Some expr ->
-          let assign_desc =
-            Stmt.
-              {
-                assign_lhs = [ var_def.var_decl.var_name |> QualIdent.from_ident ];
-                assign_rhs = expr;
-                assign_is_init = true;
-              }
-          in
-          process_basic_stmt 
-            call_decl
-            (Assign assign_desc)
-            stmt_loc
-            disam_tbl'
-      end
+      Rewriter.return @@ (Stmt.Havoc var, disam_tbl')
     | Spec (sk, spec) ->
       let+ spec = process_stmt_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
@@ -1369,43 +1301,10 @@ module ProcessCallable = struct
                 m "process_stmt: disam_assign_rhs: %a" Expr.pr
                   assign_rhs);
             
-            match assign_rhs with 
-            | App
-                ( Cas,
-                  [
-                    App (Read, [ ref_expr; field_expr ], _);
-                    old_val_expr;
-                    new_val_expr;
-                  ],
-                  _ ) ->
-              Logs.debug (fun m ->
-                  m "process_stmt: cas_assign_rhs: %a" Expr.pr
-                    assign_rhs);
-              let field_qual_ident = Expr.to_qual_ident field_expr in
-              let cas_lhs =
-                match var_decls_lhs with
-                | [ lhs ] -> lhs.var_name |> QualIdent.from_ident
-                | _ ->
-                  Error.type_error stmt_loc
-                    "Expected exactly one variable on left-hand side of cas"
-              in
-              
-              let cas_desc =
-                Stmt.
-                  {
-                    cas_lhs;
-                    cas_field = field_qual_ident;
-                    cas_ref = ref_expr;
-                    cas_old_val = old_val_expr;
-                    cas_new_val = new_val_expr;
-                  }
-              in
-              Rewriter.return (Stmt.Cas cas_desc, disam_tbl)
-            | _ ->
-              let assign_desc =
-                Stmt.{ assign_desc with assign_lhs; assign_rhs }
-              in
-              Rewriter.return (Stmt.Assign assign_desc, disam_tbl)
+            let assign_desc =
+              Stmt.{ assign_desc with assign_lhs; assign_rhs }
+            in
+            Rewriter.return (Stmt.Assign assign_desc, disam_tbl)
       end
     | Bind bind_desc ->
       let* bind_lhs, _ =
@@ -1464,71 +1363,71 @@ module ProcessCallable = struct
           }
       in
       (Stmt.FieldRead field_read_desc, disam_tbl)
-    | Cas cs_desc -> (
+    | AtomicInbuilt ais_desc ->
         let _ =
           if is_ghost_scope then
             Error.type_error stmt_loc "Cannot use cas in a ghost context"
         in
-        let* cs_var_qual_ident, var_decl = get_assign_lhs cs_desc.cas_lhs ~is_init:false in
+        let* atomic_inbuilt_lhs, var_decl = get_assign_lhs ais_desc.atomic_inbuilt_lhs ~is_init:ais_desc.atomic_inbuilt_is_init in
         (*let* cs_var_qual_ident =
           disambiguate_ident cs_desc.cas_lhs disam_tbl
         in
           Rewriter.resolve_and_find cs_var_qual_ident
         in
-        let* symbol = Rewriter.Symbol.reify symbol in*)
-        let* cs_type =
-          let* var_type_expanded =
-            ProcessTypeExpr.expand_type_expr
-              var_decl.var_type
-          in
-          Rewriter.return var_type_expanded
+          let* symbol = Rewriter.Symbol.reify symbol in*)
+        let* atomic_inbuilt_field, symbol =
+          Rewriter.resolve_and_find ais_desc.atomic_inbuilt_field
         in
-        let expr_attr =
-          { Expr.expr_loc = stmt_loc; expr_type = Type.bot }
+        let* symbol = Rewriter.Symbol.reify symbol in
+        let* ais_fld_type, ais_fld_type_full = match symbol with
+          | FieldDef { field_type = App (Fld, [ expected_fld_typ ], _) as tp; _ }
+            ->
+            let* expanded_type =
+              ProcessTypeExpr.expand_type_expr expected_fld_typ
+            in
+            if
+              Type.(
+                expanded_type = int || expanded_type = bool
+                || expanded_type = ref)
+            then Rewriter.return (expanded_type, tp)
+            else
+              Error.type_error (QualIdent.to_loc ais_desc.atomic_inbuilt_field)
+                (Printf.sprintf !"%s only allowed over word-sized types Int, Bool, and Ref but found %{Type}"
+                 (Stmt.atomic_inbuilt_string ais_desc.atomic_inbuilt_kind) expected_fld_typ)
+          | _ ->
+              Error.type_error (QualIdent.to_loc ais_desc.atomic_inbuilt_field)
+              ("Expected field identifier, but found "
+               ^ QualIdent.to_string ais_desc.atomic_inbuilt_field)
         in
-        let cas_expr =
-          Expr.App
-            ( Cas,
-              [
-                App
-                  ( Read,
-                    [
-                      cs_desc.cas_ref;
-                      App (Var cs_desc.cas_field, [], expr_attr);
-                    ],
-                    expr_attr );
-                cs_desc.cas_old_val;
-                cs_desc.cas_new_val;
-              ],
-              { Expr.expr_loc = stmt_loc; expr_type = Type.bool }
-            )
+        let* atomic_inbuilt_ref = disambiguate_process_expr ais_desc.atomic_inbuilt_ref Type.ref disam_tbl in
+        let+ atomic_inbuilt_kind = match ais_desc.atomic_inbuilt_kind with
+          | Cas cas_desc ->
+            let* cas_old_val = disambiguate_process_expr cas_desc.cas_old_val ais_fld_type disam_tbl in
+            let* cas_new_val = disambiguate_process_expr cas_desc.cas_new_val ais_fld_type disam_tbl in
+            let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (Type.bool |> Type.set_ghost_to var_decl.var_type) disam_tbl in
+            Stmt.Cas { cas_old_val; cas_new_val }
+          | Faa faa_desc ->
+            let* _ = disambiguate_process_expr (Expr.mk_var ~typ:ais_fld_type_full ais_desc.atomic_inbuilt_field) Type.int disam_tbl in
+            let* faa_val = disambiguate_process_expr faa_desc.faa_val ais_fld_type disam_tbl in
+            let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (ais_fld_type |> Type.set_ghost_to var_decl.var_type) disam_tbl in
+            Stmt.Faa { faa_val }
+          | Xchg xchg_desc ->
+            let* xchg_new_val = disambiguate_process_expr xchg_desc.xchg_new_val ais_fld_type disam_tbl in
+            let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (ais_fld_type |> Type.set_ghost_to var_decl.var_type) disam_tbl in
+            Stmt.Xchg { xchg_new_val }
         in
         
-        let+ cas_expr =
-          disambiguate_process_expr cas_expr cs_type disam_tbl
+        let ais_desc =
+          Stmt.
+            {
+              ais_desc with
+              atomic_inbuilt_lhs;
+              atomic_inbuilt_ref;
+              atomic_inbuilt_field;
+              atomic_inbuilt_kind;
+            }
         in
-        
-        match cas_expr with
-        | App
-            ( Cas,
-              [
-                App (Read, [ cas_ref; App (Var cas_field, [], _) ], _);
-                cas_old_val;
-                cas_new_val;
-              ],
-              _ ) ->
-          let cas_desc =
-            Stmt.
-              {
-                cas_lhs = cs_var_qual_ident;
-                cas_field;
-                cas_ref;
-                cas_old_val;
-                cas_new_val;
-              }
-          in
-          (Stmt.Cas cas_desc, disam_tbl)
-        | _ -> failwith "Unexpected error during type checking.")
+        (Stmt.AtomicInbuilt ais_desc, disam_tbl)
     | Havoc qual_ident ->
       let+ qual_ident, _ = get_assign_lhs qual_ident ~is_init:false in
       Stmt.Havoc qual_ident, disam_tbl

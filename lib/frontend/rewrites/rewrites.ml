@@ -959,45 +959,62 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 let rec rewrite_cas_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
-  | Basic (Cas cas_desc) ->
+  | Basic (AtomicInbuilt ais_desc) ->
       let new_var_name =
-        Ident.fresh stmt.stmt_loc (QualIdent.to_string cas_desc.cas_lhs ^ "$cas")
+        Ident.fresh stmt.stmt_loc (QualIdent.to_string ais_desc.atomic_inbuilt_lhs ^ "$" ^ Stmt.atomic_inbuilt_string ais_desc.atomic_inbuilt_kind)
+      in
+      let new_var_decl_typ = match ais_desc.atomic_inbuilt_kind with
+        | Cas cas_desc -> Expr.to_type cas_desc.cas_old_val
+        | Faa _ -> Type.int
+        | Xchg xchg_desc -> Expr.to_type xchg_desc.xchg_new_val
       in
       let new_var_decl =
         Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true new_var_name
-          (Expr.to_type cas_desc.cas_old_val)
+          new_var_decl_typ
       in
-      let* _ =
+      let+ _ =
         Rewriter.introduce_symbol
           (Module.VarDef { var_decl = new_var_decl; var_init = None })
       in
       let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
       let read_stmt =
         Stmt.mk_field_read ~loc:stmt.stmt_loc new_var_qualident
-          cas_desc.cas_field cas_desc.cas_ref
+          ais_desc.atomic_inbuilt_field ais_desc.atomic_inbuilt_ref
       in
-      let test_ =
-        Some
-          (Expr.mk_eq ~loc:stmt.stmt_loc
-             (Expr.from_var_decl new_var_decl)
-             cas_desc.cas_old_val)
+      let ais_stmts =
+        match ais_desc.atomic_inbuilt_kind with
+        | Cas cas_desc ->
+          let test_ =
+            Some
+              (Expr.mk_eq ~loc:stmt.stmt_loc
+                 (Expr.from_var_decl new_var_decl)
+                 cas_desc.cas_old_val)
+          in
+          let then1_ =
+            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool true)
+          in
+          let then2_ =
+            Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field cas_desc.cas_new_val
+          in
+          let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ then1_; then2_ ] in
+          let else_ =
+            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool false)
+          in
+          [Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_]
+        | Faa faa_desc ->
+          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
+              (Expr.mk_app ~typ:Type.int Expr.Plus [Expr.from_var_decl new_var_decl; faa_desc.faa_val]);
+            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
+        | Xchg xchg_desc ->
+          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
+              xchg_desc.xchg_new_val;
+            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
+           
       in
-      let then1_ =
-        Stmt.mk_assign ~loc:stmt.stmt_loc [ cas_desc.cas_lhs ] (Expr.mk_bool true)
-      in
-      let then2_ =
-        Stmt.mk_field_write ~loc:stmt.stmt_loc cas_desc.cas_ref cas_desc.cas_field cas_desc.cas_new_val
-      in
-      let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ then1_; then2_ ] in
-      let else_ =
-        Stmt.mk_assign ~loc:stmt.stmt_loc [ cas_desc.cas_lhs ] (Expr.mk_bool false)
-      in
-      let ite_stmt = Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_ in
       let new_stmts =
-        Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ read_stmt; ite_stmt ]
+        Stmt.mk_block_stmt ~loc:stmt.stmt_loc (read_stmt :: ais_stmts)
       in
-
-      Rewriter.return new_stmts
+      new_stmts
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_cas_stmts
 
 (** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. *)
@@ -2875,7 +2892,7 @@ Specification Count: %d"
       | _ -> { init_prog_stats with proof_remaining_instr = 1; }
       end
     
-    | Cas _ | Return _ -> 
+    | AtomicInbuilt _ | Return _ -> 
       let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 
