@@ -66,7 +66,7 @@ module TicketLock[R: LockResource] {
       );
       fold lock_inv(l, r)[b := lockAcq];
       
-      var crr: Int = -1;
+      var crr: Int := -1;
       while (nxt != crr)
         invariant lock_inv(l, r) && (
           nxt == crr ? resource(r) :

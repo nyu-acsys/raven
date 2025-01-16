@@ -74,7 +74,7 @@ module TicketLock[R: LockResource] : Lock {
     atomic requires is_lock(l, r, b)
     atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
-    ghost val phi = bindAU();
+    ghost val phi := bindAU();
         
     r, b := openAU(phi);
     unfold lock_rep(l, b);
@@ -113,7 +113,7 @@ module TicketLock[R: LockResource] : Lock {
     atomic requires is_lock(l, r, true) && resource(r)
     atomic ensures is_lock(l, r, false)
   {
-    ghost val phi = bindAU();  
+    ghost val phi := bindAU();  
     r := openAU(phi);
     unfold lock_rep(l, true);
     val c: Int := l.curr;
