@@ -1,5 +1,8 @@
 #!/bin/bash
 
+WARMUP=2
+RUNS=3
+
 FILES=(
   "test/comparison/peterson.rav"
   "test/comparison/bounded_counter.rav"
@@ -11,29 +14,39 @@ FILES=(
   "test/concurrent/lock/mcs-lock.rav"
   "test/comparison/msc_queue.rav"
   "test/comparison/queue.rav"
-  # 
+  ""
   "test/comparison/rwlock_duolock.rav"
   "test/comparison/rwlock_lockless_faa.rav"
   "test/comparison/rwlock_ticket_bounded.rav"
   "test/comparison/rwlock_ticket_unbounded.rav"
-  # 
+  "" 
   "test/comparison/fork_join_client.rav"
-  #
+  ""
   "test/concurrent/lock/spin-lock_compact.rav"
   "test/concurrent/lock/ticket-lock.rav"
   "test/comparison/arc.rav"
   "test/concurrent/treiber_stack/treiber_stack_atomics.rav"
   "test/concurrent/counter/counter_monotonic.rav"
-  "test/concurrent/templates/bplustree.rav"
-  #
+  ""
   "test/comparison/tokens.rav"
+  ""
+  "test/concurrent/templates/ccm.rav"
+  "test/concurrent/templates/flows_ra.rav"
+  "test/concurrent/templates/keyset_ra.rav"
+  "test/concurrent/templates/give-up.rav"
+  "test/concurrent/templates/bplustree.rav"
 )
 
 # Initialize CSV file
 CSV_FILE="./benchmarks.csv"
-echo "File,Line Count,Program Declarations,Proof Declarations,Program Instructions,Proof Instructions,Proof Predicate Instructions,Proof Invariant Instructions,Proof Atomicity Instructions,Proof Remaining Instructions,Specification Count" > "$CSV_FILE"
+echo "File,Program Length,Proof Declarations,Proof Instructions,Runtime" > "$CSV_FILE"
 
 for file in "${FILES[@]}"; do
+  if [ -z "$file" ]; then
+    echo "" >> "$CSV_FILE"
+    continue
+  fi
+
   echo "Running file $file"
   line_count=$(wc -l < "$file")
   output=$(raven "$file" --stats)
@@ -48,7 +61,13 @@ for file in "${FILES[@]}"; do
   proof_atomicity_instructions=$(echo "$output" | grep "Proof Atomicity Instructions" | awk '{print $4}')
   proof_remaining_instructions=$(echo "$output" | grep "Proof Remaining Instructions" | awk '{print $4}')
   specification_count=$(echo "$output" | grep "Specification Count" | awk '{print $3}')
+  program_length=$((program_declarations + program_instructions))
+
+  # Run hyperfine to measure runtime
+  runtime=$(hyperfine --warmup $WARMUP --runs $RUNS "raven \"$file\"" --export-json /tmp/hyperfine.json)
+  runtime=$(jq '.results[0].mean' /tmp/hyperfine.json)
+  runtime=$(printf "%.3f" "$runtime")
   
   # Append statistics to CSV file
-  echo "$file,$line_count,$program_declarations,$proof_declarations,$program_instructions,$proof_instructions,$proof_predicate_instructions,$proof_invariant_instructions,$proof_atomicity_instructions,$proof_remaining_instructions,$specification_count" >> "$CSV_FILE"
+  echo "$file,$program_length,$proof_declarations,$proof_instructions,$runtime" >> "$CSV_FILE"
 done
