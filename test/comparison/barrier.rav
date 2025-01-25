@@ -1,6 +1,6 @@
 include "tokens.rav"
 
-interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
+interface Barrier[P1: ShareablePredicate, P2: ShareablePredicate] {
 
     // the implementation is parametric over the number of threads and a resource predicate
     val threads: Int
@@ -26,64 +26,49 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
     module Tk1 = Tokens[P1]
     module Tk2 = Tokens[P2]
 
-    module IntType : Library.Type {
-        rep type T = Int
-    }
-
-    module IntSet = Library.DisjSet[IntType]
-    module AuthDisj = Library.Auth[IntSet]
-    module ExclInt = Library.Excl[IntType]
-    module AuthExcl = Library.Auth[ExclInt]
+    module IntSet = Library.DisjSet[Library.IntType]
 
     // definitions
 
     field ctr: Int
-    ghost field tickets: AuthDisj
-    ghost field excl: AuthExcl
+    ghost field tickets: IntSet
+    ghost field frac: Int
 
     func abs(n: Int) returns (res: Int) {
         n >= 0 ? n : -n 
     }
 
-    func tickets_leq_auth(n: Int) returns (res: AuthDisj) {
-        AuthDisj.auth(IntSet.set({| i: Int :: 0 <= i && i <= n |}))
+    func tickets_geq(n: Int) returns (res: IntSet) {
+        IntSet.set({| i: Int :: i > n |})
     }
 
-    func ticket_frag(n: Int) returns (res: AuthDisj) {
-        AuthDisj.frag(IntSet.set({|n|}))
-    }
-
-    func auth_excl(n: Int) returns (res: AuthExcl) {
-        AuthExcl.auth(ExclInt.excl(n))
-    }
-
-    func frag_excl(n: Int) returns (res: AuthExcl) {
-        AuthExcl.frag(ExclInt.excl(n))
+    func ticket(n: Int) returns (res: IntSet) {
+        IntSet.set({| n+1 |})
     }
 
     pred z_lt_threads(l: Ref, z: Int) {
         exists b1: Bool, b2: Bool ::
             b1 ?
-                (own(l.tickets, ticket_frag(z)) &&
+                (own(l.tickets, ticket(z)) &&
                 (b2 ?
-                    (own(l.tickets, ticket_frag(0)) && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads - z))
+                    (own(l.tickets, ticket(0)) && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads - z))
                 :
-                    (own(l.excl, frag_excl(z)) && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads - z))))
+                    (own(l.frac, z, 0.5) && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads - z))))
             :
-                (own(l.excl, frag_excl(z)) && own(l.tickets, ticket_frag(0)) 
+                (own(l.frac, z, 0.5) && own(l.tickets, ticket(0)) 
                 && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads - z))
     }
 
     pred z_gt_neg_threads(l: Ref, z: Int) {
         exists b1: Bool, b2: Bool ::
             b1 ?
-                (own(l.tickets, ticket_frag(-z)) &&
+                (own(l.tickets, ticket(-z)) &&
                 (b2 ?
-                    (own(l.tickets, ticket_frag(0)) && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads + z))
+                    (own(l.tickets, ticket(0)) && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads + z))
                 :
-                    (own(l.excl, frag_excl(z)) && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads + z))))
+                    (own(l.frac, z, 0.5) && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads + z))))
             :
-                (own(l.excl, frag_excl(z)) && own(l.tickets, ticket_frag(0)) 
+                (own(l.frac, z, 0.5) && own(l.tickets, ticket(0)) 
                 && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads + z))
     }
 
@@ -92,14 +77,14 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
             Tk1.noTokens(l, 1.0) 
         && Tk2.noTokens(l, 1.0) 
         && P1.p_chunk(l, 1.0)
-        && own(l.tickets, ticket_frag(threads))
-        && (b ? own(l.tickets, ticket_frag(0)) : own(l.excl, frag_excl(z))) 
+        && own(l.tickets, ticket(threads))
+        && (b ? own(l.tickets, ticket(0)) : own(l.frac, z, 0.5)) 
     }
 
-    pred z_eq_zero(l: Ref, z: Int) {
+    pred z_eq_zero(l: Ref) {
         exists b: Bool ::
-                own(l.tickets, ticket_frag(0))
-            && own(l.excl, frag_excl(z))
+                own(l.tickets, ticket(0))
+            && own(l.frac, 0, 0.5)
             && (b ?
                     (Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads))
                 :
@@ -109,47 +94,14 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
     inv is_barrier(l: Ref) {
         exists z: Int ::
             own(l.ctr, z)
-        && own(l.tickets, tickets_leq_auth(abs(z)))
-        && own(l.excl, auth_excl(z))
+        && own(l.tickets, tickets_geq(abs(z) + 1))
+        && own(l.frac, z, 0.5)
         && resource()
-        && (z == 0 ? z_eq_zero(l, z) : 
+        && (z == 0 ? z_eq_zero(l) : 
             (abs(z) == threads ? z_eq_threads(l, z) :
             (0 < z ? z < threads && z_lt_threads(l, z) :
-            -threads < z && z < 0 && z_gt_neg_threads(l, z))))
+            (-threads < z && z < 0 && z_gt_neg_threads(l, z)))))
     }
-
-    lemma auth_disj_fpu_incr(l: Ref, z: Int)
-        requires z >= 0
-        requires own(l.tickets, tickets_leq_auth(z))
-        ensures own(l.tickets, tickets_leq_auth(z+1)) && own(l.tickets, ticket_frag(z+1))
-    {
-        fpu(l.tickets,
-            tickets_leq_auth(z),
-            AuthDisj.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i <= z+1|}), IntSet.set({|z+1|})  )
-        );
-    }
-
-    lemma auth_disj_fpu_decr(l: Ref, z: Int)
-        requires z > 0
-        requires own(l.tickets, AuthDisj.auth_frag(IntSet.set({|i: Int :: 0 <= i && i <= z|}), IntSet.set({|z|})))
-        ensures own(l.tickets, tickets_leq_auth(z-1))
-    {
-        fpu(l.tickets,
-            AuthDisj.auth_frag(  IntSet.set({|i: Int :: 0 <= i && i <= z|}), IntSet.set({|z|})  ),
-            tickets_leq_auth(z-1)
-        );
-    }
-
-    lemma auth_excl_fpu(l: Ref, z: Int, w: Int)
-        requires own(l.excl, AuthExcl.auth_frag(ExclInt.excl(z), ExclInt.excl(z)))
-        ensures own(l.excl, AuthExcl.auth_frag(ExclInt.excl(w), ExclInt.excl(w)))
-    {
-        fpu(l.excl,
-            AuthExcl.auth_frag(ExclInt.excl(z), ExclInt.excl(z)),
-            AuthExcl.auth_frag(ExclInt.excl(w), ExclInt.excl(w))
-        );
-    }
-
 
     // algorithms
 
@@ -162,8 +114,8 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
 
         l := new(
             ctr: 0, 
-            tickets: AuthDisj.auth_frag(IntSet.set({|0|}), IntSet.set({|0|})),
-            excl: AuthExcl.auth_frag(ExclInt.excl(0), ExclInt.excl(0)),
+            tickets: tickets_geq(-1),
+            frac: 0,
             Tk1.v: TokenRA.noToken(1.0),
             Tk2.v: TokenRA.noToken(1.0)
         );
@@ -173,9 +125,10 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
 
         Tk1.token_mutate_generate_n(l, threads);
 
-        fold z_eq_zero(l, 0)[b := true];
+        fold z_eq_zero(l)[b := true];
 
         fold is_barrier(l);
+        return l;
     }
 
     proc peek(l: Ref)
@@ -194,9 +147,8 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
     proc sync_up_enter(l: Ref)
         returns (z: Int)
         requires is_barrier(l) && Tk1.token(l)
-        ensures 0 <= z && own(l.tickets, ticket_frag(z))
+        ensures 0 <= z && own(l.tickets, ticket(z))
     {
-        assume false;
         {! threads_gt_zero(); !}
 
         z := peek(l);
@@ -209,20 +161,9 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
                 if (b) {
                     if (z == 0) {
                         ghost var b1: Bool;
-                        unfold z_eq_zero(l, z)[b1 := b];
+                        unfold z_eq_zero(l)[b1 := b];  
 
                         if (!b1) { Tk1.token_noTokens_interact(l, 1.0); }
-
-                        auth_excl_fpu(l, z, z+1);
-                        auth_disj_fpu_incr(l, z);
-
-                        if (threads == z+1) {
-                            Tk1.token_mutate_decr_last(l);
-                            fold z_eq_threads(l, z+1)[b := false];
-                        } else {
-                            Tk1.token_mutate_decr(l, threads - z);
-                            fold z_lt_threads(l, z+1)[b1 := true, b2 := false];
-                        }
                     } else {
                         if (z == threads) {
                             unfold z_eq_threads(l, z);
@@ -234,25 +175,22 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
 
                         if (!b1) { Tk1.token_noTokens_interact(l, 1.0); }
                         if (b2) { Tk1.token_noTokens_interact(l, 1.0); }
-
-                        auth_excl_fpu(l, z, z+1);
-                        auth_disj_fpu_incr(l, z);
-
-                        if (threads == z+1) {
-                            Tk1.token_mutate_decr_last(l);
-                            fold z_eq_threads(l, z+1)[b := false];
-                        } else {
-                            Tk1.token_mutate_decr(l, threads - z);
-                            fold z_lt_threads(l, z+1)[b1 := true, b2 := false];
-                        }
                     }
-                    assert own(l.tickets, ticket_frag(z));
+
+                    fpu(l.frac, z, z+1);
+                    if (threads == z+1) {
+                        Tk1.token_mutate_decr_last(l);
+                        fold z_eq_threads(l, z+1)[b := false];
+                    } else {
+                        Tk1.token_mutate_decr(l, threads - z);
+                        fold z_lt_threads(l, z+1)[b1 := true, b2 := false];
+                    }
                 }
             !}
             fold is_barrier(l);
 
             if (b) {
-                assert own(l.tickets, ticket_frag(z));
+                assert own(l.tickets, ticket(z));
                 return z;
             } else {
                 z := sync_up_enter(l);
@@ -266,7 +204,7 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
 
     proc sync_up_exit(l: Ref, v: Int)
         requires is_barrier(l)
-        requires 0 <= v && own(l.tickets, ticket_frag(v))
+        requires 0 <= v && own(l.tickets, ticket(v))
         ensures Tk2.token(l)
     {
         {! threads_gt_zero(); !}
@@ -275,6 +213,27 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
 
         unfold is_barrier(l);
         var z: Int := l.ctr;
+        {!
+            if (z == w) { 
+                if (v == 0) {
+                    // z == w == threads
+                    ghost var b: Bool;
+                    unfold z_eq_threads(l, z)[b := b];
+                    if (b) { assert false; }
+                    fold z_eq_threads(l, z)[b := true];
+                } else {
+                    if (v == abs(threads)) {
+                        ghost var b: Bool;
+                        unfold z_eq_threads(l, z)[b := b];
+                    }
+
+                    ghost var b1: Bool; ghost var b2: Bool;
+                    unfold z_lt_threads(l, z)[b1 := b1, b2 := b2];
+                    if (b1) { assert false; }
+                    fold z_lt_threads(l, z)[b1 := true, b2 := true];
+                }
+            }
+        !}
         fold is_barrier(l);
 
         if (z == w) {
@@ -283,46 +242,195 @@ interface RWLockLocklessFAA[P1: ShareablePredicate, P2: ShareablePredicate] {
             l.ctr := z-1;
             
             {!
-                if (v == 0 && z0 == 0) {
-                    unfold z_eq_zero(l, z0);
-                    assert false;
-                    fold is_barrier(l);
-                } else if (v == 0 && abs(z0) == threads) {
+                assert (z0 == z);
+                if (v == 0) {
+                    // z0 == z == w == threads
                     ghost var b: Bool;
-                    unfold z_eq_threads(l, z0)[b := b];
-                    if (b) { assert false; }
+                    unfold z_eq_threads(l, z)[b := b];
+                    if (!b) { assert false; }
 
                     p1_to_p2(l);
                     Tk2.token_mutate_generate(l);
-                    auth_excl_fpu(l, z0, z-1);
-                    auth_disj_fpu_decr(l, threads);
-
-                    if (threads == 1) {
-                        fold z_eq_zero(l, z-1)[b := false];
-                        fold is_barrier(l)[z := z-1]; 
-                    } else {
-                        // b2 supplied to suppress warning
-                        fold z_lt_threads(l, z-1)[b1 := false, b2 := true];
-                        fold is_barrier(l);
-                    }
-                } else if (v == 0) {
-
-                    assume false;
-                    fold is_barrier(l); 
                 } else {
-                    assume false;
-                    fold is_barrier(l); 
+                    // z0 == z == w == v
+                    if (v == abs(threads)) {
+                        ghost var b: Bool;
+                        unfold z_eq_threads(l, z)[b := b];
+                    }
+
+                    ghost var b1: Bool; ghost var b2: Bool;
+                    unfold z_lt_threads(l, z)[b1 := b1, b2 := b2];
+                    if (!b1) { assert false; }
+                    if (!b2) { assert false; }
+
+                    Tk2.token_mutate_incr(l, threads - z);
+                }
+                fpu(l.frac, z, z-1);
+
+                if (z-1 == 0) {
+                    fold z_eq_zero(l)[b := false];
+                } else {
+                    // b2 supplied to suppress warning
+                    fold z_lt_threads(l, z-1)[b1 := false, b2 := true];
                 }
             !}
+            fold is_barrier(l);
 
         } else {
             sync_up_exit(l, v);
         }
     }
 
+    proc sync_up(l: Ref)
+        requires is_barrier(l) && Tk1.token(l)
+        ensures Tk2.token(l)
+    {
+        var z: Int := sync_up_enter(l);
+        sync_up_exit(l, z);
+    }
 
+    proc sync_down_enter(l: Ref)
+        returns (z: Int)
+        requires is_barrier(l) && Tk2.token(l)
+        ensures 0 <= z && own(l.tickets, ticket(z))
+    {
+        {! threads_gt_zero(); !}
 
+        z := peek(l);
 
+        if (z <= 0) {
+            unfold is_barrier(l);
+            var b: Bool := cas(l.ctr, z, z-1);
 
+            {!
+                if (b) {
+                    if (z == 0) {
+                        ghost var b1: Bool;
+                        unfold z_eq_zero(l)[b1 := b];  
 
+                        if (b1) { Tk2.token_noTokens_interact(l, 1.0); }
+                    } else {
+                        if (z == -threads) {
+                            unfold z_eq_threads(l, z);
+                            Tk2.token_noTokens_interact(l, 1.0);
+                        }
+
+                        ghost var b1: Bool; ghost var b2: Bool;
+                        unfold z_gt_neg_threads(l, z)[b1 := b1, b2 := b2];
+
+                        if (!b1) { Tk2.token_noTokens_interact(l, 1.0); }
+                        if (b2) { Tk2.token_noTokens_interact(l, 1.0); }
+                    }
+
+                    fpu(l.frac, z, z-1);
+                    if (-threads == z-1) {
+                        Tk2.token_mutate_decr_last(l);
+                        p2_to_p1(l);
+                        fold z_eq_threads(l, z-1)[b := false];
+                    } else {
+                        Tk2.token_mutate_decr(l, threads + z);
+                        fold z_gt_neg_threads(l, z-1)[b1 := true, b2 := false];
+                    }
+                }
+            !}
+            fold is_barrier(l);
+
+            if (b) {
+                assert own(l.tickets, ticket(-z));
+                return -z;
+            } else {
+                z := sync_down_enter(l);
+                return z;
+            }
+        } else {
+            z := sync_down_enter(l);
+            return z;
+        }
+    }
+
+    proc sync_down_exit(l: Ref, v: Int)
+        requires is_barrier(l)
+        requires 0 <= v && own(l.tickets, ticket(v))
+        ensures Tk1.token(l)
+    {
+        {! threads_gt_zero(); !}
+
+        var w: Int := v == 0 ? -threads : -v;
+
+        unfold is_barrier(l);
+        var z: Int := l.ctr;
+        {!
+            if (z == w) { 
+                if (v == 0) {
+                    // z == w == threads
+                    ghost var b: Bool;
+                    unfold z_eq_threads(l, z)[b := b];
+                    if (b) { assert false; }
+                    fold z_eq_threads(l, z)[b := true];
+                } else {
+                    if (v == abs(threads)) {
+                        ghost var b: Bool;
+                        unfold z_eq_threads(l, z)[b := b];
+                    }
+
+                    ghost var b1: Bool; ghost var b2: Bool;
+                    unfold z_gt_neg_threads(l, z)[b1 := b1, b2 := b2];
+                    if (b1) { assert false; }
+                    fold z_gt_neg_threads(l, z)[b1 := true, b2 := true];
+                }
+            }
+        !}
+        fold is_barrier(l);
+
+        if (z == w) {
+            ghost var z0: Int;
+            unfold is_barrier(l)[z0 := z];
+            l.ctr := z+1;
+            
+            {!
+                assert (z0 == z);
+                if (v == 0) {
+                    // z0 == z == w == -threads
+                    ghost var b: Bool;
+                    unfold z_eq_threads(l, z)[b := b];
+                    if (!b) { assert false; }
+
+                    // p1_to_p2(l);
+                    Tk1.token_mutate_generate(l);
+                } else {
+                    // z0 == z == w == -v
+                    if (v == abs(threads)) {
+                        ghost var b: Bool;
+                        unfold z_eq_threads(l, z)[b := b];
+                    }
+
+                    ghost var b1: Bool; ghost var b2: Bool;
+                    unfold z_gt_neg_threads(l, z)[b1 := b1, b2 := b2];
+                    if (!b1) { assert false; }
+                    if (!b2) { assert false; }
+
+                    Tk1.token_mutate_incr(l, threads + z);
+                }
+                fpu(l.frac, z, z+1);
+
+                if (z+1 == 0) {
+                    fold z_eq_zero(l)[b := true];
+                } else {
+                    // b2 supplied to suppress warning
+                    fold z_gt_neg_threads(l, z+1)[b1 := false, b2 := true];
+                }
+            !}
+            fold is_barrier(l);
+        } else {
+            sync_down_exit(l, v);
+        }
+    }
+
+    proc sync_down(l: Ref)
+        requires is_barrier(l) && Tk2.token(l)
+        ensures Tk1.token(l)
+    {
+        var z: Int := sync_down_enter(l);
+        sync_down_exit(l, z);
+    }
 }
