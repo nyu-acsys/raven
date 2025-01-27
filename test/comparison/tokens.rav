@@ -99,6 +99,32 @@ module Tokens[SharedPred: ShareablePredicate] {
         exists q: Real :: SharedPred.p_chunk(x, q) && own(x.v, TokenRA.tokens(0, 0.0, 1, q)) 
     }
 
+    // wrapping token with a tag (parameter i) to pass injectivity check in token_iter
+    pred token2(x: Ref, i: Int) { token(x) }
+
+    pred token_iter(x: Ref, n: Int) {
+        forall i: Int :: 0 <= i < n ==> token2(x, i)
+    }
+
+    lemma token_iter_incr(x: Ref, n: Int)
+        requires token_iter(x, n) && token(x)
+        ensures token_iter(x, n+1)
+    {
+        unfold token_iter(x, n);
+        fold token2(x, n);
+        fold token_iter(x, n+1);
+    }
+
+    lemma token_iter_decr(x: Ref, n: Int)
+        requires n > 0
+        requires token_iter(x, n)
+        ensures token_iter(x, n-1) && token(x)
+    {
+        unfold token_iter(x, n);
+        unfold token2(x, n-1);
+        fold token_iter(x, n-1);
+    }
+
     lemma token_noTokens_interact(x: Ref, q: Real)
         requires noTokens(x, q)
         requires token(x)
@@ -165,15 +191,30 @@ module Tokens[SharedPred: ShareablePredicate] {
         fold tokenCounter(x, 1)[q := 0.5];
     }
 
+    lemma token_generate_loop(x: Ref, n: Int)
+        requires tokenCounter(x, n) && token_iter(x, n)
+        ensures tokenCounter(x, n+1) && token_iter(x, n+1)
+    {
+        token_mutate_incr(x, n);
+        fold token2(x, n);
+        unfold token_iter(x, n);
+        fold token_iter(x, n+1);
+    }
+
+
     lemma token_mutate_generate_n(x: Ref, n: Int)
         requires noTokens(x, 1.0) && SharedPred.p_chunk(x, 1.0)
         requires n > 0
-        ensures tokenCounter(x, n)
+        ensures tokenCounter(x, n) && token_iter(x, n)
     {
-        unfold noTokens(x, 1.0);
-        fpu(x.v, TokenRA.noToken(1.0), TokenRA.tokens(n, 0.5, n, 0.5));
-        SharedPred.split(x, 1.0);
-        fold tokenCounter(x, n)[q := 0.5];
+        if (n == 1) {
+            token_mutate_generate(x);
+            fold token2(x, 0);
+            fold token_iter(x, 1);
+        } else {
+            token_mutate_generate_n(x, n-1);
+            token_generate_loop(x, n-1);
+        }
     }
 
     lemma noTokens_split(x: Ref, q: Real)
