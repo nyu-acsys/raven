@@ -1,7 +1,9 @@
 include "fork_join.rav"
 include "barrier.rav"
 
-module BarrierClient {
+module BarrierClient[N: NumThreads] {
+    import N.threads
+    import N.threads_gt_zero
 
     module SumRA = Library.SumRA[Library.MaxNat, Library.MaxNat]
     module AgreeInt = Library.Agree[Library.IntType]
@@ -27,7 +29,16 @@ module BarrierClient {
         CLRA.frag(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), q))
     }
 
-    interface P1: ShareablePredicate {
+    field ctr: Int;
+
+    inv counter_inv(l: Ref) {
+        exists n1: Int, n2: Int, b: Bool ::
+            own(l.ctr, n1 - n2) && (n1 >= 0) && (n2 >= 0) &&
+            (b ? own(l.gh, auth_l(n1, n2)) 
+                : own(l.gh, auth_r(n2, n1)))
+    }
+
+    interface PL: ShareablePredicate {
         pred p() {
             true
         }
@@ -88,7 +99,7 @@ module BarrierClient {
         }
     }
 
-    interface P2: ShareablePredicate {
+    interface PR: ShareablePredicate {
         pred p() {
             true
         }
@@ -149,16 +160,58 @@ module BarrierClient {
         }
     }
 
-    interface BR = Barrier[P1, P2]
+    module A: AbstractPredicates {
+        module P1 = PL
+        module P2 = PR
 
-    field ctr: Int;
+        pred resource(x: Ref) {
+            counter_inv(x)
+        }
 
-    inv counter_inv(l: Ref) {
-        exists n1: Int, n2: Int, b: Bool ::
-            own(l.ctr, n1 - n2) &&
-            (b ? own(l.gh, auth_l(n1, n2)) 
-                : own(l.gh, auth_r(n2, n1)))
+        lemma p1_to_p2(x: Ref)
+            requires P1.p_chunk(x, 1.0)
+            requires resource(x)
+            ensures P2.p_chunk(x, 1.0)
+            ensures resource(x)
+        {
+            ghost var n1: Int; ghost var n2: Int;
+            unfold P1.p_chunk(x, 1.0)[n1 := n1, n2 := n2];
+            unfold resource(x);
+            ghost var n3: Int; ghost var n4: Int;
+            unfold counter_inv(x)[n3 := n1, n4 := n2];
+            fpu(x.gh,
+                CLRA.comp(auth_l(n3, n4), frag_l(1.0, n1, n2)),
+                CLRA.comp(auth_r(n4, n3), frag_r(1.0, n4, n3))
+            );
+            fold counter_inv(x)[n1 := n3, n2 := n4, b := false];
+            fold resource(x);
+            fold P2.p_chunk(x, 1.0)[n1 := n4, n2 := n3];
+        }
+
+        lemma p2_to_p1(x: Ref)
+            requires P2.p_chunk(x, 1.0)
+            requires resource(x)
+            ensures P1.p_chunk(x, 1.0)
+            ensures resource(x)
+        {
+            ghost var n1: Int; ghost var n2: Int;
+            unfold P2.p_chunk(x, 1.0)[n1 := n1, n2 := n2];
+            unfold resource(x);
+            ghost var n3: Int; ghost var n4: Int;
+            unfold counter_inv(x)[n3 := n1, n4 := n2];
+            fpu(x.gh,
+                CLRA.comp(auth_r(n4, n3), frag_r(1.0, n1, n2)),
+                CLRA.comp(auth_l(n3, n4), frag_l(1.0, n3, n4))
+            );
+            fold counter_inv(x)[n1 := n3, n2 := n4, b := true];
+            fold resource(x);
+            fold P1.p_chunk(x, 1.0)[n1 := n3, n2 := n4];
+        }
     }
+
+    interface BR = Barrier[N, A]
+    import A.P1
+    import A.P2
 
     // algorithms
 
@@ -327,22 +380,22 @@ module BarrierClient {
     }
 
     proc client()
-        requires BR.resource()
+        requires true
         ensures exists l: Ref :: counter_inv(l) && BR.is_barrier(l)
     {
-        {! BR.threads_gt_zero(); !}
+        {! N.threads_gt_zero(); !}
 
-        fold P1.p();
-        var l := BR.make_barrier();
-
-        l := new(ctr: 0, gh: auth_l(0, 0));
+        var l := new(ctr: 0, gh: auth_l(0, 0));
         fold counter_inv(l)[n1 := 0, n2 := 0, b := true];
 
-        client_run(l, BR.threads);
+        fold P1.p();
+        fold A.resource(l);
+        BR.make_barrier(l);
+
+
+        client_run(l, N.threads);
 
         // assert supplies the witness for the postcondition
         assert counter_inv(l) && BR.is_barrier(l);
     }
-
-
 }

@@ -1,26 +1,58 @@
 include "tokens.rav"
 
-interface Barrier[P1: ShareablePredicate, P2: ShareablePredicate] {
-
-    // the implementation is parametric over the number of threads and a resource predicate
+interface NumThreads {
     val threads: Int
 
     axiom threads_gt_zero()
         ensures threads > 0
-    
-    pred resource()
+}
+
+interface AbstractPredicates {
+    module P1 : ShareablePredicate
+    module P2 : ShareablePredicate
+
+    pred resource(x: Ref)
 
     axiom p1_to_p2(x: Ref)
         requires P1.p_chunk(x, 1.0)
-        requires resource()
+        requires resource(x)
         ensures P2.p_chunk(x, 1.0)
-        ensures resource()
+        ensures resource(x)
 
     axiom p2_to_p1(x: Ref)
         requires P2.p_chunk(x, 1.0)
-        requires resource()
+        requires resource(x)
         ensures P1.p_chunk(x, 1.0)
-        ensures resource()
+        ensures resource(x)
+}
+
+interface Barrier[N: NumThreads, A: AbstractPredicates] {
+
+    // the implementation is parametric over the number of threads and a resource predicate
+    import N.threads
+    import N.threads_gt_zero
+    import A.P1
+    import A.P2
+    import A._
+
+    // val threads: Int
+
+    // axiom threads_gt_zero()
+    //     ensures threads > 0
+    
+    // pred resource()
+
+    // axiom p1_to_p2(x: Ref)
+    //     requires P1.p_chunk(x, 1.0)
+    //     requires resource()
+    //     ensures P2.p_chunk(x, 1.0)
+    //     ensures resource()
+
+    // axiom p2_to_p1(x: Ref)
+    //     requires P2.p_chunk(x, 1.0)
+    //     requires resource()
+    //     ensures P1.p_chunk(x, 1.0)
+    //     ensures resource()
 
     // instantiating necessary modules
     module Tk1 = Tokens[P1]
@@ -96,7 +128,7 @@ interface Barrier[P1: ShareablePredicate, P2: ShareablePredicate] {
             own(l.ctr, z)
         && own(l.tickets, tickets_geq(abs(z) + 1))
         && own(l.frac, z, 0.5)
-        && resource()
+        && resource(l)
         && (z == 0 ? z_eq_zero(l) : 
             (abs(z) == threads ? z_eq_threads(l, z) :
             (0 < z ? z < threads && z_lt_threads(l, z) :
@@ -105,9 +137,8 @@ interface Barrier[P1: ShareablePredicate, P2: ShareablePredicate] {
 
     // algorithms
 
-    proc make_barrier()
-        returns (l: Ref)
-        requires P1.p() && resource()
+    proc make_barrier(l: Ref)
+        requires P1.p() && resource(l)
         ensures is_barrier(l) && Tk1.token_iter(l, threads)
     {
         {! threads_gt_zero(); !}
@@ -128,7 +159,6 @@ interface Barrier[P1: ShareablePredicate, P2: ShareablePredicate] {
         fold z_eq_zero(l)[b := true];
 
         fold is_barrier(l);
-        return l;
     }
 
     proc peek(l: Ref)
