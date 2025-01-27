@@ -108,7 +108,7 @@ interface Barrier[P1: ShareablePredicate, P2: ShareablePredicate] {
     proc make_barrier()
         returns (l: Ref)
         requires P1.p() && resource()
-        ensures is_barrier(l)
+        ensures is_barrier(l) && Tk1.token_iter(l, threads)
     {
         {! threads_gt_zero(); !}
 
