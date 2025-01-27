@@ -1,0 +1,348 @@
+include "fork_join.rav"
+include "barrier.rav"
+
+module BarrierClient {
+
+    module SumRA = Library.SumRA[Library.MaxNat, Library.MaxNat]
+    module AgreeInt = Library.Agree[Library.IntType]
+    module ProdRA = Library.Prod[SumRA, AgreeInt]
+    module FracRA = Library.FracRA[ProdRA]
+    module CLRA = Library.Auth[FracRA]
+
+    ghost field gh: CLRA
+
+    func auth_l(n1: Int, n2: Int) returns (res: CLRA) {
+        CLRA.auth(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_left(n1), AgreeInt.agree(n2)), 1.0))
+    }
+
+    func auth_r(n1: Int, n2: Int) returns (res: CLRA) {
+        CLRA.auth(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), 1.0))
+    }
+
+    func frag_l(q: Real, n1: Int, n2: Int) returns (res: CLRA) {
+        CLRA.frag(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_left(n1), AgreeInt.agree(n2)), q))
+    }
+
+    func frag_r(q: Real, n1: Int, n2: Int) returns (res: CLRA) {
+        CLRA.frag(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), q))
+    }
+
+    interface P1: ShareablePredicate {
+        pred p() {
+            true
+        }
+
+        pred p_chunk(x: Ref, f: Real) {
+            exists n1: Int, n2: Int :: own(x.gh, frag_l(f, n1, n2))
+        }
+
+        proc allocate(x: Ref)
+            requires p()
+            ensures p_chunk(x, 1.0)
+        {
+            x := new(gh: frag_l(1.0, 0, 0));
+            fold p_chunk(x, 1.0)[n1 := 0, n2 := 0];
+        }
+
+        lemma destroyShareable(x: Ref)
+            requires p_chunk(x, 1.0)
+            ensures p()
+        {
+            exhale p_chunk(x, 1.0);
+            fold p();
+        }
+
+        proc deallocate(x: Ref)
+            requires p()
+            ensures true
+        {}
+
+        lemma split(x: Ref, f: Real)
+            requires p_chunk(x, f)
+            ensures p_chunk(x, f / 2.0) && p_chunk(x, f / 2.0)
+        {
+            ghost var n1: Int; ghost var n2: Int;
+            unfold p_chunk(x, f)[n1 := n1, n2 := n2];
+            fold p_chunk(x, f / 2.0)[n1 := n1, n2 := n2];
+            fold p_chunk(x, f / 2.0)[n1 := n1, n2 := n2];
+        }
+
+        lemma merge(x: Ref, f1: Real, f2: Real)
+            requires p_chunk(x, f1) && p_chunk(x, f2)
+            ensures p_chunk(x, f1+f2)
+        {
+            ghost var n1: Int; ghost var n2: Int;
+            ghost var n3: Int; ghost var n4: Int;
+            unfold p_chunk(x, f1)[n1 := n1, n2 := n2];
+            unfold p_chunk(x, f2)[n3 := n1, n4 := n2];
+            ghost var n5: Int := n1 > n3 ? n1 : n3;
+            fold p_chunk(x, f1+f2)[n1 := n5, n2 := n2];
+        }
+
+        lemma invalid(x: Ref, f: Real)
+            requires p_chunk(x, f)
+            requires f > 1.0
+            ensures false
+        {
+            unfold p_chunk(x, f);
+        }
+    }
+
+    interface P2: ShareablePredicate {
+        pred p() {
+            true
+        }
+
+        pred p_chunk(x: Ref, f: Real) {
+            exists n1: Int, n2: Int :: own(x.gh, frag_r(f, n1, n2))
+        }
+
+        proc allocate(x: Ref)
+            requires p()
+            ensures p_chunk(x, 1.0)
+        {
+            x := new(gh: frag_r(1.0, 0, 0));
+            fold p_chunk(x, 1.0)[n1 := 0, n2 := 0];
+        }
+
+        lemma destroyShareable(x: Ref)
+            requires p_chunk(x, 1.0)
+            ensures p()
+        {
+            exhale p_chunk(x, 1.0);
+            fold p();
+        }
+
+        proc deallocate(x: Ref)
+            requires p()
+            ensures true
+        {}
+
+        lemma split(x: Ref, f: Real)
+            requires p_chunk(x, f)
+            ensures p_chunk(x, f / 2.0) && p_chunk(x, f / 2.0)
+        {
+            ghost var n1: Int; ghost var n2: Int;
+            unfold p_chunk(x, f)[n1 := n1, n2 := n2];
+            fold p_chunk(x, f / 2.0)[n1 := n1, n2 := n2];
+            fold p_chunk(x, f / 2.0)[n1 := n1, n2 := n2];
+        }
+
+        lemma merge(x: Ref, f1: Real, f2: Real)
+            requires p_chunk(x, f1) && p_chunk(x, f2)
+            ensures p_chunk(x, f1+f2)
+        {
+            ghost var n1: Int; ghost var n2: Int;
+            ghost var n3: Int; ghost var n4: Int;
+            unfold p_chunk(x, f1)[n1 := n1, n2 := n2];
+            unfold p_chunk(x, f2)[n3 := n1, n4 := n2];
+            ghost var n5: Int := n1 > n3 ? n1 : n3;
+            fold p_chunk(x, f1+f2)[n1 := n5, n2 := n2];
+        }
+
+        lemma invalid(x: Ref, f: Real)
+            requires p_chunk(x, f)
+            requires f > 1.0
+            ensures false
+        {
+            unfold p_chunk(x, f);
+        }
+    }
+
+    interface BR = Barrier[P1, P2]
+
+    field ctr: Int;
+
+    inv counter_inv(l: Ref) {
+        exists n1: Int, n2: Int, b: Bool ::
+            own(l.ctr, n1 - n2) &&
+            (b ? own(l.gh, auth_l(n1, n2)) 
+                : own(l.gh, auth_r(n2, n1)))
+    }
+
+    // algorithms
+
+    proc increment(l: Ref, implicit ghost q: Real)
+        requires counter_inv(l) && P1.p_chunk(l, q)
+        ensures P1.p_chunk(l, q)
+    {
+        ghost var n1: Int; ghost var n2: Int; ghost var b1: Bool;
+        unfold counter_inv(l)[n1 := n1, n2 := n2, b1 := b];
+        var v: Int := l.ctr;
+        fold counter_inv(l)[n1 := n1, n2 := n2, b := b1];
+
+        ghost var n3: Int; ghost var n4: Int; ghost var b2: Bool;
+        unfold counter_inv(l)[n3 := n1, n4 := n2, b2 := b];
+        var b: Bool := cas(l.ctr, v, v+1);
+        {!
+            if (b) {
+                ghost var n5: Int; ghost var n6: Int;
+                unfold P1.p_chunk(l, q)[n5 := n1, n6 := n2];
+                fpu(l.gh,
+                    CLRA.comp(auth_l(n3, n4), frag_l(q, n5, n6)),
+                    CLRA.comp(auth_l(n3+1, n4), frag_l(q, n3+1, n4))
+                );
+                fold counter_inv(l)[n1 := n3+1, n2 := n4, b := b2];
+                fold P1.p_chunk(l, q)[n1 := n3+1, n2 := n6];
+            } else {
+                fold counter_inv(l)[n1 := n3, n2 := n4, b := b2];
+            }
+        !}
+
+        if (!b) {
+            increment(l, q);
+        }
+    }
+
+    proc decrement(l: Ref, implicit ghost q: Real)
+        requires counter_inv(l) && P2.p_chunk(l, q)
+        ensures P2.p_chunk(l, q)
+    {
+        ghost var n1: Int; ghost var n2: Int; ghost var b1: Bool;
+        unfold counter_inv(l)[n1 := n1, n2 := n2, b1 := b];
+        var v: Int := l.ctr;
+        fold counter_inv(l)[n1 := n1, n2 := n2, b := b1];
+
+        ghost var n3: Int; ghost var n4: Int; ghost var b2: Bool;
+        unfold counter_inv(l)[n3 := n1, n4 := n2, b2 := b];
+        var b: Bool := cas(l.ctr, v, v-1);
+        {!
+            if (b) {
+                ghost var n5: Int; ghost var n6: Int;
+                unfold P2.p_chunk(l, q)[n5 := n1, n6 := n2];
+                fpu(l.gh,
+                    CLRA.comp(auth_r(n4, n3), frag_r(q, n5, n6)),
+                    CLRA.comp(auth_r(n4+1, n3), frag_r(q, n4+1, n3))
+                );
+                fold counter_inv(l)[n1 := n3, n2 := n4+1, b := b2];
+                fold P2.p_chunk(l, q)[n1 := n4+1, n2 := n3];
+            } else {
+                fold counter_inv(l)[n1 := n3, n2 := n4, b := b2];
+            }
+        !}
+
+        if (!b) {
+            decrement(l, q);
+        }
+    }
+
+    proc check_rising(l: Ref, implicit ghost q: Real)
+        requires counter_inv(l) && P1.p_chunk(l, q)
+        ensures P1.p_chunk(l, q)
+    {
+        ghost var n1: Int; ghost var n2: Int;
+        unfold P1.p_chunk(l, q)[n1 := n1, n2 := n2];
+        
+        ghost var n3: Int; ghost var n4: Int; ghost var b1: Bool;
+        unfold counter_inv(l)[n3 := n1, n4 := n2, b1 := b];
+        var a := l.ctr;
+        {! 
+            fpu(l.gh,
+                CLRA.comp(auth_l(n3, n4), frag_l(q, n1, n2)),
+                CLRA.comp(auth_l(n3, n4), frag_l(q, n3, n4))
+            );
+        !}
+        fold counter_inv(l)[n1 := n3, n2 := n4, b := b1];
+
+        ghost var n5: Int; ghost var n6: Int; ghost var b2: Bool;
+        unfold counter_inv(l)[n5 := n1, n6 := n2, b2 := b];
+        var b := l.ctr;
+        fold counter_inv(l)[n1 := n5, n2 := n6, b := b2];
+        fold P1.p_chunk(l, q)[n1 := n3, n2 := n4];
+
+        if (b < a) {
+            // successful verification implies this point is unreachable
+            assert false;
+        }
+    }
+
+    proc check_falling(l: Ref, implicit ghost q: Real)
+        requires counter_inv(l) && P2.p_chunk(l, q)
+        ensures P2.p_chunk(l, q)
+    {
+        ghost var n1: Int; ghost var n2: Int;
+        unfold P2.p_chunk(l, q)[n1 := n1, n2 := n2];
+        
+        ghost var n3: Int; ghost var n4: Int; ghost var b1: Bool;
+        unfold counter_inv(l)[n3 := n1, n4 := n2, b1 := b];
+        var a := l.ctr;
+        {! 
+            fpu(l.gh,
+                CLRA.comp(auth_r(n4, n3), frag_r(q, n1, n2)),
+                CLRA.comp(auth_r(n4, n3), frag_r(q, n4, n3))
+            );
+        !}
+        fold counter_inv(l)[n1 := n3, n2 := n4, b := b1];
+
+        ghost var n5: Int; ghost var n6: Int; ghost var b2: Bool;
+        unfold counter_inv(l)[n5 := n1, n6 := n2, b2 := b];
+        var b := l.ctr;
+        fold counter_inv(l)[n1 := n5, n2 := n6, b := b2];
+        fold P2.p_chunk(l, q)[n1 := n4, n2 := n3];
+        
+        if (a < b) {
+            // successful verification implies this point is unreachable
+            assert false;
+        }
+    }
+
+    proc client_thread(l: Ref)
+        requires counter_inv(l) && BR.is_barrier(l)
+        requires BR.Tk1.token(l)
+        ensures BR.Tk2.token(l)
+    {
+        ghost var q1: Real;
+        unfold BR.Tk1.token(l)[q1 := q];
+        increment(l, q1);
+        fold BR.Tk1.token(l)[q := q1];
+
+        ghost var q2: Real;
+        unfold BR.Tk1.token(l)[q2 := q];
+        check_rising(l, q2);
+        fold BR.Tk1.token(l)[q := q2];
+
+        BR.sync_up(l);
+
+        ghost var q3: Real;
+        unfold BR.Tk2.token(l)[q3 := q];
+        decrement(l, q3);
+        fold BR.Tk2.token(l)[q := q3];
+
+        ghost var q4: Real;
+        unfold BR.Tk2.token(l)[q4 := q];
+        check_falling(l, q4);
+        fold BR.Tk2.token(l)[q := q4];
+    }
+
+    proc client_run(l: Ref, n: Int)
+        requires counter_inv(l) && BR.is_barrier(l)
+        requires n >= 0 && BR.Tk1.token_iter(l, n)
+        ensures true
+    {
+        if (n != 0) {
+            BR.Tk1.token_iter_decr(l, n);
+            spawn client_thread(l);
+            client_run(l, n-1);
+        }
+    }
+
+    proc client()
+        requires BR.resource()
+        ensures exists l: Ref :: counter_inv(l) && BR.is_barrier(l)
+    {
+        {! BR.threads_gt_zero(); !}
+
+        fold P1.p();
+        var l := BR.make_barrier();
+
+        l := new(ctr: 0, gh: auth_l(0, 0));
+        fold counter_inv(l)[n1 := 0, n2 := 0, b := true];
+
+        client_run(l, BR.threads);
+
+        // assert supplies the witness for the postcondition
+        assert counter_inv(l) && BR.is_barrier(l);
+    }
+
+
+}
