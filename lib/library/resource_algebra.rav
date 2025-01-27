@@ -578,6 +578,47 @@ module DisjSet[X: Type] : CancellativeResourceAlgebra {
 
 }
 
+module SumRA[M1: ResourceAlgebra, M2: ResourceAlgebra]: ResourceAlgebra {
+  rep type T = data {
+    case identity
+    case sum_left(sum_projl: M1)
+    case sum_right(sum_projr: M2)
+    case invalid
+  }
+
+  val id: T = identity
+
+  func valid(n: T) returns (ret: Bool) {
+    n == identity ? true :
+    (n == sum_left(n.sum_projl) ? M1.valid(n.sum_projl) :
+    (n == sum_right(n.sum_projr) ? M2.valid(n.sum_projr) :
+    false))
+  }
+
+  func comp(a: T, b: T) returns (ret: T) {
+    a == identity ? b :
+    (b == identity ? a :
+    (a == sum_left(a.sum_projl) && b == sum_left(b.sum_projl) ? sum_left(M1.comp(a.sum_projl, b.sum_projl)) :
+    (a == sum_right(a.sum_projr) && b == sum_right(b.sum_projr) ? sum_right(M2.comp(a.sum_projr, b.sum_projr)) :
+    invalid)))
+  }
+
+    func frame(a: T, b: T) returns (ret: T) {
+        b == identity ? a :
+        (a == sum_left(a.sum_projl) && b == sum_left(b.sum_projl) 
+            && M1.valid(M1.frame(a.sum_projl, b.sum_projl)) ? sum_left(M1.frame(a.sum_projl, b.sum_projl)) :
+        (a == sum_right(a.sum_projr) && b == sum_right(b.sum_projr) 
+            && M2.valid(M2.frame(a.sum_projr, b.sum_projr)) ? sum_right(M2.frame(a.sum_projr, b.sum_projr)) :
+        (a == b ? identity :
+        invalid)))
+    }
+
+    func fpuAllowed(a: T, b: T) returns (ret: Bool) {
+        a == sum_left(a.sum_projl) && b == sum_left(b.sum_projl) && valid(b) ? M1.fpuAllowed(a.sum_projl, b.sum_projl) :
+        (a == sum_right(a.sum_projr) && b == sum_right(b.sum_projr) && valid(b) ? M2.fpuAllowed(a.sum_projr, b.sum_projr) :
+        false)
+    }
+}
 
 module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra]: ResourceAlgebra {
   rep type T = data {
