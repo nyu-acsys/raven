@@ -47,6 +47,24 @@ interface NodeImpl {
   import Flow_K._
   import Multiset_K.elem
 
+  module Ref_Type : Library.Type {
+    rep type T = Ref
+  }
+  
+  module SetRefRA = Library.SetRA[Ref_Type]
+
+  module AuthSetRef = Library.Auth[SetRefRA]
+    
+  module Keyset_K = KeysetRA[K_Type]
+  module AuthKeyset_K = Library.Auth[Keyset_K]
+  module AuthFlow_K = Library.Auth[Flow_K]
+
+  ghost field authSet: AuthSetRef
+  ghost field authKS: AuthKeyset_K
+  ghost field authFlow: AuthFlow_K
+  field lock: Int
+
+
   pred node(n: Ref; c: Set[K], flow_int: Flow_K)
 
   // func outsets(outset: Map[Ref, Set[K]]) returns (ret: Set[K])
@@ -86,6 +104,13 @@ interface NodeImpl {
 
   proc createRoot()
     returns (r: Ref)
+    ensures own(r.lock, 0)
+    ensures own(r.authKS, AuthKeyset_K.auth_frag(
+        Keyset_K.prodKS(keyspace, {||}),
+        Keyset_K.prodKS(keyspace, {||}))
+      )
+    ensures own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr({|r|})))
+    ensures own(r.authFlow, AuthFlow_K.auth(Flow_K.id))
     ensures node(r, {||}, 
     Flow_K.int({| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
 
@@ -146,23 +171,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
   import Node.Multiset_K.elem
   import Node.Multiset_K.fromSet
 
-  module Ref_Type : Library.Type {
-    rep type T = Ref
-  }
-
-  module SetRefRA = Library.SetRA[Ref_Type]
-
-  module AuthSetRef = Library.Auth[SetRefRA]
-    
-  module Keyset_K = KeysetRA[K_Type]
-  module AuthKeyset_K = Library.Auth[Keyset_K]
-  module AuthFlow_K = Library.Auth[Flow_K]
-
-  ghost field authSet: AuthSetRef
-  ghost field authKS: AuthKeyset_K
-  ghost field authFlow: AuthFlow_K
-  field lock: Int
-
+  
+ 
   proc lockNode(n: Ref, implicit ghost b: Int)
     atomic requires own(n.lock, b, 1.0)
     atomic ensures own(n.lock, 1, 1.0) && b == 0
@@ -341,17 +351,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
     var lockval: Map[Ref, Int] := {| l: Ref :: 0 |};
     var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
 
-    r := new(
-      authKS: AuthKeyset_K.auth_frag(
-        Keyset_K.prodKS(keyspace, {||}),
-        Keyset_K.prodKS(keyspace, {||})
-      ),
-      authSet:AuthSetRef.auth(SetRefRA.set_constr({|r|})),
-      authFlow: AuthFlow_K.auth_frag(
-        i_r, i_r
-      ),
-      lock:0
-    );
+    //fpu(r.authSet, AuthSetRef.auth(SetRefRA.id), AuthSetRef.auth(SetRefRA.set_constr({|r|})));
+    fpu(r.authFlow, AuthFlow_K.auth(Flow_K.id), AuthFlow_K.auth_frag(i_r, i_r));
 
     fold nodePred(r, r, {||}, i_r);
 
