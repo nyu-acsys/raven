@@ -1,18 +1,20 @@
 include "../concurrent/lock/lock.rav"
+include "dfrac_ra.rav"
 
 interface LCList {
 
     // definitions
 
-    interface Ref_Type: Library.Type {
-        rep type T = Ref
-    }
-    module Agree = Library.Agree[Ref_Type]
+    // interface Ref_Type: Library.Type {
+    //     rep type T = Ref
+    // }
+    // module Agree = Library.Agree[Ref_Type]
+    module DFRA = Dfrac[Library.RefType]
 
     field next: Ref
     field lock: Ref
     field value: Int
-    ghost field agr: Agree
+    ghost field dfrac: DFRA
 
     module NodeResource: LockResource {
         rep type T = (Ref, Int)
@@ -45,7 +47,7 @@ interface LCList {
 
     inv is_list(n: Ref, v: Int) {
             n == null ? true :
-            (exists b: Bool, l: Ref :: own(n.lock, l) && own(n.agr, Agree.agree(l)) && is_lock(l, (n, v), b))
+            (exists b: Bool, l: Ref :: own(n.lock, l) && own(n.dfrac, DFRA.dfrac_disc(l)) && is_lock(l, (n, v), b))
     }
 
     // helper functions
@@ -99,12 +101,13 @@ interface LCList {
         requires is_list(nx, vx) && v <= vx
         ensures is_list(n, v) && n != null
     {
-        n := new(next: nx, value: v, lock: null);
+        n := new(next: nx, value: v, lock: null, dfrac: DFRA.dfrac_chunk(null, 1.0));
         fold resource((n, v))[nx := nx, vx := vx];
         
         var l: Ref := LCLock.create((n,v));
         n.lock := l;
-        n := new(agr: Agree.agree(l));
+        fpu(n.dfrac, DFRA.dfrac_chunk(null, 1.0), DFRA.dfrac_chunk(l, 1.0));
+        fpu(n.dfrac, DFRA.dfrac_chunk(l, 1.0), DFRA.dfrac_disc(l));
         fold is_list(n, v);
     }
 

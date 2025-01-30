@@ -339,8 +339,8 @@ module BarrierClient[N: NumThreads] {
         }
     }
 
-    proc client_thread(l: Ref)
-        requires counter_inv(l) && BR.is_barrier(l)
+    proc client_thread(l: Ref, lb: Ref)
+        requires counter_inv(l) && BR.is_barrier(lb, l)
         requires BR.Tk1.token(l)
         ensures BR.Tk2.token(l)
     {
@@ -354,7 +354,7 @@ module BarrierClient[N: NumThreads] {
         check_rising(l, q2);
         fold BR.Tk1.token(l)[q := q2];
 
-        BR.sync_up(l);
+        BR.sync_up(lb, l);
 
         ghost var q3: Real;
         unfold BR.Tk2.token(l)[q3 := q];
@@ -367,35 +367,41 @@ module BarrierClient[N: NumThreads] {
         fold BR.Tk2.token(l)[q := q4];
     }
 
-    proc client_run(l: Ref, n: Int)
-        requires counter_inv(l) && BR.is_barrier(l)
+    proc client_run(l: Ref, lb: Ref, n: Int)
+        requires counter_inv(l) && BR.is_barrier(lb, l)
         requires n >= 0 && BR.Tk1.token_iter(l, n)
         ensures true
     {
         if (n != 0) {
             BR.Tk1.token_iter_decr(l, n);
-            spawn client_thread(l);
-            client_run(l, n-1);
+            spawn client_thread(l, lb);
+            client_run(l, lb, n-1);
         }
     }
 
     proc client()
         requires true
-        ensures exists l: Ref :: counter_inv(l) && BR.is_barrier(l)
+        ensures exists l: Ref, lb: Ref :: counter_inv(l) && BR.is_barrier(lb, l)
     {
         {! N.threads_gt_zero(); !}
 
-        var l := new(ctr: 0, gh: auth_l(0, 0));
+        var l := new(
+            ctr: 0, 
+            gh: CLRA.comp(auth_l(0, 0), frag_l(1.0, 0, 0)),
+            BR.Tk1.v: TokenRA.noToken(1.0),
+            BR.Tk2.v: TokenRA.noToken(1.0)
+        );
         fold counter_inv(l)[n1 := 0, n2 := 0, b := true];
 
-        fold P1.p();
         fold A.resource(l);
-        BR.make_barrier(l);
+        fold P1.p_chunk(l, 1.0)[n1 := 0, n2 := 0];
+        fold BR.Tk1.noTokens(l, 1.0);
+        fold BR.Tk2.noTokens(l, 1.0);
+        var lb := BR.make_barrier(l);
 
-
-        client_run(l, N.threads);
+        client_run(l, lb, N.threads);
 
         // assert supplies the witness for the postcondition
-        assert counter_inv(l) && BR.is_barrier(l);
+        assert counter_inv(l) && BR.is_barrier(lb, l);
     }
 }

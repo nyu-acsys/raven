@@ -35,25 +35,6 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
     import A.P2
     import A._
 
-    // val threads: Int
-
-    // axiom threads_gt_zero()
-    //     ensures threads > 0
-    
-    // pred resource()
-
-    // axiom p1_to_p2(x: Ref)
-    //     requires P1.p_chunk(x, 1.0)
-    //     requires resource()
-    //     ensures P2.p_chunk(x, 1.0)
-    //     ensures resource()
-
-    // axiom p2_to_p1(x: Ref)
-    //     requires P2.p_chunk(x, 1.0)
-    //     requires resource()
-    //     ensures P1.p_chunk(x, 1.0)
-    //     ensures resource()
-
     // instantiating necessary modules
     module Tk1 = Tokens[P1]
     module Tk2 = Tokens[P2]
@@ -78,196 +59,193 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
         IntSet.set({| n+1 |})
     }
 
-    pred z_lt_threads(l: Ref, z: Int) {
+    pred z_lt_threads(l: Ref, r: Ref, z: Int) {
         exists b1: Bool, b2: Bool ::
             b1 ?
                 (own(l.tickets, ticket(z)) &&
                 (b2 ?
-                    (own(l.tickets, ticket(0)) && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads - z))
+                    (own(l.tickets, ticket(0)) && Tk1.noTokens(r, 1.0) && Tk2.tokenCounter(r, threads - z))
                 :
-                    (own(l.frac, z, 0.5) && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads - z))))
+                    (own(l.frac, z, 0.5) && Tk2.noTokens(r, 1.0) && Tk1.tokenCounter(r, threads - z))))
             :
                 (own(l.frac, z, 0.5) && own(l.tickets, ticket(0)) 
-                && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads - z))
+                && Tk1.noTokens(r, 1.0) && Tk2.tokenCounter(r, threads - z))
     }
 
-    pred z_gt_neg_threads(l: Ref, z: Int) {
+    pred z_gt_neg_threads(l: Ref, r: Ref, z: Int) {
         exists b1: Bool, b2: Bool ::
             b1 ?
                 (own(l.tickets, ticket(-z)) &&
                 (b2 ?
-                    (own(l.tickets, ticket(0)) && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads + z))
+                    (own(l.tickets, ticket(0)) && Tk2.noTokens(r, 1.0) && Tk1.tokenCounter(r, threads + z))
                 :
-                    (own(l.frac, z, 0.5) && Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads + z))))
+                    (own(l.frac, z, 0.5) && Tk1.noTokens(r, 1.0) && Tk2.tokenCounter(r, threads + z))))
             :
                 (own(l.frac, z, 0.5) && own(l.tickets, ticket(0)) 
-                && Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads + z))
+                && Tk2.noTokens(r, 1.0) && Tk1.tokenCounter(r, threads + z))
     }
 
-    pred z_eq_threads(l: Ref, z: Int) {
+    pred z_eq_threads(l: Ref, r: Ref, z: Int) {
         exists b: Bool ::
-            Tk1.noTokens(l, 1.0) 
-        && Tk2.noTokens(l, 1.0) 
-        && P1.p_chunk(l, 1.0)
+            Tk1.noTokens(r, 1.0) 
+        && Tk2.noTokens(r, 1.0) 
+        && P1.p_chunk(r, 1.0)
         && own(l.tickets, ticket(threads))
         && (b ? own(l.tickets, ticket(0)) : own(l.frac, z, 0.5)) 
     }
 
-    pred z_eq_zero(l: Ref) {
+    pred z_eq_zero(l: Ref, r: Ref) {
         exists b: Bool ::
                 own(l.tickets, ticket(0))
             && own(l.frac, 0, 0.5)
             && (b ?
-                    (Tk2.noTokens(l, 1.0) && Tk1.tokenCounter(l, threads))
+                    (Tk2.noTokens(r, 1.0) && Tk1.tokenCounter(r, threads))
                 :
-                    (Tk1.noTokens(l, 1.0) && Tk2.tokenCounter(l, threads)))
+                    (Tk1.noTokens(r, 1.0) && Tk2.tokenCounter(r, threads)))
     }
 
-    inv is_barrier(l: Ref) {
+    inv is_barrier(l: Ref, r: Ref) {
         exists z: Int ::
             own(l.ctr, z)
         && own(l.tickets, tickets_geq(abs(z) + 1))
         && own(l.frac, z, 0.5)
-        && resource(l)
-        && (z == 0 ? z_eq_zero(l) : 
-            (abs(z) == threads ? z_eq_threads(l, z) :
-            (0 < z ? z < threads && z_lt_threads(l, z) :
-            (-threads < z && z < 0 && z_gt_neg_threads(l, z)))))
+        && resource(r)
+        && (z == 0 ? z_eq_zero(l, r) : 
+            (abs(z) == threads ? z_eq_threads(l, r, z) :
+            (0 < z ? z < threads && z_lt_threads(l, r, z) :
+            (-threads < z && z < 0 && z_gt_neg_threads(l, r, z)))))
     }
 
     // algorithms
 
-    proc make_barrier(l: Ref)
-        requires P1.p() && resource(l)
-        ensures is_barrier(l) && Tk1.token_iter(l, threads)
+    proc make_barrier(r: Ref)
+        returns (l: Ref)
+        requires resource(r) && P1.p_chunk(r, 1.0) && Tk1.noTokens(r, 1.0) && Tk2.noTokens(r, 1.0)
+        ensures is_barrier(l, r) && Tk1.token_iter(r, threads)
     {
         {! threads_gt_zero(); !}
 
         l := new(
             ctr: 0, 
             tickets: tickets_geq(-1),
-            frac: 0,
-            Tk1.v: TokenRA.noToken(1.0),
-            Tk2.v: TokenRA.noToken(1.0)
+            frac: 0
         );
-        P1.allocate(l);
-        fold Tk1.noTokens(l, 1.0);
-        fold Tk2.noTokens(l, 1.0);
 
-        Tk1.token_mutate_generate_n(l, threads);
+        Tk1.token_mutate_generate_n(r, threads);
 
-        fold z_eq_zero(l)[b := true];
-        fold is_barrier(l);
+        fold z_eq_zero(l, r)[b := true];
+        fold is_barrier(l, r);
+        return l;
     }
 
-    proc peek(l: Ref)
+    proc peek(l: Ref, r: Ref)
         returns (z: Int)
-        requires is_barrier(l)
+        requires is_barrier(l, r)
         ensures -threads <= z && z <= threads
     {
         {! threads_gt_zero(); !}
 
-        unfold is_barrier(l);
+        unfold is_barrier(l, r);
         z := l.ctr;
-        fold is_barrier(l);
+        fold is_barrier(l, r);
     }
 
 
-    proc sync_up_enter(l: Ref)
+    proc sync_up_enter(l: Ref, r: Ref)
         returns (z: Int)
-        requires is_barrier(l) && Tk1.token(l)
+        requires is_barrier(l, r) && Tk1.token(r)
         ensures 0 <= z && own(l.tickets, ticket(z))
     {
         {! threads_gt_zero(); !}
 
-        z := peek(l);
+        z := peek(l, r);
 
         if (0 <= z) {
-            unfold is_barrier(l);
+            unfold is_barrier(l, r);
             var b: Bool := cas(l.ctr, z, z+1);
 
             {!
                 if (b) {
                     if (z == 0) {
                         ghost var b1: Bool;
-                        unfold z_eq_zero(l)[b1 := b];  
+                        unfold z_eq_zero(l, r)[b1 := b];  
 
-                        if (!b1) { Tk1.token_noTokens_interact(l, 1.0); }
+                        if (!b1) { Tk1.token_noTokens_interact(r, 1.0); }
                     } else {
                         if (z == threads) {
-                            unfold z_eq_threads(l, z);
-                            Tk1.token_noTokens_interact(l, 1.0);
+                            unfold z_eq_threads(l, r, z);
+                            Tk1.token_noTokens_interact(r, 1.0);
                         }
 
                         ghost var b1: Bool; ghost var b2: Bool;
-                        unfold z_lt_threads(l, z)[b1 := b1, b2 := b2];
+                        unfold z_lt_threads(l, r, z)[b1 := b1, b2 := b2];
 
-                        if (!b1) { Tk1.token_noTokens_interact(l, 1.0); }
-                        if (b2) { Tk1.token_noTokens_interact(l, 1.0); }
+                        if (!b1) { Tk1.token_noTokens_interact(r, 1.0); }
+                        if (b2) { Tk1.token_noTokens_interact(r, 1.0); }
                     }
 
                     fpu(l.frac, z, z+1);
                     if (threads == z+1) {
-                        Tk1.token_mutate_decr_last(l);
-                        fold z_eq_threads(l, z+1)[b := false];
+                        Tk1.token_mutate_decr_last(r);
+                        fold z_eq_threads(l, r, z+1)[b := false];
                     } else {
-                        Tk1.token_mutate_decr(l, threads - z);
-                        fold z_lt_threads(l, z+1)[b1 := true, b2 := false];
+                        Tk1.token_mutate_decr(r, threads - z);
+                        fold z_lt_threads(l, r, z+1)[b1 := true, b2 := false];
                     }
                 }
             !}
-            fold is_barrier(l);
+            fold is_barrier(l, r);
 
             if (b) {
                 assert own(l.tickets, ticket(z));
                 return z;
             } else {
-                z := sync_up_enter(l);
+                z := sync_up_enter(l, r);
                 return z;
             }
         } else {
-            z := sync_up_enter(l);
+            z := sync_up_enter(l, r);
             return z;
         }
     }
 
-    proc sync_up_exit(l: Ref, v: Int)
-        requires is_barrier(l)
+    proc sync_up_exit(l: Ref, r: Ref, v: Int)
+        requires is_barrier(l, r)
         requires 0 <= v && own(l.tickets, ticket(v))
-        ensures Tk2.token(l)
+        ensures Tk2.token(r)
     {
         {! threads_gt_zero(); !}
 
         var w: Int := v == 0 ? threads : v;
 
-        unfold is_barrier(l);
+        unfold is_barrier(l, r);
         var z: Int := l.ctr;
         {!
             if (z == w) { 
                 if (v == 0) {
                     // z == w == threads
                     ghost var b: Bool;
-                    unfold z_eq_threads(l, z)[b := b];
+                    unfold z_eq_threads(l, r, z)[b := b];
                     if (b) { assert false; }
-                    fold z_eq_threads(l, z)[b := true];
+                    fold z_eq_threads(l, r, z)[b := true];
                 } else {
                     if (v == abs(threads)) {
                         ghost var b: Bool;
-                        unfold z_eq_threads(l, z)[b := b];
+                        unfold z_eq_threads(l, r, z)[b := b];
                     }
 
                     ghost var b1: Bool; ghost var b2: Bool;
-                    unfold z_lt_threads(l, z)[b1 := b1, b2 := b2];
+                    unfold z_lt_threads(l, r, z)[b1 := b1, b2 := b2];
                     if (b1) { assert false; }
-                    fold z_lt_threads(l, z)[b1 := true, b2 := true];
+                    fold z_lt_threads(l, r, z)[b1 := true, b2 := true];
                 }
             }
         !}
-        fold is_barrier(l);
+        fold is_barrier(l, r);
 
         if (z == w) {
             ghost var z0: Int;
-            unfold is_barrier(l)[z0 := z];
+            unfold is_barrier(l, r)[z0 := z];
             l.ctr := z-1;
             
             {!
@@ -275,145 +253,145 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
                 if (v == 0) {
                     // z0 == z == w == threads
                     ghost var b: Bool;
-                    unfold z_eq_threads(l, z)[b := b];
+                    unfold z_eq_threads(l, r, z)[b := b];
                     if (!b) { assert false; }
 
-                    p1_to_p2(l);
-                    Tk2.token_mutate_generate(l);
+                    p1_to_p2(r);
+                    Tk2.token_mutate_generate(r);
                 } else {
                     // z0 == z == w == v
                     if (v == abs(threads)) {
                         ghost var b: Bool;
-                        unfold z_eq_threads(l, z)[b := b];
+                        unfold z_eq_threads(l, r, z)[b := b];
                     }
 
                     ghost var b1: Bool; ghost var b2: Bool;
-                    unfold z_lt_threads(l, z)[b1 := b1, b2 := b2];
+                    unfold z_lt_threads(l, r, z)[b1 := b1, b2 := b2];
                     if (!b1) { assert false; }
                     if (!b2) { assert false; }
 
-                    Tk2.token_mutate_incr(l, threads - z);
+                    Tk2.token_mutate_incr(r, threads - z);
                 }
                 fpu(l.frac, z, z-1);
 
                 if (z-1 == 0) {
-                    fold z_eq_zero(l)[b := false];
+                    fold z_eq_zero(l, r)[b := false];
                 } else {
                     // b2 supplied to suppress warning
-                    fold z_lt_threads(l, z-1)[b1 := false, b2 := true];
+                    fold z_lt_threads(l, r, z-1)[b1 := false, b2 := true];
                 }
             !}
-            fold is_barrier(l);
+            fold is_barrier(l, r);
 
         } else {
-            sync_up_exit(l, v);
+            sync_up_exit(l, r, v);
         }
     }
 
-    proc sync_up(l: Ref)
-        requires is_barrier(l) && Tk1.token(l)
-        ensures Tk2.token(l)
+    proc sync_up(l: Ref, r: Ref)
+        requires is_barrier(l, r) && Tk1.token(r)
+        ensures Tk2.token(r)
     {
-        var z: Int := sync_up_enter(l);
-        sync_up_exit(l, z);
+        var z: Int := sync_up_enter(l, r);
+        sync_up_exit(l, r, z);
     }
 
-    proc sync_down_enter(l: Ref)
+    proc sync_down_enter(l: Ref, r: Ref)
         returns (z: Int)
-        requires is_barrier(l) && Tk2.token(l)
+        requires is_barrier(l, r) && Tk2.token(r)
         ensures 0 <= z && own(l.tickets, ticket(z))
     {
         {! threads_gt_zero(); !}
 
-        z := peek(l);
+        z := peek(l, r);
 
         if (z <= 0) {
-            unfold is_barrier(l);
+            unfold is_barrier(l, r);
             var b: Bool := cas(l.ctr, z, z-1);
 
             {!
                 if (b) {
                     if (z == 0) {
                         ghost var b1: Bool;
-                        unfold z_eq_zero(l)[b1 := b];  
+                        unfold z_eq_zero(l, r)[b1 := b];  
 
-                        if (b1) { Tk2.token_noTokens_interact(l, 1.0); }
+                        if (b1) { Tk2.token_noTokens_interact(r, 1.0); }
                     } else {
                         if (z == -threads) {
-                            unfold z_eq_threads(l, z);
-                            Tk2.token_noTokens_interact(l, 1.0);
+                            unfold z_eq_threads(l, r, z);
+                            Tk2.token_noTokens_interact(r, 1.0);
                         }
 
                         ghost var b1: Bool; ghost var b2: Bool;
-                        unfold z_gt_neg_threads(l, z)[b1 := b1, b2 := b2];
+                        unfold z_gt_neg_threads(l, r, z)[b1 := b1, b2 := b2];
 
-                        if (!b1) { Tk2.token_noTokens_interact(l, 1.0); }
-                        if (b2) { Tk2.token_noTokens_interact(l, 1.0); }
+                        if (!b1) { Tk2.token_noTokens_interact(r, 1.0); }
+                        if (b2) { Tk2.token_noTokens_interact(r, 1.0); }
                     }
 
                     fpu(l.frac, z, z-1);
                     if (-threads == z-1) {
-                        Tk2.token_mutate_decr_last(l);
-                        p2_to_p1(l);
-                        fold z_eq_threads(l, z-1)[b := false];
+                        Tk2.token_mutate_decr_last(r);
+                        p2_to_p1(r);
+                        fold z_eq_threads(l, r, z-1)[b := false];
                     } else {
-                        Tk2.token_mutate_decr(l, threads + z);
-                        fold z_gt_neg_threads(l, z-1)[b1 := true, b2 := false];
+                        Tk2.token_mutate_decr(r, threads + z);
+                        fold z_gt_neg_threads(l, r, z-1)[b1 := true, b2 := false];
                     }
                 }
             !}
-            fold is_barrier(l);
+            fold is_barrier(l, r);
 
             if (b) {
                 assert own(l.tickets, ticket(-z));
                 return -z;
             } else {
-                z := sync_down_enter(l);
+                z := sync_down_enter(l, r);
                 return z;
             }
         } else {
-            z := sync_down_enter(l);
+            z := sync_down_enter(l, r);
             return z;
         }
     }
 
-    proc sync_down_exit(l: Ref, v: Int)
-        requires is_barrier(l)
+    proc sync_down_exit(l: Ref, r: Ref, v: Int)
+        requires is_barrier(l, r)
         requires 0 <= v && own(l.tickets, ticket(v))
-        ensures Tk1.token(l)
+        ensures Tk1.token(r)
     {
         {! threads_gt_zero(); !}
 
         var w: Int := v == 0 ? -threads : -v;
 
-        unfold is_barrier(l);
+        unfold is_barrier(l, r);
         var z: Int := l.ctr;
         {!
             if (z == w) { 
                 if (v == 0) {
                     // z == w == threads
                     ghost var b: Bool;
-                    unfold z_eq_threads(l, z)[b := b];
+                    unfold z_eq_threads(l, r, z)[b := b];
                     if (b) { assert false; }
-                    fold z_eq_threads(l, z)[b := true];
+                    fold z_eq_threads(l, r, z)[b := true];
                 } else {
                     if (v == abs(threads)) {
                         ghost var b: Bool;
-                        unfold z_eq_threads(l, z)[b := b];
+                        unfold z_eq_threads(l, r, z)[b := b];
                     }
 
                     ghost var b1: Bool; ghost var b2: Bool;
-                    unfold z_gt_neg_threads(l, z)[b1 := b1, b2 := b2];
+                    unfold z_gt_neg_threads(l, r, z)[b1 := b1, b2 := b2];
                     if (b1) { assert false; }
-                    fold z_gt_neg_threads(l, z)[b1 := true, b2 := true];
+                    fold z_gt_neg_threads(l, r, z)[b1 := true, b2 := true];
                 }
             }
         !}
-        fold is_barrier(l);
+        fold is_barrier(l, r);
 
         if (z == w) {
             ghost var z0: Int;
-            unfold is_barrier(l)[z0 := z];
+            unfold is_barrier(l, r)[z0 := z];
             l.ctr := z+1;
             
             {!
@@ -421,45 +399,45 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
                 if (v == 0) {
                     // z0 == z == w == -threads
                     ghost var b: Bool;
-                    unfold z_eq_threads(l, z)[b := b];
+                    unfold z_eq_threads(l, r, z)[b := b];
                     if (!b) { assert false; }
 
                     // p1_to_p2(l);
-                    Tk1.token_mutate_generate(l);
+                    Tk1.token_mutate_generate(r);
                 } else {
                     // z0 == z == w == -v
                     if (v == abs(threads)) {
                         ghost var b: Bool;
-                        unfold z_eq_threads(l, z)[b := b];
+                        unfold z_eq_threads(l, r, z)[b := b];
                     }
 
                     ghost var b1: Bool; ghost var b2: Bool;
-                    unfold z_gt_neg_threads(l, z)[b1 := b1, b2 := b2];
+                    unfold z_gt_neg_threads(l, r, z)[b1 := b1, b2 := b2];
                     if (!b1) { assert false; }
                     if (!b2) { assert false; }
 
-                    Tk1.token_mutate_incr(l, threads + z);
+                    Tk1.token_mutate_incr(r, threads + z);
                 }
                 fpu(l.frac, z, z+1);
 
                 if (z+1 == 0) {
-                    fold z_eq_zero(l)[b := true];
+                    fold z_eq_zero(l, r)[b := true];
                 } else {
                     // b2 supplied to suppress warning
-                    fold z_gt_neg_threads(l, z+1)[b1 := false, b2 := true];
+                    fold z_gt_neg_threads(l, r, z+1)[b1 := false, b2 := true];
                 }
             !}
-            fold is_barrier(l);
+            fold is_barrier(l, r);
         } else {
-            sync_down_exit(l, v);
+            sync_down_exit(l, r, v);
         }
     }
 
-    proc sync_down(l: Ref)
-        requires is_barrier(l) && Tk2.token(l)
-        ensures Tk1.token(l)
+    proc sync_down(l: Ref, r: Ref)
+        requires is_barrier(l, r) && Tk2.token(r)
+        ensures Tk1.token(r)
     {
-        var z: Int := sync_down_enter(l);
-        sync_down_exit(l, z);
+        var z: Int := sync_down_enter(l, r);
+        sync_down_exit(l, r, z);
     }
 }
