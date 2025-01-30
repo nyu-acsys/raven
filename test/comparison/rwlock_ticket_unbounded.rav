@@ -33,7 +33,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
             (b ? Lk.locked(lk_ref) : noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0))))
     }
 
-    pred is_rwlock(l: Ref, lk_ref: Ref) {
+    pred is_rwlock(l: Ref; lk_ref: Ref) {
         own(l.lk, lk_ref)
         && Lk.lock_inv(lk_ref, l)
         && readers_inv(l, lk_ref)
@@ -70,21 +70,16 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         requires SharedPred.p()
         ensures exists lk_ref: Ref :: is_rwlock(l, lk_ref)
     {
-        SharedPred.allocate(l);
+        l := new(ctr: 0, lk: null, Tk.v: TokenRA.noToken(1.0));
         fold LkResource.resource(l);
         var lk_ref := Lk.create(l);
-
-        l := new(ctr: 0, lk: lk_ref, Tk.v: TokenRA.noToken(1.0));
+        l.lk := lk_ref;
+        SharedPred.allocate(l);
         fold noTokens(l, 1.0);
         Tk.noTokens_split(l, 1.0);
 
         fold readers_inv(l, lk_ref)[z := 0, b := false];
         fold is_rwlock(l, lk_ref);
-
-        // the following assert is used to 
-        // supply witnesses for the existential variables 
-        // in the post-condition.
-        assert is_rwlock(l, lk_ref);
     }
 
     proc acquire_reader(l: Ref, implicit ghost lk_ref': Ref)

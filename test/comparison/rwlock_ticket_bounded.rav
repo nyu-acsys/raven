@@ -107,12 +107,11 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         requires SharedPred.p()
         ensures exists lk_ref: Ref :: is_rwlock(l, lk_ref)
     {
+        l := new(ctr: 0, lk: null, Tk.v: TokenRA.noToken(1.0), ctr_ra: CtrRA.auth_frag(ProdRA.prod(0, ExclInt.excl(0)), ProdRA.prod(0, ExclInt.excl(0))));
         SharedPred.allocate(l);
-        l := new(ctr_ra: CtrRA.auth_frag(ProdRA.prod(0, ExclInt.excl(0)), ProdRA.prod(0, ExclInt.excl(0))));
         fold LkResource.resource(l)[i := 0];
         var lk_ref := Lk.create(l);
-
-        l := new(ctr: 0, lk: lk_ref, Tk.v: TokenRA.noToken(1.0));
+        l.lk := lk_ref;
         fold noTokens(l, 1.0);
         Tk.noTokens_split(l, 1.0);
 
