@@ -85,7 +85,6 @@ interface SearchStructureSpec {
 }
 
 interface NodeImpl {
-
   module Spec : SearchStructureSpec
   // import Spec
   import Spec.K
@@ -93,11 +92,14 @@ interface NodeImpl {
   import Spec.opSpec
   import Spec.keyset
 
+  field lock: Bool
+  ghost field frac: Set[K]
+
   pred nodeR(n: Ref; c: Set[K])
 
   proc create()
     returns (n: Ref)
-    ensures nodeR(n, {||})
+    ensures nodeR(n, {||}) && own(n.lock, false) && own(n.frac, {||})
 
   proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K])
     returns (res: Bool, implicit ghost c1: Set[K])
@@ -135,13 +137,12 @@ interface SearchStructure {
 }
 
 interface SingleNodeTemplate[Node: NodeImpl] {
-  field lock: Bool
 
   module Spec: SearchStructureSpec = Node.Spec
 
   import Node.Spec._
-
-  ghost field frac: Set[K];
+  import Node.lock
+  import Node.frac
 
   pred cssR(r: Ref, c: Set[K]) {
       exists b: Bool :: own(r.frac, c, 0.5) && own(r.lock, b, 1.0) && 
@@ -163,7 +164,6 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     ensures cssR(r, {||})
   {
     r := Node.create();
-    r := new(lock:false, frac:{||});
     fold cssR(r, {||})[b := false];
   }
 
@@ -224,9 +224,9 @@ module IntSetNodeImpl : NodeImpl {
 
   proc create()
     returns (n: Ref)
-    ensures nodeR(n, {||})
+    ensures nodeR(n, {||}) && own(n.lock, false) && own(n.frac, {||})
   {
-    n := new(value:{||});
+    n := new(value:{||}, lock: false, frac: {||});
     fold nodeR(n, {||});
   }
 
