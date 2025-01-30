@@ -340,23 +340,10 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ghost var i_r: Flow_K;
     r, i_r := Node.createRoot();
 
-    /*var i_r: Flow_K := int(
-        {| l:Ref :: l == r ? fromSet(keyspace) : fromSet({||})  |},
-        zeroFlow(),
-        {|r|}
-      );*/
     var contents: Map[Ref, Set[K]] := {| l: Ref :: {||} |};
     var lockval: Map[Ref, Int] := {| l: Ref :: 0 |};
     ghost var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
 
-    //fpu(r.authSet, AuthSetRef.auth(SetRefRA.id), AuthSetRef.auth(SetRefRA.set_constr({|r|})));
-    //fpu(r.authFlow, AuthFlow_K.auth(Flow_K.id), AuthFlow_K.auth_frag(i_r, i_r));
-
-    //fold nodePred(r, r, {||}, i_r);
-
-    //fold globalinv(i_r, r);
-    //fold globalRes(r, {||}, i_r);
-    assert own(r.lock, lockval[r], 1.0) && (lockval[r] == 1 ? true : nodePred(r, r, contents[r], intf[r]));
     fold cssR(r, {||}, i_r, lockval, contents, intf);
     assert cssR(r, {||}, i_r, lockval, contents, intf);
     fold css(r, {||});
