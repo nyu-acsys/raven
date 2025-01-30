@@ -42,7 +42,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
 
   module LkB = Lock[LkBResource]
 
-  auto pred is_rwlock(l: Ref, lkA_ref: Ref, lkB_ref: Ref) {
+  auto pred is_rwlock(l: Ref; lkA_ref: Ref, lkB_ref: Ref) {
     own(l.lkA_fld, lkA_ref)
     && own(l.lkB_fld, lkB_ref)
     && LkA.lock_inv(lkA_ref, l)
@@ -52,25 +52,20 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
   proc create()
     returns (l: Ref)
     requires SharedPred.p()
-    ensures exists lkA_ref: Ref, lkB_ref: Ref :: 
-        is_rwlock(l, lkA_ref, lkB_ref)
+    ensures is_rwlock(l)
   {
-    SharedPred.allocate(l);
-      fold LkAResource.resource(l);
-    var lkA_ref := LkA.create(l);
-
     l := new(ctr: 0, lkA_fld: null, lkB_fld: null, Tk.v: TokenRA.noToken(1.0));
-      fold noTokens(l, 1.0);
-      fold LkBResource.resource((l, lkA_ref));
+    SharedPred.allocate(l);
+    fold LkAResource.resource(l);
+    var lkA_ref := LkA.create(l);
+    
+    fold noTokens(l, 1.0);
+    fold LkBResource.resource((l, lkA_ref));
+        
     var lkB_ref := LkB.create((l, lkA_ref));
 
     l.lkA_fld := lkA_ref;
     l.lkB_fld := lkB_ref;
-
-    // the following assert is used to 
-    // supply witnesses for the existential variables 
-    // in the post-condition.
-    assert is_rwlock(l, lkA_ref, lkB_ref);
   }
 
   proc acquire_reader(l: Ref, implicit ghost lkA_ref': Ref, implicit ghost lkB_ref': Ref)
