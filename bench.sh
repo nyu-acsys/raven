@@ -1,7 +1,7 @@
 #!/bin/bash
 
-WARMUP=2
-RUNS=3
+WARMUP=0
+RUNS=1
 
 FILES=(
   "test/comparison/peterson.rav"
@@ -21,12 +21,15 @@ FILES=(
   "test/comparison/rwlock_ticket_unbounded.rav"
   "" 
   "test/comparison/fork_join_client.rav"
+  "test/comparison/cas_counter_client.rav"
+  "test/comparison/barrier_client.rav"
+  "test/comparison/ticket_lock_client.rav"
   ""
   "test/concurrent/lock/spin-lock_compact.rav"
   "test/concurrent/lock/ticket-lock.rav"
   "test/comparison/arc.rav"
   "test/concurrent/treiber_stack/treiber_stack_atomics.rav"
-  "test/concurrent/counter/counter_monotonic.rav"
+  "test/comparison/cas_counter.rav"
   ""
   "test/comparison/tokens.rav"
   ""

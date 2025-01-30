@@ -39,7 +39,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         && readers_inv(l, lk_ref)
     }
 
-    proc faa(x: Ref, w: Int, implicit ghost v: Int)
+    proc faa_ctr(x: Ref, w: Int, implicit ghost v: Int)
         atomic requires own(x.ctr, v) 
         atomic ensures own(x.ctr, v+w)
     {
@@ -56,7 +56,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         if (!res) {
             abortAU(phi);
             ghost var v3: Int := openAU(phi);
-            faa(x, w);
+            faa_ctr(x, w);
             commitAU(phi);
         } else {
             commitAU(phi);
@@ -72,7 +72,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
     {
         SharedPred.allocate(l);
         fold LkResource.resource(l);
-        var lk_ref = Lk.create(l);
+        var lk_ref := Lk.create(l);
 
         l := new(ctr: 0, lk: lk_ref, Tk.v: TokenRA.noToken(1.0));
         fold noTokens(l, 1.0);
@@ -98,7 +98,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
 
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, b := b];
-        faa(l, 1);
+        faa_ctr(l, 1);
         {!
             if (z > 0) {
                 Tk.token_mutate_incr(l, z);
@@ -126,7 +126,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
 
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, b := b];
-        faa(l, -1);
+        faa_ctr(l, -1);
         {!
             if (z > 1) {
                 Tk.token_mutate_decr(l, z);
@@ -148,7 +148,7 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
 
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, b := b];
-        faa(l, 1);
+        faa_ctr(l, 1);
         {!
             if (z > 0) {
                 Tk.token_mutate_incr(l, z);

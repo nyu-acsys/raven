@@ -76,7 +76,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         && readers_inv(l, lk_ref)
     }
 
-    proc faa(x: Ref, w: Int, implicit ghost v: Int)
+    proc faa_ctr(x: Ref, w: Int, implicit ghost v: Int)
         atomic requires own(x.ctr, v) 
         atomic ensures own(x.ctr, v+w)
     {
@@ -93,7 +93,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         if (!res) {
             abortAU(phi);
             ghost var v3: Int := openAU(phi);
-            faa(x, w);
+            faa_ctr(x, w);
             commitAU(phi);
         } else {
             commitAU(phi);
@@ -110,7 +110,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         SharedPred.allocate(l);
         l := new(ctr_ra: CtrRA.auth_frag(ProdRA.prod(0, ExclInt.excl(0)), ProdRA.prod(0, ExclInt.excl(0))));
         fold LkResource.resource(l)[i := 0];
-        var lk_ref = Lk.create(l);
+        var lk_ref := Lk.create(l);
 
         l := new(ctr: 0, lk: lk_ref, Tk.v: TokenRA.noToken(1.0));
         fold noTokens(l, 1.0);
@@ -143,7 +143,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         if (z1 < bound) {
             ghost var z2: Int; ghost var b2: Bool; ghost var d2: Int; ghost var i2: Int;
             unfold readers_inv(l, lk_ref)[z2 := z, d2 := d, i2 := i, b2 := b];
-            faa(l, 1);
+            faa_ctr(l, 1);
             {!
                 if (i2 > d2) {
                     Tk.token_mutate_incr(l, z2);
@@ -196,7 +196,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
 
         ghost var z: Int; ghost var d: Int; ghost var i: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, d := d, i := i, b := b];
-        faa(l, -1);
+        faa_ctr(l, -1);
         {!
             fpu(
                 l.ctr_ra,
