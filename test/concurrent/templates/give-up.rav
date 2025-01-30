@@ -67,6 +67,13 @@ interface NodeImpl {
 
   pred node(n: Ref; c: Set[K], flow_int: Flow_K)
 
+  pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
+    own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
+    own(r.authFlow, AuthFlow_K.frag(i_n)) &&
+    i_n.dom == {|n|} && 
+    node(n, c, i_n)
+  }
+
   // func outsets(outset: Map[Ref, Set[K]]) returns (ret: Set[K])
   // {
   //   {| k: K :: exists r: Ref :: k in outset[r] |}
@@ -102,17 +109,27 @@ interface NodeImpl {
     insets(i) -- outsets(i)
   }
 
+  func globalinv(g_i: Flow_K, r: Ref) returns (res: Bool) 
+  {
+      Flow_K.valid(g_i) &&
+      r in g_i.dom &&
+      outsets(g_i) == {||} &&
+      inset(g_i, r) == keyspace  
+  }
+
+  pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
+    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
+    own(r.authFlow, AuthFlow_K.auth(g_i)) &&
+    globalinv(g_i, r)
+  }
+
   proc createRoot()
-    returns (r: Ref)
+    returns (r: Ref, implicit ghost g_i: Flow_K)
     ensures own(r.lock, 0)
-    ensures own(r.authKS, AuthKeyset_K.auth_frag(
-        Keyset_K.prodKS(keyspace, {||}),
-        Keyset_K.prodKS(keyspace, {||}))
-      )
-    ensures own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr({|r|})))
-    ensures own(r.authFlow, AuthFlow_K.auth(Flow_K.id))
-    ensures node(r, {||}, 
-    Flow_K.int({| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
+    ensures globalRes(r, {||}, g_i) && g_i.dom == {|r|}
+    ensures nodePred(r, r, {||}, g_i) 
+    //Flow_K.int({| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
 
   proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
     returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
@@ -171,7 +188,17 @@ interface GiveUpTemplate[Node: NodeImpl] {
   import Node.Multiset_K.elem
   import Node.Multiset_K.fromSet
 
-  
+  pred cssR(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K]) {
+      (forall n: Ref :: n in g_i.dom ==> 
+          own(n.lock, lockval[n], 1.0) && (lockval[n] == 1 ? true : nodePred(r, n, contents[n], intf[n])))
+      && 
+      globalRes(r, c, g_i)
+  }
+
+  pred css(r: Ref, c: Set[K]) {
+    exists g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K] :: 
+      cssR(r, c, g_i, lockval, contents, intf)
+  }
  
   proc lockNode(n: Ref, implicit ghost b: Int)
     atomic requires own(n.lock, b, 1.0)
@@ -250,44 +277,14 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
     commitAU(phi);
   }
+
   
 
-  pred globalinv(g_i: Flow_K, r: Ref) {
-      Flow_K.valid(g_i) &&
-      r in g_i.dom &&
-      outsets(g_i) == {||} &&
-      inset(g_i, r) == keyspace  
-  }
-
-  pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
-    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
-    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
-    own(r.authFlow, AuthFlow_K.auth(g_i)) &&
-    globalinv(g_i, r)
-  }
-
-  pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
-    own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
-    own(r.authFlow, AuthFlow_K.frag(i_n)) &&
-    i_n.dom == {|n|} && 
-    node(n, c, i_n)
-  }
-
-  pred inFP(r: Ref, n: Ref) {
+  auto pred inFP(r: Ref, n: Ref) {
     own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
   }
 
-  pred cssR(r: Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K]) {
-      (forall n: Ref :: n in g_i.dom ==> 
-          own(n.lock, lockval[n], 1.0) && (lockval[n] == 1 ? true : nodePred(r, n, contents[n], intf[n])))
-      && 
-      globalRes(r, c, g_i)
-  }
-
-  pred css(r: Ref, c: Set[K]) {
-    exists g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K] :: 
-      cssR(r, c, g_i, lockval, contents, intf)
-  }
+  
 
   lemma cssInFp(r: Ref, n:Ref, c: Set[K], g_i: Flow_K, lockval: Map[Ref, Int], contents: Map[Ref, Set[K]], intf: Map[Ref, Flow_K])
     requires cssR(r, c, g_i, lockval, contents, intf)
@@ -298,10 +295,10 @@ interface GiveUpTemplate[Node: NodeImpl] {
   {
     unfold cssR(r, c, g_i, lockval, contents, intf);
     unfold globalRes(r, c, g_i);
-    unfold inFP(r, n);
+    //unfold inFP(r, n);
 
     fold globalRes(r, c, g_i);
-    fold inFP(r, n);
+    //fold inFP(r, n);
     fold cssR(r, c, g_i, lockval, contents, intf);
   }
 
@@ -318,7 +315,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     fpu(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)), AuthSetRef.auth_frag(SetRefRA.set_constr(g_i.dom), SetRefRA.set_constr(g_i.dom)));
 
     fold globalRes(r, c, g_i);
-    fold inFP(r, n);
+    //fold inFP(r, n);
     fold cssR(r, c, g_i, lockval, contents, intf);
   }
 
@@ -329,9 +326,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
   {
     unfold cssR(r, c, g_i, lockval, contents, intf);
     unfold globalRes(r, c, g_i);
-    unfold globalinv(g_i, r);
+    //unfold globalinv(g_i, r);
 
-    fold globalinv(g_i, r);
+    //fold globalinv(g_i, r);
     fold globalRes(r, c, g_i);
     fold cssR(r, c, g_i, lockval, contents, intf);
   }
@@ -340,24 +337,26 @@ interface GiveUpTemplate[Node: NodeImpl] {
     returns (r: Ref)
     ensures css(r, {||})
   {
-    r := Node.createRoot();
+    ghost var i_r: Flow_K;
+    r, i_r := Node.createRoot();
 
-    var i_r: Flow_K := int(
+    /*var i_r: Flow_K := int(
         {| l:Ref :: l == r ? fromSet(keyspace) : fromSet({||})  |},
         zeroFlow(),
         {|r|}
-      );
+      );*/
     var contents: Map[Ref, Set[K]] := {| l: Ref :: {||} |};
     var lockval: Map[Ref, Int] := {| l: Ref :: 0 |};
-    var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
+    ghost var intf: Map[Ref, Flow_K] := {| l: Ref :: l == r ? i_r : Flow_K.id |};
 
     //fpu(r.authSet, AuthSetRef.auth(SetRefRA.id), AuthSetRef.auth(SetRefRA.set_constr({|r|})));
-    fpu(r.authFlow, AuthFlow_K.auth(Flow_K.id), AuthFlow_K.auth_frag(i_r, i_r));
+    //fpu(r.authFlow, AuthFlow_K.auth(Flow_K.id), AuthFlow_K.auth_frag(i_r, i_r));
 
-    fold nodePred(r, r, {||}, i_r);
+    //fold nodePred(r, r, {||}, i_r);
 
-    fold globalinv(i_r, r);
-    fold globalRes(r, {||}, i_r);
+    //fold globalinv(i_r, r);
+    //fold globalRes(r, {||}, i_r);
+    assert own(r.lock, lockval[r], 1.0) && (lockval[r] == 1 ? true : nodePred(r, r, contents[r], intf[r]));
     fold cssR(r, {||}, i_r, lockval, contents, intf);
     assert cssR(r, {||}, i_r, lockval, contents, intf);
     fold css(r, {||});
@@ -377,7 +376,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unfold nodePred(r, n, c_n, i_n);
 
       unfold globalRes(r, c, g_i);
-      unfold globalinv(g_i, r);
+      //unfold globalinv(g_i, r);
 
       ghost var i_o: Flow_K := Flow_K.frame(g_i, i_n);
       
@@ -385,7 +384,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       assert k !in outset(g_i, n1);
       
       fold nodePred(r, n, c_n, i_n);
-      fold globalinv(g_i, r);
+      //fold globalinv(g_i, r);
       fold globalRes(r, c, g_i);
       fold cssR(r, c, g_i, lockval, contents, intf);
     }
@@ -482,9 +481,9 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       unfold cssR(r, c1, g_i1, lockval1, contents1, intf1);
       unfold globalRes(r, c1, g_i1);
-      unfold globalinv(g_i1, r);
+      //unfold globalinv(g_i1, r);
 
-      fold globalinv(g_i1, r);
+      //fold globalinv(g_i1, r);
       fold globalRes(r, c1, g_i1);
       fold cssR(r, c1, g_i1, lockval1, contents1, intf1);
 
