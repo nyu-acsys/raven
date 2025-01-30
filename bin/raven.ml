@@ -74,14 +74,14 @@ let check_cu config tbl smt_env md front_end_out_chan =
 
   let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
 
-  Logs.debug (fun m ->
+  (* Logs.debug (fun m ->
       m "SymbolTbl Symbols: \n%a\n"
         (Util.Print.pr_list_comma (fun ppf (k, v) ->
              Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k
                Module.pr_symbol v))
         (Map.to_alist
            (Map.filter_keys tbl.tbl_symbols ~f:(fun k ->
-                Poly.(QualIdent.to_string k = "$Program.pr")))));
+                Poly.(QualIdent.to_string k = "$Program.pr"))))); *)
 
   Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
@@ -95,6 +95,7 @@ let check_cu config tbl smt_env md front_end_out_chan =
   end
 
 (** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
+(* EG: I believe this function is now obsolete. Should clean it up. *)
 let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
     lexbuf front_end_out_chan =
   (* let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in *)
