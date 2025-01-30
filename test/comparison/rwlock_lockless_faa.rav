@@ -48,8 +48,8 @@ interface RWLockLocklessFAA[SharedPred: ShareablePredicate] {
         requires SharedPred.p()
         ensures is_rwlock(l)
     {
-        SharedPred.allocate(l);
         l := new(ctr: 0, Tk.v: TokenRA.noToken(1.0));
+        SharedPred.allocate(l);
         fold noTokens(l, 1.0);
         fold is_rwlock(l);
     }

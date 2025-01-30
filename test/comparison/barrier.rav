@@ -157,7 +157,6 @@ interface Barrier[N: NumThreads, A: AbstractPredicates] {
         Tk1.token_mutate_generate_n(l, threads);
 
         fold z_eq_zero(l)[b := true];
-
         fold is_barrier(l);
     }
 
