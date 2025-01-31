@@ -1407,7 +1407,8 @@ module ProcessCallable = struct
             let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (Type.bool |> Type.set_ghost_to var_decl.var_type) disam_tbl in
             Stmt.Cas { cas_old_val; cas_new_val }
           | Faa faa_desc ->
-            let* _ = disambiguate_process_expr (Expr.mk_var ~typ:ais_fld_type_full ais_desc.atomic_inbuilt_field) Type.int disam_tbl in
+            let* _ = disambiguate_process_expr (Expr.mk_var ~typ:ais_fld_type_full ais_desc.atomic_inbuilt_field)
+                (Type.mk_fld (QualIdent.to_loc ais_desc.atomic_inbuilt_field) Type.int) disam_tbl in
             let* faa_val = disambiguate_process_expr faa_desc.faa_val ais_fld_type disam_tbl in
             let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (ais_fld_type |> Type.set_ghost_to var_decl.var_type) disam_tbl in
             Stmt.Faa { faa_val }
