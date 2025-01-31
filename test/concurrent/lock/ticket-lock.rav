@@ -6,11 +6,7 @@ module TicketLock[R: LockResource] {
   field next: Int
   field curr: Int
 
-  module IntType : Library.Type {
-    rep type T = Int
-  }
-
-  module IntSet = Library.DisjSet[IntType]
+  module IntSet = Library.DisjSet[Library.IntType]
   module AuthDisjInts = Library.Auth[IntSet]
  
   ghost field tickets: AuthDisjInts
