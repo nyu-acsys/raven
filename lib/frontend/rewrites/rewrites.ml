@@ -916,6 +916,34 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           (Expr.mk_var ~typ:(Type.ref) new_desc.new_lhs)
         ))
       in
+      let* validity_check_optns = 
+        Rewriter.List.map new_desc.new_args ~f:(fun (fld_qi, e_opt) ->
+          match e_opt with
+          | None -> Rewriter.return None
+          | Some e -> 
+            let+ field_symbol = Rewriter.find_and_reify_field fld_qi in
+
+            let field_ra_valid_qi =
+              let field_ra = ProgUtils.field_get_ra_qual_iden field_symbol in
+              ProgUtils.get_ra_valid_fn_qual_ident field_ra
+            in
+            let assert_stmt = 
+              let error =
+                ( Error.Verification,
+                  stmt.stmt_loc,
+                  "Could not prove validity of initially-allocated value" )
+              in
+              Stmt.mk_assert_expr ~loc:stmt.stmt_loc 
+              ~cmnt:("new() stmt: " ^ Stmt.to_string stmt)
+              ~spec_error:[ Stmt.mk_const_spec_error error ]
+              (Expr.mk_app ~loc:stmt.stmt_loc ~typ:Type.bool
+                (Expr.Var field_ra_valid_qi) [e]
+              )
+            in
+            Some assert_stmt
+          )
+      in
+      let validity_check_stmts = List.filter_map validity_check_optns ~f:(fun f -> f) in
       let havoc_stmt = Stmt.mk_havoc ~loc:stmt.stmt_loc
         (* ~cmnt:"RefVar Havoc Stmt; from new stmt" *)
         new_desc.new_lhs
@@ -958,6 +986,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       Rewriter.return (Stmt.mk_block_stmt ~loc:stmt.stmt_loc (
+        validity_check_stmts @ 
         havoc_stmt :: 
         assume_non_null_stmt :: new_inhale_stmts))
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts

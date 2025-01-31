@@ -1,0 +1,10 @@
+module Agree_Int = Library.Agree[Library.IntType]
+
+field f: Agree_Int
+
+proc p() {
+    var l: Ref;
+    l := new(f: Agree_Int.agree(1));
+    l := new(f: Agree_Int.agree(2));
+    assert false;
+}
