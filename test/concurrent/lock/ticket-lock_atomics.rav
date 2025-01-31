@@ -24,7 +24,7 @@ module TicketLock[R: LockResource] {
           IntSet.set({|i: Int :: 0 <= i && i < n|}), 
           IntSet.set({||})
         )
-      ) 
+      )
   }
 
   proc create(r: R) returns (l: Ref)
@@ -49,21 +49,14 @@ module TicketLock[R: LockResource] {
     r, b := openAU(phi);
     unfold is_lock(l);
     val c: Int := l.curr;    
-    {!
-      ghost var n: Int;
-      n :| own(l.next, n, 1.0);
-      if (x == c) {
-        fold is_lock(l, r, true);
-        commitAU(phi);
-      } else {
-        fold is_lock(l, r, b);
-        abortAU(phi);  
-      }
-    !}
 
     if (x == c) {
+      fold is_lock(l, r, true);
+      commitAU(phi);
       return;
     } else {
+      fold is_lock(l, r, b);
+      abortAU(phi);  
       r, b := openAU(phi);
       wait_loop(l, x);
       commitAU(phi);
@@ -85,23 +78,27 @@ module TicketLock[R: LockResource] {
     r, b := openAU(phi);
     unfold is_lock(l);
     val res: Bool := cas(l.next, nxt, nxt+1);
-    {!
-      if (res) {
-        fpu(l, tickets, AuthDisjInts.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < nxt|}), IntSet.set({||})), 
-                        AuthDisjInts.auth_frag(IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), IntSet.set({|nxt|})));
-        fold is_lock(l, r, b);
-        abortAU(phi);
-      } else {
-        fold is_lock(l, r, b);
-        abortAU(phi);
-      }
-    !}
 
     if (res) {
+      fpu(l, tickets, 
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < nxt|}), 
+          IntSet.set({||})
+        ), 
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), 
+          IntSet.set({|nxt|})
+        )
+      );
+      fold is_lock(l, r, b);
+      abortAU(phi);
       r, b := openAU(phi);
       wait_loop(l, nxt);
       commitAU(phi);
+
     } else {
+      fold is_lock(l, r, b);
+      abortAU(phi);
       r, b := openAU(phi);
       acquire(l);
       commitAU(phi);
