@@ -38,10 +38,12 @@ FILES=(
   "test/concurrent/templates/keyset_ra.rav"
   "test/concurrent/templates/give-up.rav"
   "test/concurrent/templates/bplustree.rav"
+  "test/arrays/array.rav" "test/arrays/ordered_array.rav" 
 )
 
 # Initialize CSV file
-CSV_FILE="./benchmarks.csv"
+timestamp=$(date +"%Y%m%d_%H%M%S")
+CSV_FILE="./bench_results/bench_$timestamp.csv"
 echo "File,Program Length,Proof Declarations,Proof Instructions,Runtime" > "$CSV_FILE"
 
 for file in "${FILES[@]}"; do
@@ -65,6 +67,7 @@ for file in "${FILES[@]}"; do
   proof_remaining_instructions=$(echo "$output" | grep "Proof Remaining Instructions" | awk '{print $4}')
   specification_count=$(echo "$output" | grep "Specification Count" | awk '{print $3}')
   program_length=$((program_declarations + program_instructions))
+  proof_declarations=$((proof_declarations + specification_count))
 
   # Run hyperfine to measure runtime
   runtime=$(hyperfine --warmup $WARMUP --runs $RUNS "raven \"$file\"" --export-json /tmp/hyperfine.json)
