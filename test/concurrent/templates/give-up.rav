@@ -1,7 +1,6 @@
 include "./flows_ra.rav"
 include "./ccm_instances.rav"
 include "./keyset_ra.rav"
-include "../../comparison/dfrac_ra.rav"
 
 import Library.Type
 import Library.CancellativeResourceAlgebra
@@ -60,9 +59,6 @@ interface NodeImpl {
   module AuthKeyset_K = Library.Auth[Keyset_K]
   module AuthFlow_K = Library.Auth[Flow_K]
 
-  module DFRA = Dfrac[Library.RefType]
-  ghost field dfrac: DFRA
-
   ghost field authSet: AuthSetRef
   ghost field authKS: AuthKeyset_K
   ghost field authFlow: AuthFlow_K
@@ -72,12 +68,10 @@ interface NodeImpl {
   pred node(n: Ref; c: Set[K], flow_int: Flow_K)
 
   pred nodePred(r: Ref, n: Ref; c: Set[K], i_n: Flow_K) {
-    exists l: Ref ::
-      own(r.dfrac, DFRA.dfrac_disc(l)) &&
-      own(l.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
-      own(l.authFlow, AuthFlow_K.frag(i_n)) &&
-      i_n.dom == {|n|} && 
-      node(n, c, i_n)
+    own(r.authKS, AuthKeyset_K.frag( Keyset_K.prodKS( keyset(i_n), c ) )) &&
+    own(r.authFlow, AuthFlow_K.frag(i_n)) &&
+    i_n.dom == {|n|} && 
+    node(n, c, i_n)
   }
 
   // func outsets(outset: Map[Ref, Set[K]]) returns (ret: Set[K])
@@ -124,12 +118,10 @@ interface NodeImpl {
   }
 
   pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
-    exists l: Ref ::
-      own(r.dfrac, DFRA.dfrac_disc(l)) &&
-      own(l.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
-      own(l.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
-      own(l.authFlow, AuthFlow_K.auth(g_i)) &&
-      globalinv(g_i, r)
+    own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
+    own(r.authFlow, AuthFlow_K.auth(g_i)) &&
+    globalinv(g_i, r)
   }
 
   proc createRoot()

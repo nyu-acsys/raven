@@ -143,48 +143,20 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
 
 
   /*Initialize a new root node */
-  proc createRoot() returns (r: Ref, implicit ghost g_i: Flow_K)
-    ensures own(r.lock, 0)
-    ensures globalRes(r, {||}, g_i) && g_i.dom == {|r|}
-    ensures nodePred(r, r, {||}, g_i) 
+  proc createRoot() returns (r: Ref)
+    ensures node(r, {||}, 
+      Flow_K.int({| l: Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
   {
     var ka: AK.T;
     ka := AK.alloc(2*b, AK.default);
     var pa: AN.T;
     pa := AN.alloc(2*b, null);
-
-    r := new(len: 0, rangeLb: none, rangeUb: none, keys: ka, ptrs: pa, 
-      lock: 0,
-      dfrac: DFRA.dfrac_chunk(null, 1.0)
-    );
-
-    g_i := int(
-        {| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.fromSet({||}) |},
-        zeroFlow(),
-        {|r|}
-      );
-
-    var l: Ref := new(
-        authKS: AuthKeyset_K.auth_frag( 
-          Keyset_K.prodKS( keyspace, {||} ),
-          Keyset_K.prodKS( keyspace, {||} )
-        ),
-        authSet: AuthSetRef.auth(SetRefRA.set_constr({|r|})),
-        authFlow: AuthFlow_K.auth_frag(g_i, g_i)
-    );
-
-    fpu(r.dfrac, DFRA.dfrac_chunk(null, 1.0), DFRA.dfrac_chunk(l, 1.0));
-    fpu(r.dfrac, DFRA.dfrac_disc(l));
-
-
-
-    fold globalRes(r, {||}, g_i)[l := l];
+    r := new(len: 0, rangeLb: none, rangeUb: none, keys: ka, ptrs: pa);
     
     val cmap: Map[Int, Ref] := {| i: Int :: 0 <= i < 2*b ? null : AN.default |};
     
     fold AK.sorted_array_with_content(ka, 0, AK.default_map);
     fold node(r, {||}, flow_int_of(r, 0, none, none, AK.default_map, cmap));
-    fold nodePred(r, r, {||}, g_i)[l := l];
   }
 
   proc inRange(n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
