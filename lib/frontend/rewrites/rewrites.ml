@@ -2761,7 +2761,11 @@ Specification Count: %d"
       else
         computeStats md
     | ModInst _ | TypeDef _ -> Rewriter.return { init_prog_stats with proof_decls = 1; }
-    | VarDef _ -> Rewriter.return { init_prog_stats with prog_decls = 1; }
+    | VarDef _ -> 
+      Rewriter.return { init_prog_stats with 
+        (* prog_decls = 1;  *)
+        proof_decls = 1; 
+      }
     | FieldDef f -> Rewriter.return @@
       if f.field_is_ghost then
         { init_prog_stats with proof_decls = 1; }
@@ -2782,24 +2786,32 @@ Specification Count: %d"
       let call_kind = c.call_decl.call_decl_kind in
 
       match call_kind with
-      | Func | Proc ->
-      { init_prog_stats with 
-        prog_decls = 1;
-        (* spec_count = List.length (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond); *)
-        spec_count = 
-          if List.is_empty (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond) then 0 else 1;
-      }
+      | Proc ->
+        { init_prog_stats with 
+          prog_decls = 1;
+          (* spec_count = List.length (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond); *)
+          spec_count = 
+            if List.is_empty (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond) then 0 else 1;
+        }
       | Lemma ->
         { init_prog_stats with
           proof_decls = 1;
           spec_count = 
             if List.is_empty (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond) then 0 else 1
         }
-      | _ ->
-      { init_prog_stats with 
-        proof_decls = 1;
-        spec_count = 0;
-      }
+      | Func ->
+        { init_prog_stats with 
+          (* prog_decls = 1; *)
+          proof_decls = 1;
+          (* spec_count = List.length (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond); *)
+          spec_count = 
+            if List.is_empty (c.call_decl.call_decl_precond @ c.call_decl.call_decl_postcond) then 0 else 1;
+        }
+      | Pred | Invariant ->
+        { init_prog_stats with 
+          proof_decls = 1;
+          spec_count = 0;
+        }
     in
 
     match c.call_def with
@@ -2832,11 +2844,16 @@ Specification Count: %d"
       merge_prog_stats loop_stats body_stats
 
     | Cond cond_desc -> 
-      let cond_stats = {init_prog_stats with 
-        prog_instr = 1; 
-      } in
       let* cond_if_stats = computeStmtStats cond_desc.cond_then proc_decl in
       let+ cond_else_stats = computeStmtStats cond_desc.cond_else proc_decl in
+
+      let cond_stats = {init_prog_stats with 
+        prog_instr = 
+          if (cond_if_stats.prog_instr > 0 || cond_else_stats.prog_instr > 0) 
+            then 1 
+          else 0  
+        ; 
+      } in
 
       merge_prog_stats cond_stats 
         (merge_prog_stats cond_if_stats cond_else_stats)
