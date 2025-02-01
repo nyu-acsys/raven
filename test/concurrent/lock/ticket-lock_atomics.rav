@@ -42,7 +42,8 @@ module TicketLock[R: LockResource] {
   }
 
   proc wait_loop(l: Ref, x: Int, implicit ghost r: R, implicit ghost b: Bool)
-    atomic requires is_lock(l, r, b) && own(l.tickets, AuthDisjInts.frag(IntSet.set({|x|})))
+    requires own(l.tickets, AuthDisjInts.frag(IntSet.set({|x|})))
+    atomic requires is_lock(l, r, b)
     atomic ensures is_lock(l, r, true) && b == false && resource(r)
   {
     ghost val phi := bindAU();
