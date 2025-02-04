@@ -210,6 +210,17 @@ interface GiveUpTemplate[Node: NodeImpl] {
     atomic requires own(n.lock, true, 1.0)
     atomic ensures own(n.lock, false, 1.0)
 
+  proc test(r: Ref, implicit ghost c: Set[K])
+    requires css(r, c)
+  {
+    unfold css(r);
+    ghost var g_i: Flow_K;
+    g_i :| cssR(r, c, g_i);
+    unfold cssR(r, c, g_i);
+    unfold globalRes(r, c, g_i);
+    assert own(r.authFlow, AuthFlow_K.auth(g_i));
+  }
+
   proc lockNodeHigh(r: Ref, n: Ref, implicit ghost c: Set[K])
     returns (ghost c_n : Set[K], ghost i_n: Flow_K)
     requires inFP(r, n)
@@ -226,8 +237,11 @@ interface GiveUpTemplate[Node: NodeImpl] {
     unfold globalRes(r);
     //unfold inFP(r, n);
     //fold inFP(r, n);
+    ghost var g_i: Flow_K;
+    g_i :| own(r.authFlow, AuthFlow_K.auth(g_i));
+    
     fold globalRes(r, c0);
-
+    
     lockNode(n);
     c_n, i_n :| nodePred(r, n, c_n, i_n);
     fold cssR(r);
