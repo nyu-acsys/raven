@@ -576,7 +576,7 @@ with_clause:
             cond_if_assumes_false = false;
         }
         in
-        [mk_block [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]]
+        [mk_block ~ghost:true [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]]
     | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
 }
   
