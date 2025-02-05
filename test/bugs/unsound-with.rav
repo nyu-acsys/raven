@@ -1,0 +1,19 @@
+// 'with' clauses are only sound for assert statements involving pure formulas.
+// Presently, Raven does not prevent the unsound use of 'with' as shown below.
+
+field f: ()
+
+pred p(x: Ref) {
+  own(x.f, ())
+}
+
+proc unsound(x: Ref)
+  requires own(x.f, ())
+  ensures false
+{
+  assert p(x) with {
+    fold p(x);
+  }
+
+  unfold p(x);
+}
