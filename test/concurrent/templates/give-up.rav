@@ -91,7 +91,7 @@ interface NodeImpl {
 
   func insets(i: Flow_K.T) returns (ret: Set[K])
   {
-    {| k : K :: exists n: Ref :: n in i.dom && k in inset(i, n) |}
+    {| k : K :: exists n: Ref :: {inset(i,n)} n in i.dom && k in inset(i, n) |}
   }
 
   func outset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
