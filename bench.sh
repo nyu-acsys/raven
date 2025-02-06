@@ -77,3 +77,9 @@ for file in "${FILES[@]}"; do
   # Append statistics to CSV file
   echo "$file,$program_length,$proof_declarations,$proof_instructions,$runtime" >> "$CSV_FILE"
 done
+
+echo "" >> "$CSV_FILE"
+echo "WARMUP,$WARMUP" >> "$CSV_FILE"
+echo "RUNS,$RUNS" >> "$CSV_FILE"
+
+echo "Results saved in $CSV_FILE"
