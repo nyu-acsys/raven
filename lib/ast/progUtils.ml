@@ -210,7 +210,7 @@ let is_ra_type (tp : AstDef.type_expr) : bool t =
   let open Syntax in
   let rec does_ident_implement_ra qual_ident =
     let* symbol = find qual_ident in
-    Symbol.extract symbol ~f:(fun subst -> function
+    Symbol.extract symbol ~f:(fun _ subst -> function
         | AstDef.Module.ModDef m -> return m.mod_decl.mod_decl_is_ra
         | ModInst mod_inst -> 
           let* is_ra = does_ident_implement_ra mod_inst.mod_inst_type in

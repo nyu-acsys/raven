@@ -2241,7 +2241,7 @@ module ProcessModule = struct
       Rewriter.resolve_and_find int_ident
     in
     let interfaces =
-      Rewriter.Symbol.extract mod_symbol ~f:(fun _subst -> function
+      Rewriter.Symbol.extract mod_symbol ~f:(fun _ _subst -> function
         | Ast.Module.ModDef mod_def ->
             (*Set.map (module QualIdent) mod_def.mod_decl.mod_decl_interfaces ~f:subst*)
             mod_def.mod_decl.mod_decl_interfaces
@@ -2310,9 +2310,10 @@ module ProcessModule = struct
                           mod_inst_func
                       in
                       let formals =
-                        Rewriter.Symbol.extract functor_symbol ~f:(fun subst ->
+                        Rewriter.Symbol.extract functor_symbol ~f:(fun is_instance subst ->
                           function
-                          | Ast.Module.ModDef mod_def when not @@ Rewriter.Symbol.is_derived functor_symbol ->
+                          | Ast.Module.ModDef mod_def when not is_instance ->
+                              Logs.info (fun m -> m !"%{QualIdent}" mod_inst_func);
                               List.map mod_def.mod_decl.mod_decl_formals
                                 ~f:(fun mod_inst ->
                                   subst mod_inst.mod_inst_type)
@@ -2322,7 +2323,7 @@ module ProcessModule = struct
                         match List.zip mod_inst_args formals with
                         | Ok res -> res
                         | Unequal_lengths ->
-                            Error.type_error mod_inst.mod_inst_loc
+                            Error.type_error (*mod_inst.mod_inst_loc*) (QualIdent.to_loc mod_inst_func)
                               (Printf.sprintf
                                  !"Module %{QualIdent} expects %d arguments"
                                  mod_inst_func (List.length formals))
@@ -2513,7 +2514,7 @@ module ProcessModule = struct
               Rewriter.resolve_and_find mid
             in
             let interface_symbol =
-              Rewriter.Symbol.add_subst
+              Rewriter.Symbol.extend_subst
                 (qual_interface_ident, QualIdent.to_list mod_qual_ident)
                 interface_symbol
             in
@@ -2574,7 +2575,7 @@ module ProcessModule = struct
             Rewriter.resolve_and_find
               interface_ident
           in
-          Rewriter.Symbol.extract interface_symbol ~f:(fun _ -> function
+          Rewriter.Symbol.extract interface_symbol ~f:(fun _ _ -> function
             | Module.ModDef mod_def -> mod_def.mod_decl.mod_decl_is_ra
             | _ -> false))
     in

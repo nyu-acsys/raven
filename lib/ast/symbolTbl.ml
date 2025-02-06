@@ -7,6 +7,15 @@ open Util
 let unknown_ident_error loc id =
   Error.error (QualIdent.to_loc id) ("Unknown identifier " ^ QualIdent.to_string id)
 
+(* Substitutions for reifying aliased symbols.
+   The Boolean indicates whether the derived symbol is the result of a functor instantiation.
+ *)
+type subst = bool * QualIdent.subst
+
+let is_instance (b, _) = b
+let qid_subst (_, ss) = ss
+let extend_subst s (b, ss) = (b, s :: ss)
+
 type entry =
   | Symbol of QualIdent.t
   | Alias of bool * QualIdent.t * QualIdent.subst
@@ -24,7 +33,7 @@ type scope = {
   (* Symbols defined in this scope *)
   scope_entries : entry IdentHashtbl.t; [@hash.ignore]
   (* Cache that maps names (partially) qualified names to fully qualified names, relative to this scope. *)
-  scope_cache : (QualIdent.t * QualIdent.t * QualIdent.subst) QualIdentHashtbl.t;
+  scope_cache : (QualIdent.t * QualIdent.t * subst) QualIdentHashtbl.t;
       [@hash.ignore]
 }
 [@@deriving hash]
@@ -145,7 +154,7 @@ let fully_qualify ident scope tbl : QualIdent.t =
   if QualIdent.(scope_ident = root_ident tbl) then QualIdent.from_ident ident
   else QualIdent.append scope_ident ident
 
-let pr_subst ppf subst =
+let pr_subst ppf (_, subst) =
   let open Stdlib.Format in
   fprintf ppf "[ @[%a@] ]"
     (Print.pr_list_sep ",\n" (fun ppf (a, b) ->
@@ -161,7 +170,7 @@ let is_parent scope tbl =
 
 (** Resolve [name] to its fully qualified identifier relative to the current scope in [tbl]. *)
 let resolve name (tbl : t) :
-    (QualIdent.t * QualIdent.t * QualIdent.subst) option =
+    (QualIdent.t * QualIdent.t * subst) option =
   let open Option.Syntax in
   let rec go_forward inst_scopes scope subst ids =
     (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a" QualIdent.pr (get_scope_id scope)); *)
@@ -192,7 +201,7 @@ let resolve name (tbl : t) :
                ) subst1) ; *)
             let subst1 =
               List.map subst1 ~f:(fun (s, t) ->
-                  (QualIdent.requalify subst s, t))
+                  (QualIdent.requalify (snd subst) s, t))
             in
 
             (* if the first argument is abstract, then it needs to be requalified. The second arg doesn't because this is taken care of by the order in which elements are added to the subst list. QualIdent.requalify will make sure the renaming on the second argument by existing substitutions happens *)
@@ -209,9 +218,9 @@ let resolve name (tbl : t) :
               | _ ->
                   ( target_qual_ident,
                     fully_qualify first_id scope tbl |> QualIdent.to_list )
-                  :: subst
+                  :: snd subst
             in
-            let subst = subst1 @ target_subst in
+            let subst = fst subst || not @@ List.is_empty subst1, subst1 @ target_subst in
             let new_inst_scopes =
               if is_abstract then inst_scopes
               else Set.add inst_scopes target_qual_ident
@@ -250,11 +259,11 @@ let resolve name (tbl : t) :
                let+ alias_qual_ident, subst, is_local =
                  go_forward
                    (Set.empty (module QualIdent))
-                   curr_scope [] (QualIdent.to_list name)
+                   curr_scope (false, []) (QualIdent.to_list name)
                in
                (* Compute resolved identifier *)
                let orig_qual_ident =
-                 alias_qual_ident |> QualIdent.requalify subst
+                 alias_qual_ident |> QualIdent.requalify (snd subst)
                in
                (* Don't qualify orig_qual_ident if it identifies a symbol in a local scope *)
                let orig_qual_ident =
@@ -293,7 +302,7 @@ let resolve_exn name tbl =
     - a substitution map that maps the symbol definition to the scope where it is used.
 *)
 let resolve_and_find name tbl :
-    (QualIdent.t * QualIdent.t * Module.symbol * QualIdent.subst) option =
+    (QualIdent.t * QualIdent.t * Module.symbol * subst) option =
   let open Option.Syntax in
   (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: %a" QualIdent.pr name); *)
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
@@ -319,7 +328,7 @@ let resolve_and_find_exn name (tbl : t) =
          unknown_ident_error (QualIdent.to_loc name) name)
 
 (** Find the symbol associated with [name] relative to the current scope in [tbl]. *)
-let find name tbl : (Module.symbol * QualIdent.subst) option =
+let find name tbl : (Module.symbol * subst) option =
   let open Option.Syntax in
   let* alias_qual_ident, _, subst = resolve name tbl in
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
@@ -450,10 +459,10 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
               let formals =
                 match mod_inst_symbol with
                 | Module.ModDef mdef ->
-                  if List.is_empty subst1
+                  if not @@ is_instance subst1
                   then mdef.mod_decl.mod_decl_formals
                   else []
-                | _ -> Error.type_error symbol_loc "Expected module identifier"
+                | _ -> Error.type_error (QualIdent.to_loc mod_inst_func) "Expected module identifier"
               in
               let res =
                 List.map2 formals mod_inst_args ~f:(fun formal arg ->
@@ -469,7 +478,7 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
               | Ok subst ->
                 (mod_inst_func, subst)
               | Unequal_lengths ->
-                  Error.type_error symbol_loc
+                  Error.type_error (QualIdent.to_loc mod_inst_func)
                     (Printf.sprintf
                        !"Module %{QualIdent} expects %d arguments"
                        mod_inst_func (List.length formals)))

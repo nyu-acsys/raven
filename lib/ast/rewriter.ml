@@ -1292,14 +1292,14 @@ module Symbol = struct
                  i_l))
           subst);*)
 
-    match subst with
+    match SymbolTbl.qid_subst subst with
     | [] -> return symbol
     | _ ->
         let open Syntax in
         let+ tbl = get_table in
         let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
-        let symbol0 = match symbol, subst with
-          | ModDef mod_def, _ :: _ ->
+        let symbol0 = match symbol with
+          | ModDef mod_def when SymbolTbl.is_instance subst ->
             let mod_decl = { mod_def.mod_decl with mod_decl_formals = [] } in
             AstDef.Module.ModDef { mod_def with mod_decl }
           | _ -> symbol
@@ -1307,7 +1307,7 @@ module Symbol = struct
         let _, symbol1 =
           eval
             (Module.rewrite_qual_idents_in_symbol
-               ~f:(QualIdent.requalify subst)
+               ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
                symbol0)
             tbl_scope
         in
@@ -1324,13 +1324,13 @@ module Symbol = struct
     | AstDef.Module.TypeDef { type_def_expr = None; _ } -> return None
     | TypeDef { type_def_expr = Some tp_expr; _ } ->
         let+ tp_expr =
-          Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
+          Type.rewrite_qual_idents ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify) tp_expr
         in
         Some tp_expr
     | ModDef { mod_decl = { mod_decl_rep = Some rep_id; _ }; _ } ->
         let+ tp_expr =
           AstDef.Type.mk_var (QualIdent.append name rep_id)
-          |> Type.rewrite_qual_idents ~f:(QualIdent.requalify subst)
+          |> Type.rewrite_qual_idents ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify)
         in
         Some tp_expr
     | _ -> Error.error loc "Expected type identifier"
@@ -1342,7 +1342,7 @@ module Symbol = struct
       | FieldDef field_def -> field_def.field_type
       | _ -> Error.error loc "Expected expression identifier"
     in
-    Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
+    Type.rewrite_qual_idents ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify) tp_expr
 
   let reify_field_type loc (_name, symbol, subst) : (AstDef.Type.t, 'a) t_ext =
     let tp_expr =
@@ -1350,16 +1350,16 @@ module Symbol = struct
       | AstDef.Module.FieldDef { field_type = App (Fld, [ tp ], _); _ } -> tp
       | _ -> Error.error loc "Expected field identifier"
     in
-    Type.rewrite_qual_idents ~f:(QualIdent.requalify subst) tp_expr
+    Type.rewrite_qual_idents ~f:(subst |> SymbolTbl.qid_subst |> QualIdent.requalify) tp_expr
 
   let orig_symbol (_name, symbol, _subst) = symbol
   let orig_qid (name, _symbol, _subst) = name
-  let subst (_name, _symbol, subst) = subst
-  let extract (_name, symbol, subst) ~f = f (QualIdent.requalify subst) symbol
-  let add_subst s (name, symbol, subst) = (name, symbol, s :: subst)
-  let is_derived (_, _, subst) = not @@ Base.List.is_empty subst
+  let subst (_name, _symbol, subst) = SymbolTbl.qid_subst subst
+  let extract (_name, symbol, subst) ~f = f (SymbolTbl.is_instance subst) (subst |> SymbolTbl.qid_subst |> QualIdent.requalify) symbol
+  let extend_subst s (name, symbol, subst) = (name, symbol, SymbolTbl.extend_subst s subst)
+  let is_instance (_, _, subst) = SymbolTbl.is_instance subst
   
-  type t = QualIdent.t * AstDef.Module.symbol * QualIdent.subst
+  type t = QualIdent.t * AstDef.Module.symbol * SymbolTbl.subst
 
   let pr ppf (name, symbol, subst) =
     Stdlib.Format.fprintf ppf "%a -> %a [%a]" QualIdent.pr name AstDef.Symbol.pr
