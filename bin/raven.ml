@@ -13,6 +13,9 @@ type config = {
   smt_diagnostics: bool;
 }
 
+let include_map = Hashtbl.create (module String)
+
+
 let stream_of_file file_name =
   let inchan = Stdio.In_channel.create file_name in
   let lexbuf = Lexing.from_channel inchan in
@@ -39,14 +42,20 @@ let normalizeFilename base_dir file_name =
   String.concat ~sep:Stdlib.Filename.dir_sep (List.rev remaining)
 
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-let parse_cu top_level_md_ident lexbuf =
+let parse_cu file_dir top_level_md_ident lexbuf =
   let incls, md =
     try Parser.main Lexer.token lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
       Error.syntax_error (Loc.make err_pos err_pos) "Parse error"
   in
-
+  let incls = List.map incls ~f:(fun (incl, loc) ->
+      let incl = normalizeFilename file_dir incl in
+      let dir = Stdlib.Filename.dirname incl in
+      Logs.info (fun m -> m "%s" incl);
+      ignore (Hashtbl.add include_map ~key:incl ~data:loc);
+      (dir, incl, true))
+  in
   (incls, Ast.Module.set_name md top_level_md_ident)
 
 let check_cu config tbl smt_env md front_end_out_chan =
@@ -94,37 +103,6 @@ let check_cu config tbl smt_env md front_end_out_chan =
   (smt_env, tbl)
   end
 
-(** Parse and check compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
-(* EG: I believe this function is now obsolete. Should clean it up. *)
-let parse_and_check_cu ?(tbl = SymbolTbl.create ()) smt_env top_level_md_ident
-    lexbuf front_end_out_chan =
-  (* let root_ident = SymbolTbl.root_ident tbl |> Ast.QualIdent.to_ident in *)
-  let _, md = parse_cu top_level_md_ident lexbuf in
-  let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
-  let tbl, processed_md = Typing.process_module ~tbl md in
-  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
-  Logs.info (fun m -> m "Type-checking successful.");
-
-  let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
-
-  Logs.debug (fun m ->
-      m "SymbolTbl Symbols: \n%a\n"
-        (Util.Print.pr_list_comma (fun ppf (k, v) ->
-             Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k
-               Module.pr_symbol v))
-        (Map.to_alist
-           (Map.filter_keys tbl.tbl_symbols ~f:(fun k ->
-                Poly.(QualIdent.to_string k = "$Program.pr")))));
-
-  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
-  Logs.info (fun m -> m "Front-end processing successful.");
-
-  Stdlib.Format.fprintf
-    (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
-    "%a\n" Ast.Module.pr processed_md;
-
-  let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
-  (smt_env, tbl)
 
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all config file_names =
@@ -150,12 +128,10 @@ let parse_and_check_all config file_names =
             let _ =
               Lexer.set_file_name lib_source_lexbuf lib_file_name
             in
-            let _includes, md = parse_cu Predefs.lib_ident lib_source_lexbuf in
+            let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
             let md = Ast.Module.set_free md in
             merge_prog md lib_prog)
       in
-          (*  parse_and_check_cu ~tbl smt_env Predefs.lib_ident resource_algebra_lexbuf
-              front_end_out_chan*)
       check_cu config tbl smt_env lib_prog front_end_out_chan
   in
   
@@ -167,7 +143,7 @@ let parse_and_check_all config file_names =
         if not (Set.mem parsed file_name) then (
           Logs.debug (fun m -> m "raven.parse_prog: Parsing file %s." file_name);
           let inchan, lexbuf = stream_of_file file_name in
-          let includes, md = parse_cu Predefs.prog_ident lexbuf in
+          let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
 
           Stdio.In_channel.close inchan;
 
@@ -180,12 +156,7 @@ let parse_and_check_all config file_names =
 
           let parsed = Set.add parsed file_name in
 
-          let to_parse2 =
-            List.fold_left includes ~init:to_parse1 ~f:(fun acc incl ->
-                let incl = normalizeFilename file_dir incl in
-                let dir = Stdlib.Filename.dirname incl in
-                acc @ [ (dir, incl, true) ])
-          in
+          let to_parse2 = to_parse1 @ includes in
           parse_prog parsed to_parse2 (merge_prog md prog))
         else (
           Logs.debug (fun m ->
@@ -209,25 +180,6 @@ let parse_and_check_all config file_names =
 
   begin
   let _ = check_cu config tbl smt_env md front_end_out_chan in
-
-  (* Check all files *)
-
-  (* let _ =
-       List.fold_left file_names ~init:(smt_env, tbl)
-         ~f:(fun (smt_env, tbl) file_name ->
-           let inchan, lexbuf = stream_of_file file_name in
-
-           Logs.info (fun m -> m "Processing file %s." file_name);
-           let smt_env, tbl = parse_and_check_cu ~tbl smt_env Predefs.prog_ident lexbuf front_end_out_chan in
-
-           Stdio.In_channel.close inchan;
-           Logs.info (fun m -> m "Verification of file %s successful." file_name);
-
-           smt_env, tbl
-           )
-     in *)
-
-  (*Checker.stop_session session;*)
   Logs.app (fun m -> m "Verification successful.")
   end
 
@@ -304,7 +256,13 @@ let smt_timeout =
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
+  let rec remap ((kind, loc, msg) as err) =
+    match Hashtbl.find include_map (Loc.file_name loc) with
+    | Some loc1 -> remap (kind, loc1, "originates in included file")
+    | None -> err
+  in
   if config.lsp_mode then begin
+    let errs = List.map errs ~f:remap in
     Stdlib.print_endline (Error.errors_to_lsp_string errs);
     Stdlib.exit 0
   end

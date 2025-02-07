@@ -37,7 +37,7 @@ open Ast
 %nonassoc EQEQ NEQ 
 
 %start main
-%type <string list * Ast.Module.t> main
+%type <(string * Loc.t) list * Ast.Module.t> main
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
@@ -58,7 +58,7 @@ main:
 ;
 
 includes:
-| INCLUDE s = STRINGVAL; files = includes { s :: files }
+| INCLUDE s = STRINGVAL; files = includes { (s, Loc.make $startpos(s) $endpos(s)) :: files }
 | /* empty */ { [] }
 
 (** Member Definitions *)
