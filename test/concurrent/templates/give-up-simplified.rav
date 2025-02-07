@@ -22,7 +22,7 @@ interface SearchStructureSpec {
   type Op = data { case searchOp ; case insertOp ; case deleteOp }
 
 	func opSpec(op: Op, k: K, c_in: Set[K]) returns (c_out_res: (Set[K], Bool)) {
-    op == searchOp() ? 
+    op == searchOp() ?
       ((c_in, (k in c_in))) :
     (op == insertOp() ?
       ((c_in ++ {| k |}, (k !in c_in))) :

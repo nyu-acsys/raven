@@ -74,16 +74,6 @@ interface NodeImpl {
     node(n, c, i_n)
   }
 
-  // func outsets(outset: Map[Ref, Set[K]]) returns (ret: Set[K])
-  // {
-  //   {| k: K :: exists r: Ref :: k in outset[r] |}
-  // }
-
-  // func keyset(inset: Set[K], outset: Map[Ref, Set[K]]) returns (ret: Set[K])
-  // {
-  //   inset -- outsets(outset)
-  // }
-
   func inset(i: Flow_K.T, n: Ref) returns (ret: Set[K])
   {
     {| k : K :: (i.inf[n])[k] > 0 |}
