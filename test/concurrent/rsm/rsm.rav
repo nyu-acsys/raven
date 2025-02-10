@@ -1,0 +1,74 @@
+import Library.Type
+import Library.OrderedType
+
+
+interface Rsm[Client : Type, Broker: Type, Server: Type, Time: OrderedType] {
+
+  func loc(i: (Server, Broker, Time)) returns (r: Ref)
+  func index(r: Ref) returns (i: (Server, Broker, Time))
+  
+  auto axiom all_diff()
+    ensures forall i:(Server, Broker, Time) :: {loc(i)} index(loc(i)) == i
+    
+  type AnswerState = data {
+    case undefined
+    case received
+    case notReceived
+    case ignore
+  }
+
+  field answer: AnswerState
+
+  type BrokerStatus = data {
+    case up
+    case down
+  }
+
+  field brokerStatus: BrokerStatus
+
+  module ServerSet = Library.SetRA[Server]
+  module AuthServerSet = Library.Auth[ServerSet]
+
+  ghost field servers: AuthServerSet
+
+  module BrokerSet = Library.SetRA[Broker]
+  module AuthBrokerSet = Library.Auth[BrokerSet]
+
+  ghost field brokers: AuthBrokerSet
+
+  inv systemState(sys: Ref) {
+    (exists srvs: ServerSet, brks: BrokerSet ::
+      own(sys.servers, AuthServerSet.auth_frag(srvs, srvs)) &&
+      own(sys.brokers, AuthBrokerSet.auth_frag(brks, brks)) &&
+      (forall i : (Server, Broker, Time) :: (//exists a: AnswerState ::
+        i#0 in srvs.ServerSet.set_proj1 && i#1 in brks.BrokerSet.set_proj1 ==> own(loc(i).answer, undefined))))
+  }
+
+  auto pred isServer(sys: Ref, s: Server) {
+    own(sys.servers, AuthServerSet.frag(ServerSet.set_constr({|s|})))
+  }
+
+  auto pred isBroker(sys: Ref, b: Broker) {
+    own(sys.brokers, AuthBrokerSet.frag(BrokerSet.set_constr({|b|})))
+  }
+
+
+  proc missingPackageRecovery(sys: Ref, s: Server, b: Broker, m: Time)
+    requires systemState(sys)
+    requires isServer(sys, s) && isBroker(sys, b)
+  {
+    //ghost val srvs: ServerSet;
+    //ghost val brks: BrokerSet;
+    unfold systemState(sys);
+
+
+    //assert s in srvs.ServerSet.set_proj1;
+    //assert b in brks.BrokerSet.set_proj1;
+
+    assert own(loc((s, b, m)).answer, undefined);
+
+    val a := loc((s, b, m)).answer;
+
+    fold systemState(sys);
+  }
+}
