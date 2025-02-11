@@ -1,0 +1,24 @@
+interface Foo {
+  type Server
+  type Broker  
+  type Time
+
+  func loc(s: Server, b: Broker, t: Time) returns (r: Ref)
+  func sindex(r: Ref) returns (s: Server)
+  func bindex(r: Ref) returns (b: Broker)
+  func tindex(r: Ref) returns (t: Time)
+
+  auto axiom aall_diff()
+    ensures forall s: Server, b: Broker, t: Time :: {loc(s, b, t)} 
+      sindex(loc(s,b,t)) == s && bindex(loc(s,b,t)) == b && tindex(loc(s,b,t)) == t
+
+  field value: ()
+
+  proc foo(s: Server, b: Broker, t: Time, brks: Set[Broker])
+    requires b in brks
+    requires forall b: Broker, t: Time :: b in brks ==> own(loc(s,b,t).value, ())
+  {
+    // The following access should be OK but fails to verify.
+    val u := loc(s, b, t).value;
+  }
+}
