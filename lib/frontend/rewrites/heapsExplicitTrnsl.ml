@@ -392,32 +392,31 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
             (inv_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl) 
           in
           let spec_expr2 = 
-            (* x ~> ret#0;; y ~> ret#1 *)
-            let ret_renam_map = 
-              if Int.(List.length universal_quants.univ_vars = 1) then 
-                match List.hd_exn universal_quants.univ_vars with
-                | _, vd -> Map.singleton (module QualIdent) (QualIdent.from_ident vd.var_name) (Expr.from_var_decl ret_var_decl)
-              else
-                List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
-                fun i mp (_, vd) ->
-                  Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc (Expr.from_var_decl ret_var_decl) i)
+            let ret_var_decls = 
+                List.map universal_quants.univ_vars ~f:(fun (_, vd) -> 
+                  Type.mk_var_decl ~const:true (Ident.fresh loc "$ret") ~loc vd.var_type
                 )
             in
-            Expr.mk_binder Forall ~loc env_local_var_decls
-              (Expr.mk_binder Forall ~loc [ret_var_decl]
-              ~trigs: [  
-                let alpha_renamed_expr = (Expr.alpha_renaming inv_expr ret_renam_map) in
-                if Expr.alpha_equal alpha_renamed_expr (Expr.from_var_decl ret_var_decl)
-                  then [] else
-                    [alpha_renamed_expr]
-              ] (
-                Expr.mk_impl ~loc 
-                  (Expr.mk_chained_and ~loc (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map)))
+                
+            (* x ~> ret0;; y ~> ret1 *)
+            let ret_renam_map = 
+              List.fold2_exn universal_quants.univ_vars ret_var_decls ~init:(Map.empty (module QualIdent)) ~f:(
+                fun mp (_, vd) ret_vd ->
+                  Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.from_var_decl ret_vd)
+              )
+            in
 
-                  (Expr.mk_eq ~loc
-                    (Expr.from_var_decl ret_var_decl)
-                    (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map))
-              ))
+            Expr.mk_binder Forall ~loc (ret_var_decls @ env_local_var_decls) 
+              ~trigs:[[ 
+                Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map 
+              ]] (
+              Expr.mk_impl ~loc 
+                (Expr.mk_chained_and ~loc (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map)))
+
+                (Expr.mk_eq ~loc
+                  (Expr.mk_tuple ~loc (List.map ret_var_decls ~f:(fun ret_vd -> Expr.from_var_decl ret_vd)))
+                  (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map))
+            )
 
           in
           let error =
