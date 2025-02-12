@@ -148,7 +148,11 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
               ~f:(fun i acc arg ->
                 Map.set acc
                   ~key:(QualIdent.from_ident arg.var_name)
-                  ~data:(Expr.mk_tuple_lookup fn_call_expr i))
+                  ~data:(
+                    if Int.(List.length call_decl.call_decl_returns = 1) then fn_call_expr else
+                      Expr.mk_tuple_lookup fn_call_expr i
+                )
+              )
         in
 
         let post_cond_expr =
@@ -268,7 +272,11 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
               ~f:(fun i acc arg ->
                 Map.set acc
                   ~key:(QualIdent.from_ident arg.var_name)
-                  ~data:(Expr.mk_tuple_lookup fn_call_expr i))
+                  ~data:(
+                    if Int.(List.length call_decl.call_decl_returns = 1) then fn_call_expr else
+                      Expr.mk_tuple_lookup fn_call_expr i
+                  )
+              )
         in
 
         let check_contract_expr =

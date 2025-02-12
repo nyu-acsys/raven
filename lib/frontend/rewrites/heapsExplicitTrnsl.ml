@@ -351,10 +351,15 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           in
           let spec_expr1 =
             (* x ~> inv(res, env1, env2)#0;; y ~> inv(res, env1, env2)#1 *)
-            let inv_renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
-              fun i mp (_, vd) ->
-                Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc inverted_expr_with_res i )
-            )
+            let inv_renam_map = 
+              if Int.(List.length universal_quants.univ_vars = 1) then 
+                match List.hd_exn universal_quants.univ_vars with
+                | _, vd -> Map.singleton (module QualIdent) (QualIdent.from_ident vd.var_name) inverted_expr_with_res
+              else
+                List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
+                fun i mp (_, vd) ->
+                  Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc inverted_expr_with_res i )
+                )
             in
 
             Expr.mk_binder Forall ~loc formal_var_decls
@@ -388,10 +393,15 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           in
           let spec_expr2 = 
             (* x ~> ret#0;; y ~> ret#1 *)
-            let ret_renam_map = List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
-              fun i mp (_, vd) ->
-                Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc (Expr.from_var_decl ret_var_decl) i )
-            )
+            let ret_renam_map = 
+              if Int.(List.length universal_quants.univ_vars = 1) then 
+                match List.hd_exn universal_quants.univ_vars with
+                | _, vd -> Map.singleton (module QualIdent) (QualIdent.from_ident vd.var_name) (Expr.from_var_decl ret_var_decl)
+              else
+                List.foldi universal_quants.univ_vars ~init:(Map.empty (module QualIdent)) ~f:(
+                fun i mp (_, vd) ->
+                  Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name) ~data:(Expr.mk_tuple_lookup ~loc (Expr.from_var_decl ret_var_decl) i)
+                )
             in
             Expr.mk_binder Forall ~loc env_local_var_decls
               (Expr.mk_binder Forall ~loc [ret_var_decl]
@@ -2055,7 +2065,9 @@ module TrnslInhale = struct
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index _var_decl ->
-              Expr.mk_tuple_lookup inv_fn_expr index)
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else
+              Expr.mk_tuple_lookup inv_fn_expr index
+          )
         in
 
         
@@ -2100,7 +2112,9 @@ module TrnslInhale = struct
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
-                    ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                    ~data:(
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                        Expr.mk_tuple_lookup ~loc inv_expr index))
             in
 
             List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
@@ -2296,7 +2310,9 @@ module TrnslInhale = struct
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
-              Expr.mk_tuple_lookup inv_fn_expr index)
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+              Expr.mk_tuple_lookup inv_fn_expr index
+          )
         in
 
         (* inhale forall i, j :: { v(i,j) } AUPred(proc, gamma(i,j), (a_1, ... a_k)(i, j))
@@ -2340,7 +2356,11 @@ module TrnslInhale = struct
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
-                    ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                    ~data:(
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                        Expr.mk_tuple_lookup ~loc inv_expr index
+                  )
+                )
             in
 
             List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
@@ -2593,7 +2613,9 @@ module TrnslInhale = struct
 
                   let inv_exprs =
                     List.mapi univ_vars_list ~f:(fun index var_decl ->
-                        Expr.mk_tuple_lookup inv_fn_expr index)
+                      if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+                        Expr.mk_tuple_lookup inv_fn_expr index
+                    )
                   in
 
                   (* inhale forall i, j :: { v(i,j) } pred(ins(i, j); outs(i, j))
@@ -2637,7 +2659,11 @@ module TrnslInhale = struct
                           ~f:(fun index map var_decl ->
                             Map.set map
                               ~key:(QualIdent.from_ident var_decl.var_name)
-                              ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                              ~data:(
+                                if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                                  Expr.mk_tuple_lookup ~loc inv_expr index
+                            )
+                          )
                       in
 
                       List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
@@ -3948,7 +3974,9 @@ module TrnslExhale = struct
                   ~init:(Map.empty (module Ident))
                   ~f:(fun witness_map (expr, index) ->
                     let* new_witness_map =
-                      core_witness_comp exists (Expr.mk_tuple_lookup concrete_expr index) expr true
+                      core_witness_comp exists 
+                        (if Int.(List.length indexed_exprs = 1) then concrete_expr else 
+                          Expr.mk_tuple_lookup concrete_expr index) expr true
                     in
 
                     let witness_map =
@@ -4157,7 +4185,9 @@ module TrnslExhale = struct
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
-              Expr.mk_tuple_lookup inv_fn_expr index)
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+              Expr.mk_tuple_lookup inv_fn_expr index
+          )
         in
 
         (* exhale forall i, j :: { v(i,j) } own(f(i, j), fld, v(i, j))
@@ -4201,7 +4231,11 @@ module TrnslExhale = struct
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
-                    ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                    ~data:(
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                        Expr.mk_tuple_lookup ~loc inv_expr index
+                    )
+              )
             in
 
             List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
@@ -4387,7 +4421,9 @@ module TrnslExhale = struct
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
-              Expr.mk_tuple_lookup inv_fn_expr index)
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+              Expr.mk_tuple_lookup inv_fn_expr index
+          )
         in
 
         (* exhale forall i, j :: { v(i,j) } AUPred(proc, gamma(i,j), (a_1, ... a_k)(i, j))
@@ -4431,7 +4467,11 @@ module TrnslExhale = struct
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
-                    ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                    ~data:(
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                        Expr.mk_tuple_lookup ~loc inv_expr index
+                  )
+                )
             in
 
             List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
@@ -4683,7 +4723,9 @@ module TrnslExhale = struct
 
                   let inv_exprs =
                     List.mapi univ_vars_list ~f:(fun index var_decl ->
-                        Expr.mk_tuple_lookup inv_fn_expr index)
+                      if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+                        Expr.mk_tuple_lookup inv_fn_expr index
+                    )
                   in
 
                   (* exhale forall i, j :: { v(i,j) } pred(ins(i, j); outs(i, j))
@@ -4727,7 +4769,11 @@ module TrnslExhale = struct
                           ~f:(fun index map var_decl ->
                             Map.set map
                               ~key:(QualIdent.from_ident var_decl.var_name)
-                              ~data:(Expr.mk_tuple_lookup ~loc inv_expr index))
+                              ~data: (
+                                if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                                  Expr.mk_tuple_lookup ~loc inv_expr index
+                              )
+                          )
                       in
 
                       List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
