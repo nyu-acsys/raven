@@ -288,7 +288,8 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                 begin match typ1 with
                   | App (Prod, ts, _) when idx < List.length ts && idx >= 0 -> typ1
                   | App (Prod, _, _) -> Error.type_error (Expr.to_loc expr2) "Index out of bounds"
-                  | App _ -> Error.type_error (Expr.to_loc expr1) "Expected product type"
+                  | App _ ->
+                    Error.type_error (Expr.to_loc expr1) (Printf.sprintf !"Expected product type, but found %{Type}" typ1)
                 end
             | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
             | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | Subseteq
