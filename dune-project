@@ -4,10 +4,18 @@
 
 (generate_opam_files)
 
+(source (github nyu-acsys/raven))
+
+(authors "Ekanshdeep Gupta" "Nisarg Patel" "Thomas Wies")
+
+(maintainers "Ekanshdeep Gupta" "Nisarg Patel" "Thomas Wies")
+
+(license MIT)
+
 (package
  (name Raven)
- (synopsis "Raven")
- (description "An intermediate verification language and deductive verifier based on concurrent separation logic.")
+ (synopsis "Intermediate verification language and deductive verifier for concurrent programs")
+ (description "Raven is an intermediate verification language and SMT-based deductive verifier based on concurrent separation logic. It is intended as an intermediate layer for building program verification tools that target concurrent programs. Raven can also be used as a standalone educational tool.")
  (depends
   (ocaml
    (>= 4.12.0))
