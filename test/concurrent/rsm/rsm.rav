@@ -2,20 +2,57 @@ import Library.Type
 import Library.OrderedType
 
 
-interface Rsm[Client : Type, Broker: Type, Server: Type, Time: OrderedType] {
+interface Rsm[Client : Type, Time: OrderedType] {
+  type Server = Ref
+  type Broker = Ref
 
-  func loc(i: (Server, Broker, Time)) returns (r: Ref)
-  func index(r: Ref) returns (i: (Server, Broker, Time))
-  
-  auto axiom all_diff()
-    ensures forall i:(Server, Broker, Time) :: {loc(i)} index(loc(i)) == i
+  func aloc(s: Server, b: Broker, m: Time) returns (r: Ref)
+  func aindex(r: Ref) returns (i: (Server, Broker, Time))
+
+  auto axiom aall_diff()
+    ensures forall s: Server, b: Broker, m: Time :: {aloc(s,b,m)} aindex(aloc(s,b,m)) == (s,b,m)
     
+  func bloc(s: Server, b: Broker) returns (r: Ref)
+  func bindex(r: Ref) returns (i: (Server, Broker))
+
+  func choose(srvs: Set[Server]) returns (res: Server)
+    ensures srvs != {||} ==> res in srvs
+
+  auto axiom ball_diff()
+    ensures forall s: Server, b: Broker :: {bloc(s,b)} bindex(bloc(s,b)) == (s,b)
+
   type AnswerState = data {
     case undefined
     case received
     case notReceived
     case ignore
   }
+
+  /*module AnswerRA : LatticeResourceAlgebra {
+    type T = data {
+      case ok(value: AnswerState)
+      case invalid
+    }
+
+    val id: T = ok(undefined)
+
+    func valid(a: T) {
+      a == ok(a.value)
+    }
+
+    pred leq(a: T, b: T) {
+      a == b || a == ok(undefined) || a == ok(notReceived) && (b == ok(received) || b == ok(ignore))
+    }
+
+    func comp(a: T, b: T) {
+      leq(a, b) ? b : (leq(b, a) ? a : invalid)
+    }
+
+    func frame(a: T, b: T) {
+      leq(a, b) ? b : (leq(b, a))
+    }
+  }*/
+
 
   field answer: AnswerState
 
@@ -24,51 +61,81 @@ interface Rsm[Client : Type, Broker: Type, Server: Type, Time: OrderedType] {
     case down
   }
 
-  field brokerStatus: BrokerStatus
+  field lock: Bool
+  field status: BrokerStatus
+  field srv_servers: Set[Server]
+  field srv_brokers: Set[Broker]
 
-  module ServerSet = Library.SetRA[Server]
-  module AuthServerSet = Library.Auth[ServerSet]
+  module RefSetType : Type { rep type T = Set[Ref] }
 
-  ghost field servers: AuthServerSet
+  module AgreeServerSet = Library.Agree[RefSetType]
+  ghost field servers: AgreeServerSet
 
-  module BrokerSet = Library.SetRA[Broker]
-  module AuthBrokerSet = Library.Auth[BrokerSet]
+  module AgreeBrokerSet = Library.Agree[RefSetType]
 
-  ghost field brokers: AuthBrokerSet
+  ghost field brokers: AgreeBrokerSet
 
-  inv systemState(sys: Ref) {
-    (exists srvs: ServerSet, brks: BrokerSet ::
-      own(sys.servers, AuthServerSet.auth_frag(srvs, srvs)) &&
-      own(sys.brokers, AuthBrokerSet.auth_frag(brks, brks)) &&
-      (forall i : (Server, Broker, Time) :: (//exists a: AnswerState ::
-        i#0 in srvs.ServerSet.set_proj1 && i#1 in brks.BrokerSet.set_proj1 ==> own(loc(i).answer, undefined))))
+  inv systemState(sys: Ref; srvs: Set[Server], brks: Set[Broker]) {
+    own(sys.servers, AgreeServerSet.agree(srvs)) &&
+    own(sys.brokers, AgreeBrokerSet.agree(brks)) &&
+    (forall s: Server, b: Broker, m: Time ::
+      s in srvs && b in brks ==> 
+        (exists a: AnswerState :: own(aloc(s,b,m).answer, a, 0.5))) &&
+    (forall s: Server ::
+      s in srvs ==>
+        (exists lck: Bool :: own(s.lock, lck) && (lck ? serverState(sys, s, srvs, brks) : true)))
   }
 
-  auto pred isServer(sys: Ref, s: Server) {
-    own(sys.servers, AuthServerSet.frag(ServerSet.set_constr({|s|})))
+  pred serverState(sys: Ref, s: Server; srvs: Set[Server], brks: Set[Broker]) {
+    own(s.srv_brokers, brks) &&
+    own(s.srv_servers, srvs) &&
+    own(sys.servers, AgreeServerSet.agree(srvs)) &&
+    own(sys.brokers, AgreeBrokerSet.agree(brks)) &&
+    (forall b: Broker :: (
+      b in brks ==> (exists bs: BrokerStatus :: own(bloc(s, b).status, bs)))) &&
+    (forall b: Broker, m: Time ::
+      b in brks ==> (exists a: AnswerState :: own(aloc(s, b, m).answer, a, 0.5)))
   }
 
-  auto pred isBroker(sys: Ref, b: Broker) {
-    own(sys.brokers, AuthBrokerSet.frag(BrokerSet.set_constr({|b|})))
-  }
+  proc lockServer(sys: Ref, s: Server, implicit ghost srvs: Set[Server], implicit ghost brks: Set[Server])
+    requires systemState(sys, srvs, brks) && s in srvs
+    ensures serverState(sys, s, srvs, brks)
 
+  proc unlockServer(sys: Ref, s: Server, implicit ghost srvs: Set[Server], implicit ghost brks: Set[Server])
+    requires systemState(sys, srvs, brks) && serverState(sys, s, srvs, brks)
 
-  proc missingPackageRecovery(sys: Ref, s: Server, b: Broker, m: Time)
-    requires systemState(sys)
-    requires isServer(sys, s) && isBroker(sys, b)
+  proc recoverMissingPackage(sys: Ref, s: Server, b: Broker, m: Time, 
+      implicit ghost srvs: Set[Broker], implicit ghost brks: Set[Broker])
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks
   {
-    //ghost val srvs: ServerSet;
-    //ghost val brks: BrokerSet;
-    unfold systemState(sys);
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+    assert exists a: AnswerState :: own(aloc(s, b, m).answer, a, 0.5);
 
+    val a := aloc(s, b, m).answer;
+    
+    if (a == undefined) {
+      val bs := bloc(s, b).status;
+      
+      if (bs == up) {
+        unfold systemState(sys);
+        aloc(s, b, m).answer := notReceived;
+        fold systemState(sys);
 
-    //assert s in srvs.ServerSet.set_proj1;
-    //assert b in brks.BrokerSet.set_proj1;
-
-    assert own(loc((s, b, m)).answer, undefined);
-
-    val a := loc((s, b, m)).answer;
-
-    fold systemState(sys);
+        var tosend := s.srv_servers;
+        while (tosend != {||}) 
+          invariant systemState(sys, srvs, brks) && tosend subseteq srvs && b in brks
+        {
+          var s' := choose(tosend);
+          spawn requestMissingPackage(sys, s', b, m);
+          tosend := tosend -- {|s'|};
+        }
+      }
+    }
+    fold serverState(sys, s);
+    lockServer(sys, s);
   }
+
+  proc requestMissingPackage(sys: Ref, s: Server, b: Broker, m: Time, implicit ghost brks: Set[Broker], implicit ghost srvs: Set[Server])
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks 
 }
