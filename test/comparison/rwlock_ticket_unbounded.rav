@@ -33,34 +33,10 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
             (b ? Lk.locked(lk_ref) : noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0))))
     }
 
-    pred is_rwlock(l: Ref; lk_ref: Ref) {
+    auto pred is_rwlock(l: Ref; lk_ref: Ref) {
         own(l.lk, lk_ref)
         && Lk.lock_inv(lk_ref, l)
         && readers_inv(l, lk_ref)
-    }
-
-    proc faa_ctr(x: Ref, w: Int, implicit ghost v: Int)
-        atomic requires own(x.ctr, v) 
-        atomic ensures own(x.ctr, v+w)
-    {
-        ghost var phi := bindAU();
-        ghost var v0: Int := openAU(phi);
-        var v1: Int := x.ctr;
-        abortAU(phi);
-        var new_v1 : Int := v1 + w;
-
-        ghost var v2: Int := openAU(phi);
-
-        var res: Bool := cas(x.ctr, v1, new_v1);
-        
-        if (!res) {
-            abortAU(phi);
-            ghost var v3: Int := openAU(phi);
-            faa_ctr(x, w);
-            commitAU(phi);
-        } else {
-            commitAU(phi);
-        }
     }
 
     // algorithms
@@ -79,21 +55,19 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         Tk.noTokens_split(l, 1.0);
 
         fold readers_inv(l, lk_ref)[z := 0, b := false];
-        fold is_rwlock(l, lk_ref);
     }
 
     proc acquire_reader(l: Ref, implicit ghost lk_ref': Ref)
         requires is_rwlock(l, lk_ref')
         ensures token(l)
     {
-        unfold is_rwlock(l, lk_ref');
         var lk_ref := l.lk;
 
         Lk.acquire(lk_ref);
 
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, b := b];
-        faa_ctr(l, 1);
+        var old_ctr := faa(l.ctr, 1);
         {!
             if (z > 0) {
                 Tk.token_mutate_incr(l, z);
@@ -117,11 +91,9 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         requires is_rwlock(l, lk_ref) && token(l)
         ensures true
     {
-        unfold is_rwlock(l, lk_ref);
-
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, b := b];
-        faa_ctr(l, -1);
+        var old_ctr := faa(l.ctr, -1);
         {!
             if (z > 1) {
                 Tk.token_mutate_decr(l, z);
@@ -139,11 +111,9 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         requires is_rwlock(l, lk_ref) && token(l)
         ensures token(l) && token(l)
     {
-        unfold is_rwlock(l, lk_ref);
-
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, b := b];
-        faa_ctr(l, 1);
+        var old_ctr := faa(l.ctr, 1);
         {!
             if (z > 0) {
                 Tk.token_mutate_incr(l, z);
@@ -179,7 +149,6 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         requires is_rwlock(l, lk_ref')
         ensures noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
     {
-        unfold is_rwlock(l, lk_ref');
         var lk_ref := l.lk;
 
         Lk.acquire(lk_ref);
@@ -192,7 +161,6 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         requires noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
         ensures true
     {
-        unfold is_rwlock(l, lk_ref');
         var lk_ref := l.lk;
 
         ghost var z: Int; ghost var b: Bool;
@@ -217,7 +185,6 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         requires noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
         ensures token(l)
     {
-        unfold is_rwlock(l, lk_ref');
         ghost var z: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref')[z := z, b := b];
         l.ctr := 1;
@@ -241,8 +208,4 @@ interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
         fold LkResource.resource(l);
         Lk.release(lk_ref);
     }
-
-
-
-
 }

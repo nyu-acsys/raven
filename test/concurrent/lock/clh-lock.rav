@@ -1,17 +1,19 @@
 interface CLHLock {
   field locked: Bool;
-  ghost field agr: ();
   field loc: Ref;
   field predecessor: Ref;
   field tail: Ref
 
+  ghost field agr: ();
+  
   // Resource protected by the lock
   pred resource()
 
   inv queued_loc(l: Ref) {
     exists b_disj: Bool, b: Bool ::
-      (b_disj ? own(l, agr, (), 1.0) : own(l, locked, b, 0.5) &&
-      (!b ==> resource() && own(l, agr, (), 0.5) && own(l, locked, b, 0.5)))
+      (b_disj ? own(l, agr, (), 1.0) : 
+        own(l, locked, b, 0.5) &&
+        (!b ==> resource() && own(l, agr, (), 0.5) && own(l, locked, b, 0.5)))
   }
 
   inv lock_inv(lk: Ref) {
@@ -44,8 +46,8 @@ interface CLHLock {
     returns (node: Ref)
     ensures free_node(node)
   {
-    var newloc := new (locked: false, agr: ());
-    node := new (loc: newloc, predecessor: null);
+    var newloc := new(locked: false, agr: ());
+    node := new(loc: newloc, predecessor: null);
     fold queued_loc(newloc)[b_disj := true];
   }
 
@@ -54,26 +56,26 @@ interface CLHLock {
     requires resource()
     ensures lock_inv(lk)
   {
-    var l := new (locked: false, agr: ());
-    lk := new (tail: l);
-    fold queued_loc(l) [b_disj := false];
+    var l := new(locked: false, agr: ());
+    lk := new(tail: l);
+    fold queued_loc(l)[b_disj := false];
     fold lock_inv(lk);
   }
 
   proc wait_on(lk: Ref, pn: Ref, ln: Ref, node: Ref)
     requires lock_inv(lk) && queued_loc(ln) &&
-    own(node, loc, ln, 1.0) &&
-    own(node, predecessor, pn, 1.0) &&
-    own(ln, agr, (), 0.5) &&
-    own(ln, locked, true, 0.5) &&
-    queued_loc(pn) && own(pn, agr, (), 0.5)
+      own(node, loc, ln, 1.0) &&
+      own(node, predecessor, pn, 1.0) &&
+      own(ln, agr, (), 0.5) &&
+      own(ln, locked, true, 0.5) &&
+      queued_loc(pn) && own(pn, agr, (), 0.5)
     ensures acquired_node(node)
   {
     ghost var branch: Bool;
-    unfold queued_loc(pn) [branch := b_disj];
+    unfold queued_loc(pn)[branch := b_disj];
     var b := pn.locked;
     
-    fold queued_loc(pn) [b := b, b_disj := !b || branch];
+    fold queued_loc(pn)[b := b, b_disj := !b || branch];
     
     if (b) {
       wait_on(lk, pn, ln, node);
@@ -90,7 +92,7 @@ interface CLHLock {
     unfold lock_inv(lk);
     unfold queued_loc(ln);
     var pn := xchg(lk.tail, ln);
-    fold queued_loc(ln) [b_disj := false];
+    fold queued_loc(ln)[b_disj := false];
     fold lock_inv(lk);
 
     // Set new predecessor

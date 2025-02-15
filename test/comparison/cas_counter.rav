@@ -3,8 +3,6 @@ module CASCounter {
 
     // module instantiations
     module FracNat = Library.FracRA[Library.Nat]
-    // module ProdRA = Library.Prod[Fraction, Library.Nat]
-    // module OptProdRA = Library.OptionRA[ProdRA]
     module CtrRA = Library.Auth[FracNat]
 
     // definitions
@@ -69,17 +67,16 @@ module CASCounter {
 
         unfold is_counter(l);
         var b: Bool := cas(l.c, n1, n1+1);
-        {!
-            if (b) {
-                fpu(l.gc,
-                    CtrRA.comp(frac_auth_auth(n1), frac_auth_frag(q, n)),
-                    CtrRA.comp(frac_auth_auth(n1+1), frac_auth_frag(q, n+1))
-                );
-            }
-        !}
-        fold is_counter(l);
 
-        if (!b) {
+        if (b) {
+            fpu(l.gc,
+                CtrRA.comp(frac_auth_auth(n1), frac_auth_frag(q, n)),
+                CtrRA.comp(frac_auth_auth(n1+1), frac_auth_frag(q, n+1))
+            );
+
+            fold is_counter(l);
+        } else {
+            fold is_counter(l);
             incr(l, q, n);
         }
     }

@@ -150,7 +150,6 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
 
     if (old_val == 1) {
       // do nothing
-
     } else {
       LkA.acquire(lkA_ref);
       unfold LkAResource.resource(l);

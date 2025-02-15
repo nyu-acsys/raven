@@ -4,8 +4,7 @@ interface Queue {
     // definitions
 
     module Option_Int = Library.Option[Library.IntType]
-    import Option_Int.some
-    import Option_Int.none
+    import Option_Int._
 
     field head: Ref
     field next: Ref
@@ -147,7 +146,7 @@ interface Queue {
             q.head := n;
             fold queue(q);
         } else {
-            set_tail(hd, n);        
+            set_tail(hd, n);
         }
     }
 

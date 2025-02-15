@@ -14,13 +14,27 @@ module ArcRA : Library.ResourceAlgebra {
         (b == id ?
             a :
         (valid(a) && valid(b) ?            
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
-        valid(tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm)) ?
-            tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm) :
-        (a == noToken && b == noToken ?
-            noToken :
-            top
-        )) :
+        (
+            a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
+            b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && 
+            ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
+            valid(tokens(
+                a.authCount + b.authCount, 
+                a.authPerm + b.authPerm, 
+                a.fragCount + b.fragCount, 
+                a.fragPerm + b.fragPerm)
+            ) ?
+                tokens(
+                    a.authCount + b.authCount, 
+                    a.authPerm + b.authPerm, 
+                    a.fragCount + b.fragCount, 
+                    a.fragPerm + b.fragPerm
+                ) :
+                (a == noToken && b == noToken ?
+                    noToken :
+                    top
+                )
+        ) :
         top
         
         ))
@@ -34,15 +48,16 @@ module ArcRA : Library.ResourceAlgebra {
             a.fragCount >= 0 && 
             a.fragPerm >= 0.0 && a.fragPerm <= 1.0 &&
             (
-                (a.fragCount <= a.authCount && a.fragPerm <= a.authPerm ) || 
+                (a.fragCount <= a.authCount && a.fragPerm <= a.authPerm) || 
                 (a.authCount == 0 && a.authPerm == 0.0)
             ) &&
             (
                 (a.authCount > 0 && a.authPerm > 0.0) || 
                 (a.fragCount > 0 && a.fragPerm > 0.0)
             ) &&
-            (a.authCount > a.fragCount ==> a.authPerm > a.fragPerm)) &&
-            (a.authCount == a.fragCount ==> a.authPerm == a.fragPerm)
+            (a.authCount > a.fragCount ==> a.authPerm > a.fragPerm)
+        ) &&
+        (a.authCount == a.fragCount ==> a.authPerm == a.fragPerm)
     }
 
     func frame(a: T, b: T) returns (ret: T) {

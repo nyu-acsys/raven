@@ -18,31 +18,6 @@ interface RWLockLocklessFAA[SharedPred: ShareablePredicate] {
             (z == -1) && noTokens(l, 0.5)))
     }
 
-    proc faa_ctr(x: Ref, w: Int, implicit ghost v: Int)
-        atomic requires own(x.ctr, v) 
-        atomic ensures own(x.ctr, v+w)
-    {
-        ghost var phi := bindAU();
-        ghost var v0: Int := openAU(phi);
-        var v1: Int := x.ctr;
-        abortAU(phi);
-        var new_v1 : Int := v1 + w;
-
-        ghost var v2: Int := openAU(phi);
-
-        var res: Bool := cas(x.ctr, v1, new_v1);
-        
-        if (!res) {
-            abortAU(phi);
-            ghost var v3: Int := openAU(phi);
-            faa_ctr(x, w);
-            commitAU(phi);
-        } else {
-            commitAU(phi);
-        }
-    }
-
-
     proc create()
         returns (l: Ref)
         requires SharedPred.p()
@@ -93,7 +68,7 @@ interface RWLockLocklessFAA[SharedPred: ShareablePredicate] {
         ghost var z: Int;
 
         unfold is_rwlock(l)[z := z];
-        faa_ctr(l, -1);
+        var old_ctr := faa(l.ctr, -1);
         {!
             if (z > 1) {
                 Tk.token_mutate_decr(l, z);

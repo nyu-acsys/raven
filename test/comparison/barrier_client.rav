@@ -14,19 +14,27 @@ module BarrierClient[N: NumThreads] {
     ghost field gh: CLRA
 
     func auth_l(n1: Int, n2: Int) returns (res: CLRA) {
-        CLRA.auth(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_left(n1), AgreeInt.agree(n2)), 1.0))
+        CLRA.auth(FracRA.frac_chunk(
+            ProdRA.prod(SumRA.sum_left(n1), AgreeInt.agree(n2)), 1.0
+        ))
     }
 
     func auth_r(n1: Int, n2: Int) returns (res: CLRA) {
-        CLRA.auth(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), 1.0))
+        CLRA.auth(FracRA.frac_chunk(
+            ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), 1.0
+        ))
     }
 
     func frag_l(q: Real, n1: Int, n2: Int) returns (res: CLRA) {
-        CLRA.frag(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_left(n1), AgreeInt.agree(n2)), q))
+        CLRA.frag(FracRA.frac_chunk(
+            ProdRA.prod(SumRA.sum_left(n1), AgreeInt.agree(n2)), q
+        ))
     }
 
     func frag_r(q: Real, n1: Int, n2: Int) returns (res: CLRA) {
-        CLRA.frag(FracRA.frac_chunk(ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), q))
+        CLRA.frag(FracRA.frac_chunk(
+            ProdRA.prod(SumRA.sum_right(n1), AgreeInt.agree(n2)), q
+        ))
     }
 
     field ctr: Int;

@@ -20,18 +20,10 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
 
     // shareable predicate
     module Tk = Tokens[SharedPred]
+    import Tk._
 
-    import Tk.SharedPred
-    import Tk.noTokens
-    import Tk.tokenCounter
-    import Tk.token
-
-    // Instantiation Auth[Prod[MaxNat, Excl(Int)]] RA  
-    module IntType : Library.Type {
-        rep type T = Int
-    }
-
-    module ExclInt = Excl[IntType]
+    // Instantiation Auth[Prod[MaxNat, Excl(Int)]] RA
+    module ExclInt = Excl[Library.IntType]
     module ProdRA = Prod[MaxNat, ExclInt]
     module CtrRA = Auth[ProdRA]
 
@@ -70,34 +62,10 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
             (b ? Lk.locked(lk_ref) : noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0))))
     }
 
-    pred is_rwlock(l: Ref, lk_ref: Ref) {
+    auto pred is_rwlock(l: Ref; lk_ref: Ref) {
         own(l.lk, lk_ref)
         && Lk.lock_inv(lk_ref, l)
         && readers_inv(l, lk_ref)
-    }
-
-    proc faa_ctr(x: Ref, w: Int, implicit ghost v: Int)
-        atomic requires own(x.ctr, v) 
-        atomic ensures own(x.ctr, v+w)
-    {
-        ghost var phi := bindAU();
-        ghost var v0: Int := openAU(phi);
-        var v1: Int := x.ctr;
-        abortAU(phi);
-        var new_v1 : Int := v1 + w;
-
-        ghost var v2: Int := openAU(phi);
-
-        var res: Bool := cas(x.ctr, v1, new_v1);
-        
-        if (!res) {
-            abortAU(phi);
-            ghost var v3: Int := openAU(phi);
-            faa_ctr(x, w);
-            commitAU(phi);
-        } else {
-            commitAU(phi);
-        }
     }
 
     // algorithms
@@ -107,7 +75,15 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         requires SharedPred.p()
         ensures exists lk_ref: Ref :: is_rwlock(l, lk_ref)
     {
-        l := new(ctr: 0, lk: null, Tk.v: TokenRA.noToken(1.0), ctr_ra: CtrRA.auth_frag(ProdRA.prod(0, ExclInt.excl(0)), ProdRA.prod(0, ExclInt.excl(0))));
+        l := new(
+            ctr: 0, 
+            lk: null, 
+            Tk.v: TokenRA.noToken(1.0), 
+            ctr_ra: CtrRA.auth_frag(
+                ProdRA.prod(0, ExclInt.excl(0)), 
+                ProdRA.prod(0, ExclInt.excl(0))
+            )
+        );
         SharedPred.allocate(l);
         fold LkResource.resource(l)[i := 0];
         var lk_ref := Lk.create(l);
@@ -117,12 +93,6 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
 
         bound_gt_zero();
         fold readers_inv(l, lk_ref)[z := 0, d := 0, i := 0, b := false];
-        fold is_rwlock(l, lk_ref);
-
-        // the following assert is used to 
-        // supply witnesses for the existential variables 
-        // in the post-condition.
-        assert is_rwlock(l, lk_ref);
     }
 
     proc acquire_reader_int(l: Ref, implicit ghost lk_ref: Ref, implicit ghost i: Int)
@@ -132,24 +102,32 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         ghost var b1: Bool; ghost var d1: Int; ghost var i1: Int;
         unfold readers_inv(l, lk_ref)[d1 := d, i1 := i, b1 := b];
         var z1: Int := l.ctr;
-        fpu(
-            l.ctr_ra,
+        fpu(l.ctr_ra,
             CtrRA.auth(ProdRA.prod(d1, ExclInt.excl(i))),
-            CtrRA.auth_frag(ProdRA.prod(d1, ExclInt.excl(i)), ProdRA.prod(d1, ExclInt.excl_null))
+            CtrRA.auth_frag(
+                ProdRA.prod(d1, ExclInt.excl(i)), 
+                ProdRA.prod(d1, ExclInt.excl_null)
+            )
         );
         fold readers_inv(l, lk_ref)[d := d1, i := i1, b := b1];
 
         if (z1 < bound) {
             ghost var z2: Int; ghost var b2: Bool; ghost var d2: Int; ghost var i2: Int;
             unfold readers_inv(l, lk_ref)[z2 := z, d2 := d, i2 := i, b2 := b];
-            faa_ctr(l, 1);
+            var old_ctr := faa(l.ctr, 1);
             {!
                 if (i2 > d2) {
                     Tk.token_mutate_incr(l, z2);
                     fpu(
                         l.ctr_ra, 
-                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i)), ProdRA.prod(0, ExclInt.excl(i))),
-                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i+1)), ProdRA.prod(0, ExclInt.excl(i+1)))
+                        CtrRA.auth_frag(
+                            ProdRA.prod(d2, ExclInt.excl(i)), 
+                            ProdRA.prod(0, ExclInt.excl(i))
+                        ),
+                        CtrRA.auth_frag(
+                            ProdRA.prod(d2, ExclInt.excl(i+1)), 
+                            ProdRA.prod(0, ExclInt.excl(i+1))
+                        )
                     );
                     fold readers_inv(l, lk_ref)[z := z2+1, d := d2, i := i+1, b := b2];
                 } else {
@@ -158,8 +136,14 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
                     Tk.token_mutate_generate(l);
                     fpu(
                         l.ctr_ra, 
-                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i)), ProdRA.prod(0, ExclInt.excl(i))),
-                        CtrRA.auth_frag(ProdRA.prod(d2, ExclInt.excl(i+1)), ProdRA.prod(0, ExclInt.excl(i+1)))
+                        CtrRA.auth_frag(
+                            ProdRA.prod(d2, ExclInt.excl(i)), 
+                            ProdRA.prod(0, ExclInt.excl(i))
+                        ),
+                        CtrRA.auth_frag(
+                            ProdRA.prod(d2, ExclInt.excl(i+1)), 
+                            ProdRA.prod(0, ExclInt.excl(i+1))
+                        )
                     );
                     fold readers_inv(l, lk_ref)[z := z2+1, d := d2, i := i+1, b := b2];
                 }
@@ -173,7 +157,6 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         requires is_rwlock(l, lk_ref')
         ensures token(l)
     {
-        unfold is_rwlock(l, lk_ref');
         var lk_ref := l.lk;
 
         Lk.acquire(lk_ref);
@@ -191,16 +174,17 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         requires is_rwlock(l, lk_ref) && token(l)
         ensures true
     {
-        unfold is_rwlock(l, lk_ref);
-
         ghost var z: Int; ghost var d: Int; ghost var i: Int; ghost var b: Bool;
         unfold readers_inv(l, lk_ref)[z := z, d := d, i := i, b := b];
-        faa_ctr(l, -1);
+        var old_ctr := faa(l.ctr, -1);
         {!
             fpu(
                 l.ctr_ra,
                 CtrRA.auth(ProdRA.prod(d, ExclInt.excl(i))),
-                CtrRA.auth_frag(ProdRA.prod(d+1, ExclInt.excl(i)), ProdRA.prod(d+1, ExclInt.excl_null))
+                CtrRA.auth_frag(
+                    ProdRA.prod(d+1, ExclInt.excl(i)),
+                    ProdRA.prod(d+1, ExclInt.excl_null)
+                )
             );
             if (z > 1) {
                 Tk.token_mutate_decr(l, z);
@@ -227,9 +211,11 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
                 fpu(
                     l.ctr_ra,
                     CtrRA.auth(ProdRA.prod(i, ExclInt.excl(i))),
-                    CtrRA.auth_frag(ProdRA.prod(i, ExclInt.excl(i)), ProdRA.prod(i, ExclInt.excl_null))
+                    CtrRA.auth_frag(
+                        ProdRA.prod(i, ExclInt.excl(i)), 
+                        ProdRA.prod(i, ExclInt.excl_null)
+                    )
                 );
-                assert own(l.ctr_ra, ctr_ra_frag(i, i));
             }
         !}
         fold readers_inv(l, lk_ref)[z := z, d := d1, i := i1, b := true];
@@ -244,7 +230,6 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         ensures exists i: Int :: own(l.ctr_ra, ctr_ra_frag(i, i))
         ensures noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0) 
     {
-        unfold is_rwlock(l, lk_ref');
         var lk_ref := l.lk;
 
         Lk.acquire(lk_ref);
@@ -265,7 +250,6 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         requires own(l.ctr_ra, ctr_ra_frag(i, i)) && noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0)
         ensures true
     {
-        unfold is_rwlock(l, lk_ref');
         var lk_ref := l.lk;
 
         ghost var z1: Int; ghost var d1: Int; ghost var i1: Int; ghost var b1: Bool;
@@ -284,8 +268,4 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
         Lk.release(lk_ref);
         fold readers_inv(l, lk_ref)[z := z1, d := d1, i := i1, b := false];
     }
-
-
-
-
 }

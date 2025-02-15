@@ -25,7 +25,7 @@ module ForkJoin[R: ForkJoinResource] {
             : true) 
     }
 
-    pred join_handle(l: Ref) {
+    auto pred join_handle(l: Ref) {
         own(l.excl, Excl.excl(()))
     }
 
@@ -37,7 +37,6 @@ module ForkJoin[R: ForkJoinResource] {
         ensures is_join(l, r) && join_handle(l)
     {
         l := new(result: none, excl: Excl.excl(()));
-        fold join_handle(l);
         // passing b to suppress warning
         fold is_join(l, r)[b := true];
     }
@@ -61,7 +60,6 @@ module ForkJoin[R: ForkJoinResource] {
         var w: R.Result := l.result;
         {!
             if (w == some(w.value)) {
-                unfold join_handle(l);
                 fold is_join(l, r)[b := true];
             } else {
                 fold is_join(l, r)[b := b];

@@ -75,9 +75,8 @@ module Stack[T: Type] {
 
     var topv := s.top;
   
+    ghost val q: Real; ghost val tl0: Ref;
     
-    ghost val q: Real;
-    ghost val tl0: Ref;
     if (topv == null) {
       unfold list(topv)[q := q];
       fold list(topv, xs0)[q := q];
