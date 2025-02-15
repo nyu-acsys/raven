@@ -1078,7 +1078,19 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
             (c.call_decl, Expr.set_loc spec (Stmt.to_loc stmt))
         | _ -> Error.error stmt.stmt_loc "Expected a call_def"
-      in        
+      in
+
+      begin match pred_decl.call_decl_kind, pred_decl.call_decl_is_auto with
+      | Pred, true -> 
+        let error =
+          ( Error.Generic,
+            loc,
+            "Cannot (un)fold auto predicate: "
+            ^ Ident.to_string pred_decl.call_decl_name )
+        in
+        Logs.warn (fun m -> m "%s" (Error.to_string error));
+        Rewriter.return (Stmt.mk_skip ~loc)
+      | _ -> 
       
       let truncated_formal_args, dropped_formal_args =
         List.split_n (pred_decl.call_decl_formals @ pred_decl.call_decl_returns)
@@ -1190,7 +1202,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let pred_expr =
           Expr.alpha_renaming 
             (Expr.mk_app ~loc ~typ:Type.bool
-               (Expr.Var use_desc.use_name) (use_desc.use_args @ new_dropped_args_exprs))
+              (Expr.Var use_desc.use_name) (use_desc.use_args @ new_dropped_args_exprs))
             new_renaming_map
       in
 
@@ -1275,6 +1287,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           | _ -> Stmt.mk_block_stmt ~loc [ bind_stmt; exhale_stmt; inhale_stmt ]
       in
       Rewriter.return new_stmt
+      end
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_fold_unfold_stmts
 
 let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =

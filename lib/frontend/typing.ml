@@ -1471,8 +1471,6 @@ module ProcessCallable = struct
              ^ QualIdent.to_string use_name)
       in
 
-      if pred_decl.call_decl_is_auto then
-        Error.type_error stmt_loc (Printf.sprintf !"Cannot %s auto predicate %{QualIdent}" (Stmt.use_kind_to_string use_desc.use_kind) use_desc.use_name);
 
       
       let exists_vars =
