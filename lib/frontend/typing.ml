@@ -1820,6 +1820,11 @@ module ProcessModule = struct
                   (QualIdent.from_ident type_def.type_def_name)
               in
 
+              let _ =
+                if List.is_empty variant_decl_list
+                then Error.error (Type.to_loc tp_expr) "data types must have at least one constructor"
+              in
+
               (* _constr_map is constructed just to make sure no duplicate constructors are used in data type declaration. *)
               let _constr_map =
                 List.fold variant_decl_list
@@ -1832,12 +1837,12 @@ module ProcessModule = struct
                         with
                         | `Ok mp -> mp
                         | `Duplicate ->
-                            Error.error (Type.to_loc tp_expr)
+                            Error.error (Ident.to_loc var_arg.var_name)
                             @@ Printf.sprintf
                                  "Duplicate constructor found in data type %s"
                                  (Type.to_string tp_expr)))
               in
-
+              
               let* variant_decl_list =
                 Rewriter.List.map variant_decl_list ~f:(fun variant_decl ->
                     let+ variant_args =
@@ -2397,7 +2402,7 @@ module ProcessModule = struct
               | Module.CallDef ({ call_decl; _ } as call) as symbol ->
                 let annotate_spec spec =
                   let error =
-                    ( Error.Verification,
+                    ( Error.RelatedLoc,
                       Symbol.to_loc parent_symbol,
                       (Printf.sprintf
                          !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
