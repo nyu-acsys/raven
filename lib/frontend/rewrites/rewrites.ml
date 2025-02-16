@@ -268,6 +268,9 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
       Logs.debug (fun m ->
           m "Rewrites.rewrite_set_diff_expr: expr: %a" Expr.pr expr);
 
+      let* expr1 = rewrite_set_diff_expr expr1 in
+      let* expr2 = rewrite_set_diff_expr expr2 in
+      
       let set_element_type = Type.set_elem (Expr.to_type expr1) in
       let typ_string =
         ProgUtils.serialize (Type.to_string set_element_type)
