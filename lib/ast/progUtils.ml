@@ -208,23 +208,28 @@ let intros_type_module ~(loc : location)
 
 let is_ra_type (tp : AstDef.type_expr) : bool t =
   let open Syntax in
-  let rec does_ident_implement_ra qual_ident =
-    let* symbol = find qual_ident in
+  let rec does_ident_implement_ra module_qident type_ident =
+    let* symbol = find module_qident in
     Symbol.extract symbol ~f:(fun _ subst -> function
-        | AstDef.Module.ModDef m -> return m.mod_decl.mod_decl_is_ra
+        | AstDef.Module.ModDef m ->
+          return
+            (m.mod_decl.mod_decl_is_ra &&
+             match m.mod_decl.mod_decl_rep with
+             | None -> false
+             | Some id -> Ident.(id = type_ident))
         | ModInst mod_inst -> 
-          let* is_ra = does_ident_implement_ra mod_inst.mod_inst_type in
+          let* is_ra = does_ident_implement_ra mod_inst.mod_inst_type type_ident in
           if is_ra then return true
           else
             (match mod_inst.mod_inst_def with
             | None -> return false
             | Some (mod_inst_def_funct, mod_inst_def_args) ->
-                does_ident_implement_ra mod_inst_def_funct)
+                does_ident_implement_ra mod_inst_def_funct type_ident)
         | _ -> return false)
   in
   match tp with
   | App (Var qi, [], _) ->
-    does_ident_implement_ra (QualIdent.pop qi)
+    does_ident_implement_ra (QualIdent.pop qi) (QualIdent.unqualify qi)
   | _ -> return false
 
 let field_get_ra_qual_iden (field : AstDef.Module.field_def) =
