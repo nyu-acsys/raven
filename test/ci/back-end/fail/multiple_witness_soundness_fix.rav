@@ -9,7 +9,8 @@ ghost field agr: Agree
 
 pred is_list(n: Ref) {
     exists l: Ref :: 
-        (f1(l) ==> own(n.lock, l, 1.0)) && 
+        (f1(l) ==> own(n.lock, l, 0.5)) && 
+        (f2(l) ==> own(n.lock, l, 0.5)) && 
         (f2(l) ==> own(n.agr, Agree.agree(l)))
 }
 
