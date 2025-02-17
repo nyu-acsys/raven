@@ -425,18 +425,16 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
           match arg_list with
           | App (Read, [expr1; (App (Var qual_ident, [], expr_attr') as expr2)], _) as expr12 :: expr3 :: expr4_opt ->
             begin
-              try
-                let* qual_ident, symbol =
-                  Rewriter.resolve_and_find qual_ident
-                in
-                let+ symbol = Rewriter.Symbol.reify symbol in
-                match symbol with
-                | FieldDef _ -> expr1, expr2, expr3, expr4_opt
-                | _ -> failwith "retry below"
-              with _ ->
-              match expr4_opt with
-              | expr41 :: expr4_opt -> Rewriter.return (expr12, expr3, expr41, expr4_opt)
-              | _ -> Error.type_error (Expr.to_loc expr12) "Expected field location"
+              let* qual_ident, symbol =
+                Rewriter.resolve_and_find qual_ident
+              in
+              let+ symbol = Rewriter.Symbol.reify symbol in
+              match symbol with
+              | FieldDef _ -> expr1, expr2, expr3, expr4_opt
+              | _ ->
+                (match expr4_opt with
+                 | expr41 :: expr4_opt -> expr12, expr3, expr41, expr4_opt
+                 | _ -> Error.type_error (Expr.to_loc expr12) "Expected field location")
             end
           | expr1
             :: (App (Var qual_ident, [], expr_attr') as expr2)
