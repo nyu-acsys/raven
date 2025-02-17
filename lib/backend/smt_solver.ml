@@ -1,6 +1,7 @@
 open Base
 open Unix
-open Util__Error
+(*open Util__Error*)
+open Util
 open SmtLibAST
 open Ast
 (* open Rewriter *)
@@ -105,9 +106,9 @@ module SmtSession = struct
         let in_chan = in_channel_of_descr in_descr in
         let result = In_channel.input_line in_chan in
         match result with
-        | None -> raise (Generic_Error "Read from SMT Solver returned nothing")
+        | None -> Error.fail ~lbl:Internal Loc.dummy "Read from SMT Solver returned nothing"
         | Some str -> str)
-    | None -> raise (Generic_Error "Read from SMT Solver returned nothing")
+    | None -> Error.fail ~lbl:Internal Loc.dummy  "Read from SMT Solver returned nothing"
   (* state.response_count <- state.response_count + 1; *)
   (* if state.response_count > session.response_count
      then begin
@@ -126,7 +127,7 @@ module SmtSession = struct
     | "sat" -> true
     | "unsat" -> false
     | "unknown" -> false
-    | str -> raise (Generic_Error ("Unexpected solver output: " ^ str))
+    | str -> Error.fail ~lbl:Internal Loc.dummy ("Unexpected solver output: " ^ str)
 
   let is_unsat session =
     Int.incr num_of_sat_queries;
@@ -135,7 +136,7 @@ module SmtSession = struct
     | "unsat" -> true
     | "sat" -> false
     | "unknown" -> false
-    | str -> raise (Generic_Error ("Unexpected solver output: " ^ str))
+    | str -> Error.fail ~lbl:Internal Loc.dummy ("Unexpected solver output: " ^ str)
 
   let push session =
     write session (mk_push 1);
@@ -145,7 +146,7 @@ module SmtSession = struct
     new_session
 
   let pop session =
-    if session.stack_height <= 0 then error_simple "pop on empty stack"
+    if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack"
     else write session (mk_pop 1);
     let new_session =
       { session with stack_height = session.stack_height - 1 }

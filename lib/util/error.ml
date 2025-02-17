@@ -36,7 +36,6 @@ let error_kind_to_string = function
 type t = error_kind * Loc.t * String.t
 
 exception Msg of t list
-exception Generic_Error of string
 
 let fail ?(lbl = Generic) loc msg = raise (Msg [ (lbl, loc, msg) ])
 let fail_with errors = raise (Msg errors)
