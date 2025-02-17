@@ -478,8 +478,8 @@ let ident_to_skolem_fn_ident ~loc ident =
   Ident.fresh loc ("$skolem_" ^ Ident.to_string ident)
 
 let generate_skolem_function (universal_quants : universal_quants)
-    (var_decl : var_decl) ~skolem_id ?(postconds : expr list = [])
-    ?(optn_args : (var_decl * expr) list = []) ~loc : expr Rewriter.t =
+    (var_decl : var_decl)  ?(preconds : expr list = []) ?(postconds : expr list = [])
+    ?(optn_args : (var_decl * expr) list = []) ~skolem_id ~loc : expr Rewriter.t =
   let open Rewriter.Syntax in
   let univ_quants_list = universal_quants.univ_vars in
 
@@ -492,12 +492,14 @@ let generate_skolem_function (universal_quants : universal_quants)
     skolem_fn_ident: %a \n \
     universal_quants: %a \n \
     var_decl: %a \n \
+    preconds: %a \n \
     postconds: %a \n \
     optn_args: %a \n \
   "
     Ident.pr skolem_fn_ident
     Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
     Type.pr_var_decl var_decl
+    Expr.pr_list preconds
     Expr.pr_list postconds
     (Util.Print.pr_list_comma (fun ppf (vd, e) ->
       Stdlib.Format.fprintf ppf "%a -> %a" Type.pr_var_decl vd Expr.pr e
@@ -537,16 +539,20 @@ let generate_skolem_function (universal_quants : universal_quants)
     }
   in
 
-  let postconds =
-    List.map postconds ~f:(fun postcond ->
-        Expr.alpha_renaming postcond
-          (Map.singleton
-             (module QualIdent)
-             (QualIdent.from_ident var_decl.var_name)
-             (Expr.from_var_decl ret_var_decl)))
+  let preconds, postconds =
+    let ret_var_renam_map = Map.singleton (module QualIdent)
+      (QualIdent.from_ident var_decl.var_name)
+      (Expr.from_var_decl ret_var_decl)
+    in
+
+    List.map preconds ~f:(fun precond -> 
+      Expr.alpha_renaming precond ret_var_renam_map),
+    List.map postconds ~f:(fun postcond -> 
+      Expr.alpha_renaming postcond ret_var_renam_map)
   in
 
-  let postconds =
+  let preconds, postconds =
+    List.map preconds ~f:(fun precond -> Stmt.mk_spec precond),
     List.map postconds ~f:(fun postcond -> Stmt.mk_spec postcond)
   in
 
@@ -557,7 +563,7 @@ let generate_skolem_function (universal_quants : universal_quants)
       call_decl_formals = formal_var_decls;
       call_decl_returns = [ ret_var_decl ];
       call_decl_locals = [];
-      call_decl_precond = [];
+      call_decl_precond = preconds;
       call_decl_postcond = postconds;
       call_decl_loc = loc;
       call_decl_is_free = false;
@@ -3472,7 +3478,7 @@ module TrnslExhale = struct
 
           let* skolemized_exprs =
             Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
-                let* postconds, optn_args =
+                let* preconds, postconds, optn_args =
                   match Map.find witness_args_conds_exprs_map var_decl.var_name with
                   | None | Some [] ->
                       let error =
@@ -3482,7 +3488,7 @@ module TrnslExhale = struct
                           ^ Ident.to_string var_decl.var_name )
                       in
                       Logs.warn (fun m -> m "%s" (Error.to_string error));
-                      Rewriter.return ([], [])
+                      Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
                       let postconds =
                         (List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
@@ -3495,6 +3501,24 @@ module TrnslExhale = struct
                         ))
                       in
 
+                      let preconds = ( List.concat @@
+                         List.mapi witness_arg_exprs  ~f:(fun index_outer (optn_arg1, conds1, e1)
+                        ->
+                          List.foldi witness_arg_exprs ~init:[] ~f:(fun index_inner accum (optn_arg2, conds2, e2) ->
+                            if index_outer >= index_inner then accum else
+                              accum @ [ 
+                                Expr.mk_impl
+                                  (Expr.mk_chained_and (univ_conds @ conds1 @ conds2))
+                                  (Expr.mk_eq 
+                                    (Expr.from_var_decl optn_arg1) (Expr.from_var_decl optn_arg2)
+                                  )
+                              ]
+                          )
+                        )
+                      )
+
+                      in
+
                       let witness_optn_args = List.map witness_arg_exprs ~f:(
                         fun (vd, _, e) -> (vd, e)
                       ) in
@@ -3503,20 +3527,27 @@ module TrnslExhale = struct
                         witness_optn_args @ env_local_var_decls_exprs
                       in
 
-                      Rewriter.return (postconds, optn_args)
+                      Rewriter.return (preconds, postconds, optn_args)
                 in
 
-                let postconds_sanitized = 
+                let preconds_sanitized, postconds_sanitized = 
                   let skolem_vars_alpha_renaming_map_local =
                     Map.remove skolem_vars_alpha_renaming_map (QualIdent.from_ident var_decl.var_name) 
                   in
-                  List.map postconds ~f:(
+                  
+                  let preconds_sanitized = List.map preconds ~f:(
                     fun expr -> Expr.alpha_renaming expr skolem_vars_alpha_renaming_map_local
-                  )
+                  ) in
+
+                  let postconds_sanitized = List.map postconds ~f:(
+                    fun expr -> Expr.alpha_renaming expr skolem_vars_alpha_renaming_map_local
+                  ) in
+
+                  preconds_sanitized, postconds_sanitized
                 in
 
                 let+ expr =
-                  generate_skolem_function univ_vars var_decl ~skolem_id:skolem_ident ~postconds:postconds_sanitized
+                  generate_skolem_function univ_vars var_decl ~skolem_id:skolem_ident ~preconds:preconds ~postconds:postconds_sanitized
                     ~optn_args ~loc:var_decl.var_loc
                 in
 

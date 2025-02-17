@@ -1,0 +1,27 @@
+module Agree = Library.Agree[Library.RefType]
+
+func f1(l: Ref) returns (ret: Bool) {true}
+func f2(l: Ref) returns (ret: Bool) {true}
+
+
+field lock: Ref
+ghost field agr: Agree
+
+pred is_list(n: Ref) {
+    exists l: Ref :: 
+        (f1(l) ==> own(n.lock, l, 1.0)) && 
+        (f2(l) ==> own(n.agr, Agree.agree(l)))
+}
+
+proc create_buggy() 
+{
+    var r := new(lock: null, agr: Agree.agree(null));
+
+    var l: Ref;
+    assume l != null;
+    r.lock := l;
+    assert own(r.lock, l, 1.0);
+
+    // The following fails, as it should:
+    fold is_list(r);
+}
