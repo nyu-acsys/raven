@@ -1,43 +1,43 @@
 interface ResourceAlgebra : Type {
-    rep type T
+  rep type T
 
-    val id: T
-    func comp(a:T, b:T) returns (ret:T)
+  val id: T
+  func comp(a:T, b:T) returns (ret:T)
 
-    func frame(a:T, b:T) returns (ret:T)
+  func frame(a:T, b:T) returns (ret:T)
 
-    func valid(a:T) returns (ret: Bool)
+  func valid(a:T) returns (ret: Bool)
 
-    func fpuAllowed(a:T, b:T) returns (ret: Bool)
+  func fpuAllowed(a:T, b:T) returns (ret: Bool)
 
-    auto axiom idValid()
-        ensures valid(id)
+  auto axiom idValid()
+    ensures valid(id)
 
-    auto axiom compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+  auto axiom compAssoc()
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
-    auto axiom compCommute()
-        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+  auto axiom compCommute()
+    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
 
-    auto axiom compId()
-        ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
+  auto axiom compId()
+    ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
 
-    auto axiom compValid()
-        ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
+  auto axiom compValid()
+    ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
 
-    auto axiom frameId()
-        ensures forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a
+  auto axiom frameId()
+    ensures forall a:T :: {frame(a,id)} valid(a) ==> frame(a, id) == a
 
-    auto axiom compFrameInv()
-        ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+  auto axiom compFrameInv()
+    ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
 
-    // Used to prove Auth.compValid
-    auto axiom weak_frameCompInv()
-        ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
+  // Used to prove Auth.compValid
+  auto axiom weak_frameCompInv()
+    ensures forall a:T, b:T:: {frame(comp(a, b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
 
-    auto axiom fpuValid()
-        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
-            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
+  auto axiom fpuValid()
+    ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
+      (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
 }
 
 interface CancellativeResourceAlgebra : ResourceAlgebra {
