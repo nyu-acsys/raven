@@ -3492,7 +3492,7 @@ module TrnslExhale = struct
                   | Some witness_arg_exprs ->
                       let postconds =
                         (List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
-                          (Expr.mk_impl (Expr.mk_and (univ_conds @ conds))
+                          (Expr.mk_impl (Expr.mk_chained_and (univ_conds @ conds))
                             (Expr.mk_eq
                               (Expr.from_var_decl var_decl)
                               (Expr.from_var_decl optn_arg)

@@ -2498,7 +2498,7 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
   in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_au_cmnds on module %a"
+      m1 "Rewrites.all_rewrites: Starting rewrite_atomicity_analysis on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m =
     Rewriter.Module.rewrite_callables
