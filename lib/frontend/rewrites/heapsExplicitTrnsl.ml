@@ -2224,18 +2224,8 @@ module TrnslInhale = struct
                [ field_heap_expr ])
         in
 
-        (* let* injectivity_assertion =
-          generate_injectivity_assertions ~loc universal_quants conds e1
-        in *)
-
         let stmts_list =
-          match univ_quants_list with
-          | [] -> []
-          | _ -> [ (* injectivity_assertion *) ]
-        in
-
-        let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assume_heap_valid ]
+          [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assume_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
@@ -4369,18 +4359,8 @@ module TrnslExhale = struct
                [ field_heap_expr ])
         in
 
-        (* let* injectivity_assertion =
-          generate_injectivity_assertions ~loc universal_quants conds e1
-        in *)
-
         let stmts_list =
-          match univ_quants_list with
-          | [] -> []
-          | _ -> [ (* injectivity_assertion *) ]
-        in
-
-        let stmts_list =
-          stmts_list @ [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assert_heap_valid ]
+          [ havoc_stmt; assume_stmt ] @ forward_trigger_assertions @ [ eq_stmt; assert_heap_valid ]
         in
 
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in

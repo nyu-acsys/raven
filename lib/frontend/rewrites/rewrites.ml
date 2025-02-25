@@ -2630,8 +2630,18 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
          ~f:HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale m)
   in
 
+  Logs.debug (fun m1 ->
+    m1
+      "Rewrites.all_rewrites: Starting rewrite_fpu \
+       on module %a"
+      Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_fpu m in
 
+  Logs.debug (fun m1 ->
+    m1
+      "Rewrites.all_rewrites: Starting rewrite_binds \
+       on module %a"
+      Ident.pr m.mod_decl.mod_decl_name);
   let* m =
     Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_binds m
   in
@@ -2668,6 +2678,11 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
       ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m
   in
 
+  Logs.debug (fun m1 ->
+    m1
+      "Rewrites.all_rewrites: Starting rewrite_expand_types \
+       on module %a"
+      Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_types ~f:rewrite_expand_types m in
 
   Logs.debug (fun m1 ->
