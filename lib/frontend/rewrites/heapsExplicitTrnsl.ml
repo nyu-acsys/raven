@@ -3480,6 +3480,15 @@ module TrnslExhale = struct
                       Logs.warn (fun m -> m "%s" (Error.to_string error));
                       Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
+                      let witness_arg_exprs = 
+                        let universal_wtns = List.filter witness_arg_exprs ~f:(fun (vd, conds, expr) -> List.is_empty conds) in
+
+                        if (List.is_empty universal_wtns) then
+                          witness_arg_exprs
+                        else 
+                          universal_wtns
+                      in
+
                       let postconds =
                         (List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
                           (Expr.mk_impl (Expr.mk_chained_and (univ_conds @ conds))
