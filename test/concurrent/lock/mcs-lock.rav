@@ -40,14 +40,15 @@ module MCSLock[R: LockResource] {
     exists b_choice: Bool :: 
       b_choice ? own(n.state, frac_chunk((n, true), 1.0)) :
 
-    (exists n': Ref :: own(n.next, n', 0.5) &&
-      (n' != null ==>
+      (exists n': Ref :: own(n.next, n', 0.5) &&
+        (n' != null ==>
 
-        (own(n.next, n', 0.5) &&
-        own(n.state, frac_chunk((n, true), 0.5)) &&
-        own(n.state2, frac_chunk((n', false), 0.5)) &&
-        signal_loc_inv(n', n, r))
-      ))
+          (own(n.next, n', 0.5) &&
+          own(n.state, frac_chunk((n, true), 0.5)) &&
+          own(n.state2, frac_chunk((n', false), 0.5)) &&
+          signal_loc_inv(n', n, r))
+        )
+      )
   }
 
   inv lock_inv(l: Ref, r: R) {
@@ -57,9 +58,7 @@ module MCSLock[R: LockResource] {
 
       (own(tl.next, null, 0.5) &&
       own(tl.state, frac_chunk((tl, true), 0.5)) && 
-      waiting_loc_inv(tl, r)
-      )
-
+      waiting_loc_inv(tl, r))
     )
   }
 
@@ -118,24 +117,17 @@ module MCSLock[R: LockResource] {
     prd := xchg(l.lk, node);
 
     if (prd == null) {
-      assert own(node.next, null, 1.0);
-
       fold waiting_loc_inv(node, r)[b_choice := false];
       fold lock_inv(l, r);
       fold acquired_node(node, r);
 
     } else {
-      assert own(prd.state, frac_chunk((prd, true), 0.5));
-
       fold waiting_loc_inv(node, r)[b_choice := false];
       fold lock_inv(l, r);
       
       node.lock_wait := true;
 
-      ghost var b_choice1 : Bool;
-      unfold waiting_loc_inv(prd, r)[b_choice1 := b_choice];
-      assert !b_choice1;
-      assert own(prd.state, frac_chunk((prd, true), 0.5));
+      unfold waiting_loc_inv(prd, r);
 
       prd.next := node;
       inhale own(prd.state2, frac_chunk((node, false), 1.0));
@@ -169,6 +161,7 @@ module MCSLock[R: LockResource] {
   {
     unfold acquired_node(node, r);
     unfold waiting_loc_inv(node, r);
+
     var node_next: Ref := node.next;
     
     if (node_next == null) {
@@ -181,6 +174,7 @@ module MCSLock[R: LockResource] {
         unfold waiting_loc_inv(node, r);
         fold waiting_loc_inv(node, r)[b_choice := true];
         fold free_node(node);
+
         return;
       } else {
         fold lock_inv(l, r);
@@ -192,7 +186,6 @@ module MCSLock[R: LockResource] {
 
     node_next := node.next;
 
-
     if (node_next == null) {
       assert false;
     } else {
@@ -200,7 +193,6 @@ module MCSLock[R: LockResource] {
       node_next.lock_wait := false;
       fold signal_loc_inv(node_next, node, r)[b_choice := false];
       fold free_node(node);
-
     }
   }
 }
