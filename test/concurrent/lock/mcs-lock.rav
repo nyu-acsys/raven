@@ -1,92 +1,206 @@
 include "lock.rav"
 
-interface MCSLock : Lock {
-  field tail: Ref
-  field head: Ref
+interface MCSLock[R: LockResource] {
+  import R.resource
 
-  field locked: Ref
+  module Agree = Library.Agree[R]
+  ghost field resourceAgr: Agree
+
+  field lk: Ref
+
+  field lock_wait: Bool
   field next: Ref
 
-  module IntType : Library.Type {
-    rep type T = Int
+  module Ref_Bool_Type : Library.Type {
+    rep type T = (Ref, Bool)
   }
 
-  module IntSet = Library.DisjSet[IntType]
-  module ADS = Library.Auth[IntSet]
+  module Frac_Ref_Bool = Library.Frac[Ref_Bool_Type]
+  import Frac_Ref_Bool.frac_chunk
 
-  ghost field tickets: ADS
+  ghost field state: Frac_Ref_Bool;
+  ghost field state2: Frac_Ref_Bool;
 
-  pred lock_rep(l: Ref; b: Bool) {
-    exists t: Ref ::
-      true
-      && (b ==> t != null)
-      && (t == null ? true : exists n: Ref :: waiting_loc_inv(n) && own(t.succ, n, 0.5))
-      && own(l.tail, t, 1.0) 
-  }
-
-  proc create(r: R)
-    returns (l: Ref)
-    requires resource(r)
-    ensures is_lock(l, r, false)
-  {
-    l := new (tail: null, agr: Agree.agree(r));
-    fold lock_rep(l, false);
-    fold is_lock(l, r, false);
-  }
-
-  proc wait_on(n: Ref, ghost l: Ref, implicit ghost: r: R, implicit ghost: b: Bool)
-  {
-    val lk: Bool := n.locked;
-    if (lk) {
-      wait_on(n, l);
-    } else {
-      l.head := n;
-    }
-  }
-
-  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
-    atomic requires is_lock(l, r, b)
-    atomic ensures is_lock(l, r, true) && b == false && resource(r) 
-  {
-    val n: Ref := new (locked: true, next: null);
-    val p: Ref := xchg(l.tail, n);
+  inv signal_loc_inv(v: Ref, n: Ref, r: R) {
+    exists b_choice: Bool ::
+      b_choice ? own(n.state2, frac_chunk((v, false), 1.0)) :
     
-    if (p != null) {
-      p.succ := n; // needs own(p.succ, 1.0, v)
-      wait_on(n, l);
+      (exists b: Bool ::
+        own(v.lock_wait, b, 1.0) && 
+        (b == true ? 
+          true :
+
+          resource(r) && 
+          own(n.state2, frac_chunk((v, false), 0.5))
+        )
+      )
+  }
+
+  inv waiting_loc_inv(l: Ref, n: Ref, r: R) {
+    exists b_choice: Bool :: 
+      b_choice ? own(n.state, frac_chunk((n, true), 1.0)) :
+
+    (exists n': Ref :: own(n.next, n', 0.5) &&
+      (n' != null ==>
+
+        (own(n.next, n', 0.5) &&
+        own(n.state, frac_chunk((n, true), 0.5)) &&
+        own(n.state2, frac_chunk((n', false), 0.5)) &&
+        signal_loc_inv(n', n, r))
+      ))
+  }
+
+  inv lock_inv(l: Ref, r: R) {
+    exists tl: Ref :: own(l.lk, tl) && 
+    (tl == null ?
+      resource(r) :
+
+      (own(tl.next, null, 0.5) &&
+      own(tl.state, frac_chunk((tl, true), 0.5)) && 
+      waiting_loc_inv(l, tl, r)
+      )
+
+    )
+  }
+
+  pred free_node(node: Ref) {
+    exists b: Bool, n: Ref :: own(node.lock_wait, b) && own(node.next, n)
+  }
+
+  pred acquired_node(l: Ref, node: Ref, r: R) {
+    (exists b: Bool :: own(node.lock_wait, b, 1.0)) &&
+    waiting_loc_inv(l, node, r) &&
+    resource(r) && 
+    own(node.state, frac_chunk((node, true), 0.5))
+  }
+
+  proc new_lock(r: R) returns (l: Ref)
+    requires resource(r)
+    ensures lock_inv(l, r)
+  {
+    l := new(lk: null);
+    fold lock_inv(l, r);
+  }
+
+  proc new_node() returns (node: Ref)
+    ensures free_node(node) && own(node.state, frac_chunk((node, true), 1.0))
+  {
+    node := new(lock_wait: true, next: null, state: frac_chunk((null, true), 1.0));
+    fold free_node(node);
+    fpu(node.state, frac_chunk((node, true), 1.0));
+  }
+
+  proc wait_on(l: Ref, node: Ref, implicit ghost prd: Ref, implicit ghost r: R) 
+    requires signal_loc_inv(node, prd, r) && own(prd.state2, frac_chunk((node, false), 0.5))
+    ensures resource(r) && own(node.lock_wait, false, 1.0)
+  {
+    unfold signal_loc_inv(node, prd, r);
+
+    val lk_wait: Bool := node.lock_wait;
+
+    if (lk_wait) {
+      fold signal_loc_inv(node, prd, r)[b_choice := false];
+      wait_on(l, node, prd, r);
+    } else {
+      fold signal_loc_inv(node, prd, r)[b_choice := true];
     }
   }
 
-  proc wait_for_succ(n: Ref, l: Ref, implicit ghost r: R) 
+  proc acquire(l: Ref, node: Ref, implicit ghost r: R)
+    requires lock_inv(l, r) && free_node(node) && own(node.state, frac_chunk((node, true), 1.0))
+    ensures acquired_node(l, node, r)
   {
-    val s := n.next;
-    if (s == null) {
-      wait_for_succ(n, l);
+    unfold free_node(node);
+    node.next := null;
+    var prd: Ref;
+
+    unfold lock_inv(l, r);
+    prd := xchg(l.lk, node);
+
+    if (prd == null) {
+      assert own(node.next, null, 1.0);
+
+      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      fold lock_inv(l, r);
+      fold acquired_node(l, node, r);
+
+    } else {
+      assert own(prd.state, frac_chunk((prd, true), 0.5));
+
+      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      fold lock_inv(l, r);
+      
+      node.lock_wait := true;
+
+      ghost var b_choice1 : Bool;
+      unfold waiting_loc_inv(l, prd, r)[b_choice1 := b_choice];
+      assert !b_choice1;
+      assert own(prd.state, frac_chunk((prd, true), 0.5));
+
+      prd.next := node;
+      inhale own(prd.state2, frac_chunk((node, false), 1.0));
+      fold signal_loc_inv(node, prd, r)[b_choice := false];
+      fold waiting_loc_inv(l, prd, r)[b_choice := false];
+      wait_on(l, node, prd, r);
+      fold acquired_node(l, node, r);
     }
   }
 
-  proc release(l: Ref, implicit ghost r: R)
-    atomic requires is_lock(l, r, true) && resource(r)
-    atomic ensures is_lock(l, r, false)
+  proc wait_for_succ(l: Ref, node: Ref, implicit ghost r: R) 
+    requires waiting_loc_inv(l, node, r)
+    requires own(node.state, frac_chunk((node, true), 0.5))
+    ensures exists l2: Ref :: own(node.next, l2) && l2 != null &&
+      own(node.state2, frac_chunk((l2, false), 0.5)) && signal_loc_inv(l2, node, r)
   {
-    val n: Ref := l.head;
-    var s: Ref := n.next;
+    unfold waiting_loc_inv(l, node, r);
+    var node_next := node.next;
+    
+    if (node_next == null) {
+      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      wait_for_succ(l, node, r);
+    } else {
+      fold waiting_loc_inv(l, node, r)[b_choice := true];
+    }
+  }
 
-    var free : Bool := false;
-    if (s == null) {
-      val res: Bool := cas(l.tail, n, null);
-      if (res) {
-        free := true;
+  proc release(l: Ref, node: Ref, implicit ghost r: R)
+    requires lock_inv(l, r) && acquired_node(l, node, r)
+    ensures free_node(node)
+  {
+    unfold acquired_node(l, node, r);
+    unfold waiting_loc_inv(l, node, r);
+    var node_next: Ref := node.next;
+    
+    if (node_next == null) {
+      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      unfold lock_inv(l, r);
+      var b: Bool := cas(l.lk, node, null);
+
+      if (b) {
+        fold lock_inv(l, r);
+        unfold waiting_loc_inv(l, node, r);
+        fold waiting_loc_inv(l, node, r)[b_choice := true];
+        fold free_node(node);
+        return;
       } else {
-        wait_for_succ(n, l);
-        free := false;
+        fold lock_inv(l, r);
+        wait_for_succ(l, node, r);
       }
+    } else {
+      fold waiting_loc_inv(l, node, r)[b_choice := true];
     }
 
-    if (!free) {
-      s := n.next;
-      l.head := n;
-      s.locked := true;
+    node_next := node.next;
+
+
+    if (node_next == null) {
+      assert false;
+    } else {
+      unfold signal_loc_inv(node_next, node, r);
+      node_next.lock_wait := false;
+      fold signal_loc_inv(node_next, node, r)[b_choice := false];
+      fold free_node(node);
+
     }
   }
 }
