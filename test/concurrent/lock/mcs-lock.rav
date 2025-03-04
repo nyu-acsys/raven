@@ -18,12 +18,11 @@ module MCSLock[R: LockResource] {
   module Frac_Ref_Bool = Library.Frac[Ref_Bool_Type]
   import Frac_Ref_Bool.frac_chunk
 
-  ghost field state: Frac_Ref_Bool;
-  ghost field state2: Frac_Ref_Bool;
+  ghost field token: Frac_Ref_Bool;
 
   inv signal_loc_inv(v: Ref, n: Ref, r: R) {
     exists b_choice: Bool ::
-      b_choice ? own(n.state2, frac_chunk((v, false), 1.0)) :
+      b_choice ? own(n.token, frac_chunk((v, false), 1.0)) :
     
       (exists b: Bool ::
         own(v.lock_wait, b, 1.0) && 
@@ -31,22 +30,22 @@ module MCSLock[R: LockResource] {
           true :
 
           resource(r) && 
-          own(n.state2, frac_chunk((v, false), 0.5))
+          own(n.token, frac_chunk((v, false), 0.5))
         )
       )
   }
 
   inv waiting_loc_inv(n: Ref, r: R) {
     exists b_choice: Bool :: 
-      b_choice ? own(n.state, frac_chunk((n, true), 1.0)) :
+      b_choice ? own(n.token, frac_chunk((n, true), 1.0)) :
 
       (exists n': Ref :: own(n.next, n', 0.5) &&
         (n' != null ==>
 
           (own(n.next, n', 0.5) &&
-          own(n.state, frac_chunk((n, true), 0.5)) &&
-          own(n.state2, frac_chunk((n', false), 0.5)) &&
-          signal_loc_inv(n', n, r))
+          own(n.token, frac_chunk((n, true), 0.5)) &&
+          (exists ghost_l: Ref :: own(ghost_l.token, frac_chunk((n', false), 0.5)) &&
+          signal_loc_inv(n', ghost_l, r)))
         )
       )
   }
@@ -57,7 +56,7 @@ module MCSLock[R: LockResource] {
       resource(r) :
 
       (own(tl.next, null, 0.5) &&
-      own(tl.state, frac_chunk((tl, true), 0.5)) && 
+      own(tl.token, frac_chunk((tl, true), 0.5)) && 
       waiting_loc_inv(tl, r))
     )
   }
@@ -70,7 +69,7 @@ module MCSLock[R: LockResource] {
     (exists b: Bool :: own(node.lock_wait, b, 1.0)) &&
     waiting_loc_inv(node, r) &&
     resource(r) && 
-    own(node.state, frac_chunk((node, true), 0.5))
+    own(node.token, frac_chunk((node, true), 0.5))
   }
 
   proc new_lock(r: R) returns (l: Ref)
@@ -82,15 +81,15 @@ module MCSLock[R: LockResource] {
   }
 
   proc new_node() returns (node: Ref)
-    ensures free_node(node) && own(node.state, frac_chunk((node, true), 1.0))
+    ensures free_node(node) && own(node.token, frac_chunk((node, true), 1.0))
   {
-    node := new(lock_wait: true, next: null, state: frac_chunk((null, true), 1.0));
+    node := new(lock_wait: true, next: null, token: frac_chunk((null, true), 1.0));
     fold free_node(node);
-    fpu(node.state, frac_chunk((node, true), 1.0));
+    fpu(node.token, frac_chunk((node, true), 1.0));
   }
 
   proc wait_on(l: Ref, node: Ref, implicit ghost prd: Ref, implicit ghost r: R) 
-    requires signal_loc_inv(node, prd, r) && own(prd.state2, frac_chunk((node, false), 0.5))
+    requires signal_loc_inv(node, prd, r) && own(prd.token, frac_chunk((node, false), 0.5))
     ensures resource(r) && own(node.lock_wait, false, 1.0)
   {
     unfold signal_loc_inv(node, prd, r);
@@ -106,7 +105,7 @@ module MCSLock[R: LockResource] {
   }
 
   proc acquire(l: Ref, node: Ref, implicit ghost r: R)
-    requires lock_inv(l, r) && free_node(node) && own(node.state, frac_chunk((node, true), 1.0))
+    requires lock_inv(l, r) && free_node(node) && own(node.token, frac_chunk((node, true), 1.0))
     ensures acquired_node(node, r)
   {
     unfold free_node(node);
@@ -117,12 +116,12 @@ module MCSLock[R: LockResource] {
     prd := xchg(l.lk, node);
 
     if (prd == null) {
-      fold waiting_loc_inv(node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false, ghost_l := null];
       fold lock_inv(l, r);
       fold acquired_node(node, r);
 
     } else {
-      fold waiting_loc_inv(node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false, ghost_l := null];
       fold lock_inv(l, r);
       
       node.lock_wait := true;
@@ -130,28 +129,29 @@ module MCSLock[R: LockResource] {
       unfold waiting_loc_inv(prd, r);
 
       prd.next := node;
-      inhale own(prd.state2, frac_chunk((node, false), 1.0));
-      fold signal_loc_inv(node, prd, r)[b_choice := false];
-      fold waiting_loc_inv(prd, r)[b_choice := false];
-      wait_on(l, node, prd, r);
+
+      ghost var ghost_l := new(token: frac_chunk((node, false), 1.0));
+      fold signal_loc_inv(node, ghost_l, r)[b_choice := false];
+      fold waiting_loc_inv(prd, r)[b_choice := false, ghost_l := ghost_l];
+      wait_on(l, node, ghost_l, r);
       fold acquired_node(node, r);
     }
   }
 
-  proc wait_for_succ(l: Ref, node: Ref, implicit ghost r: R) 
+  proc wait_for_succ(l: Ref, node: Ref, implicit ghost r: R, implicit ghost ghost_l: Ref) 
     requires waiting_loc_inv(node, r)
-    requires own(node.state, frac_chunk((node, true), 0.5))
+    requires own(node.token, frac_chunk((node, true), 0.5))
     ensures exists l2: Ref :: own(node.next, l2) && l2 != null &&
-      own(node.state2, frac_chunk((l2, false), 0.5)) && signal_loc_inv(l2, node, r)
+      own(ghost_l.token, frac_chunk((l2, false), 0.5)) && signal_loc_inv(l2, ghost_l, r)
   {
-    unfold waiting_loc_inv(node, r);
+    unfold waiting_loc_inv(node, r)[ghost_l := ghost_l];
     var node_next := node.next;
     
     if (node_next == null) {
-      fold waiting_loc_inv(node, r)[b_choice := false];
-      wait_for_succ(l, node, r);
+      fold waiting_loc_inv(node, r)[b_choice := false, ghost_l := null];
+      wait_for_succ(l, node, r, ghost_l);
     } else {
-      fold waiting_loc_inv(node, r)[b_choice := true];
+      fold waiting_loc_inv(node, r)[b_choice := true, ghost_l := null];
     }
   }
 
@@ -160,28 +160,30 @@ module MCSLock[R: LockResource] {
     ensures free_node(node)
   {
     unfold acquired_node(node, r);
-    unfold waiting_loc_inv(node, r);
+    ghost var ghost_l: Ref;
+    unfold waiting_loc_inv(node, r)[ghost_l := ghost_l];
 
     var node_next: Ref := node.next;
     
     if (node_next == null) {
-      fold waiting_loc_inv(node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false, ghost_l := null];
       unfold lock_inv(l, r);
       var b: Bool := cas(l.lk, node, null);
 
       if (b) {
         fold lock_inv(l, r);
         unfold waiting_loc_inv(node, r);
-        fold waiting_loc_inv(node, r)[b_choice := true];
+        fold waiting_loc_inv(node, r)[b_choice := true, ghost_l := null];
         fold free_node(node);
 
         return;
       } else {
         fold lock_inv(l, r);
-        wait_for_succ(l, node, r);
+        
+        wait_for_succ(l, node, r, ghost_l);
       }
     } else {
-      fold waiting_loc_inv(node, r)[b_choice := true];
+      fold waiting_loc_inv(node, r)[b_choice := true, ghost_l := null];
     }
 
     node_next := node.next;
@@ -189,9 +191,9 @@ module MCSLock[R: LockResource] {
     if (node_next == null) {
       assert false;
     } else {
-      unfold signal_loc_inv(node_next, node, r);
+      unfold signal_loc_inv(node_next, ghost_l, r);
       node_next.lock_wait := false;
-      fold signal_loc_inv(node_next, node, r)[b_choice := false];
+      fold signal_loc_inv(node_next, ghost_l, r)[b_choice := false];
       fold free_node(node);
     }
   }
