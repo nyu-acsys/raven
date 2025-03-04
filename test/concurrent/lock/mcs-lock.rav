@@ -1,6 +1,6 @@
 include "lock.rav"
 
-interface MCSLock[R: LockResource] {
+module MCSLock[R: LockResource] {
   import R.resource
 
   module Agree = Library.Agree[R]
@@ -36,7 +36,7 @@ interface MCSLock[R: LockResource] {
       )
   }
 
-  inv waiting_loc_inv(l: Ref, n: Ref, r: R) {
+  inv waiting_loc_inv(n: Ref, r: R) {
     exists b_choice: Bool :: 
       b_choice ? own(n.state, frac_chunk((n, true), 1.0)) :
 
@@ -57,7 +57,7 @@ interface MCSLock[R: LockResource] {
 
       (own(tl.next, null, 0.5) &&
       own(tl.state, frac_chunk((tl, true), 0.5)) && 
-      waiting_loc_inv(l, tl, r)
+      waiting_loc_inv(tl, r)
       )
 
     )
@@ -67,9 +67,9 @@ interface MCSLock[R: LockResource] {
     exists b: Bool, n: Ref :: own(node.lock_wait, b) && own(node.next, n)
   }
 
-  pred acquired_node(l: Ref, node: Ref, r: R) {
+  pred acquired_node(node: Ref, r: R) {
     (exists b: Bool :: own(node.lock_wait, b, 1.0)) &&
-    waiting_loc_inv(l, node, r) &&
+    waiting_loc_inv(node, r) &&
     resource(r) && 
     own(node.state, frac_chunk((node, true), 0.5))
   }
@@ -108,7 +108,7 @@ interface MCSLock[R: LockResource] {
 
   proc acquire(l: Ref, node: Ref, implicit ghost r: R)
     requires lock_inv(l, r) && free_node(node) && own(node.state, frac_chunk((node, true), 1.0))
-    ensures acquired_node(l, node, r)
+    ensures acquired_node(node, r)
   {
     unfold free_node(node);
     node.next := null;
@@ -120,66 +120,66 @@ interface MCSLock[R: LockResource] {
     if (prd == null) {
       assert own(node.next, null, 1.0);
 
-      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false];
       fold lock_inv(l, r);
-      fold acquired_node(l, node, r);
+      fold acquired_node(node, r);
 
     } else {
       assert own(prd.state, frac_chunk((prd, true), 0.5));
 
-      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false];
       fold lock_inv(l, r);
       
       node.lock_wait := true;
 
       ghost var b_choice1 : Bool;
-      unfold waiting_loc_inv(l, prd, r)[b_choice1 := b_choice];
+      unfold waiting_loc_inv(prd, r)[b_choice1 := b_choice];
       assert !b_choice1;
       assert own(prd.state, frac_chunk((prd, true), 0.5));
 
       prd.next := node;
       inhale own(prd.state2, frac_chunk((node, false), 1.0));
       fold signal_loc_inv(node, prd, r)[b_choice := false];
-      fold waiting_loc_inv(l, prd, r)[b_choice := false];
+      fold waiting_loc_inv(prd, r)[b_choice := false];
       wait_on(l, node, prd, r);
-      fold acquired_node(l, node, r);
+      fold acquired_node(node, r);
     }
   }
 
   proc wait_for_succ(l: Ref, node: Ref, implicit ghost r: R) 
-    requires waiting_loc_inv(l, node, r)
+    requires waiting_loc_inv(node, r)
     requires own(node.state, frac_chunk((node, true), 0.5))
     ensures exists l2: Ref :: own(node.next, l2) && l2 != null &&
       own(node.state2, frac_chunk((l2, false), 0.5)) && signal_loc_inv(l2, node, r)
   {
-    unfold waiting_loc_inv(l, node, r);
+    unfold waiting_loc_inv(node, r);
     var node_next := node.next;
     
     if (node_next == null) {
-      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false];
       wait_for_succ(l, node, r);
     } else {
-      fold waiting_loc_inv(l, node, r)[b_choice := true];
+      fold waiting_loc_inv(node, r)[b_choice := true];
     }
   }
 
   proc release(l: Ref, node: Ref, implicit ghost r: R)
-    requires lock_inv(l, r) && acquired_node(l, node, r)
+    requires lock_inv(l, r) && acquired_node(node, r)
     ensures free_node(node)
   {
-    unfold acquired_node(l, node, r);
-    unfold waiting_loc_inv(l, node, r);
+    unfold acquired_node(node, r);
+    unfold waiting_loc_inv(node, r);
     var node_next: Ref := node.next;
     
     if (node_next == null) {
-      fold waiting_loc_inv(l, node, r)[b_choice := false];
+      fold waiting_loc_inv(node, r)[b_choice := false];
       unfold lock_inv(l, r);
       var b: Bool := cas(l.lk, node, null);
 
       if (b) {
         fold lock_inv(l, r);
-        unfold waiting_loc_inv(l, node, r);
-        fold waiting_loc_inv(l, node, r)[b_choice := true];
+        unfold waiting_loc_inv(node, r);
+        fold waiting_loc_inv(node, r)[b_choice := true];
         fold free_node(node);
         return;
       } else {
@@ -187,7 +187,7 @@ interface MCSLock[R: LockResource] {
         wait_for_succ(l, node, r);
       }
     } else {
-      fold waiting_loc_inv(l, node, r)[b_choice := true];
+      fold waiting_loc_inv(node, r)[b_choice := true];
     }
 
     node_next := node.next;
