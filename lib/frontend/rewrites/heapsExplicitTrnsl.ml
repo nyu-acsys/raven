@@ -3261,6 +3261,26 @@ module TrnslExhale = struct
     and elim_a1 (univ_vars : universal_quants) (univ_conds : conditions)
         (expr : expr) : (expr * expr list) Rewriter.t =
       let open Rewriter.Syntax in
+
+      (* Flattens multiple existentials *)
+      let normalize_expr expr = 
+        let rec helper_fn expr = match expr with
+        | Expr.Binder (Exists, vds, _, e, expr_attr) ->
+          let vd1, e1 = helper_fn e in
+          vds @ vd1, e1
+        | _ -> [], expr
+
+        in
+
+        match expr with
+        | Expr.Binder (Exists, _, _, _, expr_attr) ->
+          let vds, e = helper_fn expr in
+          Expr.Binder (Exists, vds, [], e, expr_attr)
+        | _ -> expr
+      in
+
+      let expr = normalize_expr expr in
+
       match expr with
       | Binder (Exists, var_decls, trgs, e, expr_attr) ->
         Logs.debug (fun m -> m 

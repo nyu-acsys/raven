@@ -1,0 +1,9 @@
+field nxt: Ref
+
+proc p() {
+  var x: Ref; var y: Ref; var z: Ref;
+
+  inhale own(x.nxt, y) && own(y.nxt, z);
+
+  exhale exists q: Ref :: (exists r: Ref :: (own(x.nxt, q) && own(q.nxt, r)));
+}
