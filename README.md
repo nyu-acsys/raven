@@ -43,13 +43,13 @@ Several examples of Raven programs can be found in the [test](test) folder. The 
 The Raven verifier can be executed on a file `test/concurrent/treiber_stack/treiber_stack_atomics.rav` as follows:
 ```
 $ raven test/concurrent/treiber_stack/treiber_stack_atomics.rav
-Raven version 1.0
+Raven version 1.0.0
 Verification successful.
 ```
 Here is a failing example:
 ```
 $ raven test/ci/back-end/fail/fpu_fail.rav
-Raven version 1.0
+Raven version 1.0.0
 [Error] File "test/ci/back-end/fail/fpu_fail.rav", line 7, columns 2-14:
 7 |   fpu(x.f, 4);
       ^^^^^^^^^^^^
