@@ -1221,7 +1221,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             in
             [ Stmt.mk_const_spec_error error ]
           in
-          let spec_form = Stmt.mk_spec ~spec_error new_body in
+          let spec_form = Stmt.mk_spec ~spec_error body_fold_expr in
           let bind_stmt =
             Stmt.mk_bind ~loc:stmt.stmt_loc
               (List.map new_dropped_args ~f:(fun var_decl -> QualIdent.from_ident var_decl.var_name))
