@@ -115,14 +115,6 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
           || call_decl.call_decl_kind = Invariant)
       then Rewriter.return ()
       else
-        let cmd =
-          SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name
-            (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type))
-            (Ast.Type.mk_prod call_decl.call_decl_loc
-               (List.map call_decl.call_decl_returns ~f:(fun arg ->
-                    arg.var_type)))
-        in
-
         let ret_tuple =
           Expr.mk_tuple
             (List.map call_decl.call_decl_returns ~f:(fun arg ->
@@ -174,7 +166,6 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                        Expr.alpha_renaming post.spec_form alpha_renaming_map))))
         in
 
-        let* _ = write cmd in
         match call_decl.call_decl_postcond with
         | [] -> Rewriter.return ()
         | _ -> assume_expr post_cond_expr)
@@ -182,18 +173,6 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
       match call_decl.call_decl_kind with
       | Pred | Invariant -> Rewriter.return ()
       | _ ->
-        (* let cmd =
-           SmtLibAST.mk_define_fun ~loc:call_decl.call_decl_loc fully_qual_name
-           (List.map call_decl.call_decl_formals ~f:(fun arg -> (QualIdent.from_ident arg.var_name, arg.var_type)))
-           (Type.mk_prod call_decl.call_decl_loc (List.map call_decl.call_decl_returns ~f:(fun arg -> arg.var_type)))
-           expr in *)
-        let cmd =
-          SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name
-            (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type))
-            (Ast.Type.mk_prod call_decl.call_decl_loc
-               (List.map call_decl.call_decl_returns ~f:(fun arg ->
-                    arg.var_type)))
-        in
         let spec_expr =
           let extra_validInhale_trigs = 
             let qual_ident_suffix = QualIdent.unqualify fully_qual_name in
@@ -307,7 +286,6 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                        Expr.alpha_renaming post.spec_form alpha_renaming_map))))
         in
 
-        let* _ = write cmd in
         let* _ = assume_expr spec_expr in
 
         let* b =
@@ -401,6 +379,25 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
     =
   let open Rewriter.Syntax in
+  let declare_fn (fully_qual_name: qual_ident) (sym: Module.symbol) : unit t =
+    match sym with
+    | CallDef c -> begin
+      match c.call_def with
+      | FuncDef _ ->
+        let call_decl = c.call_decl in
+        let cmd =
+          SmtLibAST.mk_declare_fun ~loc:call_decl.call_decl_loc fully_qual_name
+            (List.map call_decl.call_decl_formals ~f:(fun arg -> arg.var_type))
+            (Ast.Type.mk_prod call_decl.call_decl_loc
+              (List.map call_decl.call_decl_returns ~f:(fun arg ->
+                    arg.var_type)))
+        in
+        write cmd
+      | ProcDef _ -> assert false
+      end
+    | _ -> assert false
+  in
+
   let check_member qual_name symbol =
     (* Logs.info (fun m -> m "Checking: %a" QualIdent.pr qual_name); *)
     match symbol with
@@ -433,6 +430,16 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
           (qual_name, symbol))
       in
       Logs.debug (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) (List.map ~f:(fun (a,b) -> a) dep_sym));
+
+      let dep_sym_fn = List.filter dep_sym ~f:(function
+        | _, Module.CallDef { call_def = FuncDef _; _ } -> true
+        | _ -> false)
+      in
+
+      let* _ = Rewriter.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
+        declare_fn qual_name sym
+      ) 
+      in
       Rewriter.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
   let* _ = pop in
