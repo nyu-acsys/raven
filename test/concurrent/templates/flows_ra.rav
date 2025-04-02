@@ -84,43 +84,11 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     ensures forall n: Ref :: {i2.inf[n]} {i1.out[n]} n in i2.dom ==> i2.inf[n] == M.comp(comp(i1, i2).inf[n], i1.out[n])
     ensures forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in comp(i1, i2).dom ==> comp(i1, i2).out[n] == M.comp(i1.out[n], i2.out[n]) 
   { }
-  
-  //auto lemma compValid()
-  //  ensures forall a:T, b:T :: {comp(a, b)} valid(comp(a, b)) ==> valid(a) && valid(b)
-  //{ }
 
   // There are no non-trivial inverses
   auto lemma compPositive()
     ensures forall i1: T, i2: T :: {comp(i1, i2)} comp(i1, i2) == id ==> i1 == id && i2 == id
   { }
-
-
-  /*lemma compAssocInvalid(i1: T, i2: T, i3: T)
-    requires !(valid(comp(i1, comp(i2, i3))))
-    requires !(valid(comp(comp(i1, i2), i3)))
-    ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
-  {
-    val i23: T := comp(i2, i3);
-    val i1_23: T := comp(i1, i23);
-    val i12: T := comp(i1, i2);
-    val i12_3: T := comp(i12, i3);
-  
-    //lemma_int_composable(I1, I23);
-    assert !(composable(i1, i23));
- 
-    //lemma_int_composable(I12, I3);
-    assert !(composable(i12, i3));
-
-    if (i1 == id) {
-    } else if (i2 == id) {
-    } else if (i3 == id) {
-    } else if (i23 == id) {
-      //compPositive(i2, i3);
-    } else if (i12 == id) {
-      //compPositive(i1, i2);
-    } 
-  }*/
-
 
   // Auxiliary lemma to prove that interface composition is associative
   lemma compAssocValid(i1: T, i2: T, i3: T)
@@ -133,9 +101,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     val i12: T := int({| n: Ref :: n in i1.dom ++ i2.dom ? M.comp(i.inf[n], i3.out[n]) : M.id |},
                       {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
                       i1.dom ++ i2.dom);
-  
-    //compUnfold(i1, i23);
-    //compUnfold(i2, i3);
 
     compFold(i1, i2, i12);
     
@@ -208,14 +173,8 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
         M.frameInv();
       } 
     }
-    //compAssoc();
+
     compValid();
-    
-    /*assert forall n: Ref :: {j.inf[n]} n !in j.dom ==> j.inf[n] == M.id with {
-      if (n !in j.dom) {
-        assert n !in i1.dom && n !in i2.dom;
-      }
-    }*/
     
     compFold(j1, i2, j);
   }

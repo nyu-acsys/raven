@@ -56,7 +56,7 @@ proc tree_delete_min(x: Ref) returns (z: Ref)
     z := p.r;
   } else {
     fold tree_hole(x, p);
-    var abort := true;
+    var abort := false;
     while (!abort)
       invariant p != null && pl != null && own(p.l, pl) && tree(pl)
       invariant exists pr: Ref :: own(p.r, pr) && tree(pr)

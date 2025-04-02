@@ -32,87 +32,25 @@ interface Array[E: Library.Type] {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 < i2 < j ==> m[i1] != m[i2]
   }
 
-  // func inverse_help(m: Map[Int, E], i: Int, j: Int, k: E, i1: Int) returns (res: Int)
-  // {
-  //   m[i1] == k && i1 < j ? i1 : (i1 < j ? inverse_help(m, i, j, k, i1+1) : i-1)
-  // }
-  
   func inverse(m: Map[Int, E], i: Int, j: Int, k: E) returns (res: Int)
-  // {
-  //   inverse_help(m, i, j, k, i)
-  // }
-
-  // lemma invertable_help(m: Map[Int, E], i: Int, j: Int, i1: Int, i2: Int)
-  //   requires injective(m, i, j)
-  //   ensures i <= i2 <= i1 < j ==> inverse_help(m, i, j, m[i1], i2) == i1
-  // {
-  //   if (i <= i2 <= i1 < j) {
-  //     if (i2 < i1) {
-  //       invertable_help(m, i, j, i1, i2+1);
-  //     } 
-  //   }
-  // }
 
   auto lemma invertable()
     ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {m[i1]} 
       injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1
-  // {
-  //   assert forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {injective(m, i, j), m[i1]} 
-  //     injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1 with {
-  //     if (injective(m, i, j) && i <= i1 < j) {
-  //       invertable_help(m, i, j, i1, i);
-  //     }
-  //   }
-  // }
-
-  // lemma invertable2_help(m: Map[Int, E], i: Int, j: Int, k: E, i2: Int)
-  //   ensures i <= i2 <= inverse_help(m, i, j, k, i2) < j ==> m[inverse_help(m, i, j, k, i2)] == k
-  //   ensures i2 > inverse_help(m, i, j, k, i2) || inverse_help(m, i, j, k, i2) >= j ==> inverse_help(m, i, j, k, i2) == i-1
-  // {
-  //   if (i2 < j) {
-  //     invertable2_help(m, i, j, k, i2+1);
-  //   }
-  // }
 
   auto lemma invertable2()
     ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)} 
       (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
       (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1)
-  // {
-  //   assert forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)} 
-  //     (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
-  //     (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1)
-  //   with {
-  //     invertable2_help(m, i, j, k, i);
-  //   }
-  // }
-
-  // lemma inverse_update_help(m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E, i2: Int)
-  //   requires inverse_help(m, i, j, k2, i2) < i2 || i1 < i2 || i1 >= j 
-  //   ensures inverse_help(m[i1 := k], i, j, k2, i2) == (k == k2 && i2 <= i1 < j ? i1 : inverse_help(m, i, j, k2, i2))
-  // {
-  //   if (i2 < j) {
-  //     inverse_update_help(m, i, j, k, i1, k2, i2+1);
-  //   }
-  // }
 
   auto lemma inverse_update()
     ensures forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m, i, j, k2), m[i1 := k]} {inverse(m[i1 := k], i, j, k2)} 
       inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==> 
         inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2))
-  // {
-  //   assert forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m[i1 := k], i, j, k2)} 
-  //     inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==> 
-  //       inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2)) with {
-  //     if (inverse(m, i, j, k2) < i || i1 < i || i1 >= j) {
-  //       inverse_update_help(m, i, j, k, i1, k2, i);
-  //     }
-  //   }
-  // }
 
   func set_of_map(m: Map[Int, E], i: Int, j: Int) returns (res: Set[E])
   {
-    {| k: E :: /*injective(m, i, j) &&*/ i <= inverse(m, i, j, k) < j |} //&& m[inverse(m, i, j, k)] == k |}
+    {| k: E :: i <= inverse(m, i, j, k) < j |}
   }
 
   lemma injective_split()
@@ -136,8 +74,6 @@ interface Array[E: Library.Type] {
 
   func map_copy(m1: Map[Int, E], m2: Map[Int, E], src: Int, dst: Int, len: Int)
     returns (res: Map[Int, E])
-    //ensures forall i: Int :: {res[i]} {m1[i]} 
-      //res[i] == (dst <= i < dst + len ? m2[src + (i - dst)] : m1[i])
   {
     {| i: Int :: dst <= i < dst + len ? m2[src + (i - dst)] : m1[i] |}
   }

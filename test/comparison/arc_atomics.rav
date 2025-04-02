@@ -5,8 +5,6 @@ interface ARC[SharePred: ShareablePredicate] {
     field c: Int
     ghost field v: ArcRA
 
-    // module SharePred: ShareablePredicate
-
     pred p()
 
     pred noTokens(x: Ref) {
@@ -25,11 +23,6 @@ interface ARC[SharePred: ShareablePredicate] {
         exists v: Int :: (v <= 0 ? noTokens(x) : tokenCounter(x, v)) && own(x.c, v, 1.0)
     }
 
-    // lemma token_allocate(x: Ref)
-    //     requires p()
-    //     ensures token(x) && tokenCounter(x, 1)
-
-
     lemma token_interact(x: Ref)
         requires noTokens(x)
         requires token(x)
@@ -37,7 +30,6 @@ interface ARC[SharePred: ShareablePredicate] {
     {
         unfold noTokens(x);
         unfold token(x);
-        //assert false;
     }
     
     lemma token_mutate_incr(x: Ref, n: Int)
@@ -51,9 +43,7 @@ interface ARC[SharePred: ShareablePredicate] {
         ghost var q1: Real := ((1.0-q)/2.0);
         ghost var a: ArcRA := ArcRA.tokens(n, q, 0, 0.0);
         ghost var b: ArcRA := ArcRA.tokens(n+1, q + q1, 1, q1);
-        //assert a.ArcRA.authCount - a.ArcRA.fragCount == b.ArcRA.authCount - b.ArcRA.fragCount;
-        //assert a.ArcRA.authPerm - a.ArcRA.fragPerm == b.ArcRA.authPerm - b.ArcRA.fragPerm;
-        //assert ArcRA.fpuAllowed(a, b);
+
         fpu(x, v, 
             ArcRA.tokens(n, q, 0, 0.0), 
             ArcRA.tokens(n+1, q + q1, 1, q1)
@@ -87,15 +77,7 @@ interface ARC[SharePred: ShareablePredicate] {
             ArcRA.tokens(n-1, q - q1, 0, 0.0)
         );
 
-        // assert false;
-
-        //var n2: Int := n - 1;
-
         SharePred.merge(x, 1.0-q, q1);
-
-        // assert q-q1 < 1.0 && own(x.v, ArcRA.tokens(n2, q-q1, 0, 0.0));
-        // fold tokenCounter(x, n2);
-        // assert tokenCounter(x, n-1);
 
         assert q-q1 < 1.0 && SharePred.p_chunk(x, 1.0-(q-q1)) && own(x.v, ArcRA.tokens(n-1, q-q1, 0, 0.0));
         fold tokenCounter(x, n-1);        
@@ -119,13 +101,9 @@ interface ARC[SharePred: ShareablePredicate] {
             ArcRA.noToken
         );
 
-        //assert ArcRA.frame(ArcRA.noToken, ArcRA.noToken) == ArcRA.noToken;
-
         fold noTokens(x);
         fold noTokens(x);
         inhale p();
-        // assert noTokens(x);
-        // assert false;
     }
 
     proc mk_arc() 
@@ -138,8 +116,6 @@ interface ARC[SharePred: ShareablePredicate] {
         x := new(c: 1, v: ArcRA.tokens(1, 0.5, 1, 0.5));
         SharePred.allocate(x);
 
-        //assert ArcRA.frame(ArcRA.tokens(1, 0.5, 1, 0.5), ArcRA.tokens(0, 0.0, 1, 0.5)) == ArcRA.tokens(1, 0.5, 0, 0.0);
-
         SharePred.split(x, 1.0);
 
         assert SharePred.p_chunk(x, 0.5) && own(x.v, ArcRA.tokens(0, 0.0, 1, 0.5));
@@ -148,7 +124,6 @@ interface ARC[SharePred: ShareablePredicate] {
         assert 0.5 < 1.0 && SharePred.p_chunk(x, 1.0-0.5) && own(x.v, ArcRA.tokens(1, 0.5, 0, 0.0));
         fold tokenCounter(x, 1);
         fold arcInv(x);
-        // assert false;
         return x;
     }
 
@@ -159,13 +134,13 @@ interface ARC[SharePred: ShareablePredicate] {
         ensures token(x) && token(x)
     {
         unfold arcInv(x);
-        var old_count: Int = x.c;
+        var old_count: Int := x.c;
         fold arcInv(x);
 
-        var new_count: Int = old_count + 1; 
+        var new_count: Int := old_count + 1; 
         
         unfold arcInv(x);
-        var res: Bool = cas(x.c, old_count, new_count);
+        var res: Bool := cas(x.c, old_count, new_count);
 
         {!
         if (res) {
@@ -197,7 +172,7 @@ interface ARC[SharePred: ShareablePredicate] {
         ensures 0 < ret && token(x)
     {
         unfold arcInv(x);
-        var v: Int = x.c;
+        var v: Int := x.c;
         {!
         assert v > 0 with {
             if (v <= 0) {
@@ -216,12 +191,12 @@ interface ARC[SharePred: ShareablePredicate] {
         ensures (ret == true) ==> noTokens(x) && p()
     {
         unfold arcInv(x);
-        var old_count: Int = x.c;
+        var old_count: Int := x.c;
         fold arcInv(x);
-        var new_count: Int = old_count - 1;
+        var new_count: Int := old_count - 1;
 
         unfold arcInv(x);
-        var res: Bool = cas(x.c, old_count, new_count);
+        var res: Bool := cas(x.c, old_count, new_count);
 
         {!
         if (res) {
@@ -254,9 +229,9 @@ interface ARC[SharePred: ShareablePredicate] {
         atomic requires token(x)
         atomic ensures 0 < ret && token(x)
     {
-        ghost val phi = bindAU();
+        ghost val phi := bindAU();
         unfold arcInv(x);
-        var v: Int = x.c;
+        var v: Int := x.c;
         openAU(phi);
         {!
         assert v > 0 with {

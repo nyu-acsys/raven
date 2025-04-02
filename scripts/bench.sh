@@ -1,35 +1,34 @@
 #!/bin/bash
 
-WARMUP=0
-RUNS=1
+WARMUP=2
+RUNS=10
 
 FILES=(
-  "test/comparison/peterson.rav"
-  "test/comparison/bounded_counter.rav"
-  "test/comparison/inc_dec.rav"
-  "test/comparison/lclist.rav"
+  "test/comparison/arc.rav"
+  "test/concurrent/treiber_stack/treiber_stack_atomics.rav"
   "test/comparison/barrier.rav"
+  "test/comparison/bounded_counter.rav"
+  "test/comparison/cas_counter.rav"
   "test/concurrent/lock/clh-lock.rav"
   "test/comparison/fork_join.rav"
+  "test/comparison/inc_dec.rav"
+  "test/comparison/lclist.rav"
   "test/concurrent/lock/mcs-lock.rav"
   "test/comparison/msc_queue.rav"
+  "test/comparison/peterson.rav"
   "test/comparison/queue.rav"
+  "test/concurrent/lock/spin-lock_compact.rav"
   ""
   "test/comparison/rwlock_duolock.rav"
   "test/comparison/rwlock_lockless_faa.rav"
   "test/comparison/rwlock_ticket_bounded.rav"
   "test/comparison/rwlock_ticket_unbounded.rav"
-  "" 
-  "test/comparison/fork_join_client.rav"
-  "test/comparison/cas_counter_client.rav"
-  "test/comparison/barrier_client.rav"
-  "test/comparison/ticket_lock_client.rav"
-  ""
-  "test/concurrent/lock/spin-lock_compact.rav"
   "test/concurrent/lock/ticket-lock.rav"
-  "test/comparison/arc.rav"
-  "test/concurrent/treiber_stack/treiber_stack_atomics.rav"
-  "test/comparison/cas_counter.rav"
+  "" 
+  "test/comparison/barrier_client.rav"
+  "test/comparison/cas_counter_client.rav"
+  "test/comparison/fork_join_client.rav"
+  "test/comparison/ticket_lock_client.rav"
   ""
   "test/comparison/tokens.rav"
   ""
@@ -38,7 +37,7 @@ FILES=(
   "test/concurrent/templates/keyset_ra.rav"
   "test/concurrent/templates/give-up.rav"
   "test/concurrent/templates/bplustree.rav"
-  "test/arrays/array.rav" "test/arrays/ordered_array.rav" 
+  "test/arrays/array_utils.rav"
 )
 
 # Initialize CSV file

@@ -43,6 +43,5 @@ proc make()
   ensures counterInv(x)
 {
   x := new(c: 0);
-  // fold counterInv(x);
-  assume false;
+  fold counterInv(x);
 }

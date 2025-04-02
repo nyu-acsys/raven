@@ -28,7 +28,7 @@ module Lock {
     {!
       fold lock(l, res || b1);
       if (res) {
-        commitAU(phi);        
+        commitAU(phi);
       } else {
         abortAU(phi);
       }	
@@ -57,18 +57,6 @@ module Lock {
   }
 }
 
-// interface Keyspace {
-//   rep type T
-
-//   val keyset: Set[T]
-// }
-
-// module IntKeyspace : Keyspace {
-//   rep type T = Int
-
-//   val keyset: Set[T] = {| k: Int :: true |}
-// }
-
 interface SearchStructureSpec {
   type K
   val keyset: Set[K]
@@ -86,7 +74,6 @@ interface SearchStructureSpec {
 
 interface NodeImpl {
   module Spec : SearchStructureSpec
-  // import Spec
   import Spec.K
   import Spec.Op
   import Spec.opSpec
@@ -122,18 +109,9 @@ interface SearchStructure {
 
   pred cssR(r: Ref, c: Set[K])
 
-  // inv cssInv(r: Ref)
-
   proc create()
     returns (r: Ref)
     ensures cssR(r, {||})
-
-  // proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
-  //   returns (res: Bool, implicit ghost c1: Set[K])
-  //   requires k in keyset
-  //   // requires cssInv(r)
-  //   atomic requires cssR(r, c)
-  //   atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
 }
 
 interface SingleNodeTemplate[Node: NodeImpl] {

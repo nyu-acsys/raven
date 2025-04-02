@@ -451,8 +451,8 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
       ghost val c1: Set[K] := openAU(phi);
       unfold css(r);
-      unfold cssR(r, c1);    
-      unfold globalRes(r, c1); // Why is c1 needed?     
+      unfold cssR(r, c1);
+      unfold globalRes(r);
       {!
         ghost var b: Bool;
         b :| own(n.lock, b, 1.0); 
@@ -468,7 +468,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       fold globalRes(r, cc);
       fold nodePred(r, n);
       fold cssR(r, cc);
-      fold css(r, cc); // Why is cc needed?
+      fold css(r);
 
       commitAU(phi, res, cc);
 

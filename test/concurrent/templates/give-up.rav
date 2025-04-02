@@ -119,7 +119,6 @@ interface NodeImpl {
     ensures own(r.lock, 0)
     ensures globalRes(r, {||}, g_i) && g_i.dom == {|r|}
     ensures nodePred(r, r, {||}, g_i) 
-    //Flow_K.int({| l:Ref :: l == r ? Multiset_K.fromSet(keyspace) : Multiset_K.id |}, zeroFlow, {| r |}))
 
   proc decisiveOp(dop: Op, n: Ref, k: K, implicit ghost c: Set[K], implicit ghost i_n: Flow_K)
     returns (succ: Bool, res: Bool, implicit ghost c1: Set[K])
@@ -148,27 +147,6 @@ interface NodeImpl {
     requires node(n, c1, i_n1) && node(n, c2, i_n2)
     ensures false
 }
-
-// interface SearchStructure {
-//   module Spec: SearchStructureSpec
-//   import Spec._
-
-//   pred css(r: Ref, c: Set[K])
-
-//   // inv cssInv(r: Ref)
-
-//   proc create()
-//     returns (r: Ref)
-//     ensures css(r, {||})
-
-//   // proc cssOp(dop: Op, r: Ref, k: K, implicit ghost c: Set[K])
-//   //   returns (res: Bool, implicit ghost c1: Set[K])
-//   //   requires k in keyset
-//   //   // requires cssInv(r)
-//   //   atomic requires cssR(r, c)
-//   //   atomic ensures cssR(r, c1) && opSpec(dop, k, c, c1, res)
-// }
-
 
 interface GiveUpTemplate[Node: NodeImpl] {
   module Spec: SearchStructureSpec = Node.Spec
@@ -499,26 +477,10 @@ interface GiveUpTemplate[Node: NodeImpl] {
       } else {
         c1 := c -- {| k |};
       }
-        
-      {!
-        //fold opSpec(dop, k, c, c1, res);
-
-        /*assert AuthKeyset_K.fpuAllowed(
-          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)), 
-          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1))
-        ) with {
-          assert forall k: Keyset_K :: {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1))} {Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n))}
-            Keyset_K.prodKS(keyspace, c) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n)) ==>
-            Keyset_K.prodKS(keyspace, c1) == Keyset_K.comp(k, Keyset_K.prodKS(k_n, c_n1));
-
-          //assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)));
-          //assert AuthKeyset_K.valid(AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
-        }*/
-          
-        fpu(r, authKS, 
-          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)),
-          AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
-      !}
+      
+      fpu(r, authKS, 
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c), Keyset_K.prodKS(k_n, c_n)),
+        AuthKeyset_K.auth_frag(Keyset_K.prodKS(keyspace, c1), Keyset_K.prodKS(k_n, c_n1)));
     }
   }
 
@@ -555,7 +517,6 @@ interface GiveUpTemplate[Node: NodeImpl] {
     ghost var c_n1: Set[K];
 
     unfold nodePred(r, n, c_n, i_n);
-    //assert own(r.authFlow, AuthFlow_K.frag(i_n));
     
     succ, res, c_n1 := Node.decisiveOp(dop, n, k, c_n, i_n);
     if (succ) {
@@ -581,21 +542,14 @@ interface GiveUpTemplate[Node: NodeImpl] {
       unlockNode(n);
 
       unfold globalRes(r, c1, g_i1);
-      //unfold opSpec(dop, k, c_n, c_n1, res);
-      //fold opSpec(dop, k, c_n, c_n1, res);
 
       cc := keyset_theorem(r, dop, k, c_n, c_n1, c1, res, keyset(i_n));
-
-      /*AuthFlow_K.compValid();
-      AuthFlow_K.weak_frameCompInv();*/
 
       fold globalRes(r, cc, g_i1);
       ghost var lockval2: Map[Ref, Int] := lockval1[n := 0];
       ghost var contents2: Map[Ref, Set[K]] := contents1[n := c_n1];
       ghost var intf2: Map[Ref, Flow_K] := intf1[n := i_n];
 
-      //Flow_K.compFrameInv();
-      //Flow_K.frameCompInv();
       fold nodePred(r, n, contents2[n], intf2[n]);
       fold cssR(r, cc, g_i1, lockval2, contents2, intf2);
       assert cssR(r, cc, g_i1, lockval2, contents2, intf2);

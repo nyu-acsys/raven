@@ -71,28 +71,6 @@ module ArrayMax[M: IArray] {
 
     fold is_max(x, m, M.len(a));
   }
-
-  
-/*
-method client() {
-  var a: IArray
-  inhale len(a) == 3
-  inhale access(a)
-  inhale forall i: Int :: 0 <= i && i < len(a) ==> loc(a, i).value == i
-
-  var x: Int
-  x := max(a)
-
-  assert loc(a, 0).value <= x
-
-  assert x == loc(a, len(a) - 1).value
-    // Necessary to prove the final assertion (due to triggering)
-
-  assert x == 2
-
-  assert loc(a, 1).value < x
-}
-*/
 }
 
 
