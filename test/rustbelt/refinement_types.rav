@@ -1,0 +1,409 @@
+module TypeTag: Library.Type {
+  rep type T = data {
+    case isInt();
+    // fix int later with some size
+    case isBool();
+    case isMutBorrow(mutPointedType: T);
+    case isSharedBorrow(sharedPointedType: T);
+    case isBoxedPointer(boxedPointedType: T);
+    case isRawPointer();
+    case isStructOf(len: Int, mapForStruct: Map[Int, T]);
+    case isArrayOf(collectedType: T);
+    case isUninit();
+    case isMaybeInit(potentiallyInitializedType: T);
+    case isMaybeDeref(potentiallyReferencedType: T)
+  }
+}
+
+module RustValue: Library.Type {
+  module AgreeTag = Library.Agree[TypeTag];
+  field typeTag: AgreeTag;
+  rep type T = data {
+    case literalInt(v: Int);
+    case literalBool(b: Int);
+    case mutBorrow1(initialValueForMut: T, finalBorrowNameForMut1: Ref);
+    case mutBorrow2(initialRefForMut: Ref, finalBorrowNameForMut2: Ref);
+    case immutBorrow1(borrowNameForImmut: Ref);
+    case immutBorrow2(valueForImmut: T);
+    case boxed1(borrowNameForBoxed: Ref);
+    case boxed2(valueForBoxed: T);
+    case rawPointer(referenceToPointed: Ref);
+    case struct(lenForStruct: Int, mapForStruct: Map[Int, Ref]);
+    case array(lenForArray: Int, mapForArray: Map[Int, Ref]);
+    case uninit();
+    case isDeref(borrowNameForDeref: Ref)
+  }
+}
+
+module Option[X: Library.Type] {
+  rep type T = data {
+    case some(wrappedData: X);
+    case none()
+  }
+}
+
+// so do ensure that you do that.
+ghost field resolvedValue: RustValue;
+type ResolutionMap = Map[Ref, RustValue];
+field value: RustValue;
+
+pred mutBorrow1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.mutBorrow1(t.RustValue.initialValueForMut, t.RustValue.finalBorrowNameForMut1))
+  &&
+  isTypedBy(t.RustValue.initialValueForMut, tag.TypeTag.mutPointedType, m)
+  &&
+  isTypedBy((m[t.RustValue.finalBorrowNameForMut2]), tag.TypeTag.mutPointedType, m)
+}
+
+pred mutBorrow2IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.mutBorrow2(t.RustValue.initialRefForMut, t.RustValue.finalBorrowNameForMut2))
+  &&
+  isTypedBy(m[t.RustValue.initialRefForMut], tag.TypeTag.mutPointedType, m)
+  &&
+  isTypedBy(m[t.RustValue.finalBorrowNameForMut2], tag.TypeTag.mutPointedType, m)
+}
+
+pred immutBorrow1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.immutBorrow1(t.RustValue.borrowNameForImmut))
+  &&
+  isTypedBy(m[t.RustValue.borrowNameForImmut], tag.TypeTag.sharedPointedType, m)
+}
+
+pred immutBorrow2IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.immutBorrow2(t.RustValue.valueForImmut))
+  &&
+  isTypedBy(t.RustValue.valueForImmut, tag.TypeTag.sharedPointedType, m)
+}
+
+pred boxed1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.boxed1(t.RustValue.borrowNameForBoxed))
+  &&
+  isTypedBy(m[t.RustValue.borrowNameForImmut], tag.TypeTag.boxedPointedType, m)
+}
+
+pred boxed2IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.boxed2(t.RustValue.valueForImmut))
+  &&
+  isTypedBy(t.RustValue.valueForImmut, tag.TypeTag.boxedPointedType, m)
+}
+
+// lenForStruct: Int, mapForStruct: Map[Int, T]
+pred structIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
+  &&
+  (forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
+  &&
+  isTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), TypeTag.isMaybeDeref(tag.TypeTag.mapForStruct[i]), m))
+}
+
+pred arrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.array(t.RustValue.lenForArray, t.RustValue.mapForArray))
+  &&
+  (forall i: Int :: (0 <= i < t.RustValue.lenForArray)
+  &&
+  isTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), TypeTag.isMaybeDeref(tag.TypeTag.mapForStruct[i]), m))
+}
+
+pred maybeDerefIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t
+  ==
+  RustValue.isDeref(t.RustValue.borrowNameForDeref)
+  &&
+  (isTypedBy(m[t.RustValue.borrowNameForDeref], tag.TypeTag.potentiallyReferencedType, m)))
+  ||
+  (t != RustValue.isDeref(t.RustValue.borrowNameForDeref) && isTypedBy(t, tag.TypeTag.potentiallyReferencedType, m))
+}
+
+inv isTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  ((tag == TypeTag.isInt()) && (t == RustValue.literalInt(t.RustValue.v)))
+  ||
+  ((tag == TypeTag.isBool()) && (t == RustValue.literalBool(t.RustValue.b)))
+  ||
+  ((tag == TypeTag.isMutBorrow(tag.TypeTag.mutPointedType)) && (mutBorrow1IsTypedBy(t, tag, m) || mutBorrow2IsTypedBy(t, tag, m)))
+  ||
+  ((tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType)) && (immutBorrow1IsTypedBy(t, tag, m) || immutBorrow2IsTypedBy(t, tag, m)))
+  ||
+  ((tag == TypeTag.isBoxedPointer(tag.TypeTag.boxedPointedType)) && (boxed1IsTypedBy(t, tag, m) || boxed2IsTypedBy(t, tag, m)))
+  ||
+  ((tag == TypeTag.isRawPointer()) && (t == RustValue.rawPointer(t.RustValue.referenceToPointed)))
+  ||
+  ((tag == TypeTag.isStructOf(tag.TypeTag.len, tag.TypeTag.mapForStruct)) && structIsTypedBy(t, tag, m))
+  ||
+  ((tag == TypeTag.isArrayOf(tag.TypeTag.collectedType)) && arrayIsTypedBy(t, tag, m))
+  ||
+  (tag == TypeTag.isUninit() && t == RustValue.uninit())
+  ||
+  (tag == TypeTag.isMaybeInit(tag.TypeTag.potentiallyInitializedType) && (t == RustValue.uninit() || isTypedBy(t, tag.TypeTag.potentiallyInitializedType, m)))
+  ||
+  ((tag == TypeTag.isMaybeDeref(tag.TypeTag.potentiallyReferencedType)) && maybeDerefIsTypedBy(t, tag, m))
+}
+
+// Tomorrow morning, wake up, and look at this.
+// we need an isTypedBy for PlaceType.
+module PlaceType {
+  rep type T = data {
+    case isInt();
+    // fix int later with some size
+    case isBool();
+    case isMutBorrow(mutPointedType: T);
+    case isSharedBorrow(sharedPointedType: T);
+    case isBoxedPointer(boxedPointedType: T);
+    case isRawPointer();
+    case isStructOf(len: Int, mapForStruct: Map[Int, T]);
+    case isArrayOf(collectedType: T);
+    case isUninit();
+    case isMaybeInit(potentiallyInitializedType: T);
+    case isMaybeDeref(potentiallyReferencedType: T);
+    case isYoinked(yoinkedValue: RustValue, yoinkedTy: T);
+    case isBlocked(blockedRef: Ref, blockedTy: T);
+    case isStructuredData(lenSD: Int, mapForSD: Map[Int, T])
+  }
+}
+
+field programValue: RustValue;
+pred locationTypedBy(ref: Ref, tag: TypeTag, m: ResolutionMap) {
+  exists pVal: RustValue :: own(ref, programValue, pVal) && isTypedBy(pVal, tag, m)
+}
+
+module Unit: Library.Type {
+  rep type T = data { case unit()}
+}
+
+module UnitA = Library.Agree[Unit];
+
+field ownProphecy: UnitA;
+
+pred isProphecy(r: Ref) {
+  own(r, ownProphecy, UnitA.agree(Unit.unit()))
+}
+
+pred resolvedProphecy(r: Ref, v: RustValue, m: ResolutionMap) {
+  (m[r] == v)
+}
+
+proc resolveProphecy(r: Ref, v: RustValue, m: ResolutionMap)
+  requires own(r, ownProphecy, UnitA.agree(Unit.unit()))
+  ensures resolvedProphecy(r, v, m) {
+  exhale own(r, ownProphecy, UnitA.agree(Unit.unit()));
+  assume (m[r] == v);
+  fold resolvedProphecy(r,v,m);
+}
+
+proc makeProphecy() returns (res: Ref) ensures isProphecy(res) {
+  res := new (ownProphecy: UnitA.agree(Unit.unit()));
+  fold isProphecy(res);
+}
+
+interface DataInvariant {
+  pred dataInv(value: RustValue, m: ResolutionMap);
+
+  pred mutBorrow1IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.mutBorrow1(t.RustValue.initialValueForMut, t.RustValue.finalBorrowNameForMut1))
+    &&
+    placeTypedBy(t.RustValue.initialValueForMut, tag.PlaceType.mutPointedType, m)
+    &&
+    placeTypedBy(m[t.RustValue.finalBorrowNameForMut2], tag.PlaceType.mutPointedType, m)
+  }
+
+  pred mutBorrow2IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.mutBorrow2(t.RustValue.initialRefForMut, t.RustValue.finalBorrowNameForMut2))
+    &&
+    placeTypedBy(m[t.RustValue.initialRefForMut], tag.PlaceType.mutPointedType, m)
+    &&
+    placeTypedBy(m[t.RustValue.finalBorrowNameForMut2], tag.PlaceType.mutPointedType, m)
+  }
+
+  pred immutBorrow1IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.immutBorrow1(t.RustValue.borrowNameForImmut))
+    &&
+    (placeTypedBy(m[t.RustValue.borrowNameForImmut], tag.PlaceType.sharedPointedType, m))
+  }
+
+  pred immutBorrow2IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.immutBorrow2(t.RustValue.valueForImmut))
+    &&
+    placeTypedBy(t.RustValue.valueForImmut, tag.PlaceType.sharedPointedType, m)
+  }
+
+  pred boxed1IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.boxed1(t.RustValue.borrowNameForBoxed))
+    &&
+    (placeTypedBy(m[t.RustValue.borrowNameForImmut], tag.PlaceType.boxedPointedType, m))
+  }
+
+  pred boxed2IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.boxed2(t.RustValue.valueForImmut))
+    &&
+    placeTypedBy(t.RustValue.valueForImmut, tag.PlaceType.boxedPointedType, m)
+  }
+
+  pred structIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
+    &&
+    (forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
+    ==>
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForStruct[i], m))
+  }
+
+  pred arrayIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
+    &&
+    (forall i: Int :: (0 <= i < t.RustValue.lenForArray)
+    ==>
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), tag.PlaceType.collectedType, m))
+  }
+
+  pred isYoinkedTy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
+    &&
+    placeTypedBy(t, tag, m)
+  }
+
+  pred isStructuredDataIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
+    &&
+    dataInv(t, m)
+    &&
+    ((forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
+    ==>
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m)))
+  }
+
+  pred maybeDerefIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    (t
+    ==
+    RustValue.isDeref(t.RustValue.borrowNameForDeref)
+    &&
+    placeTypedBy((m[t.RustValue.borrowNameForImmut]), tag.PlaceType.sharedPointedType, m))
+    ||
+    ((t != RustValue.isDeref(t.RustValue.borrowNameForDeref))
+    &&
+    placeTypedBy(t, tag.PlaceType.sharedPointedType, m))
+  }
+
+  pred placeTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    ((tag == PlaceType.isInt()) && (t == RustValue.literalInt(t.RustValue.v)))
+    ||
+    ((tag == PlaceType.isBool()) && (t == RustValue.literalBool(t.RustValue.b)))
+    ||
+    ((tag == PlaceType.isMutBorrow(tag.PlaceType.mutPointedType)) && (mutBorrow1IsTypedBy(t, tag, m) || mutBorrow2IsTypedBy(t, tag, m)))
+    ||
+    ((tag == PlaceType.isSharedBorrow(tag.PlaceType.sharedPointedType)) && (immutBorrow1IsTypedBy(t, tag, m) || immutBorrow2IsTypedBy(t, tag, m)))
+    ||
+    ((tag == PlaceType.isBoxedPointer(tag.PlaceType.boxedPointedType)) && (boxed1IsTypedBy(t, tag, m) || boxed2IsTypedBy(t, tag, m)))
+    ||
+    ((tag == PlaceType.isRawPointer()) && (t == RustValue.rawPointer(t.RustValue.referenceToPointed)))
+    ||
+    ((tag == PlaceType.isArrayOf(tag.PlaceType.collectedType)) && arrayIsTypedBy(t, tag, m))
+    ||
+    (tag == PlaceType.isUninit() && (t == RustValue.uninit()))
+    ||
+    (tag == PlaceType.isMaybeInit(tag.PlaceType.potentiallyInitializedType) && (t == RustValue.uninit() || placeTypedBy(t, tag.PlaceType.potentiallyInitializedType, m)))
+    ||
+    ((tag == PlaceType.isMaybeDeref(tag.PlaceType.potentiallyReferencedType)) && maybeDerefIsTypedBy(t, tag, m))
+    ||
+    ((tag == PlaceType.isStructOf(tag.PlaceType.len, tag.PlaceType.mapForStruct)) && structIsTypedBy(t, tag, m))
+    ||
+    ((tag == PlaceType.isStructuredData(tag.PlaceType.lenSD, tag.PlaceType.mapForSD)) && isStructuredDataIsTypedBy(t, tag, m))
+    ||
+    ((tag == PlaceType.isYoinked(tag.PlaceType.yoinkedValue, tag.PlaceType.yoinkedTy)) && structIsTypedBy(t, tag, m))
+  }
+
+  field placedValue: RustValue;
+
+  pred placeValueTypedBy(r: Ref, tag: PlaceType, m: ResolutionMap) {
+    exists value: RustValue :: own(r, placedValue, value) && placeTypedBy(value, tag, m)
+  }
+
+  func fromTypeTag(tag: TypeTag) returns (res: PlaceType) {
+    (tag == TypeTag.isInt()) ? PlaceType.isInt(): //
+    ((tag == TypeTag.isBool()) ? PlaceType.isBool(): //
+    ((tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType)) ? PlaceType.isSharedBorrow(fromTypeTag(tag.TypeTag.sharedPointedType)): //
+    ((tag == TypeTag.isBoxedPointer(tag.TypeTag.boxedPointedType)) ? PlaceType.isBoxedPointer(fromTypeTag(tag.TypeTag.boxedPointedType)): //
+    ((tag == TypeTag.isRawPointer()) ? PlaceType.isRawPointer(): //
+    ((tag == TypeTag.isStructOf(tag.TypeTag.len, tag.TypeTag.mapForStruct)) ? PlaceType.isStructOf(tag.TypeTag.len, {|i: Int :: fromTypeTag(tag.TypeTag.mapForStruct[i])|}): //
+    ((tag == TypeTag.isArrayOf(tag.TypeTag.collectedType)) ? PlaceType.isArrayOf(fromTypeTag(tag.TypeTag.collectedType)): //
+    ((tag == TypeTag.isUninit()) ? PlaceType.isUninit(): //
+    ((tag == TypeTag.isMaybeInit(tag.TypeTag.potentiallyInitializedType)) ? PlaceType.isMaybeInit(fromTypeTag(tag.TypeTag.potentiallyInitializedType)): //
+    PlaceType.isMaybeDeref(fromTypeTag(tag.TypeTag.potentiallyReferencedType))))))))))
+  }
+}
+
+// module AgreeI = Library.Agree[Library.IntType];
+// interface VecI : DataInvariant {
+//   field pointedCap: Int;
+//   field pointedArr: RustValue;
+//   val tag: TypeTag;
+//   val vecType: TypeTag = TypeTag.isStructOf(3, {| i: Int :: (i == 0) ? TypeTag.isInt() : ((i == 1) ? TypeTag.isInt() : TypeTag.isArrayOf(tag)) |});
+
+//   pred dataInv(rustValue: RustValue, m: ResolutionMap) {
+//     (rustValue == RustValue.rawPointer(rustValue.RustValue.referenceToPointed)) &&
+//     (exists cap: Int :: (exists arr: RustValue :: exists len: Int ::
+//      (isProphecy(rustValue.RustValue.referenceToPointed) &&
+//        isTypedBy((m[rustValue.RustValue.referenceToPointed]), vecType, m) &&
+//        (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[0]] == RustValue.literalInt(cap)) &&
+//        (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[1]] == RustValue.literalInt(len)) &&
+//       (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr) &&
+//       (forall i: Int :: (0 <= i < len) ==>
+//       ((m[arr.RustValue.mapForArray[i]] != RustValue.uninit()))) &&
+//       (forall i: Int :: (len <= i < cap) ==>
+//        (m[arr.RustValue.mapForArray[i]] == RustValue.uninit())))))
+//   }
+
+//   pred isReborrowedAtIndex(rustValue: RustValue, idx: Int, prophecy: Ref, m: ResolutionMap) {
+//     isProphecy(prophecy) &&
+//     (rustValue == RustValue.rawPointer(rustValue.RustValue.referenceToPointed)) &&
+//     (exists arr: RustValue :: m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr && (m[arr.RustValue.mapForArray[i]] == m[prophecy]))
+//   }
+// }
+
+// Steps:
+// 1. Rewrite the dataInv as a predicate
+// 2. Draw out the steps -- how exactly do you plan to verify get_unchecked_mut in raven --
+//    in a google doc
+// 3. Craft rules on place and value types:
+// we have some "rule" that allocates a value type from a place type, and we have some "axioms" that
+// allow us to show that these value types are updated as we wish
+
+// Concrete steps to finishing this:
+// Write the procedure getUncheckedMut
+// precondition:
+// that VecI.isPlaceTypedBy(xs, isStructuredData(1, {| i: Int :: isRawPointer() |}))
+// and that there exists a borrow name, ɣi, such that
+// isProphecy(ɣi) &&
+// exists ɣi: Ref, Res xs.referenceTopointed ([i := *ɣi] xs.arr)
+// I think that that should work. It's basically using m as a unification map.
+// Aight...
+
+// pred arrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+//   (t == RustValue.array(t.RustValue.lenForArray, t.RustValue.mapForArray)) &&
+//   (forall i: Int :: (0 <= i < t.RustValue.lenForArray) &&
+//        (m[t.RustValue.mapForArray[i]] == RustValueO.some((m[t.RustValue.mapForArray[i]]).RustValueO.wrappedData)) ==>
+//        isTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), tag.TypeTag.mapForStruct[i], m))
+// }
+
+// Then we gotta translate the rust in raven example
+// proc getUncheckedMut(r: Ref, tag: TypeTag, idx: Int)
+//   requires locationTypedBy(r, PlaceType.isMutBorrow(PlaceType.isArrayOf).value, )
+// {
+// }
+
+// Then what will it mean for example for
+// fn updateMut(x: &mut i32) {
+//   x += 3;
+// }
+// to be translated?
+// Well we could say I take in:
+// x: RustValue such that
+// isTypedBy(x, isMutBorrow(isInt)).
+
+// Well, we're going to need to extend prophecy's "isTypedBy".
+// Hopefully, the fact that the generated prophecy is "havoced" won't
+// preclude us from using it in the function contract... But I think it will.
+// So we might have to weave together this stuff.
+// And we also def. need to wrap the "isTypedBy" predicate in a way that lets
+// us require that a value is typed by a typeTag.
+
+// Okay, so let's just make a high level breakdown of our copy of
+// get_mut and get_unchecked_mut, perhaps translating the pre-and-post conditions to
+// inhales and exhales.
