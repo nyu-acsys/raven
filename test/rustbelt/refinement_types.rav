@@ -329,33 +329,48 @@ interface DataInvariant {
   }
 }
 
-// module AgreeI = Library.Agree[Library.IntType];
-// interface VecI : DataInvariant {
-//   field pointedCap: Int;
-//   field pointedArr: RustValue;
-//   val tag: TypeTag;
-//   val vecType: TypeTag = TypeTag.isStructOf(3, {| i: Int :: (i == 0) ? TypeTag.isInt() : ((i == 1) ? TypeTag.isInt() : TypeTag.isArrayOf(tag)) |});
+module AgreeI = Library.Agree[Library.IntType];
+interface VecI : DataInvariant {
+  field pointedCap: AgreeI;
+  field pointedArr: RustValue;
+  val tag: TypeTag;
+  val vecType: TypeTag = TypeTag.isStructOf(3, {| i: Int :: (i == 0) ? TypeTag.isInt() : ((i == 1) ? TypeTag.isInt() : TypeTag.isArrayOf(tag)) |});
 
-//   pred dataInv(rustValue: RustValue, m: ResolutionMap) {
-//     (rustValue == RustValue.rawPointer(rustValue.RustValue.referenceToPointed)) &&
-//     (exists cap: Int :: (exists arr: RustValue :: exists len: Int ::
-//      (isProphecy(rustValue.RustValue.referenceToPointed) &&
-//        isTypedBy((m[rustValue.RustValue.referenceToPointed]), vecType, m) &&
-//        (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[0]] == RustValue.literalInt(cap)) &&
-//        (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[1]] == RustValue.literalInt(len)) &&
-//       (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr) &&
-//       (forall i: Int :: (0 <= i < len) ==>
-//       ((m[arr.RustValue.mapForArray[i]] != RustValue.uninit()))) &&
-//       (forall i: Int :: (len <= i < cap) ==>
-//        (m[arr.RustValue.mapForArray[i]] == RustValue.uninit())))))
-//   }
+  pred dataInv(rustValue: RustValue, m: ResolutionMap) {
+    (rustValue == RustValue.struct(1, rustValue.RustValue.mapForStruct)) &&
+    (m[rustValue.RustValue.mapForStruct[0]] ==
+     RustValue.rawPointer((m[rustValue.RustValue.mapForStruct[0]]).RustValue.referenceToPointed)) &&
+    (exists cap: Int :: (exists arr: RustValue :: exists len: Int ::
+     own(rustValue.RustValue.mapForStruct[0], pointedCap, AgreeI.agree(len)) &&
+     (isProphecy(rustValue.RustValue.referenceToPointed) &&
+       isTypedBy((m[rustValue.RustValue.referenceToPointed]), vecType, m) &&
+       (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[0]] == RustValue.literalInt(cap)) &&
+       (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[1]] == RustValue.literalInt(len)) &&
+      (m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr) &&
+      (forall i: Int :: (0 <= i < len) ==>
+      ((m[arr.RustValue.mapForArray[i]] != RustValue.uninit()))) &&
+      (forall i: Int :: (len <= i < cap) ==>
+       (m[arr.RustValue.mapForArray[i]] == RustValue.uninit())))))
+  }
 
-//   pred isReborrowedAtIndex(rustValue: RustValue, idx: Int, prophecy: Ref, m: ResolutionMap) {
-//     isProphecy(prophecy) &&
-//     (rustValue == RustValue.rawPointer(rustValue.RustValue.referenceToPointed)) &&
-//     (exists arr: RustValue :: m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr && (m[arr.RustValue.mapForArray[i]] == m[prophecy]))
-//   }
-// }
+  pred isReborrowedAtIndex(rustValue: RustValue, idx: Int, prophecy: Ref, m: ResolutionMap) {
+    isProphecy(prophecy) &&
+    (rustValue == RustValue.rawPointer(rustValue.RustValue.referenceToPointed)) &&
+    (exists arr: RustValue :: m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr && (m[arr.RustValue.mapForArray[i]] == m[prophecy]))
+  }
+
+  proc getUncheckedMut(xs: RustValue, idx: Int, len: Int, m: ResolutionMap)
+  requires own(xs.RustValue.mapForStruct[0], pointedCap, AgreeI.agree(len)) &&
+           (0 <= idx < len) &&
+           placeTypedBy(xs, PlaceType.isStructuredData(1, {| i: Int :: PlaceType.isRawPointer() |}), m) &&
+           isProphecy((m[xs.RustValue.mapForStruct[0]]).RustValue.referenceToPointed)
+  ensures (exists prophecy: Ref ::
+           own(xs.RustValue.mapForStruct[0], pointedCap, AgreeI.agree(len)) &&
+           (0 <= idx < len) &&
+           isReborrowedAtIndex(xs, idx, prophecy, m))
+  {
+  }
+}
 
 // Steps:
 // 1. Rewrite the dataInv as a predicate
