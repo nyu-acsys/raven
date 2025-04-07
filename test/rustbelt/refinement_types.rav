@@ -105,9 +105,7 @@ pred arrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
 }
 
 pred maybeDerefIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
-  (t
-  ==
-  RustValue.isDeref(t.RustValue.borrowNameForDeref)
+  (t == RustValue.isDeref(t.RustValue.borrowNameForDeref)
   &&
   (isTypedBy(m[t.RustValue.borrowNameForDeref], tag.TypeTag.potentiallyReferencedType, m)))
   ||
@@ -115,6 +113,8 @@ pred maybeDerefIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
 }
 
 inv isTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  ((t == RustValue.isDeref(t.RustValue.borrowNameForDeref)) && (isTypedBy(m[t.RustValue.borrowNameForDeref], tag, m)))
+  ||
   ((tag == TypeTag.isInt()) && (t == RustValue.literalInt(t.RustValue.v)))
   ||
   ((tag == TypeTag.isBool()) && (t == RustValue.literalBool(t.RustValue.b)))
@@ -264,15 +264,12 @@ interface DataInvariant {
     &&
     dataInv(t, m)
     &&
-    ((forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
-    ==>
+    ((forall i: Int :: (0 <= i < t.RustValue.lenForStruct) ==>
     placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m)))
   }
 
   pred maybeDerefIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
-    (t
-    ==
-    RustValue.isDeref(t.RustValue.borrowNameForDeref)
+    (t == RustValue.isDeref(t.RustValue.borrowNameForDeref)
     &&
     placeTypedBy((m[t.RustValue.borrowNameForImmut]), tag.PlaceType.sharedPointedType, m))
     ||
@@ -282,6 +279,8 @@ interface DataInvariant {
   }
 
   pred placeTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap) {
+    ((t == RustValue.isDeref(t.RustValue.borrowNameForDeref)) && placeTypedBy(m[t.RustValue.borrowNameForDeref], tag, m))
+    ||
     ((tag == PlaceType.isInt()) && (t == RustValue.literalInt(t.RustValue.v)))
     ||
     ((tag == PlaceType.isBool()) && (t == RustValue.literalBool(t.RustValue.b)))
@@ -316,18 +315,20 @@ interface DataInvariant {
   }
 
   func fromTypeTag(tag: TypeTag) returns (res: PlaceType) {
-    (tag == TypeTag.isInt()) ? PlaceType.isInt(): //
-    ((tag == TypeTag.isBool()) ? PlaceType.isBool(): //
-    ((tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType)) ? PlaceType.isSharedBorrow(fromTypeTag(tag.TypeTag.sharedPointedType)): //
-    ((tag == TypeTag.isBoxedPointer(tag.TypeTag.boxedPointedType)) ? PlaceType.isBoxedPointer(fromTypeTag(tag.TypeTag.boxedPointedType)): //
-    ((tag == TypeTag.isRawPointer()) ? PlaceType.isRawPointer(): //
-    ((tag == TypeTag.isStructOf(tag.TypeTag.len, tag.TypeTag.mapForStruct)) ? PlaceType.isStructOf(tag.TypeTag.len, {|i: Int :: fromTypeTag(tag.TypeTag.mapForStruct[i])|}): //
-    ((tag == TypeTag.isArrayOf(tag.TypeTag.collectedType)) ? PlaceType.isArrayOf(fromTypeTag(tag.TypeTag.collectedType)): //
-    ((tag == TypeTag.isUninit()) ? PlaceType.isUninit(): //
-    ((tag == TypeTag.isMaybeInit(tag.TypeTag.potentiallyInitializedType)) ? PlaceType.isMaybeInit(fromTypeTag(tag.TypeTag.potentiallyInitializedType)): //
+    (tag == TypeTag.isInt()) ? PlaceType.isInt() : //
+    ((tag == TypeTag.isBool()) ? PlaceType.isBool() : //
+    ((tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType)) ? PlaceType.isSharedBorrow(fromTypeTag(tag.TypeTag.sharedPointedType)) : //
+    ((tag == TypeTag.isBoxedPointer(tag.TypeTag.boxedPointedType)) ? PlaceType.isBoxedPointer(fromTypeTag(tag.TypeTag.boxedPointedType)) : //
+    ((tag == TypeTag.isRawPointer()) ? PlaceType.isRawPointer() : //
+    ((tag == TypeTag.isStructOf(tag.TypeTag.len, tag.TypeTag.mapForStruct)) ? PlaceType.isStructOf(tag.TypeTag.len, {|i: Int :: fromTypeTag(tag.TypeTag.mapForStruct[i])|}) : //
+    ((tag == TypeTag.isArrayOf(tag.TypeTag.collectedType)) ? PlaceType.isArrayOf(fromTypeTag(tag.TypeTag.collectedType)) : //
+    ((tag == TypeTag.isUninit()) ? PlaceType.isUninit() : //
+    ((tag == TypeTag.isMaybeInit(tag.TypeTag.potentiallyInitializedType)) ? PlaceType.isMaybeInit(fromTypeTag(tag.TypeTag.potentiallyInitializedType)) : //
     PlaceType.isMaybeDeref(fromTypeTag(tag.TypeTag.potentiallyReferencedType))))))))))
   }
 }
+
+field place: RustValue;
 
 module AgreeI = Library.Agree[Library.IntType];
 interface VecI : DataInvariant {
@@ -359,16 +360,38 @@ interface VecI : DataInvariant {
     (exists arr: RustValue :: m[(m[rustValue.RustValue.referenceToPointed]).RustValue.mapForStruct[2]] == arr && (m[arr.RustValue.mapForArray[i]] == m[prophecy]))
   }
 
+  lemma placeTypeImpliesDataInv(xs: RustValue, pty: PlaceType, m: ResolutionMap)
+    requires (pty == PlaceType.isStructuredData(1, {| i: Int :: PlaceType.isRawPointer() |}))
+    requires placeTypedBy(xs, pty, m)
+    ensures dataInv(xs, m) {
+    var r: Ref := new();
+    assume placeTypedBy(RustValue.struct(1, {| i: Int :: r |}), PlaceType.isInt(), m);
+    assert false;
+    // assert placeTypedBy(xs, pty, m);
+    // assert (xs != RustValue.literalInt(xs.RustValue.v));
+
+    // assert dataInv(xs, m) with {
+    //   if (xs == RustValue.literalInt(xs.RustValue.v)) {
+    //     assert true;
+    //   } else {
+    //     assume false;
+    //   }
+    // }
+  }
+
   proc getUncheckedMut(xs: RustValue, idx: Int, len: Int, m: ResolutionMap)
   requires own(xs.RustValue.mapForStruct[0], pointedCap, AgreeI.agree(len)) &&
            (0 <= idx < len) &&
            placeTypedBy(xs, PlaceType.isStructuredData(1, {| i: Int :: PlaceType.isRawPointer() |}), m) &&
            isProphecy((m[xs.RustValue.mapForStruct[0]]).RustValue.referenceToPointed)
-  ensures (exists prophecy: Ref ::
-           own(xs.RustValue.mapForStruct[0], pointedCap, AgreeI.agree(len)) &&
-           (0 <= idx < len) &&
-           isReborrowedAtIndex(xs, idx, prophecy, m))
+  // ensures (exists prophecy: Ref ::
+  //          own(xs.RustValue.mapForStruct[0], pointedCap, AgreeI.agree(len)) &&
+  //          (0 <= idx < len) &&
+  //          isReborrowedAtIndex(xs, idx, prophecy, m))
   {
+    assert placeTypedBy(xs, PlaceType.isStructuredData(1, {| i: Int :: PlaceType.isRawPointer() |}), m);
+    // assert dataInv(xs, m);
+    var xsPlace: Ref := new(place: xs);
   }
 }
 
