@@ -478,6 +478,9 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Loop loop ->
+      let* loop_prebody = rewrite_loops loop.loop_prebody in
+      let* loop_postbody = rewrite_loops loop.loop_postbody in
+      let loop = { loop with loop_prebody; loop_postbody } in
       let loc = Stmt.to_loc stmt in
       Logs.debug (fun m -> m "Rewrites.rewrite_loops: loop: %a" Stmt.pr stmt);
 
