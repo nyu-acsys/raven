@@ -101,7 +101,7 @@ func arrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) returns (res: 
   &&
   (forall i: Int :: (0 <= i < t.RustValue.lenForArray)
   &&
-  isTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), TypeTag.isMaybeDeref(tag.TypeTag.mapForStruct[i]), m))
+  isTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), TypeTag.isMaybeDeref(tag.TypeTag.collectedType), m))
 }
 
 func maybeDerefIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) returns (res: Bool ) {
@@ -173,15 +173,20 @@ module PlaceTypeTrail {
     case boxed1(boxed1Trail: T);
     case boxed2(boxed2Trail: T);
     case rawPointer();
-    case struct(trailForStruct: Map[Int, T]);
-    case array(trailForArray: Map[Int, T]);
+    case struct(trailForStruct: Map[Int, I]);
+    case array(trailForArray: Map[Int, I]);
     case maybeInit1();
     case maybeInit2(maybeInit2Trail: T);
     case uninit();
     case maybeDeref1(maybeDeref1Trail: T);
     case maybeDeref2(maybeDeref2Trail: T);
     case isDeref(derefTrail: T)
-    case yoinked(trailForYoinked: Map[Int, T])
+    case yoinked(trailForYoinked: Map[Int, I])
+  }
+
+  // I for indexed
+  type I = data {
+    case tagged(index: Int, placeTag: T)
   }
 }
 
@@ -256,20 +261,20 @@ interface DataInvariant {
     placeTypedBy(t.RustValue.valueForImmut, tag.PlaceType.boxedPointedType, m, trail)
   }
 
-  pred structIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail]) {
+  pred structIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail.I]) {
     (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
     &&
     (forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
     ==>
-    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForStruct[i], m, trail[i]))
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForStruct[i], m, (trail[i]).PlaceTypeTrail.placeTag) && ((trail[i]).PlaceTypeTrail.index == i))
   }
 
-  pred arrayIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail]) {
+  pred arrayIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail.I]) {
     (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
     &&
     (forall i: Int :: (0 <= i < t.RustValue.lenForArray)
     ==>
-    placeTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), tag.PlaceType.collectedType, m, trail[i]))
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForArray[i]), tag.PlaceType.collectedType, m, (trail[i]).PlaceTypeTrail.placeTag) && (trail[i]).PlaceTypeTrail.index == i)
   }
 
   pred isYoinkedTy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail]) {
@@ -280,14 +285,14 @@ interface DataInvariant {
     placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m, trail[i])))
   }
 
-  pred isStructuredDataIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail]) {
+  pred isStructuredDataIsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: Map[Int, PlaceTypeTrail.I]) {
     (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
     &&
     dataInv(t, m)
     &&
     ((forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
     ==>
-    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m, trail[i])))
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m, (trail[i]).PlaceTypeTrail.placeTag) && ((trail[i]).PlaceTypeTrail.index == i)))
   }
 
   pred maybeDeref1IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: PlaceTypeTrail) {
@@ -453,4 +458,3 @@ interface VecI: DataInvariant {
     var xsPlace: Ref := new(place: xs);
   }
 }
-
