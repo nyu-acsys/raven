@@ -29,7 +29,7 @@ type command =
   | SetLogic of string * location option
   | DeclareSort of smt_ident * int * location option
   | DeclareDatatype of adt_def * location option
-  (* | DeclareDatatypes of adt_def list * location option *)
+  | DeclareDatatypes of adt_def list * location option
   | DefineSort of smt_ident * smt_ident list * sort * location option
   | DeclareFun of smt_ident * sort list * sort * location option
   | DeclareConst of smt_ident * sort * location option
@@ -59,6 +59,7 @@ let mk_set_option ?loc o v = SetOption (o, v, loc)
 let mk_set_info ?loc i v = SetInfo (i, v, loc)
 let mk_declare_sort ?loc id arity = DeclareSort (id, arity, loc)
 let mk_declare_datatype ?loc adt = DeclareDatatype (adt, loc)
+let mk_declare_datatypes ?loc adts = DeclareDatatypes (adts, loc)
 
 let mk_declare_fun ?loc id arg_srts res_srt =
   DeclareFun (id, arg_srts, res_srt, loc)
@@ -294,11 +295,21 @@ let rec pr_adt ppf (id, params, constrs) =
       fprintf ppf "@[%a (par (%a) (%a))@]" pr_smt_ident id pr_smt_idents params
         pr_adt_constrs constrs
 
-(* let rec pr_adts ppf adt_list =
-   match adt_list with
-   | [] -> ()
-   | _ ->
-     fprintf ppf "%a@ %a" pr_adt adt pr_adts adts *)
+let rec pr_adts ppf adt_list =
+  let id_list, params_list, constr_list = List.unzip3 adt_list in
+
+  let pr_sorts ppf (id, params) = fprintf ppf "(%a %i)" pr_smt_ident id (List.length params) in
+
+  let pr_constrs ppf (params, constrs) = match params with
+  | [] -> fprintf ppf "@[(%a)@]" pr_adt_constrs constrs
+  | _ ->
+      fprintf ppf "@[(par (%a) (%a))@]" pr_smt_idents params
+        pr_adt_constrs constrs
+  in
+
+  fprintf ppf "(%a) (%a)" (Util.Print.pr_list_sep " " pr_sorts) (List.zip_exn id_list params_list) (Util.Print.pr_list_sep " " pr_constrs) (List.zip_exn params_list constr_list)
+
+  
 
 let pr_command ppf = function
   | SetInfo (i, v, _) -> fprintf ppf "@[<10>(set-info@ %s@ %s)@]@," i v
@@ -308,8 +319,8 @@ let pr_command ppf = function
       fprintf ppf "@[<14>(declare-sort@ %a@ %d)@]@," pr_smt_ident id n
   | DeclareDatatype (adt, _) ->
       fprintf ppf "@[<19>(declare-datatype@ @[<2>%a@])@]@," pr_adt adt
-  (* | DeclareDatatypes (adts, _) ->
-      fprintf ppf "@[<19>(declare-datatypes@ @[<2>(%a)@])@]@," pr_adt adts *)
+  | DeclareDatatypes (adts, _) ->
+      fprintf ppf "@[<19>(declare-datatypes@ @[<2>%a@])@]@," pr_adts adts
   | DefineSort (id, svs, srt, _) ->
       fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@," pr_smt_ident id pr_smt_idents
         svs pr_sort srt

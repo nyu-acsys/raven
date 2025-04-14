@@ -12,47 +12,75 @@ let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) :
   let open Rewriter.Syntax in
   let* cmd =
     match typ.type_def_expr with
-    | None -> Rewriter.return @@ SmtLibAST.mk_declare_sort fully_qual_name 0
+    | None -> Rewriter.return @@ Some (SmtLibAST.mk_declare_sort fully_qual_name 0)
     | Some typ_expr -> (
         match typ_expr with
         | App (Data (name, variant_decls), _, _) ->
-            let* variant_list =
-              Rewriter.List.map variant_decls ~f:(fun v ->
-                  let destr_list =
-                    List.map v.variant_args ~f:(fun v_d ->
-                        let destr_qual_ident =
-                          QualIdent.append
-                            (QualIdent.pop fully_qual_name)
-                            v_d.var_name
-                        in
-                        (destr_qual_ident, v_d.var_type))
-                  in
-
-                  let constr_qual_ident =
-                    QualIdent.append
-                      (QualIdent.pop fully_qual_name)
-                      v.variant_name
-                  in
-
-                  let* constr_fully_qual_name =
-                    Rewriter.resolve constr_qual_ident
-                  in
-
-                  assert (QualIdent.(constr_fully_qual_name = constr_qual_ident));
-
-                  Rewriter.return (constr_fully_qual_name, destr_list))
-            in
-
-            let adt_def = (fully_qual_name, [], variant_list) in
-            Rewriter.return (SmtLibAST.mk_declare_datatype adt_def)
+            Rewriter.return None
         | _ ->
             Rewriter.return
-            @@ SmtLibAST.mk_define_sort fully_qual_name [] typ_expr)
+            @@ Some (SmtLibAST.mk_define_sort fully_qual_name [] typ_expr))
   in
+
+  match cmd with
+  | None -> Rewriter.return ()
+  | Some cmd ->
+    let* _ = write cmd in
+    Rewriter.return ()
+
+let define_datatypes (fully_qual_names_and_typs : (qual_ident * Ast.Module.type_def) list) : unit t =
+let open Rewriter.Syntax in
+  let* adt_defs = Rewriter.List.map fully_qual_names_and_typs ~f:(fun (fully_qual_name, typ) -> 
+    match typ.type_def_expr with
+    | None -> Rewriter.return None
+    | Some typ_expr -> begin
+      match typ_expr with
+      | App (Data (name, variant_decls), _, _) ->
+          let+ variant_list =
+            Rewriter.List.map variant_decls ~f:(fun v ->
+                let destr_list =
+                  List.map v.variant_args ~f:(fun v_d ->
+                      let destr_qual_ident =
+                        QualIdent.append
+                          (QualIdent.pop fully_qual_name)
+                          v_d.var_name
+                      in
+                      (destr_qual_ident, v_d.var_type))
+                in
+
+                let constr_qual_ident =
+                  QualIdent.append
+                    (QualIdent.pop fully_qual_name)
+                    v.variant_name
+                in
+
+                let* constr_fully_qual_name =
+                  Rewriter.resolve constr_qual_ident
+                in
+
+                assert (QualIdent.(constr_fully_qual_name = constr_qual_ident));
+
+                Rewriter.return (constr_fully_qual_name, destr_list))
+          in
+
+          let adt_def = (fully_qual_name, [], variant_list) in
+          Some adt_def
+      | _ -> Rewriter.return None
+      end
+  ) in
+
+  let adt_defs = List.filter_opt adt_defs in
+
+  let cmd = match adt_defs with
+  | [] -> assert false
+  | [adt_def] -> SmtLibAST.mk_declare_datatype adt_def
+  | _ -> SmtLibAST.mk_declare_datatypes adt_defs in
 
   let* _ = write cmd in
 
   Rewriter.return ()
+
+
 
 let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
   let open Rewriter.Syntax in
@@ -438,8 +466,22 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
 
       let* _ = Rewriter.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
         declare_fn qual_name sym
-      ) 
+      )
       in
+
+      let data_types = List.filter_map dep_sym ~f:(function
+      | qual_ident, Module.TypeDef ({ type_def_expr = Some (App (Data _, _, _)); _ } as typ_def) -> Some (qual_ident, typ_def)
+      | _ -> None
+      ) in
+
+      let* _ = 
+        if List.is_empty data_types then
+          Rewriter.return ()
+        else
+          let+ _ = define_datatypes data_types in
+          ()
+      in
+
       Rewriter.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
   let* _ = pop in
