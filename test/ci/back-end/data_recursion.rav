@@ -1,0 +1,16 @@
+type T = data {
+  case tCase1(x: Int);
+  case tCase2(y: R)
+}
+
+type R = data {
+  case rCase1(z: Int, w: T)
+}
+
+field tData: T;
+
+proc tagY(x: Int, y: T)
+  returns (r: Ref)
+  ensures own(r, tData, tCase2(rCase1(1, y)), 1.0) {
+  r := new (tData: tCase2(rCase1(1, y)));
+}
