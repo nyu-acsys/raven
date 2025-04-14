@@ -300,15 +300,13 @@ interface DataInvariant {
     ((forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
     ==>
     (
-    //placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m, (trail[i]) . PlaceTypeTrail.placeTag)
-    //&&
+    placeTypedBy(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.PlaceType.mapForSD[i], m, (trail[i]) . PlaceTypeTrail.placeTag)
+    &&
     ((trail[i]) . PlaceTypeTrail.index == i))))
   }
 
   pred maybeDeref1IsTypedBy(t: RustValue, tag: PlaceType, m: ResolutionMap, trail: PlaceTypeTrail) {
-    (t
-    ==
-    RustValue.isDeref(t.RustValue.borrowNameForDeref)
+    (t == RustValue.isDeref(t.RustValue.borrowNameForDeref)
     &&
     placeTypedBy((m[t.RustValue.borrowNameForImmut]), tag.PlaceType.sharedPointedType, m, trail))
   }
