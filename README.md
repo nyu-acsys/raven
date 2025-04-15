@@ -18,7 +18,6 @@ Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/)
 
 
 ## Installation
-Raven can be installed by running the following sequence of commmands. It requires [opam](https://opam.ocaml.org/).
 ```
 $ git clone https://github.com/nyu-acsys/raven.git
 $ cd ./raven
