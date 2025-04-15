@@ -18,6 +18,7 @@ Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/)
 
 
 ## Installation
+Raven requires [`opam`](https://opam.ocaml.org/) (>= 2.1.0) as well as OCaml (>= 4.12.0) and various OCaml libraries. See [`dune-project`](dune-project) for the full list of dependencies. Raven and all its depdencies other than `opam` can be installed by running the following sequence of commmands.
 ```
 $ git clone https://github.com/nyu-acsys/raven.git
 $ cd ./raven
