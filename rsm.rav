@@ -1,0 +1,619 @@
+include "../lock-free-rsm/raven/answerState.rav"
+
+import Library.Type
+import Library.OrderedType
+
+interface Rsm[Client : Type, Time: OrderedType] {
+  type Server = Ref
+  type Broker = Ref
+
+  // Boiler plate code for encoding "infinite" arrays indexed by server, brokers, and timestamps
+  func aloc(s: Server, b: Broker, m: Time) returns (r: Ref)
+  func aindex(r: Ref) returns (i: (Server, Broker, Time))
+
+  // Axiom for the array aloc(s,b,m) to be a unique reference for each (s,b,m).
+  auto axiom aall_diff()
+    ensures forall s: Server, b: Broker, m: Time :: {aloc(s,b,m)} aindex(aloc(s,b,m)) == (s,b,m)
+
+  func bloc(s: Server, b: Broker) returns (r: Ref)
+  func bindex(r: Ref) returns (i: (Server, Broker))
+
+  auto axiom ball_diff()
+    ensures forall s: Server, b: Broker :: {bloc(s,b)} bindex(bloc(s,b)) == (s,b)
+
+  func rloc(b: Broker, m: Time) returns (r: Ref)
+  func rindex(r: Ref) returns (i: (Broker, Time))
+
+  auto axiom rall_diff()
+    ensures forall b: Broker, m: Time :: {rloc(b,m)} rindex(rloc(b,m)) == (b,m)
+
+  func sloc(s: Server) returns (r: Ref)
+  func sindex(r: Ref) returns (i: Server)
+
+  auto axiom sall_diff()
+    ensures forall s: Server :: {sloc(s)} sindex(sloc(s)) == s
+
+  // Choosing a server from a set. (Add this as an inbuilt function to Set[T]?)
+  func choose_srv(srvs: Set[Server]) returns (res: Server)
+    ensures srvs != {||} ==> res in srvs
+
+  // TODO(zzmic): Function to choose a millisecond from a set of milliseconds.
+  func choose_m(m: Set[Time]) returns (res: Time)
+    ensures m != {||} ==> res in m
+
+  import AnswerRA._
+
+  // Data type for broker status
+  type BrokerStatus = data {
+    case brokerUp
+    case brokerDown
+  }
+
+  // Data type for server status
+  type ServerStatus = data {
+    case serverUp
+    case serverDown
+  }
+
+  // Data type for server states
+  type ServerState = data {
+    case awaitReceive
+    case awaitRecovery
+    case coordRecovery(cresp: Set[Server]) // cresp: the set of servers that have responded to the coordinator.
+  }
+
+  // The following fields store the physical state of each server s
+  field answer: AnswerState // The answer state of server s for each pack(b,m).
+  field lock: Bool // Lock on s's server state. This is used to serialize server event handlers.
+  field brk_status: BrokerStatus // Stores s's information about the status of each broker b.
+  field srv_status: ServerStatus // Stores s's information about the status of each server s'.
+  field srv_servers: Set[Server] // Stores the set of all servers known to s.
+  field srv_brokers: Set[Broker] // Stores the set of all brokers known to s.
+  field srv_state: ServerState // Stores the current protocol state of s for each (b,m).
+
+  module RefSetType : Type { rep type T = Set[Ref] } // Module for the representation type of a set of references.
+  module AgreeRefSet = Library.Agree[RefSetType] // Module for representing a set of references with "agreement(s)".
+  module ServerType : Type { rep type T = Server } // Module for the representation type of a server.
+  module ServerSetRA = Library.SetRA[ServerType] // Module for representing a resource algebra for a set of servers.
+  module AuthServerSet = Library.Auth[ServerSetRA] // Module for representing an authorization for the server-set RA.
+
+  // Ghost field to store the known set of servers in the system invariant.
+  ghost field servers: AgreeRefSet
+
+  // Ghost field to store the known set of brokers in the system invariant.
+  ghost field brokers: AgreeRefSet
+
+  // The global answer state for each pack(b,m). This is used to enforce consistency across all local answer states.
+  ghost field globalAnswer: AnswerRA
+
+  // Ghost field to store the set of servers that have been down/failed.
+  // The RA (resource algebra) will "guarantee that we can only monotonically increase the set stored in downSrvs."
+  ghost field downSrvs: AuthServerSet
+
+  // The invariant on the global answer state map.
+  pred systemRecoveryState(b: Broker, m: Time, srvs: Set[Server]) {
+    exists a: AnswerState, resp: Set[Server], todo: Set[Server] ::
+      own(rloc(b,m).globalAnswer, auth(srvs, resp, todo, a))
+      // If no server has yet indicated a positive answer, then the state of the answer remains 'notReceived'.
+      // If a decision has been made to ignore the package (after all servers have responded negatively), then the state of the answer is 'ignore'.
+      // If some server has received the package, then the state of the answer is 'received' but only as long as not all servers have responded (i.e.,
+      // there remains pending responses from some servers).
+      && (a == notReceived || a == ignore || a == received && todo != {||})
+  }
+
+  // The global system invariant.
+  inv systemState(sys: Ref; srvs: Set[Server], brks: Set[Broker]) {
+    (exists srvs': Set[ServerType] ::
+      own(sys.downSrvs, AuthServerSet.auth(ServerSetRA.set_constr(srvs'))) &&
+      (srvs' subseteq srvs) &&
+      own(sys.servers, AgreeRefSet.agree(srvs)) &&
+      own(sys.brokers, AgreeRefSet.agree(brks)) &&
+      // Global answer state invariant for each (b,m).
+      (forall b: Broker, m: Time :: systemRecoveryState(b, m, srvs)) &&
+      // The system invariant has fractional ownership of all servers' answer maps.
+      // This is used to enable remote reads on answer maps of failed servers.
+      (forall s: Server, b: Broker, m: Time ::
+        // Quantify over all servers rather than just the failed servers since we need to
+        // "enable remote reads on answer maps of failed servers."
+        s in srvs && b in brks ==>
+          // '0.5' (a rational q > 0) is the fraction of ownership of the system invariant on s's answer state for pack(b,m)
+          // that denotes that the system invariant has "read-only" access to s's answer map.
+          // By default (i.e., if the fraction is omitted), the fraction is 1 (a rational q == 1),
+          // which denotes the write access to a location (in this case, s's answer state for pack(b,m)).
+          (exists a: AnswerState :: own(aloc(s,b,m).answer, a, 0.5))) &&
+      // The system invariant also owns the invariant of any server that is not locked (i.e., executing an event handler).
+      (forall s: Server ::
+        s in srvs && s !in srvs' ==>
+          (exists lck: Bool :: own(s.lock, lck) && (lck ? serverState(sys, s, srvs, brks) : true))))
+  }
+
+  // todo(zzmic): having a proc that has parameters s and b and having the postcondition quantifying over m and reutning ownerships own(aloc...)
+  // to quanmtify over all m's, have a herlper funftion that has postconditions quantifying over all m's
+
+  // The invariant on the local answer state of server s for pack(b,m), assuming s's current answer state for pack(b,m) is 'a'.
+  pred serverRecoveryState(s: Server, b: Broker, m: Time, a: AnswerState) {
+    exists state: ServerState ::
+      own(aloc(s,b,m).srv_state, state) &&
+      (a == undefined ? own(rloc(b,m).globalAnswer, frag({||}, {|s|}, a)) && state == awaitReceive :
+       (state == coordRecovery(state.cresp) ? own(rloc(b,m).globalAnswer, frag(state.cresp, {||}, a)) && s in state.cresp :
+        state == awaitRecovery && ( a == received ? own(rloc(b,m).globalAnswer, frag({||}, {||}, a))
+        : own(rloc(b,m).globalAnswer, frag({|s|}, {||}, a)) ) ) )
+  }
+
+  // The invariant of a server s.
+  pred serverState(sys: Ref, s: Server; srvs: Set[Server], brks: Set[Broker]) {
+    own(s.srv_brokers, brks) &&
+    own(s.srv_servers, srvs) &&
+    own(sys.servers, AgreeRefSet.agree(srvs)) &&
+    own(sys.brokers, AgreeRefSet.agree(brks)) &&
+    (forall b: Broker :: (
+      b in brks ==> (exists bs: BrokerStatus :: own(bloc(s, b).brk_status, bs)))) &&
+    (forall s: Server ::
+      s in srvs ==> (exists ss: ServerStatus :: own(sloc(s).srv_status, ss))) &&
+    (forall b: Broker, m: Time ::
+      b in brks ==> (exists a: AnswerState :: own(aloc(s, b, m).answer, a, 0.5) && serverRecoveryState(s, b, m, a)))
+  }
+
+  // Blocks until s's message handler lock becomes available. Then acquires the lock and gives access to s's invariant.
+  proc lockServer(sys: Ref, s: Server, implicit ghost srvs: Set[Server], implicit ghost brks: Set[Server])
+    requires systemState(sys, srvs, brks) && s in srvs
+    ensures serverState(sys, s, srvs, brks)
+
+  // Releases s's message handler lock.
+  proc unlockServer(sys: Ref, s: Server, implicit ghost srvs: Set[Server], implicit ghost brks: Set[Server])
+    requires systemState(sys, srvs, brks) && serverState(sys, s, srvs, brks)
+
+  // Event handler of s for a timeout on receiving pack(b,m).
+  proc recoverMissingPackage(sys: Ref, s: Server, b: Broker, m: Time,
+      implicit ghost srvs: Set[Broker], implicit ghost brks: Set[Broker])
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks
+  {
+    // Take control of s to process this request.
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    val a := aloc(s, b, m).answer;
+
+    // Is s.answer(b, m) undefined?
+    if (a == undefined) {
+      val bs := bloc(s, b).brk_status;
+
+      // Is b up?
+      if (bs == brokerUp) {
+        // Yes, then s becomes a coordinator.
+        ghost var srvs1': Set[ServerType];
+        // "Discharge" (and later "recharge") srvs' from (and later to) the system invariant so that
+        // srvs' can be reused by the procedure without recomputing the witness of srvs'.
+        unfold systemState(sys)[srvs1' := srvs'];
+        aloc(s, b, m).answer := notReceived;
+        unfold serverRecoveryState(s, b, m, a);
+        ghost var resp: Set[Server]; ghost var todo: Set[Server]; ghost var ag: AnswerState;
+        unfold systemRecoveryState(b, m, srvs)[ resp := resp, todo := todo, ag := a];
+        fpu(rloc(b,m).globalAnswer, auth(srvs, resp, todo ++ {|s|}, ag),
+            auth(srvs, resp ++ {|s|}, todo, ag));
+        fold systemRecoveryState(b, m, srvs)[resp := resp ++ {|s|}, todo := todo, a := ag];
+        fold systemState(sys)[srvs' := srvs1'];
+        aloc(s,b,m).srv_state := coordRecovery({|s|});
+        fold serverRecoveryState(s, b, m, notReceived);
+
+        // Start recovery by requesting missing package from all other servers.
+        var tosend := s.srv_servers;
+        tosend := tosend -- {|s|}; // Exclude s.
+        while (tosend != {||})
+          invariant systemState(sys, srvs, brks) && tosend subseteq srvs && b in brks
+          invariant s in srvs
+        {
+          var s' := choose_srv(tosend);
+          // Send request for missing package to s'.
+          spawn requestMissingPackage(sys, s', b, m, s);
+          tosend := tosend -- {|s'|};
+        }
+      }
+    }
+    fold serverState(sys, s);
+    // Relinquish control of s.
+    unlockServer(sys, s);
+  }
+
+  // Event handler of s for a request from coordinator 'sender' to send receive status of pack(b,m).
+  proc requestMissingPackage(sys: Ref, s: Server, b: Broker, m: Time, sender: Server, implicit ghost brks: Set[Broker], implicit ghost srvs: Set[Server])
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks && sender in srvs
+  {
+    // Take control of s to process this request
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    val a := aloc(s, b, m).answer;
+
+    // Is s still waiting for pack(b,m)?
+    if (a == undefined) {
+      // Yes, then update answer map for pack(b,m) to notReceived.
+      ghost var srvs': Set[ServerType];
+      unfold systemState(sys)[srvs' := srvs'];
+      aloc(s, b, m).answer := notReceived;
+      unfold serverRecoveryState(s, b, m, a);
+      ghost var resp: Set[Server]; ghost var todo: Set[Server]; ghost var ag: AnswerState;
+      unfold systemRecoveryState(b, m, srvs)[ resp := resp, todo := todo, ag := a];
+      fpu(rloc(b,m).globalAnswer, auth(srvs, resp, todo ++ {|s|}, ag),
+          auth(srvs, resp ++ {|s|}, todo, ag));
+      fold systemRecoveryState(b, m, srvs)[resp := resp ++ {|s|}, todo := todo, a := ag];
+      fold systemState(sys)[srvs' := srvs'];
+      // Update state of s for pack(b,m) to indicate that s will now await recovery notification from sender.
+      aloc(s,b,m).srv_state := awaitRecovery;
+      fold serverRecoveryState(s, b, m, notReceived);
+      // Inform sender that pack(b,m) has not yet been received.
+      spawn responseMissingPackage(sys, sender, b, m, s, false);
+    } else {
+      unfold serverRecoveryState(s, b, m, a);
+      fold serverRecoveryState(s, b, m, a);
+      // Respond to sender based on whether pack(b,m) has been received.
+      spawn responseMissingPackage(sys, sender, b, m, s, a == received);
+    }
+
+    fold serverState(sys, s);
+    // Relinquish control of s.
+    unlockServer(sys, s);
+  }
+
+  // Event handler of s for a response from server 'sender' to a previous status request regarding pack(b,m). The value 'ok' is true iff 'sender' received pack(b,m).
+  proc responseMissingPackage(sys: Ref, s: Server, b: Broker, m: Time, sender: Server, ok: Bool, implicit ghost brks: Set[Broker], implicit ghost srvs: Set[Server])
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks && sender in srvs
+    requires ok ? own(rloc(b,m).globalAnswer, frag({||}, {||}, received)) : own(rloc(b,m).globalAnswer, frag({|sender|}, {||}, notReceived))
+  {
+    // Take control of s to process this request.
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    // Check whether s is serving as a coordinator for pack(b,m).
+    ghost var a: AnswerState;
+    a :| own(aloc(s,b,m).answer, a, 0.5);
+    unfold serverRecoveryState(s, b, m, a);
+
+    val state := aloc(s,b,m).srv_state;
+
+    if (state == coordRecovery(state.cresp)) {
+      // Extract the set of servers and the set of brokers known to s for the later call to
+      // 'schedulerCoordinatorRecoveryResponse' that requires non-ghost 'srvs' and 'brks'.
+      val all_srvs := s.srv_servers;
+      var all_brks := s.srv_brokers;
+
+      if (ok) {
+        // sender received pack(b,m); so update local answer state to 'received' and inform everyone else.
+        ghost var srvs': Set[ServerType];
+        unfold systemState(sys)[srvs' := srvs'];
+        aloc(s,b,m).answer := received;
+        fold systemState(sys)[srvs' := srvs'];
+        a := received;
+        spawn schedulerCoordinatorRecoveryResponse(sys, s, b, m, true, all_srvs, all_brks);
+        // b's status remains 'up'.
+      } else {
+        aloc(s,b,m).srv_state := coordRecovery(state.cresp ++ {|sender|});
+
+        // Was this the last missing response?
+        if (state.cresp ++ {|sender|} == all_srvs) {
+          // Update global and local answer state to 'ignore' and inform everyone else.
+          ghost var srvs': Set[ServerType];
+          unfold systemState(sys)[srvs' := srvs'];
+          aloc(s,b,m).answer := ignore;
+          ghost var ag: AnswerState;
+          unfold systemRecoveryState(b, m, srvs)[ ag := a ];
+          fpu(rloc(b,m).globalAnswer, auth(srvs, srvs, {||}, ag),
+            auth(srvs, srvs, {||}, ignore));
+          fold systemRecoveryState(b, m, srvs)[ resp := all_srvs, todo := {||}, a := ignore ];
+          fold systemState(sys)[srvs' := srvs'];
+          a := ignore;
+          spawn schedulerCoordinatorRecoveryResponse(sys, s, b, m, false, all_srvs, all_brks);
+          // Update status of b to 'down'.
+          bloc(s,b).brk_status := brokerDown;
+        }
+      }
+    } else {
+      // s is not a coordinator. Ignore this response.
+    }
+
+    fold serverRecoveryState(s, b, m, a);
+    fold serverState(sys, s);
+    // Relinquish control of s.
+    unlockServer(sys, s);
+  }
+
+  // Event handler of s for a response from the coordinator to a previous request for the recovery status regarding pack(b,m).
+  proc coordinatorRecoveryResponse(sys: Ref, s: Server, b: Broker, m: Time, sender: Server, ok: Bool, srvs: Set[Server], brks: Set[Broker])
+    // Require that the system's invariant holds, s (the recipient server) is in the set of servers, b is a broker in the system, and sender (the coordinator) is in the set of servers.
+    requires systemState(sys, srvs, brks) && b in brks && s in srvs
+    // Require, based on the ok flag, that the global answer state for pack(b,m) is either 'received' or 'ignore' with 'fresp' and 'ftodo' being empty.
+    requires ok ? own(rloc(b,m).globalAnswer, frag({||}, {||}, received)) : own(rloc(b,m).globalAnswer, frag({||}, {||}, ignore))
+  {
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    // Is s still waiting for pack(b,m), i.e., is the answer of s for pack(b,m) undefined?
+    val a := aloc(s, b, m).answer;
+    if (a == undefined) { // a must be undefined for s to receive the recovery response from the coordinator.
+      // Yes, then update answer map for pack(b,m) to 'received' or 'ignore'.
+      ghost var srvs': Set[ServerType];
+      unfold systemState(sys)[srvs' := srvs'];
+      // Update the local answer state of s for pack(b,m) to 'received' or 'ignore'.
+      aloc(s,b,m).answer := ok ? received : ignore;
+      unfold serverRecoveryState(s, b, m, a);
+      ghost var resp: Set[Server]; ghost var todo: Set[Server]; ghost var ag: AnswerState;
+      unfold systemRecoveryState(b, m, srvs)[resp := resp, todo := todo, ag := a]; // 'resp', 'todo', and 'ag' are ghost variables extracted from the system recovery state.
+      // Update the global answer state for pack(b,m) to 'received' or 'ignore' and update the system recovery state.
+      // 'todo ++ {|s|}', for instance, could be thought of as 'todo \/ {|s|}', where '\/' is the union operator.
+      fpu(rloc(b,m).globalAnswer, auth(srvs, resp, todo ++ {|s|}, ag), auth(srvs, resp ++ {|s|}, todo, ok ? received : ignore));
+      // Update the system recovery state for pack(b,m).
+      fold systemRecoveryState(b, m, srvs)[resp := resp ++ {|s|}, todo := todo, a := ok ? received : ignore];
+      fold systemState(sys)[srvs' := srvs'];
+      // Update the server state of s for pack(b,m) to indicate that s will now await recovery notification from the coordinator.
+      aloc(s,b,m).srv_state := awaitRecovery;
+      fold serverRecoveryState(s, b, m, ok ? received : ignore);
+      // If the coordinator did not receive a broker package, then update the status of b to 'down'. Otherwise, the status of b remains 'up'.
+      if (!ok) {
+        bloc(s,b).brk_status := brokerDown;
+      }
+    }
+
+    fold serverState(sys, s);
+    unlockServer(sys, s);
+  }
+
+  // Helper function to send coordinator recovery responses to all servers except the coordinator.
+  proc schedulerCoordinatorRecoveryResponse(sys: Ref, s: Server, b: Broker, m: Time, ok: Bool, srvs: Set[Server], brks: Set[Broker])
+    requires systemState(sys, srvs, brks) && b in brks && s in srvs
+    requires ok ? own(rloc(b,m).globalAnswer, frag({||}, {||}, received)) : own(rloc(b,m).globalAnswer, frag({||}, {||}, ignore))
+  {
+    // There is no need to lock s here since s, the coordinator, is already locked by the caller.
+    // Insisting on locking s here would lead to a deadlock.
+
+    var tosend := srvs -- {|s|}; // Exclude the coordinator.
+    while (tosend != {||})
+      // Require that the system's invariant holds, the 'tosend' set is a subset of the set of servers, b is a broker in the system, and s is a server in the system throughout the while-loop(s).
+      invariant systemState(sys, srvs, brks) && tosend subseteq srvs && b in brks && s in srvs
+      // Require, based on the ok flag, that the global answer state for pack(b,m) is either 'received' or 'ignore' with 'fresp' and 'ftodo' being empty throughout the while-loop(s).
+      invariant ok ? own(rloc(b,m).globalAnswer, frag({||}, {||}, received)) : own(rloc(b,m).globalAnswer, frag({||}, {||}, ignore))
+    {
+      var s' := choose_srv(tosend);
+
+      // Send an ok message (indicated by 'true' on the ok flag) or an ignore message (indicated by 'false' on the ok flag) to s'.
+      // The sender is the coordinator.
+      if (ok) {
+        spawn coordinatorRecoveryResponse(sys, s', b, m, s, true, srvs, brks);
+      } else {
+        spawn coordinatorRecoveryResponse(sys, s', b, m, s, false, srvs, brks);
+      }
+
+      tosend := tosend -- {|s'|};
+    }
+  }
+
+  // Event handler of s for receiving a pack(b,m) from broker b.
+  proc receivePackage(sys: Ref, s: Server, b: Broker, m: Time, implicit ghost srvs: Set[Server], implicit ghost brks: Set[Broker])
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks
+  {
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    val a := aloc(s, b, m).answer;
+    if (a == undefined) {
+      ghost var srvs': Set[ServerType];
+      unfold systemState(sys)[srvs' := srvs'];
+      aloc(s,b,m).answer := received;
+      unfold serverRecoveryState(s, b, m, a);
+      ghost var resp: Set[Server]; ghost var todo: Set[Server]; ghost var ag: AnswerState;
+      unfold systemRecoveryState(b, m, srvs)[resp := resp, todo := todo, ag := a];
+      // Refer to 'fpuAllowed' in 'answerState.rav' for the permissible disjuncts for the FPUs.
+      fpu(rloc(b,m).globalAnswer, auth(srvs, resp, todo ++ {|s|}, ag), auth(srvs, resp, todo ++ {|s|}, received));
+      fold systemRecoveryState(b, m, srvs)[resp := resp, todo := todo ++ {|s|}, a := received];
+      fold systemState(sys)[srvs' := srvs'];
+      aloc(s,b,m).srv_state := awaitRecovery;
+      fold serverRecoveryState(s, b, m, received);
+    }
+
+    fold serverState(sys, s);
+    unlockServer(sys, s);
+  }
+
+  // Procedure (contract) to check whether a server is down.
+  // Note that procedures (includ. procedure contracts) are not allowed to be called in invariants.
+  proc isServerDown(sys: Ref, s: Server, implicit ghost srvs': Set[Server]) returns (res: Bool)
+    // The atomic clauses (which are essentially an atomic triple that enables "compositional reasoning about linearizability")
+    // specify that the procedure is atomically transitioned from the pre-state to the post-state.
+    atomic requires own(sys.downSrvs, AuthServerSet.auth(ServerSetRA.set_constr(srvs')))
+    atomic ensures own(sys.downSrvs, AuthServerSet.auth(ServerSetRA.set_constr(srvs'))) && res == (s in srvs')
+
+  // Procedure for some coordinator to check the status of a server.
+  proc getServerStatus(sys: Ref, s: Server, implicit ghost srvs: Set[Server], implicit ghost brks: Set[Broker]) returns (res: Bool)
+    requires systemState(sys, srvs, brks) && s in srvs
+  {
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    val ss := sloc(s).srv_status;
+    if (ss == serverUp) {
+      ghost var srvs': Set[ServerType];
+      unfold systemState(sys)[srvs' := srvs'];
+      var res' := isServerDown(sys, s, srvs');
+      fold systemState(sys)[srvs' := srvs'];
+      // Is s down?
+      if (res') {
+        // Yes, then update the (local) status of s to 'down'.
+        sloc(s).srv_status := serverDown;
+        res := false;
+      } else {
+        // No, then s is up.
+        res := true;
+      }
+    } else {
+      // s is already down.
+      res := false;
+    }
+
+    fold serverState(sys, s);
+    unlockServer(sys, s);
+  }
+
+  // Event handler for inspecting the answer map of a server that is down.
+  proc inspectDownServerAnswerMap(sys: Ref, s: Server, b: Broker, m: Time, coordinator: Server,
+      srvs: Set[Server], brks: Set[Broker]) returns (res: AnswerState)
+    requires systemState(sys, srvs, brks) && s in srvs && b in brks && coordinator in srvs
+  {
+    // The coordinator is already locked (and later unlocked) by the caller.
+    // The coordinator's serverState invariant is already unfolded (and later folded) by the caller.
+    lockServer(sys, s); // Lock the down server s to inspect its answer map.
+    unfold serverState(sys, s);
+
+    // Return the answer state of s for pack(b,m).
+    res := aloc(s, b, m).answer;
+
+    // The local and global answer states of s for pack(b,m) will be updated (in `schedulerInspectDownServerAnswerMap`)
+    // after all the down servers are inspected.
+
+    fold serverState(sys, s);
+    unlockServer(sys, s);
+  }
+
+  // Helper function for the coordinator s to (1) inspect the answer maps of servers that are down,
+  // (2) update the coordinator's answer map for pack(b,m) based on the answer state of s',
+  // and (3) if conditions are met, inform other servers about the answer state of s' for pack(b,m).
+  proc schedulerInspectDownServerAnswerMap(sys: Ref, s: Server, b: Broker, m: Time, srvs: Set[Server], brks: Set[Broker])
+    requires systemState(sys, srvs, brks)
+    requires s in srvs
+    requires b in brks
+  {
+    lockServer(sys, s);
+    unfold serverState(sys, s);
+
+    // Initialize the indicator variable of all inquired servers having pack(b,m) as 'notReceived' to true.
+    var areAllNotReceived := true;
+
+    // Declare the result variable to store the answer state of s' for pack(b,m).
+    var res: AnswerState;
+
+    // Declare the variable to store the server that has received pack(b,m) for the later update (outside of the while-loop).
+    var sPrimeReceived: Server;
+
+    // Check the status of each server in the system.
+    var tocheck := srvs -- {|s|}; // Exclude s itself.
+    while (tocheck != {||})
+      invariant systemState(sys, srvs, brks)
+      invariant s in srvs
+      invariant b in brks
+      invariant tocheck subseteq srvs
+    {
+      var s' := choose_srv(tocheck);
+      var isUp := getServerStatus(sys, s');
+      if (!isUp) {
+        // Access the answer map of s' for pack(b,m) if s' is down.
+        res := inspectDownServerAnswerMap(sys, s', b, m, s, srvs, brks);
+
+        if (res == received) {
+          areAllNotReceived := false;
+          sPrimeReceived := s'; // Record s' for the later update (outside of the while-loop).
+        }
+        // This case should be unreachable since the state of pack(b,m) at this point should be 'undefined', 'received', or 'ignore'.
+        else if (res == undefined) {
+          areAllNotReceived := false;
+        }
+        else if (res == notReceived) {
+          // Do nothing.
+        }
+        else if (res == ignore) {
+          areAllNotReceived := false;
+        }
+      }
+      tocheck := tocheck -- {|s'|};
+    }
+
+    // Obtain the answer state of s for pack(b,m).
+    val a' := aloc(s,b,m).answer;
+
+    // Check whether s is serving as a coordinator for pack(b,m).
+    ghost var a: AnswerState;
+    a :| own(aloc(s,b,m).answer, a, 0.5);
+    unfold serverRecoveryState(s, b, m, a);
+
+    val state := aloc(s,b,m).srv_state; // Extract the server state of s for pack(b,m).
+    if (state == coordRecovery(state.cresp)) {
+      val all_srvs := s.srv_servers;
+      var all_brks := s.srv_brokers;
+
+      // If all inquired servers have not received pack(b,m), or if any of them has ignored pack(b,m), then send "b is down, ignore pack(m, b)" to all servers.
+      if (areAllNotReceived || (!areAllNotReceived && res == ignore)) {
+          aloc(s,b,m).srv_state := coordRecovery(state.cresp);
+          if (state.cresp == all_srvs) {
+            ghost var srvs': Set[ServerType];
+            unfold systemState(sys)[srvs' := srvs'];
+            aloc(s,b,m).answer := ignore;
+            ghost var ag: AnswerState;
+            unfold systemRecoveryState(b, m, srvs)[ ag := a ];
+            fpu(rloc(b,m).globalAnswer, auth(srvs, srvs, {||}, ag), auth(srvs, srvs, {||}, ignore));
+            fold systemRecoveryState(b, m, srvs)[ resp := all_srvs, todo := {||}, a := ignore ];
+            fold systemState(sys)[srvs' := srvs'];
+            a := ignore;
+            // Inform all servers that b is down and pack(b,m) is ignored.
+            spawn schedulerCoordinatorRecoveryResponse(sys, s, b, m, false, all_srvs, all_brks);
+            bloc(s,b).brk_status := brokerDown;
+          }
+      }
+      // Otherwise, if any of the inquired servers has received pack(b,m), then send "b is ok, pack(m, b)" to all servers.
+      else if (!areAllNotReceived && res == received && a' == undefined) {
+        ghost var srvs': Set[ServerType];
+        unfold systemState(sys)[srvs' := srvs'];
+        aloc(s,b,m).answer := received;
+        fold systemState(sys)[srvs' := srvs'];
+        a := received;
+        // Inform all servers that b is up and pack(b,m) is received.
+        spawn schedulerCoordinatorRecoveryResponse(sys, s, b, m, true, all_srvs, all_brks);
+        // b's status remains 'up'.
+      }
+    }
+    else {
+      // Do nothing (ignore this response) since s is not a coordinator (for pack(b,m)).
+    }
+
+    fold serverRecoveryState(s, b, m, a);
+    fold serverState(sys, s);
+    unlockServer(sys, s);
+  }
+
+  // Procedure to initialize the (global) system.
+  // TODO(zzmic): Add a while-loop (or while-loops) in the procedure body to allocate infinite length of arrays (and similar data structures) for each server.
+  proc initializeSystem(sys: Ref, ms: Set[Time], srvs: Set[Server], brks: Set[Broker])
+    ensures forall b: Broker, m: Time :: systemRecoveryState(b, m, srvs)
+    // ensures systemState(sys, srvs, brks)
+    // ensures forall s: Server, b: Broker, m: Time, a: AnswerState :: serverRecoveryState(s, b, m, a)
+    // ensures forall s: Server :: serverState(sys, s, srvs, brks)
+  {
+    sys := new (
+      servers: AgreeRefSet.agree(srvs),
+      brokers: AgreeRefSet.agree(brks),
+      // TODO(zzmic): Assume that the system has no answer state for any pack(b,m) at the beginning.
+      // globalAnswer: AnswerRA.empty,
+      // Assume that the system has no servers that are down at the beginning.
+      downSrvs: AuthServerSet.auth(ServerSetRA.set_constr({||}))
+    );
+
+    var brks' := brks;
+    var brks'' := brks;
+    while (brks' != {||})
+      invariant brks' subseteq brks
+      invariant forall b: Broker, m: Time :: (b in brks'' && m in ms) ==> systemRecoveryState(b, m, srvs)
+    {
+      var b := choose_srv(brks');
+      var ms' := ms;
+      var ms'' := ms;
+      while (ms' != {||})
+        invariant ms' subseteq ms
+        invariant forall m: Time :: m in ms'' ==> systemRecoveryState(b, m, srvs)
+      {
+        var m := choose_m(ms');
+        // TODO(zzmic): Initialize the answer state of each b for each m to 'undefined'.
+        // new (rloc(b, m).globalAnswer, auth(srvs, {||}, {||}, undefined));
+        ms' := ms' -- {|m|};
+        ms'' := ms'' ++ {|m|};
+      }
+      brks' := brks' -- {|b|};
+      brks'' := brks'' ++ {|b|};
+    }
+  }
+}

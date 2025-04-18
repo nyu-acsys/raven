@@ -118,7 +118,7 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
               | true -> assume_expr spec.spec_form
               (* Rewriter.return () *)
               | false ->
-                  Error.fail_with (Stmt.spec_error_msg spec curr_callable)
+                  Error.fail_with (Stmt.spec_error_msg spec curr_callable (Stmt.to_loc stmt))
               (* match (Stmt.spec_error_msg spec curr_callable) with
                  | None -> Error.verification_error stmt.stmt_loc "Assertion is not valid"
                  | Some e ->

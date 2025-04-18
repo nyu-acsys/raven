@@ -1,0 +1,50 @@
+field v: Int
+field l: Ref
+field r: Ref
+
+pred tree(x: Ref) {
+  x == null
+    ? true
+    : (exists vv: Int, vl: Ref, vr: Ref :: own(x.v, vv)
+          && own(x.l, vl) && tree(vl)
+          && own(x.r, vr) && tree(vr))
+}
+
+
+proc tree_delete_min(x: Ref) returns (z: Ref)
+  requires x != null && tree(x)
+  ensures tree(z)                  /* POST1 */
+{
+  var p: Ref := x;
+  
+  unfold tree(p);
+  var pl := p.l;
+
+  if (pl == null) {
+    z := p.r;
+  } else {
+    var abort := true;
+    while (!abort)
+      invariant p != null && own(p.l, pl) && tree(pl) && pl != null
+    {
+      unfold tree(pl);
+      var pll := pl.l;
+
+      if (pll != null) {
+        p := pl;
+        pl := pl.l;
+      } else {
+        abort := true;
+      }  
+
+    }
+
+    unfold tree(pl);
+    
+    var plr := pl.r;
+    p.l := plr;
+
+    z := x;
+    assume false;
+  }
+}

@@ -19,7 +19,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   | Loop loop_desc ->
       let loop_contract =
         List.map loop_desc.loop_contract ~f:(fun spec ->
-            let error callee =
+            let error callee loc =
               ( Error.Verification,
                 Expr.to_loc spec.spec_form,
                 if Ident.(QualIdent.unqualify callee = call_id) then
@@ -39,21 +39,31 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   let call_decl = call |> Callable.to_decl in
   let call_decl_postcond =
     List.map call_decl.call_decl_postcond ~f:(fun spec ->
-        let error =
+        let error _ loc =
+          Error.Verification,
+          loc,
+          "A postcondition may not hold at this return point"
+        in
+        let error_rel =
           ( Error.RelatedLoc,
             spec.spec_form |> Expr.to_loc,
             "This is the postcondition that may not hold" )
         in
-        { spec with spec_error = spec.spec_error @ [Stmt.mk_const_spec_error error] })
+        { spec with spec_error = spec.spec_error @ [error; Stmt.mk_const_spec_error error_rel] })
   in
   let call_decl_precond =
     List.map call_decl.call_decl_precond ~f:(fun spec ->
-        let error =
+        let error _ loc =
+          Error.Verification,
+          loc,
+          "A precondition may hold for this call"
+        in
+        let error_rel =
           ( Error.RelatedLoc,
             spec.spec_form |> Expr.to_loc,
             "This is the precondition that may not hold" )
         in
-        { spec with spec_error = spec.spec_error @ [ Stmt.mk_const_spec_error error ] })
+        { spec with spec_error = spec.spec_error @ [error; Stmt.mk_const_spec_error error_rel ] })
   in
   let call_decl = { call_decl with call_decl_postcond; call_decl_precond } in
   let+ call_def =
@@ -1411,12 +1421,9 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                { spec with spec_form }
              in *)
           let spec_error =
-            let error =
-              ( Error.Verification,
-                stmt.stmt_loc,
-                "A precondition may not hold for this call" )
-            in
-            [ Stmt.mk_const_spec_error error ]
+            match List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_error) with
+            | (_ :: _ as err) :: _ -> err
+            | _ -> []
           in
           let spec_form =
             Stmt.mk_spec
@@ -1534,22 +1541,10 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
             List.filter_map c.call_decl.call_decl_postcond ~f:(fun spec ->
                 if spec.spec_atomic then None
                 else
-                  let error =
-                    ( Error.Verification,
-                      loc |> Loc.to_end,
-                      "A postcondition may not hold at this return point" )
-                  in
-                  let spec =
-                    {
-                      spec with
-                      spec_error =
-                        Stmt.mk_const_spec_error error :: spec.spec_error;
-                    }
-                  in
                   Some
                     (Stmt.mk_exhale_spec
                        ~cmnt:("postcond: " ^ Expr.to_string spec.spec_form)
-                       ~loc:(Expr.to_loc spec.spec_form)
+                       ~loc:(Stmt.to_loc body |> Loc.to_end)
                        spec))
           in
 
@@ -2038,7 +2033,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
                      out_arg1.var_loc,
                      "This output parameter may not be uniquely determined by the input parameter(s)")
                   in
-                  Stmt.mk_spec ~spec_error:[fun _ -> error] spec_expr)
+                  Stmt.mk_spec ~spec_error:[fun _ _ -> error] spec_expr)
             in
 
             (in_args @ out_args1 @ out_args2, renamings1, renamings2, postconds)

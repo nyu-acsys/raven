@@ -1228,13 +1228,13 @@ module Stmt = struct
     spec_form : expr;
     spec_atomic : bool;
     spec_comment : string option;
-    spec_error : (qual_ident -> Error.t) list;
+    spec_error : (qual_ident -> Loc.t -> Error.t) list;
   }
 
-  let mk_const_spec_error error = (fun _ -> error)
+  let mk_const_spec_error error = (fun _ _ -> error)
 
-  let spec_error_msg spec call_id =
-    List.map ~f:(fun msg -> msg call_id) spec.spec_error
+  let spec_error_msg spec call_id loc =
+    List.map ~f:(fun msg -> msg call_id loc) spec.spec_error
 
   type var_def = { var_decl : var_decl; var_init : expr option }
 

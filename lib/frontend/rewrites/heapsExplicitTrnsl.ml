@@ -382,7 +382,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
              loc,
              "This iterated separating conjunction may not be injective on the quantified variable(s)")
           in
-          Stmt.mk_spec ~spec_error:[fun _ -> error] spec_expr1
+          Stmt.mk_spec ~spec_error:[fun _ _ -> error] spec_expr1
         ) in
 
         let postcond2 = (
@@ -424,7 +424,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
              loc,
              "This iterated separating conjunction may not be injective on the quantified variable(s)")
           in
-          Stmt.mk_spec ~spec_error:[fun _ -> error] spec_expr2
+          Stmt.mk_spec ~spec_error:[fun _ _ -> error] spec_expr2
         ) in
         
         [], [postcond1; postcond2]

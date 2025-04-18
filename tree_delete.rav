@@ -1,0 +1,92 @@
+field v: Int
+field l: Ref
+field r: Ref
+
+pred tree(x: Ref) {
+  x == null
+    ? true
+    : (exists vv: Int, vl: Ref, vr: Ref :: own(x.v, vv)
+          && own(x.l, vl) && tree(vl)
+          && own(x.r, vr) && tree(vr))
+}
+
+pred tree_hole(x: Ref, y: Ref) {
+  x == y 
+    ? true
+    : (exists vv: Int, vl: Ref, vr: Ref :: own(x.v, vv)
+          && own(x.l, vl) && tree_hole(vl, y)
+          && own(x.r, vr) && tree(vr))
+}
+
+lemma compose_tree(x: Ref, y: Ref) 
+  requires tree_hole(x, y) && tree(y)
+  ensures tree(x)
+{
+  unfold tree_hole(x, y);
+  if (x != y) {
+    var xl := x.l;
+    compose_tree(xl, y);
+    fold tree(x);
+  }
+}
+
+lemma compose_hole(x: Ref, y: Ref, z: Ref) 
+  requires tree_hole(x, y) && tree_hole(y, z)
+  ensures tree_hole(x, z)
+{
+  unfold tree_hole(x, y);
+  if (x != y) {
+    var xl := x.l;
+    compose_hole(xl, y, z);
+    fold tree_hole(x, z);
+  }
+}
+
+
+proc tree_delete_min(x: Ref) returns (z: Ref)
+  requires x != null && tree(x)
+  ensures tree(z)
+{
+  var p: Ref := x;
+  
+  unfold tree(p);
+  var pl := p.l;
+
+  if (pl == null) {
+    z := p.r;
+  } else {
+    fold tree_hole(x, p);
+    var abort := true;
+    while (!abort)
+      invariant p != null && pl != null && own(p.l, pl) && tree(pl)
+      invariant exists pr: Ref :: own(p.r, pr) && tree(pr)
+      invariant exists pv: Int :: own(p.v, pv)
+      invariant tree_hole(x, p)
+    {
+      unfold tree(pl);
+      var pll := pl.l;
+
+      if (pll != null) {
+        var oldp := p;
+        p := pl;
+        pl := pll;
+        fold tree_hole(p, p);
+        fold tree_hole(oldp, p);
+        compose_hole(x, oldp, p);
+      } else {
+        fold tree(pl);
+        abort := true;
+      }  
+
+    }
+
+    unfold tree(pl);
+    
+    var plr := pl.r;
+    p.l := plr;
+
+    z := x;
+    fold tree(p);
+    compose_tree(x, p);
+  }
+}
