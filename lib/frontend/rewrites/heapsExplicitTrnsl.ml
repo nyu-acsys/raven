@@ -4383,7 +4383,8 @@ module TrnslExhale = struct
         in
 
         let assert_heap_valid =
-          Stmt.mk_assert_expr ~loc ~spec_error
+          Stmt.mk_assert_expr ~loc ~spec_error:(spec_error @ [Stmt.mk_const_spec_error
+                           (Error.RelatedLoc, Expr.to_loc expr, "This own predicate may not hold")])
             (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var field_heap_valid_fn)
                [ field_heap_expr ])
         in
@@ -4667,7 +4668,8 @@ module TrnslExhale = struct
                 ^ Stdlib.Format.asprintf "%a" Expr.pr
                     (Expr.mk_binder Forall univ_vars_list
                       (Expr.mk_impl (Expr.mk_and conds) expr)))
-              ~spec_error assert_expr
+              ~spec_error:(spec_error @ [Stmt.mk_const_spec_error
+                           (Error.RelatedLoc, Expr.to_loc e, "This assertion may not hold")]) assert_expr
           in
           (* let assume_stmt = (Stmt.mk_assume_expr ~loc assert_expr) in *)
           (* Rewriter.return (Stmt.mk_block_stmt ~loc [assume_stmt; assert_stmt]) *)
@@ -4959,9 +4961,8 @@ module TrnslExhale = struct
                   let assert_heap_valid =
                     Stmt.mk_assert_expr ~loc
                       ~spec_error:
-                        (Stmt.mk_const_spec_error
-                           (Error.RelatedLoc, loc, "This predicate may not hold")
-                        :: spec_error)
+                        (spec_error @ [Stmt.mk_const_spec_error
+                           (Error.RelatedLoc, Expr.to_loc e, "This predicate may not hold")])
                       (Expr.mk_app ~loc ~typ:Type.bool
                          (Expr.Var pred_heap_valid_fn) [ pred_heap_expr ])
                   in

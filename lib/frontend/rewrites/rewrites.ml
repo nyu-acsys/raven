@@ -44,12 +44,12 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
           loc,
           "A postcondition may not hold at this return point"
         in
-        let error_rel =
+        (*let error_rel =
           ( Error.RelatedLoc,
             spec.spec_form |> Expr.to_loc,
             "This is the postcondition that may not hold" )
-        in
-        { spec with spec_error = spec.spec_error @ [error; Stmt.mk_const_spec_error error_rel] })
+        in*)
+        { spec with spec_error = spec.spec_error @ [error] })
   in
   let call_decl_precond =
     List.map call_decl.call_decl_precond ~f:(fun spec ->
@@ -58,12 +58,12 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
           loc,
           "A precondition may hold for this call"
         in
-        let error_rel =
+        (*let error_rel =
           ( Error.RelatedLoc,
             spec.spec_form |> Expr.to_loc,
             "This is the precondition that may not hold" )
-        in
-        { spec with spec_error = spec.spec_error @ [error; Stmt.mk_const_spec_error error_rel ] })
+        in*)
+        { spec with spec_error = spec.spec_error @ [error] })
   in
   let call_decl = { call_decl with call_decl_postcond; call_decl_precond } in
   let+ call_def =

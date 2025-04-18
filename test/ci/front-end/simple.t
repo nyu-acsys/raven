@@ -6,5 +6,5 @@
   [Error] File "./simple.rav", line 9, columns 10-16:
   9 |   ensures x == 5
                 ^^^^^^
-  Related Location: This is the postcondition that may not hold.
+  Related Location: This assertion may not hold.
   [1]
