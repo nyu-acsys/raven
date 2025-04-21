@@ -23,7 +23,7 @@ interface PArray : Library.Type {
     ensures exists m: Map[Int, E] :: parr(a, l, m)
 }
 
-interface UnionFind[A: PArray] : Library.Type {
+module UnionFind[A: PArray] : Library.Type {
   rep type T = data {
     case uf(parent: A.T, rank: A.T)
   }
