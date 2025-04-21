@@ -188,7 +188,6 @@ module UnionFind[A: PArray] : Library.Type {
       r0 :| valid(u1, r0);
       assert rep_x == repr(r0, x);
       unfold valid(u1);
-      //assert (forall x: Int :: {r0.par[x]} 0 <= x < r0.len ==> 0 <= r0.par[x] < r0.len);
       val pa := A.set(u1.parent, x, rep_x);
       u1 := uf(pa, u1.rank);
       ghost var mp: Map[Int, Int];
