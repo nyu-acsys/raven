@@ -261,11 +261,19 @@ interface GenericTypeTag {
   val tag: TypeTag;
 }
 
-module Main[G: GenericTypeTag]: DataInvariants {
+interface Main[G: GenericTypeTag]: DataInvariants {
+  field rustData: RustValue;
+  pred placeTypedBy(l: Ref, v: RustValue, tag: TypeTag);
+  axiom unfoldPlaceTypedBy(l: Ref, v: RustValue, tag: TypeTag, m: ResolutionMap)
+    requires placeTypedBy(l, v, tag) && own(l, rustData, v)
+    ensures typedBy(v, tag, m);
+  axiom foldPlaceTypedBy(l: Ref, v: RustValue, tag: TypeTag, m: ResolutionMap)
+
   module RawVec[G: GenericTypeTag] {
     field pointedBuf: RustValue;
     val lenForSD: Int = 2;
     val mapForSD: Map[Int, TypeTag] = {| i: Int :: (i == 0) ? TypeTag.isRawPointer() : TypeTag.isInt() |};
+    val typeID: Int = 0;
     func isBufField(xs: RustValue, buf: Ref, m: ResolutionMap) returns (res: Bool) {
       (xs == RustValue.struct(xs.RustValue.lenForStruct, xs.RustValue.mapForStruct)) &&
       refDerefsTo(xs.RustValue.mapForStruct[0], RustValue.rawPointer(buf), m)
@@ -297,9 +305,50 @@ module Main[G: GenericTypeTag]: DataInvariants {
       fold dataInv(t, m)[structure := structure, bufField := bufField, capField := capField, buf := buf, zs := zs];
     }
   }
+
+  // module Vec[G: GenericTypeTag] {
+  //   module RawVecI = RawVec[G];
+  //   field pointedBuf: RustValue;
+  //   val lenForSD: Int = 2;
+  //   val mapForSD: Map[Int, TypeTag] = {| i: Int :: (i == 0) ? TypeTag.isStructuredData(RawVecI.typeID) : TypeTag.isInt() |};
+  //   val typeID: Int = 1;
+  //   // func isRawVecField(xs: RustValue, rawVec: RustValue, m: ResolutionMap) returns (res: Bool) {
+  //   //   (xs == RustValue.struct(xs.RustValue.lenForStruct, xs.RustValue.mapForStruct)) &&
+  //   //   refDerefsTo(xs.RustValue.mapForStruct[0], RustValue.rawPointer(rawVec), m)
+  //   // }
+  //   // func isLenField(xs: RustValue, len: Int, m: ResolutionMap) returns (res: Bool) {
+  //   //   (xs == RustValue.struct(xs.RustValue.lenForStruct, xs.RustValue.mapForStruct)) &&
+  //   //   refDerefsTo(xs.RustValue.mapForStruct[1], RustValue.literalInt(len), m)
+  //   // }
+  //   pred dataInv(xs: RustValue, m: ResolutionMap) { true }
+  //   // pred dataInv(xs: RustValue, m: ResolutionMap) {
+  //   //   exists structure: RustValue, bufField: Ref, capField: Int, buf: RustValue, zs: RustValue ::
+  //   //     derefsTo(xs, structure, m) &&
+  //   //     isBufField(structure, bufField, m) &&
+  //   //     isCapField(structure, capField, m) &&
+  //   //     own(bufField, pointedBuf, buf, 1.0) &&
+  //   //     typedBy(buf, TypeTag.isArrayOf(G.tag), m)
+  //   // }
+  //   lemma dataInvFromBorrow(t: RustValue, m: ResolutionMap)
+  //     requires (t == RustValue.isDeref(t.RustValue.borrowNameForDeref))
+  //     &&
+  //     dataInv(m[t.RustValue.borrowNameForDeref], m)
+  //     ensures dataInv(t, m) {
+  //     var structure: RustValue;
+  //     var bufField: Ref;
+  //     var capField: Int;
+  //     var buf: RustValue;
+  //     var zs: RustValue;
+  //     unfold dataInv(m[t.RustValue.borrowNameForDeref], m)[structure := structure, bufField := bufField, capField := capField, buf := buf, zs := zs];
+  //     assert (derefsTo(t, structure, m));
+  //     fold dataInv(t, m)[structure := structure, bufField := bufField, capField := capField, buf := buf, zs := zs];
+  //   }
+  // }
+
+  // module VecI = Vec[G];
   module RawVecI = RawVec[G];
-  val lensForSD: Map[Int, Int] = {| i: Int :: 1 |};
-  val mapsForSD: Map[Int, Map[Int, TypeTag]] = {| i: Int :: RawVecI.mapForSD |}
+  val lensForSD: Map[Int, Int] = {| i: Int :: i == RawVecI.typeID ? 1 : 1 |};
+  val mapsForSD: Map[Int, Map[Int, TypeTag]] = {| i: Int :: i == RawVecI.typeID ? RawVecI.mapForSD : RawVecI.mapForSD |}
   pred dataInvs(i: Int, v: RustValue, m: ResolutionMap) {
     RawVecI.dataInv(v, m)
   }
@@ -308,9 +357,15 @@ module Main[G: GenericTypeTag]: DataInvariants {
     &&
     dataInvs(i, m[t.RustValue.borrowNameForDeref], m)
     ensures dataInvs(i, t, m) {
-    unfold dataInvs(i, m[t.RustValue.borrowNameForDeref], m);
-    RawVecI.dataInvFromBorrow(t, m);
-    fold dataInvs(i, t, m);
+    if (i == RawVecI.typeID) {
+      unfold dataInvs(i, m[t.RustValue.borrowNameForDeref], m);
+      RawVecI.dataInvFromBorrow(t, m);
+      fold dataInvs(i, t, m);
+    } else {
+      unfold dataInvs(i, m[t.RustValue.borrowNameForDeref], m);
+      RawVecI.dataInvFromBorrow(t, m);
+      fold dataInvs(i, t, m);
+    }
   }
 }
 
