@@ -345,12 +345,15 @@ interface VecI: DataInvariant {
     requires getUncheckedMutPre(xs, idx, len, m, gamma, gammaI)
     ensures getUncheckedMutPost(xs, idx, len, m, gamma, gammaI)
   {
+    // Unfold the precondition:
     var structure: RustValue;
     unfold getUncheckedMutPre(xs, idx, len, m, gamma, gammaI)[structure := structure];
+    // Unfold the typedBy predicate, following dereferences:
     var trail: TypeTrail;
     unfold typedBy(xs, TypeTag.isStructuredData(), m)[trail := trail];
     var pointed: RustValue;
     unfold typedByAtTrail(xs, TypeTag.isStructuredData(), m, trail)[pointed := pointed];
+    // Yoink the invariant from the data
     if (trail == TypeTrail.structuredData(trail.TypeTrail.trailForSD)) {
       unfold isStructuredDataIsTypedBy(pointed, m, trail.TypeTrail.trailForSD);
       dataInvFromDerefsTo(xs, pointed, m);
@@ -358,17 +361,27 @@ interface VecI: DataInvariant {
       fold typedByAtTrail(xs, TypeTag.isYoinked(), m, TypeTrail.yoinked(trail.TypeTrail.trailForSD))[pointed := pointed];
       fold typedBy(xs, TypeTag.isYoinked, m)[trail := TypeTrail.yoinked(trail.TypeTrail.trailForSD)];
     }
+    // Unfold the invariant
     var cap: Int;
     var len1: Int;
     var borrowName: Ref;
     var map: Map[Int, Ref];
     unfold dataInv(pointed, m)[cap := cap, len1 := len, borrowName := borrowName, map := map];
+    // The field is accessed by both the precondition and the invariant;
+    // assert that they are equal
+
     isBufFieldSurj(structure, gamma, borrowName, m);
     isLenFieldSurj(structure, len, len1, m);
+    // Resolve the prophecy variable
     exhale own(gamma, ownProphecy, UnitA.agree(Unit.unit()));
     assume (m[gamma] == RustValue.array(cap, map[idx := gammaI]));
     resolveProphecy(gamma, RustValue.array(cap, map[idx := gammaI]), m);
+    // Fold the postcondition
     fold isProphecy(gammaI);
     fold getUncheckedMutPost(xs, idx, len, m, gamma, gammaI)[map := map];
+    // Because we have no place types yet, the type is only asserted
+    // over the pure rust value "xs";
+    // no need to reestablish the type at a location.
+    // So we are done.
   }
 }
