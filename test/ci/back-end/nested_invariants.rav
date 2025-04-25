@@ -1,0 +1,27 @@
+field f: Int
+
+inv inv1(x: Ref) {
+  inv2(x)
+}
+
+inv inv2(x: Ref) {
+  inv3(x)
+}
+
+inv inv3(x: Ref) {
+  exists v: Int :: own(x.f, v, 1.0)
+}
+
+proc p(x: Ref)
+  requires inv1(x)
+{
+  unfold inv1(x);
+  unfold inv2(x);
+  unfold inv3(x);
+  
+  x.f := 2;
+
+  fold inv3(x);
+  fold inv2(x);
+  fold inv1(x);
+}
