@@ -1,0 +1,58 @@
+include "array.rav"
+
+interface PArray : Library.Type {
+  module E : Library.Type
+
+  rep type T
+
+  module A = Array[E]
+
+  pred parr(a:T; l: Int, m: Map[Int, E])
+
+  proc get(a: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost l: Int)
+    returns (res: E)
+    requires parr(a, l, m)
+    requires 0 <= x < l
+    ensures parr(a, l, m)
+    ensures m[x] == res
+
+  proc set(a: T, x: Int, e: E, implicit ghost m: Map[Int, E], implicit ghost l: Int)
+    returns (a1: T)
+    requires parr(a, l, m)
+    requires 0 <= x < l
+    ensures parr(a1, l, m[x := e])
+
+  proc create(l: Int, d: E)
+    returns (a: T)
+    ensures parr(a, l, {| i: Int :: 0 <= i < l ? d : A.default |})
+}
+
+interface Make[E: Library.Type] : PArray {
+  rep type T = Ref
+
+  type Desc = data {
+    case base(elements: A.T)
+    case diff(adata: T, index: Int, value: E)
+  }
+
+  field dist: Int
+  field desc: Desc
+
+  pred parr(a: T; l: Int, m: Map[Int, E]) {
+    exists av: Desc, d: Int ::
+    own(a.desc, av) && own(a.dist, d) &&
+    (av == base(av.elements) ? 
+      A.arr(av.elements, m) && l == A.length(av.elements) :
+      (exists m1: Map[Int, E] :: parr(av.adata, l, m1) && m == m1[av.index := av.value])
+    )
+  }
+
+  proc create(l: Int, d: E)
+    returns (a: T)
+    ensures parr(a, l, {| i: Int :: 0 <= i < l ? d : A.default |})
+  {
+    val elems := A.alloc(l, d);
+    a := new(desc: base(elems), dist: 0);
+    fold parr(a);
+  }
+}
