@@ -477,9 +477,22 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
 let ident_to_skolem_fn_ident ~loc ident =
   Ident.fresh loc ("$skolem_" ^ Ident.to_string ident)
 
+type skolem_function_def = {
+  universal_quants : universal_quants;
+  var_decl : var_decl;
+  preconds : expr list;
+  postconds : expr list;
+  optn_args : (var_decl * expr) list;
+  skolem_fn_id : ident;
+  loc: location;
+}
+
+(** `generate_skolem_function` generates the symbol for the skolem function to be added. 
+  These are type-checked and added to the state by `generate_skolem_functions`.
+*)
 let generate_skolem_function (universal_quants : universal_quants)
     (var_decl : var_decl)  ?(preconds : expr list = []) ?(postconds : expr list = [])
-    ?(optn_args : (var_decl * expr) list = []) ~skolem_id ~loc : expr Rewriter.t =
+    ?(optn_args : (var_decl * expr) list = []) ~skolem_id ~loc : (Module.symbol * expr) Rewriter.t =
   let open Rewriter.Syntax in
   let univ_quants_list = universal_quants.univ_vars in
 
@@ -584,11 +597,6 @@ let generate_skolem_function (universal_quants : universal_quants)
 
   let symbol = Module.CallDef callable in
 
-  let* _ =
-    Rewriter.introduce_typecheck_symbol ~loc ~f:Frontend.Typing.process_symbol
-      symbol
-  in
-
   let ret_expr_args_list =
     List.map univ_quants_list ~f:(fun (_, vd) -> Expr.from_var_decl vd)
     @ List.map optn_args ~f:(fun (_, expr) -> expr)
@@ -616,7 +624,28 @@ let generate_skolem_function (universal_quants : universal_quants)
     Expr.pr ret_expr
   ));
 
-  Rewriter.return ret_expr
+  Rewriter.return (symbol, ret_expr)
+
+
+let generate_skolem_functions (skolem_fns: skolem_function_def list) = 
+  let open Rewriter.Syntax in
+  let* symbols__ret_exprs = Rewriter.List.map skolem_fns ~f:(fun skolem_fn ->
+    generate_skolem_function 
+      skolem_fn.universal_quants
+      skolem_fn.var_decl
+      ~preconds: skolem_fn.preconds
+      ~postconds: skolem_fn.postconds
+      ~optn_args: skolem_fn.optn_args
+      ~skolem_id: skolem_fn.skolem_fn_id
+      ~loc: skolem_fn.loc
+  ) in
+
+  let symbols, ret_exprs = List.unzip symbols__ret_exprs in
+
+  let+ _ = Rewriter.introduce_typecheck_symbols ~loc:(List.hd_exn skolem_fns).loc ~f:Frontend.Typing.process_symbol
+  symbols in
+
+  ret_exprs
 
 
 
@@ -1551,10 +1580,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
     let exis_vars =
         List.map bind_lhs ~f:(fun e ->
             let ident_name = 
-              if List.length bind_desc.bind_lhs = 1 then
-                "$bind_" ^ QualIdent.to_string (List.hd_exn bind_desc.bind_lhs)
-              else
-                "$bind"
+              "$bind_" ^ QualIdent.to_string (Expr.to_qual_ident e)
             in
 
             Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true 
@@ -3486,7 +3512,7 @@ module TrnslExhale = struct
                 (Map.to_alist witnesses)
           );
 
-          let* skolemized_exprs =
+          let* skolem_fn_records =
             Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
                 let* preconds, postconds, optn_args =
                   match Map.find witness_args_conds_exprs_map var_decl.var_name with
@@ -3565,13 +3591,19 @@ module TrnslExhale = struct
                   preconds_sanitized, postconds_sanitized
                 in
 
-                let+ expr =
-                  generate_skolem_function univ_vars var_decl ~skolem_id:skolem_ident ~preconds:preconds ~postconds:postconds_sanitized
-                    ~optn_args ~loc:var_decl.var_loc
-                in
-
-                expr)
+                Rewriter.return {
+                  universal_quants = univ_vars;
+                  var_decl = var_decl;
+                  preconds = preconds_sanitized;
+                  postconds = postconds_sanitized;
+                  optn_args = optn_args;
+                  skolem_fn_id = skolem_ident;
+                  loc = var_decl.var_loc;
+                }
+              )
           in
+
+          let* skolemized_exprs = generate_skolem_functions skolem_fn_records in
 
           let* temp_skolem_var_decls__wtns_specs_list : (var_decl * expr) list =
             Rewriter.List.map (List.zip_exn var_decls skolemized_exprs)

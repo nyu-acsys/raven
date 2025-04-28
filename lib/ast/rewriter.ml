@@ -228,45 +228,49 @@ let introduce_symbol symbol s =
  * This function is almost always intended to be `Typing.process_symbol` function. 
  * However, this cannot be set statically since 
  * that creates a recursive dependency between `module Rewriter` and `module Typing`. *)
-let introduce_typecheck_symbol ~loc
+let introduce_typecheck_symbols ~loc
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
-    (symbol : Module.symbol) (s : 'a state) : 'a state * qual_ident =
-
+    (symbols : Module.symbol list) (s : 'a state) : 'a state * qual_ident list =
 
   Logs.debug (fun m -> m 
-    "Rewriter.introduce_typecheck_symbol: symbol = %a" 
-      AstDef.Ident.pr (AstDef.Symbol.to_name symbol)
-  );
-  Logs.debug (fun m -> m 
-    "Rewriter.introduce_typecheck_symbol: symbol = %a" 
-      Symbol.pr symbol
+    "Rewriter.introduce_typecheck_symbols: symbols = %a" 
+      (Util.Print.pr_list_comma (fun ppf symbol -> Stdlib.Format.fprintf ppf "%a -> %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol) Symbol.pr symbol)) (symbols)
   );
     
   let current_scope = s.state_table.tbl_curr.scope_id in
-  let qual_ident = QualIdent.append current_scope (Symbol.to_name symbol) in
+  let symbol__qual_idents = List.map ~f:(fun symbol -> symbol, (QualIdent.append current_scope (Symbol.to_name symbol))) symbols in
 
   Logs.debug (fun m -> m 
     "
-      Rewriter.introduce_typecheck_symbol: current_scope = %a \n \
-      Rewriter.introduce_typecheck_symbol: qual_ident = %a \n \
+      Rewriter.introduce_typecheck_symbols: current_scope = %a \n \
+      Rewriter.introduce_typecheck_symbols: qual_ident = %a \n \
     " 
       QualIdent.pr current_scope
-      QualIdent.pr qual_ident
+      (Util.Print.pr_list_comma QualIdent.pr) (snd (List.unzip symbol__qual_idents))
   );
 
-  let (s, _), already_defined =
-    try (declare_symbol symbol s, false) with _ -> ((s, ()), true)
-  in
+  let s, symbol__qual_idents__already_defineds = List.fold_map ~init:s symbol__qual_idents ~f:(fun s (symbol, qual_iden) ->
+    let (s, _), already_defined = 
+        try (declare_symbol symbol s, false) with _ -> 
+          ((s, ()), true)  
+    in
+    s, (symbol, qual_iden, already_defined)
+  )  in
 
   (* if symbol is getting added to parent scope (see appropriate_scope in SymbolTbl.add_symbol, then we need to go to parent scope before calling `f` on `symbol`) *)
-
-  (* let s, symbol = f symbol s in *)
-  let (s, symbol), qual_ident =
+  let s, (symbol__qual_idents) = List.fold_map ~init:s symbol__qual_idents__already_defineds ~f:(fun s (symbol, qual_ident, already_defined) ->
     match symbol with
     | VarDef _ ->
-        if not already_defined then (f symbol s, qual_ident)
-        else ((s, symbol), qual_ident)
+        if not already_defined then 
+          let (s, symbol) = f symbol s in 
+          s, (symbol, qual_ident)
+        else (s, (symbol, qual_ident))
     | _ ->
+        Logs.debug (fun m -> m  
+            "Rewriter.introduce_typecheck_symbols: Starting to type-check: %a "
+            Symbol.pr symbol
+          );
+
         if s.state_table.tbl_curr.scope_is_local then
           let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
           let curr_scope_symbols = List.hd_exn s.state_new_symbols in
@@ -297,21 +301,35 @@ let introduce_typecheck_symbol ~loc
             }
           in
 
-          ((s, symbol), qual_ident)
-        else (f symbol s, qual_ident)
+          (s, (symbol, qual_ident))
+        else 
+          let s, symbol = f symbol s in
+          s, (symbol, qual_ident)
+  )
   in
 
+  let symbols, qual_idents = List.unzip symbol__qual_idents in
+
   Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol end: symbol = %a" Symbol.pr symbol);
+      m "Rewriter.introduce_typecheck_symbol end: symbols = %a" (Print.pr_list_comma Symbol.pr) symbols);
 
   ( {
       s with
       state_new_symbols =
         (match s.state_new_symbols with
-        | scope :: new_symbols -> (symbol :: scope) :: new_symbols
+        | scope :: new_symbols -> (symbols @ scope) :: new_symbols
         | _ -> failwith "empty scope");
     },
-    qual_ident )
+    qual_idents )
+
+let introduce_typecheck_symbol ~loc
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    (symbol : Module.symbol) (s : 'a state) : 'a state * qual_ident =
+
+  let s, qual_idents = introduce_typecheck_symbols ~loc ~f [symbol] s in
+  
+  s, List.hd_exn qual_idents
+
 
 let introduce_toplevel_symbol ~loc
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
