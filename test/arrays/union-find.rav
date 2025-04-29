@@ -1,31 +1,15 @@
-interface PArray : Library.Type {
-  type E = Int
+include "parray.rav"
 
-  rep type T
-
-  pred parr(a:T; l: Int, m: Map[Int, E])
-
-  proc get(a: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost l: Int)
-    returns (res: E)
-    requires parr(a, l, m)
-    requires 0 <= x < l
-    ensures parr(a, l, m)
-    ensures m[x] == res
-
-  proc set(a: T, x: Int, e: E, implicit ghost m: Map[Int, E], implicit ghost l: Int)
-    returns (a1: T)
-    requires parr(a, l, m)
-    requires 0 <= x < l
-    ensures parr(a1, l, m[x := e])
-
-  proc create(l: Int)
-    returns (a: T)
-    ensures exists m: Map[Int, E] :: parr(a, l, m)
+interface IntPArray : PArray {
+  module E : Library.Type {
+    rep type T = Int
+  } 
 }
 
-module UnionFind[A: PArray] : Library.Type {
+module UnionFind[PA: IntPArray] : Library.Type {
+  
   rep type T = data {
-    case uf(parent: A.T, rank: A.T)
+    case uf(parent: PA.T, rank: PA.T)
   }
 
   type R = data {
@@ -40,9 +24,10 @@ module UnionFind[A: PArray] : Library.Type {
   }
 
   pred valid(u: T; r: R) {
-    A.parr(u.parent, r.len, r.par) &&
-    A.parr(u.rank, r.len, r.rnk) &&
-    valid_rep(r)
+    exists lck1: Ref, lck2: Ref ::
+      PA.parr(u.parent, r.len, r.par, lck1) &&
+      PA.parr(u.rank, r.len, r.rnk, lck2) &&
+      valid_rep(r)
   }
 
   func repr(r: R, x: Int) returns (res: Int) 
@@ -145,25 +130,22 @@ module UnionFind[A: PArray] : Library.Type {
     requires 0 <= l
     ensures exists r: R :: valid(u, r) && (forall x: Int :: 0 <= x < r.len ==> repr(r, x) == x)
   {
-    var pa := A.create(l);
-    var ra := A.create(l);
+    var pa := PA.create(l, 0);
+    var ra := PA.create(l, 1);
 
     var x := 0;
     while (x < l) 
       invariant 0 <= x <= l
-      invariant exists mp: Map[Int, Int] :: A.parr(pa, l, mp) &&
+      invariant exists mp: Map[Int, Int], lck: Ref :: PA.parr(pa, l, mp, lck) &&
                   (forall y: Int :: {mp[y]} 0 <= y < x ==> mp[y] == y)
-      invariant exists mr: Map[Int, Int] :: A.parr(ra, l, mr) &&
-                  (forall y: Int :: {mr[y]} 0 <= y < x ==> mr[y] == 1)
     {
-      pa := A.set(pa, x, x);
-      ra := A.set(ra, x, 1);
+      pa := PA.set(pa, x, x);
       x := x + 1;
     }
     ghost var mp: Map[Int, Int];
-    mp :| A.parr(pa, l, mp);
+    mp :| PA.parr(pa, l, mp);
     ghost var mr: Map[Int, Int];
-    mr :| A.parr(ra, l, mr);
+    mr :| PA.parr(ra, l, mr);
     ghost val r := uf_rep(mp, mr, l);
     u := uf(pa, ra);
   
@@ -178,7 +160,7 @@ module UnionFind[A: PArray] : Library.Type {
               && (forall x: Int :: {repr(r1, x)} 0 <= x < r1.len ==> repr(r1, x) == repr(r, x))
   {
     unfold valid(u, r);
-    rep_x := A.get(u.parent, x);
+    rep_x := PA.get(u.parent, x);
     fold valid(u, r);
     if (rep_x == x) {
       u1 := u;
@@ -188,12 +170,12 @@ module UnionFind[A: PArray] : Library.Type {
       r0 :| valid(u1, r0);
       assert rep_x == repr(r0, x);
       unfold valid(u1);
-      val pa := A.set(u1.parent, x, rep_x);
+      val pa := PA.set(u1.parent, x, rep_x);
       u1 := uf(pa, u1.rank);
       ghost var mp: Map[Int, Int];
-      mp :| A.parr(pa, r.len, mp);
+      mp :| PA.parr(pa, r.len, mp);
       ghost var mr: Map[Int, Int];
-      mr :| A.parr(u1.rank, r.len, mr);
+      mr :| PA.parr(u1.rank, r.len, mr);
       ghost val r1 := uf_rep(mp, mr, r.len);
       repr_compr(r0, x);
       assert repr(r0, x) == repr(r1, x);
@@ -220,14 +202,14 @@ module UnionFind[A: PArray] : Library.Type {
     r0 :| valid(u1, r0);
     
     unfold valid(u1);
-    val rnk_x1 := A.get(u1.rank, rep_x1);
-    val rnk_x2 := A.get(u1.rank, rep_x2);
+    val rnk_x1 := PA.get(u1.rank, rep_x1);
+    val rnk_x2 := PA.get(u1.rank, rep_x2);
     if (rnk_x1 < rnk_x2) {
-      val ap := A.set(u1.parent, rep_x1, rep_x2);
+      val ap := PA.set(u1.parent, rep_x1, rep_x2);
       ghost var mp: Map[Int, Int];
-      mp :| A.parr(ap, r.len, mp);
+      mp :| PA.parr(ap, r.len, mp);
       ghost var mr: Map[Int, Int];
-      mr :| A.parr(u1.rank, r.len, mr);
+      mr :| PA.parr(u1.rank, r.len, mr);
       ghost val r1 := uf_rep(mp, mr[rep_x2 := mr[rep_x2]], r.len);
       u1 := uf(ap, u1.rank);
       repr_union(r0, rep_x1, rep_x2);
@@ -235,12 +217,12 @@ module UnionFind[A: PArray] : Library.Type {
       fold valid(u1, r1);
       return u1;
     } else {      
-      val ap := A.set(u1.parent, rep_x2, rep_x1);
-      val ar := A.set(u1.rank, rep_x1, rnk_x1 + 1);
+      val ap := PA.set(u1.parent, rep_x2, rep_x1);
+      val ar := PA.set(u1.rank, rep_x1, rnk_x1 + 1);
       ghost var mp: Map[Int, Int];
-      mp :| A.parr(ap, r.len, mp);
+      mp :| PA.parr(ap, r.len, mp);
       ghost var mr: Map[Int, Int];
-      mr :| A.parr(ar, r.len, mr);
+      mr :| PA.parr(ar, r.len, mr);
       ghost val r1 := uf_rep(mp, mr, r.len);
       u1 := uf(ap, ar);
       repr_union(r0, rep_x2, rep_x1);
