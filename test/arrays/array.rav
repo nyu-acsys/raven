@@ -27,6 +27,34 @@ interface Array[E: Library.Type] {
     requires 0 <= len
     ensures length(a) == len && arr(a, {| i: Int :: 0 <= i < len ? d : default |})
 
+  proc copy(a: T, implicit ghost m: Map[Int, E]) 
+    returns (b: T)
+    requires arr(a, m)
+    ensures arr(a, m) && arr(b, m) && length(a) == length(b)
+  {
+    b := alloc(length(a), default);
+    unfold arr(b);
+
+    var i := 0;
+
+    while (i < length(a))
+      invariant 0 <= i <= length(a) && length(a) == length(b)
+      invariant arr(a, m)
+      invariant forall j: Int :: {m[j]} 0 <= j < i ==> own(loc(b, j).value, m[j])
+      invariant forall j: Int :: i <= j < length(b) ==> own(loc(b, j).value, default)
+    {
+      unfold arr(a);
+      var x := loc(a, i).value;
+      fold arr(a, m);
+      loc(b, i).value := x;
+      i := i + 1;
+    }
+    unfold arr(a);
+    fold arr(a, m);
+    assert length(a) == length(b);
+    fold arr(b, m);
+  }
+
   func injective(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
   {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 < i2 < j ==> m[i1] != m[i2]
