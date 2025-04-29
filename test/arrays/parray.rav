@@ -1,5 +1,4 @@
 include "array.rav"
-//include "../concurrent/lock/lock.rav"
 
 interface LockResource : Library.Type {
   rep type T
@@ -17,7 +16,11 @@ interface LockResource : Library.Type {
 interface Lock[R: LockResource] {
   import R.resource
 
-  module Agree = Library.Agree[R]
+  module RS : Library.Type {
+    rep type T = (R, R.S)
+  }
+
+  module Agree = Library.Agree[RS]
 
   ghost field agr: Agree
   
@@ -27,31 +30,23 @@ interface Lock[R: LockResource] {
 
   // Abstract predicate describing a lock 
   pred is_lock(l: Ref; r: R, s: R.S, b: Bool) {
-    own(l.agr, Agree.agree(r))
+    own(l.agr, Agree.agree((r, s)))
     && lock_rep(l, b)
     && (b ? true : resource(r, s))
-  }
-
-  lemma exclusive(l: Ref, r: R, s1: R.S, s2: R.S)
-    requires is_lock(l, r, s1, false) && resource(r, s2)
-    ensures false
-  {
-    unfold is_lock(l, r, s1, false);
-    R.exclusive(r);
   }
 
   proc create(r: R, implicit ghost s: R.S)
     returns (l: Ref)
     requires resource(r, s)
-    ensures is_lock(l, r, s, false)
+    ensures is_lock(l, r, s)
 
-  proc acquire(l: Ref, implicit ghost r: R, implicit ghost s: R.S, implicit ghost b: Bool)
-    atomic requires is_lock(l, r, s, b)
-    atomic ensures is_lock(l, r, s, true) && b == false && resource(r, s)
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost s: R.S)
+    atomic requires is_lock(l, r, s)
+    atomic ensures is_lock(l, r, s) && resource(r, s)
 
   proc release(l: Ref, implicit ghost r: R, implicit ghost s: R.S)
-    atomic requires is_lock(l, r, s, true) && resource(r, s)
-    atomic ensures is_lock(l, r, s, false)
+    atomic requires is_lock(l, r, s) && resource(r, s)
+    atomic ensures is_lock(l, r, s)
 }
 
 
@@ -62,7 +57,7 @@ interface PArray : Library.Type {
 
   module A = Array[E]
 
-  inv parr(a:T; l: Int, m: Map[Int, E])
+  inv parr(a:T; l: Int, m: Map[Int, E], lck: Ref)
 
   proc get(a: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost l: Int)
     returns (res: E)
@@ -109,22 +104,21 @@ interface Make[E: Library.Type, LockF: Lock] : PArray {
       ) 
     }
 
-    /*inv parr(a: Ref; len: Int, m: Map[Int, E]) {
-      exists av: Desc, d: Int ::
-      own(a.desc, av) && own(a.dist, d) &&
-      (av == base(av.elements) ? 
-        A.arr(av.elements, m) && len == A.length(av.elements) :
-        (exists m1: Map[Int, E] :: parr(av.adata, len, m1) && 0 <= av.index < len && m == m1[av.index := av.value])
-      )
-    }*/
+    lemma exclusive(r: T)
+      requires resource(r) && resource(r)
+      ensures false
+    {
+      unfold resource(r);
+      unfold resource(r);
+    }
   }
 
   module L = LockF[R]
 
   field lock: Ref
 
-  inv parr(a: T; len: Int, m: Map[Int, E]) {
-    exists b: Bool, lck: Ref ::
+  inv parr(a: T; len: Int, m: Map[Int, E], lck: Ref) {
+    exists b: Bool ::
       own(a.lock, lck) && L.is_lock(lck, a, (len, m), b)
   }
 
@@ -138,18 +132,25 @@ interface Make[E: Library.Type, LockF: Lock] : PArray {
     val m := {| i: Int :: 0 <= i < len ? d : A.default |};
     fold R.resource(a, (len, m));
     val l := L.create(a);
+    a.lock := l;
     fold parr(a, len, m);
   }
 
   proc to_array(a: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (b: A.T)
     requires parr(a, len, m)
-    ensures parr(a, len, m) && A.arr(b, m) && A.length(b) == len
-  /*{
-    val lck := a.lock;
-    L.acquire(lck);
+    ensures parr(a, len, m) && R.resource(a, (len, m)) && A.arr(b, m) && A.length(b) == len
+  {
     unfold parr(a);
+    var lck := a.lock;
+    fold parr(a);
+    unfold parr(a);
+    L.acquire(lck);
+    fold parr(a);
     
+    ghost var m1: Map[Int, E];
+    unfold R.resource(a)[ m1 := m1 ];
+
     val av := a.desc;
     if (av == base(av.elements)) {
       b := A.copy(av.elements);
@@ -157,35 +158,41 @@ interface Make[E: Library.Type, LockF: Lock] : PArray {
       b := to_array(av.adata);
       unfold A.arr(b);
       A.loc(b, av.index).A.value := av.value;
-      fold A.arr(b, m);
+      fold A.arr(b, m);      
     }
-    fold parr(a, len, m);
-  }*/
+    fold R.resource(a, (len, m))[m1 := m1];
+  }
 
-  proc rebase(a: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
+  proc rebase(pa: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (b: A.T)
-    requires parr(a, len, m)
-    ensures own(a.desc, base(b)) && (exists d: Int :: own(a.dist, d))
+    requires parr(pa, len, m)
+    ensures own(pa.desc, base(b)) && (exists d: Int :: own(pa.dist, d))
     ensures A.arr(b, m) && len == A.length(b)
-  /*{
-    b := to_array(a);
-    unfold parr(a);
-    a.desc := base(b);
-  }*/
+  {
+    b := to_array(pa);
+    unfold R.resource(pa);
+    pa.desc := base(b);
+  }
 
-  proc get(a: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost l: Int)
+  proc get(pa: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (res: E)
-    requires parr(a, l, m)
-    requires 0 <= x < l
-    ensures parr(a, l, m)
+    requires parr(pa, len, m)
+    requires 0 <= x < len
+    ensures parr(pa, len, m)
     ensures m[x] == res
-  /*{
-    val b := rebase(a);
+  {
+    val b := rebase(pa);
     unfold A.arr(b);
     res := A.loc(b, x).A.value;
     fold A.arr(b, m);
-    fold parr(a, l, m);
-  }*/
+    fold R.resource(pa, (len, m));
+    unfold parr(pa);
+    var lck := pa.lock;
+    fold parr(pa);
+    unfold parr(pa);
+    L.release(lck, pa, (len, m));
+    fold parr(pa);
+  }
 
   proc set(pa: T, x: Int, e: E, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (pb: T)
@@ -193,7 +200,7 @@ interface Make[E: Library.Type, LockF: Lock] : PArray {
     requires 0 <= x < len
     ensures parr(pa, len, m)
     ensures parr(pb, len, m[x := e])
-  /*{
+  {
     val a := rebase(pa);
     val d := pa.dist;
     if (d == A.length(a)) {
@@ -201,20 +208,38 @@ interface Make[E: Library.Type, LockF: Lock] : PArray {
       unfold A.arr(b);
       A.loc(b, x).A.value := e;
       fold A.arr(b, m[x := e]);
-      fold parr(pa, len, m);
-      pb := new (desc: base(b), dist: 0);
-      fold parr(pb, len, m[x := e])[ av := base(b), d := 0];
+      unfold parr(pa);
+      var lck := pa.lock;
+      fold parr(pa);
+      unfold parr(pa);
+      fold R.resource(pa, (len, m));
+      L.release(lck, pa, (len, m));
+      fold parr(pa);
+      pb := new (lock: null, desc: base(b), dist: 0);
+      fold R.resource(pb, (len, m[x := e]));
+      lck := L.create(pb);
+      pb.lock := lck;
+      fold parr(pb);
       return pb;
     } else {
       unfold A.arr(a);
       val v := A.loc(a, x).A.value;
       A.loc(a, x).A.value := e;
       fold A.arr(a, m[x := e]);
-      pb := new (desc: base(a), dist: d + 1);
+      pb := new (lock: null, desc: base(a), dist: d + 1);
+      fold R.resource(pb, (len, m[x := e]));
+      var lck := L.create(pb);
+      pb.lock := lck;
       fold parr(pb, len, m[x := e]);
       pa.desc := diff(pb, x, v);
-      fold parr(pa, len, m);
+      unfold parr(pa);
+      lck := pa.lock;
+      fold parr(pa);
+      unfold parr(pa);
+      fold R.resource(pa, (len, m))[m1 := m[x := e]];
+      L.release(lck, pa, (len, m));
+      fold parr(pa);
       return pb;
     }
-  }*/
+  }
 }
