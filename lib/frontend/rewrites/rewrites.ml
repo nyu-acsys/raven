@@ -1611,6 +1611,36 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
           Rewriter.return new_proc)
   | FuncDef func -> Rewriter.return c
 
+let rec rewrite_add_pred_implicit_args (expr : Expr.t) : Expr.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match expr with
+  | App (Var qual_iden, args, expr_attr) ->
+    let* symbol = Rewriter.find_and_reify qual_iden in
+    begin match symbol with
+    | CallDef callable when 
+        Poly.(callable.call_decl.call_decl_kind = Callable.Pred ||
+        callable.call_decl.call_decl_kind = Callable.Invariant) ->
+      let* callable = Rewriter.find_and_reify_callable qual_iden in
+        Logs.debug (fun m -> m "Rewrites.rewrite_add_pred_implicit_args called on: %a; callable = %a" Expr.pr expr Callable.pr callable);
+        if List.length (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns) = List.length args then
+          Rewriter.return expr
+        else 
+          (
+          let dropped_args = List.drop (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns) (List.length args) in
+          let new_dropped_args = List.map dropped_args ~f:(fun var_decl ->
+            {
+              var_decl with
+              var_name =
+                Ident.fresh expr_attr.expr_loc var_decl.var_name.ident_name;
+                var_loc = expr_attr.expr_loc
+            })
+          in
+          Rewriter.return (Expr.mk_binder ~loc:expr_attr.expr_loc ~typ:Type.perm Exists new_dropped_args 
+          (App (Var qual_iden, args @ (List.map new_dropped_args ~f:(Expr.from_var_decl)), expr_attr))))
+    | _ -> Rewriter.return expr
+    end
+  | _ -> Rewriter.Expr.descend expr ~f:rewrite_add_pred_implicit_args
+  
 let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
   match c.call_def with
@@ -2562,6 +2592,13 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
         Ident.pr m.mod_decl.mod_decl_name);
   let* m =
     Rewriter.Module.rewrite_callables ~f:rewrite_callable_pre_post_conds m
+  in
+
+  Logs.debug (fun m1 ->
+    m1 "Rewrites.all_rewrites: Starting rewrite_add_pred_implicit_args on module %a"
+      Ident.pr m.mod_decl.mod_decl_name);
+  let* m =
+    Rewriter.Module.rewrite_expressions ~f:rewrite_add_pred_implicit_args m 
   in
 
   Logs.debug (fun m1 ->
