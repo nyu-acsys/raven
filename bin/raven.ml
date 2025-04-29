@@ -142,7 +142,12 @@ let parse_and_check_all config file_names =
     | (file_dir, file_name, is_free) :: to_parse1 ->
         if not (Set.mem parsed file_name) then (
           Logs.debug (fun m -> m "raven.parse_prog: Parsing file %s." file_name);
-          let inchan, lexbuf = stream_of_file file_name in
+          let inchan, lexbuf =
+            try stream_of_file file_name
+            with Sys_error _ ->
+              let loc = Hashtbl.find include_map file_name |> Option.value ~default:Loc.dummy in
+              Error.error loc "File does not exist"
+          in
           let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
 
           Stdio.In_channel.close inchan;
