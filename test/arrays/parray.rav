@@ -63,14 +63,12 @@ interface PArray : Library.Type {
     returns (res: E)
     requires parr(a, l, m, lck)
     requires 0 <= x < l
-    ensures parr(a, l, m, lck)
     ensures m[x] == res
 
   proc set(pa: T, x: Int, e: E, implicit ghost m: Map[Int, E], implicit ghost len: Int, implicit ghost lck: Ref)
     returns (a1: T)
     requires parr(pa, len, m, lck)
     requires 0 <= x < len
-    ensures parr(pa, len, m, lck)
     ensures parr(a1, len, m[x := e])
 
   proc create(len: Int, d: E)
@@ -139,7 +137,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
   proc to_array(a: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (b: A.T)
     requires parr(a, len, m)
-    ensures parr(a, len, m) && R.resource(a, (len, m)) && A.arr(b, m) && A.length(b) == len
+    ensures R.resource(a, (len, m)) && A.arr(b, m) && A.length(b) == len
   {
     unfold parr(a);
     var lck := a.lock;
@@ -184,7 +182,6 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     returns (res: E)
     requires parr(pa, len, m, lck)
     requires 0 <= x < len
-    ensures parr(pa, len, m, lck)
     ensures m[x] == res
   {
     val b := rebase(pa);
@@ -204,7 +201,6 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     returns (pb: T)
     requires parr(pa, len, m, lck)
     requires 0 <= x < len
-    ensures parr(pa, len, m, lck)
     ensures parr(pb, len, m[x := e])
   {
     val a := rebase(pa);
