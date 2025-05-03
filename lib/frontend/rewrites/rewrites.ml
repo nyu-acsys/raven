@@ -1321,7 +1321,28 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         | _ -> Error.error stmt.stmt_loc "Expected a call_def"
       in
 
-      let* lhs_list =
+      let _, dropped_returns =
+        List.split_n call_decl.call_decl_returns
+          (List.length call_desc.call_lhs)
+      in
+
+      let* fresh_dropped_returns =
+        Rewriter.List.map dropped_returns ~f:(fun var_decl ->
+            let new_var_decl = {
+              var_decl with
+              var_name =
+                Ident.fresh stmt.stmt_loc var_decl.var_name.ident_name;
+              var_loc = stmt.stmt_loc;
+            }
+            in
+            let+ _ =
+              Rewriter.introduce_symbol
+                (Module.VarDef { var_decl = new_var_decl; var_init = None })
+            in
+            new_var_decl)
+      in
+        
+     let* lhs_list =
         Rewriter.List.map call_desc.call_lhs ~f:(fun qual_iden ->
             let* symbol = Rewriter.find_and_reify qual_iden in
 
@@ -1331,6 +1352,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 Error.error stmt.stmt_loc
                   ("Expected a variable (3); found " ^ Symbol.to_string symbol))
       in
+      let lhs_list = lhs_list @ fresh_dropped_returns in
 
       let* new_lhs_list =
         Rewriter.List.map lhs_list ~f:(fun lhs ->

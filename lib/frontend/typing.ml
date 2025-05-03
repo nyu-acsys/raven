@@ -765,12 +765,12 @@ and process_callable_returns loc ~is_ghost_scope ~is_call callable_decl returns_
   
   (* Check if too few returns given. *)
   let _ =
-    List.drop callable_returns (List.length returns_list)
-    |> List.find ~f:(fun var_decl -> not @@ var_decl.Type.var_implicit)
-    |> Option.iter ~f:(fun decl ->
-        Error.type_error loc
-        @@ Printf.sprintf !"Explicit return value %s is missing"
-           (Ident.name decl.Type.var_name))
+    let num_found = List.length returns_list in
+    let num_expected = List.length callable_returns in
+    if num_found > num_expected then
+      Error.type_error loc
+      @@ Printf.sprintf !"%s only has %d return parameter(s), but found %d variable(s) on the left-hand side of call"
+        (callable_decl.call_decl_name |> Ident.to_string) num_expected num_found
   in
 
   let provided_returns = List.take callable_returns (List.length returns_list) in
