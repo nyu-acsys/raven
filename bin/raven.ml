@@ -293,7 +293,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
   in
   try `Ok (parse_and_check_all config input_files) with
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
-    let msg = String.strip ~drop:(Char.equal '"') (Exn.to_string exn) in
+    let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
     let pos = match input_files with
       | file :: _ ->
         Loc.make Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
