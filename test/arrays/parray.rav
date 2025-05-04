@@ -2,15 +2,10 @@ include "array.rav"
 
 interface LockResource : Library.Type {
   rep type T
-  
   type S
 
   // Resource protected by a lock
   pred resource(r: T; s: S)
-
-  axiom exclusive(r: T)
-    requires resource(r) && resource(r)
-    ensures false
 }
 
 interface Lock[R: LockResource] {
@@ -57,24 +52,26 @@ interface PArray : Library.Type {
 
   module A = Array[E]
 
-  inv parr(a:T; l: Int, m: Map[Int, E], lck: Ref)
+  inv parr(pa: T; len: Int, m: Map[Int, E], lck: Ref)
 
-  proc get(a: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost l: Int, implicit ghost lck: Ref)
+  proc get(pa: T, x: Int, implicit ghost m: Map[Int, E], 
+           implicit ghost len: Int)
     returns (res: E)
-    requires parr(a, l, m, lck)
-    requires 0 <= x < l
+    requires parr(pa, len, m)
+    requires 0 <= x < len
     ensures m[x] == res
 
-  proc set(pa: T, x: Int, e: E, implicit ghost m: Map[Int, E], implicit ghost len: Int, implicit ghost lck: Ref)
-    returns (a1: T)
-    requires parr(pa, len, m, lck)
+  proc set(pa: T, x: Int, e: E, implicit ghost m: Map[Int, E], 
+          implicit ghost len: Int)
+    returns (pb: T)
+    requires parr(pa, len, m)
     requires 0 <= x < len
-    ensures parr(a1, len, m[x := e])
+    ensures parr(pb, len, m[x := e])
 
   proc create(len: Int, d: E)
-    returns (a: T)
+    returns (pa: T)
     requires 0 <= len
-    ensures parr(a, len, {| i: Int :: 0 <= i < len ? d : A.default |})
+    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : A.default |})
 }
 
 module Make[E: Library.Type, LockF: Lock] : PArray {
@@ -93,21 +90,14 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     
     type S = (Int, Map[Int, E])
 
-    pred resource(a: T; s: S) {
+    pred resource(pa: T; s: S) {
       exists av: Desc, d: Int ::
-        own(a.desc, av) && own(a.dist, d) &&
+        own(pa.desc, av) && own(pa.dist, d) &&
         (av == base(av.elements) ? 
         A.arr(av.elements, s#1) && s#0 == A.length(av.elements) :
-        (exists m1: Map[Int, E] :: parr(av.adata, s#0, m1) && 0 <= av.index < s#0 && s#1 == m1[av.index := av.value])
+        (exists m1: Map[Int, E] :: parr(av.adata, s#0, m1) && 0 <= av.index < s#0 
+          && s#1 == m1[av.index := av.value])
       ) 
-    }
-
-    lemma exclusive(r: T)
-      requires resource(r) && resource(r)
-      ensures false
-    {
-      unfold resource(r);
-      unfold resource(r);
     }
   }
 
@@ -115,41 +105,41 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
 
   field lock: Ref
 
-  inv parr(a: T; len: Int, m: Map[Int, E], lck: Ref) {
+  inv parr(pa: T; len: Int, m: Map[Int, E], lck: Ref) {
     exists b: Bool ::
-      own(a.lock, lck) && L.is_lock(lck, a, (len, m), b)
+      own(pa.lock, lck) && L.is_lock(lck, pa, (len, m), b)
   }
 
   proc create(len: Int, d: E)
-    returns (a: T)
+    returns (pa: T)
     requires 0 <= len
-    ensures parr(a, len, {| i: Int :: 0 <= i < len ? d : A.default |})
+    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : A.default |})
   {
     val elems := A.alloc(len, d);
-    a := new(lock: null, desc: base(elems), dist: 0);
+    pa := new(lock: null, desc: base(elems), dist: 0);
     val m := {| i: Int :: 0 <= i < len ? d : A.default |};
-    fold R.resource(a, (len, m));
-    val l := L.create(a);
-    a.lock := l;
-    fold parr(a, len, m);
+    fold R.resource(pa, (len, m));
+    val l := L.create(pa);
+    pa.lock := l;
+    fold parr(pa);
   }
 
-  proc to_array(a: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
+  proc to_array(pa: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (b: A.T)
-    requires parr(a, len, m)
-    ensures R.resource(a, (len, m)) && A.arr(b, m) && A.length(b) == len
+    requires parr(pa, len, m)
+    ensures R.resource(pa, (len, m)) && A.arr(b, m) && A.length(b) == len
   {
-    unfold parr(a);
-    var lck := a.lock;
-    fold parr(a);
-    unfold parr(a);
+    unfold parr(pa);
+    var lck := pa.lock;
+    fold parr(pa);
+    unfold parr(pa);
     L.acquire(lck);
-    fold parr(a);
+    fold parr(pa);
     
     ghost var m1: Map[Int, E];
-    unfold R.resource(a)[ m1 := m1 ];
+    unfold R.resource(pa)[ m1 := m1 ];
 
-    val av := a.desc;
+    val av := pa.desc;
     if (av == base(av.elements)) {
       b := A.copy(av.elements);
     } else {
@@ -164,7 +154,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       A.loc(b, av.index).A.value := av.value;
       fold A.arr(b, m);      
     }
-    fold R.resource(a, (len, m))[m1 := m1];
+    fold R.resource(pa, (len, m))[m1 := m1];
   }
 
   proc rebase(pa: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
@@ -178,9 +168,9 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     pa.desc := base(b);
   }
 
-  proc get(pa: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost len: Int, implicit ghost lck: Ref)
+  proc get(pa: T, x: Int, implicit ghost m: Map[Int, E], implicit ghost len: Int)
     returns (res: E)
-    requires parr(pa, len, m, lck)
+    requires parr(pa, len, m)
     requires 0 <= x < len
     ensures m[x] == res
   {
@@ -193,13 +183,14 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     var lck1 := pa.lock;
     fold parr(pa);
     unfold parr(pa);
-    L.release(lck1, pa, (len, m));
+    L.release(lck1, pa);
     fold parr(pa);
   }
-
-  proc set(pa: T, x: Int, e: E, implicit ghost m: Map[Int, E], implicit ghost len: Int, implicit ghost lck: Ref)
+  
+  proc set(pa: T, x: Int, e: E, implicit ghost m: Map[Int, E], 
+           implicit ghost len: Int)
     returns (pb: T)
-    requires parr(pa, len, m, lck)
+    requires parr(pa, len, m)
     requires 0 <= x < len
     ensures parr(pb, len, m[x := e])
   {
@@ -215,7 +206,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       fold parr(pa);
       unfold parr(pa);
       fold R.resource(pa, (len, m));
-      L.release(lck, pa, (len, m));
+      L.release(lck, pa);
       fold parr(pa);
       pb := new (lock: null, desc: base(b), dist: 0);
       fold R.resource(pb, (len, m[x := e]));
@@ -232,14 +223,14 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       fold R.resource(pb, (len, m[x := e]));
       var lck := L.create(pb);
       pb.lock := lck;
-      fold parr(pb, len, m[x := e]);
+      fold parr(pb);
       pa.desc := diff(pb, x, v);
       unfold parr(pa);
       lck := pa.lock;
       fold parr(pa);
       unfold parr(pa);
       fold R.resource(pa, (len, m))[m1 := m[x := e]];
-      L.release(lck, pa, (len, m));
+      L.release(lck, pa);
       fold parr(pa);
       return pb;
     }
