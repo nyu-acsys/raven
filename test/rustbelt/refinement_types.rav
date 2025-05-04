@@ -1,3 +1,8 @@
+// TODO:
+// Construct an instance of the array.
+// Write up the _modified code_ + _modified annotations_ that translate to this code.
+// Explain why these are already "place types".
+
 module RustValue: Library.Type {
   rep type T = data {
     case literalInt(v: Int);
@@ -7,8 +12,8 @@ module RustValue: Library.Type {
     case immutBorrow1(borrowNameForImmut: Ref);
     case immutBorrow2(valueForImmut: T);
     case rawPointer(referenceToPointed: Ref);
-    case struct(lenForStruct: Int, mapForStruct: Map[Int, Ref]);
-    case array(lenForArray: Int, mapForArray: Map[Int, Ref]);
+    case struct(lenForStruct: Int, mapForStruct: Map[Int, T]);
+    case array(lenForArray: Int, mapForArray: Map[Int, T]);
     case uninit();
     case isDeref(borrowNameForDeref: Ref)
   }
@@ -46,25 +51,8 @@ module TypeTag {
   }
 }
 
-module TypeTrail {
-  rep type T = data {
-    case literalInt();
-    case literalBool();
-    case mutBorrow1(mutBorrow1Trail1: T, mutBorrow1Trail2: T);
-    case mutBorrow2(mutBorrow2Trail1: T, mutBorrow2Trail2: T);
-    case immutBorrow1(immutBorrow1Trail: T);
-    case immutBorrow2(immutBorrow2Trail: T);
-    case rawPointer();
-    case struct(trailForStruct: Map[Int, T]);
-    case array(trailForArray: Map[Int, T]);
-    case uninit();
-    case yoinked(trailForYoinked: Map[Int, T]);
-    case structuredData(trailForSD: Map[Int, T])
-  }
-}
-
 module Unit: Library.Type {
-  rep type T = data { case unit() }
+  rep type T = data { case unit()}
 }
 
 module UnitA = Library.Agree[Unit];
@@ -80,11 +68,12 @@ pred resolvedProphecy(r: Ref, v: RustValue, m: ResolutionMap) {
 }
 
 proc resolveProphecy(r: Ref, v: RustValue, m: ResolutionMap)
-  requires own(r, ownProphecy, UnitA.agree(Unit.unit()))
+  requires isProphecy(r)
   ensures resolvedProphecy(r, v, m) {
+  unfold isProphecy(r);
   exhale own(r, ownProphecy, UnitA.agree(Unit.unit()));
   assume (m[r] == v);
-  fold resolvedProphecy(r,v,m);
+  fold resolvedProphecy(r, v, m);
 }
 
 proc makeProphecy() returns (res: Ref) ensures isProphecy(res) {
@@ -92,20 +81,21 @@ proc makeProphecy() returns (res: Ref) ensures isProphecy(res) {
   fold isProphecy(res);
 }
 
-func derefsTo(x: RustValue, y: RustValue, m: ResolutionMap) returns (res: Bool) {
-  (x == RustValue.isDeref(x.RustValue.borrowNameForDeref) && derefsTo(m[x.RustValue.borrowNameForDeref], y, m)) ||
+func derefsTo(x: RustValue, y: RustValue, m: ResolutionMap) returns (res: Bool ) {
+  (x == RustValue.isDeref(x.RustValue.borrowNameForDeref) && derefsTo(m[x.RustValue.borrowNameForDeref], y, m))
+  ||
   (x != RustValue.isDeref(x.RustValue.borrowNameForDeref) && x == y)
 }
 
 lemma derefsToSurj(x: RustValue, y: RustValue, z: RustValue, m: ResolutionMap)
- requires derefsTo(x, y, m) && derefsTo(x, z, m)
- ensures y == z {
- if (x == RustValue.isDeref(x.RustValue.borrowNameForDeref)) {
-   derefsToSurj(m[x.RustValue.borrowNameForDeref], y, z, m);
- }
+  requires derefsTo(x, y, m) && derefsTo(x, z, m)
+  ensures y == z {
+  if (x == RustValue.isDeref(x.RustValue.borrowNameForDeref)) {
+    derefsToSurj(m[x.RustValue.borrowNameForDeref], y, z, m);
+  }
 }
 
-func refDerefsTo(r: Ref, y: RustValue, m: ResolutionMap) returns (res: Bool) {
+func refDerefsTo(r: Ref, y: RustValue, m: ResolutionMap) returns (res: Bool ) {
   derefsTo(RustValue.isDeref(r), y, m)
 }
 
@@ -122,8 +112,7 @@ interface DataInvariant {
     ensures dataInv(t, m)
 
   lemma dataInvFromDerefsTo(x: RustValue, y: RustValue, m: ResolutionMap) requires derefsTo(x, y, m) && dataInv(y, m)
-  ensures dataInv(x, m)
-  {
+    ensures dataInv(x, m) {
     if (x == RustValue.isDeref(x.RustValue.borrowNameForDeref)) {
       dataInvFromDerefsTo(m[x.RustValue.borrowNameForDeref], y, m);
       dataInvFromBorrow(x, m);
@@ -151,7 +140,7 @@ interface DataInvariant {
     &&
     (forall i: Int :: (0 <= i < t.RustValue.lenForStruct)
     ==>
-    typedByAtIndex(RustValue.isDeref(t.RustValue.mapForStruct[i]), tag.TypeTag.mapForStruct[i], m, i))
+    typedByAtIndex(t.RustValue.mapForStruct[i], tag.TypeTag.mapForStruct[i], m, i))
   }
 
   pred isArrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
@@ -159,7 +148,7 @@ interface DataInvariant {
     &&
     (forall i: Int :: (0 <= i < t.RustValue.lenForArray)
     ==>
-    typedByAtIndex(RustValue.isDeref(t.RustValue.mapForArray[i]), tag.TypeTag.collectedType, m, i))
+    typedByAtIndex(t.RustValue.mapForArray[i], tag.TypeTag.collectedType, m, i))
   }
 
   pred isStructuredDataIsTypedBy(t: RustValue, m: ResolutionMap) {
@@ -171,7 +160,7 @@ interface DataInvariant {
     &&
     ((forall j: Int :: (0 <= j < t.RustValue.lenForStruct)
     ==>
-    (typedByAtIndex(RustValue.isDeref(t.RustValue.mapForStruct[j]), mapForSD[j], m, j))))
+    (typedByAtIndex(t.RustValue.mapForStruct[j], mapForSD[j], m, j))))
   }
 
   pred isYoinkedIsTypedBy(t: RustValue, m: ResolutionMap) {
@@ -181,7 +170,7 @@ interface DataInvariant {
     &&
     ((forall j: Int :: (0 <= j < t.RustValue.lenForStruct)
     ==>
-    (typedByAtIndex(RustValue.isDeref(t.RustValue.mapForStruct[j]), mapForSD[j], m, j))))
+    (typedByAtIndex(t.RustValue.mapForStruct[j], mapForSD[j], m, j))))
   }
 
   pred maybeDeref1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
@@ -215,8 +204,8 @@ interface DataInvariant {
   }
 
   pred typedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
-    exists pointed: RustValue ::
-    derefsTo(t, pointed, m) &&
+    exists pointed: RustValue :: derefsTo(t, pointed, m)
+    &&
     (((tag == TypeTag.isInt()) ==> (pointed == RustValue.literalInt(pointed.RustValue.v))))
     &&
     ((tag == TypeTag.isBool()) ==> (pointed == RustValue.literalBool(pointed.RustValue.b)))
@@ -244,7 +233,7 @@ interface DataInvariant {
     (((tag == TypeTag.isStructuredData()) ==> isStructuredDataIsTypedBy(pointed, m)))
     &&
     (((tag == TypeTag.isYoinked()) ==> isYoinkedIsTypedBy(pointed, m)))
-    }
+  }
 }
 
 field place: RustValue;
@@ -254,9 +243,9 @@ interface VecI: DataInvariant {
   field pointedArr: RustValue;
   val tag: TypeTag;
   val lenForSD: Int = 3;
-  val mapForSD: Map[Int, TypeTag] = {|i: Int :: (i == 0) ? TypeTag.isInt(): ((i == 1) ? TypeTag.isInt(): TypeTag.isRawPointer() )|};
+  val mapForSD: Map[Int, TypeTag] = {|i: Int :: (i == 0) ? TypeTag.isInt(): ((i == 1) ? TypeTag.isInt(): TypeTag.isArrayOf(TypeTag.isMutBorrow(tag)))|};
 
-  func isStructure(x: RustValue, structure: RustValue, m: ResolutionMap) returns (res: Bool) {
+  func isStructure(x: RustValue, structure: RustValue, m: ResolutionMap) returns (res: Bool ) {
     derefsTo(x, structure, m) && structure == RustValue.struct(structure.RustValue.lenForStruct, structure.RustValue.mapForStruct)
   }
 
@@ -266,115 +255,142 @@ interface VecI: DataInvariant {
     derefsToSurj(x, structure1, structure2, m);
   }
 
-  func isCapField(structure: RustValue, cap: Int, m: ResolutionMap) returns (res: Bool) {
-    refDerefsTo(structure.RustValue.mapForStruct[0], RustValue.literalInt(cap), m)
+  func isCapField(structure: RustValue, cap: Int, m: ResolutionMap) returns (res: Bool ) {
+    derefsTo(structure.RustValue.mapForStruct[0], RustValue.literalInt(cap), m)
   }
 
   lemma isCapFieldSurj(structure: RustValue, cap1: Int, cap2: Int, m: ResolutionMap)
     requires isCapField(structure, cap1, m) && isCapField(structure, cap2, m)
-    ensures cap1 == cap2
-  {
-    derefsToSurj(RustValue.isDeref(structure.RustValue.mapForStruct[0]), RustValue.literalInt(cap1), RustValue.literalInt(cap2), m);
+    ensures cap1 == cap2 {
+    derefsToSurj(structure.RustValue.mapForStruct[0], RustValue.literalInt(cap1), RustValue.literalInt(cap2), m);
   }
 
-  func isLenField(structure: RustValue, len: Int, m: ResolutionMap) returns (res: Bool) {
-    refDerefsTo(structure.RustValue.mapForStruct[1], RustValue.literalInt(len), m)
+  func isLenField(structure: RustValue, len: Int, m: ResolutionMap) returns (res: Bool ) {
+    derefsTo(structure.RustValue.mapForStruct[1], RustValue.literalInt(len), m)
   }
 
   lemma isLenFieldSurj(structure: RustValue, len1: Int, len2: Int, m: ResolutionMap)
     requires isLenField(structure, len1, m) && isLenField(structure, len2, m)
-    ensures len1 == len2
-  {
-    derefsToSurj(RustValue.isDeref(structure.RustValue.mapForStruct[1]), RustValue.literalInt(len1), RustValue.literalInt(len2), m);
+    ensures len1 == len2 {
+    derefsToSurj(structure.RustValue.mapForStruct[1], RustValue.literalInt(len1), RustValue.literalInt(len2), m);
   }
 
-  func isBufField(structure: RustValue, borrowName: Ref, m: ResolutionMap) returns (res: Bool) {
-    refDerefsTo(structure.RustValue.mapForStruct[2], RustValue.rawPointer(borrowName), m)
+  func isBufField(structure: RustValue, cap: Int, map: Map[Int, RustValue], m: ResolutionMap) returns (res: Bool ) {
+    derefsTo(structure.RustValue.mapForStruct[2], RustValue.array(cap, map), m)
   }
 
-  lemma isBufFieldSurj(structure: RustValue, buf1: Ref, buf2: Ref, m: ResolutionMap)
-    requires isBufField(structure, buf1, m) && isBufField(structure, buf2, m)
-    ensures buf1 == buf2
-  {
-    derefsToSurj(RustValue.isDeref(structure.RustValue.mapForStruct[2]), RustValue.rawPointer(buf1), RustValue.rawPointer(buf2), m);
+  lemma isBufFieldSurj(structure: RustValue, cap1: Int, map1: Map[Int, RustValue], cap2: Int, map2: Map[Int, RustValue], m: ResolutionMap)
+    requires isBufField(structure, cap1, map1, m) && isBufField(structure, cap2, map2, m)
+    ensures (cap1 == cap2) && (map1 == map2) {
+    derefsToSurj(structure.RustValue.mapForStruct[2], RustValue.array(cap1, map1), RustValue.array(cap2, map2), m);
   }
 
-  pred initializedForLen(len: Int, cap: Int, map: Map[Int, Ref], m: ResolutionMap) {
-    forall i: Int :: exists v: RustValue ::
-    refDerefsTo(map[i], v, m) &&
-    ((0 <= i < len) ==> v != RustValue.uninit()) &&
-    ((len <= i < cap) ==> v == RustValue.uninit())
+  pred initializedForLen(len: Int, cap: Int, map: Map[Int, RustValue], m: ResolutionMap) {
+    ((0 <= i < len) ==> map[i] != RustValue.uninit())
+    &&
+    ((len <= i < cap) ==> map[i] == RustValue.uninit())
   }
 
   pred dataInv(rustValue: RustValue, m: ResolutionMap) {
-    exists structure : RustValue, cap: Int, len: Int, borrowName: Ref, map: Map[Int, Ref] ::
-    isStructure(rustValue, structure, m) &&
-    isCapField(structure, cap, m) &&
-    isLenField(structure, len, m) &&
-    len <= cap &&
-    isBufField(structure, borrowName, m) &&
-    typedBy(RustValue.isDeref(borrowName), TypeTag.isArrayOf(TypeTag.isMaybeInit(tag)), m) &&
-    m[borrowName] == RustValue.array(cap, map) &&
+    exists structure: RustValue,
+    cap: Int,
+    len: Int,
+    map: Map[Int, RustValue] ::
+    isStructure(rustValue, structure, m)
+    &&
+    isCapField(structure, cap, m)
+    &&
+    isLenField(structure, len, m)
+    &&
+    len
+    <=
+    cap
+    &&
+    isBufField(structure, cap, map, m)
+    &&
+    typedBy(RustValue.array(cap, map), TypeTag.isArrayOf(TypeTag.isMaybeInit(tag)), m)
+    &&
     initializedForLen(len, cap, map, m)
   }
 
-  pred getUncheckedMutPre(xs: RustValue, idx: Int, len: Int, m: ResolutionMap, gamma: Ref, gammaI: Ref) {
-    exists structure: RustValue ::
-    own(gamma, ownProphecy, UnitA.agree(Unit.unit())) &&
-    own(gammaI, ownProphecy, UnitA.agree(Unit.unit())) &&
-    typedBy(xs, TypeTag.isStructuredData(), m) &&
-    isStructure(xs, structure, m) &&
-    isLenField(structure, len, m) &&
-    isBufField(structure, gamma, m) &&
-    (0 <= idx < len) &&
+  pred getUncheckedMutPre(xs: RustValue, gamma: Ref, idx: Int, len: Int, m: ResolutionMap, gammaI: Ref) {
+    exists structure: RustValue,
+    cap: Int,
+    map: Map[Int, RustValue] :: typedBy(RustValue.mutBorrow1(xs, gamma), TypeTag.isMutBorrow(TypeTag.isStructuredData()), m)
+    &&
+    isStructure(xs, structure, m)
+    &&
+    isLenField(structure, len, m)
+    &&
+    isBufField(structure, cap, map, m)
+    &&
+    (0 <= idx < len)
+    &&
     isProphecy(gamma)
-  }
-
-  pred getUncheckedMutPost(xs: RustValue, idx: Int, len: Int, m: ResolutionMap, gamma: Ref, gammaI: Ref) {
-    exists map: Map[Int, Ref] ::
-    own(gammaI, ownProphecy, UnitA.agree(Unit.unit())) &&
-    (m[gamma] == RustValue.array((m[gamma]).RustValue.lenForArray, map)) &&
-    (map[idx] == gammaI) &&
+    &&
     isProphecy(gammaI)
   }
 
-  proc getUncheckedMut(xs: RustValue, idx: Int, len: Int, m: ResolutionMap, gamma: Ref, gammaI: Ref)
-    requires getUncheckedMutPre(xs, idx, len, m, gamma, gammaI)
-    ensures getUncheckedMutPost(xs, idx, len, m, gamma, gammaI)
-  {
+  pred getUncheckedMutPost(xs: RustValue, gamma: Ref, idx: Int, len: Int, m: ResolutionMap, xi: RustValue, gammaI: Ref) {
+    exists structure: RustValue, cap: Int, map: Map[Int, RustValue] ::
+    isStructure(xs, structure, m)
+    &&
+    isBufField(structure, cap, map, m)
+    &&
+    // we need to add a reborrows(r, r') predicate which will allow r to depend on the resolved value of r'
+    resolvedProphecy(gamma, RustValue.array(cap, (map[idx := RustValue.isDeref(gammaI)])), m)
+    &&
+    (map[idx] == xi)
+    &&
+    isProphecy(gammaI)
+  }
+
+  proc getUncheckedMut(xs: RustValue, idx: Int, len: Int, m: ResolutionMap, gamma: Ref)
+    returns (xi: RustValue, gammaI: Ref)
+    requires getUncheckedMutPre(xs, gamma, idx, len, m, gammaI)
+    ensures getUncheckedMutPost(xs, gamma, idx, len, m, xi, gammaI)
+     {
     // Unfold the precondition:
     var structure: RustValue;
-    unfold getUncheckedMutPre(xs, idx, len, m, gamma, gammaI)[structure := structure];
+    var cap: Int;
+    var map: Map[Int, RustValue];
+    unfold getUncheckedMutPre(xs, gamma, idx, len, m, gammaI)[structure := structure, cap:= cap, map := map];
     // Unfold the typedBy predicate, following dereferences:
+    var pointed1: RustValue;
+    unfold typedBy(RustValue.mutBorrow1(xs, gamma),TypeTag.isMutBorrow(TypeTag.isStructuredData()),m)[pointed1 := pointed];
+    assert pointed1 == RustValue.mutBorrow1(xs, gamma);
+    // Yoink the invariant from the data
+    unfold mutBorrow1IsTypedBy(RustValue.mutBorrow1(xs, gamma), TypeTag.isMutBorrow(TypeTag.isStructuredData()), m);
     var pointed: RustValue;
     unfold typedBy(xs, TypeTag.isStructuredData(), m)[pointed := pointed];
-    // Yoink the invariant from the data
     unfold isStructuredDataIsTypedBy(pointed, m);
     dataInvFromDerefsTo(xs, pointed, m);
     fold isYoinkedIsTypedBy(pointed, m);
     fold typedBy(xs, TypeTag.isYoinked(), m)[pointed := pointed];
     // Unfold the invariant
-    var cap: Int;
+    var cap2: Int;
     var len1: Int;
     var borrowName: Ref;
-    var map: Map[Int, Ref];
+    var map2: Map[Int, RustValue];
     var structure1: RustValue;
-    unfold dataInv(xs, m)[cap := cap, len1 := len, borrowName := borrowName, map := map, structure1 := structure];
+    unfold dataInv(xs, m)[cap2 := cap, len1:= len, map2:= map, structure1 := structure];
     // The field is accessed by both the precondition and the invariant;
     // assert that they are equal
     isStructureSurj(xs, structure, structure1, m);
     assert (structure == structure1);
-    assert isBufField(structure, gamma, m);
-    assert isBufField(structure1, borrowName, m);
-    isBufFieldSurj(structure, gamma, borrowName, m);
+    assert isBufField(structure, cap, map, m);
+    assert isBufField(structure1, cap2, map2, m);
+    isBufFieldSurj(structure, cap, map, cap2, map2, m);
     isLenFieldSurj(structure, len, len1, m);
     // Resolve the prophecy variable
-    exhale own(gamma, ownProphecy, UnitA.agree(Unit.unit()));
-    assume (m[gamma] == RustValue.array(cap, map[idx := gammaI]));
-    resolveProphecy(gamma, RustValue.array(cap, map[idx := gammaI]), m);
+    resolveProphecy(gamma, RustValue.array(cap, map[idx := RustValue.isDeref(gammaI)]), m);
     // Fold the postcondition
-    fold isProphecy(gammaI);
-    fold getUncheckedMutPost(xs, idx, len, m, gamma, gammaI)[map := map];
+    assert isStructure(xs, structure, m);
+    assert isBufField(structure, cap, map, m);
+    assert isProphecy(gammaI);
+    assert resolvedProphecy(gamma, RustValue.array(cap, (map[idx := RustValue.isDeref(gammaI)])), m);
+    xi := map[idx];
+    fold getUncheckedMutPost(xs, gamma, idx, len, m, xi, gammaI)[structure := structure, cap:= cap, map := map];
     // Because we have no place types yet, the type is only asserted
     // over the pure rust value "xs";
     // no need to reestablish the type at a location.
@@ -382,7 +398,7 @@ interface VecI: DataInvariant {
   }
 }
 
-module Main : VecI {
+module Main: VecI {
   val tag: TypeTag = TypeTag.isInt();
 
   lemma dataInvFromBorrow(t: RustValue, m: ResolutionMap)
@@ -393,11 +409,11 @@ module Main : VecI {
     var cap: Int;
     var len: Int;
     var borrowName: Ref;
-    var map: Map[Int, Ref];
+    var map: Map[Int, RustValue];
     var structure: RustValue;
     var pointed: RustValue;
-    unfold dataInv(m[t.RustValue.borrowNameForDeref], m)[structure := structure, cap := cap, len := len, borrowName := borrowName, map := map];
-    fold dataInv(t, m)[structure := structure, cap := cap, len := len, borrowName := borrowName, map := map];
+    unfold dataInv(m[t.RustValue.borrowNameForDeref], m)[structure := structure,cap:= cap,len:= len,map := map];
+    fold dataInv(t, m)[structure := structure,cap:= cap,len:= len,map := map];
   }
 }
 
@@ -427,7 +443,7 @@ module Main : VecI {
 
 // module VecI[G: GenericTypeTag, I: DataInvariants] {
 //   module RawVecInst = RawVec[G, I];
-  
+
 // }
 
 // module Main[G: GenericTypeTag]: DataInvariants {
@@ -458,7 +474,6 @@ module Main : VecI {
 //   func refDerefsTo(ref: Ref, y: RustValue, m: ResolutionMap) returns (res: Bool) {
 //     derefsTo(RustValue.isDeref(ref), y, m)
 //   }
-
 
 //   func isCap(raw: Ref, cap: Int) {
 //     refDerefsTo(raw, )
