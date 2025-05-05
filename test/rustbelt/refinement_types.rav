@@ -143,12 +143,21 @@ interface DataInvariant {
     typedByAtIndex(t.RustValue.mapForStruct[i], tag.TypeTag.mapForStruct[i], m, i))
   }
 
-  pred isArrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
-    (t == RustValue.struct(t.RustValue.lenForStruct, t.RustValue.mapForStruct))
-    &&
-    (forall i: Int :: (0 <= i < t.RustValue.lenForArray)
+  pred arrayRangeIsTypedBy(len: Int, map: Map[Int, RustValue], tag: TypeTag, m: ResolutionMap) {
+    (forall i: Int :: (0 <= i < len)
     ==>
-    typedByAtIndex(t.RustValue.mapForArray[i], tag.TypeTag.collectedType, m, i))
+    typedByAtIndex(map[i], tag, m, i))
+  }
+
+  pred isArrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+    (t == RustValue.array(t.RustValue.lenForArray, t.RustValue.mapForArray)) &&
+    arrayRangeIsTypedBy(t.RustValue.lenForArray, t.RustValue.mapForArray, tag.TypeTag.collectedType, m)
+  }
+
+  pred structuredDataRangeIsTypedBy(len: Int, map: Map[Int, RustValue], m: ResolutionMap) {
+    ((forall j: Int :: (0 <= j < len)
+    ==>
+    (typedByAtIndex(map[j], mapForSD[j], m, j))))
   }
 
   pred isStructuredDataIsTypedBy(t: RustValue, m: ResolutionMap) {
@@ -156,11 +165,8 @@ interface DataInvariant {
     &&
     (lenForSD == t.RustValue.lenForStruct)
     &&
-    dataInv(t, m)
-    &&
-    ((forall j: Int :: (0 <= j < t.RustValue.lenForStruct)
-    ==>
-    (typedByAtIndex(t.RustValue.mapForStruct[j], mapForSD[j], m, j))))
+    dataInv(t, m) &&
+    structuredDataRangeIsTypedBy(t.RustValue.lenForStruct, t.RustValue.mapForStruct, m)
   }
 
   pred isYoinkedIsTypedBy(t: RustValue, m: ResolutionMap) {
@@ -168,15 +174,11 @@ interface DataInvariant {
     &&
     (lenForSD == t.RustValue.lenForStruct)
     &&
-    ((forall j: Int :: (0 <= j < t.RustValue.lenForStruct)
-    ==>
-    (typedByAtIndex(t.RustValue.mapForStruct[j], mapForSD[j], m, j))))
+    structuredDataRangeIsTypedBy(t.RustValue.lenForStruct, t.RustValue.mapForStruct, m)
   }
 
   pred maybeDeref1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
-    (t
-    ==
-    RustValue.isDeref(t.RustValue.borrowNameForDeref)
+    (t == RustValue.isDeref(t.RustValue.borrowNameForDeref)
     &&
     typedBy((m[t.RustValue.borrowNameForImmut]), tag.TypeTag.sharedPointedType, m))
   }
@@ -204,7 +206,8 @@ interface DataInvariant {
   }
 
   pred typedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
-    exists pointed: RustValue :: derefsTo(t, pointed, m)
+    exists pointed: RustValue ::
+    derefsTo(t, pointed, m)
     &&
     (((tag == TypeTag.isInt()) ==> (pointed == RustValue.literalInt(pointed.RustValue.v))))
     &&
@@ -243,7 +246,7 @@ interface VecI: DataInvariant {
   field pointedArr: RustValue;
   val tag: TypeTag;
   val lenForSD: Int = 3;
-  val mapForSD: Map[Int, TypeTag] = {|i: Int :: (i == 0) ? TypeTag.isInt(): ((i == 1) ? TypeTag.isInt(): TypeTag.isArrayOf(TypeTag.isMutBorrow(tag)))|};
+  val mapForSD: Map[Int, TypeTag] = {|i: Int :: (i == 0) ? TypeTag.isInt(): ((i == 1) ? TypeTag.isInt(): TypeTag.isArrayOf(TypeTag.isMaybeInit(tag)))|};
 
   func isStructure(x: RustValue, structure: RustValue, m: ResolutionMap) returns (res: Bool ) {
     derefsTo(x, structure, m) && structure == RustValue.struct(structure.RustValue.lenForStruct, structure.RustValue.mapForStruct)
@@ -292,19 +295,14 @@ interface VecI: DataInvariant {
   }
 
   pred dataInv(rustValue: RustValue, m: ResolutionMap) {
-    exists structure: RustValue,
-    cap: Int,
-    len: Int,
-    map: Map[Int, RustValue] ::
+    exists structure: RustValue, cap: Int, len: Int, map: Map[Int, RustValue] ::
     isStructure(rustValue, structure, m)
     &&
     isCapField(structure, cap, m)
     &&
     isLenField(structure, len, m)
     &&
-    len
-    <=
-    cap
+    (len <= cap)
     &&
     isBufField(structure, cap, map, m)
     &&
@@ -313,10 +311,9 @@ interface VecI: DataInvariant {
     initializedForLen(len, cap, map, m)
   }
 
-  pred getUncheckedMutPre(xs: RustValue, gamma: Ref, idx: Int, len: Int, m: ResolutionMap, gammaI: Ref) {
+  pred getUncheckedMutPre(xs: RustValue, gamma: Ref, idx: Int, gammaI: Ref, len: Int, m: ResolutionMap) {
     exists structure: RustValue,
-    cap: Int,
-    map: Map[Int, RustValue] :: typedBy(RustValue.mutBorrow1(xs, gamma), TypeTag.isMutBorrow(TypeTag.isStructuredData()), m)
+    cap: Int, map: Map[Int, RustValue] :: typedBy(RustValue.mutBorrow1(xs, gamma), TypeTag.isMutBorrow(TypeTag.isStructuredData()), m)
     &&
     isStructure(xs, structure, m)
     &&
@@ -345,16 +342,16 @@ interface VecI: DataInvariant {
     isProphecy(gammaI)
   }
 
-  proc getUncheckedMut(xs: RustValue, idx: Int, len: Int, m: ResolutionMap, gamma: Ref)
+  proc getUncheckedMut(xs: RustValue, gamma: Ref, idx: Int, len: Int, m: ResolutionMap)
     returns (xi: RustValue, gammaI: Ref)
-    requires getUncheckedMutPre(xs, gamma, idx, len, m, gammaI)
+    requires getUncheckedMutPre(xs, gamma, idx, gammaI, len, m)
     ensures getUncheckedMutPost(xs, gamma, idx, len, m, xi, gammaI)
      {
     // Unfold the precondition:
     var structure: RustValue;
     var cap: Int;
     var map: Map[Int, RustValue];
-    unfold getUncheckedMutPre(xs, gamma, idx, len, m, gammaI)[structure := structure, cap:= cap, map := map];
+    unfold getUncheckedMutPre(xs, gamma, idx, gammaI, len, m)[structure := structure, cap:= cap, map := map];
     // Unfold the typedBy predicate, following dereferences:
     var pointed1: RustValue;
     unfold typedBy(RustValue.mutBorrow1(xs, gamma),TypeTag.isMutBorrow(TypeTag.isStructuredData()),m)[pointed1 := pointed];
@@ -415,6 +412,47 @@ module Main: VecI {
     unfold dataInv(m[t.RustValue.borrowNameForDeref], m)[structure := structure,cap:= cap,len:= len,map := map];
     fold dataInv(t, m)[structure := structure,cap:= cap,len:= len,map := map];
   }
+}
+
+val mapForArr: Map[Int, RustValue] := {| i: Int :: (i == 0) ? RustValue.literalInt(1) : ((i == 1) ? RustValue.literalInt(2) : RustValue.uninit() ) |};
+val arrForSD: RustValue := RustValue.array(2, mapForArr);
+val valMapForSD: Map[Int, RustValue] := {| i: Int :: (i == 0) ? RustValue.literalInt(2) : ((i == 1) ? RustValue.literalInt(2) : arrForSD) |};
+val sd: RustValue := RustValue.struct(3, valMapForSD);
+proc getUncheckMutUser(m: ResolutionMap) {
+  assert Main.isStructure(sd, sd, m);
+  assert Main.isCapField(sd, 2, m);
+  assert Main.isLenField(sd, 2, m);
+  assert (2 <= 2);
+  assert Main.isBufField(sd, 2, mapForArr, m);
+  fold Main.typedBy(RustValue.array(2, mapForArr).RustValue.mapForArray[0], Main.tag, m)[pointed := RustValue.array(2, mapForArr).RustValue.mapForArray[0]];
+  fold Main.typedBy(RustValue.array(2, mapForArr).RustValue.mapForArray[0], TypeTag.isMaybeInit(Main.tag), m)[pointed := RustValue.array(2, mapForArr).RustValue.mapForArray[0]];
+  fold Main.typedByAtIndex(RustValue.array(2, mapForArr).RustValue.mapForArray[0], TypeTag.isMaybeInit(Main.tag), m, 0);
+  fold Main.typedBy(RustValue.array(2, mapForArr).RustValue.mapForArray[1], Main.tag, m)[pointed := RustValue.array(2, mapForArr).RustValue.mapForArray[1]];
+  fold Main.typedBy(RustValue.array(2, mapForArr).RustValue.mapForArray[1], TypeTag.isMaybeInit(Main.tag), m)[pointed := RustValue.array(2, mapForArr).RustValue.mapForArray[1]];
+  fold Main.typedByAtIndex(RustValue.array(2, mapForArr).RustValue.mapForArray[1], TypeTag.isMaybeInit(Main.tag), m, 1);
+  fold Main.arrayRangeIsTypedBy(2, mapForArr, TypeTag.isMaybeInit(Main.tag), m);
+  fold Main.isArrayIsTypedBy(RustValue.array(2, mapForArr), TypeTag.isArrayOf(TypeTag.isMaybeInit(Main.tag)), m);
+  // BUG: This should hold, but outside of Main/VecI it does not
+  assume Main.mapForSD[0] == TypeTag.isInt();
+  // same as above
+  assume Main.mapForSD[1] == TypeTag.isInt();
+  // same as above
+  assume Main.mapForSD[2] == TypeTag.isArrayOf(TypeTag.isMaybeInit(Main.tag));
+  fold Main.typedBy(valMapForSD[0], Main.mapForSD[0], m)[pointed := sd.RustValue.mapForStruct[0]];
+  fold Main.typedByAtIndex(valMapForSD[0], TypeTag.isInt(), m, 0);
+  fold Main.typedBy(valMapForSD[1], TypeTag.isInt(), m)[pointed := sd.RustValue.mapForStruct[1]];
+  fold Main.typedByAtIndex(valMapForSD[1], TypeTag.isInt(), m, 1);
+  fold Main.typedBy(valMapForSD[2], TypeTag.isArrayOf(TypeTag.isMaybeInit(Main.tag)), m)[pointed := arrForSD];
+  fold Main.typedByAtIndex(valMapForSD[2], TypeTag.isArrayOf(TypeTag.isMaybeInit(Main.tag)), m, 2);
+  fold Main.structuredDataRangeIsTypedBy(3, valMapForSD, m);
+  fold Main.isStructuredDataIsTypedBy(sd, m);
+  fold Main.typedBy(sd, TypeTag.isStructuredData(), m)[pointed := sd];
+  var gamma: Ref := makeProphecy();
+  var gammaI: Ref := makeProphecy();
+  fold Main.typedBy(RustValue.mutBorrow1(sd, gamma), TypeTag.isMutBorrow(TypeTag.isStructuredData()), m)[pointed := RustValue.mutBorrow1(sd, gamma)];
+  fold Main.getUncheckedMutPre(sd, gamma, 0, gammaI, 2, m)[structure := sd, cap := 2, map := mapForArr];
+  var xi: RustValue;
+  xi, gammaI := Main.getUncheckedMut(sd, gamma, 0, 2, m);
 }
 
 // module RawVec[G: GenericTypeTag, I: DataInvariants] {
