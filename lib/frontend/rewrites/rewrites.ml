@@ -2503,6 +2503,19 @@ let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
 
       Rewriter.return s
 
+
+let print_intermediate_state m log_file_name: unit =
+  let front_end_out_chan =
+    Stdio.Out_channel.create log_file_name
+  in
+
+  let formatter_out_chan = Stdlib.Format.formatter_of_out_channel front_end_out_chan in
+
+  Stdlib.Format.fprintf formatter_out_chan
+  "%a\n %!" Ast.Module.pr m
+
+
+
 let rec rewrites_phase_1 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m -> m "Rewrites.all_rewrites: Starting rewrites");

@@ -3291,19 +3291,38 @@ module TrnslExhale = struct
       (* Flattens multiple existentials *)
       let normalize_expr expr = 
         let rec helper_fn expr = match expr with
-        | Expr.Binder (Exists, vds, _, e, expr_attr) ->
-          let vd1, e1 = helper_fn e in
-          vds @ vd1, e1
-        | _ -> [], expr
+        | Expr.Binder (Exists, vds, bdrs, e, expr_attr) ->
+          let vd1, bdrs1, e1 = helper_fn e in
+          vds @ vd1, (bdrs @ bdrs1), e1
+        | Expr.App (And, exprs, expr_attr) ->
+            let vds_bdrs_exprs = List.map exprs ~f:(fun e -> helper_fn e) in
+            let vds, bdrs, exprs = List.unzip3 vds_bdrs_exprs in
+            (List.concat vds), (List.concat bdrs), (Expr.mk_and ~loc:expr_attr.expr_loc exprs)
+
+        | Expr.App (Impl, [c; e2], expr_attr) ->
+            let vds, bdrs, e2 = helper_fn e2 in
+            vds, bdrs, (Expr.mk_impl ~loc:expr_attr.expr_loc c e2)
+
+        | Expr.App (Ite, [c; e1; e2], expr_attr) ->
+            let vds1, bdrs1, e1 = helper_fn e1 in
+            let vds2, bdrs2, e2 = helper_fn e2 in
+            vds1 @ vds2, bdrs1 @ bdrs2, (Expr.mk_ite ~loc:expr_attr.expr_loc c e1 e2)
+
+        | _ -> [], [], expr
 
         in
 
         match expr with
         | Expr.Binder (Exists, _, _, _, expr_attr) ->
-          let vds, e = helper_fn expr in
-          Expr.Binder (Exists, vds, [], e, expr_attr)
+          let vds, bdrs, e = helper_fn expr in
+          Expr.Binder (Exists, vds, bdrs, e, expr_attr)
         | _ -> expr
       in
+
+      Logs.debug (fun m -> m 
+      "WitnessComputation.elim_a1: Pre expr = %a"
+        Expr.pr expr
+      );
 
       let expr = normalize_expr expr in
 
