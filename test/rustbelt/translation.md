@@ -295,3 +295,17 @@ Finally, the body of the function is translated, unfolding the type, accessing t
     // So we are done.
   }
 ```
+
+At present, the translation is not systematic. To make it systematic, place types, which allow associating program state with the parameter values, are required, along with operations manipulating them.
+
+# Completing the Translation Pipeline
+To complete the translation pipeline, several steps remain:
+
+- [ ] Introduce place types, along with axioms corresponding to rust primitive operations
+    - [ ] Make abstract "reborrows" and "prophecyTypedBy" predicates, allowing
+          more flexibility in the theory of prophecy variables and how they're encoded.
+    - [ ] Encode "placeTypedBy" as an abstract predicate, along with axioms allowing
+          the type to be retrieved from "under" the place
+- [ ] Write rules translating MIR to raven
+- [ ] Debug existing issues
+- [x] Write rules tranlsating Refined Rust annotations to raven pre-and post conditions (partially completed)
