@@ -5,11 +5,6 @@ This document describes the translation of this example from annotated Rust to R
 This document re-uses the terminology of the Refined Rust paper, adopting without modification
 the annotation system of Refined Rust.
 
-It also invents a new terminology for the Raven development:
-
-The Rust in Raven system is called Pierre,
-`Place Types and Invariants Extracted from Rust to RavEn` after Pierre Bonnard, the impressionist painter.
-
 # Original Example
 In the original example, the authors of Refined Rust (2024) use their toolchain to
 verify the following specification:
