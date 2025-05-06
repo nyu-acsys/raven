@@ -246,7 +246,7 @@ interface VecI: DataInvariant {
   field pointedArr: RustValue;
   val tag: TypeTag;
   val lenForSD: Int = 3;
-  val mapForSD: Map[Int, TypeTag] = {|i: Int :: (i == 0) ? TypeTag.isInt(): ((i == 1) ? TypeTag.isInt(): TypeTag.isArrayOf(TypeTag.isMaybeInit(tag)))|};
+  val mapForSD: Map[Int, TypeTag] = {| i: Int :: (i == 0) ? TypeTag.isInt(): ((i == 1) ? TypeTag.isInt(): TypeTag.isArrayOf(TypeTag.isMaybeInit(tag))) |};
 
   func isStructure(x: RustValue, structure: RustValue, m: ResolutionMap) returns (res: Bool ) {
     derefsTo(x, structure, m) && structure == RustValue.struct(structure.RustValue.lenForStruct, structure.RustValue.mapForStruct)
