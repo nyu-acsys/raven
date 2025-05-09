@@ -69,6 +69,8 @@ accompanied by the axiom:
 own(ℓ, v, τ) && placeTypedBy(ℓ, v, τ) <==> own(ℓ, v, τ) && typedBy(v, fromTypeTag(τ))
 ```
 
+Where fromTypeTag(τ) changes the fields of τ to all be borrowed.
+
 The translation design is then the following
 
 ```
