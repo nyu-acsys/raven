@@ -91,33 +91,43 @@ module Nested : DataInv {
   }
 }
 
-proc update_nested(ℓ: Loc, i: Int, m: ResolutionMap) 
+proc update_nested(ℓ: Loc, i: Int, m: ResolutionMap)
   requires Nested.typedBy({raw: ℓ, mirrored: i}, Int, m)
   ensures Nested.typedBy({raw: ℓ, mirrored: i + 10}, Int, m)
  {
-  var ℓ’: Ref := makePlaceTyped({| raw: ℓ, mirrored: i |});
-  // So now we have 
-  // placeTypedBy(ℓ’, {raw: ℓ, mirrored: i}) which means we have
-  // ∃ (v’: RustValue) ::
-  // ℓ’ ↦ v’ && Nested.TypedBy(2, {| raw: isBorrowOf(Loc),
-                                     isBorrowOf: bor(Int) |})
-  // which means we have
-  // v’ == {raw: ℓ, mirrored: i}
-  // because isBorrowOf(tag: TypeTag) contains both members of tag and
-  // prophecies resolving to tag.
-  yoink(ℓ’); // dataInv now available
+  var ℓ’: Ref := box({| raw: ℓ, mirrored: i |});
+  // So now we have
+  // (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) && placeTypedBy(ℓ’, {| raw: ℓ, mirrored: i |} && Nested.dataInv(...)) which means we have
+  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) && Nested.TypedBy(2, isStructuredData(), m)
+  yoink(ℓ’);
+  // So now we have:
+  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) &&
+         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: isBorrowOf(Int) |}, m) &&
+         Nested.dataInv({| raw: ℓ, mirrored: i |}, m); // equivalently
+  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) &&
+         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: isBorrowOf(Int) |}, m) &&
+         ℓ’.value.raw.value ↦ i;
   exhale ℓ’.value.raw.value ↦ i;
   inhale ℓ’.value.raw.value ↦ (i + 10);
-  exhale ℓ’.value.mirrored.value ↦ i;
-  inhale ℓ’.value.mirrored.value ↦ γ;
-  assert Nested.placeTypedBy(ℓ’, {raw: i, mirrored: γ}, 
-    TypeTag.isYoinked({raw: Int, mirrored: Blocked(Int)}));
-  var mirror’: RustValue = (i, γ’);
-  assert isTypedBy((i, γ’), isMutBorrow(TypeTag.isMutBorrow(Int)));
-  reborrow(γ, γ’);
-  resolveProphecy(γ’, 10);
-  assert Nested.placeTypedBy(ℓ’, {raw: i, mirrored: *γ}, 
-    TypeTag.isYoinked({raw: Int, mirrored: Int}));
-  fold Nested.typedBy({raw: ℓ, mirrored: i + 10}, Int, m);
+  var mirror1: RustValue := mirrored.mutably_borrow(ℓ’);
+  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: γ |}) &&
+         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: blocked(Int) |}, m) &&
+         ℓ’.value.mirrored ↦ (i + 10) &&
+         mirror1 := (i, γ);
+  resolveProphecy(γ, i + 10);
+  mirrored.end_mutable_borrow(ℓ’, mirror1);
+  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: γ |}) &&
+         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: isBorrowOf(Int) |}, m) &&
+         ℓ’.value.mirrored ↦ (i + 10) &&
+         mirror1 := (i, γ) &&
+         Res(γ, i + 10);
+  unyoink(ℓ’);
+  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: γ |}) &&
+         Nested.TypedBy(2, isStructuredData, m) &&
+         ℓ’.value.mirrored ↦ (i + 10) &&
+         mirror1 := (i, γ) &&
+         Res(γ, i + 10);
+  unbox(ℓ’, {| raw: ℓ, mirrored: i + 10 |});
+  fold Nested.typedBy({raw: ℓ, mirrored: i + 10}, isStructuredData, m);
 }
 ```
