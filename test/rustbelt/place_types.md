@@ -28,8 +28,7 @@ To explore the first case, where explicit ghost state is used, the following is 
 
 #![rr::refined_by("ℓ": "Ref")]
 #![rr::refined_by("(ℓ, i)" : "(Ref * Int)")]
-#![rr::exists("v": "RustValue")]
-#![rr::invariant(#own "ℓ" "v")]
+#![rr::invariant(#own "ℓ" "i")]
 #![rr::invariant(#type "ℓ" : "i" @ "Int")]
 struct Mirrored {
   #[rr::field("ℓ")]
@@ -39,15 +38,15 @@ struct Mirrored {
 }
 
 #[rr::params("ℓ" : "Loc", "i" : "Int")]
-#[rr::args("(ℓ, i)")]
+#[rr::args("(ℓ, i)" : "Mirrored")]
 #[rr::returns("(ℓ, i + 10)")]
 #[rr::ensures(#iris "Res γ (ℓ, i + 10)")]
-fn update_mirrored(mut x: Mirrored) -> Mirrored {
+fn update_nested(mut x: Mirrored) -> Mirrored {
   unsafe {
-    *&mut *x.inner.raw = *x.inner.raw + 10;
+    let rebor: &mut i32 = &mut *x.raw;
+    *rebor = *rebor + 10;
   }
-  let mirror': &mut i32 = &mut x.mirror;
-  *mirror' += 10;
+  x.mirror += 10;
   x
 }
 ```
@@ -73,6 +72,11 @@ Where fromTypeTag(τ) changes the fields of τ to all be borrowed.
 
 The translation design is then the following
 
+- [ ] Write a procedure that calls update_nested
+- [ ] Make the suggestions from the meeting
+- [ ] Push typechecks into Raven's type system
+- [ ] Actually implement the Raven code
+
 ```
 // translate the rust struct “Nested” into an instantiation of
 // DataInv, endowing structs that look like { raw: Loc, mirror: Int }
@@ -91,43 +95,70 @@ module Nested : DataInv {
   }
 }
 
+// TODO
+// Push the typechecks as much as possible into Raven's typesystem
+
+// have a safe procedure that calls update_nested
+// reading out mirror + raw
+
+// Have the actual implementation of verifying the unsafe code w/
+// place types
+
 proc update_nested(ℓ: Loc, i: Int, m: ResolutionMap)
-  requires Nested.typedBy({raw: ℓ, mirrored: i}, Int, m)
-  ensures Nested.typedBy({raw: ℓ, mirrored: i + 10}, Int, m)
+  requires argTypedBy(RustValue.mirrored(ℓ, i), TypeTag.isMirrored());
+  ensures returnTypedBy(RustValue.mirrored(ℓ, i + 10), TypeTag.isMirrored(), m)
  {
-  var ℓ’: Ref := box({| raw: ℓ, mirrored: i |});
+  // Remove maps; replace with types emitted by the translation from Rust to Raven
+  var ℓ': Ref;
+  unfold argTypedBy(RustValue.mirrored(ℓ, i), TypeTag.isMirrored())[ℓ' := ℓ];
+  // These locations are used for the intermediate references:
+  // ℓ_intermediate_0: return pointer
+  // ℓ_intermediate_2: reborrow of "mirror"
+  // ℓ_intermediate_3: the value read from the reborrow
+  // ℓ_intermediate_4: result of adding reborrow & 10
+  // ℓ_intermediate_5: result of adding mirror & 10
+  // ℓ_intermediate_6: mutable pointer to 32 bit integer
+  var ℓ_intermediate_0: Ref;
+  var ℓ_intermediate_2: Ref;
+  var ℓ_intermediate_3: Ref;
+  var ℓ_intermediate_4: Ref;
+  var ℓ_intermediate_5: Ref;
+  var ℓ_intermediate_6: Ref;
   // So now we have
-  // (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) && placeTypedBy(ℓ’, {| raw: ℓ, mirrored: i |} && Nested.dataInv(...)) which means we have
-  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) && Nested.TypedBy(2, isStructuredData(), m)
+  assert (ℓ’.value ↦ RustValue.mirrored(ℓ, i)) && TypedBy(RustValue.mirrored(ℓ, i), TypeTag.isBorMirrored(), m);
   yoink(ℓ’);
   // So now we have:
-  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) &&
-         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: isBorrowOf(Int) |}, m) &&
-         Nested.dataInv({| raw: ℓ, mirrored: i |}, m); // equivalently
-  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: i |}) &&
-         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: isBorrowOf(Int) |}, m) &&
-         ℓ’.value.raw.value ↦ i;
-  exhale ℓ’.value.raw.value ↦ i;
-  inhale ℓ’.value.raw.value ↦ (i + 10);
-  var mirror1: RustValue := mirrored.mutably_borrow(ℓ’);
-  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: γ |}) &&
-         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: blocked(Int) |}, m) &&
-         ℓ’.value.mirrored ↦ (i + 10) &&
-         mirror1 := (i, γ);
-  resolveProphecy(γ, i + 10);
-  mirrored.end_mutable_borrow(ℓ’, mirror1);
-  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: γ |}) &&
-         Nested.TypedBy(2, {| raw: isBorrowOf(Loc), mirror: isBorrowOf(Int) |}, m) &&
-         ℓ’.value.mirrored ↦ (i + 10) &&
-         mirror1 := (i, γ) &&
-         Res(γ, i + 10);
-  unyoink(ℓ’);
-  assert (ℓ’.value ↦ {| raw: ℓ, mirrored: γ |}) &&
-         Nested.TypedBy(2, isStructuredData, m) &&
-         ℓ’.value.mirrored ↦ (i + 10) &&
-         mirror1 := (i, γ) &&
-         Res(γ, i + 10);
-  unbox(ℓ’, {| raw: ℓ, mirrored: i + 10 |});
-  fold Nested.typedBy({raw: ℓ, mirrored: i + 10}, isStructuredData, m);
+  assert (ℓ’.value ↦ RustValue.mirrored(ℓ, i)) &&
+         typedBy(RustValue.mirrored(ℓ, i), TypeTag.isYoinkedMirrored(false, false), m) &&
+         dataInv(RustValue.mirrored(ℓ, i), m); // equivalently
+  unfold dataInv(RustValue.mirrored(ℓ, i), m);
+  assert (ℓ’.value ↦ RustValue.mirrored(ℓ, i)) &&
+         typedBy(RustValue.mirrored(ℓ, i), TypeTag.isYoinkedMirrored(false, false), m) &&
+         ℓ.value ↦ i;
+  ℓ_intermediate_6 := Mirrored.raw.deref_copy(ℓ’);
+  assert (ℓ_intermediate_6.value ↦ ℓ);
+  assert placeTypedBy(ℓ_intermediate_6, TypeTag.isRawPointer(), m);
+  ℓ_intermediate_2 := reborrow(ℓ_intermediate_6, TypeTag.isInt());
+  unfold reborrowed(ℓ_intermediate_2, ℓ_intermediate_6)[ɣ := ɣ];
+  assert (ℓ_intermediate_6.value ↦ ℓ);
+  assert (ℓ_intermediate_2.value ↦ (i, ɣ));
+  assert (ℓ.value ↦ RustValue.isDeref(ɣ));
+  assert placeTypedBy(ℓ_intermediate_2, TypeTag.isMutBorrowOf(TypeTag.isInt()), m);
+  ℓ_intermediate_3 := deref_copy(ℓ_intermediate_2);
+  assert (ℓ_intermediate_3.value ↦ i);
+  assert placeTypedBy(ℓ_intermediate_3, TypeTag.isMutBorrowOf(TypeTag.isInt()), m);
+  ℓ_intermediate_4 := add_with_overflow(copy(ℓ_intermediate_3), 10);
+  assert (ℓ_intermediate_4.value ↦ (i + 10));
+  assert placeTypedBy(ℓ_intermediate_4, TypeTag.isInt(), m);
+  deref_move(ℓ_intermediate_2, ℓ_intermediate_4);
+  assert (ℓ_intermediate_2.value ↦ (i, ɣ)) && prophecyResolvesTo(ɣ, i + 10, m);
+  assert placeTypedBy(ℓ_intermediate_2, TypeTag.isMutBorrow(TypeTag.isInt()), m);
+  ℓ_intermediate_5 := add_with_overflow(Mirrored.mirror.copy(ℓ’), 10);
+  assert Mirrored.mirror.copy(ℓ’) == i
+  assert (ℓ_intermediate_5.value ↦ (i + 10));
+  Mirrored.mirror.move(ℓ_intermediate_0, Mirrored.mirror.read(ℓ_intermediate_5))
+  assert Mirrored.mirror.copy(ℓ’) == i + 10
+  fold dataInv(RustValue.mirrored(ℓ, i + 10), m);
+  fold returnTypedBy(RustValue.mirrored(ℓ, i), TypeTag.isMirrored())[ℓ := ℓ_intermediate_0];
 }
 ```
