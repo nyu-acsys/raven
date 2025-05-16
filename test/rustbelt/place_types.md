@@ -72,11 +72,6 @@ Where fromTypeTag(τ) changes the fields of τ to all be borrowed.
 
 The translation design is then the following
 
-- [ ] Write a procedure that calls update_nested
-- [ ] Make the suggestions from the meeting
-- [ ] Push typechecks into Raven's type system
-- [ ] Actually implement the Raven code
-
 ```
 // translate the rust struct “Nested” into an instantiation of
 // DataInv, endowing structs that look like { raw: Loc, mirror: Int }
@@ -162,3 +157,9 @@ proc update_nested(ℓ: Loc, i: Int, m: ResolutionMap)
   fold returnTypedBy(RustValue.mirrored(ℓ, i), TypeTag.isMirrored())[ℓ := ℓ_intermediate_0];
 }
 ```
+
+# TODO
+- [x] Write a procedure that calls update_nested
+- [x] Make the suggestions from the meeting
+- [ ] Push typechecks into Raven's type system
+- [ ] Actually implement the Raven code
