@@ -90,14 +90,19 @@ module Nested : DataInv {
   }
 }
 
-// TODO
-// Push the typechecks as much as possible into Raven's typesystem
-
 // have a safe procedure that calls update_nested
 // reading out mirror + raw
 
 // Have the actual implementation of verifying the unsafe code w/
 // place types
+
+pred argTypedBy(v: RustValue, tag: TypeTag, m: ResolutionMap) {
+  ∃ (ℓ: Ref) :: (ℓ ↦ v) && isTypedBy(v, tag, m)
+}
+
+pred returnTypedBy(v: RustValue, tag: TypeTag, m: ResolutionMap) {
+  ∃ (ℓ: Ref) :: (ℓ ↦ v) && isTypedBy(v, tag, m)
+}
 
 proc update_nested(ℓ: Loc, i: Int, m: ResolutionMap)
   requires argTypedBy(RustValue.mirrored(ℓ, i), TypeTag.isMirrored());
@@ -120,42 +125,83 @@ proc update_nested(ℓ: Loc, i: Int, m: ResolutionMap)
   var ℓ_intermediate_5: Ref;
   var ℓ_intermediate_6: Ref;
   // So now we have
-  assert (ℓ’.value ↦ RustValue.mirrored(ℓ, i)) && TypedBy(RustValue.mirrored(ℓ, i), TypeTag.isBorMirrored(), m);
+  assert (ℓ’.value ↦...↦ RustValue.mirrored(ℓ, i)) && TypedBy(RustValue.mirrored(ℓ, i), TypeTag.isBorMirrored(), m);
   yoink(ℓ’);
   // So now we have:
-  assert (ℓ’.value ↦ RustValue.mirrored(ℓ, i)) &&
+  assert (ℓ’.value ↦...↦ RustValue.mirrored(ℓ, i)) &&
          typedBy(RustValue.mirrored(ℓ, i), TypeTag.isYoinkedMirrored(false, false), m) &&
          dataInv(RustValue.mirrored(ℓ, i), m); // equivalently
   unfold dataInv(RustValue.mirrored(ℓ, i), m);
-  assert (ℓ’.value ↦ RustValue.mirrored(ℓ, i)) &&
+  assert (ℓ’.value ↦...↦ RustValue.mirrored(ℓ, i)) &&
          typedBy(RustValue.mirrored(ℓ, i), TypeTag.isYoinkedMirrored(false, false), m) &&
          ℓ.value ↦ i;
   ℓ_intermediate_6 := Mirrored.raw.deref_copy(ℓ’);
-  assert (ℓ_intermediate_6.value ↦ ℓ);
+  assert (ℓ_intermediate_6.value ↦...↦ ℓ);
   assert placeTypedBy(ℓ_intermediate_6, TypeTag.isRawPointer(), m);
-  ℓ_intermediate_2 := reborrow(ℓ_intermediate_6, TypeTag.isInt());
+  ℓ_intermediate_2 := reborrow_from_raw(ℓ_intermediate_6, TypeTag.isInt());
   unfold reborrowed(ℓ_intermediate_2, ℓ_intermediate_6)[ɣ := ɣ];
-  assert (ℓ_intermediate_6.value ↦ ℓ);
-  assert (ℓ_intermediate_2.value ↦ (i, ɣ));
+  assert (ℓ_intermediate_2.value ↦...↦ (i, ɣ));
   assert (ℓ.value ↦ RustValue.isDeref(ɣ));
   assert placeTypedBy(ℓ_intermediate_2, TypeTag.isMutBorrowOf(TypeTag.isInt()), m);
   ℓ_intermediate_3 := deref_copy(ℓ_intermediate_2);
-  assert (ℓ_intermediate_3.value ↦ i);
+  assert (ℓ_intermediate_3.value ↦...↦ i);
   assert placeTypedBy(ℓ_intermediate_3, TypeTag.isMutBorrowOf(TypeTag.isInt()), m);
   ℓ_intermediate_4 := add_with_overflow(copy(ℓ_intermediate_3), 10);
-  assert (ℓ_intermediate_4.value ↦ (i + 10));
+  assert (ℓ_intermediate_4.value ↦...↦ (i + 10));
   assert placeTypedBy(ℓ_intermediate_4, TypeTag.isInt(), m);
   deref_move(ℓ_intermediate_2, ℓ_intermediate_4);
-  assert (ℓ_intermediate_2.value ↦ (i, ɣ)) && prophecyResolvesTo(ɣ, i + 10, m);
+  assert (ℓ_intermediate_2.value ↦...↦ (i, ɣ)) && prophecyResolvesTo(ɣ, i + 10, m);
   assert placeTypedBy(ℓ_intermediate_2, TypeTag.isMutBorrow(TypeTag.isInt()), m);
   ℓ_intermediate_5 := add_with_overflow(Mirrored.mirror.copy(ℓ’), 10);
   assert Mirrored.mirror.copy(ℓ’) == i
-  assert (ℓ_intermediate_5.value ↦ (i + 10));
+  assert (ℓ_intermediate_5.value ↦...↦ (i + 10));
   Mirrored.mirror.move(ℓ_intermediate_0, Mirrored.mirror.read(ℓ_intermediate_5))
   assert Mirrored.mirror.copy(ℓ’) == i + 10
   fold dataInv(RustValue.mirrored(ℓ, i + 10), m);
   fold returnTypedBy(RustValue.mirrored(ℓ, i), TypeTag.isMirrored())[ℓ := ℓ_intermediate_0];
 }
+```
+
+With the specifications:
+```
+proc reborrow_from_raw(ℓ: Ref, tag: TypeTag, implicit ghost ℓ' : Ref, implicit ghost v: RustValue)
+requires (ℓ ↦...↦ RustValue.rawPointer(ℓ')) && (ℓ' ↦ v) && typedBy(v, TypeTag.isBorrowOf(tag), m)
+  ensures ∃ (ɣ: Ref) :: (ℓ ↦ RustValue.isDeref(ɣ)) && isProphecy(ɣ) && (ℓ' ↦ (v, ɣ)) && typedBy(v, TypeTag.isBorrowOf(tag), m)
+```
+transforming a pointer to a value to a pointer to a prophecy,
+
+```
+proc Mirrored.raw.deref_copy(ℓ1: Ref, ℓ2: Ref)
+  requires (ℓ1 ↦...↦ Mirrored {raw: ℓ, value: i})
+  ensures (ℓ2 ↦ ℓ) && (ℓ1 ↦...↦ Mirrored {raw: ℓ, value: i})
+```
+copying the `raw` field of the Mirrored struct
+
+```
+proc copy_int(ℓ: Ref) returns (v: Rustvalue)
+  requires (ℓ ↦...↦ v')
+  ensures (v' == v)
+```
+copying the value `v'` to `v`
+
+```
+proc add_with_overflow(x: Ref, i: Int)
+  requires (x ↦...↦ RustValue.literalInt(v))
+  ensures (x ↦...↦ RustValue.literalInt(v + i))
+```
+Adding the value of `i` to `x` (and ignoring overflows)
+
+```
+proc deref_move(ℓ1: Ref, ℓ2: Ref)
+  requires ∃ (ℓ': Ref) (v: RustValue) :: (ℓ2.value ↦...↦ RustValue.isDeref(ℓ')) && (ℓ'.value ↦ v)
+  ensures ℓ1.value ↦ v
+```
+Moving the value stored behind `ℓ1` to `v`, and finally
+
+```
+proc Mirrored.mirror.move(ℓ: Ref, v: RustValue)
+  reqiures ∃ (v': RustValue) : (ℓ↦...↦v') && (ℓ↦v)
+  ensures (ℓ↦v)
 ```
 
 # TODO
