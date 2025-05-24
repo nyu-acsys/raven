@@ -1,0 +1,332 @@
+module RustValue: Library.Type {
+  rep type T = data {
+    case literalInt(v: Int);
+    case literalBool(b: Int);
+    case mutBorrow1(initialValueForMut: T, finalBorrowNameForMut1: Ref);
+    case mutBorrow2(initialRefForMut: Ref, finalBorrowNameForMut2: Ref);
+    case immutBorrow1(borrowNameForImmut: Ref);
+    case immutBorrow2(valueForImmut: T);
+    case rawPointer(referenceToPointed: Ref);
+    case array(lenForArray: Int, mapForArray: Map[Int, T]);
+    case uninit();
+    case isDeref(borrowNameForDeref: Ref);
+    case mirrored(raw: Ref, mirror: Int);
+    case mirroredYoinked1(borrowNameForRaw1: Ref, mirrorYoinked1: Int);
+    case mirroredYoinked2(rawYoinked1: Ref, borrowNameForMirror1: Int);
+    case mirroredYoinked3(borrowNameForRaw2: Ref, borrowNameForMirror2: Ref);
+    case mirroredYoinked4(mirrorYoinked2: Ref, borrowNameYoinked2: Int)
+  }
+}
+
+module Option[X: Library.Type] {
+  rep type T = data {
+    case some(wrappedData: X);
+    case none()
+  }
+}
+
+ghost field resolvedValue: RustValue;
+type ResolutionMap = Map[Ref, RustValue];
+field value: RustValue;
+
+module TypeTag {
+  rep type T = data {
+    case isInt();
+    // fix int later with some size
+    case isBool();
+    case isMutBorrow(mutPointedType: T);
+    case isSharedBorrow(sharedPointedType: T);
+    case isRawPointer();
+    case isArrayOf(collectedType: T);
+    case isUninit();
+    case isMaybeInit(potentiallyInitializedType: T);
+    case isYoinked(rawBlocked: Bool, mirroredBlocked: Bool);
+    case isMirrored()
+  }
+}
+
+module Unit: Library.Type {
+  rep type T = data { case unit() }
+}
+
+module UnitA = Library.Agree[Unit];
+
+field ownProphecy: UnitA;
+
+pred isProphecy(r: Ref) {
+  own(r, ownProphecy, UnitA.agree(Unit.unit()))
+}
+
+pred resolvedProphecy(r: Ref, v: RustValue, m: ResolutionMap) {
+  (m[r] == v)
+}
+
+proc resolveProphecy(r: Ref, v: RustValue, m: ResolutionMap)
+  requires isProphecy(r)
+  ensures resolvedProphecy(r, v, m) {
+  unfold isProphecy(r);
+  exhale own(r, ownProphecy, UnitA.agree(Unit.unit()));
+  assume (m[r] == v);
+  fold resolvedProphecy(r, v, m);
+}
+
+proc makeProphecy() returns (res: Ref) ensures isProphecy(res) {
+  res := new (ownProphecy: UnitA.agree(Unit.unit()));
+  fold isProphecy(res);
+}
+
+func derefsTo(x: RustValue, y: RustValue, m: ResolutionMap) returns (res: Bool ) {
+  (x == RustValue.isDeref(x.RustValue.borrowNameForDeref) && derefsTo(m[x.RustValue.borrowNameForDeref], y, m))
+  ||
+  (x != RustValue.isDeref(x.RustValue.borrowNameForDeref) && x == y)
+}
+
+lemma derefsToSurj(x: RustValue, y: RustValue, z: RustValue, m: ResolutionMap)
+  requires derefsTo(x, y, m) && derefsTo(x, z, m)
+  ensures y == z {
+  if (x == RustValue.isDeref(x.RustValue.borrowNameForDeref)) {
+    derefsToSurj(m[x.RustValue.borrowNameForDeref], y, z, m);
+  }
+}
+
+func refDerefsTo(r: Ref, y: RustValue, m: ResolutionMap) returns (res: Bool) {
+  derefsTo(RustValue.isDeref(r), y, m)
+}
+
+pred isMirroredIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.mirrored(t.RustValue.raw, t.RustValue.mirror))
+  &&
+  (tag == TypeTag.isMirrored())
+  &&
+  own(t.RustValue.raw, value, RustValue.literalInt(t.RustValue.mirror))
+}
+
+pred isMirroredYoinkedIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (exists rawBlocked: Bool, mirroredBlocked: Bool ::
+    tag == TypeTag.isYoinked(rawBlocked, mirroredBlocked) &&
+     ((t == RustValue.mirroredYoinked1(t.RustValue.borrowNameForRaw1, t.RustValue.mirrorYoinked1) &&
+       !rawBlocked)
+      ||
+      (t == RustValue.mirroredYoinked2(t.RustValue.rawYoinked1, t.RustValue.borrowNameForMirror1) &&
+       !mirroredBlocked)
+      ||
+      (t == RustValue.mirroredYoinked3(t.RustValue.borrowNameForRaw2, t.RustValue.borrowNameForMirror2) &&
+       !rawBlocked && !mirroredBlocked)
+      ||
+      (t == RustValue.mirroredYoinked4(t.RustValue.mirrorYoinked2, t.RustValue.borrowNameYoinked2)))
+  )
+}
+
+pred mutBorrow1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.mutBorrow1(t.RustValue.initialValueForMut, t.RustValue.finalBorrowNameForMut1))
+  &&
+  typedBy(t.RustValue.initialValueForMut, tag.TypeTag.mutPointedType, m)
+  &&
+  typedBy(m[t.RustValue.finalBorrowNameForMut2], tag.TypeTag.mutPointedType, m)
+}
+
+pred mutBorrow2IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.mutBorrow2(t.RustValue.initialRefForMut, t.RustValue.finalBorrowNameForMut2))
+  &&
+  typedBy(m[t.RustValue.initialRefForMut], tag.TypeTag.mutPointedType, m)
+  &&
+  typedBy(m[t.RustValue.finalBorrowNameForMut2], tag.TypeTag.mutPointedType, m)
+}
+
+pred arrayRangeIsTypedBy(len: Int, map: Map[Int, RustValue], tag: TypeTag, m: ResolutionMap) {
+  (forall i: Int :: (0 <= i < len)
+  ==>
+  typedByAtIndex(map[i], tag, m, i))
+}
+
+pred isArrayIsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.array(t.RustValue.lenForArray, t.RustValue.mapForArray))
+  &&
+  arrayRangeIsTypedBy(t.RustValue.lenForArray, t.RustValue.mapForArray, tag.TypeTag.collectedType, m)
+}
+
+pred maybeDeref1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.isDeref(t.RustValue.borrowNameForDeref)
+  &&
+  typedBy((m[t.RustValue.borrowNameForImmut]), tag.TypeTag.sharedPointedType, m))
+}
+
+pred maybeDeref2IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  ((t != RustValue.isDeref(t.RustValue.borrowNameForDeref))
+  &&
+  typedBy(t, tag.TypeTag.sharedPointedType, m))
+}
+
+pred immutBorrow1IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.immutBorrow1(t.RustValue.borrowNameForImmut))
+  &&
+  (typedBy(m[t.RustValue.borrowNameForImmut], tag.TypeTag.sharedPointedType, m))
+}
+
+pred immutBorrow2IsTypedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  (t == RustValue.immutBorrow2(t.RustValue.valueForImmut))
+  &&
+  typedBy(t.RustValue.valueForImmut, tag.TypeTag.sharedPointedType, m)
+}
+
+pred typedByAtIndex(t: RustValue, tag: TypeTag, m: ResolutionMap, i: Int) {
+  typedBy(t, tag, m)
+}
+
+pred typedBy(t: RustValue, tag: TypeTag, m: ResolutionMap) {
+  exists pointed: RustValue ::
+  derefsTo(t, pointed, m)
+  &&
+  (((tag == TypeTag.isInt()) ==> (pointed == RustValue.literalInt(pointed.RustValue.v))))
+  &&
+  ((tag == TypeTag.isBool()) ==> (pointed == RustValue.literalBool(pointed.RustValue.b)))
+  &&
+  (((tag == TypeTag.isRawPointer()) ==> (pointed == RustValue.rawPointer(pointed.RustValue.referenceToPointed))))
+  &&
+  (tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType) ==> ((t == RustValue.immutBorrow1(t.RustValue.borrowNameForImmut)) || (t == RustValue.immutBorrow2(t.RustValue.valueForImmut))))
+  &&
+  (((tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType)) && (t == RustValue.immutBorrow1(t.RustValue.borrowNameForImmut))) ==> immutBorrow1IsTypedBy(pointed, tag, m))
+  &&
+  (((tag == TypeTag.isSharedBorrow(tag.TypeTag.sharedPointedType)) && (t == RustValue.immutBorrow2(t.RustValue.valueForImmut))) ==> immutBorrow2IsTypedBy(pointed, tag, m))
+  &&
+  ((tag == TypeTag.isMutBorrow(tag.TypeTag.mutPointedType)) ==> ((t == RustValue.mutBorrow1(t.RustValue.initialValueForMut, t.RustValue.finalBorrowNameForMut1)) || (t == RustValue.mutBorrow2(t.RustValue.initialRefForMut, t.RustValue.finalBorrowNameForMut2))))
+  &&
+  (((tag == TypeTag.isMutBorrow(tag.TypeTag.mutPointedType)) && (t == RustValue.mutBorrow1(t.RustValue.initialValueForMut, t.RustValue.finalBorrowNameForMut1))) ==> mutBorrow1IsTypedBy(pointed, tag, m))
+  &&
+  (((tag == TypeTag.isMutBorrow(tag.TypeTag.mutPointedType)) && (t == RustValue.mutBorrow2(t.RustValue.initialRefForMut, t.RustValue.finalBorrowNameForMut2))) ==> mutBorrow2IsTypedBy(pointed, tag, m))
+  &&
+  ((tag == TypeTag.isArrayOf(tag.TypeTag.collectedType)) ==> isArrayIsTypedBy(pointed, tag, m))
+  &&
+  (((tag == TypeTag.isUninit()) ==> (pointed == RustValue.uninit())))
+  &&
+  ((tag == TypeTag.isMirrored()) ==> isMirroredIsTypedBy(pointed, tag, m))
+  &&
+  ((tag == TypeTag.isYoinked(tag.TypeTag.rawBlocked, tag.TypeTag.mirroredBlocked)) ==>
+    isMirroredYoinkedIsTypedBy(pointed, tag, m))
+}
+
+pred argTypedBy(v: RustValue, tag: TypeTag, m: ResolutionMap) {
+  exists r: Ref :: own(r, value, v) && typedBy(v, tag, m)
+}
+
+pred returnTypedBy(v: RustValue, tag: TypeTag, m: ResolutionMap) {
+  exists r: Ref :: own(r, value, v) && typedBy(v, tag, m)
+}
+
+interface Main {
+  pred reborrowed(v: RustValue, r: Ref, r2: Ref, tag: TypeTag, m: ResolutionMap) {
+    exists gamma: Ref :: isProphecy(gamma) && own(r, value, RustValue.immutBorrow1(gamma)) &&
+                                 own(r2, value, RustValue.mutBorrow1(v, gamma)) &&
+                                 typedBy(RustValue.mutBorrow1(v, gamma), TypeTag.isMutBorrow(tag), m)
+
+  }
+
+  axiom reborrow_from_raw(r: Ref, v: RustValue, x: RustValue, tag: TypeTag, m: ResolutionMap) returns (r2: Ref)
+    requires own(r, value, v) && typedBy(v, TypeTag.isSharedBorrow(TypeTag.isRawPointer()), m) && own(v.RustValue.valueForImmut.RustValue.referenceToPointed, value, x) && typedBy(x, tag, m)
+    ensures reborrowed(x, r, r2, tag, m);
+
+  axiom raw_deref_copy(r1: Ref, r2: Ref, m: ResolutionMap, implicit ghost raw: Ref, implicit ghost mirror: Int)
+    requires own(r1, value, RustValue.mirroredYoinked4(raw, mirror))
+    ensures own(r2, value, RustValue.immutBorrow2(RustValue.rawPointer(raw))) &&
+            own(r1, value, RustValue.mirroredYoinked1(r2, mirror));
+
+  axiom deref_copy(r: Ref, x: RustValue, gamma: Ref)
+    requires own(r, value, RustValue.mutBorrow1(x, gamma))
+    ensures copied(x) && own(r, value, RustValue.mutBorrow1(x, gamma))
+
+  pred added_with_overflow(i: Int, v: Int) {
+    exists r2: Ref :: own(r2, value, RustValue.literalInt(i + v))
+  }
+
+  axiom add_with_overflow(x: Ref, i: Int, v: Int)
+    requires own(x, value, RustValue.literalInt(i))
+    ensures added_with_overflow(i, v);
+
+  axiom deref_move(r1: Ref, r2: Ref, v: RustValue, v1: RustValue, gamma: Ref, m: ResolutionMap)
+    requires own(r2, value, v) &&
+             own(r1, value, RustValue.mutBorrow1(v1, gamma)) && isProphecy(gamma)
+    ensures own(r1, value, RustValue.mutBorrow1(v1, gamma)) &&
+            resolvedProphecy(gamma, v, m)
+
+  axiom mirrored_mirror_move(r1: Ref, v: RustValue, i: Int)
+    requires own(r1, value, RustValue.mirroredYoinked1(v.RustValue.borrowNameForRaw1, v.RustValue.mirrorYoinked1))
+    ensures own(r1, value, RustValue.mirroredYoinked1(v.RustValue.borrowNameForRaw1, i))
+
+  pred copied(x: RustValue) {
+    exists r2: Ref :: own(r2, value, x)
+  }
+
+  axiom mirrored_mirror_copy(r1: Ref, v: RustValue) returns (i: Int)
+    requires own(r1, value, v) && (v == RustValue.mirroredYoinked1(v.RustValue.borrowNameForRaw1, i))
+
+  axiom yoink(r: Ref, v: RustValue, m: ResolutionMap)
+    requires own(r, value, v) &&
+             (v == RustValue.mirrored(v.RustValue.raw, v.RustValue.mirror)) &&
+             typedBy(v, TypeTag.isMirrored(), m)
+    ensures own(r, value, RustValue.mirroredYoinked4(v.RustValue.raw, v.RustValue.mirror))
+            && own(v.RustValue.raw, value, RustValue.literalInt(v.RustValue.mirror))
+            && typedBy(RustValue.mirroredYoinked4(v.RustValue.raw, v.RustValue.mirror),
+                       TypeTag.isYoinked(true, true), m);
+
+
+  axiom unyoink(r: Ref, rold: Ref, r1: Ref, gamma: Ref, vl: RustValue, x: RustValue, m: ResolutionMap)
+    requires
+    own(r, value, RustValue.mirroredYoinked1(vl.RustValue.borrowNameForRaw1, vl.RustValue.mirrorYoinked1))
+    &&
+    resolvedProphecy(gamma, RustValue.literalInt(vl.RustValue.mirrorYoinked1), m)
+    &&
+    own(r1, value, RustValue.mutBorrow1(x, gamma))
+    ensures own(r, value, RustValue.mirrored(rold, vl.RustValue.mirrorYoinked1)) &&
+            own(rold, value, RustValue.literalInt(vl.RustValue.mirrorYoinked1)) &&
+            typedBy(RustValue.mirrored(vl.RustValue.borrowNameForRaw1, vl.RustValue.mirrorYoinked1), TypeTag.isMirrored(), m)
+
+  proc update_nested(r: Ref, i: Int, m: ResolutionMap)
+    requires argTypedBy(RustValue.mirrored(r, i), TypeTag.isMirrored(), m)
+    ensures returnTypedBy(RustValue.mirrored(r, i + 10), TypeTag.isMirrored(), m)
+   {
+     var r2: Ref;
+     unfold argTypedBy(RustValue.mirrored(r, i), TypeTag.isMirrored(), m)[r2 := r];
+     var r_intermediate_0: Ref;
+     var r_intermediate_1: Ref;
+     var r_intermediate_2: Ref;
+     var r_intermediate_3: Ref;
+     var r_intermediate_4: Ref;
+     var r_intermediate_5: Ref;
+     var r_intermediate_6: Ref;
+     assert own(r2, value, RustValue.mirrored(r, i)) &&
+            typedBy(RustValue.mirrored(r, i), TypeTag.isMirrored(), m);
+     yoink(r2, RustValue.mirrored(r, i), m);
+     assert own(r2, value, RustValue.mirroredYoinked4(r, i));
+     var rawBlocked1: Bool;
+     var mirroredBlocked1: Bool;
+     var rawBlocked: Bool;
+     var mirroredBlocked: Bool;
+     unfold typedBy(RustValue.mirroredYoinked4(r, i), TypeTag.isYoinked(true, true), m);
+     unfold isMirroredYoinkedIsTypedBy(RustValue.mirroredYoinked4(r, i), TypeTag.isYoinked(true, true), m)[rawBlocked1 := rawBlocked, mirroredBlocked1 := mirroredBlocked];
+     raw_deref_copy(r2, r_intermediate_6, m, r, i);
+     fold typedBy(RustValue.rawPointer(r), TypeTag.isRawPointer(), m)[pointed := RustValue.rawPointer(r)];
+     fold immutBorrow2IsTypedBy(RustValue.immutBorrow2(RustValue.rawPointer(r)), TypeTag.isSharedBorrow(TypeTag.isRawPointer()), m);
+     fold typedBy(RustValue.immutBorrow2(RustValue.rawPointer(r)), TypeTag.isSharedBorrow(TypeTag.isRawPointer()), m)[pointed := RustValue.immutBorrow2(RustValue.rawPointer(r))];
+     fold typedBy(RustValue.literalInt(i), TypeTag.isInt(), m)[pointed := RustValue.literalInt(i)];
+     r_intermediate_2 := reborrow_from_raw(r_intermediate_6, RustValue.immutBorrow2(RustValue.rawPointer(r)), RustValue.literalInt(i), TypeTag.isInt(), m);
+     var gamma: Ref;
+     unfold reborrowed(RustValue.literalInt(i), r_intermediate_6, r_intermediate_2, TypeTag.isInt(), m)[gamma := gamma];
+     deref_copy(r_intermediate_2, RustValue.literalInt(i), gamma);
+     unfold copied(RustValue.literalInt(i))[r_intermediate_3 := r2];
+     add_with_overflow(r_intermediate_3, i, 10);
+     unfold added_with_overflow(i, 10)[r_intermediate_4 := r2];
+     deref_move(r_intermediate_2, r_intermediate_4, RustValue.literalInt(i + 10), RustValue.literalInt(i), gamma, m);
+     assert resolvedProphecy(gamma, RustValue.literalInt(i + 10), m);
+     var cpy: Int;
+     var v2: RustValue := RustValue.mirroredYoinked1(r_intermediate_6, i);
+     assume cpy == i;
+     mirrored_mirror_move(r2, RustValue.mirroredYoinked1(v2.RustValue.borrowNameForRaw1, i), i + 10);
+     assert own(r2, value, RustValue.mirroredYoinked1(r_intermediate_6, i + 10));
+     assert resolvedProphecy(gamma, RustValue.literalInt(i + 10), m);
+     assert own(r_intermediate_2, value, RustValue.mutBorrow1(RustValue.literalInt(i), gamma));
+     unyoink(r2, r, r_intermediate_2, gamma, RustValue.mirroredYoinked1(r_intermediate_6, i + 10), RustValue.literalInt(i), m);
+     fold isMirroredIsTypedBy(RustValue.mirrored(r, i + 10), TypeTag.isMirrored(), m);
+     fold typedBy(RustValue.mirrored(r, i + 10), TypeTag.isMirrored, m)[pointed := RustValue.mirrored(r, i + 10)];
+     fold returnTypedBy(RustValue.mirrored(r, i + 10), TypeTag.isMirrored(), m)[r := r2];
+   }
+}
