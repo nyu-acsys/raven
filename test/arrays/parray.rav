@@ -1,13 +1,18 @@
 include "array.rav"
 
+// Lockable resources
 interface LockResource : Library.Type {
+  // Type of values that identify a lockable resource
   rep type T
+
+  // Type of values that are implicitly defined by a resource r: T
   type S
 
   // Resource protected by a lock
   pred resource(r: T; s: S)
 }
 
+// Interface of a lock implementation that protects resources specified by module R
 interface Lock[R: LockResource] {
   import R.resource
 
@@ -17,8 +22,7 @@ interface Lock[R: LockResource] {
 
   module Agree = Library.Agree[RS]
 
-  ghost field agr: Agree
-  
+  ghost field agr: Agree 
 
   // Lock representation invariant
   pred lock_rep(l: Ref; b: Bool)
@@ -30,15 +34,18 @@ interface Lock[R: LockResource] {
     && (b ? true : resource(r, s))
   }
 
+  // Create a lock that protects resource r
   proc create(r: R, implicit ghost s: R.S)
     returns (l: Ref)
     requires resource(r, s)
     ensures is_lock(l, r, s)
 
+  // Acquire lock l to receive ownership of the protected resource r
   proc acquire(l: Ref, implicit ghost r: R, implicit ghost s: R.S)
     atomic requires is_lock(l, r, s)
     atomic ensures is_lock(l, r, s) && resource(r, s)
 
+  // Release lock l and give up ownership of the protected resource r
   proc release(l: Ref, implicit ghost r: R, implicit ghost s: R.S)
     atomic requires is_lock(l, r, s) && resource(r, s)
     atomic ensures is_lock(l, r, s)
