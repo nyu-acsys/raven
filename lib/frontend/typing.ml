@@ -2640,6 +2640,13 @@ module ProcessModule = struct
               | VarDef { var_decl = { var_const = true; _ }; var_init = None }
               | CallDef { call_def = ProcDef { proc_body = None }; call_decl = { call_decl_is_free = false; _ } }
               | CallDef { call_def = FuncDef { func_body = None }; call_decl = { call_decl_is_free = false; _ } } ->
+                if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
+                  Error.type_error (Symbol.to_loc symbol)
+                    (Printf.sprintf
+                       !"The %s %{Ident} cannot be abstract here. An abstract member can only be declared in an interface"
+                       (Symbol.kind symbol)
+                       (Symbol.to_name symbol))
+                else 
                   Error.type_error mod_decl.mod_decl_loc
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \
