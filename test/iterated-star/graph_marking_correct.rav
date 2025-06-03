@@ -1,0 +1,112 @@
+field left: Ref
+field right: Ref
+field is_marked: Bool
+
+auto pred invar(nodes: Set[Ref], lMap: Map[Ref, Ref], rMap: Map[Ref, Ref], mMap: Map[Ref, Bool]) {
+	!(null in nodes)
+	&& (forall n: Ref :: n in nodes ==> own(n.left, lMap[n]))
+	&& (forall n: Ref :: n in nodes ==> own(n.right, rMap[n]))
+	&& (forall n: Ref :: n in nodes ==> (own(n.is_marked, mMap[n])))
+	&& (forall n: Ref ::
+			 	n in nodes && lMap[n]  != null ==> lMap[n]  in nodes)
+	&& (forall n: Ref ::
+				n in nodes && rMap[n] != null ==> rMap[n] in nodes)
+}
+
+proc trav_rec(nodes: Set[Ref], node: Ref, implicit ghost lMap: Map[Ref, Ref], implicit ghost rMap: Map[Ref, Ref], implicit ghost mMap: Map[Ref, Bool])
+	returns (ghost lMap2: Map[Ref, Ref], ghost rMap2: Map[Ref, Ref], ghost mMap2: Map[Ref, Bool])
+	requires node in nodes && invar(nodes, lMap, rMap, mMap)
+	requires !mMap[node]
+
+	ensures node in nodes && invar(nodes, lMap2, rMap2, mMap2)
+
+	/* We do not unmark nodes. This allows us to prove that the current node will be marked. */
+	ensures forall n: Ref :: n in nodes ==> (mMap[n] ==> mMap2[n])
+	ensures mMap2[node]
+
+	/* The nodes are not being modified. */
+	ensures forall n: Ref :: n in nodes ==> (lMap2[n] == lMap[n])
+	ensures forall n: Ref :: n in nodes ==> (rMap2[n] == rMap[n])
+
+	/* Propagation of the marker. */
+	ensures forall n: Ref ::
+            n in nodes ==> (!mMap[n] && mMap2[n] ==> (lMap2[n] == null || mMap2[lMap2[n]]))
+	ensures forall n: Ref ::
+	          n in nodes ==> (!mMap[n] && mMap2[n] ==> (rMap2[n] == null || mMap2[rMap2[n]]))
+{
+	lMap2 := lMap;
+	rMap2 := rMap;
+	mMap2 := mMap;
+
+	node.is_marked := true;
+	mMap2 := mMap2[node := true];
+	var node_left := node.left;
+
+	if (node_left != null) {
+		 var node_left_marked := node_left.is_marked;
+		 if (!node_left_marked) {
+			assert node_left in nodes;
+			lMap2, rMap2, mMap2 := trav_rec(nodes, node_left, lMap2, rMap2, mMap2);
+		}
+	}
+
+
+	var node_right := node.right;
+	if (node_right != null) {
+		var node_right_marked :=  node_right.is_marked;
+		if (!node_right_marked) {
+			assert node_right in nodes;
+			lMap2, rMap2, mMap2 := trav_rec(nodes, node_right, lMap2, rMap2, mMap2);
+		}
+	}
+}
+
+proc client_success() {
+	var a: Ref; a := new(left: null, right: null, is_marked: false); 
+	var b: Ref; b := new(left: null, right: null, is_marked: false); 
+
+	a.left := b; a.right := null;
+	b.left := null; b.right := a;
+
+	var nodes: Set[Ref] := {| a, b |};
+
+	ghost var lMap: Map[Ref, Ref] := {| r: Ref :: r == a ? b : null |};
+	ghost var rMap: Map[Ref, Ref] := {| r: Ref :: r == b ? a : null |};
+	ghost var mMap: Map[Ref, Bool] := {| r: Ref :: false |};
+
+	assert forall n: Ref :: n in nodes ==> !mMap[n];
+  
+	ghost var lMap2: Map[Ref, Ref];
+	ghost var rMap2: Map[Ref, Ref];
+	ghost var mMap2: Map[Ref, Bool];
+	
+	lMap2, rMap2, mMap2 := trav_rec(nodes, a, lMap, rMap, mMap);
+
+	assert forall n: Ref :: n in nodes ==> mMap2[n];
+}
+
+proc client_failure() {
+	var a: Ref; a := new(left: null, right: null, is_marked: false);
+	var b: Ref; b := new(left: null, right: null, is_marked: false);
+
+	a.left := a; a.right := a;
+	b.left := a; b.right := a;
+
+	var nodes: Set[Ref] := {| a, b |};
+
+	ghost var lMap: Map[Ref, Ref] := {| r: Ref :: r == a ? a : (r == b ? a : null) |};
+	ghost var rMap: Map[Ref, Ref] := {| r: Ref :: r == a ? a : (r == b ? a : null) |};
+	ghost var mMap: Map[Ref, Bool] := {| r: Ref :: false |};
+
+	assert forall n: Ref :: n in nodes ==> !mMap[n];
+
+	ghost var lMap2: Map[Ref, Ref];
+	ghost var rMap2: Map[Ref, Ref];
+	ghost var mMap2: Map[Ref, Bool];
+
+	lMap2, rMap2, mMap2 := trav_rec(nodes, a, lMap, rMap, mMap);
+
+	/* The assertion is expected to fail because b is in nodes, but b is not reachable from a */
+    
+	// assert forall n: Ref :: n in nodes ==> mMap2[n];
+}

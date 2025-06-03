@@ -33,9 +33,6 @@ module ArrayMax[M: IArray] {
     ensures  M.len(a) == 0 ? x == -1 : (0 <= x && x < M.len(a))
     ensures  is_max(x, m, M.len(a))
   {
-    // No longer needed, since autoLemma dependencies have been added.
-    // M.all_diff();
-    // M.len_nonneg();
     var z : Int;
     if (M.len(a) == 0) {
       x := -1;

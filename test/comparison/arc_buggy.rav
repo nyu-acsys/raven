@@ -1,0 +1,195 @@
+include "shareable_predicates.rav"
+include "arc_ra.rav"
+
+interface ARC {
+    field c: Int
+    ghost field v: ArcRA
+
+    module SharePred: ShareablePredicate
+
+    auto pred noTokens(x: Ref) {
+        own(x.v, ArcRA.noToken)
+    }
+
+    pred tokenCounter(x: Ref, n: Int) {
+        exists q: Real :: q < 1.0 && SharePred.p_chunk(x, 1.0-q) && own(x.v, ArcRA.tokens(n, q, 0, 0.0))
+    }
+
+    pred token(x: Ref) {
+        exists q: Real :: SharePred.p_chunk(x, q) && own(x.v, ArcRA.tokens(0, 0.0, 1, q)) 
+    }
+
+    inv arcInv(x: Ref) {
+        exists v: Int :: (v <= 0 ? noTokens(x) : tokenCounter(x, v)) && own(x.c, v, 1.0)
+    }
+
+    lemma token_interact(x: Ref)
+        requires noTokens(x)
+        requires token(x)
+        ensures false
+    {
+        unfold token(x);
+    }
+    
+    lemma token_mutate_incr(x: Ref, n: Int)
+        requires tokenCounter(x, n)
+        ensures tokenCounter(x, n + 1) && token(x)
+    {
+        ghost var q: Real;
+        unfold tokenCounter(x, n)[q := q];
+
+        ghost var q1: Real := (1.0 - q) / 2.0;
+
+        fpu(x.v, 
+            ArcRA.tokens(n, q, 0, 0.0), 
+            ArcRA.tokens(n+1, q+q1, 1, q1)
+        );
+
+        SharePred.split(x, 1.0-q);
+        
+        fold token(x)[q := q1];
+        fold tokenCounter(x, n + 1)[q := q+q1];
+    }
+    
+    lemma token_mutate_decr(x: Ref, n: Int)
+        requires n > 1 && tokenCounter(x, n) && token(x)
+        ensures tokenCounter(x, n - 1)
+    {
+        ghost var q: Real; ghost var q1: Real;
+        unfold tokenCounter(x, n)[q := q];
+        unfold token(x)[q1 := q];
+
+        fpu(x.v, 
+            ArcRA.tokens(n, q, 1, q1), 
+            ArcRA.tokens(n-1, q - q1, 0, 0.0)
+        );
+
+        SharePred.merge(x, 1.0-q, q1);
+        fold tokenCounter(x, n-1)[q := q-q1];
+    }
+    
+    lemma token_mutate_delete_last(x: Ref)
+        requires tokenCounter(x, 1) && token(x)
+        ensures noTokens(x) && noTokens(x) && SharePred.p()
+    {
+        ghost var q: Real; ghost var q1: Real;
+
+        unfold tokenCounter(x, 1)[q := q];
+        unfold token(x)[q1 := q];
+
+        fpu(x, v, 
+            ArcRA.tokens(1, q, 1, q1), 
+            ArcRA.noToken
+        );
+
+        SharePred.merge(x, 1.0-q, q1);
+        SharePred.destroyShareable(x);
+    }
+
+    proc mk_arc() 
+        returns (ret: Ref)
+        requires SharePred.p()
+        ensures arcInv(ret) && token(ret)
+    {
+        var x: Ref;
+        
+        x := new(c: 1, v: ArcRA.tokens(1, 0.5, 1, 0.5));
+        SharePred.allocate(x);
+        SharePred.split(x, 1.0);
+
+        fold token(x)[q := 0.5];
+        fold tokenCounter(x, 1)[q := 0.5];
+        fold arcInv(x);
+
+        return x;
+    }
+
+    proc clone(x: Ref)
+        returns (ret: Int)
+        requires arcInv(x) && token(x)
+        ensures 0 < ret 
+        ensures token(x) && token(x)
+    {
+        unfold arcInv(x);
+        var old_count: Int := x.c;
+        fold arcInv(x);
+
+        // var new_count: Int := old_count + 1; 
+        var new_count: Int := old_count; 
+        
+        unfold arcInv(x);
+        var res: Bool := cas(x.c, old_count, new_count);
+
+        if (res) {
+            assert tokenCounter(x, old_count) with {
+                if (old_count <= 0) {
+                    token_interact(x);
+                }
+            }
+            token_mutate_incr(x, old_count);
+
+            fold arcInv(x);
+            return old_count;
+        } else {
+            fold arcInv(x);
+            var v: Int := clone(x);
+            return v;
+        }
+    }
+
+    proc count(x: Ref)
+        returns (ret: Int)
+        requires arcInv(x) && token(x)
+        ensures 0 < ret && token(x)
+    {
+        unfold arcInv(x);
+        var v: Int := x.c;
+        
+        assert v > 0 with {
+            if (v <= 0) {
+                token_interact(x);
+            }
+        }
+        
+        fold arcInv(x);
+
+        return v;
+    }
+
+    proc drop(x: Ref)
+        returns (ret: Bool)
+        requires arcInv(x) && token(x)
+        ensures (ret == true) ==> noTokens(x) && SharePred.p()
+    {
+        unfold arcInv(x);
+        var old_count: Int := x.c;
+        fold arcInv(x);
+        var new_count: Int := old_count - 1;
+
+        unfold arcInv(x);
+        var res: Bool := cas(x.c, old_count, new_count);
+
+        if (res) {
+            if (new_count == 0) {
+                token_mutate_delete_last(x);
+                fold arcInv(x);
+            }
+            else {
+                assert old_count > 0 with {
+                    if (old_count <= 0) {
+                        token_interact(x);
+                    }
+                }
+                token_mutate_decr(x, old_count);
+                fold arcInv(x);
+            }
+            
+            return old_count == 1;
+        } else {
+            fold arcInv(x);
+            
+            var r: Bool := drop(x);
+            return r;
+        }
+    }
+}

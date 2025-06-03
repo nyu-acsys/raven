@@ -12,14 +12,5 @@ proc p1() {
   var v2: Int := 2;
 
   inhale p(x, v1);
-  // inhale p(x, v2);
   exhale exists v: Int :: p(x, v);
-
-  
-
-  // inhale own(x.f, v1, 1.0);
-  // inhale own(x.f, v2, 1.0);
-  // assert false;
-  // inhale forall y: Ref :: p(y, 3);
-  // exhale forall y: Ref :: p(y, 3);
 }

@@ -18,7 +18,12 @@ interface Test {
     inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y).f, y, 1.0);
     exhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y).f, y, 1.0);
 
+    inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> own(lookup(x, y).f, y, 1.0);
+
     var x: Ref;
+    exhale own(lookup(x, 3).f, 3, 1.0);
+    exhale own(lookup(x, 4).f, 4, 1.0);
+
     var y: Int;
 
     inhale own(x.f, y, 1.0);

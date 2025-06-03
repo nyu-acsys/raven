@@ -1,0 +1,81 @@
+interface List {
+    rep type T
+    func nil() returns (ret: T)
+    func cons(head: Int, tail: T) returns (ret: T)
+
+    func head_cons(xs: T) returns (ret: Int)
+    func tail_cons(xs: T) returns (ret: T)
+
+    func tp(xs: T) returns (ret: Int)
+    func tp_nil() returns (ret: Int)
+    func tp_cons() returns (ret: Int)
+
+    auto axiom tp_unique() 
+        ensures tp_nil() != tp_cons()
+
+    func is_nil(xs: T) returns (ret: Bool)
+    func is_cons(xs: T) returns (ret: Bool)
+
+    auto axiom destruct_over_construct_cons()
+        ensures forall head: Int, tail: T :: 
+            head_cons(cons(head, tail)) == head &&
+            tail_cons(cons(head, tail)) == tail
+
+    auto axiom construct_over_destruct_cons()
+        ensures forall xs: T :: {head_cons(xs)} {tail_cons(xs)} is_cons(xs) ==> xs == cons(head_cons(xs), tail_cons(xs))
+
+    auto axiom type_of_nil()
+        ensures tp(nil()) == tp_nil()
+
+    auto axiom type_of_cons() 
+        ensures forall head: Int, tail: T :: tp(cons(head, tail)) == tp_cons()
+    
+    auto axiom type_existence()
+        ensures forall xs: T ::
+            tp(xs) == tp_nil() || tp(xs) == tp_cons()
+
+    auto axiom type_is_nil()
+        ensures forall xs: T ::
+            (tp(xs) == tp_nil ==> is_nil(xs)) &&
+            (is_nil(xs) ==> tp(xs) == tp_nil)
+
+    auto axiom type_isElem()
+        ensures forall xs: T ::
+            (tp(xs) == tp_cons() ==> is_cons(xs)) &&
+            (is_cons(xs) ==> tp(xs) == tp_cons())
+}
+
+import List._
+
+proc test_types(x: List)
+{ 
+    assert is_nil(x) ==> !is_cons(x);
+    assert !is_cons(x) ==> is_nil(x); 
+}
+
+proc test_quantifiers() {
+    assert forall head: Int, tail: List, xs: List ::
+    is_cons(xs) ==> (
+        (head == head_cons(xs) && tail == tail_cons(xs) ==> 
+            cons(head, tail) == xs
+        ) &&
+
+        (cons(head, tail) == xs ==> 
+            head == head_cons(xs) && tail == tail_cons(xs)
+        )
+    );
+}
+
+proc pattern_match_exhaustiveness(xs: List) {
+    assert !is_nil(xs) 
+        && !(is_cons(xs) && is_nil(tail_cons(xs)))
+        && !(is_cons(xs) && is_cons(tail_cons(xs)))
+    ==> false;
+
+    // assert !is_nil(xs)
+    //     && !(is_cons(xs) && is_nil(tail_cons(xs)))
+    //     && !(is_cons(xs) && is_cons(tail_cons(xs))
+    //         && head_cons(xs) < head_cons(tail_cons(xs))
+    //     )
+    // ==> false;
+}

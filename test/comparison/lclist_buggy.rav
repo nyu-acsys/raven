@@ -1,0 +1,389 @@
+include "../concurrent/lock/lock.rav"
+include "dfrac_ra.rav"
+
+interface LCList {
+
+    // definitions
+
+    module DFRA = Dfrac[Library.RefType]
+
+    field next: Ref
+    field lock: Ref
+    field value: Int
+    ghost field dfrac: DFRA
+
+    module NodeResource: LockResource {
+        rep type T = (Ref, Int)
+
+        pred resource(r: T) {
+            exists nx: Ref, vx: Int :: 
+                own((r#0).next, nx) 
+            && own((r#0).value, r#1)
+            && ((r#1) <= vx) 
+            && is_list(nx, vx)
+        }
+
+        lemma exclusive(r: T)
+            requires resource(r) && resource(r)
+            ensures false
+        {
+            unfold resource(r);
+            unfold resource(r);
+        }
+    }
+
+    module LCLock = Lock[NodeResource] 
+    
+    module OptionInt = Library.Option[Library.IntType]
+
+    import NodeResource.resource
+    import NodeResource.exclusive
+    import LCLock.is_lock
+
+
+    inv is_list(n: Ref, v: Int) {
+            n == null ? true :
+            (exists b: Bool, l: Ref :: own(n.lock, l) && own(n.dfrac, DFRA.dfrac_disc(l)) && is_lock(l, (n, v), b))
+    }
+
+    // helper functions
+
+    proc release_lock_high(n: Ref, vn: Int)
+        requires is_list(n, vn) && n != null
+        requires resource((n, vn))
+        ensures true
+    {
+        unfold is_list(n, vn);
+        var l: Ref := n.lock;
+        fold is_list(n, vn);
+
+        unfold is_list(n, vn);
+        {!
+            ghost var b: Bool;
+            b :| is_lock(l, (n, vn), b);
+            if (b == false) {
+                unfold resource((n, vn));
+                unfold resource((n, vn));
+            }
+        !}
+        LCLock.release(l);
+        fold is_list(n, vn);
+    }
+
+    proc acquire_lock_high(n: Ref, implicit ghost vn: Int)
+        returns (nx: Ref, vnn: Int, implicit ghost vx: Int)
+        requires is_list(n, vn) && n != null
+        ensures own(n.next, nx) && own(n.value, vnn)
+        ensures is_list(nx, vx) && (vn <= vx) && (vn == vnn)
+    {
+        unfold is_list(n, vn);
+        var nl: Ref := n.lock;
+        fold is_list(n, vn);
+
+        unfold is_list(n, vn);
+        LCLock.acquire(nl);
+        fold is_list(n, vn);
+
+        // ghost var vx: Int;
+        unfold resource((n, vn))[vx := vx];
+        nx := n.next;
+        vnn := n.value;
+    }
+
+    // algorithms
+
+    proc create_node(nx: Ref, v: Int, vx: Int)
+        returns (n: Ref)
+        requires is_list(nx, vx) && v <= vx
+        ensures is_list(n, v) && n != null
+    {
+        n := new(next: nx, value: v, lock: null, dfrac: DFRA.dfrac_chunk(null, 1.0));
+        fold resource((n, v))[nx := nx, vx := vx];
+        
+        var l: Ref := LCLock.create((n,v));
+        n.lock := l;
+        fpu(n.dfrac, DFRA.dfrac_chunk(null, 1.0), DFRA.dfrac_chunk(l, 1.0));
+        fpu(n.dfrac, DFRA.dfrac_chunk(l, 1.0), DFRA.dfrac_disc(l));
+        fold is_list(n, v);
+    }
+
+    proc create() 
+        returns (r: Ref)
+        ensures is_list(r, 0) && r != null
+    {
+        fold is_list(null, 0);
+        r := create_node(null, 0, 0);        
+        return r;
+    }
+
+    proc insert_into_nodelist(p: Ref, c: Ref, k: Int, vp: Int, implicit ghost vc: Int)
+        requires is_list(p, vp) && is_list(c, vc)
+        requires own(p.next, c) && own(p.value, vp) && (vp < k) && (vp <= vc)
+        ensures true
+    {
+        if (c == null) {
+            fold is_list(null, k);
+            var n: Ref;
+            n := create_node(null, k, k);
+            p.next := n;
+            fold resource((p, vp))[nx := n, vx := k];
+            release_lock_high(p, vp);
+        } else {
+            var cn: Ref; var vcc: Int; ghost var vcn: Int;
+            cn, vcc, vcn := acquire_lock_high(c, vc);
+
+            if (vcc < k) {
+                fold resource((p, vp))[nx := c, vx := vc];
+                release_lock_high(p, vp);
+
+                insert_into_nodelist(c, cn, k, vcc, vcn);
+            } else {
+                var n: Ref;
+                n := create_node(c, k, vcc);        
+                // Bug:
+                // p.next := n;
+                fold resource((p, vp))[nx := n, vx := k];
+                release_lock_high(p, vp);
+                fold resource((c, vcc))[nx := cn, vx := vcn];
+                release_lock_high(c, vcc);
+            }
+        }
+    }
+
+    proc insert(r: Ref, k: Int)
+        requires k > 0
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        insert_into_nodelist(r, n, k, 0, vn);
+    }
+
+    proc element_in_nodelist(p: Ref, c: Ref, k: Int, vp: Int, implicit ghost vc: Int)
+        returns (res: Bool)
+        requires is_list(p, vp) && is_list(c, vc)
+        requires own(p.next, c) && own(p.value, vp) && (vp < k) && (vp <= vc)
+        ensures true
+    {
+        if (c == null) {
+            fold resource((p, vp))[nx := c, vx := vc];
+            release_lock_high(p, vp);
+            return false;
+        } else {
+            var cn: Ref; var vcc: Int; ghost var vcn: Int;
+            cn, vcc, vcn := acquire_lock_high(c, vc);
+
+            if (vcc < k) {
+                fold resource((p, vp))[nx := c, vx := vc];
+                release_lock_high(p, vp);
+
+                res := element_in_nodelist(c, cn, k, vcc, vcn);
+                return res;
+            } else {
+                fold resource((p, vp))[nx := c, vx := vc];
+                release_lock_high(p, vp);
+                fold resource((c, vcc))[nx := cn, vx := vcn];
+                release_lock_high(c, vcc);
+                return vcc == k;
+            }
+        }
+    }
+
+    proc contains(r: Ref, k: Int)
+        returns (res: Bool)
+        requires k > 0
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        res := element_in_nodelist(r, n, k, 0, vn);
+        return res;
+    }
+
+    proc read_first(r: Ref)
+        returns (res: OptionInt)
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        if (n == null) {
+            fold resource((r, 0))[vx := vn];
+            release_lock_high(r, 0);
+
+            return OptionInt.none;
+        } else {
+            fold resource((r, 0))[vx := vn];
+            release_lock_high(r, 0);
+
+            var n_next: Ref; var n_value: Int; ghost var vnn: Int;
+            n_next, n_value, vnn := acquire_lock_high(n, vn);
+
+            fold resource((n, vn))[vx := vnn];
+            release_lock_high(n, n_value);
+            return OptionInt.some(n_value);
+        }
+    }
+
+    proc pop_first(r: Ref)
+        returns (res: OptionInt)
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        if (n == null) {
+            fold resource((r, 0))[vx := vn];
+            release_lock_high(r, 0);
+
+            return OptionInt.none;
+        } else {
+            var n_next: Ref; var n_value: Int; ghost var vnn: Int;
+            n_next, n_value, vnn := acquire_lock_high(n, vn);
+
+            r.next := n_next;
+
+            fold resource((r, 0))[vx := vnn];
+            release_lock_high(r, 0);
+
+            // free n
+            exhale own(n.next, n_next) && own(n.value, n_value);
+
+            res := OptionInt.some(n_value); 
+            return res;
+        }
+    }
+
+    proc read_last_from_nodelist(p: Ref, c: Ref, prev: OptionInt, vp: Int, implicit ghost vc: Int)
+        returns (res: OptionInt)
+        requires is_list(p, vp) && is_list(c, vc)
+        requires own(p.next, c) && own(p.value, vp) && (vp <= vc)
+        ensures true
+    {
+        if (c == null) {
+            fold resource((p, vp))[nx := c, vx := vc];
+            release_lock_high(p, vp);
+            return prev;
+        } else {
+            var cn: Ref; var vcc: Int; ghost var vcn: Int;
+            cn, vcc, vcn := acquire_lock_high(c, vc);
+
+            res := read_last_from_nodelist(c, cn, OptionInt.some(vcc), vcc, vcn);
+            return res;
+        }
+    }
+
+    proc read_last(r: Ref, k: Int)
+        returns (res: OptionInt)
+        requires k > 0
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        res := read_last_from_nodelist(r, n, OptionInt.none, 0, vn);
+        return res;
+    }
+
+    proc pop_last_from_nodelist(p: Ref, c: Ref, vp: Int, implicit ghost vc: Int)
+        returns (res: OptionInt)
+        requires is_list(p, vp) && is_list(c, vc) && c != null
+        requires own(p.next, c) && own(p.value, vp) && (vp <= vc)
+        ensures true
+    {
+        var cn: Ref; var vcc: Int; ghost var vcn: Int;
+        cn, vcc, vcn := acquire_lock_high(c, vc);
+
+        if (cn == null) {
+            p.next := null;
+            fold is_list(null, vp);
+            fold resource((p, vp))[nx := null, vx := vp];
+            release_lock_high(p, vp);
+            return OptionInt.some(vcc);
+        } else {
+            fold resource((p, vp))[nx := c, vx := vc];
+            release_lock_high(p, vp);
+
+            res := pop_last_from_nodelist(c, cn, vcc, vcn);
+            return res;
+        }
+    }
+
+    proc pop_last(r: Ref)
+        returns (res: OptionInt)
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        if (n == null) {
+            fold resource((r, 0))[nx := n, vx := vn];
+            release_lock_high(r, 0);
+            return OptionInt.none;
+        } else {
+            res := pop_last_from_nodelist(r, n, 0, vn);
+            return res;
+        }
+    }
+
+    proc remove_from_nodelist(p: Ref, c: Ref, k: Int, vp: Int, implicit ghost vc: Int)
+        returns (res: Bool)
+        requires is_list(p, vp) && is_list(c, vc)
+        requires own(p.next, c) && own(p.value, vp) && (vp < k) && (vp <= vc)
+        ensures true
+    {
+        if (c == null) {
+            fold resource((p, vp))[nx := c, vx := vc];
+            release_lock_high(p, vp);
+            return false;
+        } else {
+            var cn: Ref; var vcc: Int; ghost var vcn: Int;
+            cn, vcc, vcn := acquire_lock_high(c, vc);
+
+            if (vcc < k) {
+                fold resource((p, vp))[nx := c, vx := vc];
+                release_lock_high(p, vp);
+
+                res := remove_from_nodelist(c, cn, k, vcc, vcn);
+                return res;
+            } else if (vcc > k) {
+                fold resource((p, vp))[nx := c, vx := vc];
+                release_lock_high(p, vp);
+
+                fold resource((c, vcc))[nx := cn, vx := vcn];
+                release_lock_high(c, vcc);
+            } else {    
+                p.next := cn;
+
+                // free c
+                exhale own(c.next, cn) && own(c.value, vcc);
+
+                fold resource((p, vp))[nx := cn, vx := vcn];
+                release_lock_high(p, vp);
+            }
+        }
+
+    }
+
+
+    proc remove(r: Ref, k: Int)
+        returns (res: Bool)
+        requires k > 0
+        requires is_list(r, 0) && r != null
+        ensures true
+    {
+        var n: Ref; var vr: Int; ghost var vn: Int;
+        n, vr, vn := acquire_lock_high(r, 0);
+
+        res := remove_from_nodelist(r, n, k, 0, vn);
+        return res;
+    }
+}

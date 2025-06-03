@@ -14,7 +14,7 @@ interface M {
   }
 
   /*
-    There is a bug in the `rewrite_own_expr_4_arg` rewriter which 
+    There used to be a bug in the `rewrite_own_expr_4_arg` rewriter which 
     translates 4-arg own chunks into uniform 3-arg own chunks.
     
     The name for the Frac module generated to rewrite the inhale expression is:

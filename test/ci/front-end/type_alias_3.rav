@@ -3,7 +3,6 @@ module M {
 
   field f: T
 
-
   proc p(x: T) {
     var y: Ref;
     y := new(f: 1);

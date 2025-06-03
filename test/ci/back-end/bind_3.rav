@@ -5,4 +5,5 @@ proc p(x: Ref)
 {
   ghost var v: Int;
   v :| own(x.f, v, 0.5);
+  assert v == 5;
 }

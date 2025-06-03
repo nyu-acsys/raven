@@ -2,20 +2,11 @@ field f: Int
 
 pred p(x: Ref; v: Int) {
   own(x.f, v, 1.0)
-  // true
 }
 
 pred q() {
   true
 }
-
-// lemma p_valid(x: Ref, v1: Int, v2: Int)
-//   requires v1 != v2
-//   ensures false
-// {
-//   inhale own(x.f, v1, 1.0);
-//   // inhale own(x.f, v2, 1.0);
-// }
 
 proc p1() {
   var x: Ref;
@@ -27,12 +18,4 @@ proc p1() {
   inhale q();
 
   assert false;
-
-  
-
-  // inhale own(x.f, v1, 1.0);
-  // inhale own(x.f, v2, 1.0);
-  // assert false;
-  // inhale forall y: Ref :: p(y, 3);
-  // exhale forall y: Ref :: p(y, 3);
 }

@@ -5,6 +5,4 @@ module M {
     var y: Int := x#0;
     var z: Bool := x#1;
   } 
-  
-
 }

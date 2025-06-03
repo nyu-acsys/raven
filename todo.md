@@ -1,11 +1,11 @@
 16 nov, 2024:
-- fix ident sanitization bug identified by Lucas.
-- move statistics counting to after type-checking for greater accuracy.
+- [x] fix ident sanitization bug identified by Lucas.
+- [x] move statistics counting to after type-checking for greater accuracy.
 
 22 oct, 2024:
-- fix bug with existenials occuring in other variables' skolem function
+- [x] fix bug with existenials occuring in other variables' skolem function
     + [x] rewrite the entire elim_a functionality.
-    + fix issue with order of adding vs typechecking of mutually dependent skolems
+    + [x] fix issue with order of adding vs typechecking of mutually dependent skolems
 - [x] add another assertion for ISC that quantifies over the actual value, not just location
 - [x] exhale order of clause witness computation bug
 
