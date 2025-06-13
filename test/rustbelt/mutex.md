@@ -238,6 +238,24 @@ axiom deref(ℓval: Ref, iFloor: Int, m: ResolutionMap)
 # Threaded Procedure & Main FN Specification (Raven)
 Then the `threadfn` and `main` function can be spec'd.
 
+layout of thread fn:
+```
+bb0;
+bb1;
+bb2;
+while guard_val < i_when {
+  bb3;
+  bb4;
+  bb5;
+  if guard_val >=  i_when {
+    bb6;
+    bb7;
+  } else {
+    bb7;
+  }
+}
+```
+
 layout of main fn:
 ```
 bb0;
