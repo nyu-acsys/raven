@@ -1,6 +1,6 @@
-interface LockResource : Library.Type {
+interface LockResource: Library.Type {
   rep type T
-  
+
   // Resource protected by a lock
   pred resource(r: T)
 
@@ -16,22 +16,22 @@ interface Lock[R: LockResource] {
   module Agree = Library.Agree[R]
 
   ghost field agr: Agree
-  
 
   // Lock representation invariant
-  pred lock_rep(l: Ref; b: Bool)
+  pred lock_rep(l: Ref;b: Bool )
 
-  // Abstract predicate describing a lock 
-  auto pred is_lock(l: Ref; r: R, b: Bool) {
-    own(l.agr, Agree.agree(r)) 
-    && lock_rep(l, b)
-    && (b ? true : resource(r))
+  // Abstract predicate describing a lock
+  auto pred is_lock(l: Ref;r: R,b: Bool ) {
+    own(l.agr, Agree.agree(r))
+    &&
+    lock_rep(l, b)
+    &&
+    (b ? true: resource(r))
   }
 
   lemma exclusive(l: Ref, r: R)
     requires is_lock(l, r, false) && resource(r)
-    ensures false
-  {
+    ensures false {
     //unfold is_lock(l, r, false);
     R.exclusive(r);
   }
@@ -41,7 +41,7 @@ interface Lock[R: LockResource] {
     requires resource(r)
     ensures is_lock(l, r, false)
 
-  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool)
+  proc acquire(l: Ref, implicit ghost r: R, implicit ghost b: Bool )
     atomic requires is_lock(l, r, b)
     atomic ensures is_lock(l, r, true) && b == false && resource(r)
 
