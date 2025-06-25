@@ -50,6 +50,7 @@ pub struct MutexInvariant {
 #[rr::shared_invariant(#iris "status ? (value == OptionR.some(Prod.cons(ℓval, value.thing.right))) : true")]
 #[rr::shared_invariant(#type "ℓstatus" : "status" @ "Bool")] // invariant of all atomicbool
 #[rr::shared_invariant("value == OptionR.some(value.thing) ? resource(value.thing.right) : true")]
+#[derive(Copy, Clone)]
 pub struct Mutex {
     #[rr::field("ℓval")]
     inner: *const UnsafeCell<i64>,
@@ -78,7 +79,9 @@ impl Mutex {
         let boxed_inner = Box::new(UnsafeCell::new(data));
         let boxed_status = Box::new(AtomicBool::new(false));
         let inner = Box::into_raw(boxed_inner);
+        // ℓval.value ↦ RustValue.literalInt(data)
         let status = Box::into_raw(boxed_status);
+        // ℓstatus.value ↦ RustValue.literalBool(false)
         Mutex { inner, status }
     }
 
@@ -86,14 +89,17 @@ impl Mutex {
     #[rr::params("ɣself")]
     #[rr::exists("value" : "Resource.T")]
     #[rr::returns("(ɣhandle, ℓinv)" : "(Ref * Ref)")]
-    #[rr::atomic_requires("(Res ɣself (ℓval, ℓstatus))")]
-    #[rr::atomic_ensures("(Res ɣhandle (ℓval, ℓstatus))")]
-    #[rr::atomic_ensures(#type "ℓinv" : "(ℓstatus, OptionR.some(ℓval, value.thing.right), true)" @ "MutexInvariant")]
-    pub fn lock(&self) -> MutexGuard {
+    #[rr::atomic_requires("Res ɣself (ℓval, ℓstatus)")]
+    #[rr::atomic_ensures("Res ɣhandle (ℓval, ℓstatus)")]
+    #[rr::atomic_ensures(#type "ℓinv" : "(ℓstatus, OptionR.some(ℓval, value), true)" @ "MutexInvariant")]
+    pub fn lock(&self) -> (MutexGuard, PhantomData<*mut MutexInvariant>) {
         loop {
+            // Res ɣself (ℓval, ℓstatus)
+            // ℓval.resource ↦ value && ℓstatus.value ↦ false
             let status: &AtomicBool = unsafe { &*(self.status) };
+            // Res ɣstatus ℓstatus
             match status.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed) {
-              Ok(_) => return MutexGuard { inner: self , inv: PhantomData },
+              Ok(_) => return (MutexGuard { /* ℓstatus.value ↦ false */ inner: self }, PhantomData),
               Err(_) => continue
             }
         }
@@ -102,11 +108,12 @@ impl Mutex {
 
 impl<'a> MutexGuard<'a> {
     #[rr::params("(ɣself, ℓinv)" : "(Ref * Ref)")]
-    #[rr::exists("value" : "LockResource")]
+    #[rr::exists("value" : "Resource.T")]
     #[rr::atomic_requires("(Res ɣself (ℓval, ℓstatus))")]
     #[rr::atomic_requires(#type "ℓinv" : "(ℓstatus, OptionR.some(ℓval, value.thing.right), true)" @ "MutexInvariant")]
     #[rr::atomic_ensures(#type "ℓinv" : "(ℓstatus, OptionR.some(ℓval, value.thing.right + 1), true)" @ "MutexInvariant")]
     pub fn incr(&self) {
+        /* just treat this as atomic */
         unsafe { *(*(self.inner.inner)).get() += 1; }
     }
 }
@@ -121,8 +128,13 @@ impl<'a> Drop for MutexGuard<'a> {
     #[rr::atomic_requires(#type "ℓinv" : "(ℓstatus, value, true)" @ "MutexInvariant")]
     #[rr::atomic_ensures(#type "ℓinv" : "(ℓstatus, OptionR.none, false)" @ "MutexInvariant")]
     fn drop(&mut self) {
+        // Res ɣself (ℓval, ℓstatus)
+        // ℓval.resource ↦ value && ℓstatus.value ↦ status
+        // (by unfolding precondition)
         let status = unsafe { &*self.inner.status };
+        // Res ɣself (ℓval.resource, ℓstatus.value)
         status.store(false, Ordering::Relaxed);
+        // ℓval.resource ↦ value && ℓstatus.value ↦ status
     }
 }
 
@@ -137,6 +149,7 @@ impl<'a> Deref for MutexGuard<'a> {
     #[rr::atomic_requires("value == OptionR.some(ℓval, value.thing.right)")]
     #[rr::returns("value" : "Int")]
     fn deref(&self) -> &i64 {
+        // Treat as atomic: value.
         unsafe { &*(*self.inner.inner).get() }
     }
 }
@@ -144,32 +157,42 @@ impl<'a> Deref for MutexGuard<'a> {
 #[rr::params("ɣMutex" : "Ref", "iWhen" : "Int")]
 #[rr::exists("(ℓval, ℓstatus)" : "(Ref * Ref)")]
 #[rr::requires("Res ɣMutex (ℓval, ℓstatus)")]
-fn threadfn(mutex: &Mutex, i_when: i64) {
+fn threadfn(mutex: &Mutex) {
     // mutex.value ↦ ɣMutex && prophecyResolvesTo(ɣMutex, (ℓval, ℓstatus), m)
     // && isTypedBy((ℓval, ℓstatus), TypeTag.isMutex(), m)
-    let guard = mutex.lock();
+    let (guard, _inv) = mutex.lock();
+    // ℓguard.value ↦ (ɣhandle, ℓinv) &&
+    // Res ɣself (ℓval, ℓstatus) &&
+    // Res ɣhandle (ℓval, ℓstatus) &&
+    // ℓinv.value ↦ (ℓstatus, OptionR.some(ℓval, value), true)
+    // &&
+    // isTypedBy(RustValue.mutexInvariant(ℓstatus, OptionR.some(ℓval, value), true),
+    //           TypeTag.isMutex(TypeTag.isInt()), m)
+    // unfold then
     guard.incr();
 }
 
 // this is ordinarily auto-generated, but made explicit here to
 // make the translation easier
-struct ThreadData {
-    mutex: Mutex,
-    i_when: i64
-}
-
-// this is ordinarily auto-generated, but made explicit here to
-// make the translation easier
-impl FnOnce<()> for ThreadData {
+impl FnOnce<()> for Mutex {
     type Output = ();
     extern "rust-call" fn call_once(self, _args: ()) {
-        threadfn(self.mutex, self.i_when)
+        threadfn(&self)
     }
 }
 
 fn main() {
-    let (mutex, lock_invariant) = Mutex::new(0);
-    let thread_data = ThreadData { mutex: mutex, i_when: 0 };
-    thread::spawn(thread_data);
-    thread::spawn(thread_data);
+    let mutex = Mutex::new(0);
+    // ℓmutex.value ↦ (ℓval, ℓstatus) &&
+    // ℓval.resource ↦ value
+    // ℓstatus.value ↦ false
+    // && shared invariant clauses
+    // copy into param for spawn
+    thread::spawn(mutex);
+    // ℓmutex.value ↦ (ℓval, ℓstatus) &&
+    // ℓval.resource ↦ value
+    // ℓstatus.value ↦ false
+    // && shared invariant clauses
+    // copy again into param for spawn
+    thread::spawn(mutex);
 }
