@@ -48,3 +48,10 @@ and `MaybeUninit` are available by default.
 6. Each mid-level intermediate instruction is translated to a Raven method call.
 7. Finally, with the help of annotations, there will be method calls that will manipulate the ghost state.
 
+
+# TODO:
+- [ ] Make an idealized Rust formalism in Raven for some subset of Rust IR
+  - [ ] Experiment too with the compiler hooks,
+  - [ ] and after working out the formal underpinning of the translation, look into
+    translating the compiler hooks.
+- [ ] Approach this pragmatically by looking over actual unsafe code examples in Rust.
