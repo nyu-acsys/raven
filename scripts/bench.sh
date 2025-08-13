@@ -5,7 +5,7 @@ RUNS=10
 
 EXPERIMENT1=(
   "test/comparison/arc.rav"
-  "test/concurrent/treiber_stack/treiber_stack_atomics.rav"
+  "test/concurrent/treiber_stack/treiber_stack_atomic.rav"
   "test/comparison/barrier.rav"
   "test/comparison/bounded_counter.rav"
   "test/comparison/cas_counter.rav"
@@ -40,7 +40,7 @@ EXPERIMENT2=(
 )
 
 EXPERIMENT3=(
-  "test/comparison/adt.rav"
+  "test/comparison/adt_correct.rav"
   "test/iterated-star/array-max.rav"
   "test/iterated-star/binary-search.rav"
   "test/iterated-star/dutch-flag.rav"
@@ -50,7 +50,7 @@ EXPERIMENT3=(
 
 EXPERIMENT4=(
   "test/comparison/adt_correct.rav"
-  "test/comparison/adt.rav"
+  "test/comparison/adt_buggy.rav"
   "test/comparison/arc.rav"
   "test/comparison/arc_buggy.rav"
   "test/comparison/barrier.rav"
