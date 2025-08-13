@@ -431,6 +431,7 @@ module Type = struct
     match t1, t2 with
     | Bot, t | t, Bot -> t
     | Bool, Perm | Perm, Bool -> Perm
+    | (Int | Real), (Int | Real) -> Real
     | (Int | Real | Num), (Int | Real | Num) when not @@ Poly.(t1 = t2) -> Num
     | _, _ -> Any
  
@@ -439,6 +440,7 @@ module Type = struct
     match t1, t2 with
     | Any, t | t, Any -> t
     | Bool, Perm | Perm, Bool -> Bool
+    | Int, Real | Real, Int -> Int
     | Int, Num | Num, Int -> Int
     | Real, Num | Num, Real -> Real
     | _, _ -> Bot

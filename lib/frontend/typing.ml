@@ -294,7 +294,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
             | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
             | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | Subseteq
             | Eq | Gt | Lt | Geq | Leq ->
-                typ2
+                Type.join typ1 typ2
             | And | Or | Impl -> Type.perm
             | Elem -> Type.set_elem typ2
             | _ -> assert false
@@ -312,7 +312,7 @@ let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
                 match constr with
                 | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
                 | MapLookUp -> Type.map_codom typ1
-                | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod -> typ2
+                | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod -> Type.join typ1 typ2
                 | And | Or | Impl -> expected_typ
                 | Subseteq | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
                 | _ -> assert false
