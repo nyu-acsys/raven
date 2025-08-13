@@ -446,7 +446,7 @@ module ProcessExpr = struct
               Error.type_error (Expr.to_loc expr)
                 (Expr.constr_to_string constr
                 ^ " takes either three or four arguments, and second argument is a \
-                    field name.")
+                    field name")
             in
             let* expr1 = process_expr expr1 (Type.ref |> Type.set_ghost_to expected_typ)
             and* expr2 = process_expr expr2 (Type.any |> Type.set_ghost_to expected_typ) in
@@ -458,7 +458,7 @@ module ProcessExpr = struct
                 field_def.field_type |> Type.field_val |> Type.set_ghost_to expected_typ
               | _ ->
                   Error.type_error (Expr.to_loc expr2)
-                    "Expected field identifier."
+                    "Expected field identifier"
             in
             let* is_ra_type = ProgUtils.is_ra_type field_type in
             let* expr3 = process_expr expr3 field_type
