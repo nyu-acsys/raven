@@ -550,6 +550,13 @@ type var_decl = Type.var_decl [@@deriving compare]
 
 module Expr = struct
 
+  type expr_ext = ..
+
+  let compare_expr_ext (c1: expr_ext) (c2: expr_ext) = Stdlib.compare (Stdlib.Obj.tag (Stdlib.Obj.repr c1)) (Stdlib.Obj.tag (Stdlib.Obj.repr c2))
+
+  let equal_expr_ext (c1 : expr_ext) (c2 : expr_ext) : bool =
+      compare_expr_ext c1 c2 = 0
+
   type constr =
     (* Constants *)
     | Null
@@ -595,8 +602,9 @@ module Expr = struct
     (* Variable arity operators *)
     | Setenum
     | Tuple
-    | Var of QualIdent.t [@@deriving compare, equal]
-  (* | AUToken of au_token *)
+    | Var of QualIdent.t
+    | ExprExt of expr_ext
+    [@@deriving compare, equal ]
 
   type binder = Forall | Exists | Compr [@@deriving compare]
 
@@ -629,6 +637,7 @@ module Expr = struct
 
   (** Pretty printing expressions *)
 
+  let expr_ext_to_string : (expr_ext -> string) ref = ref (fun expr_ext -> "[ExprExt]")
   let constr_to_string = function
     (* function symbols *)
     | Bool b -> Printf.sprintf "%b" b
@@ -673,6 +682,7 @@ module Expr = struct
     | Own -> "own"
     | AUPred id -> "AU_" ^ QualIdent.to_string id
     | AUPredCommit id -> "AU_commit_" ^ QualIdent.to_string id
+    | ExprExt expr_ext -> !expr_ext_to_string expr_ext
     
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
 
@@ -689,6 +699,7 @@ module Expr = struct
     | And -> 12
     | Or | Impl -> 16
     | Ite -> 17
+    | ExprExt expr_ext -> 18
 
   let to_prio = function
     | App (c, _, _) -> constr_to_prio c
@@ -1028,8 +1039,7 @@ module Expr = struct
         if Set.mem bv id
         then vars
         else Map.set vars ~key:id ~data:attr.expr_type
-      | App (_, ts, _) ->
-	List.fold_left ts ~f:(fv bv) ~init:vars
+      | App (_, ts, _) -> List.fold_left ts ~f:(fv bv) ~init:vars
       | Binder (_, vs, trgs, e, _) ->
         let bv =
           List.fold_left vs
@@ -1362,6 +1372,7 @@ module Stmt = struct
     auaction_kind : auaction_kind;
   }
   
+  type stmt_ext = ..
   type basic_stmt_desc =
     | VarDef of var_def
     | Spec of spec_kind * spec (* x *)
@@ -1370,13 +1381,14 @@ module Stmt = struct
     | Bind of bind_desc (* x *)
     | FieldRead of field_read_desc
     | FieldWrite of field_write_desc
-    | AtomicInbuilt of atomic_inbuilt_desc
     | Havoc of qual_ident (* x *)
     | Call of call_desc
     | Return of expr
     | Use of use_desc
     | AUAction of auaction_desc
     | Fpu of fpu_desc
+    | AtomicInbuilt of atomic_inbuilt_desc
+    | StmtExt of (stmt_ext * expr list) 
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
 
@@ -1425,6 +1437,9 @@ module Stmt = struct
         fprintf ppf "@<0>%s%s %a@\n%a"
           (if sf.spec_atomic then "atomic " else "")
           stype Expr.pr sf.spec_form (pr_spec_list stype) sfs
+
+  let pr_stmt_ext : (Formatter.t -> stmt_ext -> expr list -> unit) ref = ref (
+    fun ppf _ _ -> Stdlib.Format.fprintf ppf "@[ext]")
 
   let pr_basic_stmt ppf =
     let open Stdlib.Format in
@@ -1488,6 +1503,7 @@ module Stmt = struct
     | AUAction { auaction_kind; _} ->
       fprintf ppf "@[<2>%s()@]" (auaction_kind_to_string auaction_kind)
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
+    | StmtExt (stmt_ext, exprs) -> !pr_stmt_ext ppf stmt_ext exprs
 
   let rec pr ppf stmt =
     let open Stdlib.Format in
@@ -1727,6 +1743,8 @@ module Stmt = struct
           (match fpu_desc.fpu_old_val with
           | None -> scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_new_val]
           | Some e -> scan_expr_list accesses [fpu_desc.fpu_ref; e; fpu_desc.fpu_new_val])
+        
+        | StmtExt (stmt_ext, expr_list) -> scan_expr_list accesses expr_list
         end
 
       | Loop l ->
@@ -1749,6 +1767,7 @@ module Stmt = struct
         else Set.add locals (QualIdent.unqualify id))
       ~init:(Set.empty (module Ident))
 
+  let stmt_ext_local_vars_modified : (stmt_ext -> expr list -> ident list) ref = ref (fun _ _ -> [])
 
   let stmt_local_vars_modified (s: t) : ident list =
     let rec stmt_locals_modified (s: t): (ident list) =
@@ -1827,12 +1846,15 @@ module Stmt = struct
 
         | Fpu fpu_desc ->
           (match fpu_desc.fpu_ref with
-            | App (Var qi, _, _) -> 
+            | App (Expr.Var qi, _, _) -> 
               if List.is_empty qi.qual_path then
                 [qi.qual_base]
               else
                 []
             | _ -> [])
+
+        (* TODO: Implement an API call for vars_modified *)
+        | StmtExt (stmt_ext, expr_list) -> !stmt_ext_local_vars_modified stmt_ext expr_list
         end
 
       | Loop l ->
@@ -1851,6 +1873,7 @@ module Stmt = struct
     let modifieds = List.dedup_and_sort modifieds ~compare:Ident.compare in
     modifieds
 
+  let stmt_ext_fields_accessed : (stmt_ext -> expr list -> qual_ident list) ref = ref (fun _ _ -> [])
 
   let stmt_fields_accessed (s: t) : qual_ident list =
     let rec stmt_fields_accessed (s: t): (qual_ident list) =
@@ -1903,6 +1926,9 @@ module Stmt = struct
 
         | Fpu fpu_desc ->
           [fpu_desc.fpu_field]
+        
+        (* TODO: Implement an API for fields_accessed *)
+        | StmtExt (stmt_ext, expr_list) -> !stmt_ext_fields_accessed stmt_ext expr_list
         end
 
       | Loop l ->
@@ -1952,7 +1978,6 @@ module Stmt = struct
 
     stmt_au_preds_referenced s
 end
-
 
 (** Callables *)
 
