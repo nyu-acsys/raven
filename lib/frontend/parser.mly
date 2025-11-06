@@ -20,7 +20,7 @@ open Ast
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
 %token HAVOC NEW RETURN OWN AU
-%token IF ELSE WHILE CAS FAA XCHG SPAWN
+%token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA
 %token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
@@ -38,6 +38,7 @@ open Ast
 
 %start main
 %type <(string * Loc.t) list * Ast.Module.t> main
+%type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
@@ -462,7 +463,7 @@ stmt_wo_trailing_substmt:
 }
 (* assignment / allocation / cas ... *)
 | es = separated_nonempty_list(COMMA, expr); COLONEQ; rhs = assign_rhs; SEMICOLON {
-  [rhs (es, false)]
+  [let stmt, _def_arg = rhs (es, false) in stmt] 
 }
 (* bind *)
 | es = separated_nonempty_list(COMMA, expr); COLONPIPE; e = expr; SEMICOLON {
@@ -589,13 +590,13 @@ assign_rhs:
           new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
         }  
         in
-        Stmt.(Basic (New new_descr))
+        Stmt.(Basic (New new_descr)), Some (Expr.mk_null ())
     | es, _ -> Error.syntax_error (es |> List.hd |> Expr.to_loc) ("Result of allocation must be assigned to a single variable")
 }
 | e = expr {
   function 
     | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))], _ ->
-        Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = e })
+        Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = e }), None
     | es, assign_is_init ->
         let vs = List.map (function
           | Expr.(App (Var qual_ident, [], _))
@@ -603,59 +604,9 @@ assign_rhs:
           | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
             es 
         in
-        Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init })
+        Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init }), None
 }
-| CAS LPAREN cas_ref = qual_ident DOT cas_fld = qual_ident COMMA cas_old_val = expr COMMA cas_new_val = expr RPAREN {
-  function
-    | [Expr.(App (Var qual_ident, [], _))], atomic_inbuilt_is_init
-      when QualIdent.is_local qual_ident ->
-        let cas_desc = Stmt.{ cas_old_val; cas_new_val } in
-        let ais_desc = Stmt.{
-          atomic_inbuilt_lhs = qual_ident;
-          atomic_inbuilt_ref = cas_ref;
-          atomic_inbuilt_field = Expr.to_qual_ident cas_fld;
-          atomic_inbuilt_is_init;
-          atomic_inbuilt_kind = Cas cas_desc;
-        }
-        in
-        Stmt.(Basic (AtomicInbuilt ais_desc))
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of cas"
-    | [], _ -> assert false
-}
-| FAA LPAREN faa_ref = qual_ident DOT faa_fld = qual_ident COMMA faa_val = expr RPAREN {
-  function
-    | [Expr.(App (Var qual_ident, [], _))], atomic_inbuilt_is_init
-      when QualIdent.is_local qual_ident ->
-        let faa_desc = Stmt.{ faa_val } in
-        let ais_desc = Stmt.{
-          atomic_inbuilt_lhs = qual_ident;
-          atomic_inbuilt_ref = faa_ref;
-          atomic_inbuilt_field = Expr.to_qual_ident faa_fld;
-          atomic_inbuilt_is_init;
-          atomic_inbuilt_kind = Faa faa_desc;
-        }
-        in
-        Stmt.(Basic (AtomicInbuilt ais_desc))
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
-    | [], _ -> assert false
-}
-| XCHG LPAREN xchg_ref = qual_ident DOT xchg_fld = qual_ident COMMA xchg_new_val = expr RPAREN {
-  function
-    | [Expr.(App (Var qual_ident, [], _))], atomic_inbuilt_is_init
-      when QualIdent.is_local qual_ident ->
-        let xchg_desc = Stmt.{ xchg_new_val } in
-        let ais_desc = Stmt.{
-          atomic_inbuilt_lhs = qual_ident;
-          atomic_inbuilt_ref = xchg_ref;
-          atomic_inbuilt_field = Expr.to_qual_ident xchg_fld;
-          atomic_inbuilt_is_init;
-          atomic_inbuilt_kind = Xchg xchg_desc;
-        }
-        in
-        Stmt.(Basic (AtomicInbuilt ais_desc))
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
-    | [], _ -> assert false
-}
+| f = assignExt { f }
 
 local_var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
@@ -668,15 +619,17 @@ local_var_def:
   in
   match e with
   | Some rhs ->
-      let stmt = rhs ([Expr.from_var_decl decl], true) in
+      let stmt, default_expr_optn = rhs ([Expr.from_var_decl decl], true) in
       let var_init =
-        match stmt with
-        | Stmt.Basic (Assign assign_desc) -> Some assign_desc.assign_rhs
-        | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Cas _; _ }) -> Some (Expr.mk_bool ~loc:(Loc.make $startpos(e) $endpos(e)) true)
+        match stmt, default_expr_optn with
+        | Stmt.Basic (Assign assign_desc), None -> Some assign_desc.assign_rhs
+        | _, Some expr -> Some (Expr.set_loc expr (Loc.make $startpos(e) $endpos(e)))
+
+        (*| Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Cas _; _ }) -> Some (Expr.mk_bool ~loc:(Loc.make $startpos(e) $endpos(e)) true)
         | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Faa _; _ }) -> Some (Expr.mk_int ~loc:(Loc.make $startpos(e) $endpos(e)) 0)
         | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Xchg xchg_desc; _ }) -> 
             Some xchg_desc.Stmt.xchg_new_val
-        | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())
+        | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())*)
         | _ -> None
       in
       [Stmt.(Basic (VarDef { var_decl = decl; var_init })); stmt]
@@ -917,7 +870,7 @@ qual_ident_expr:
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Read [p; x])
 }
 
-qual_ident:
+%public qual_ident:
 | x = ident { x }
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
@@ -1162,7 +1115,7 @@ patterns:
 | LBRACE; es = expr_list; RBRACE; trgs = patterns { es :: trgs }
 | /* empty */ { [] }
 
-expr:
+%public expr:
 | e = quant_expr { e } 
 ;
 

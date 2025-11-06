@@ -2,6 +2,7 @@ open Base
 open Ast
 open Util
 open Frontend
+open Ext
 
 let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
@@ -2568,6 +2569,10 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
       ~f:AtomicityAnalysis.rewrite_atomicity_analysis m
   in
 
+  Rewriter.return m
+
+let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
   Logs.debug (fun m1 ->
       m1 "Rewrites.all_rewrites: Starting rewrite_cas on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
@@ -2775,6 +2780,34 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
   (* Logs.debug (fun m -> m "Rewrites.all_rewrites: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
   Rewriter.return m
 
+let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
+    match expr with
+    | App (ExprExt expr_ext, args, expr_attr) -> 
+      Ext.rewrite_expr_ext expr_ext args (Expr.to_loc expr)
+    | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
+
+  in
+  let* m = 
+    Rewriter.Module.rewrite_expressions ~f:rewrite_expr_ext m in
+
+  Rewriter.return m
+
+let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
+    match stmt.stmt_desc with
+    | Basic (StmtExt (stmt_ext, args)) -> 
+      Ext.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
+    | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt_ext
+
+  in
+  let* m = 
+    Rewriter.Module.rewrite_stmts ~f:rewrite_stmt_ext m in
+
+  Rewriter.return m
+
 let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
@@ -2784,6 +2817,11 @@ let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
   let tbl, m = Rewriter.eval (Masks.compute_masks m) tbl in
 
   let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
+
+  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
+
+  let tbl, m = Rewriter.eval (rewrites_phase_3 m) tbl in
 
   (tbl, m)
 
@@ -3067,6 +3105,9 @@ Specification Count: %d"
     
     | AUAction _ ->
       Rewriter.return { init_prog_stats with proof_au_instr = 1; }
+
+    | StmtExt (stmt_ext, args) -> 
+      Rewriter.return { init_prog_stats with prog_instr = 1; }
 end
 
 let compute_stats tbl m =

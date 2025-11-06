@@ -1,5 +1,7 @@
 open Base
 open Ast
+open Ast.Stmt
+open Ast.Expr
 open Util
 
 type au_token = {
