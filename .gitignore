@@ -10,3 +10,6 @@ log*.smt2
 front_end_processed_output.log
 smt-encodings/*
 benchmarks.csv
+.dockerignore
+Dockerfile
+raven.tar

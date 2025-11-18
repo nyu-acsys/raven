@@ -1,15 +1,8 @@
 module NatAuth = Library.Auth[Library.Nat]
+module IntSetRA = Library.SetRA[Library.IntType]
 
 field f: NatAuth
-
 field g: Int
-
-module IntType : Library.Type {
-  rep type T = Int;
-}
-
-module IntSetRA = Library.SetRA[IntType]
-
 field h: IntSetRA
 
 proc p() {
@@ -18,8 +11,6 @@ proc p() {
   inhale own(x.f, NatAuth.auth_frag(3, 1));
   inhale own(x.h, IntSetRA.set_constr({|3|}));
   exhale exists v: Int :: own(x.h, IntSetRA.set_constr({|v|})) && own(x.f, NatAuth.auth_frag(v, 0));
-  // exhale exists v: Int :: own(x.f, NatAuth.auth_frag(v, 0));
-
 
   inhale forall z: Ref :: z != x ==> own(z.f, NatAuth.auth_frag(3, 1));
   exhale forall z: Ref :: z != x ==> (exists v2: Int :: own(z.f, NatAuth.auth_frag(v2, 0)));

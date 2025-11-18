@@ -1,20 +1,3 @@
-// module N : Library.Type {
-//   rep type T = Int
-// }
-
-// module M {
-//   field f: N
-
-//   proc p1(x: Ref, v: N) 
-//     requires own(x.f, v, 1.0)
-//     ensures own(x.f, v, 1.0)
-//   {
-    
-//   }
-// }
-
-// ---------------
-
 module M[N: Library.Type] {
   field f: N
 
@@ -31,43 +14,3 @@ module M[N: Library.Type] {
     return v, 5;
   }
 }
-
-// ---------------
-
-// module M[N: Library.Type] {
-//   type F = N
-
-//   // proc p1(x: Ref, v: N) 
-//   //   requires own(x.f, v, 1.0)
-//   //   ensures own(x.f, v, 1.0)
-//   // {
-    
-//   // }
-// }
-
-// module N : Library.Type {
-//   rep type T = Int
-// }
-
-// module K = M[N]
-
-// ---------------
-
-
-
-// module M[N: Library.Type] {
-
-//   module M1[N1: Library.Type] {
-//     type T2 = N1
-//   }
-
-//   module R = M1[N]
-// }
-
-// module U : Library.Type {
-//   rep type T = Int
-// }
-
-// module S = M[U]
-
-// type T2 = S.R.T2

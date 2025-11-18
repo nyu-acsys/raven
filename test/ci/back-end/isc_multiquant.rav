@@ -18,7 +18,6 @@ interface Foo {
     requires b in brks
     requires forall b: Broker, t: Time :: b in brks ==> own(loc(s,b,t).value, ())
   {
-    // The following access should be OK but fails to verify.
     val u := loc(s, b, t).value;
   }
 }

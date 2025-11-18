@@ -5,7 +5,7 @@ module Main {
         requires own(x.f, k)
         requires k > 0
     {
-        // fpu(x, f, k+1);
+        fpu(x, f, k+1);
         fpu(x, f, k-1);
     }
 }

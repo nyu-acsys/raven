@@ -40,23 +40,23 @@ EXPERIMENT2=(
 )
 
 EXPERIMENT3=(
-  "test/iterated-star/adt.rav"
+  "test/comparison/adt.rav"
   "test/iterated-star/array-max.rav"
   "test/iterated-star/binary-search.rav"
   "test/iterated-star/dutch-flag.rav"
-  "test/iterated-star/graph_marking.rav"
+  "test/iterated-star/graph_marking_buggy.rav"
   "test/rec-preds/tree_delete.rav"
 )
 
 EXPERIMENT4=(
-  "test/iterated-star/adt_correct.rav"
-  "test/iterated-star/adt.rav"
+  "test/comparison/adt_correct.rav"
+  "test/comparison/adt.rav"
   "test/comparison/arc.rav"
   "test/comparison/arc_buggy.rav"
   "test/comparison/barrier.rav"
   "test/comparison/barrier_buggy.rav"
   "test/iterated-star/graph_marking_correct.rav"
-  "test/iterated-star/graph_marking.rav"
+  "test/iterated-star/graph_marking_buggy.rav"
   "test/comparison/lclist.rav"
   "test/comparison/lclist_buggy.rav"
   "test/comparison/peterson.rav"

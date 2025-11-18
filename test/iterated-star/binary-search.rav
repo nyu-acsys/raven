@@ -1,0 +1,64 @@
+interface IArray {
+  rep type T
+  
+  func loc(a: T, i: Int) returns (r: Ref)
+  func len(a: T) returns (l: Int)
+  func first(r: Ref) returns (a: T)
+  func second(r: Ref) returns (i: Int)
+  
+  auto lemma all_diff()
+    ensures forall a:T, i: Int :: first(loc(a, i)) == a && second(loc(a, i)) == i
+    
+  auto lemma len_nonneg()
+    ensures forall a:T :: len(a) >= 0
+}
+
+module BinarySearch[M: IArray] {
+  field value: Int
+
+  pred arr(a: M, m: Map[Int, Int]) {
+    forall j: Int :: 0 <= j <= M.len(a) ==> own(M.loc(a, j).value, m[j])
+  }
+
+  proc binary_search(a: M, key: Int, implicit ghost m: Map[Int, Int]) returns (index: Int)
+    requires arr(a, m)
+    requires forall i: Int, j: Int :: (0 <= i && j < M.len(a) && i < j) ==> m[i] < m[j]
+    ensures arr(a, m)
+    ensures -1 <= index && index < M.len(a)
+    ensures 0 <= index ==> m[index] == key
+    ensures -1 == index ==> (forall i: Int :: 0 <= i && i < M.len(a) ==> m[i] != key)
+  {
+    var low: Int := 0;
+    var high: Int := M.len(a);
+    index := -1;
+
+    while (low < high)
+      invariant arr(a, m)
+      invariant 0 <= low && low <= high && high <= M.len(a)
+      invariant index == -1 ==> (forall i: Int :: (0 <= i && i < M.len(a) && !(low <= i && i < high)) ==> m[i] != key)
+      invariant -1 <= index && index < M.len(a)
+      invariant 0 <= index ==> m[index] == key
+      invariant forall i: Int, j: Int :: (0 <= i && j < M.len(a) && i < j) ==> m[i] < m[j]
+    {
+      var mid: Int := (low + high) / 2;
+
+      unfold arr(a, m);
+      var mid_val := M.loc(a, mid).value;
+
+      assert mid_val == m[mid];
+
+      if (mid_val < key) {
+        low := mid + 1;
+      } else {
+      if (key < mid_val) {
+        high := mid;
+      } else {
+        index := mid;
+        high := mid;
+      }
+      }
+
+      fold arr(a, m);
+    }
+  }
+}
