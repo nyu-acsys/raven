@@ -905,7 +905,10 @@ module ProcessCallable = struct
     match symbol with
     | FieldDef { field_type = App (Fld, [ field_type ], _); _ } ->
       let+ ref = disambiguate_process_expr ref Type.ref disam_tbl in
-      ref, field, field_type
+      ref, field, field_type, symbol
+    | DestrDef { destr_arg; destr_return_type; _ } ->
+      let+ arg = disambiguate_process_expr ref destr_arg disam_tbl in
+      arg, field, destr_return_type, symbol      
     | _ -> Error.type_error (QualIdent.to_loc field) (Printf.sprintf !"Expected field identifier but found %s %{QualIdent}" (Symbol.kind symbol) field)
 
   
@@ -1303,22 +1306,36 @@ module ProcessCallable = struct
       let* fr_type =
         ProcessTypeExpr.expand_type_expr var_decl.var_type
       in
-      let* field_read_ref, field_read_field, field_type =
+      let* field_read_ref, field_read_field, field_type, symbol =
         disambiguate_process_field_read fr_desc.field_read_ref fr_desc.field_read_field disam_tbl
       in
-      let+ _ = ProcessExpr.check_and_set (Expr.mk_var ~typ:fr_type fr_var_qual_ident) fr_type field_type (field_type |> Type.set_ghost_to fr_type) in
-      
-      let field_read_desc =
-        Stmt.
-          {
-            fr_desc with
-            field_read_lhs = fr_var_qual_ident;
-            field_read_field;
-            field_read_ref;
-          }
-      in
-      (Stmt.FieldRead field_read_desc, disam_tbl)
-    | AtomicInbuilt ais_desc ->
+      begin match symbol with
+        | DestrDef { destr_return_type ; _ } ->
+        
+          let rhs_loc = Loc.merge (Expr.to_loc field_read_ref) (QualIdent.to_loc field_read_field) in
+          let assign_rhs = Expr.mk_app ~loc:rhs_loc ~typ:destr_return_type (DataDestr fr_desc.field_read_field) [fr_desc.field_read_ref] in 
+          let assign_desc =
+            Stmt.{
+              assign_lhs = [fr_desc.field_read_lhs];
+              assign_rhs;
+              assign_is_init = fr_desc.field_read_is_init
+            }
+          in
+          process_basic_stmt call_decl (Stmt.Assign assign_desc) stmt_loc disam_tbl
+        | _ ->
+          let+ _ = ProcessExpr.check_and_set (Expr.mk_var ~typ:fr_type fr_var_qual_ident) fr_type field_type (field_type |> Type.set_ghost_to fr_type) in
+          let field_read_desc =
+            Stmt.
+              {
+                fr_desc with
+                field_read_lhs = fr_var_qual_ident;
+                field_read_field;
+                field_read_ref;
+              }
+          in
+          (Stmt.FieldRead field_read_desc, disam_tbl)
+      end
+      | AtomicInbuilt ais_desc ->
         let _ =
           if is_ghost_scope then
             Error.type_error stmt_loc "Cannot use cas in a ghost context"
