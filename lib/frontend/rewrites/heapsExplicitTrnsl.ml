@@ -3538,14 +3538,10 @@ module TrnslExhale = struct
                 let* preconds, postconds, optn_args =
                   match Map.find witness_args_conds_exprs_map var_decl.var_name with
                   | None | Some [] ->
-                      let error =
-                        ( Error.Verification,
-                          Expr.to_loc expr,
-                          "No witnesses could be computed for: "
-                          ^ Ident.to_string var_decl.var_name )
-                      in
-                      Logs.warn (fun m -> m "%s" (Error.to_string error));
-                      Rewriter.return ([], [], [])
+                    Logs.warn (fun m -> m "%s%s" 
+                      (Loc.to_string (Expr.to_loc expr)) 
+                      ("No witnesses could be computed for: " ^ Ident.to_string var_decl.var_name));
+                    Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
                       let witness_arg_exprs = 
                         let universal_wtns = List.filter witness_arg_exprs ~f:(fun (vd, conds, expr) -> List.is_empty conds) in
