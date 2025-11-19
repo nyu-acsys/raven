@@ -1575,9 +1575,46 @@ module ProcessCallable = struct
     | AUAction _au_action_kind ->
       internal_error stmt_loc
         "Did not expect AU action stmts in AST at this stage."
-    | Fpu _fpu_desc ->
-      internal_error stmt_loc
-        "Did not expect Fpu stmts in AST at this stage."
+    | Fpu fpu_desc ->
+      let open Rewriter.Syntax in
+      (* Process reference expression as ghost ref *)
+      let* fpu_ref = disambiguate_process_expr fpu_desc.fpu_ref (Type.ref |> Type.set_ghost true) disam_tbl in
+
+      (* Resolve field and check it is a ghost Fld field with element type *)
+      let* fpu_field, symbol = Rewriter.resolve_and_find fpu_desc.fpu_field in
+      let* symbol = Rewriter.Symbol.reify symbol in
+      let* given_type =
+      match symbol with
+      | FieldDef field_decl -> (
+        match field_decl.field_type with
+        | App (Fld, [ elem_ty ], _) ->
+          if not field_decl.field_is_ghost then
+            Error.type_error (QualIdent.to_loc fpu_desc.fpu_field)
+            "Frame-preserving updates are only allowed on ghost fields"
+          else Rewriter.return elem_ty
+        | _ ->
+          Error.type_error (QualIdent.to_loc fpu_desc.fpu_field)
+            "Expected field identifier")
+      | _ ->
+        Error.type_error (QualIdent.to_loc fpu_desc.fpu_field)
+          "Expected field identifier"
+      in
+
+      (* Process optional old value and mandatory new value at the field element type *)
+      let* fpu_old_val =
+      Rewriter.Option.map fpu_desc.fpu_old_val ~f:(fun e ->
+        disambiguate_process_expr e given_type disam_tbl)
+      in
+      let+ fpu_new_val = disambiguate_process_expr fpu_desc.fpu_new_val given_type disam_tbl in
+
+      ( Stmt.Fpu
+        {
+        fpu_ref;
+        fpu_field;
+        fpu_old_val;
+        fpu_new_val;
+        },
+      disam_tbl )
     | StmtExt (stmt_ext, expr_list)  -> 
         Ext.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl 
           {

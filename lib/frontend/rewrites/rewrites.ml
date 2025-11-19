@@ -774,9 +774,14 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
               Expr.from_var_decl var_decl)
         in
 
-        Stmt.mk_call ~loc ~lhs:lhs_list
+        (* Stmt.mk_call ~loc ~lhs:lhs_list
           (QualIdent.from_ident loop_proc_name)
-          args_list ~is_spawn:false
+          args_list ~is_spawn:false *)
+
+        Stmt.mk_cond ~loc (Some loop.loop_test) 
+          (Stmt.mk_call ~loc ~lhs:lhs_list
+            (QualIdent.from_ident loop_proc_name) args_list ~is_spawn:false
+          ) (Stmt.mk_skip ~loc)
       in
 
       Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
