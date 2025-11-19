@@ -635,6 +635,9 @@ module Expr = struct
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
+  let overwrite_loc t loc = 
+    if Loc.(loc = dummy) then t else (set_loc t loc)
+
   (** Pretty printing expressions *)
 
   let expr_ext_to_string : (expr_ext -> string) ref = ref (fun expr_ext -> "[ExprExt]")
@@ -811,7 +814,7 @@ module Expr = struct
 
   let mk_binder ?(loc = Loc.dummy) ?(typ = Type.bool) ?(trigs = []) b vs e =
     match vs with 
-    | [] -> e
+    | [] -> overwrite_loc e loc
     | _ -> Binder (b, vs, trigs, e, mk_attr loc typ)
 
   let mk_bool ?(loc = Loc.dummy) b = mk_app ~loc ~typ:Type.bool (Bool b) []
@@ -821,7 +824,7 @@ module Expr = struct
 
   let mk_tuple ?(loc = Loc.dummy) es = 
     match es with
-    | [e] -> e
+    | [e] -> overwrite_loc e loc
     | _ -> mk_app ~loc ~typ:(Type.mk_prod loc (List.map es ~f:to_type)) Tuple es
 
   let mk_tuple_lookup ?(loc = Loc.dummy) e i = 
@@ -830,7 +833,7 @@ module Expr = struct
       mk_app ~loc ~typ:(Type.tuple_lookup (to_type e) i) TupleLookUp [e; mk_int ~loc i]
     | _ ->
       if i = 0 then 
-        e 
+        overwrite_loc e loc 
       else
         Error.error loc "Expected Tuple type"
 
@@ -839,7 +842,7 @@ module Expr = struct
   (** Constructor for conjunction.*)
   let mk_and ?(loc = Loc.dummy) = function
     | [] -> mk_bool ~loc true
-    | [ e ] -> e
+    | [ e ] -> overwrite_loc e loc
     | es ->
         let t =
           List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
@@ -854,7 +857,7 @@ module Expr = struct
   *)
   let mk_chained_and ?(loc = Loc.dummy) = function
   | [] -> mk_bool ~loc true
-  | [ e ] -> e
+  | [ e ] -> overwrite_loc e loc
   | es ->
       let t =
         List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
@@ -867,7 +870,7 @@ module Expr = struct
   (** Constructor for disjunction.*)
   let mk_or ?(loc = Loc.dummy) = function
     | [] -> mk_bool ~loc false
-    | [ e ] -> e
+    | [ e ] -> overwrite_loc e loc
     | es ->
         let t =
           List.fold_left es ~init:(Type.mk_bool loc) ~f:(fun t e ->
@@ -883,18 +886,6 @@ module Expr = struct
     App (Null, [], mk_attr loc Type.ref)
 
   let mk_eq ?(loc = Loc.dummy) e1 e2 =
-    (*let typ_join = (Type.join (to_type e1) (to_type e2)) in
-    Logs.info (fun m -> m "Type of e1: %a" Type.pr (to_type e1)); 
-    Logs.info (fun m -> m "Type of e2: %a" Type.pr (to_type e2));
-    assert (  Type.equal typ_join (to_type e1)  || Type.equal typ_join (to_type e2)  ||
-    (match (to_type e1), (to_type e2) with
-    | App (Data (qual_id1, _), _, _), App ((Var qual_id2), _, _) ->
-      QualIdent.equal qual_id1 qual_id2
-    | App ((Var qual_id1), _, _), App (Data (qual_id2, _), _, _) ->
-      QualIdent.equal qual_id1 qual_id2
-    | _ -> false;
-    ));*)
-    (* let t = Type.join (to_type e1) (to_type e2) in *)
     App (Eq, [ e1; e2 ], mk_attr loc Type.bool)
 
   let mk_impl ?(loc = Loc.dummy) e1 e2 =
