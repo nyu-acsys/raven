@@ -23,7 +23,7 @@ let tuple_arg_mismatch_error loc expected =
 
 let module_arg_mismatch_error loc typ_constr expected =
   Error.type_error loc
-    (Printf.sprintf "Module %s expects %s." (Type.to_name typ_constr)
+    (Printf.sprintf "Module %s expects %s" (Type.to_name typ_constr)
        (arguments_to_string expected))
 
 let unexpected_functor_error loc =
@@ -55,7 +55,7 @@ module ProcessTypeExpr = struct
                 in
                 App (Var rep_fully_qualified_qual_ident, [], tp_attr))
         | ModInst _ -> unexpected_functor_error tp_attr.type_loc
-        | _ -> Error.type_error tp_attr.type_loc "Expected type identifier.")
+        | _ -> Error.type_error tp_attr.type_loc "Expected type identifier")
     | App (Var _, _, tp_attr) -> unexpected_functor_error tp_attr.type_loc
     | App ((Fld as constr), tp_list, tp_attr) -> (
         match tp_list with
@@ -1978,7 +1978,7 @@ module ProcessModule = struct
                 Error.type_error loc
                   (Printf.sprintf
                      !"%s %{Ident} was already defined in interface \
-                       %{QualIdent}. It cannot be redefined."
+                       %{QualIdent}. It cannot be redefined"
                      (Symbol.kind symbol |> String.capitalize)
                      ident interface_ident)
             | _ -> Rewriter.return ())
@@ -1999,7 +1999,7 @@ module ProcessModule = struct
                   (Printf.sprintf
                      !"Formal parameter %{Ident} of %s %{Ident} does not match \
                        parameter %{Ident} of %{Ident} in interface \
-                       %{QualIdent}."
+                       %{QualIdent}"
                      var_decl.var_name (Symbol.kind symbol) ident
                      ovar_decl.var_name ident interface_ident)
               else
@@ -2013,7 +2013,7 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same number of parameters \
-                     as %{Ident} in interface %{QualIdent}."
+                     as %{Ident} in interface %{QualIdent}"
                    (Symbol.kind symbol) ident ident interface_ident)
         in
 
@@ -2024,7 +2024,7 @@ module ProcessModule = struct
         then
           Error.type_error loc
             (Printf.sprintf
-               !"Cannot redeclare %s %{Ident} from %{QualIdent} as %s."
+               !"Cannot redeclare %s %{Ident} from %{QualIdent} as %s"
                (Symbol.kind orig_symbol) ident interface_ident
                (Symbol.kind symbol))
         else
@@ -2048,7 +2048,7 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same precondition as \
-                     %{Ident} in interface %{QualIdent}."
+                     %{Ident} in interface %{QualIdent}"
                    (Symbol.kind symbol) ident ident interface_ident)
           in
           let* sm =
@@ -2073,7 +2073,7 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same postcondition as \
-                     %{Ident} in interface %{QualIdent}."
+                     %{Ident} in interface %{QualIdent}"
                    (Symbol.kind symbol) ident ident interface_ident)
           in
           match (call_def.call_def, orig_call_def.call_def) with
@@ -2083,7 +2083,7 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} was already defined in interface \
-                     %{QualIdent}. It cannot be redefined."
+                     %{QualIdent}. It cannot be redefined"
                    (Symbol.kind symbol |> String.capitalize)
                    ident interface_ident)
           | ProcDef { proc_body = None; _ }, ProcDef { proc_body = Some _; _ }
@@ -2142,7 +2142,7 @@ module ProcessModule = struct
           if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
             Error.type_error loc
               (Printf.sprintf
-                 !"%s %{Ident} cannot have module parameters."
+                 !"%s %{Ident} cannot have module parameters"
                  (Symbol.kind symbol |> String.capitalize)
                  ident)
           else
@@ -2151,7 +2151,7 @@ module ProcessModule = struct
                 Error.type_error loc
                   (Printf.sprintf
                      !"%s %{Ident} was already defined in interface \
-                       %{QualIdent}. It cannot be redefined."
+                       %{QualIdent}. It cannot be redefined"
                      (Symbol.kind symbol |> String.capitalize)
                      ident interface_ident)
             | _ -> Rewriter.return ())
@@ -2190,7 +2190,7 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} was already defined in interface \
-                     %{QualIdent}. It cannot be redefined."
+                     %{QualIdent}. It cannot be redefined"
                    (Symbol.kind symbol |> String.capitalize)
                    ident interface_ident)
           | None, Some _ ->
@@ -2201,17 +2201,20 @@ module ProcessModule = struct
                    (Symbol.kind symbol |> String.capitalize)
                    ident interface_ident)
           | _ -> Rewriter.return ())
-    | ModDef _mod_def, ModDef _orig_mod_def ->
+    | ModDef mod_def, ModDef _orig_mod_def ->
+      (* If LHS is free, then we are checking an inherited module against itself, which is OK. *)
+      if mod_def.mod_decl.mod_decl_is_free then Rewriter.return () else
+      (* Otherwise, RHS is being redefined, which is not OK. *)
         Error.type_error loc
           (Printf.sprintf
              !"%s %{Ident} was already defined in interface %{QualIdent}. It \
-               cannot be redefined."
+               cannot be redefined"
              (Symbol.kind symbol |> String.capitalize)
              ident interface_ident)
     | _ ->
         Error.type_error loc
           (Printf.sprintf
-             !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s."
+             !"Cannot redeclare %s %{Ident} from interface %{QualIdent} as %s"
              (Symbol.kind orig_symbol) ident interface_ident
              (Symbol.kind symbol))
 
@@ -2237,7 +2240,7 @@ module ProcessModule = struct
       Error.type_error
         (QualIdent.to_loc mod_ident)
         (Printf.sprintf
-           !"%s %{QualIdent} does not implement interface %{QualIdent}."
+           !"%s %{QualIdent} does not implement interface %{QualIdent}"
            (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
            mod_ident int_ident)
 
@@ -2432,6 +2435,7 @@ module ProcessModule = struct
                     else call
                   in
                   annotate_error_msg (CallDef call)
+                | ModDef mod_def -> ModDef (Module.set_free mod_def)
                 | _ -> annotate_error_msg parent_symbol
               in
               
@@ -2604,7 +2608,7 @@ module ProcessModule = struct
             let ident = Symbol.to_name symbol in
             Map.find symbols_to_check ident
             |> Rewriter.Option.iter ~f:(fun orig_symbol ->
-                   check_implements_symbol interface_ident symbol orig_symbol)
+                check_implements_symbol interface_ident symbol orig_symbol)
         | _ -> Rewriter.return ())
     in
 
@@ -2630,7 +2634,7 @@ module ProcessModule = struct
                   Error.type_error mod_decl.mod_decl_loc
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \
-                         %s %{Ident} is still abstract."
+                         %s %{Ident} is still abstract"
                        mod_decl.mod_decl_name (Symbol.kind symbol)
                        (Symbol.to_name symbol))
               | _ -> ()))
