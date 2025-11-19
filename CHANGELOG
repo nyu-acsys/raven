@@ -6,6 +6,7 @@ All notable changes to this project will be docmented in this file.
 
 ### Fixes
 
+- Fix SMT Backend crash with "_" ident (#22)
 - Fix crash on FPU stmt in while loops (#27).
 - Added if_block before making call to while_loop proc.
 - Fix spurious type error when type-checking inherited modules (#25).

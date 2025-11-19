@@ -86,7 +86,10 @@ let pr_smt_ident ppf id =
     | x -> x
   ) in
 
-  let sanitized_ident = QualIdent.sanitize smt_ident_sanitize_map id in
+  let sanitized_ident = 
+    if QualIdent.(id = QualIdent.from_ident (Ident.make Loc.dummy "_" 0)) then 
+      QualIdent.from_ident (Ident.make Loc.dummy "_0" 0) 
+    else QualIdent.sanitize smt_ident_sanitize_map id in
 
   (* Logs.debug (fun m -> m 
     "smtLibAST.pr_smt_ident: 
