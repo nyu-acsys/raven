@@ -6,6 +6,7 @@ All notable changes to this project will be docmented in this file.
 
 ### Fixes
 
+- Variables declared inside while loops are now declared as local variables when while loops are rewritten to proc calls. (#29)
 - Fix missing locations in certain expressions being constructed
 - Fix SMT Backend crash with "_" ident (#22)
 - Fix crash on FPU stmt in while loops (#27).
