@@ -5211,7 +5211,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
             in
 
             let assign_stmt =
-              Stmt.mk_assign ~loc:s.stmt_loc
+              Stmt.mk_assign ~loc:s.stmt_loc ~is_init:fr_desc.field_read_is_init
                 [ fr_desc.field_read_lhs ]
                 (Expr.mk_app ~typ:lhs_var.var_type (DataDestr field_val_destr)
                    [ Expr.mk_maplookup field_heap_expr fr_desc.field_read_ref ])

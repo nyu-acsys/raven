@@ -1629,8 +1629,8 @@ module Stmt = struct
     in
     { stmt_desc = Basic (Call call); stmt_loc = loc }
 
-  let mk_assign ~loc lhs rhs =
-    { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs; assign_is_init = false }); stmt_loc = loc }
+  let mk_assign ~loc ?(is_init = false) lhs rhs =
+    { stmt_desc = Basic (Assign { assign_lhs = lhs; assign_rhs = rhs; assign_is_init = is_init }); stmt_loc = loc }
 
   let mk_field_write ~loc ref field v =
     { stmt_desc = Basic (FieldWrite {field_write_ref = ref; field_write_field = field; field_write_val = v});

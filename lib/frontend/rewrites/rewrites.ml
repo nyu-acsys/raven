@@ -1493,7 +1493,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let reassign_lhs_stmt =
-            Stmt.mk_assign ~loc:stmt.stmt_loc
+            Stmt.mk_assign ~loc:stmt.stmt_loc ~is_init:call_desc.call_is_init
               (List.map lhs_list ~f:(fun decl -> QualIdent.from_ident decl.var_name))
               (Expr.mk_tuple new_lhs_list)
           in
@@ -2202,39 +2202,42 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
             Expr.alpha_renaming assign_stmt.assign_rhs subst_map
           in
           let* assign_lhs =
-            Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
-                let* var_map = Rewriter.current_user_state in
+            if assign_stmt.assign_is_init then
+              Rewriter.return assign_stmt.assign_lhs
+            else
+              Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
+                  let* var_map = Rewriter.current_user_state in
 
-                let local_var = QualIdent.to_ident qual_ident in
+                  let local_var = QualIdent.to_ident qual_ident in
 
-                  Logs.debug (fun m ->
-                      m
-                        "Rewrites.rewrite_ssa_stmts: Assigning to local \
-                         variable %a; for stmt %a"
-                        Ident.pr local_var Stmt.pr s);
-                  let old_var_decl = Map.find_exn var_map local_var in
-                  let new_var_decl =
-                    Type.
-                      {
-                        old_var_decl with
-                        var_name =
-                          Ident.fresh old_var_decl.var_loc
-                            old_var_decl.var_name.ident_name;
-                      }
-                  in
+                    Logs.debug (fun m ->
+                        m
+                          "Rewrites.rewrite_ssa_stmts: Assigning to local \
+                          variable %a; for stmt %a"
+                          Ident.pr local_var Stmt.pr s);
+                    let old_var_decl = Map.find_exn var_map local_var in
+                    let new_var_decl =
+                      Type.
+                        {
+                          old_var_decl with
+                          var_name =
+                            Ident.fresh old_var_decl.var_loc
+                              old_var_decl.var_name.ident_name;
+                        }
+                    in
 
-                  let* _ =
-                    Rewriter.introduce_symbol
-                      (VarDef { var_decl = new_var_decl; var_init = None })
-                  in
+                    let* _ =
+                      Rewriter.introduce_symbol
+                        (VarDef { var_decl = new_var_decl; var_init = None })
+                    in
 
-                  let var_map =
-                    Map.set var_map ~key:local_var ~data:new_var_decl
-                  in
+                    let var_map =
+                      Map.set var_map ~key:local_var ~data:new_var_decl
+                    in
 
-                  let+ _ = Rewriter.set_user_state var_map in
+                    let+ _ = Rewriter.set_user_state var_map in
 
-                  QualIdent.from_ident new_var_decl.var_name)
+                    QualIdent.from_ident new_var_decl.var_name)
           in
 
           Rewriter.return
