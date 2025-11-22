@@ -961,9 +961,9 @@ module Stmt = struct
               stmt_desc =
                 Basic (Fpu { fpu_ref; fpu_field; fpu_old_val; fpu_new_val });
             }
-        | Havoc qual_iden ->
-            let qual_iden = f qual_iden in
-            return { stmt with stmt_desc = Basic (Havoc qual_iden) }
+        | Havoc hvc ->
+            let havoc_var = f hvc.havoc_var in
+            return { stmt with stmt_desc = Basic (Havoc { hvc with havoc_var }) }
         (* TODO: add remaining *)
         | _ ->
             rewrite_expressions_top

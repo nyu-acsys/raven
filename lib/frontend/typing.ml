@@ -1160,7 +1160,7 @@ module ProcessCallable = struct
           (VarDef { var_decl; var_init = None })
       in
       let var = QualIdent.from_ident var_decl.var_name in
-      Rewriter.return @@ (Stmt.Havoc var, disam_tbl')
+      Rewriter.return @@ (Stmt.Havoc { havoc_var = var; havoc_is_init = true }, disam_tbl')
     | Spec (sk, spec) ->
       let+ spec = process_stmt_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
@@ -1401,9 +1401,9 @@ module ProcessCallable = struct
             }
         in
         (Stmt.AtomicInbuilt ais_desc, disam_tbl)
-    | Havoc qual_ident ->
-      let+ qual_ident, _ = get_assign_lhs qual_ident ~is_init:false in
-      Stmt.Havoc qual_ident, disam_tbl
+    | Havoc hvc ->
+      let+ havoc_var, _ = get_assign_lhs hvc.havoc_var ~is_init:hvc.havoc_is_init in
+      Stmt.Havoc { hvc with havoc_var }, disam_tbl
     | Return expr ->
       if is_ghost_scope && Poly.(call_decl.Callable.call_decl_kind = Proc) then
         Error.type_error stmt_loc "Cannot return in a ghost block";

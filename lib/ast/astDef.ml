@@ -1266,6 +1266,11 @@ module Stmt = struct
     field_write_val : expr
   }
 
+  type havoc_desc = {
+    havoc_var : qual_ident;
+    havoc_is_init : bool;
+  }
+
   type cas_desc = { 
     cas_old_val : expr;
     cas_new_val : expr;
@@ -1372,7 +1377,7 @@ module Stmt = struct
     | Bind of bind_desc (* x *)
     | FieldRead of field_read_desc
     | FieldWrite of field_write_desc
-    | Havoc of qual_ident (* x *)
+    | Havoc of havoc_desc (* x *)
     | Call of call_desc
     | Return of expr
     | Use of use_desc
@@ -1454,7 +1459,7 @@ module Stmt = struct
       let kind = atomic_inbuilt_string ais.atomic_inbuilt_kind in
       let args = atomic_inbuilt_args ais.atomic_inbuilt_kind in
       fprintf ppf "@[<2>%a@ :=@ %s(%a.%a, %a)@]" QualIdent.pr ais.atomic_inbuilt_lhs kind Expr.pr ais.atomic_inbuilt_ref QualIdent.pr ais.atomic_inbuilt_field Expr.pr_list args
-    | Havoc x -> fprintf ppf "@[<2>havoc@ %a@]" QualIdent.pr x
+    | Havoc hvc -> fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var (if hvc.havoc_is_init then " (init)" else "")
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
           (Print.pr_list_comma (fun ppf -> function
@@ -1608,7 +1613,7 @@ module Stmt = struct
   let mk_field_read ~loc lhs field ref =
     { stmt_desc = Basic (FieldRead {field_read_lhs = lhs; field_read_field = field; field_read_ref = ref; field_read_is_init = false}); stmt_loc = loc }
 
-  let mk_havoc ~loc x = { stmt_desc = Basic (Havoc x); stmt_loc = loc }
+  let mk_havoc ~loc ?(is_init = false) x = { stmt_desc = Basic (Havoc { havoc_var = x; havoc_is_init = is_init }); stmt_loc = loc }
 
   let mk_cond ~loc ?(cond_if_assumes_false = false) test then_ else_ =
     { stmt_desc = Cond { cond_test = test; cond_then = then_; cond_else = else_; cond_if_assumes_false }; stmt_loc = loc }
@@ -1679,10 +1684,13 @@ module Stmt = struct
           Set.add accesses new_desc.new_lhs
 
         | Assign assign_desc ->
-          let accesses =
-            List.fold assign_desc.assign_lhs ~init:accesses ~f:Set.add
-          in
-          scan_expr_list accesses [assign_desc.assign_rhs]
+            let accesses =
+              if not assign_desc.assign_is_init then 
+                List.fold assign_desc.assign_lhs ~init:accesses ~f:Set.add
+              else
+                accesses
+            in
+            scan_expr_list accesses [assign_desc.assign_rhs]
         
         | Bind bind_desc ->
           let accesses =
@@ -1691,25 +1699,41 @@ module Stmt = struct
           scan_expr_list accesses [bind_desc.bind_rhs.spec_form]
 
         | FieldRead fr_desc ->
-          let accesses = Set.add accesses fr_desc.field_read_lhs in
+          let accesses = 
+            if not fr_desc.field_read_is_init then 
+              Set.add accesses fr_desc.field_read_lhs 
+            else 
+              accesses
+          in
           scan_expr_list accesses [fr_desc.field_read_ref]
 
         | FieldWrite fw_desc ->
           scan_expr_list accesses [fw_desc.field_write_ref; fw_desc.field_write_val]
 
         | AtomicInbuilt ais_desc ->
-          let accesses = Set.add accesses ais_desc.atomic_inbuilt_lhs in
+          let accesses = 
+            if not ais_desc.atomic_inbuilt_is_init then
+               Set.add accesses ais_desc.atomic_inbuilt_lhs 
+            else 
+              accesses
+          in
           scan_expr_list accesses (ais_desc.atomic_inbuilt_ref :: atomic_inbuilt_args ais_desc.atomic_inbuilt_kind)
             
-        | Havoc x ->
-          Set.add accesses x
+        | Havoc hvc ->
+          if not hvc.havoc_is_init then
+            Set.add accesses hvc.havoc_var
+          else 
+            accesses
 
         | Call call_desc ->
           let accesses = scan_expr_list accesses call_desc.call_args in
           let accesses =
-            List.fold call_desc.call_lhs
-              ~f:Set.add
-              ~init:accesses
+            if not call_desc.call_is_init then
+              List.fold call_desc.call_lhs
+                ~f:Set.add
+                ~init:accesses
+            else
+              accesses
           in
           accesses
 
@@ -1785,7 +1809,10 @@ module Stmt = struct
             []
 
         | Assign assign_desc ->
-          List.map assign_desc.assign_lhs ~f:QualIdent.unqualify
+          if assign_desc.assign_is_init then
+            []
+          else
+            List.map assign_desc.assign_lhs ~f:QualIdent.unqualify
           
 
         | Bind bind_desc ->
@@ -1797,33 +1824,40 @@ module Stmt = struct
           )
 
         | FieldRead fr_desc -> 
-          if List.is_empty fr_desc.field_read_lhs.qual_path then
+          if not fr_desc.field_read_is_init && List.is_empty fr_desc.field_read_lhs.qual_path then
             [fr_desc.field_read_lhs.qual_base]
-          else
+          else 
             []
 
         | FieldWrite fw_desc -> 
             []
 
         | AtomicInbuilt ais_desc -> 
-          if List.is_empty ais_desc.atomic_inbuilt_lhs.qual_path then
+          if not ais_desc.atomic_inbuilt_is_init && List.is_empty ais_desc.atomic_inbuilt_lhs.qual_path then
             [ais_desc.atomic_inbuilt_lhs.qual_base]
           else
             []
             
-        | Havoc x ->
-          if List.is_empty x.qual_path then 
-            [x.qual_base]
-          else 
-            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caugh in stmt_local_vars_modified")
+        | Havoc hvc ->
+          if (QualIdent.is_local hvc.havoc_var) then 
+            (if not hvc.havoc_is_init then 
+              [QualIdent.to_ident hvc.havoc_var] 
+            else 
+              []
+            )
+          else
+            (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caught in stmt_local_vars_modified")
 
         | Call call_desc ->
-          List.filter_map call_desc.call_lhs ~f:(fun qi -> 
-            if List.is_empty qi.qual_path then
-              Some qi.qual_base
-            else
-              None
-          )
+          if call_desc.call_is_init then
+            []
+          else 
+            List.filter_map call_desc.call_lhs ~f:(fun qi -> 
+              if List.is_empty qi.qual_path then
+                Some qi.qual_base
+              else
+                None
+            )
 
         | Return _ ->
           []
@@ -1863,6 +1897,44 @@ module Stmt = struct
     let modifieds = stmt_locals_modified s in
     let modifieds = List.dedup_and_sort modifieds ~compare:Ident.compare in
     modifieds
+
+  let stmt_local_vars_initialized (s: t) : ident list = 
+    let rec stmt_locals_init (s: t): ident list =
+      match s.stmt_desc with
+        | Block b ->
+          List.concat_map b.block_body ~f:(fun s -> stmt_locals_init s)
+
+        | Basic s1 -> 
+          begin match s1 with
+          (* only checking Havoc's is enough; all other _is_init stmts are preceeded by a Havoc. *)
+          | Havoc hvc ->
+            if (QualIdent.is_local hvc.havoc_var) then 
+              (if not hvc.havoc_is_init then 
+                [] 
+              else 
+                [QualIdent.to_ident hvc.havoc_var]
+              )
+            else
+              (Error.internal_error s.stmt_loc "Only local variables should be havoc-ed; caught in stmt_local_vars_initialized")
+
+          | _ -> []
+          end
+
+        | Loop l ->
+          let modified_prebody = stmt_locals_init l.loop_prebody in
+          let modified_postbody = stmt_locals_init l.loop_postbody in
+          modified_prebody @ modified_postbody
+
+        | Cond c ->
+          let modified_then = stmt_locals_init c.cond_then in
+          let modified_else = stmt_locals_init c.cond_else in
+          modified_then @ modified_else
+
+    in
+
+    let vars_init = stmt_locals_init s in
+    let vars_init = List.dedup_and_sort vars_init ~compare:Ident.compare in
+    vars_init
 
   let stmt_ext_fields_accessed : (stmt_ext -> expr list -> qual_ident list) ref = ref (fun _ _ -> [])
 
