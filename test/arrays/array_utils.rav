@@ -37,7 +37,7 @@ interface Array[E: Library.Type] {
   func inverse(m: Map[Int, E], i: Int, j: Int, k: E) returns (res: Int)
 
   auto lemma invertable()
-    ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {m[i1]} 
+    ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {inverse(m, i, j, m[i1])} 
       injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1
 
   auto lemma invertable2()

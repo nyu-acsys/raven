@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to this project will be docmented in this file.
+
+## [Unreleased]
+
+### Fixes
+
+## [1.0.1] - 2025-11-22
+
+- Fixed multiple redundant local variable declarations due to excessive havocing.
+- Variables declared inside while loops are now declared as local variables when while loops are rewritten to proc calls. (#29)
+- Fix missing locations in certain expressions being constructed
+- Fix SMT Backend crash with "_" ident (#22)
+- Fix crash on FPU stmt in while loops (#27).
+- Added if_block before making call to while_loop proc.
+- Fix spurious type error when type-checking inherited modules (#25).
+- Fix spurious type error when assigning from data type destructor (#26).
+
+## [1.0.0] - 2025-06-02
+
+### Added
+
+- Initial release of Raven.

@@ -482,7 +482,7 @@ stmt_wo_trailing_substmt:
 }
 (* havoc *)
 | HAVOC; id = qual_ident; SEMICOLON { 
-  [Stmt.(Basic (Havoc (Expr.to_qual_ident id)))]
+  [Stmt.(Basic (Havoc { havoc_var = (Expr.to_qual_ident id); havoc_is_init = false; } ))]
 }
 
 (* assume / assert / inhale / exhale *)

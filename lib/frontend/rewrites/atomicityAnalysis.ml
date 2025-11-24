@@ -195,7 +195,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
-    | Basic (Havoc qual_iden) ->
+    | Basic (Havoc hvc) ->
         Rewriter.return stmt
     | Basic (Call call_desc) ->
         let* symbol = Rewriter.find_and_reify call_desc.call_name in

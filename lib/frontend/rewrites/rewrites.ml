@@ -580,20 +580,14 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           curr_loop_arg_var_decls )
       in
 
-      let* loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls =
+      let* loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls =
         (* Local variables modified from loop body become ret vals for loop procedure *)
         let curr_loop_rets = Stmt.stmt_local_vars_modified loop.loop_postbody in
-        let+ curr_loop_ret_var_decls =
+        let* curr_loop_ret_var_decls =
           Rewriter.List.map curr_loop_rets ~f:(fun var ->
-              let+ symbol =
-                Rewriter.find_and_reify (QualIdent.from_ident var)
-              in
-
-              match symbol with
-              | VarDef v -> v.var_decl
-              | _ ->
-                  Error.error stmt.stmt_loc
-                    ("Expected a variable (2); found " ^ Symbol.to_string symbol))
+            let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
+            var_def.var_decl
+          )
         in
 
         (* redefined loop_rets for uniqueness *)
@@ -615,7 +609,16 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 ~data:(Expr.from_var_decl new_var_decl))
         in
 
-        (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls)
+        let loop_local_vars = Stmt.stmt_local_vars_initialized loop.loop_postbody in
+        let+ loop_local_var_decls =
+          Rewriter.List.map loop_local_vars ~f:(fun var ->
+            let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
+            var_def.var_decl
+          )
+
+        in
+
+        (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls)
       in
 
       let* loop_proc_name =
@@ -665,7 +668,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
           (* no locals, since all var_decls are removed earlier *)
-          call_decl_locals = [];
+          call_decl_locals = loop_local_var_decls;
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
           call_decl_is_free = false;
@@ -774,9 +777,14 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
               Expr.from_var_decl var_decl)
         in
 
-        Stmt.mk_call ~loc ~lhs:lhs_list
+        (* Stmt.mk_call ~loc ~lhs:lhs_list
           (QualIdent.from_ident loop_proc_name)
-          args_list ~is_spawn:false
+          args_list ~is_spawn:false *)
+
+        Stmt.mk_cond ~loc (Some loop.loop_test) 
+          (Stmt.mk_call ~loc ~lhs:lhs_list
+            (QualIdent.from_ident loop_proc_name) args_list ~is_spawn:false
+          ) (Stmt.mk_skip ~loc)
       in
 
       Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
@@ -1485,7 +1493,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let reassign_lhs_stmt =
-            Stmt.mk_assign ~loc:stmt.stmt_loc
+            Stmt.mk_assign ~loc:stmt.stmt_loc ~is_init:call_desc.call_is_init
               (List.map lhs_list ~f:(fun decl -> QualIdent.from_ident decl.var_name))
               (Expr.mk_tuple new_lhs_list)
           in
@@ -2194,39 +2202,42 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
             Expr.alpha_renaming assign_stmt.assign_rhs subst_map
           in
           let* assign_lhs =
-            Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
-                let* var_map = Rewriter.current_user_state in
+            if assign_stmt.assign_is_init then
+              Rewriter.return assign_stmt.assign_lhs
+            else
+              Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
+                  let* var_map = Rewriter.current_user_state in
 
-                let local_var = QualIdent.to_ident qual_ident in
+                  let local_var = QualIdent.to_ident qual_ident in
 
-                  Logs.debug (fun m ->
-                      m
-                        "Rewrites.rewrite_ssa_stmts: Assigning to local \
-                         variable %a; for stmt %a"
-                        Ident.pr local_var Stmt.pr s);
-                  let old_var_decl = Map.find_exn var_map local_var in
-                  let new_var_decl =
-                    Type.
-                      {
-                        old_var_decl with
-                        var_name =
-                          Ident.fresh old_var_decl.var_loc
-                            old_var_decl.var_name.ident_name;
-                      }
-                  in
+                    Logs.debug (fun m ->
+                        m
+                          "Rewrites.rewrite_ssa_stmts: Assigning to local \
+                          variable %a; for stmt %a"
+                          Ident.pr local_var Stmt.pr s);
+                    let old_var_decl = Map.find_exn var_map local_var in
+                    let new_var_decl =
+                      Type.
+                        {
+                          old_var_decl with
+                          var_name =
+                            Ident.fresh old_var_decl.var_loc
+                              old_var_decl.var_name.ident_name;
+                        }
+                    in
 
-                  let* _ =
-                    Rewriter.introduce_symbol
-                      (VarDef { var_decl = new_var_decl; var_init = None })
-                  in
+                    let* _ =
+                      Rewriter.introduce_symbol
+                        (VarDef { var_decl = new_var_decl; var_init = None })
+                    in
 
-                  let var_map =
-                    Map.set var_map ~key:local_var ~data:new_var_decl
-                  in
+                    let var_map =
+                      Map.set var_map ~key:local_var ~data:new_var_decl
+                    in
 
-                  let+ _ = Rewriter.set_user_state var_map in
+                    let+ _ = Rewriter.set_user_state var_map in
 
-                  QualIdent.from_ident new_var_decl.var_name)
+                    QualIdent.from_ident new_var_decl.var_name)
           in
 
           Rewriter.return
@@ -2236,34 +2247,40 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
                 stmt_desc =
                   Basic (Assign { assign_stmt with assign_lhs; assign_rhs });
               }
-      | Havoc qual_iden ->
-          if QualIdent.is_local qual_iden then (
-            let local_var = QualIdent.to_ident qual_iden in
+      | Havoc hvc ->
+          if not (QualIdent.is_local hvc.havoc_var) then 
+            assert false
+          else (
+            if hvc.havoc_is_init then
+              Rewriter.return (Stmt.mk_skip ~loc:s.stmt_loc)
+            else
+              let local_var = QualIdent.to_ident hvc.havoc_var in
 
-            Logs.debug (fun m ->
-                m "Rewrites.rewrite_ssa_stmts: Havocing local variable %a"
-                  Ident.pr local_var);
-            let old_var_decl = Map.find_exn var_map local_var in
-            let new_var_decl =
-              {
-                old_var_decl with
-                var_name =
-                  Ident.fresh old_var_decl.var_loc
-                    old_var_decl.var_name.ident_name;
-              }
-            in
+              Logs.debug (fun m ->
+                  m "Rewrites.rewrite_ssa_stmts: Havocing local variable %a"
+                    Ident.pr local_var);
+              let old_var_decl = Map.find_exn var_map local_var in
+              let new_var_decl =
+                {
+                  old_var_decl with
+                  var_name =
+                    Ident.fresh old_var_decl.var_loc
+                      old_var_decl.var_name.ident_name;
+                }
+              in
 
-            let* _ =
-              Rewriter.introduce_symbol
-                (VarDef { var_decl = new_var_decl; var_init = None })
-            in
+              let* _ =
+                Rewriter.introduce_symbol
+                  (VarDef { var_decl = new_var_decl; var_init = None })
+              in
 
-            let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
+              let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
 
-            let+ _ = Rewriter.set_user_state var_map in
+              let+ _ = Rewriter.set_user_state var_map in
 
-            Stmt.mk_block_stmt ~loc:s.stmt_loc [])
-          else Rewriter.return s
+              Stmt.mk_block_stmt ~loc:s.stmt_loc []
+            )
+
       | Bind bind_stmt ->
           let* bind_lhs =
             Rewriter.List.map bind_stmt.bind_lhs ~f:(fun qual_ident ->
