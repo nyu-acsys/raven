@@ -137,12 +137,7 @@ mod_inst_args:
 | { [] }
     
 member_def_list_opt:
-| m = member_def; ms = member_def_list_opt {
-  match m with
-  | Module.SymbolDef (VarDef { var_decl = { var_loc = loc; var_const = false; _}; _ }) ->
-      Error.syntax_error loc "Modules and interfaces cannot have var members"
-  | _ -> m :: ms
-}
+| m = member_def; ms = member_def_list_opt { m :: ms }
 | m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 

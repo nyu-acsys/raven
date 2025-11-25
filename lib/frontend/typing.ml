@@ -1936,6 +1936,10 @@ module ProcessModule = struct
 
   let process_var (var : Stmt.var_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
+    let _ =
+      if not var.var_decl.var_const
+      then Error.type_error var.var_decl.var_loc "Modules and interfaces cannot have var members"
+    in
     let* var_decl = ProcessTypeExpr.process_var_decl var.var_decl in
     let+ var_init =
       Rewriter.Option.map var.var_init ~f:(fun expr ->

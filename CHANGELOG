@@ -6,7 +6,11 @@ All notable changes to this project will be docmented in this file.
 
 ### Fixes
 
+- Catch module-level var declarations in type checker rather than parser (#31)
+
 ## [1.0.1] - 2025-11-22
+
+### Fixes
 
 - Fixed multiple redundant local variable declarations due to excessive havocing.
 - Variables declared inside while loops are now declared as local variables when while loops are rewritten to proc calls. (#29)
