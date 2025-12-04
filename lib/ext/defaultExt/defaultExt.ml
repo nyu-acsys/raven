@@ -4,15 +4,19 @@ open ExtApi
 open Util
 
 module DefaultExt = struct
+  let lib_source = None
+  let local_vars = []
+
   let expr_ext_to_string expr_ext =
     Error.internal_error Loc.dummy "Unhandled expr extension in DefaultExt.expr_ext_to_string."
   let pr_stmt_ext ppf = 
     Error.internal_error Loc.dummy "Unhandled stmt extension in DefaultExt.pr_basic_stmt."
 
+  let stmt_ext_symbols _ = Set.empty (module QualIdent)
   let stmt_ext_local_vars_modified stmt_ext exprs = []
   let stmt_ext_fields_accessed stmt_ext exprs = []
 
-  let type_check_expr (a: Expr.expr_ext) (exprs: expr list) (expr_attr : Expr.expr_attr): expr Rewriter.t =
+  let type_check_expr (a: Expr.expr_ext) (exprs: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs): expr Rewriter.t =
     Error.internal_error expr_attr.expr_loc "Unhandled Expr extension in DefaultExt.type_check_expr."
 
   let type_check_stmt (call_decl: Callable.call_decl) (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) (loc: location) (disamTbl: ProgUtils.DisambiguationTbl.t) (type_check_stmt_functs: type_check_stmt_functs) =
@@ -24,4 +28,8 @@ module DefaultExt = struct
 
   let rewrite_stmt_ext _ _ loc = 
     Error.internal_error loc "Unhandled stmt extension in DefaultExt.rewrite_stmt_ext"
+
+
+  let lib_sources = []
+  let ext_local_vars = []
 end

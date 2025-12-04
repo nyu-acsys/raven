@@ -1,6 +1,6 @@
 %{
 
-open Ext.Ext
+open Ext.AtomicExtInstance
 
 %}
 

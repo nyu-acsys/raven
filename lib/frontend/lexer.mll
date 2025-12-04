@@ -25,6 +25,10 @@ let _ =
       ("case", CASE);
       ("data", DATA);
       ("else", ELSE);
+      ("ECContra", ECCONTRA);
+      ("ECFn", ECFN);
+      ("ECList", ECLIST);
+      ("ECVal", ECVAL);
       ("ensures", ENSURES);
       ("exhale", SPEC Stmt.Exhale);
       ("exists", QUANT(Expr.Exists));
@@ -57,6 +61,7 @@ let _ =
       ("proc", PROC);
       ("Ref", REF);
       ("Real", REAL);
+      ("Rand", RAND);
       ("requires", REQUIRES);
       ("return", RETURN);
       ("returns", RETURNS);
@@ -107,6 +112,7 @@ let _ =
      ".", DOT;
      "?", QMARK;
      ":|", COLONPIPE;
+     "-*-", ERRORCRED;
      ]
     
 let lexical_error lexbuf msg =
