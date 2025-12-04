@@ -12,7 +12,17 @@
 (ocamllex
  (modules lexer))
 
+(rule
+ (target atomicExt_parser.mly)
+ (deps ../ext/atomicExt/atomicExt_parser.mly)
+ (action (copy %{deps} %{target})))
+
+(rule
+ (target errorCreditsExt_parser.mly)
+ (deps ../ext/errorCreditsExt/errorCreditsExt_parser.mly)
+ (action (copy %{deps} %{target})))
+
 (menhir
- (modules parser parser_ext)
+ (modules parser atomicExt_parser errorCreditsExt_parser)
  (merge_into parser)
  (flags --explain))

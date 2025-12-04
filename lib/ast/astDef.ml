@@ -1640,6 +1640,8 @@ module Stmt = struct
 
   let to_loc s = s.stmt_loc
 
+
+  let stmt_ext_symbols : (stmt_ext -> QualIdentSet.t) ref = ref (fun _ -> Set.empty (module QualIdent))
   (** Extends [accessed] with the set of all symbols occuring free in [s] *)
   (** Assumes that all var_decl stmts are abstracted away during type-checking. *)  
   let symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
@@ -1736,7 +1738,9 @@ module Stmt = struct
           | None -> scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_new_val]
           | Some e -> scan_expr_list accesses [fpu_desc.fpu_ref; e; fpu_desc.fpu_new_val])
         
-        | StmtExt (stmt_ext, expr_list) -> scan_expr_list accesses expr_list
+        | StmtExt (stmt_ext, expr_list) -> 
+          let accesses = scan_expr_list accesses expr_list in
+          Set.union accesses (!stmt_ext_symbols stmt_ext)
         end
 
       | Loop l ->
@@ -2467,6 +2471,13 @@ module Predefs = struct
   let lib_type_mod_ident = Ident.make Loc.dummy "Type" 0
   let lib_type_mod_qual_ident = QualIdent.from_list [lib_ident; lib_type_mod_ident]
   let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
+
+  let lib_list_mod_ident = Ident.make Loc.dummy "List" 0
+  let lib_list_mod_qual_ident = QualIdent.from_list [lib_ident; lib_list_mod_ident]
+
+  let lib_list_len_ident = Ident.make Loc.dummy "len" 0
+  let lib_list_is_in_ident = Ident.make Loc.dummy "is_in" 0
+  let lib_list_head_destr_ident = Ident.make Loc.dummy "head" 0
 
   let lib_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "ResourceAlgebra" 0]
 

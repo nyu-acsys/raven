@@ -289,6 +289,13 @@ let introduce_typecheck_symbol ~loc
   
   s, Base.List.hd_exn qual_idents
 
+let process_symbol_ref : (Module.symbol -> Module.symbol t) ref = ref (
+  fun _ -> Error.unsupported_error Loc.dummy "process_symbol_ref not updated"
+)
+
+let introduce_typecheck_symbol' ~loc
+    (symbol : Module.symbol) (s : 'a state) : 'a state * qual_ident =
+  introduce_typecheck_symbol ~loc ~f:!process_symbol_ref symbol s
 
 let introduce_toplevel_symbol ~loc
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)

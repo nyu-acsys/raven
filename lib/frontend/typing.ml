@@ -678,7 +678,7 @@ module ProcessExpr = struct
             let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
-        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr 
+        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -1575,7 +1575,10 @@ module ProcessCallable = struct
           {
             ExtApi.get_assign_lhs = get_assign_lhs;
             expand_type_expr = ProcessTypeExpr.expand_type_expr;
-            disambiguate_process_expr
+            disambiguate_process_expr;
+            type_mismatch_error;
+            disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+            process_symbol_ref = Rewriter.process_symbol_ref;
           }  
         
   let process_stmt ?(new_scope = true) call_decl
@@ -1698,6 +1701,18 @@ module ProcessCallable = struct
     let* disam_tbl, call_decl_locals =
       process_decls call_decl.call_decl_locals disam_tbl
     in
+
+    let call_decl_locals = match call_decl.call_decl_kind with
+      | Proc | Lemma -> 
+        (* Adding Extension local variables *)
+        Logs.debug (fun m -> m "Adding EXT locals on: %a" Ident.pr call_decl.call_decl_name);
+        Ext.ext_local_vars @ call_decl_locals
+      | Func | Pred | Invariant -> 
+        Ext.ext_local_vars @ 
+        call_decl_locals 
+    in
+    (* let call_decl_locals = Ext.ext_local_vars @ call_decl_locals in *)
+
     Logs.debug (fun m -> m "adding formals");
     let* _ = Rewriter.add_locals call_decl_formals in
 
@@ -2684,4 +2699,6 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
   in
 
   let+ _ = Rewriter.set_symbol symbol in
-  symbol
+  symbol;;
+
+Rewriter.process_symbol_ref := process_symbol

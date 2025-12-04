@@ -2,6 +2,7 @@ open Base
 open Util
 open Ast
 open Frontend
+open Ext
 
 type config = {
   no_library: bool;
@@ -120,7 +121,7 @@ let parse_and_check_all config file_names =
     if config.no_library then (smt_env, tbl)
     else
       let lib_prog =
-        List.fold_right Library.sources ~init:empty_prog
+        List.fold_right (Library.sources @ Ext.lib_sources) ~init:empty_prog
         ~f:(fun (lib_file_name, lib_source) lib_prog ->
             let lib_source_lexbuf =
               Lexing.from_string lib_source

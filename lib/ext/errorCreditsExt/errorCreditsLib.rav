@@ -1,0 +1,3 @@
+module ErrorCreds {
+    field error_cred : Library.Fraction
+}

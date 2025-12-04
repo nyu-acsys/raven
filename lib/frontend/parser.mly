@@ -32,13 +32,14 @@ open Ast
 %token RETURNS REQUIRES ENSURES INVARIANT
 %token EOF
 
-
 %nonassoc IFF
 %nonassoc EQEQ NEQ 
 
 %start main
 %type <(string * Loc.t) list * Ast.Module.t> main
 %type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
+%type <Stmt.stmt_desc list> stmtExt
+%type <expr> unary_exprExt
 /* %type <Ast.Type.t> type_def_expr
 %type <Ast.Type.t> type_expr */
 %%
@@ -518,6 +519,7 @@ stmt_wo_trailing_substmt:
     use_witnesses_or_binds = wtns
   }))]
 }
+| f = stmtExt { f }
 ;
 
 existential_witness_or_bind:
@@ -914,6 +916,7 @@ unary_expr:
 | MINUS; e = unary_expr {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
 | e = unary_expr_not_plus_minus { e }
+| f = unary_exprExt { f }
 ;
 
 unary_expr_not_plus_minus:

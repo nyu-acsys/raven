@@ -152,13 +152,13 @@ module Nat : CancellativeResourceAlgebra {
 module Fraction : CancellativeResourceAlgebra {
     rep type T = data {
         case frac(value: Real)
-        case identity
+        case invalid
     }
 
-    val id: T = identity
+    val id: T = frac(0.0)
 
     func valid(n:T) returns (ret:Bool) { 
-        (n == frac(n.value) ? 0.0 < n.value && n.value <= 1.0 : true)
+        (n == frac(n.value) ? 0.0 <= n.value && n.value <= 1.0 : false)
     }
 
     func comp(a:T, b:T) returns (ret:T) { 
@@ -166,15 +166,13 @@ module Fraction : CancellativeResourceAlgebra {
         (b == id ? a :
         (a == frac(a.value) && b == frac(b.value) 
             && valid(a) && valid(b) && valid(frac(a.value + b.value)) ? frac(a.value + b.value) :
-        frac(0.0))))
+        invalid)))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        (b == id ? a :
-        (a == b ? id :
         (a == frac(a.value) && b == frac(b.value) 
-            && valid(a) && valid(b) && valid(frac(a.value - b.value)) ? frac(a.value - b.value) :
-        frac(0.0))))
+            && valid(a) && valid(b) && valid(frac(a.value - b.value))) ? 
+            frac(a.value - b.value) : invalid
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {

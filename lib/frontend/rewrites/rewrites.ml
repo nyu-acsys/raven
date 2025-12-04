@@ -667,7 +667,6 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_name = loop_proc_name;
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
-          (* no locals, since all var_decls are removed earlier *)
           call_decl_locals = loop_local_var_decls;
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
@@ -2732,6 +2731,10 @@ let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   Rewriter.return m
 
 let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_expr_ext: Starting rewrites_expr_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
   let open Rewriter.Syntax in
   let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
     match expr with
@@ -2746,6 +2749,10 @@ let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
   Rewriter.return m
 
 let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_stmt_ext: Starting rewrites_stmt_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
   let open Rewriter.Syntax in
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with

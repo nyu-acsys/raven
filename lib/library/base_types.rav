@@ -26,6 +26,16 @@ module List[E: Type] : Type {
     case nil
     case cons(head: E, tail: T) 
   }
+
+  func len(ls:T) returns (ret: Int) {
+    ls == nil ? 0 :
+      1 + len(ls.tail)
+  }
+
+  func is_in(ls: T, e: E) returns (ret: Bool) {
+    ls == nil ? false :
+      (e == ls.head || is_in(ls.tail, e))
+  }
 }
 
 // An ordered type
