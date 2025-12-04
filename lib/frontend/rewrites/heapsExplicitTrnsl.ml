@@ -3641,7 +3641,8 @@ module TrnslExhale = struct
                   var_decl with
                   var_name = Ident.fresh loc @@ 
                     "$skolem_expr_placeholder$$" ^ (Ident.to_string var_decl.var_name);
-                  var_type = skolem_wtns_var_tp
+                  var_type = skolem_wtns_var_tp;
+                  var_const = true;
 
                   }
                 in
