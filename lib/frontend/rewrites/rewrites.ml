@@ -758,11 +758,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* curr_state = Rewriter.__get_state in
 
       Logs.debug (fun m ->
-          m "Rewrites.rewrite_loops: Loop introduced symbols:\n %a"
-            (Print.pr_list_comma Symbol.pr)
-            (List.hd_exn curr_state.Rewriter.state_new_symbols));
-
-      Logs.debug (fun m ->
+          let open Rewriter in
           m "Rewrites.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr
             curr_state.state_table.tbl_curr.scope_id);
 
