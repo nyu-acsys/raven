@@ -16,46 +16,7 @@ type 'a t = ('a, unit) t_ext
 
 (* type 'a t = state -> (state * 'a) *)
 
-let return a s = (s, a)
-
-module Syntax = struct
-  (* For ppx_let *)
-  module Let_syntax = struct
-    let bind m ~f sin =
-      let sout, res = m sin in
-      f res sout
-
-    let return = return
-
-    let map m ~f sin =
-      let sout, res = m sin in
-      (sout, f res)
-
-    let both m1 m2 sin =
-      let s1, res1 = m1 sin in
-      let s2, res2 = m2 s1 in
-      (s2, (res1, res2))
-  end
-
-  open Let_syntax
-
-  let ( let+ ) (m : 'c state -> 'c state * 'a) (f : 'a -> 'b) :
-      'c state -> 'c state * 'b =
-    map m ~f
-
-  let ( and+ ) = both
-
-  let ( let* ) (m : 'c state -> 'c state * 'a)
-      (f : 'a -> 'c state -> 'c state * 'b) : 'c state -> 'c state * 'b =
-    bind m ~f
-
-  let ( and* ) = both
-
-  let ( |+> ) m f = map m ~f
-
-  let ( |*> ) (m : 'c state -> 'c state * 'a) f = bind m ~f
-
-end
+include State
 
 let eval ?(update = true) m tbl =
   let sin =
@@ -111,14 +72,14 @@ let current_module_name s : 'a state * qual_ident =
 
 let update_table f s = ({ s with state_table = f s.state_table }, ())
 
-let is_ghost_scope s = (s, List.hd_exn s.state_ghost_scope)
+let is_ghost_scope s = (s, Base.List.hd_exn s.state_ghost_scope)
 
-let exit_ghost s = ({ s with state_ghost_scope = List.tl_exn s.state_ghost_scope }, ())
+let exit_ghost s = ({ s with state_ghost_scope = Base.List.tl_exn s.state_ghost_scope }, ())
 let enter_ghost b s = ({ s with state_ghost_scope = b :: s.state_ghost_scope }, ())
 
 let exit_block s = exit_ghost s
 let enter_block block s =
-  let is_ghost_scope = List.hd_exn s.state_ghost_scope || block.Stmt.block_is_ghost in
+  let is_ghost_scope = Base.List.hd_exn s.state_ghost_scope || block.Stmt.block_is_ghost in
   enter_ghost is_ghost_scope s
 
 let exit_module (mdef : Module.t) s =
@@ -129,13 +90,13 @@ let exit_module (mdef : Module.t) s =
     | symbols :: new_symbols ->
         (* Logs.debug (fun m -> m "exit_module: %a;\nnew symbols: %a" Ident.pr (mdef.mod_decl.mod_decl_name) (Print.pr_list_comma AstDef.Symbol.pr) symbols); *)
         let open Module in
-        let new_instr = List.rev_map ~f:(fun def -> SymbolDef def) symbols in
+        let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef def) symbols in
         (new_symbols, { mdef with mod_def = new_instr @ mdef.mod_def })
     | new_symbols ->
-        assert (List.is_empty new_symbols);
+        assert (Base.List.is_empty new_symbols);
         (new_symbols, mdef)
   in
-  let state_ghost_scope = List.tl_exn s.state_ghost_scope in
+  let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
   ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols; state_ghost_scope },
     mdef )
 
@@ -155,7 +116,7 @@ let exit_callable (call_def : Callable.t) s =
         let open Callable in
         (* Logs.debug (fun m -> m "exit_callable: new_callable_symbols = %a" (Print.pr_list_comma AstDef.Symbol.pr) new_callable_symbols); *)
         let new_locals, new_mod_symbols1 =
-          List.partition_map new_callable_symbols ~f:(function
+          Base.List.partition_map new_callable_symbols ~f:(function
             | VarDef ({ var_init = None; _ } as var_def) ->
                 First var_def.var_decl
             | symbol -> Second symbol)
@@ -164,7 +125,7 @@ let exit_callable (call_def : Callable.t) s =
           {
             call_def.call_decl with
             call_decl_locals =
-              List.rev_append new_locals call_def.call_decl.call_decl_locals;
+              Base.List.rev_append new_locals call_def.call_decl.call_decl_locals;
           }
         in
 
@@ -178,7 +139,7 @@ let exit_callable (call_def : Callable.t) s =
       (*Logs.debug (fun m -> m "exit_callable: No New Symbols");*)
         (new_symbols, call_def)
   in
-  let state_ghost_scope = List.tl_exn s.state_ghost_scope in
+  let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
   ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols; state_ghost_scope },
     call_def )
 
@@ -192,11 +153,10 @@ let enter symbol s =
     | ModDef _ | CallDef _ -> false
     | _ -> failwith "enter: expected module or callable symbol"
   in
-  let symbol_loc = Symbol.to_loc symbol in
   let symbol_ident = Symbol.to_name symbol in
   ( {
       s with
-      state_table = SymbolTbl.enter symbol_loc symbol_ident s.state_table;
+      state_table = SymbolTbl.enter_exn symbol_ident s.state_table;
       state_ghost_scope = is_ghost_scope :: s.state_ghost_scope;
       state_new_symbols = [] :: s.state_new_symbols;
     },
@@ -238,7 +198,7 @@ let introduce_typecheck_symbols ~loc
   );
     
   let current_scope = s.state_table.tbl_curr.scope_id in
-  let symbol__qual_idents = List.map ~f:(fun symbol -> symbol, (QualIdent.append current_scope (Symbol.to_name symbol))) symbols in
+  let symbol__qual_idents = Base.List.map ~f:(fun symbol -> symbol, (QualIdent.append current_scope (Symbol.to_name symbol))) symbols in
 
   Logs.debug (fun m -> m 
     "
@@ -246,10 +206,10 @@ let introduce_typecheck_symbols ~loc
       Rewriter.introduce_typecheck_symbols: qual_ident = %a \n \
     " 
       QualIdent.pr current_scope
-      (Util.Print.pr_list_comma QualIdent.pr) (snd (List.unzip symbol__qual_idents))
+      (Util.Print.pr_list_comma QualIdent.pr) (snd (Base.List.unzip symbol__qual_idents))
   );
 
-  let s, symbol__qual_idents__already_defineds = List.fold_map ~init:s symbol__qual_idents ~f:(fun s (symbol, qual_iden) ->
+  let s, symbol__qual_idents__already_defineds = Base.List.fold_map ~init:s symbol__qual_idents ~f:(fun s (symbol, qual_iden) ->
     let (s, _), already_defined = 
         try (declare_symbol symbol s, false) with _ -> 
           ((s, ()), true)  
@@ -258,7 +218,7 @@ let introduce_typecheck_symbols ~loc
   )  in
 
   (* if symbol is getting added to parent scope (see appropriate_scope in SymbolTbl.add_symbol, then we need to go to parent scope before calling `f` on `symbol`) *)
-  let s, (symbol__qual_idents) = List.fold_map ~init:s symbol__qual_idents__already_defineds ~f:(fun s (symbol, qual_ident, already_defined) ->
+  let s, (symbol__qual_idents) = Base.List.fold_map ~init:s symbol__qual_idents__already_defineds ~f:(fun s (symbol, qual_ident, already_defined) ->
     match symbol with
     | VarDef _ ->
         if not already_defined then 
@@ -273,8 +233,8 @@ let introduce_typecheck_symbols ~loc
 
         if s.state_table.tbl_curr.scope_is_local then
           let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
-          let curr_scope_symbols = List.hd_exn s.state_new_symbols in
-          let curr_ghost_scope = List.hd_exn s.state_ghost_scope in
+          let curr_scope_symbols = Base.List.hd_exn s.state_new_symbols in
+          let curr_ghost_scope = Base.List.hd_exn s.state_ghost_scope in
 
           let empty_module =
             Module.{ mod_decl = empty_decl; mod_def = [] }
@@ -295,7 +255,7 @@ let introduce_typecheck_symbols ~loc
           let s =
             {
               s with
-              state_table = SymbolTbl.enter loc curr_scope_name s.state_table;
+              state_table = SymbolTbl.enter_exn curr_scope_name s.state_table;
               state_new_symbols = curr_scope_symbols :: s.state_new_symbols;
               state_ghost_scope = curr_ghost_scope :: s.state_ghost_scope
             }
@@ -308,7 +268,7 @@ let introduce_typecheck_symbols ~loc
   )
   in
 
-  let symbols, qual_idents = List.unzip symbol__qual_idents in
+  let symbols, qual_idents = Base.List.unzip symbol__qual_idents in
 
   Logs.debug (fun m ->
       m "Rewriter.introduce_typecheck_symbol end: symbols = %a" (Print.pr_list_comma Symbol.pr) symbols);
@@ -328,7 +288,7 @@ let introduce_typecheck_symbol ~loc
 
   let s, qual_idents = introduce_typecheck_symbols ~loc ~f [symbol] s in
   
-  s, List.hd_exn qual_idents
+  s, Base.List.hd_exn qual_idents
 
 
 let introduce_toplevel_symbol ~loc
@@ -344,7 +304,7 @@ let introduce_toplevel_symbol ~loc
 
   let topscope = SymbolTbl.get_scope_exn topscope_name s.state_table in
 
-  assert (SymbolTbl.is_parent topscope s.state_table);
+  assert (SymbolTbl.is_ancestor topscope s.state_table);
 
   let symbol_qual_ident =
     QualIdent.append topscope_name (Symbol.to_name symbol)
@@ -363,8 +323,8 @@ let introduce_toplevel_symbol ~loc
             (s, scope_new_symbols_list, ghost_scope_list)
           else
             let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
-            let curr_scope_symbols = List.hd_exn s.state_new_symbols in
-            let curr_ghost_scope = List.hd_exn s.state_ghost_scope in
+            let curr_scope_symbols = Base.List.hd_exn s.state_new_symbols in
+            let curr_ghost_scope = Base.List.hd_exn s.state_ghost_scope in
             let scope_new_symbols_list =
               (curr_scope_name, curr_scope_symbols) :: scope_new_symbols_list
             in
@@ -397,11 +357,11 @@ let introduce_toplevel_symbol ~loc
       in
 
       let s =
-        List.fold2_exn scope_new_symbols_list ghost_scope_list ~init:s
+        Base.List.fold2_exn scope_new_symbols_list ghost_scope_list ~init:s
           ~f:(fun s (scope_name, scope_symbols) ghost_scope ->
             {
               s with
-              state_table = SymbolTbl.enter loc scope_name s.state_table;
+              state_table = SymbolTbl.enter_exn scope_name s.state_table;
               state_new_symbols = scope_symbols :: s.state_new_symbols;
               state_ghost_scope = ghost_scope :: s.state_ghost_scope
             }
@@ -441,12 +401,12 @@ let wrap_user_state_rewriter (f : 'a state -> 'a state * 'b) (s : unit state) :
     'a state * 'b =
   f s
 
-module List = struct
+(*module List = struct
   let map (xs : 'a list) ~(f : 'a -> ('b, 'c) t_ext) : ('b list, 'c) t_ext =
    fun s -> List.fold_map xs ~init:s ~f:(fun s x -> f x s)
 
   let map2 (xs : 'a list) (ys : 'b list) ~f s =
-    match List.zip xs ys with
+    match Base.List.zip xs ys with
     | Ok xs_ys ->
         let s, res = List.fold_map xs_ys ~init:s ~f:(fun s (x, y) -> f x y s) in
         (s, Base.List.Or_unequal_lengths.Ok res)
@@ -508,7 +468,7 @@ module List = struct
           if b then ex ys s else (s, b)
     in
     ex xs
-end
+end*)
 
 module Option = struct
   let map (x : 'a option) ~(f : 'a -> ('b, 'c) t_ext) : ('b option, 'c) t_ext =
@@ -1315,9 +1275,9 @@ module Symbol = struct
     | _ ->
         let open Syntax in
         let+ tbl = get_table in
-        let tbl_scope = SymbolTbl.goto (AstDef.Symbol.to_loc symbol) name tbl in
+        let tbl_scope = SymbolTbl.goto name tbl in
         let symbol0 = match symbol with
-          | ModDef mod_def when SymbolTbl.is_instance subst ->
+          | AstDef.Module.ModDef mod_def when SymbolTbl.is_instance subst ->
             let mod_decl = { mod_def.mod_decl with mod_decl_formals = [] } in
             AstDef.Module.ModDef { mod_def with mod_decl }
           | _ -> symbol

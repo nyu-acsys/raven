@@ -207,6 +207,27 @@ module ProcessExpr = struct
                 let* args_list =
                   process_callable_args (Expr.to_loc expr) is_ghost_scope callable_decl args_list
                 in
+                let* _ =
+                  (* If this is an auto lemma, check that it is well-formed *)
+                  if callable.call_decl.call_decl_is_auto &&
+                     (match callable_decl.call_decl_kind with Lemma -> true | _ -> false)
+                  then begin
+                    let+ _ =
+                      Rewriter.List.iter
+                        (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
+                        ~f:(fun spec ->
+                            let+ is_pure = ProgUtils.is_expr_pure spec.spec_form in
+                            if not is_pure then 
+                              Error.type_error callable.call_decl.call_decl_loc
+                                (Printf.sprintf !"This specification of auto lemma %{Ident} is not pure" callable.call_decl.call_decl_name))
+                    in
+                    let params = callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns in
+                    if not (List.is_empty params)
+                    then Error.type_error (List.hd_exn params).var_loc
+                        (Printf.sprintf !"An auto lemma cannot have arguments")
+                  end
+                  else Rewriter.return ()
+                in
                 let given_typ = Callable.return_type callable_decl in
                 let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
                 check_and_set expr given_typ given_typ expected_typ

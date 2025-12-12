@@ -1,4 +1,4 @@
-interface A[Tp: Library.Type] {
+module A[Tp: Library.Type] {
     field f: Tp.T
 }
 
@@ -7,7 +7,7 @@ interface M {
     rep type T = Ref
   }
 
-  interface AN = A[RefType]
+  module AN = A[RefType]
 
   proc p(x: Ref) {
     inhale own(x.AN.f, x, 1.0);

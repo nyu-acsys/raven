@@ -9,35 +9,33 @@ open Util
 
 let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) :
     unit t =
-  let open Rewriter.Syntax in
+  let open State.Syntax in
   let* cmd =
     match typ.type_def_expr with
-    | None -> Rewriter.return @@ Some (SmtLibAST.mk_declare_sort fully_qual_name 0)
+    | None -> State.return @@ Some (SmtLibAST.mk_declare_sort fully_qual_name 0)
     | Some typ_expr -> (
         match typ_expr with
         | App (Data (name, variant_decls), _, _) ->
-            Rewriter.return None
+            State.return None
         | _ ->
-            Rewriter.return
+            State.return
             @@ Some (SmtLibAST.mk_define_sort fully_qual_name [] typ_expr))
   in
 
   match cmd with
-  | None -> Rewriter.return ()
-  | Some cmd ->
-    let* _ = write cmd in
-    Rewriter.return ()
+  | None -> State.return ()
+  | Some cmd -> write cmd
 
 let define_datatypes (fully_qual_names_and_typs : (qual_ident * Ast.Module.type_def) list) : unit t =
-let open Rewriter.Syntax in
-  let* adt_defs = Rewriter.List.map fully_qual_names_and_typs ~f:(fun (fully_qual_name, typ) -> 
+let open State.Syntax in
+  let* adt_defs = State.List.map fully_qual_names_and_typs ~f:(fun (fully_qual_name, typ) -> 
     match typ.type_def_expr with
-    | None -> Rewriter.return None
+    | None -> State.return None
     | Some typ_expr -> begin
       match typ_expr with
       | App (Data (name, variant_decls), _, _) ->
           let+ variant_list =
-            Rewriter.List.map variant_decls ~f:(fun v ->
+            State.List.map variant_decls ~f:(fun v ->
                 let destr_list =
                   List.map v.variant_args ~f:(fun v_d ->
                       let destr_qual_ident =
@@ -54,18 +52,12 @@ let open Rewriter.Syntax in
                     v.variant_name
                 in
 
-                let* constr_fully_qual_name =
-                  Rewriter.resolve constr_qual_ident
-                in
-
-                assert (QualIdent.(constr_fully_qual_name = constr_qual_ident));
-
-                Rewriter.return (constr_fully_qual_name, destr_list))
+                State.return (constr_qual_ident, destr_list))
           in
 
           let adt_def = (fully_qual_name, [], variant_list) in
           Some adt_def
-      | _ -> Rewriter.return None
+      | _ -> State.return None
       end
   ) in
 
@@ -78,16 +70,16 @@ let open Rewriter.Syntax in
 
   let* _ = write cmd in
 
-  Rewriter.return ()
+  State.return ()
 
 
 
 let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
-  let open Rewriter.Syntax in
+  let open State.Syntax in
   match stmt.stmt_desc with
   | Block block_desc ->
-      let* _ = Rewriter.List.iter block_desc.block_body ~f:(check_stmt curr_callable) in
-      Rewriter.return ()
+      let* _ = State.List.iter block_desc.block_body ~f:(check_stmt curr_callable) in
+      State.return ()
   | Cond ({ cond_test = Some test; _ } as cond_desc) ->
       let* _ = push_path_condn test in
       let* _ = check_stmt curr_callable cond_desc.cond_then in
@@ -97,7 +89,7 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
       let* _ = check_stmt curr_callable cond_desc.cond_else in
       let* _ = pop_path_condn in
 
-      Rewriter.return ()
+      State.return ()
   | Cond cond_desc ->
       Error.unsupported_error (Stmt.to_loc stmt)
         "Non-deterministic choice is currently not supported."
@@ -106,7 +98,7 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
       | Spec (spec_kind, spec) -> (
           let* _ =
             match spec.spec_comment with
-            | None -> Rewriter.return ()
+            | None -> State.return ()
             | Some c -> write_comment c
           in
 
@@ -132,7 +124,7 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
 
 let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
     unit t =
-  let open Rewriter.Syntax in
+  let open State.Syntax in
   let call_decl = callable.call_decl in
 
   match callable.call_def with
@@ -141,7 +133,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         Poly.(
           call_decl.call_decl_kind = Pred
           || call_decl.call_decl_kind = Invariant)
-      then Rewriter.return ()
+      then State.return ()
       else
         let ret_tuple =
           Expr.mk_tuple
@@ -195,11 +187,11 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         in
 
         match call_decl.call_decl_postcond with
-        | [] -> Rewriter.return ()
+        | [] -> State.return ()
         | _ -> assume_expr post_cond_expr)
   | FuncDef { func_body = Some expr } -> (
       match call_decl.call_decl_kind with
-      | Pred | Invariant -> Rewriter.return ()
+      | Pred | Invariant -> State.return ()
       | _ ->
         let spec_expr =
           let extra_validInhale_trigs = 
@@ -318,14 +310,14 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 
         let* b =
           if callable.call_decl.call_decl_is_free
-          then Rewriter.return true
+          then State.return true
           else check_valid check_contract_expr
         in
 
         match b with
         | true -> (
             match call_decl.call_decl_postcond with
-            | [] -> Rewriter.return ()
+            | [] -> State.return ()
             | _ -> assume_expr post_cond_expr)
         | false ->
             Error.verification_error call_decl.call_decl_loc
@@ -342,7 +334,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
             in
 
             let* _ =
-              Rewriter.List.iter
+              State.List.iter
                 (call_decl.call_decl_formals @ call_decl.call_decl_returns
                @ call_decl.call_decl_locals)
                 ~f:(fun local ->
@@ -356,56 +348,40 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 
             let* _ = pop in
 
-            Rewriter.return ()
+            State.return ()
         | _ ->
           Logs.debug (fun m -> m "Skipping %b" callable.call_decl.call_decl_is_free);
-          Rewriter.return ()
+          State.return ()
       in
 
-      (* Rewriter.return () *)
+      (* State.return () *)
       match (call_decl.call_decl_kind, call_decl.call_decl_is_auto) with
       | Lemma, true ->
-          let* spec_is_pure =
-            Rewriter.List.fold_left ~init:true
-              (call_decl.call_decl_precond @ call_decl.call_decl_postcond)
-              ~f:(fun acc spec ->
-                let* is_pure = ProgUtils.is_expr_pure spec.spec_form in
-                Rewriter.return (acc && is_pure))
-          in
+        let* _ =
+          write_comment
+            (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr
+               fully_qual_name)
+        in
+        begin
+          match call_decl.call_decl_precond with
+          | [] ->
+            assume_expr
+              (Expr.mk_and
+                 (List.map call_decl.call_decl_postcond ~f:(fun spec ->
+                      spec.spec_form)))
+          | _ ->
+            assume_expr
+              (Expr.mk_impl
+                 (Expr.mk_and
+                    (List.map call_decl.call_decl_precond ~f:(fun spec ->
+                         spec.spec_form)))
+                 (Expr.mk_and
+                    (List.map call_decl.call_decl_postcond ~f:(fun spec ->
+                         spec.spec_form))))
+        end
+      | _ -> State.return ())
 
-          if
-            spec_is_pure
-            && List.is_empty
-                 (call_decl.call_decl_formals @ call_decl.call_decl_returns)
-          then
-            let* _ =
-              write_comment
-                (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr
-                   fully_qual_name)
-            in
-            match call_decl.call_decl_precond with
-            | [] ->
-                assume_expr
-                  (Expr.mk_and
-                     (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                          spec.spec_form)))
-            | _ ->
-                assume_expr
-                  (Expr.mk_impl
-                     (Expr.mk_and
-                        (List.map call_decl.call_decl_precond ~f:(fun spec ->
-                             spec.spec_form)))
-                     (Expr.mk_and
-                        (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                             spec.spec_form))))
-          else
-            Error.verification_error call_decl.call_decl_loc
-              (Printf.sprintf !"Auto lemma %{Ident} must have pure preconditions and postconditions, \
-               and no arguments or return values" call_decl.call_decl_name)
-      | _ -> Rewriter.return ())
-
-let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
-    =
+let check_members (mod_name : ident) (deps : QualIdent.t list list) tbl =
   let open Rewriter.Syntax in
   let declare_fn (fully_qual_name: qual_ident) (sym: Module.symbol) : unit t =
     match sym with
@@ -452,19 +428,21 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
     write_comment
       (Stdlib.Format.asprintf "Checking members in %a" Ident.pr mod_name)
   in
-  let* _ = Rewriter.List.iter deps ~f:(fun dep ->
-      let* dep_sym = Rewriter.List.map dep ~f:(fun qual_name ->
-          let+ symbol = Rewriter.find_and_reify qual_name in
-          (qual_name, symbol))
+  let* smt_env = get_state in
+  let* _ = State.List.map deps ~f:(fun dep ->
+      let dep_sym = 
+        List.map dep ~f:(fun qual_name ->
+          let tbl1 = SymbolTbl.goto qual_name tbl in
+          let _, symbol = Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1 in
+          (qual_name, symbol))  
       in
-      Logs.debug (fun m -> m "Deps: %a" (Print.pr_list_comma QualIdent.pr) (List.map ~f:(fun (a,b) -> a) dep_sym));
-
+      
       let dep_sym_fn = List.filter dep_sym ~f:(function
         | _, Module.CallDef { call_def = FuncDef _; _ } -> true
         | _ -> false)
       in
 
-      let* _ = Rewriter.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
+      let* _ = State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
         declare_fn qual_name sym
       )
       in
@@ -482,11 +460,9 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) : smt_env t
           ()
       in
 
-      Rewriter.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
+      State.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
   in
-  let* _ = pop in
-
-  Rewriter.current_user_state
+  pop
 
 let check_module (module_def : Ast.Module.t) (tbl : SymbolTbl.t)
     (smt_env : smt_env) : smt_env =
@@ -499,10 +475,8 @@ let check_module (module_def : Ast.Module.t) (tbl : SymbolTbl.t)
 
   let smt_env = { smt_env with auto_dependencies } in 
   
-  let _tbl, smt_env =
-    Rewriter.eval ~update:false
-      (Rewriter.eval_with_user_state ~init:smt_env
-         (check_members module_def.mod_decl.mod_decl_name dependencies))
-      tbl
+  let smt_env, _ =
+    State.eval
+      (check_members module_def.mod_decl.mod_decl_name dependencies tbl) smt_env
   in
   smt_env

@@ -45,16 +45,17 @@ interface List {
             (is_cons(xs) ==> tp(xs) == tp_cons())
 }
 
-import List._
+module Test[L: List] {
+  import L._
 
-proc test_types(x: List)
-{ 
+  proc test_types(x: T)
+  { 
     assert is_nil(x) ==> !is_cons(x);
     assert !is_cons(x) ==> is_nil(x); 
-}
+  }
 
-proc test_quantifiers() {
-    assert forall head: Int, tail: List, xs: List ::
+  proc test_quantifiers() {
+    assert forall head: Int, tail: T, xs: T ::
     is_cons(xs) ==> (
         (head == head_cons(xs) && tail == tail_cons(xs) ==> 
             cons(head, tail) == xs
@@ -64,9 +65,9 @@ proc test_quantifiers() {
             head == head_cons(xs) && tail == tail_cons(xs)
         )
     );
-}
+  }
 
-proc pattern_match_exhaustiveness(xs: List) {
+  proc pattern_match_exhaustiveness(xs: T) {
     assert !is_nil(xs) 
         && !(is_cons(xs) && is_nil(tail_cons(xs)))
         && !(is_cons(xs) && is_cons(tail_cons(xs)))
@@ -78,4 +79,5 @@ proc pattern_match_exhaustiveness(xs: List) {
             && head_cons(xs) < head_cons(tail_cons(xs))
         )
     ==> false;
+  }
 }

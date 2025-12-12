@@ -162,8 +162,8 @@ let pr_subst ppf (_, subst) =
            (QualIdent.from_list b)))
     subst
 
-(** Check whether [scope] is a parent of the current scope in [tbl]. *)
-let is_parent scope tbl =
+(** Check whether [scope] is an ancestor of the current scope in [tbl]. *)
+let is_ancestor scope tbl =
   let scope_id = get_scope_id scope in
   List.exists (tbl.tbl_curr :: tbl.tbl_path) ~f:(fun p ->
       QualIdent.(get_scope_id p = scope_id))
@@ -179,11 +179,11 @@ let resolve name (tbl : t) :
     match ids with
     | [] -> Some (get_scope_id scope, subst, false)
     | first_id :: ids1 -> (
-        (* if scope.scope_is_abstract && (* if this is a functor or interface ... *)
-              not @@ is_parent scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
-              not @@ Set.mem inst_scopes (get_scope_id scope) (* ... or through one of its concrete instantiations. *)
-           then None
-           else *)
+        if scope.scope_is_abstract && (* if this is a functor or interface ... *)
+           not @@ is_ancestor scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
+           not @@ Set.mem inst_scopes (get_scope_id scope) (* ... or through one of its concrete instantiations. *)
+        then None
+        else
         let scope_symbols = get_scope_entries scope in
         (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
         (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids2: %a" (Util.Print.pr_list_comma (Ident.pr))  ids); *)
@@ -232,7 +232,7 @@ let resolve name (tbl : t) :
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
             let target_qual_ident = (*QualIdent.requalify subst*) qual_ident in
             let new_path = QualIdent.to_list target_qual_ident @ ids1 in
-            if is_parent scope tbl then
+            if is_ancestor scope tbl then
               go_forward inst_scopes tbl.tbl_root subst new_path
             else None
         | Symbol qual_ident, [] ->
@@ -340,20 +340,17 @@ let find_exn loc name (tbl : t) =
   |> Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
 
 (** Enter the scope [name] from the current scope in [tbl]. *)
-let enter loc name tbl : t =
+let enter name tbl : t option =
   let open Option.Syntax in
-  (let scope_children = get_scope_children tbl.tbl_curr in
-   let+ scope = Hashtbl.find scope_children name in
-   { tbl with tbl_curr = scope; tbl_path = tbl.tbl_curr :: tbl.tbl_path })
-  |> Option.lazy_value ~default:(fun () ->
-         (* let curr_id = get_scope_id tbl.tbl_curr in
-            let parent_scope = match tbl.tbl_path with
-              | [] -> tbl.tbl_root
-              | scope :: _ -> scope in
+  let scope_children = get_scope_children tbl.tbl_curr in
+  let+ scope = Hashtbl.find scope_children name in
+  { tbl with tbl_curr = scope; tbl_path = tbl.tbl_curr :: tbl.tbl_path }
 
-            Logs.debug (fun m -> m "SymbolTbl.enter: tbl_curr: %a" QualIdent.pr curr_id);
-            Logs.debug (fun m -> m "SymbolTbl.enter: tbl_parent_scopes: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map (Hashtbl.to_alist parent_scope.scope_children) ~f:(fun (_, scope) -> scope.scope_id))); *)
-         Error.internal_error loc
+(** Enter the scope [name] from the current scope in [tbl]. *)
+let enter_exn name tbl : t =
+  enter name tbl
+  |> Option.lazy_value ~default:(fun () ->
+         Error.internal_error (Ident.to_loc name)
            (Printf.sprintf
               !"Did not find subscope %{Ident} in scope %{QualIdent}"
               name
@@ -366,9 +363,9 @@ let exit tbl : t =
   | [] -> failwith "Empty symbol table"
 
 (** Go to the scope in [tbl] that declares the symbol associated with absolute identifier [name] *)
-let goto loc name tbl : t =
+let goto name tbl : t =
   List.fold_left (QualIdent.path name) ~init:(reset tbl) ~f:(fun tbl ident ->
-      enter loc ident tbl)
+      enter ident tbl |> Option.value ~default:tbl)
 
 let add_to_map map loc key
     ?(duplicate =
@@ -378,7 +375,7 @@ let add_to_map map loc key
   | `Duplicate -> duplicate map key data
 
 let get_scope_exn scope_name tbl : scope =
-  let tbl = goto Loc.dummy scope_name tbl in
+  let tbl = goto scope_name tbl in
 
   let scope_children = get_scope_children tbl.tbl_curr in
 
