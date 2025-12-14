@@ -13,11 +13,11 @@ interface ResourceAlgebra : Type {
   auto axiom idValid()
     ensures valid(id)
 
-  auto axiom compAssoc()
-    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
-
   auto axiom compCommute()
     ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+
+  auto axiom compAssoc()
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
   auto axiom compId()
     ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a

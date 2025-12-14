@@ -2309,7 +2309,7 @@ module ProcessModule = struct
   let rec process_module (m : Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
     let _ =
-      Logs.debug (fun mm ->
+      Logs.info (fun mm ->
           mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
     in
 
@@ -2426,16 +2426,15 @@ module ProcessModule = struct
         Rewriter.resolve 
           (QualIdent.from_ident (Symbol.to_name (ModDef m)))
     in
-
+    (* merge symbol definitions from parent interface with those from current module
+     * so that the dependency order between symbols is preserved *)
     let merge_defs parent_ident parent_mod_def mod_def =
-      let _parent_defined_symbols = get_defined_symbols parent_mod_def in
+      (*let _parent_defined_symbols = get_defined_symbols parent_mod_def in*)
       let rec merge_defs (merged, to_check, seen) = function
         | [], mod_def -> (List.rev_append merged mod_def, to_check)
         | Module.Import _ :: parent_mod_def, mod_def ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | Module.SymbolDef (ConstrDef _ | DestrDef _) :: parent_mod_def, mod_def
-          ->
-            merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | parent_mod_def, Module.SymbolDef (ConstrDef _ | DestrDef _) :: mod_def
           ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
@@ -2467,8 +2466,11 @@ module ProcessModule = struct
                 Module.CallDef { call with call_decl }
               | symbol -> symbol
             in
-            if not (Set.mem defined_symbols parent_symbol_ident) then
-              (* case: parent_symbol should be inherited *)
+            if not (Set.mem defined_symbols parent_symbol_ident)
+               && (Set.is_empty seen || List.is_empty mod_def)
+            then
+              (* case: parent_symbol should be inherited now *)
+              let _ = Logs.info (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
               let parent_symbol =
                 match parent_symbol with
                 | CallDef call when not @@ Callable.is_abstract call ->
@@ -2511,7 +2513,7 @@ module ProcessModule = struct
                   if Set.mem seen symbol_ident then
                     (* case: symbol provides definition of another symbol that has already been seen earlier *)
                     merge_defs
-                      (Module.SymbolDef symbol :: merged, to_check, seen)
+                      (Module.SymbolDef symbol :: merged, to_check, Set.remove seen symbol_ident)
                       (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
                   else if Ident.(parent_symbol_ident = symbol_ident) then
                     (* case: symbol provides definition of parent_symbol *)
@@ -2538,7 +2540,8 @@ module ProcessModule = struct
                   merge_defs
                     (def :: merged, to_check, seen)
                     (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-              | [] -> assert false)
+              | [] -> assert false
+          )
       in
       merge_defs
         ([], Map.empty (module Ident), Set.empty (module Ident))
@@ -2595,7 +2598,8 @@ module ProcessModule = struct
 
     (*let inherited_symbols = List.rev inherited_symbols in*)
     let mod_def = mod_def_formals @ merged_symbols in
-
+    let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
+    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol)) | _ -> ()) mod_def in
     (* Find rep type and add it to module declaration *)
     let mod_decl_rep =
       List.fold_left mod_def ~init:None ~f:(fun rep_type -> function

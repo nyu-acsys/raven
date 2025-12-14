@@ -1,4 +1,5 @@
-interface Array[E: Library.Type] {
+interface Array {
+  module E: Library.Type
   rep type T
 
   func loc(a: T, i: Int) returns (r: Ref)

@@ -1,30 +1,27 @@
 include "give-up.rav"
 include "../../arrays/ordered_array.rav"
 
-interface BPlusTree[O: Library.OrderedType] : NodeImpl {
+interface RefArray: Array {
+  module E: Library.Type {
+    rep type T = Ref
+  }
+}
 
+interface BPlusTree[AK: OrderedArray, AN: RefArray] : NodeImpl {
   module Spec : SearchStructureSpec {
-    type K = O
+    type K = AK.E
     val keyspace: Set[K] = {| k: K :: true |}
   }
 
   import Spec._
 
-  module KOption = Library.Option[O]
+  module KOption = Library.Option[AK.E]
 
   import KOption.some
   import KOption.none
 
   import Flow_K._
   import Multiset_K.elem
-
-  interface AK = OrderedArray[O]
-
-  module RefType : Library.Type {
-    rep type T = Ref
-  }
-
-  interface AN = Array[RefType]
 
   // Width parameter of the B-tree
   val b: Int
@@ -41,20 +38,20 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
 
   func le(ko: KOption, k: K) returns (res : Bool)
   {
-    ko == none ? true : O.le(ko.KOption.value, k)
+    ko == none ? true : AK.E.le(ko.KOption.value, k)
   }
 
   func lt(k: K, ko: KOption) returns (res : Bool)
   {
-    ko == none ? true : O.lt(k, ko.KOption.value)
+    ko == none ? true : AK.E.lt(k, ko.KOption.value)
   }
 
   func flow_int_of(n: Ref, l: Int, lb: KOption, ub: KOption, kmap: Map[Int, K], cmap: Map[Int, Ref]) returns (flow_int: Flow_K)
   {
     Flow_K.int({| np: Ref :: np == n ? {| k: K :: le(lb, k) && lt(k, ub) ? 1 : 0 |} : Multiset_K.id |},
                {| np: Ref :: 0 <= AN.inverse(cmap, 0, l+1, np) <= l ? 
-                 {| k: K :: cmap[0] != null && (0 < AN.inverse(cmap, 0, l+1, np) ==> O.le(kmap[AN.inverse(cmap, 0, l+1, np) - 1], k)) &&
-                            (AN.inverse(cmap, 0, l+1, np) < l ==> O.lt(k, kmap[AN.inverse(cmap, 0, l+1, np)])) ? 1 : 0 |} : Multiset_K.id |},
+                 {| k: K :: cmap[0] != null && (0 < AN.inverse(cmap, 0, l+1, np) ==> AK.E.le(kmap[AN.inverse(cmap, 0, l+1, np) - 1], k)) &&
+                            (AN.inverse(cmap, 0, l+1, np) < l ==> AK.E.lt(k, kmap[AN.inverse(cmap, 0, l+1, np)])) ? 1 : 0 |} : Multiset_K.id |},
                {| n |})
   }
 
@@ -67,7 +64,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     // Definition of contents
     && c == (cmap[0] == null ? /* Leaf */ AK.set_of_map(kmap, 0, l) : {||})
     // Keys are sorted
-    && (forall i: Int, j: Int :: {kmap[i], kmap[j]} 0 <= i < j < l ==> O.lt(kmap[i], kmap[j]))
+    && (forall i: Int, j: Int :: {kmap[i], kmap[j]} 0 <= i < j < l ==> AK.E.lt(kmap[i], kmap[j]))
     // Keys are within range
     && (l > 0 ==> le(lb, kmap[0]) && lt(kmap[l-1], ub))
     // Consistency of cmap
@@ -113,7 +110,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     && own(n.ptrs, chlds, 1.0)
     && AN.arr(chlds, cmap)
     requires k in keyset(flow_int)
-    requires (i <= 0 || O.le(kmap[i-1], k)) && 0 <= i <= l
+    requires (i <= 0 || AK.E.le(kmap[i-1], k)) && 0 <= i <= l
     ensures node_cond(n, c, flow_int, l, lb, ub, ks, chlds, kmap, cmap)
     // Heap resources
     && own(n.len, l, 1.0)
@@ -130,7 +127,7 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
     assert (forall y: Ref :: {(flow_int.out[y])[k]} k !in outset(flow_int, y) ==> (flow_int.out[y])[k] == 0);
     if (cmap[0] != null) {
       if (i < l) {
-        if (O.lt(k, kmap[i])) {
+        if (AK.E.lt(k, kmap[i])) {
           assert (flow_int.out[cmap[i]])[k] == 1;
         } else {
           keyset_implies_leaf(n, k, i + 1, flow_int, c);
@@ -301,5 +298,4 @@ interface BPlusTree[O: Library.OrderedType] : NodeImpl {
       return true, new_len != n_len, c1;
     }
   }
-
 }
