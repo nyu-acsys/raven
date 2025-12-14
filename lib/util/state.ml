@@ -1,3 +1,5 @@
+(** State monads *)
+
 open Base
 
 (*type ('a, 'b) t = 'a -> 'a * 'b*)
@@ -120,4 +122,19 @@ module List = struct
           if b then ex ys s else (s, b)
     in
     ex xs
+end
+
+module Option = struct
+  let map (x : 'a option) ~(f : 'a -> 'c -> 'c * 'b) : 'c -> 'c * 'b option =
+    let open Syntax in
+    match x with
+    | None -> return None
+    | Some v ->
+        let+ res = f v in
+        Some res
+
+  let iter (x : 'a option) ~(f : 'a -> 'c -> 'c * unit) : 'c -> 'c * unit =
+    match x with None -> return () | Some v -> f v
+
+  let lazy_value ~default = function Some x -> return x | None -> default ()
 end
