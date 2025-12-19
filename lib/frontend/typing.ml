@@ -605,16 +605,16 @@ module ProcessExpr = struct
         (* Data destructor expressions *)
         | DataDestr destr_qual_ident, [ expr1 ] ->
             let loc = QualIdent.to_loc destr_qual_ident in
-            let* destr =
-              let* symbol = Rewriter.find destr_qual_ident in
+            let* destr_qual_ident, destr =
+              let* destr_qual_ident, symbol = Rewriter.resolve_and_find destr_qual_ident in
               let+ symbol = Rewriter.Symbol.reify symbol in
               match symbol with
-              | DestrDef destr -> destr
+              | DestrDef destr -> destr_qual_ident, destr
               | _tp_env -> Error.type_error loc "Expected data destructor"
             in
             let* expr1 = process_expr expr1 (destr.destr_arg |> Type.set_ghost_to expected_typ) in
             let given_typ = destr.destr_return_type in
-            let expr = Expr.App (constr, [ expr1 ], expr_attr) in
+            let expr = Expr.App (DataDestr destr_qual_ident, [ expr1 ], expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         | DataDestr _, _ ->
             Error.type_error (Expr.to_loc expr)
