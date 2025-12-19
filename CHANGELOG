@@ -6,6 +6,7 @@ All notable changes to this project will be docmented in this file.
 
 ### Fixes
 
+- Sanitizing JSON output in LSP mode.
 - Catch module-level var declarations in type checker rather than parser (#31).
 - Fix type-checking bug that allowed access to members of interfaces from outside of their scopes.
 
