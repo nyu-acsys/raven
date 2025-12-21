@@ -1016,68 +1016,6 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         assume_non_null_stmt :: new_inhale_stmts))
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
 
-(** Replaces a `b := CAS(x.f, v1, v2)` stmt with `v := x.f; if (v == v1) { b := true; x.f := v2 } else { b := false }`. *)
-let rec rewrite_cas_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
-  let open Rewriter.Syntax in
-  match stmt.stmt_desc with
-  | Basic (AtomicInbuilt ais_desc) ->
-      let new_var_name =
-        Ident.fresh stmt.stmt_loc (QualIdent.to_string ais_desc.atomic_inbuilt_lhs ^ "$" ^ Stmt.atomic_inbuilt_string ais_desc.atomic_inbuilt_kind)
-      in
-      let new_var_decl_typ = match ais_desc.atomic_inbuilt_kind with
-        | Cas cas_desc -> Expr.to_type cas_desc.cas_old_val
-        | Faa _ -> Type.int
-        | Xchg xchg_desc -> Expr.to_type xchg_desc.xchg_new_val
-      in
-      let new_var_decl =
-        Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true new_var_name
-          new_var_decl_typ
-      in
-      let+ _ =
-        Rewriter.introduce_symbol
-          (Module.VarDef { var_decl = new_var_decl; var_init = None })
-      in
-      let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
-      let read_stmt =
-        Stmt.mk_field_read ~loc:stmt.stmt_loc new_var_qualident
-          ais_desc.atomic_inbuilt_field ais_desc.atomic_inbuilt_ref
-      in
-      let ais_stmts =
-        match ais_desc.atomic_inbuilt_kind with
-        | Cas cas_desc ->
-          let test_ =
-            Some
-              (Expr.mk_eq ~loc:stmt.stmt_loc
-                 (Expr.from_var_decl new_var_decl)
-                 cas_desc.cas_old_val)
-          in
-          let then1_ =
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool true)
-          in
-          let then2_ =
-            Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field cas_desc.cas_new_val
-          in
-          let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ then1_; then2_ ] in
-          let else_ =
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool false)
-          in
-          [Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_]
-        | Faa faa_desc ->
-          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
-              (Expr.mk_app ~typ:Type.int Expr.Plus [Expr.from_var_decl new_var_decl; faa_desc.faa_val]);
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
-        | Xchg xchg_desc ->
-          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
-              xchg_desc.xchg_new_val;
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
-           
-      in
-      let new_stmts =
-        Stmt.mk_block_stmt ~loc:stmt.stmt_loc (read_stmt :: ais_stmts)
-      in
-      new_stmts
-  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_cas_stmts
-
 (** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. *)
 let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -2590,10 +2528,6 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
 let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
-  Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_cas on module %a" Ident.pr
-        m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_cas_stmts m in
 
   Logs.debug (fun m1 ->
       m1
@@ -3101,7 +3035,7 @@ Specification Count: %d"
       | _ -> { init_prog_stats with proof_remaining_instr = 1; }
       end
     
-    | AtomicInbuilt _ | Return _ -> 
+    | Return _ -> 
       let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 

@@ -596,28 +596,6 @@ module Stmt = struct
                   (FieldWrite
                      { field_write_desc with field_write_ref; field_write_val });
             }
-        | AtomicInbuilt ais_desc ->
-            let atomic_inbuilt_lhs = ais_desc.atomic_inbuilt_lhs in
-            let atomic_inbuilt_field = ais_desc.atomic_inbuilt_field in
-            let* atomic_inbuilt_ref = f ais_desc.atomic_inbuilt_ref in
-            let+ atomic_inbuilt_kind = match ais_desc.atomic_inbuilt_kind with
-            | Cas cas_desc -> 
-              let* cas_old_val = f cas_desc.cas_old_val in
-              let+ cas_new_val = f cas_desc.cas_new_val in
-              Stmt.Cas { cas_old_val; cas_new_val }
-            | Faa faa_desc ->
-              let+ faa_val = f faa_desc.faa_val in
-              Stmt.Faa { faa_val }
-            | Xchg xchg_desc ->
-              let+ xchg_new_val = f xchg_desc.xchg_new_val in
-              Stmt.Xchg { xchg_new_val }
-            in
-            {
-              stmt with
-              stmt_desc =
-                Basic
-                  (AtomicInbuilt { ais_desc with atomic_inbuilt_lhs; atomic_inbuilt_field; atomic_inbuilt_ref; atomic_inbuilt_kind });
-            }
         | Return expr ->
             let+ expr = f expr in
             { stmt with stmt_desc = Basic (Return expr) }
@@ -753,28 +731,6 @@ module Stmt = struct
                 (FieldWrite
                    { field_write_ref; field_write_field; field_write_val });
           }
-        | AtomicInbuilt ais_desc ->
-          let atomic_inbuilt_lhs = f ais_desc.atomic_inbuilt_lhs in
-          let atomic_inbuilt_field = f ais_desc.atomic_inbuilt_field in
-          let* atomic_inbuilt_ref = Expr.rewrite_qual_idents ~f ais_desc.atomic_inbuilt_ref in
-          let+ atomic_inbuilt_kind = match ais_desc.atomic_inbuilt_kind with
-            | Cas cas_desc -> 
-              let* cas_old_val = Expr.rewrite_qual_idents ~f cas_desc.cas_old_val in
-              let+ cas_new_val = Expr.rewrite_qual_idents ~f cas_desc.cas_new_val in
-              Stmt.Cas { cas_old_val; cas_new_val }
-            | Faa faa_desc ->
-              let+ faa_val = Expr.rewrite_qual_idents ~f faa_desc.faa_val in
-              Stmt.Faa { faa_val }
-            | Xchg xchg_desc ->
-              let+ xchg_new_val = Expr.rewrite_qual_idents ~f xchg_desc.xchg_new_val in
-              Stmt.Xchg { xchg_new_val }
-            in
-            {
-              stmt with
-              stmt_desc =
-                Basic
-                  (AtomicInbuilt { ais_desc with atomic_inbuilt_lhs; atomic_inbuilt_field; atomic_inbuilt_ref; atomic_inbuilt_kind });
-            }
         | Return expr ->
             let+ expr = Expr.rewrite_qual_idents ~f expr in
             { stmt with stmt_desc = Basic (Return expr) }

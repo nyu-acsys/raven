@@ -5046,7 +5046,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   match s.stmt_desc with
   | Stmt.Basic basic_stmt -> begin
       match basic_stmt with
-      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | AtomicInbuilt _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ | StmtExt _ ->
+      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ | StmtExt _ ->
         Rewriter.return s
       | Spec (spec_kind, spec) -> (
           match spec_kind with

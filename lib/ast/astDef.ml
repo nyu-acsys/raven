@@ -1298,14 +1298,6 @@ module Stmt = struct
     | Cas _ -> "cas"
     | Faa _ -> "faa"
     | Xchg _ -> "xchg"
-  
-  type atomic_inbuilt_desc = {
-    atomic_inbuilt_lhs : qual_ident;
-    atomic_inbuilt_field : qual_ident;
-    atomic_inbuilt_ref : expr;
-    atomic_inbuilt_is_init : bool;
-    atomic_inbuilt_kind : atomic_inbuilt_kind;
-  }
 
   type call_desc = {
     call_lhs : qual_ident list;
@@ -1314,7 +1306,6 @@ module Stmt = struct
     call_is_spawn : bool;
     call_is_init : bool;
   }
-
 
   type fpu_desc = {
     fpu_ref : expr;
@@ -1383,7 +1374,6 @@ module Stmt = struct
     | Use of use_desc
     | AUAction of auaction_desc
     | Fpu of fpu_desc
-    | AtomicInbuilt of atomic_inbuilt_desc
     | StmtExt of (stmt_ext * expr list) 
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
@@ -1455,10 +1445,6 @@ module Stmt = struct
           bstm.bind_rhs.spec_form)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
-    | AtomicInbuilt ais ->
-      let kind = atomic_inbuilt_string ais.atomic_inbuilt_kind in
-      let args = atomic_inbuilt_args ais.atomic_inbuilt_kind in
-      fprintf ppf "@[<2>%a@ :=@ %s(%a.%a, %a)@]" QualIdent.pr ais.atomic_inbuilt_lhs kind Expr.pr ais.atomic_inbuilt_ref QualIdent.pr ais.atomic_inbuilt_field Expr.pr_list args
     | Havoc hvc -> fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var (if hvc.havoc_is_init then " (init)" else "")
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1709,15 +1695,6 @@ module Stmt = struct
 
         | FieldWrite fw_desc ->
           scan_expr_list accesses [fw_desc.field_write_ref; fw_desc.field_write_val]
-
-        | AtomicInbuilt ais_desc ->
-          let accesses = 
-            if not ais_desc.atomic_inbuilt_is_init then
-               Set.add accesses ais_desc.atomic_inbuilt_lhs 
-            else 
-              accesses
-          in
-          scan_expr_list accesses (ais_desc.atomic_inbuilt_ref :: atomic_inbuilt_args ais_desc.atomic_inbuilt_kind)
             
         | Havoc hvc ->
           if not hvc.havoc_is_init then
@@ -1830,12 +1807,6 @@ module Stmt = struct
             []
 
         | FieldWrite fw_desc -> 
-            []
-
-        | AtomicInbuilt ais_desc -> 
-          if not ais_desc.atomic_inbuilt_is_init && List.is_empty ais_desc.atomic_inbuilt_lhs.qual_path then
-            [ais_desc.atomic_inbuilt_lhs.qual_base]
-          else
             []
             
         | Havoc hvc ->
@@ -1969,9 +1940,6 @@ module Stmt = struct
         | FieldWrite fw_desc -> 
           [fw_desc.field_write_field]
 
-        | AtomicInbuilt ais_desc -> 
-          [ais_desc.atomic_inbuilt_field]
-            
         | Havoc _ ->
           []
 
