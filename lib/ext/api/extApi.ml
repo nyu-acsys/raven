@@ -1,5 +1,14 @@
 open Ast
 
+  type type_check_type_expr_functs = {
+    process_type_expr : type_expr -> type_expr Rewriter.t;
+  }
+
+  type type_check_expr_functs = {
+    check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
+    process_expr : expr -> type_expr -> expr Rewriter.t;
+    type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+  }
 
   type type_check_stmt_functs = {
     get_assign_lhs :  is_init:bool -> 
@@ -10,21 +19,34 @@ open Ast
 
     expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
 
-    disambiguate_process_expr : expr -> type_expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t
+    disambiguate_process_expr : expr -> type_expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
+
+    type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+
+    disam_tbl_add_var_decl : var_decl -> ProgUtils.DisambiguationTbl.t -> var_decl * ProgUtils.DisambiguationTbl.t;
+
+    process_symbol_ref : (Module.symbol -> Module.symbol Rewriter.t) ref;
   }
 
 module type Ext = sig
+  val lib_source : (string * string) option
+  val local_vars : var_decl list
 
   (* AstDef *)
+  val type_ext_to_name : (Type.type_ext -> string)
+
   val expr_ext_to_string : (Expr.expr_ext -> string)
 
   val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
 
+  val stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
   val stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
   val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
 
   (* Typing *)
-  val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
+  val type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr Rewriter.t
+
+  val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t
 
   val type_check_stmt : 
     Callable.call_decl ->
@@ -36,6 +58,12 @@ module type Ext = sig
 
 
   (* Rewrites *)
-  val rewrite_expr_ext : Expr.expr_ext -> expr list -> location -> expr Rewriter.t
+  val rewrite_type_ext : Ast.Type.type_ext -> type_expr list -> location -> type_expr Rewriter.t
+
+  val rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
+  
   val rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
+
+  val lib_sources : (string * string) list
+  val ext_local_vars : var_decl list
 end

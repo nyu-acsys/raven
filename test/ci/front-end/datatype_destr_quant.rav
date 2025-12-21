@@ -1,0 +1,13 @@
+module M {
+  rep type T = data {
+    case unit();
+    case twonit(head: Ref)
+  }
+  field f: T;
+}
+
+proc p() returns (ret: Ref) requires true ensures true {
+  var r: Ref := new(M.f: M.unit);
+  var m: M := M.twonit(r);
+  ret := m.M.head;
+}

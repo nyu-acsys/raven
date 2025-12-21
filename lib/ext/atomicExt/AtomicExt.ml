@@ -5,6 +5,8 @@ open Util
 open ExtApi
 
 module AtomicExt (Cont : Ext) = struct
+  let lib_source = None
+  let local_vars = []
 
   type atomic_inbuilt_kind =
     | Cas 
@@ -22,6 +24,8 @@ module AtomicExt (Cont : Ext) = struct
 
 
   (* AstDef *)
+  let type_ext_to_name = Cont.type_ext_to_name
+
   let expr_ext_to_string = Cont.expr_ext_to_string
   
   let pr_stmt_ext ppf ext expr_list = 
@@ -31,6 +35,8 @@ module AtomicExt (Cont : Ext) = struct
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a.%a, %a)@]" Expr.pr lhs_expr (atomic_inbuilt_string ais) Expr.pr ref_expr Expr.pr field_expr Expr.pr_list args
     | _ -> Cont.pr_stmt_ext ppf ext expr_list
 
+  let stmt_ext_symbols = Cont.stmt_ext_symbols
+  
   let stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
@@ -48,6 +54,8 @@ module AtomicExt (Cont : Ext) = struct
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
   (* Typing *)
+  let type_check_type_expr = Cont.type_check_type_expr
+  
   let type_check_expr = Cont.type_check_expr 
   
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
@@ -138,10 +146,13 @@ module AtomicExt (Cont : Ext) = struct
         Logs.debug (fun m -> m "AtomicExt.type_check_stmt FINISHES");
         (Stmt.StmtExt ais_desc, disam_tbl)
 
+      | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), _ ->
+        Error.type_error stmt_loc "Wrong number of arguments for atomic commands"
       | stmt_ext, expr_list -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
 
   (* Rewrites *)
+  let rewrite_type_ext = Cont.rewrite_type_ext
   let rewrite_expr_ext = Cont.rewrite_expr_ext
 
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
@@ -205,4 +216,9 @@ module AtomicExt (Cont : Ext) = struct
       in
       new_stmts
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+
+  (* --------------------- *)
+  (* --- DO NOT MODIFY --- *)
+  let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
+  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

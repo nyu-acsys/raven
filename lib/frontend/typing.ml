@@ -79,6 +79,8 @@ module ProcessTypeExpr = struct
     | App (AtomicToken qid, [], tp_attr) ->
       let+ qid = Rewriter.resolve qid in
       App (AtomicToken qid, [], tp_attr)
+    | App (TypeExt type_ext, tp_args, tp_attr) ->
+      Ext.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
@@ -139,7 +141,7 @@ module ProcessExpr = struct
       if not @@ expected_ghost && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb) then
         let _ = Logs.debug (fun m -> m !"Failed with %{Expr}" expr) in
         Error.type_error (Expr.to_loc expr) "Cannot use ghost state in non-ghost context"
-    in            
+    in
     let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
     if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
     else begin
@@ -206,6 +208,27 @@ module ProcessExpr = struct
                 in
                 let* args_list =
                   process_callable_args (Expr.to_loc expr) is_ghost_scope callable_decl args_list
+                in
+                let* _ =
+                  (* If this is an auto lemma, check that it is well-formed *)
+                  if callable.call_decl.call_decl_is_auto &&
+                     (match callable_decl.call_decl_kind with Lemma -> true | _ -> false)
+                  then begin
+                    let+ _ =
+                      Rewriter.List.iter
+                        (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
+                        ~f:(fun spec ->
+                            let+ is_pure = ProgUtils.is_expr_pure spec.spec_form in
+                            if not is_pure then 
+                              Error.type_error callable.call_decl.call_decl_loc
+                                (Printf.sprintf !"This specification of auto lemma %{Ident} is not pure" callable.call_decl.call_decl_name))
+                    in
+                    let params = callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns in
+                    if not (List.is_empty params)
+                    then Error.type_error (List.hd_exn params).var_loc
+                        (Printf.sprintf !"An auto lemma cannot have arguments")
+                  end
+                  else Rewriter.return ()
                 in
                 let given_typ = Callable.return_type callable_decl in
                 let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
@@ -584,16 +607,16 @@ module ProcessExpr = struct
         (* Data destructor expressions *)
         | DataDestr destr_qual_ident, [ expr1 ] ->
             let loc = QualIdent.to_loc destr_qual_ident in
-            let* destr =
-              let* symbol = Rewriter.find destr_qual_ident in
+            let* destr_qual_ident, destr =
+              let* destr_qual_ident, symbol = Rewriter.resolve_and_find destr_qual_ident in
               let+ symbol = Rewriter.Symbol.reify symbol in
               match symbol with
-              | DestrDef destr -> destr
+              | DestrDef destr -> destr_qual_ident, destr
               | _tp_env -> Error.type_error loc "Expected data destructor"
             in
             let* expr1 = process_expr expr1 (destr.destr_arg |> Type.set_ghost_to expected_typ) in
             let given_typ = destr.destr_return_type in
-            let expr = Expr.App (constr, [ expr1 ], expr_attr) in
+            let expr = Expr.App (DataDestr destr_qual_ident, [ expr1 ], expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         | DataDestr _, _ ->
             Error.type_error (Expr.to_loc expr)
@@ -657,7 +680,7 @@ module ProcessExpr = struct
             let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
-        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr 
+        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -1160,7 +1183,7 @@ module ProcessCallable = struct
           (VarDef { var_decl; var_init = None })
       in
       let var = QualIdent.from_ident var_decl.var_name in
-      Rewriter.return @@ (Stmt.Havoc var, disam_tbl')
+      Rewriter.return @@ (Stmt.Havoc { havoc_var = var; havoc_is_init = true }, disam_tbl')
     | Spec (sk, spec) ->
       let+ spec = process_stmt_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
@@ -1335,75 +1358,9 @@ module ProcessCallable = struct
           in
           (Stmt.FieldRead field_read_desc, disam_tbl)
       end
-      | AtomicInbuilt ais_desc ->
-        let _ =
-          if is_ghost_scope then
-            Error.type_error stmt_loc "Cannot use cas in a ghost context"
-        in
-        let* atomic_inbuilt_lhs, var_decl = get_assign_lhs ais_desc.atomic_inbuilt_lhs ~is_init:ais_desc.atomic_inbuilt_is_init in
-        (*let* cs_var_qual_ident =
-          disambiguate_ident cs_desc.cas_lhs disam_tbl
-        in
-          Rewriter.resolve_and_find cs_var_qual_ident
-        in
-          let* symbol = Rewriter.Symbol.reify symbol in*)
-        let* atomic_inbuilt_field, symbol =
-          Rewriter.resolve_and_find ais_desc.atomic_inbuilt_field
-        in
-        let* symbol = Rewriter.Symbol.reify symbol in
-        let* ais_fld_type, ais_fld_type_full = match symbol with
-          | FieldDef { field_type = App (Fld, [ expected_fld_typ ], _) as tp; _ }
-            ->
-            let* expanded_type =
-              ProcessTypeExpr.expand_type_expr expected_fld_typ
-            in
-            if
-              Type.(
-                expanded_type = int || expanded_type = bool
-                || expanded_type = ref)
-            then Rewriter.return (expanded_type, tp)
-            else
-              Error.type_error (QualIdent.to_loc ais_desc.atomic_inbuilt_field)
-                (Printf.sprintf !"%s only allowed over word-sized types Int, Bool, and Ref but found %{Type}"
-                 (Stmt.atomic_inbuilt_string ais_desc.atomic_inbuilt_kind) expected_fld_typ)
-          | _ ->
-              Error.type_error (QualIdent.to_loc ais_desc.atomic_inbuilt_field)
-              ("Expected field identifier, but found "
-               ^ QualIdent.to_string ais_desc.atomic_inbuilt_field)
-        in
-        let* atomic_inbuilt_ref = disambiguate_process_expr ais_desc.atomic_inbuilt_ref Type.ref disam_tbl in
-        let+ atomic_inbuilt_kind = match ais_desc.atomic_inbuilt_kind with
-          | Cas cas_desc ->
-            let* cas_old_val = disambiguate_process_expr cas_desc.cas_old_val ais_fld_type disam_tbl in
-            let* cas_new_val = disambiguate_process_expr cas_desc.cas_new_val ais_fld_type disam_tbl in
-            let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (Type.bool |> Type.set_ghost_to var_decl.var_type) disam_tbl in
-            Stmt.Cas { cas_old_val; cas_new_val }
-          | Faa faa_desc ->
-            let* _ = disambiguate_process_expr (Expr.mk_var ~typ:ais_fld_type_full ais_desc.atomic_inbuilt_field)
-                (Type.mk_fld (QualIdent.to_loc ais_desc.atomic_inbuilt_field) Type.int) disam_tbl in
-            let* faa_val = disambiguate_process_expr faa_desc.faa_val ais_fld_type disam_tbl in
-            let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (ais_fld_type |> Type.set_ghost_to var_decl.var_type) disam_tbl in
-            Stmt.Faa { faa_val }
-          | Xchg xchg_desc ->
-            let* xchg_new_val = disambiguate_process_expr xchg_desc.xchg_new_val ais_fld_type disam_tbl in
-            let+ _ = disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type ais_desc.atomic_inbuilt_lhs) (ais_fld_type |> Type.set_ghost_to var_decl.var_type) disam_tbl in
-            Stmt.Xchg { xchg_new_val }
-        in
-        
-        let ais_desc =
-          Stmt.
-            {
-              ais_desc with
-              atomic_inbuilt_lhs;
-              atomic_inbuilt_ref;
-              atomic_inbuilt_field;
-              atomic_inbuilt_kind;
-            }
-        in
-        (Stmt.AtomicInbuilt ais_desc, disam_tbl)
-    | Havoc qual_ident ->
-      let+ qual_ident, _ = get_assign_lhs qual_ident ~is_init:false in
-      Stmt.Havoc qual_ident, disam_tbl
+    | Havoc hvc ->
+      let+ havoc_var, _ = get_assign_lhs hvc.havoc_var ~is_init:hvc.havoc_is_init in
+      Stmt.Havoc { hvc with havoc_var }, disam_tbl
     | Return expr ->
       if is_ghost_scope && Poly.(call_decl.Callable.call_decl_kind = Proc) then
         Error.type_error stmt_loc "Cannot return in a ghost block";
@@ -1575,15 +1532,55 @@ module ProcessCallable = struct
     | AUAction _au_action_kind ->
       internal_error stmt_loc
         "Did not expect AU action stmts in AST at this stage."
-    | Fpu _fpu_desc ->
-      internal_error stmt_loc
-        "Did not expect Fpu stmts in AST at this stage."
+    | Fpu fpu_desc ->
+      let open Rewriter.Syntax in
+      (* Process reference expression as ghost ref *)
+      let* fpu_ref = disambiguate_process_expr fpu_desc.fpu_ref (Type.ref |> Type.set_ghost true) disam_tbl in
+
+      (* Resolve field and check it is a ghost Fld field with element type *)
+      let* fpu_field, symbol = Rewriter.resolve_and_find fpu_desc.fpu_field in
+      let* symbol = Rewriter.Symbol.reify symbol in
+      let* given_type =
+      match symbol with
+      | FieldDef field_decl -> (
+        match field_decl.field_type with
+        | App (Fld, [ elem_ty ], _) ->
+          if not field_decl.field_is_ghost then
+            Error.type_error (QualIdent.to_loc fpu_desc.fpu_field)
+            "Frame-preserving updates are only allowed on ghost fields"
+          else Rewriter.return elem_ty
+        | _ ->
+          Error.type_error (QualIdent.to_loc fpu_desc.fpu_field)
+            "Expected field identifier")
+      | _ ->
+        Error.type_error (QualIdent.to_loc fpu_desc.fpu_field)
+          "Expected field identifier"
+      in
+
+      (* Process optional old value and mandatory new value at the field element type *)
+      let* fpu_old_val =
+      Rewriter.Option.map fpu_desc.fpu_old_val ~f:(fun e ->
+        disambiguate_process_expr e given_type disam_tbl)
+      in
+      let+ fpu_new_val = disambiguate_process_expr fpu_desc.fpu_new_val given_type disam_tbl in
+
+      ( Stmt.Fpu
+        {
+        fpu_ref;
+        fpu_field;
+        fpu_old_val;
+        fpu_new_val;
+        },
+      disam_tbl )
     | StmtExt (stmt_ext, expr_list)  -> 
         Ext.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl 
           {
             ExtApi.get_assign_lhs = get_assign_lhs;
             expand_type_expr = ProcessTypeExpr.expand_type_expr;
-            disambiguate_process_expr
+            disambiguate_process_expr;
+            type_mismatch_error;
+            disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+            process_symbol_ref = Rewriter.process_symbol_ref;
           }  
         
   let process_stmt ?(new_scope = true) call_decl
@@ -1706,6 +1703,18 @@ module ProcessCallable = struct
     let* disam_tbl, call_decl_locals =
       process_decls call_decl.call_decl_locals disam_tbl
     in
+
+    let call_decl_locals = match call_decl.call_decl_kind with
+      | Proc | Lemma -> 
+        (* Adding Extension local variables *)
+        Logs.debug (fun m -> m "Adding EXT locals on: %a" Ident.pr call_decl.call_decl_name);
+        Ext.ext_local_vars @ call_decl_locals
+      | Func | Pred | Invariant -> 
+        Ext.ext_local_vars @ 
+        call_decl_locals 
+    in
+    (* let call_decl_locals = Ext.ext_local_vars @ call_decl_locals in *)
+
     Logs.debug (fun m -> m "adding formals");
     let* _ = Rewriter.add_locals call_decl_formals in
 
@@ -1899,6 +1908,10 @@ module ProcessModule = struct
 
   let process_var (var : Stmt.var_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
+    let _ =
+      if not var.var_decl.var_const
+      then Error.type_error var.var_decl.var_loc "Modules and interfaces cannot have var members"
+    in
     let* var_decl = ProcessTypeExpr.process_var_decl var.var_decl in
     let+ var_init =
       Rewriter.Option.map var.var_init ~f:(fun expr ->
@@ -2247,7 +2260,7 @@ module ProcessModule = struct
   let rec process_module (m : Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
     let _ =
-      Logs.debug (fun mm ->
+      Logs.info (fun mm ->
           mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
     in
 
@@ -2364,16 +2377,15 @@ module ProcessModule = struct
         Rewriter.resolve 
           (QualIdent.from_ident (Symbol.to_name (ModDef m)))
     in
-
+    (* merge symbol definitions from parent interface with those from current module
+     * so that the dependency order between symbols is preserved *)
     let merge_defs parent_ident parent_mod_def mod_def =
-      let _parent_defined_symbols = get_defined_symbols parent_mod_def in
+      (*let _parent_defined_symbols = get_defined_symbols parent_mod_def in*)
       let rec merge_defs (merged, to_check, seen) = function
         | [], mod_def -> (List.rev_append merged mod_def, to_check)
         | Module.Import _ :: parent_mod_def, mod_def ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | Module.SymbolDef (ConstrDef _ | DestrDef _) :: parent_mod_def, mod_def
-          ->
-            merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | parent_mod_def, Module.SymbolDef (ConstrDef _ | DestrDef _) :: mod_def
           ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
@@ -2405,8 +2417,11 @@ module ProcessModule = struct
                 Module.CallDef { call with call_decl }
               | symbol -> symbol
             in
-            if not (Set.mem defined_symbols parent_symbol_ident) then
-              (* case: parent_symbol should be inherited *)
+            if not (Set.mem defined_symbols parent_symbol_ident)
+               && (Set.is_empty seen || List.is_empty mod_def)
+            then
+              (* case: parent_symbol should be inherited now *)
+              let _ = Logs.info (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
               let parent_symbol =
                 match parent_symbol with
                 | CallDef call when not @@ Callable.is_abstract call ->
@@ -2449,7 +2464,7 @@ module ProcessModule = struct
                   if Set.mem seen symbol_ident then
                     (* case: symbol provides definition of another symbol that has already been seen earlier *)
                     merge_defs
-                      (Module.SymbolDef symbol :: merged, to_check, seen)
+                      (Module.SymbolDef symbol :: merged, to_check, Set.remove seen symbol_ident)
                       (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
                   else if Ident.(parent_symbol_ident = symbol_ident) then
                     (* case: symbol provides definition of parent_symbol *)
@@ -2476,7 +2491,8 @@ module ProcessModule = struct
                   merge_defs
                     (def :: merged, to_check, seen)
                     (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-              | [] -> assert false)
+              | [] -> assert false
+          )
       in
       merge_defs
         ([], Map.empty (module Ident), Set.empty (module Ident))
@@ -2533,7 +2549,8 @@ module ProcessModule = struct
 
     (*let inherited_symbols = List.rev inherited_symbols in*)
     let mod_def = mod_def_formals @ merged_symbols in
-
+    let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
+    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol)) | _ -> ()) mod_def in
     (* Find rep type and add it to module declaration *)
     let mod_decl_rep =
       List.fold_left mod_def ~init:None ~f:(fun rep_type -> function
@@ -2684,4 +2701,7 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
   in
 
   let+ _ = Rewriter.set_symbol symbol in
-  symbol
+  symbol;;
+
+Rewriter.process_symbol_ref := process_symbol;
+Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;

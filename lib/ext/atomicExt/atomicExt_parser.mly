@@ -1,15 +1,13 @@
 %{
 
-open Ext.Ext
+open Ext.AtomicExtInstance
 
 %}
 
 %token CAS FAA XCHG
 
-%start assignExt
-
 %%
-assignExt: 
+%public assignExt: 
 | f = atomicExt { f }
 
 atomicExt:
@@ -52,7 +50,7 @@ atomicExt:
         | true ->
             Stmt.(Basic (StmtExt (AtomicInbuiltInit Xchg, args))), Some (xchg_new_val)
         | false ->
-            Stmt.(Basic (StmtExt (AtomicInbuiltNonInit Faa, args))), Some (xchg_new_val)
+            Stmt.(Basic (StmtExt (AtomicInbuiltNonInit Xchg, args))), Some (xchg_new_val)
         end
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
     | [], _ -> assert false

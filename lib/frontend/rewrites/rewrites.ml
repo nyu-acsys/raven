@@ -580,20 +580,14 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           curr_loop_arg_var_decls )
       in
 
-      let* loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls =
+      let* loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls =
         (* Local variables modified from loop body become ret vals for loop procedure *)
         let curr_loop_rets = Stmt.stmt_local_vars_modified loop.loop_postbody in
-        let+ curr_loop_ret_var_decls =
+        let* curr_loop_ret_var_decls =
           Rewriter.List.map curr_loop_rets ~f:(fun var ->
-              let+ symbol =
-                Rewriter.find_and_reify (QualIdent.from_ident var)
-              in
-
-              match symbol with
-              | VarDef v -> v.var_decl
-              | _ ->
-                  Error.error stmt.stmt_loc
-                    ("Expected a variable (2); found " ^ Symbol.to_string symbol))
+            let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
+            var_def.var_decl
+          )
         in
 
         (* redefined loop_rets for uniqueness *)
@@ -615,7 +609,16 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 ~data:(Expr.from_var_decl new_var_decl))
         in
 
-        (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls)
+        let loop_local_vars = Stmt.stmt_local_vars_initialized loop.loop_postbody in
+        let+ loop_local_var_decls =
+          Rewriter.List.map loop_local_vars ~f:(fun var ->
+            let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
+            var_def.var_decl
+          )
+
+        in
+
+        (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls)
       in
 
       let* loop_proc_name =
@@ -664,8 +667,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_name = loop_proc_name;
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
-          (* no locals, since all var_decls are removed earlier *)
-          call_decl_locals = [];
+          call_decl_locals = loop_local_var_decls;
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
           call_decl_is_free = false;
@@ -755,14 +757,10 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* curr_state = Rewriter.__get_state in
 
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_loops: Loop introduced symbols:\n %a"
-            (Print.pr_list_comma Symbol.pr)
-            (List.hd_exn curr_state.state_new_symbols));
-
-      Logs.debug (fun m ->
+      (* Logs.debug (fun m ->
+          let open Rewriter in
           m "Rewrites.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr
-            curr_state.state_table.tbl_curr.scope_id);
+            curr_state.state_table.tbl_curr.scope_id); *)
 
       let new_stmt =
         let lhs_list =
@@ -774,9 +772,14 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
               Expr.from_var_decl var_decl)
         in
 
-        Stmt.mk_call ~loc ~lhs:lhs_list
+        (* Stmt.mk_call ~loc ~lhs:lhs_list
           (QualIdent.from_ident loop_proc_name)
-          args_list ~is_spawn:false
+          args_list ~is_spawn:false *)
+
+        Stmt.mk_cond ~loc (Some loop.loop_test) 
+          (Stmt.mk_call ~loc ~lhs:lhs_list
+            (QualIdent.from_ident loop_proc_name) args_list ~is_spawn:false
+          ) (Stmt.mk_skip ~loc)
       in
 
       Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
@@ -1007,68 +1010,6 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         havoc_stmt :: 
         assume_non_null_stmt :: new_inhale_stmts))
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
-
-(** Replaces a `b := CAS(x.f, v1, v2)` stmt with `v := x.f; if (v == v1) { b := true; x.f := v2 } else { b := false }`. *)
-let rec rewrite_cas_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
-  let open Rewriter.Syntax in
-  match stmt.stmt_desc with
-  | Basic (AtomicInbuilt ais_desc) ->
-      let new_var_name =
-        Ident.fresh stmt.stmt_loc (QualIdent.to_string ais_desc.atomic_inbuilt_lhs ^ "$" ^ Stmt.atomic_inbuilt_string ais_desc.atomic_inbuilt_kind)
-      in
-      let new_var_decl_typ = match ais_desc.atomic_inbuilt_kind with
-        | Cas cas_desc -> Expr.to_type cas_desc.cas_old_val
-        | Faa _ -> Type.int
-        | Xchg xchg_desc -> Expr.to_type xchg_desc.xchg_new_val
-      in
-      let new_var_decl =
-        Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true new_var_name
-          new_var_decl_typ
-      in
-      let+ _ =
-        Rewriter.introduce_symbol
-          (Module.VarDef { var_decl = new_var_decl; var_init = None })
-      in
-      let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
-      let read_stmt =
-        Stmt.mk_field_read ~loc:stmt.stmt_loc new_var_qualident
-          ais_desc.atomic_inbuilt_field ais_desc.atomic_inbuilt_ref
-      in
-      let ais_stmts =
-        match ais_desc.atomic_inbuilt_kind with
-        | Cas cas_desc ->
-          let test_ =
-            Some
-              (Expr.mk_eq ~loc:stmt.stmt_loc
-                 (Expr.from_var_decl new_var_decl)
-                 cas_desc.cas_old_val)
-          in
-          let then1_ =
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool true)
-          in
-          let then2_ =
-            Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field cas_desc.cas_new_val
-          in
-          let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ then1_; then2_ ] in
-          let else_ =
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool false)
-          in
-          [Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_]
-        | Faa faa_desc ->
-          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
-              (Expr.mk_app ~typ:Type.int Expr.Plus [Expr.from_var_decl new_var_decl; faa_desc.faa_val]);
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
-        | Xchg xchg_desc ->
-          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
-              xchg_desc.xchg_new_val;
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
-           
-      in
-      let new_stmts =
-        Stmt.mk_block_stmt ~loc:stmt.stmt_loc (read_stmt :: ais_stmts)
-      in
-      new_stmts
-  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_cas_stmts
 
 (** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. *)
 let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
@@ -1485,7 +1426,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let reassign_lhs_stmt =
-            Stmt.mk_assign ~loc:stmt.stmt_loc
+            Stmt.mk_assign ~loc:stmt.stmt_loc ~is_init:call_desc.call_is_init
               (List.map lhs_list ~f:(fun decl -> QualIdent.from_ident decl.var_name))
               (Expr.mk_tuple new_lhs_list)
           in
@@ -2194,39 +2135,42 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
             Expr.alpha_renaming assign_stmt.assign_rhs subst_map
           in
           let* assign_lhs =
-            Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
-                let* var_map = Rewriter.current_user_state in
+            if assign_stmt.assign_is_init then
+              Rewriter.return assign_stmt.assign_lhs
+            else
+              Rewriter.List.map assign_stmt.assign_lhs ~f:(fun qual_ident ->
+                  let* var_map = Rewriter.current_user_state in
 
-                let local_var = QualIdent.to_ident qual_ident in
+                  let local_var = QualIdent.to_ident qual_ident in
 
-                  Logs.debug (fun m ->
-                      m
-                        "Rewrites.rewrite_ssa_stmts: Assigning to local \
-                         variable %a; for stmt %a"
-                        Ident.pr local_var Stmt.pr s);
-                  let old_var_decl = Map.find_exn var_map local_var in
-                  let new_var_decl =
-                    Type.
-                      {
-                        old_var_decl with
-                        var_name =
-                          Ident.fresh old_var_decl.var_loc
-                            old_var_decl.var_name.ident_name;
-                      }
-                  in
+                    Logs.debug (fun m ->
+                        m
+                          "Rewrites.rewrite_ssa_stmts: Assigning to local \
+                          variable %a; for stmt %a"
+                          Ident.pr local_var Stmt.pr s);
+                    let old_var_decl = Map.find_exn var_map local_var in
+                    let new_var_decl =
+                      Type.
+                        {
+                          old_var_decl with
+                          var_name =
+                            Ident.fresh old_var_decl.var_loc
+                              old_var_decl.var_name.ident_name;
+                        }
+                    in
 
-                  let* _ =
-                    Rewriter.introduce_symbol
-                      (VarDef { var_decl = new_var_decl; var_init = None })
-                  in
+                    let* _ =
+                      Rewriter.introduce_symbol
+                        (VarDef { var_decl = new_var_decl; var_init = None })
+                    in
 
-                  let var_map =
-                    Map.set var_map ~key:local_var ~data:new_var_decl
-                  in
+                    let var_map =
+                      Map.set var_map ~key:local_var ~data:new_var_decl
+                    in
 
-                  let+ _ = Rewriter.set_user_state var_map in
+                    let+ _ = Rewriter.set_user_state var_map in
 
-                  QualIdent.from_ident new_var_decl.var_name)
+                    QualIdent.from_ident new_var_decl.var_name)
           in
 
           Rewriter.return
@@ -2236,34 +2180,40 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
                 stmt_desc =
                   Basic (Assign { assign_stmt with assign_lhs; assign_rhs });
               }
-      | Havoc qual_iden ->
-          if QualIdent.is_local qual_iden then (
-            let local_var = QualIdent.to_ident qual_iden in
+      | Havoc hvc ->
+          if not (QualIdent.is_local hvc.havoc_var) then 
+            assert false
+          else (
+            if hvc.havoc_is_init then
+              Rewriter.return (Stmt.mk_skip ~loc:s.stmt_loc)
+            else
+              let local_var = QualIdent.to_ident hvc.havoc_var in
 
-            Logs.debug (fun m ->
-                m "Rewrites.rewrite_ssa_stmts: Havocing local variable %a"
-                  Ident.pr local_var);
-            let old_var_decl = Map.find_exn var_map local_var in
-            let new_var_decl =
-              {
-                old_var_decl with
-                var_name =
-                  Ident.fresh old_var_decl.var_loc
-                    old_var_decl.var_name.ident_name;
-              }
-            in
+              Logs.debug (fun m ->
+                  m "Rewrites.rewrite_ssa_stmts: Havocing local variable %a"
+                    Ident.pr local_var);
+              let old_var_decl = Map.find_exn var_map local_var in
+              let new_var_decl =
+                {
+                  old_var_decl with
+                  var_name =
+                    Ident.fresh old_var_decl.var_loc
+                      old_var_decl.var_name.ident_name;
+                }
+              in
 
-            let* _ =
-              Rewriter.introduce_symbol
-                (VarDef { var_decl = new_var_decl; var_init = None })
-            in
+              let* _ =
+                Rewriter.introduce_symbol
+                  (VarDef { var_decl = new_var_decl; var_init = None })
+              in
 
-            let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
+              let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
 
-            let+ _ = Rewriter.set_user_state var_map in
+              let+ _ = Rewriter.set_user_state var_map in
 
-            Stmt.mk_block_stmt ~loc:s.stmt_loc [])
-          else Rewriter.return s
+              Stmt.mk_block_stmt ~loc:s.stmt_loc []
+            )
+
       | Bind bind_stmt ->
           let* bind_lhs =
             Rewriter.List.map bind_stmt.bind_lhs ~f:(fun qual_ident ->
@@ -2451,6 +2401,9 @@ let rewrite_ssa_transform (c : Callable.t) :
   match c.call_def with
   | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
+      Logs.debug (fun m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma Type.pr_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
+         @ c.call_decl.call_decl_locals) );
+
       let init_map =
         List.fold
           (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
@@ -2573,10 +2526,6 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
 let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
-  Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_cas on module %a" Ident.pr
-        m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_cas_stmts m in
 
   Logs.debug (fun m1 ->
       m1
@@ -2780,21 +2729,49 @@ let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   (* Logs.debug (fun m -> m "Rewrites.all_rewrites: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
   Rewriter.return m
 
+let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_expr_ext: Starting rewrites_type_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
+  let open Rewriter.Syntax in
+  let rec rewrite_type_ext (type_expr : type_expr) : type_expr Rewriter.t =
+    let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
+    match type_expr with
+    | App (TypeExt type_ext, args, type_attr) ->
+      Ext.rewrite_type_ext type_ext args (Type.to_loc type_expr)
+    | _ -> Rewriter.return type_expr
+
+  in
+  let* m =
+    Rewriter.Module.rewrite_types ~f:rewrite_type_ext m in
+
+  Rewriter.return m
+
 let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
+    let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
     match expr with
     | App (ExprExt expr_ext, args, expr_attr) -> 
-      Ext.rewrite_expr_ext expr_ext args (Expr.to_loc expr)
+      Ext.rewrite_expr_ext expr_ext args expr_attr
     | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
-
   in
+
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_expr_ext: Starting rewrites_expr_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
   let* m = 
     Rewriter.Module.rewrite_expressions ~f:rewrite_expr_ext m in
 
   Rewriter.return m
 
 let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_stmt_ext: Starting rewrites_stmt_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
   let open Rewriter.Syntax in
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
@@ -2818,6 +2795,13 @@ let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
 
   let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
 
+  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
+  
+  (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
+
+  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
   let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
 
@@ -3084,7 +3068,7 @@ Specification Count: %d"
       | _ -> { init_prog_stats with proof_remaining_instr = 1; }
       end
     
-    | AtomicInbuilt _ | Return _ -> 
+    | Return _ -> 
       let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 

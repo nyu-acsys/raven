@@ -1,0 +1,13 @@
+module Fink = Library.Frac[Library.IntType];
+ghost field plink: Fink;
+
+proc unghosting(b: Bool, x: Ref) 
+  requires own(x, plink, Fink.frac_chunk(10, 1.0)) 
+{
+  while (!b)
+    invariant own(x, plink, Fink.frac_chunk(10, 1.0)) 
+  {
+    fpu(x, plink, Fink.frac_chunk(11, 1.0));
+    b := true;
+  }
+}

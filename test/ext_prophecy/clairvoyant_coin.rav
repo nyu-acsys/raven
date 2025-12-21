@@ -1,0 +1,61 @@
+
+
+field c: Bool
+ghost field p: ProphId
+
+func nondet_bool() returns (ret: Bool) { true }
+
+pred is_coin(coin: Ref, bs: List[Bool]) {
+  exists b: Bool, bs': List[Bool], p': ProphId ::
+    own(coin.c, b) && own(coin.p, p') && 
+    (bs == List.cons(b, bs') && prophecy(p', bs'))
+}
+
+proc new_clairvoyant_coin() returns (ret: Ref, implicit ghost bs: List[Bool]) 
+  ensures is_coin(ret, bs)
+{
+  ghost var p1: ProphId;
+  var z: List[Bool];
+  p1, z := NewProph[Bool]; 
+
+  var toss := nondet_bool();
+
+  var x: Ref := new(c: toss, p: p1);
+
+  fold is_coin(x, List.cons(toss,z));
+  return x, List.cons(toss, z);
+}
+
+proc read_coin(coin: Ref, implicit ghost bs: List[Bool]) returns (ret:Bool, implicit ghost bs': List[Bool]) 
+  requires is_coin(coin, bs)
+  ensures is_coin(coin, bs) && bs == List.cons(ret, bs')
+{
+  unfold is_coin(coin, bs);
+
+  ret := coin.c;
+  bs' := List.tl(bs);
+  
+  fold is_coin(coin, bs);
+  return ret, bs';
+}
+
+proc toss_coin(coin: Ref, implicit ghost bs: List[Bool]) 
+  returns (implicit ghost b: Bool, implicit ghost bs2: List[Bool])
+  requires is_coin(coin, bs)
+  ensures is_coin(coin, bs2) && bs == List.cons(b, bs2)
+{
+  unfold is_coin(coin, bs);
+
+  ghost var ret_bool := coin.c;
+  ghost var proph_var := coin.p;
+
+  var toss := nondet_bool();
+
+  ResolveProph(proph_var, toss);
+
+  coin.c := toss;
+  bs2 := List.tl(bs);
+
+  fold is_coin(coin, bs2);
+  return ret_bool, bs2;
+}

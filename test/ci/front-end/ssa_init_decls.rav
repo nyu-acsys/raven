@@ -1,0 +1,16 @@
+field f: Int
+
+proc q() returns (ret: Int) 
+    ensures ret == 1
+{
+    return 1;
+}
+
+proc p(z: Ref)
+    requires own(z, f, 1, 1.0)
+{
+
+    var x: Int := z.f;
+    x := q();
+    var y := q();
+}

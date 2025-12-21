@@ -1,0 +1,64 @@
+include "../../test/arrays/array.rav"
+
+interface FaultyVector[T: Library.Type] {
+    module Array_T = Array[T]
+
+    val epsilon : Real
+
+    proc extend(n: Int, l : Array_T, implicit ghost contents : Map[Int, T], implicit ghost x : Ref) 
+        returns (l': Array_T, contents': Map[Int, T])
+        requires -*-(epsilon * n)
+        requires 0 < n
+        requires Array_T.arr(l, contents)
+        ensures Array_T.arr(l', contents')
+        ensures Array_T.length(l') == Array_T.length(l) + n
+        ensures contents == contents'
+
+
+    proc store(l: Array_T, offset : Int, v : T, implicit ghost contents : Map[Int, T], implicit ghost x : Ref)
+        requires -*-(epsilon)
+        requires Array_T.arr(l, contents)
+        requires offset < Array_T.length(l)
+        ensures Array_T.arr(l, {| i: Int :: i == offset ? v : contents[i] |})
+
+    proc load(l: Array_T, offset: Int, implicit ghost contents: Map[Int, T], implicit ghost x: Ref)
+        returns (ret: T)
+        requires -*-(epsilon)
+        requires Array_T.arr(l, contents)
+        requires offset < Array_T.length(l)
+        ensures Array_T.arr(l, contents)
+        ensures ret == contents[offset]
+
+    auto pred vec_spec(l: Array_T, fill: Int, contents: Map[Int, T], x: Ref) {
+        0<= fill < Array_T.length(l) &&
+        -*-(epsilon * ((2 * fill) - Array_T.length(l)))
+        && 
+        Array_T.arr(l, contents)
+    }
+
+    proc vec_push_back(l:Array_T, fill: Int, v: T, implicit ghost contents: Map[Int, T], implicit ghost x: Ref)
+        returns (l': Array_T, fill': Int, ghost contents': Map[Int, T])
+        requires -*-(epsilon * 3)
+        requires vec_spec(l, fill, contents, x) 
+        ensures fill' == fill + 1
+        ensures vec_spec(l', fill', contents', x)
+        ensures contents' == {|i:Int :: i == fill ? v : contents[i] |}
+        ensures fill' <= Array_T.length(l')
+    {
+        store(l, fill, v, contents, x);
+        contents' := {|i : Int :: i == fill ? v : contents[i] |};
+
+        if (fill+1 == Array_T.length(l)) {
+            l' := extend(Array_T.length(l), l, contents', x);
+            assert(Array_T.length(l') == 2 * Array_T.length(l));
+            return (l', fill+1, contents');
+        }
+
+        return (l, fill+1, contents');
+    }
+}
+
+
+
+
+

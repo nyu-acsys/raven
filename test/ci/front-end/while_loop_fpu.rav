@@ -1,0 +1,25 @@
+module Fink = Library.Frac[Library.IntType];
+ghost field plink: Fink;
+
+module T { 
+  ghost field blink: Library.Fraction;
+  val frac_val1: Library.Fraction := Library.Fraction.frac(1.0);
+  val frac_val2: Library.Fraction := Library.Fraction.frac(0.5);
+}
+
+proc unghosting(b: Bool, x: Ref) 
+  requires own(x, plink, Fink.frac_chunk(10, 1.0)) 
+  requires own(x, T.blink, T.frac_val1)
+{
+  while (!b || !b)
+    invariant own(x, plink, Fink.frac_chunk(10, 1.0)) 
+            && own(x, T.blink, T.frac_val2)
+  {
+    var frac_val3: Library.Fraction := T.frac_val2;
+
+    fpu(x, plink, Fink.frac_chunk(10, 1.0));
+    fpu(x, T.blink, T.frac_val2);
+    fpu(x, T.blink, frac_val3);
+    b := true;
+  }
+}

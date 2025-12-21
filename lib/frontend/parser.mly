@@ -32,15 +32,15 @@ open Ast
 %token RETURNS REQUIRES ENSURES INVARIANT
 %token EOF
 
-
 %nonassoc IFF
 %nonassoc EQEQ NEQ 
 
 %start main
 %type <(string * Loc.t) list * Ast.Module.t> main
 %type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
-/* %type <Ast.Type.t> type_def_expr
-%type <Ast.Type.t> type_expr */
+%type <Stmt.stmt_desc list> stmtExt
+%type <expr> unary_exprExt
+%type <Type.t> typeExt
 %%
 
 main:
@@ -71,7 +71,6 @@ module_def:
   | ModDef impl ->
       ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
   | ModInst ma ->
-  (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
       else
@@ -137,12 +136,7 @@ mod_inst_args:
 | { [] }
     
 member_def_list_opt:
-| m = member_def; ms = member_def_list_opt {
-  match m with
-  | Module.SymbolDef (VarDef { var_decl = { var_loc = loc; var_const = false; _}; _ }) ->
-      Error.syntax_error loc "Modules and interfaces cannot have var members"
-  | _ -> m :: ms
-}
+| m = member_def; ms = member_def_list_opt { m :: ms }
 | m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
@@ -482,7 +476,7 @@ stmt_wo_trailing_substmt:
 }
 (* havoc *)
 | HAVOC; id = qual_ident; SEMICOLON { 
-  [Stmt.(Basic (Havoc (Expr.to_qual_ident id)))]
+  [Stmt.(Basic (Havoc { havoc_var = (Expr.to_qual_ident id); havoc_is_init = false; } ))]
 }
 
 (* assume / assert / inhale / exhale *)
@@ -523,6 +517,7 @@ stmt_wo_trailing_substmt:
     use_witnesses_or_binds = wtns
   }))]
 }
+| f = stmtExt { f }
 ;
 
 existential_witness_or_bind:
@@ -880,7 +875,7 @@ mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
 
-ident: 
+%public ident: 
 | x = IDENT {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
@@ -919,6 +914,7 @@ unary_expr:
 | MINUS; e = unary_expr {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
 | e = unary_expr_not_plus_minus { e }
+| f = unary_exprExt { f }
 ;
 
 unary_expr_not_plus_minus:
@@ -1075,7 +1071,7 @@ bound_var_opt_type:
 } 
 ;
 
-type_expr:
+%public type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | REAL { Type.mk_real (Loc.make $startpos $endpos)}
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
@@ -1089,6 +1085,7 @@ type_expr:
 | LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
+| f = typeExt { f }
     
   
 type_expr_list:
@@ -1119,7 +1116,7 @@ patterns:
 | e = quant_expr { e } 
 ;
 
-expr_list:
+%public expr_list:
 | e = expr; COMMA; es = expr_list { e :: es }
 | e = expr { [e] }
 ;

@@ -21,10 +21,20 @@ module Option[E: Type] : Type {
   }
 }
 
-module List[E: Type] : Type {
+module ListM[E: Type] : Type {
   rep type T = data {
     case nil
-    case cons(head: E, tail: T) 
+    case cons(hd: E, tl: T) 
+  }
+
+  func len(ls:T) returns (ret: Int) {
+    ls == nil ? 0 :
+      1 + len(ls.tl)
+  }
+
+  func is_in(ls: T, e: E) returns (ret: Bool) {
+    ls == nil ? false :
+      (e == ls.hd || is_in(ls.tl, e))
   }
 }
 

@@ -1,0 +1,64 @@
+module IntList = Library.ListM[Library.IntType]
+
+proc p0() 
+  returns (ret: Int)
+  requires -*-(0.5)
+  ensures ret == 0
+{
+  var z: Int := Rand(2; ECVal: !=1);
+  return z;
+}
+
+proc p1()
+  returns (ret: Int)
+  requires -*-(0.25)
+  ensures ret != 0
+{
+  var n := Rand(4; ECFn: -*-(0.25), i ==> (i == 0 ? 1.0 : 0.0));
+  
+  if (n==0) {
+    ECContra;
+  }
+  return n;
+}
+
+proc p2() 
+    returns (ret: Bool)
+    requires -*-(0.25)
+    ensures ret == true
+{
+    var n: Int := Rand(4; ECFn: -*-(0.25), i ==> (i <= 1 ? 0.0 : 0.5));
+
+    if (n <= 1) { return true; }
+    else {
+        var k: Int := Rand(2; 
+          ECFn: -*-(0.5), i ==> (i+n <= 2 ? 0 : (i+n == 3 ? 1.0 : 0)));
+
+        if (n + k <= 2) { return true; }
+        
+        else if (n + k <= 3) { ECContra; return false; }
+        else {
+            while (true) { }
+            assert false;
+        }
+    }
+}
+
+proc p3(n: Int)
+  returns (ret: Bool)
+  requires -*-(1.0/n)
+  ensures (ret == false)
+{
+  var q1: Int := Rand(n);
+  var q2: Int := Rand(n; ECVal: !=q1);
+
+  return q1 == q2;
+}
+
+proc p4()
+{
+  inhale -*-(0.4);
+  var n := IntList.cons(1, IntList.cons(2, IntList.nil));
+  var k := Rand(5; ECList: !in n);
+  assert k != 1;
+}

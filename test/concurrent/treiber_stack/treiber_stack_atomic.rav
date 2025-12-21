@@ -1,11 +1,11 @@
 import Library.Type
 import Library.Option
-import Library.List
+import Library.ListM
 
 module Stack[T: Type] {
 
   module TOption = Option[T]
-  module TList = List[T]
+  module TList = ListM[T]
   import TList._
   import TOption._
 
@@ -17,7 +17,7 @@ module Stack[T: Type] {
   pred list(x: Ref; xs: TList) {
     x == null ? 
       xs == nil : 
-      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x.value, xs.head, q) && own(x.next, tl0, q) && list(tl0, xs.tail))))
+      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x.value, xs.hd, q) && own(x.next, tl0, q) && list(tl0, xs.tl))))
   }
 
   pred stack(s: Ref; xs: TList) {
@@ -66,7 +66,7 @@ module Stack[T: Type] {
     atomic ensures 
       xs == nil ? 
         (stack(s, xs) && result == none) : 
-        (stack(s, xs.tail) && result == some(xs.head))
+        (stack(s, xs.tl) && result == some(xs.hd))
   {
     ghost val phi := bindAU();
     ghost val xs0: TList := openAU(phi);
@@ -104,7 +104,7 @@ module Stack[T: Type] {
 
     if (res) {
       unfold list(top1);
-      fold stack(s, xs1.tail);
+      fold stack(s, xs1.tl);
       commitAU(phi, some(top_value));
       return some(top_value);
     } else { 

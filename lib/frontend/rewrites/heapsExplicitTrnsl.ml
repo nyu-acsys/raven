@@ -3538,14 +3538,10 @@ module TrnslExhale = struct
                 let* preconds, postconds, optn_args =
                   match Map.find witness_args_conds_exprs_map var_decl.var_name with
                   | None | Some [] ->
-                      let error =
-                        ( Error.Verification,
-                          Expr.to_loc expr,
-                          "No witnesses could be computed for: "
-                          ^ Ident.to_string var_decl.var_name )
-                      in
-                      Logs.warn (fun m -> m "%s" (Error.to_string error));
-                      Rewriter.return ([], [], [])
+                    Logs.warn (fun m -> m "%s%s" 
+                      (Loc.to_string (Expr.to_loc expr)) 
+                      ("No witnesses could be computed for: " ^ Ident.to_string var_decl.var_name));
+                    Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
                       let witness_arg_exprs = 
                         let universal_wtns = List.filter witness_arg_exprs ~f:(fun (vd, conds, expr) -> List.is_empty conds) in
@@ -3645,7 +3641,8 @@ module TrnslExhale = struct
                   var_decl with
                   var_name = Ident.fresh loc @@ 
                     "$skolem_expr_placeholder$$" ^ (Ident.to_string var_decl.var_name);
-                  var_type = skolem_wtns_var_tp
+                  var_type = skolem_wtns_var_tp;
+                  var_const = true;
 
                   }
                 in
@@ -5049,7 +5046,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   match s.stmt_desc with
   | Stmt.Basic basic_stmt -> begin
       match basic_stmt with
-      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | AtomicInbuilt _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ | StmtExt _ ->
+      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ | StmtExt _ ->
         Rewriter.return s
       | Spec (spec_kind, spec) -> (
           match spec_kind with
@@ -5215,7 +5212,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
             in
 
             let assign_stmt =
-              Stmt.mk_assign ~loc:s.stmt_loc
+              Stmt.mk_assign ~loc:s.stmt_loc ~is_init:fr_desc.field_read_is_init
                 [ fr_desc.field_read_lhs ]
                 (Expr.mk_app ~typ:lhs_var.var_type (DataDestr field_val_destr)
                    [ Expr.mk_maplookup field_heap_expr fr_desc.field_read_ref ])

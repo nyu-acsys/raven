@@ -1,5 +1,5 @@
 (library
  (name ext)
- (libraries base util ast extApi AtomicExt defaultExt)
+ (libraries base util ast extApi defaultExt listExt prophecyExt AtomicExt errorCreditsExt)
  (preprocess
   (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))

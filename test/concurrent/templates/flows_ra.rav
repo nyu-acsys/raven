@@ -53,6 +53,35 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       (i1 == id ? i2 : (i2 == id ? i1 : top))
   }
 
+  // Interface frame
+  func frame(i1: T, i2: T) returns (i: T)
+  {
+    i2 == id ? i1 :
+    (valid(i1) && valid(i2) && i2.dom subseteq i1.dom?
+      int({| n: Ref :: 
+        n in i1.dom && n !in i2.dom ?
+          M.comp(i1.inf[n], i2.out[n]) :
+          M.id
+      |},
+      {| n: Ref :: 
+        n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : 
+          (n in i1.dom ? M.id : M.frame(i1.out[n], i2.out[n])) |},
+      i1.dom -- i2.dom) :
+      top)
+  }
+
+  func contextualExt(i1: T, i2: T) returns (ret: Bool) {
+    valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
+    (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
+    (forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in i2.dom ==> i1.out[n] == i2.out[n])
+  }
+
+  func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
+  {
+    i1 == i2 
+    // contextualExt(i1, i2) 
+  }
+
   // Folds definition of interface composition, avoiding M.frame
   lemma compFold(i1: T, i2: T, i: T)
     requires i != top
@@ -109,6 +138,10 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     compFold(i12, i3, i);
   }
 
+  auto lemma compFrameInv()
+    ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
+  {}
+
   auto lemma compAssoc()
         ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
   {
@@ -120,36 +153,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
       }
     }
   }
-
-  // Interface frame
-  func frame(i1: T, i2: T) returns (i: T)
-  {
-    i2 == id ? i1 :
-    (valid(i1) && valid(i2) && i2.dom subseteq i1.dom?
-      int({| n: Ref :: 
-        n in i1.dom && n !in i2.dom ?
-          M.comp(i1.inf[n], i2.out[n]) :
-          M.id
-      |},
-      {| n: Ref :: 
-        n in i2.dom ? M.frame(i2.inf[n], i1.inf[n]) : 
-          (n in i1.dom ? M.id : M.frame(i1.out[n], i2.out[n])) |},
-      i1.dom -- i2.dom) :
-      top)
-  }
-  
-  func contextualExt(i1: T, i2: T) returns (ret: Bool) {
-    valid(i1) && valid(i2) && i1.dom subseteq i2.dom &&
-    (forall n: Ref :: {i1.inf[n]} {i2.inf[n]} n in i1.dom ==> i1.inf[n] == i2.inf[n]) &&
-    (forall n: Ref :: {i1.out[n]} {i2.out[n]} n !in i2.dom ==> i1.out[n] == i2.out[n])
-  }
-
-  func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
-  {
-    i1 == i2 
-    // contextualExt(i1, i2) 
-  }
-  
+    
   lemma replacement_theorem(i1: T, i2: T, j1: T)
     requires valid(comp(i1, i2))
     requires contextualExt(i1, j1) && j1.dom ** i2.dom == {||}

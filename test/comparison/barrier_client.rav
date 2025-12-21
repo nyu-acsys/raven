@@ -46,7 +46,7 @@ module BarrierClient[N: NumThreads] {
                 : own(l.gh, auth_r(n2, n1)))
     }
 
-    interface PL: ShareablePredicate {
+    module PL: ShareablePredicate {
         pred p() {
             true
         }
@@ -107,7 +107,7 @@ module BarrierClient[N: NumThreads] {
         }
     }
 
-    interface PR: ShareablePredicate {
+    module PR: ShareablePredicate {
         pred p() {
             true
         }
@@ -217,7 +217,7 @@ module BarrierClient[N: NumThreads] {
         }
     }
 
-    interface BR = Barrier[N, A]
+    module BR = Barrier[N, A]
     import A.P1
     import A.P2
 

@@ -1,0 +1,23 @@
+proc p() {
+
+  var myProph: ProphId;
+  var myPred: Int;
+  var actual: Int;
+
+  // One-shot prophecies
+  myProph, myPred := NewProph1[Int];
+  assert exists zs: List[Int] :: prophecy(myProph, zs) && List.hd(zs) == myPred;
+
+  ResolveProph(myProph, actual);
+  assert (myPred == actual);
+
+  var myProph': ProphId;
+  var bs: List[Bool];
+
+  // Multi-shot prophecies
+  myProph', bs := NewProph[Bool];
+  ResolveProph(myProph', true);
+
+  assert List.hd(bs) == true;
+  assert prophecy(myProph', List.tl(bs));
+}

@@ -86,7 +86,10 @@ let pr_smt_ident ppf id =
     | x -> x
   ) in
 
-  let sanitized_ident = QualIdent.sanitize smt_ident_sanitize_map id in
+  let sanitized_ident = 
+    if QualIdent.(id = QualIdent.from_ident (Ident.make Loc.dummy "_" 0)) then 
+      QualIdent.from_ident (Ident.make Loc.dummy "_0" 0) 
+    else QualIdent.sanitize smt_ident_sanitize_map id in
 
   (* Logs.debug (fun m -> m 
     "smtLibAST.pr_smt_ident: 
@@ -126,9 +129,8 @@ let rec pr_sort ppf (sort : sort) =
       Error.internal_error (Type.to_loc sort)
         ("pr_sort: unexpected sort: " ^ Type.to_string sort)
   | _ ->
-      Logs.debug (fun m ->
-          m "pr_sort: unexpected sort %s" (Type.to_string sort));
-      assert false
+      Error.internal_error (Type.to_loc sort)
+        ("pr_sort: unexpected sort: " ^ Type.to_string sort)
 
 and pr_sorts ppf = function
   | [] -> ()
@@ -209,7 +211,7 @@ let rec pr_term ppf (term : term) =
             | App (Prod, ts, _) -> List.length ts
             | _ ->
                 Error.internal_error (Expr.to_loc term)
-                  ("pr_term: unexpected term" ^ Expr.to_string term)
+                  ("pr_term: unexpected term: " ^ Expr.to_string term)
           in
           let index_num = Expr.to_int index 
           in
@@ -222,7 +224,7 @@ let rec pr_term ppf (term : term) =
               fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es)
       | Diff, _ | Read, _ | Own, _ | _ ->
           Error.internal_error (Expr.to_loc term)
-            ("pr_term: unexpected term" ^ Expr.to_string term))
+            ("pr_term: unexpected term: " ^ Expr.to_string term))
   | Binder (b, vs, trgs, f, _) -> (
       let vs =
         List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type))

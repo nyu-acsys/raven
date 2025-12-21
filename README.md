@@ -1,5 +1,5 @@
 # Raven
-![Version 1.0.0](https://img.shields.io/badge/version-1.0.0-green.svg)
+![Version 1.0.1](https://img.shields.io/badge/version-1.0.1-green.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE)
 [![Builds, tests & co](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml)
 
@@ -43,13 +43,13 @@ Several examples of Raven programs can be found in the [test](test) folder. The 
 The Raven verifier can be executed on a file `test/concurrent/treiber_stack/treiber_stack_atomics.rav` as follows:
 ```
 $ raven test/concurrent/treiber_stack/treiber_stack_atomics.rav
-Raven version 1.0.0
+Raven version 1.0.1
 Verification successful.
 ```
 Here is a failing example:
 ```
 $ raven test/ci/back-end/fail/fpu_fail.rav
-Raven version 1.0.0
+Raven version 1.0.1
 [Error] File "test/ci/back-end/fail/fpu_fail.rav", line 7, columns 2-14:
 7 |   fpu(x.f, 4);
       ^^^^^^^^^^^^

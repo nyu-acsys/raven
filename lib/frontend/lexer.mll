@@ -21,14 +21,12 @@ let _ =
       ("AtomicToken", ATOMICTOKEN);
       ("auto", AUTO);
       ("Bool", BOOL);
-      ("cas", CAS);
       ("case", CASE);
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
       ("exhale", SPEC Stmt.Exhale);
       ("exists", QUANT(Expr.Exists));
-      ("faa", FAA);
       ("false", CONSTVAL (Expr.Bool false));
       ("forall", QUANT(Expr.Forall));
       ("fold", USE (Stmt.Fold));
@@ -70,7 +68,28 @@ let _ =
       ("var", VAR false);
       ("with", WITH);
       ("while", WHILE);
+
+      (* ListExt *)
+      ("List", LIST);
+
+      (* ProphecyExt *)
+      ("NewProph", NEWPROPH);
+      ("NewProph1", NEWPROPH1);
+      ("ResolveProph", RESOLVEPROPH);
+      ("prophecy", PROPHECY);
+      ("ProphId", PROPHID);
+
+      (* AtomicExt *)
+      ("cas", CAS);
+      ("faa", FAA);
       ("xchg", XCHG);
+
+      (* ErrorCreditsExt *)
+      ("ECContra", ECCONTRA);
+      ("ECFn", ECFN);
+      ("ECList", ECLIST);
+      ("ECVal", ECVAL);
+      ("Rand", RAND);
     ])
 
 let operator_table = Hashtbl.create 64
@@ -107,6 +126,7 @@ let _ =
      ".", DOT;
      "?", QMARK;
      ":|", COLONPIPE;
+     "-*-", ERRORCRED;
      ]
     
 let lexical_error lexbuf msg =
