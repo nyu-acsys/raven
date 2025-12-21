@@ -29,7 +29,7 @@ module SmtSession = struct
     solver_state : solver_state;
   }
 
-  let start_solver () =
+  let start_solver ?(logging = true) () =
     (*let in_read, in_write = Unix.pipe () in
       let out_read, out_write = Unix.pipe () in
       let pid = Unix.create_process "z3" [| "smt2"; "-in" |] out_read in_write in_write in
@@ -53,7 +53,11 @@ module SmtSession = struct
 
     {
       log_file_name;
-      log_out_chan = Stdio.Out_channel.create log_file_name;
+      log_out_chan =
+        if logging then 
+          Stdio.Out_channel.create log_file_name 
+        else 
+          Util.Channel.null_channel ();
       assert_count = 0;
       response_count = 0;
       stack_height = 0;
@@ -294,9 +298,9 @@ let declare_tuple_sort (arity : int) : command =
 
   mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
 
-let init diagnostics timeout : smt_env =
+let init ?(logging = true) diagnostics timeout : smt_env =
   let open SmtSession in
-  let session = start_solver () in
+  let session = start_solver ~logging () in
   let open PreambleConsts in
   let options_list =
     [

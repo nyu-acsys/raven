@@ -1,4 +1,4 @@
-interface List {
+interface ListM {
     rep type T
     func nil() returns (ret: T)
     func cons(head: Int, tail: T) returns (ret: T)
@@ -45,7 +45,7 @@ interface List {
             (is_cons(xs) ==> tp(xs) == tp_cons())
 }
 
-module Test[L: List] {
+module Test[L: ListM] {
   import L._
 
   proc test_types(x: T)

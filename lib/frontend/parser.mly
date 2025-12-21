@@ -40,8 +40,7 @@ open Ast
 %type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
 %type <Stmt.stmt_desc list> stmtExt
 %type <expr> unary_exprExt
-/* %type <Ast.Type.t> type_def_expr
-%type <Ast.Type.t> type_expr */
+%type <Type.t> typeExt
 %%
 
 main:
@@ -72,7 +71,6 @@ module_def:
   | ModDef impl ->
       ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
   | ModInst ma ->
-  (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
       else
@@ -877,7 +875,7 @@ mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
 
-ident: 
+%public ident: 
 | x = IDENT {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
@@ -1073,7 +1071,7 @@ bound_var_opt_type:
 } 
 ;
 
-type_expr:
+%public type_expr:
 | INT { Type.mk_int (Loc.make $startpos $endpos) }
 | REAL { Type.mk_real (Loc.make $startpos $endpos)}
 | BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
@@ -1087,6 +1085,7 @@ type_expr:
 | LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
+| f = typeExt { f }
     
   
 type_expr_list:
@@ -1117,7 +1116,7 @@ patterns:
 | e = quant_expr { e } 
 ;
 
-expr_list:
+%public expr_list:
 | e = expr; COMMA; es = expr_list { e :: es }
 | e = expr { [e] }
 ;

@@ -12,6 +12,7 @@ type config = {
   prog_stats: bool;
   smt_timeout: int;
   smt_diagnostics: bool;
+  log_level: Logs.level option;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -108,11 +109,29 @@ let check_cu config tbl smt_env md front_end_out_chan =
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all config file_names =
   (* Start backend solver session *)
-  let smt_env = Backend.Smt_solver.init config.smt_diagnostics config.smt_timeout in
+  
+  (* Variable which controls whether the 
+    - `front_end_processed_output.log` 
+    - `log.smt2`
+    files are created. 
+    At present create them only when in Debug mode and also not in lsp_mode.
+   *)
+  let external_logging = 
+    match config.log_level with
+    | Some Logs.Debug ->
+      if config.lsp_mode then false else
+        true
+    | _ -> false
+  in
+
+  let smt_env = Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout in
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan =
-    Stdio.Out_channel.create front_end_processed_output_log
+    if external_logging then
+      Stdio.Out_channel.create front_end_processed_output_log
+    else 
+      Util.Channel.null_channel ()
   in
 
   (* Parse and check standard library *)
@@ -185,7 +204,8 @@ let parse_and_check_all config file_names =
   in
 
   begin
-  let _ = check_cu config tbl smt_env md front_end_out_chan in
+  let _, _tbl = check_cu config tbl smt_env md front_end_out_chan in
+  (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
   Logs.app (fun m -> m "Verification successful.")
   end
 
@@ -290,6 +310,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     base_dir;
     smt_timeout;
     smt_diagnostics;
+    log_level = Logs.level ();
   }
   in
   try `Ok (parse_and_check_all config input_files) with
@@ -304,7 +325,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     print_errors config [Internal, pos, msg]
   | Error.Msg es ->
     print_errors config es
-      
+
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info

@@ -25,6 +25,7 @@ depends: [
   "ppx_sexp_conv" {>= "0.14.3"}
   "ppx_let" {>= "0.16.0"}
   "ppx_blob" {>= "0.7.2"}
+  "sexplib" {>= "0.17.0"}
   "yojson" {>= "2.2.2"}
   "odoc" {with-doc}
 ]

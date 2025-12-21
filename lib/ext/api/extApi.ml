@@ -1,8 +1,13 @@
 open Ast
 
+  type type_check_type_expr_functs = {
+    process_type_expr : type_expr -> type_expr Rewriter.t;
+  }
+
   type type_check_expr_functs = {
     check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
     process_expr : expr -> type_expr -> expr Rewriter.t;
+    type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   }
 
   type type_check_stmt_functs = {
@@ -28,6 +33,8 @@ module type Ext = sig
   val local_vars : var_decl list
 
   (* AstDef *)
+  val type_ext_to_name : (Type.type_ext -> string)
+
   val expr_ext_to_string : (Expr.expr_ext -> string)
 
   val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
@@ -37,6 +44,8 @@ module type Ext = sig
   val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
 
   (* Typing *)
+  val type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr Rewriter.t
+
   val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t
 
   val type_check_stmt : 
@@ -49,7 +58,10 @@ module type Ext = sig
 
 
   (* Rewrites *)
-  val rewrite_expr_ext : Expr.expr_ext -> expr list -> location -> expr Rewriter.t
+  val rewrite_type_ext : Ast.Type.type_ext -> type_expr list -> location -> type_expr Rewriter.t
+
+  val rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
+  
   val rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
 
   val lib_sources : (string * string) list

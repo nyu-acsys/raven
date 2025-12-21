@@ -170,6 +170,15 @@ type 'a state = {
 type ('a, 'b) t_ext = 'b state -> 'b state * 'a
 type 'a t = ('a, unit) t_ext
 
+let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
+  fun _ -> Error.unsupported_error Loc.dummy "process_symbol_ref not updated"
+)
+
+let expand_type_expr_ref : (
+    type_expr -> (type_expr, unit) t_ext
+  ) ref 
+    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref not updated") 
+
 include State
 
 let eval ?(update = true) m tbl =
@@ -292,8 +301,6 @@ let exit_module (mdef : Module.t) s =
       s.state_new_symbols_tree, mdef
 
     | Some child ->
-      let open Module in
-      
       let mdef = module_add_descendants mdef child in
 
       let state_new_symbols_tree = NewSymbolsTree.clear_node scope_id s.state_new_symbols_tree in
@@ -491,119 +498,37 @@ let introduce_typecheck_symbol ~loc
   
   s, Base.List.hd_exn qual_idents
 
-let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
-  fun _ -> Error.unsupported_error Loc.dummy "process_symbol_ref not updated"
-)
 
 let introduce_typecheck_symbol' ~loc
     (symbol : Module.symbol) (s : 'a state) : 'a state * qual_ident =
   introduce_typecheck_symbol ~loc ~f:!process_symbol_ref symbol s
 
 let introduce_typecheck_symbol_at_scope' ~loc
-    (symbol: Module.symbol) (qual_ident: qual_ident) (s: 'a state) : 'a state * qual_ident =
+    (symbol: Module.symbol) (scope_qi: qual_ident) (s: 'a state) : 'a state * qual_ident =
 
   let _, start_scope_id = current_scope_id s in
 
   let s = { s with
-    state_table = SymbolTbl.goto qual_ident s.state_table
+    state_table = SymbolTbl.goto_scope scope_qi s.state_table
   } in
+
+  Logs.debug (fun m -> m "introduce_typecheck_symbol_at_scope': scope_qi=%a; after goto, cuurent_scope: %a; symbol = %a " QualIdent.pr scope_qi QualIdent.pr s.state_table.tbl_curr.scope_id Ident.pr (Symbol.to_name symbol));
 
   let s, _ = declare_symbol symbol s in
   let s, symbol = !process_symbol_ref symbol s in
 
-  let state_new_symbols_tree = NewSymbolsTree.scope_add_symbols qual_ident [symbol] s.state_new_symbols_tree in
+  let state_new_symbols_tree = NewSymbolsTree.scope_add_symbols scope_qi [symbol] s.state_new_symbols_tree in
 
   let s = { s with
-    state_table = SymbolTbl.goto start_scope_id s.state_table;
+    state_table = SymbolTbl.goto_scope start_scope_id s.state_table;
     state_new_symbols_tree;
   } in
 
-  let symbol_qual_ident = (QualIdent.append qual_ident (Symbol.to_name symbol)) in
+  let symbol_qual_ident = (QualIdent.append scope_qi (Symbol.to_name symbol)) in
 
+  (* Logs.debug (fun m -> m "Rewriter.introduce_typecheck_symbol_at_scope: symbol_qual_ident = %a" QualIdent.pr symbol_qual_ident); *)
   (s, symbol_qual_ident)
 
-
-
-
-(* let introduce_toplevel_symbol ~loc
-    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
-    ?(topscope_name = QualIdent.from_ident Predefs.prog_ident)
-    (symbol : Module.symbol) (s : 'a state) : 'a state * qual_ident =
-  (* This function takes a symbol and adds it to a top-scope, typically $Program. This is achieved by calling exit_module a bunch of times till we are in the right scope in table. Then, calling the f typechecking function on symbol, then *)
-
-  (* f represents a typechecking function that will be used to type-check symbol in once the state has been set in the correct scope. Typically, this function will be the Typing.process_symbol function. However, this cannot be set statically since it will create a recursive dependency between Rewriter and Typing. *)
-  (*Logs.debug (fun m ->
-      m "Rewriter.introduce_toplevel_symbol: topscope_name = %a" QualIdent.pr
-        topscope_name);*)
-
-  let topscope = SymbolTbl.get_scope_exn topscope_name s.state_table in
-
-  assert (SymbolTbl.is_ancestor topscope s.state_table);
-
-  let symbol_qual_ident =
-    QualIdent.append topscope_name (Symbol.to_name symbol)
-  in
-  match
-    ( SymbolTbl.resolve_and_find symbol_qual_ident s.state_table,
-      s.state_update_table )
-  with
-  | Some _, _ | _, false -> (s, symbol_qual_ident)
-  | None, true ->
-      let s, scope_new_symbols_list, ghost_scope_list =
-        let rec pop_fn (topscope : qual_ident) (s : 'a state)
-            (scope_new_symbols_list : (ident * Module.symbol list) list)
-            (ghost_scope_list : bool list)  =
-          if QualIdent.equal s.state_table.tbl_curr.scope_id topscope then
-            (s, scope_new_symbols_list, ghost_scope_list)
-          else
-            let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
-            let curr_scope_symbols = Base.List.hd_exn s.state_new_symbols in
-            let curr_ghost_scope = Base.List.hd_exn s.state_ghost_scope in
-            let scope_new_symbols_list =
-              (curr_scope_name, curr_scope_symbols) :: scope_new_symbols_list
-            in
-
-            let empty_module =
-              Module.{ mod_decl = empty_decl; mod_def = [] }
-              (* using empty module to exit. Result of exit_module is thrown away, so it doesn't matter *)
-            in
-
-            let s, _m = exit_module empty_module s in
-
-            pop_fn topscope s scope_new_symbols_list (curr_ghost_scope :: ghost_scope_list)
-        in
-
-        pop_fn topscope_name s [] []
-      in
-
-      let s, _ = declare_symbol symbol s in
-      let s, symbol = f symbol s in
-
-      let s =
-        {
-          s with
-          state_new_symbols =
-            (match s.state_new_symbols with
-            | scope :: new_symbols -> (symbol :: scope) :: new_symbols
-            | _ -> failwith "empty scope");
-        }
-        (* Above code is implementing some of the functionalities of introduce_symbol manually. The reason introduce_symbol cannot be called directly is because we want to run type-checking on symbol (using the function `f`). For this, the symbol first needs to be added to the symbolTbl, before calling `f` *)
-      in
-
-      let s =
-        Base.List.fold2_exn scope_new_symbols_list ghost_scope_list ~init:s
-          ~f:(fun s (scope_name, scope_symbols) ghost_scope ->
-            {
-              s with
-              state_table = SymbolTbl.enter_exn scope_name s.state_table;
-              state_new_symbols = scope_symbols :: s.state_new_symbols;
-              state_ghost_scope = ghost_scope :: s.state_ghost_scope
-            }
-            (* since we don't have the actual ModDef/CallDef, cannot call Rewriter.enter.
-               Instead, manually implementing its functionality using SymbolTbl.enter. *))
-      in
-
-      (s, symbol_qual_ident) *)
 
 let add_locals var_decls s =
   if s.state_update_table then (
@@ -838,8 +763,19 @@ module Stmt = struct
             let+ call_args = List.map call.call_args ~f in
             { stmt with stmt_desc = Basic (Call { call with call_args }) }
         | Use use_desc ->
-            let+ use_args = List.map use_desc.use_args ~f in
-            { stmt with stmt_desc = Basic (Use { use_desc with use_args }) }
+            let* use_args = List.map use_desc.use_args ~f in
+
+            let+ use_witnesses_or_binds = match use_desc.use_kind with
+            | Fold -> 
+              List.map use_desc.use_witnesses_or_binds ~f:(fun (iden, expr) -> 
+                let+ expr = f expr in
+                (iden, expr)
+              ) 
+            | Unfold -> return use_desc.use_witnesses_or_binds
+          
+          in
+
+            { stmt with stmt_desc = Basic (Use { use_desc with use_args; use_witnesses_or_binds }) }
         | New new_desc ->
             let+ new_args =
               List.map new_desc.new_args ~f:(fun (x, e_opt) ->
@@ -1473,6 +1409,21 @@ let resolve name : (QualIdent.t, 'a) t_ext =
       m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name
         QualIdent.pr qual_ident);*)
   qual_ident
+
+let resolve_and_find_opt name: ((QualIdent.t * Symbol.t) option, 'a) t_ext =
+  let open Syntax in
+  let+ tbl = get_table in
+
+  match SymbolTbl.resolve_and_find name tbl with
+  | None -> None
+  | Some (alias_qual_ident, qual_ident, symbol, subst) ->
+    Some (qual_ident, (alias_qual_ident, symbol, subst))
+
+let resolve_opt name : (QualIdent.t option, 'a) t_ext =
+  let open Syntax in
+  let+ result = resolve_and_find_opt name in
+
+  result |> Base.Option.map ~f:(fun (qual_ident, _) -> qual_ident)
 
 let find name : (Symbol.t, 'a) t_ext =
   let open Syntax in

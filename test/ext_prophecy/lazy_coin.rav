@@ -1,0 +1,64 @@
+// Have to use an interface to be able to leave nondet_bool unspecified
+interface PLC {
+
+  module BoolOpt = Library.Option[Library.BoolType]
+  import BoolOpt._
+
+  field c: BoolOpt
+  field p: ProphId
+
+  func nondet_bool() returns (ret: Bool)
+
+  proc new_lazy_coin() returns (ret: Ref, implicit ghost b: Bool) 
+    ensures lazy_coin(ret, b)
+  {
+    var p1: ProphId;
+    var z: Bool;
+    p1, z := NewProph1[Bool]; 
+
+    var x: Ref := new(c: none, p: p1);
+
+    fold lazy_coin(x, z);
+    return x, z;
+  }
+
+  proc read_lazy_coin(coin: Ref, implicit ghost b: Bool)
+    returns (ret: Bool)
+    requires lazy_coin(coin, b)
+    ensures lazy_coin(coin, b) && ret == b
+  {
+    unfold lazy_coin(coin, b);
+    var c_val := coin.c;
+    ghost var proph_id := coin.p;
+    if (c_val == none) {
+        var b: Bool := nondet_bool();
+        coin.c := some(b);
+        ResolveProph(proph_id, b);
+        fold lazy_coin(coin, b);
+        return b;
+    } else {
+        var res := c_val.value;
+        fold lazy_coin(coin, b);
+        return res;
+    }
+  }
+
+  pred lazy_coin (coin: Ref, b: Bool) {
+    exists b': BoolOpt, bs:List[Bool], p': ProphId ::
+      own(coin.c, b') && own(coin.p, p') &&
+
+      (b' == some(b'.value) ? 
+        b'.value == b :
+
+        // How do we encode one-shot prophecies as opposed to multi-shot prophecies?
+        // At present have to do this trick, because one-shot prophecies are encoded basically exactly like multi-shot prophecies.
+        // That's why have to access it using this `bs` variable.
+
+        // One difference is that multi-shot prophecies should never run out.
+        // Whereas one-shot prophecy we want to be a singleton.
+        // Ensuring this becoms tricky with the same implementation for both.
+        // This becomes even trickier with: one-shot List[Int] prophecy vs multi-shot Int prophecy. How to differentiate at resolve time?
+        (List.hd(bs) == b && prophecy(p', bs)) 
+      )
+  }
+}

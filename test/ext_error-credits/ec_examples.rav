@@ -1,4 +1,4 @@
-module IntList = Library.List[Library.IntType]
+module IntList = Library.ListM[Library.IntType]
 
 proc p0() 
   returns (ret: Int)

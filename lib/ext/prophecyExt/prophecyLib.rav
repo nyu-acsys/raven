@@ -1,0 +1,3 @@
+module Prophecy[Typ: Library.Type] {
+    ghost field prophecyValue: Typ
+}

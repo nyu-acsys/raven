@@ -382,6 +382,8 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
       | _ -> State.return ())
 
 let check_members (mod_name : ident) (deps : QualIdent.t list list) tbl =
+  Logs.debug(fun m -> m "Checker.check_members: deps= %a" 
+      (Util.Print.pr_list_nl (Util.Print.pr_list_comma QualIdent.pr)) deps );
   let open Rewriter.Syntax in
   let declare_fn (fully_qual_name: qual_ident) (sym: Module.symbol) : unit t =
     match sym with

@@ -79,6 +79,8 @@ module ProcessTypeExpr = struct
     | App (AtomicToken qid, [], tp_attr) ->
       let+ qid = Rewriter.resolve qid in
       App (AtomicToken qid, [], tp_attr)
+    | App (TypeExt type_ext, tp_args, tp_attr) ->
+      Ext.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
@@ -139,7 +141,7 @@ module ProcessExpr = struct
       if not @@ expected_ghost && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb) then
         let _ = Logs.debug (fun m -> m !"Failed with %{Expr}" expr) in
         Error.type_error (Expr.to_loc expr) "Cannot use ghost state in non-ghost context"
-    in            
+    in
     let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
     if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
     else begin
@@ -678,7 +680,7 @@ module ProcessExpr = struct
             let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
-        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr}
+        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -2701,4 +2703,5 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
   let+ _ = Rewriter.set_symbol symbol in
   symbol;;
 
-Rewriter.process_symbol_ref := process_symbol
+Rewriter.process_symbol_ref := process_symbol;
+Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;

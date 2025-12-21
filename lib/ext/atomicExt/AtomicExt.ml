@@ -24,6 +24,8 @@ module AtomicExt (Cont : Ext) = struct
 
 
   (* AstDef *)
+  let type_ext_to_name = Cont.type_ext_to_name
+
   let expr_ext_to_string = Cont.expr_ext_to_string
   
   let pr_stmt_ext ppf ext expr_list = 
@@ -52,6 +54,8 @@ module AtomicExt (Cont : Ext) = struct
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
   (* Typing *)
+  let type_check_type_expr = Cont.type_check_type_expr
+  
   let type_check_expr = Cont.type_check_expr 
   
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
@@ -148,6 +152,7 @@ module AtomicExt (Cont : Ext) = struct
 
 
   (* Rewrites *)
+  let rewrite_type_ext = Cont.rewrite_type_ext
   let rewrite_expr_ext = Cont.rewrite_expr_ext
 
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
@@ -212,6 +217,8 @@ module AtomicExt (Cont : Ext) = struct
       new_stmts
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
 
+  (* --------------------- *)
+  (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
   let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

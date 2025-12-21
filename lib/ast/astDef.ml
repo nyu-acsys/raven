@@ -139,6 +139,8 @@ module QualIdent = struct
     in
     Print.pr_list_sep "." Ident.pr ppf (path @ [qid.qual_base])
 
+  (* let pr ppf qid = Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base]) *)
+
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
 
   let to_string qid = Print.string_of_format pr qid
@@ -239,6 +241,24 @@ type 'a qual_ident_hashtbl = 'a QualIdentHashtbl.t
 
 module Type = struct
   module T = struct
+    type type_ext = ..
+    
+    let type_ext_to_name : (type_ext -> string) ref = ref (fun type_ext -> "[TypeExt]")
+    
+    let compare_type_ext (c1: type_ext) (c2: type_ext) = 
+      Stdlib.compare (Stdlib.Obj.tag (Stdlib.Obj.repr c1)) (Stdlib.Obj.tag (Stdlib.Obj.repr c2))
+
+    let equal_type_ext (c1 : type_ext) (c2 : type_ext) : bool =
+      compare_type_ext c1 c2 = 0
+
+    let hash_fold_type_ext state te =
+      let tag = Stdlib.Obj.tag (Stdlib.Obj.repr te) in
+        Ppx_hash_lib.Std.Hash.fold_int state tag
+    
+    let type_ext_of_sexp : (Sexp.t -> type_ext) = (fun sexp -> Sexplib.Conv.of_sexp_error "type_ext_of_sexp: unexpected sexp" sexp)
+
+    let sexp_of_type_ext : (type_ext -> Sexp.t) = (fun type_ext -> Sexplib.Conv.sexp_of_opaque type_ext)
+
     type type_attr = {
       type_loc : Loc.t; [@hash.ignore] [@compare.ignore]
       type_ghost: bool [@hash.ignore] [@compare.ignore]
@@ -275,6 +295,7 @@ module Type = struct
       | Data of QualIdent.t * variant_decl list
       | AtomicToken of QualIdent.t
       | Prod
+      | TypeExt of type_ext
 
     and t = App of constr * t list * type_attr
     [@@deriving compare, hash, sexp]
@@ -327,11 +348,12 @@ module Type = struct
     | Var id -> QualIdent.to_string id
     | AtomicToken id -> Printf.sprintf !"%s<%{QualIdent}>" atomic_token_type_string id
     | Prod -> prod_type_string
+    | TypeExt type_ext -> !type_ext_to_name type_ext
 
   let rec pr_constr ppf t =
     match t with
     | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
-    | Map | Fld | Prod ->
+    | Map | Fld | Prod | TypeExt _ ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data (id, decls) ->
       Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
@@ -382,8 +404,8 @@ module Type = struct
   (** Constructors *)
 
   let dummy_attr = { type_loc = Loc.dummy; type_ghost = false }
-  let mk_attr loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = false }
-  let mk_app ?(loc = Loc.dummy) t ts = App (t, ts, mk_attr loc)
+  let mk_attr ?(ghost=false) loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = ghost }
+  let mk_app ?(loc = Loc.dummy) ?(ghost=false) t ts = App (t, ts, mk_attr ~ghost loc)
 
   let mk_int loc = App (Int, [], mk_attr loc)
   let mk_real loc = App (Real, [], mk_attr loc)
@@ -398,7 +420,10 @@ module Type = struct
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
   let mk_data id decls loc = App (Data (id, decls), [], mk_attr loc)
-  let mk_var qid = App (Var qid, [], mk_attr (QualIdent.to_loc qid))
+  let mk_var ?loc qid = 
+    let loc = Option.value loc ~default:(QualIdent.to_loc qid) in
+
+    App (Var qid, [], mk_attr loc)
   let mk_atomic_token loc qid = App (AtomicToken qid, [], mk_attr loc) |> set_ghost true
   let mk_prod loc tp_list = 
     match tp_list with
@@ -433,6 +458,10 @@ module Type = struct
     | Bool, Perm | Perm, Bool -> Perm
     | (Int | Real), (Int | Real) -> Real
     | (Int | Real | Num), (Int | Real | Num) when not @@ Poly.(t1 = t2) -> Num
+    | TypeExt t1, TypeExt t2 ->
+      if Int.(compare_type_ext t1 t2 = 0) then
+        TypeExt t1
+      else Any
     | _, _ -> Any
  
   let rec meet_constr t1 t2 = 
@@ -443,6 +472,10 @@ module Type = struct
     | Int, Real | Real, Int -> Int
     | Int, Num | Num, Int -> Int
     | Real, Num | Num, Real -> Real
+    | TypeExt t1, TypeExt t2 ->
+      if Int.(compare_type_ext t1 t2 = 0) then 
+        TypeExt t1
+      else Bot
     | _, _ -> Bot
 
   let rec join t1 t2 =
@@ -468,7 +501,7 @@ module Type = struct
       (List.map2 ~f:meet ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
       | _ -> App (Bot, [], a1))      
-    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1 
+    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
 
   let subtype_of tp1 tp2 = equal (join tp1 tp2) tp2
@@ -2472,12 +2505,16 @@ module Predefs = struct
   let lib_type_mod_qual_ident = QualIdent.from_list [lib_ident; lib_type_mod_ident]
   let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
 
-  let lib_list_mod_ident = Ident.make Loc.dummy "List" 0
+  let lib_list_mod_ident = Ident.make Loc.dummy "ListM" 0
   let lib_list_mod_qual_ident = QualIdent.from_list [lib_ident; lib_list_mod_ident]
-
+  
+  let lib_list_arg_mod_ident = Ident.make Loc.dummy "E" 0
+  let lib_list_cons_ident = Ident.make Loc.dummy "cons" 0
+  let lib_list_nil_ident = Ident.make Loc.dummy "nil" 0
   let lib_list_len_ident = Ident.make Loc.dummy "len" 0
   let lib_list_is_in_ident = Ident.make Loc.dummy "is_in" 0
-  let lib_list_head_destr_ident = Ident.make Loc.dummy "head" 0
+  let lib_list_head_destr_ident = Ident.make Loc.dummy "hd" 0
+  let lib_list_tail_destr_ident = Ident.make Loc.dummy "tl" 0
 
   let lib_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "ResourceAlgebra" 0]
 

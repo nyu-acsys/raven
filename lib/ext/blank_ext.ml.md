@@ -14,6 +14,10 @@ module ExtName (Cont : Ext) = struct
     | _
 
   (* AstDef *)
+  let type_ext_to_name type_ext =
+    match type_ext with 
+    | _ -> Cont.type_ext_to_name type_ext
+
   let expr_ext_to_string expr_ext =
     match expr_ext with 
     | _ -> Cont.expr_ext_to_string expr_ext
@@ -36,9 +40,14 @@ module ExtName (Cont : Ext) = struct
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
   (* Typing *)
-  let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) = 
+  let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
+    match type_ext, type_args with
+    | _ -> Cont.type_check_type_expr type_ext type_args type_attr type_check_type_expr_functs
+
+
+  let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) = 
     match expr_ext, expr_list with
-    | _ -> Cont.type_check_expr expr_ext expr_list
+    | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
@@ -51,9 +60,13 @@ module ExtName (Cont : Ext) = struct
 
 
   (* Rewrites *)
-  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (loc: location) = 
+  let rewrite_type_ext (type_ext: Type.type_ext) (tp_list: type_expr list) (loc: location) = 
+    match type_ext, tp_list with
+    | _ -> Cont.rewrite_type_ext type_ext tp_list loc
+  
+  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr: Expr.expr_attr) = 
     match expr_ext, expr_list with
-    | _ -> Cont.rewrite_expr_ext expr_ext expr_list loc
+    | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -61,7 +74,6 @@ module ExtName (Cont : Ext) = struct
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
 
   (* --------------------- *)
-  
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
   let ext_local_vars = local_vars @ Cont.ext_local_vars

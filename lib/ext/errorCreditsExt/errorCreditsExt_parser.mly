@@ -6,11 +6,8 @@ open Ext.ErrorCreditsExtInstance
 
 %token ERRORCRED RAND ECVAL ECFN ECLIST ECCONTRA
 
-%start stmtExt
-%start unary_exprExt
-
 %%
-assignExt: 
+%public assignExt: 
 | f = errorCredsExt { f }
 
 errorCredsExt:
@@ -52,10 +49,10 @@ errorCredsExt:
 }
 ;
 
-stmtExt:
+%public stmtExt:
 | ECCONTRA; SEMICOLON { [Stmt.Basic (StmtExt (EC_Contra, []))]}
 
-unary_exprExt:
+%public unary_exprExt:
 | ERRORCRED; LPAREN e = expr RPAREN {
   Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt ErrorCreds) [e]
 }

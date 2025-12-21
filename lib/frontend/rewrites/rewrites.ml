@@ -757,10 +757,10 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* curr_state = Rewriter.__get_state in
 
-      Logs.debug (fun m ->
+      (* Logs.debug (fun m ->
           let open Rewriter in
           m "Rewrites.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr
-            curr_state.state_table.tbl_curr.scope_id);
+            curr_state.state_table.tbl_curr.scope_id); *)
 
       let new_stmt =
         let lhs_list =
@@ -2401,6 +2401,9 @@ let rewrite_ssa_transform (c : Callable.t) :
   match c.call_def with
   | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
+      Logs.debug (fun m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma Type.pr_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
+         @ c.call_decl.call_decl_locals) );
+
       let init_map =
         List.fold
           (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
@@ -2726,19 +2729,39 @@ let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   (* Logs.debug (fun m -> m "Rewrites.all_rewrites: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
   Rewriter.return m
 
+let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_expr_ext: Starting rewrites_type_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
+  let open Rewriter.Syntax in
+  let rec rewrite_type_ext (type_expr : type_expr) : type_expr Rewriter.t =
+    let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
+    match type_expr with
+    | App (TypeExt type_ext, args, type_attr) ->
+      Ext.rewrite_type_ext type_ext args (Type.to_loc type_expr)
+    | _ -> Rewriter.return type_expr
+
+  in
+  let* m =
+    Rewriter.Module.rewrite_types ~f:rewrite_type_ext m in
+
+  Rewriter.return m
+
 let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
+    let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
+    match expr with
+    | App (ExprExt expr_ext, args, expr_attr) -> 
+      Ext.rewrite_expr_ext expr_ext args expr_attr
+    | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
+  in
+
   Logs.debug (fun m1 ->
   m1 "Rewrites.rewrites_expr_ext: Starting rewrites_expr_ext on module %a"
     Ident.pr m.mod_decl.mod_decl_name);
 
-  let open Rewriter.Syntax in
-  let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
-    match expr with
-    | App (ExprExt expr_ext, args, expr_attr) -> 
-      Ext.rewrite_expr_ext expr_ext args (Expr.to_loc expr)
-    | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
-
-  in
   let* m = 
     Rewriter.Module.rewrite_expressions ~f:rewrite_expr_ext m in
 
@@ -2772,6 +2795,13 @@ let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
 
   let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
 
+  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
+  
+  (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
+
+  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
   let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
 

@@ -1,0 +1,9 @@
+type T = List[Bool]
+
+proc p() {
+  var x: List[Bool] := List.cons(true, List.nil);
+  var y: List[Bool] := x;
+  assert y == List.cons(true, List.nil);
+  assert forall x: List[Int] :: x == List.nil || x == List.cons(List.hd(x), List.tl(x));
+  var yy: List[Int] := List.nil;
+}

@@ -6,10 +6,8 @@ open Ext.AtomicExtInstance
 
 %token CAS FAA XCHG
 
-%start assignExt
-
 %%
-assignExt: 
+%public assignExt: 
 | f = atomicExt { f }
 
 atomicExt:

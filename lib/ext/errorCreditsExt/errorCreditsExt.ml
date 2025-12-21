@@ -46,6 +46,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | EC_Contra
 
   (* AstDef *)
+  let type_ext_to_name = Cont.type_ext_to_name
+
   let expr_ext_to_string expr_ext =
     match expr_ext with 
     | ErrorCreds -> "-*-"
@@ -96,6 +98,9 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
   (* Typing *)
+  let type_check_type_expr = Cont.type_check_type_expr
+
+
   let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) = 
     let open Rewriter.Syntax in
     match expr_ext, expr_list with
@@ -241,8 +246,12 @@ module ErrorCreditsExt (Cont : Ext) = struct
   let lib_fraction_frac_constr_ident = Ident.make Loc.dummy "frac" 0
 
   (* Rewrites *)
-  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (loc: location) = 
+  let rewrite_type_ext = Cont.rewrite_type_ext
+  
+  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr: Expr.expr_attr) = 
     let open Rewriter.Syntax in
+    let loc = expr_attr.expr_loc in
+
     match expr_ext, expr_list with
 
     | ErrorCreds, [ec] ->
@@ -268,7 +277,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
       Rewriter.return own_expr
 
-    | _ -> Cont.rewrite_expr_ext expr_ext expr_list loc
+    | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -599,6 +608,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
 
 
+  (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
   let ext_local_vars = local_vars @ Cont.ext_local_vars
