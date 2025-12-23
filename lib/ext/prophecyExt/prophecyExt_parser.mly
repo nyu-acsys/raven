@@ -13,10 +13,7 @@ open Ext.ProphecyExtInstance
   Type.mk_app ~loc:(Loc.make $startpos $endpos) (TypeExt ProphId) []
 }
 
-%public unary_exprExt:
-| f = proph_expr_ext { f }
-
-proph_expr_ext:
+%public unary_expr:
 | PROPHECY; LPAREN; e1=expr; COMMA; e2=expr; RPAREN {
   Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt ProphResource) [e1; e2]
 }

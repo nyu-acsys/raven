@@ -41,7 +41,6 @@ open Ast
 %type <(string * Loc.t) list * Ast.Module.t> main
 %type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
 %type <Stmt.stmt_desc list> stmtExt
-%type <expr> unary_exprExt
 %type <Type.t> typeExt
 %%
 
@@ -910,13 +909,12 @@ lookup_or_update_opt:
 }
 
   
-unary_expr:
+%public unary_expr:
 | e = lookup_or_update_expr { e }
 (*| e = ident { e }*)
 | MINUS; e = unary_expr {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
 | e = unary_expr_not_plus_minus { e }
-| f = unary_exprExt { f }
 ;
 
 unary_expr_not_plus_minus:

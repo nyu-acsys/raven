@@ -52,7 +52,7 @@ errorCredsExt:
 %public stmtExt:
 | ECCONTRA; SEMICOLON { [Stmt.Basic (StmtExt (EC_Contra, []))]}
 
-%public unary_exprExt:
+%public unary_expr:
 | ERRORCRED; LPAREN e = expr RPAREN {
   Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt ErrorCreds) [e]
 }
