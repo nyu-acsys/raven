@@ -14,7 +14,8 @@ open Ast
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
-%token DIFF MINUS
+%token MINUS
+%token <Ast.Expr.constr> RABINOP
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token <Int64.t> HASH
 %token AND OR IMPLIES IFF NOT COMMA
@@ -39,9 +40,6 @@ open Ast
 
 %start main
 %type <(string * Loc.t) list * Ast.Module.t> main
-%type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
-%type <Stmt.stmt_desc list> stmtExt
-%type <Type.t> typeExt
 %%
 
 main:
@@ -518,9 +516,10 @@ stmt_wo_trailing_substmt:
     use_witnesses_or_binds = wtns
   }))]
 }
-| f = stmtExt { f }
+| f = stmt_ext { f }
 ;
 
+  
 existential_witness_or_bind:
 | x = IDENT COLONEQ e = expr {
   (x, e)
@@ -577,7 +576,7 @@ with_clause:
     | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
 }
   
-assign_rhs:
+%public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   function 
     | [Expr.App(Expr.Var x, _, _)], _ ->
@@ -602,7 +601,6 @@ assign_rhs:
         in
         Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init }), None
 }
-| f = assignExt { f }
 
 local_var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
@@ -921,16 +919,9 @@ unary_expr_not_plus_minus:
 | NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any Expr.Not [e] }
 ;
 
-diff_expr:
-| e = unary_expr { e }
-| e1 = diff_expr; DIFF; e2 = unary_expr {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Diff [e1; e2])
-}
-;
-
 mult_expr:
-| e = diff_expr { e }
-| e1 = mult_expr; op = MULTOP; e2 = diff_expr {
+| e = unary_expr { e }
+| e1 = mult_expr; op = MULTOP; e2 = unary_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
@@ -945,17 +936,26 @@ add_expr:
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
+
+%public right_assoc_binary_op:
+| op = RABINOP { op }
   
+right_assoc_binary_op_expr:
+| e = add_expr { e }
+| e1 = add_expr; op = right_assoc_binary_op; e2 = right_assoc_binary_op_expr {
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+}
+    
 rel_expr:
 | c = comp_seq {
   match c with
   | e, [] -> e
   | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Expr.mk_and ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
 }
-| e1 = rel_expr; IN; e2 = add_expr {
+| e1 = rel_expr; IN; e2 = right_assoc_binary_op_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Elem [e1; e2])
   } 
-| e1 = rel_expr; NOTIN; e2 = add_expr {
+| e1 = rel_expr; NOTIN; e2 = right_assoc_binary_op_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Elem [e1; e2]]) 
   }
 ;
@@ -969,8 +969,8 @@ comp_op:
 ;
 
 comp_seq:
-| e = add_expr { (e, []) }
-| e1 = add_expr; op = comp_op; cseq = comp_seq {
+| e = right_assoc_binary_op_expr { (e, []) }
+| e1 = right_assoc_binary_op_expr; op = comp_op; cseq = comp_seq {
   let e2, comps = cseq in
   let loc1 = Expr.to_loc e1 in
   let loc2 = Expr.to_loc e2 in
@@ -1090,7 +1090,6 @@ bound_var_opt_type:
 | LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
   Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
-| f = typeExt { f }
     
   
 type_expr_list:

@@ -8,7 +8,8 @@ open Ext.ListExtInstance
 
 %%
 
-%public typeExt:
+
+%public type_expr:
 | LIST; LBRACKET; elem_tp = type_expr; RBRACKET { 
   Type.mk_app ~loc:(Loc.make $startpos $endpos) (TypeExt (ListConstr)) [elem_tp] }
 
@@ -21,3 +22,6 @@ open Ext.ListExtInstance
 // | e1=expr; COLONCOLON; e2=expr {
 //   Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (ListExpr ListPredefs.cons_ident) ) [e1; e2]
 // }
+
+%public right_assoc_binary_op:
+| COLONCOLON { ExprExt (ListExpr ListPredefs.cons_ident) }

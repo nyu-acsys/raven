@@ -8,7 +8,7 @@ open Ext.ProphecyExtInstance
 
 %%
 
-%public typeExt:
+%public type_expr:
 | PROPHID {
   Type.mk_app ~loc:(Loc.make $startpos $endpos) (TypeExt ProphId) []
 }
@@ -18,7 +18,7 @@ open Ext.ProphecyExtInstance
   Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt ProphResource) [e1; e2]
 }
 
-%public assignExt:
+%public assign_rhs:
 | NEWPROPH LBRACKET t=type_expr RBRACKET {
   function
   | [proph_id; proph_val], _ ->
@@ -34,5 +34,5 @@ open Ext.ProphecyExtInstance
     Error.syntax_error (Type.to_loc t) "[EXT] ProphecyExt: Expected prophecy id variable and prophecy value variable on left-hand side of NewProph"
 }
 
-%public stmtExt:
+%public stmt_ext:
 | RESOLVEPROPH; LPAREN; e1=expr; COMMA; e2=expr; RPAREN SEMICOLON { [Stmt.Basic (StmtExt (ResolveProph, [e1; e2]))]}

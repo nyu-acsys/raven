@@ -7,10 +7,8 @@ open Ext.AtomicExtInstance
 %token CAS FAA XCHG
 
 %%
-%public assignExt: 
-| f = atomicExt { f }
 
-atomicExt:
+%public assign_rhs:
 | CAS LPAREN cas_ref = qual_ident DOT cas_fld = qual_ident COMMA cas_old_val = expr COMMA cas_new_val = expr RPAREN {
   function
     | [Expr.(App (Var qual_ident, [], _)) as e], atomic_inbuilt_is_init

@@ -7,10 +7,8 @@ open Ext.ErrorCreditsExtInstance
 %token ERRORCRED RAND ECVAL ECFN ECLIST ECCONTRA
 
 %%
-%public assignExt: 
-| f = errorCredsExt { f }
 
-errorCredsExt:
+%public assign_rhs:
 | RAND LPAREN n_expr = expr RPAREN {
   function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
@@ -49,7 +47,7 @@ errorCredsExt:
 }
 ;
 
-%public stmtExt:
+%public stmt_ext:
 | ECCONTRA; SEMICOLON { [Stmt.Basic (StmtExt (EC_Contra, []))]}
 
 %public unary_expr:

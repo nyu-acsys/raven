@@ -101,7 +101,7 @@ let _ =
      "!in", NOTIN;
      "!", NOT;
      "++", ADDOP Expr.Union;
-     "--", DIFF;
+     "--", ADDOP Expr.Diff;
      "subseteq", SUBSETEQ;
      "**", MULTOP Expr.Inter;
      "+", ADDOP Expr.Plus;
