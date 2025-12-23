@@ -8,6 +8,8 @@ open Ast
 
 %token <Ast.Ident.t> IDENT MODIDENT
 %token <Ast.Expr.constr> CONSTVAL
+%token <Ast.Type.constr> CONSTTYPE
+%token <Ast.Type.constr * int> TYPECONSTR
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
@@ -23,7 +25,7 @@ open Ast
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA
-%token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
+%token CASE DATA ATOMICTOKEN FIELD
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
 %token <bool> MODULE
@@ -1072,15 +1074,20 @@ bound_var_opt_type:
 ;
 
 %public type_expr:
-| INT { Type.mk_int (Loc.make $startpos $endpos) }
-| REAL { Type.mk_real (Loc.make $startpos $endpos)}
-| BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
-| REF { Type.mk_ref (Loc.make $startpos $endpos) }
-| PERM { Type.mk_perm (Loc.make $startpos $endpos)}
+| ct = CONSTTYPE { Type.mk_app ~loc:(Loc.make $startpos $endpos) ct [] }
 | ATOMICTOKEN LT qid = ident GT { Type.mk_atomic_token (Loc.make $startpos $endpos) (Expr.to_qual_ident qid) }
 //| x = IDENT { Type.mk_var (QualIdent.from_ident x) }
-| SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
-| MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
+| ct = TYPECONSTR LBRACKET ts = separated_list(COMMA, type_expr) RBRACKET {
+  let loc = Loc.make $startpos $endpos in
+  if List.length ts <> snd ct then
+    Error.syntax_error loc (Printf.sprintf "This type constructor expects %d argument(s)" (snd ct))
+  else begin
+    match ct, ts with
+    | (Type.Map, 1), [t] ->
+        Type.mk_set loc t
+    | (c, _), _ -> Type.mk_app ~loc c ts
+  end
+  }
 | x = mod_ident { Type.mk_var x }
 | LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {

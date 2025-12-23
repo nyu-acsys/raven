@@ -8,126 +8,6 @@ open Parser
 (* set file name *)
 let set_file_name lexbuf name =
   lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = name }
-
-
-let keyword_table = Hashtbl.create 64
-let _ =
-  List.iter (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
-    ([("assert", SPEC Stmt.Assert);
-      ("assume", SPEC Stmt.Assume);
-      ("au", AU);
-      ("atomic", ATOMIC);
-      ("axiom", AXIOM);
-      ("AtomicToken", ATOMICTOKEN);
-      ("auto", AUTO);
-      ("Bool", BOOL);
-      ("case", CASE);
-      ("data", DATA);
-      ("else", ELSE);
-      ("ensures", ENSURES);
-      ("exhale", SPEC Stmt.Exhale);
-      ("exists", QUANT(Expr.Exists));
-      ("false", CONSTVAL (Expr.Bool false));
-      ("forall", QUANT(Expr.Forall));
-      ("fold", USE (Stmt.Fold));
-      ("field", FIELD);
-      ("func", FUNC (Func));
-      ("ghost", GHOST);
-      ("havoc", HAVOC);
-      ("if", IF);
-      ("Int", INT);
-      ("include", INCLUDE);
-      ("inhale", SPEC Stmt.Inhale);
-      ("interface", MODULE true);
-      ("inv", FUNC (Invariant));
-      ("invariant", INVARIANT);
-      ("import", IMPORT);
-      ("implicit", IMPLICIT);
-      ("lemma", LEMMA);
-      ("rep", REP);
-      ("Map", MAP);
-      ("module", MODULE false);
-      ("new", NEW);
-      ("null", CONSTVAL Expr.Null);
-      ("own", OWN);
-      ("Perm", PERM);
-      ("pred", FUNC (Pred));
-      ("proc", PROC);
-      ("Ref", REF);
-      ("Real", REAL);
-      ("requires", REQUIRES);
-      ("return", RETURN);
-      ("returns", RETURNS);
-      (* ("subseteq", SUBSETEQ); *)
-      ("Set", SET);
-      ("spawn", SPAWN);
-      ("true", CONSTVAL (Expr.Bool true));
-      ("type", TYPE);
-      ("unfold", USE (Stmt.Unfold));
-      ("val", VAR true);
-      ("var", VAR false);
-      ("with", WITH);
-      ("while", WHILE);
-
-      (* ListExt *)
-      ("List", LIST);
-
-      (* ProphecyExt *)
-      ("NewProph", NEWPROPH);
-      ("NewProph1", NEWPROPH1);
-      ("ResolveProph", RESOLVEPROPH);
-      ("prophecy", PROPHECY);
-      ("ProphId", PROPHID);
-
-      (* AtomicExt *)
-      ("cas", CAS);
-      ("faa", FAA);
-      ("xchg", XCHG);
-
-      (* ErrorCreditsExt *)
-      ("ECContra", ECCONTRA);
-      ("ECFn", ECFN);
-      ("ECList", ECLIST);
-      ("ECVal", ECVAL);
-      ("Rand", RAND);
-    ])
-
-let operator_table = Hashtbl.create 64
-let _ =
-  List.iter (fun (op, tok) -> Hashtbl.add operator_table op tok)
-    ["==>", IMPLIES;
-     "<=>", IFF;
-     "=", EQ;
-     "==", EQEQ;
-     "!=", NEQ;
-     "<=", LEQ;
-     ">=", GEQ;
-     "<", LT;
-     ">", GT;
-     "||", OR;
-     "&&", AND;
-     "in", IN;
-     "!in", NOTIN;
-     "!", NOT;
-     "++", ADDOP Expr.Union;
-     "--", DIFF;
-     "subseteq", SUBSETEQ;
-     "**", MULTOP Expr.Inter;
-     "+", ADDOP Expr.Plus;
-     "-", MINUS;
-     "/", MULTOP Expr.Div;
-     "*", MULTOP Expr.Mult;
-     "%", MULTOP Expr.Mod;
-     ":=", COLONEQ;
-     "::", COLONCOLON;
-     ":", COLON;
-     ";", SEMICOLON;
-     ",", COMMA;
-     ".", DOT;
-     "?", QMARK;
-     ":|", COLONPIPE;
-     "-*-", ERRORCRED;
-     ]
     
 let lexical_error lexbuf msg =
   let pos = lexeme_start_p lexbuf in
@@ -167,7 +47,7 @@ rule token = parse
 | "\"" (( ("\\" _) | [^ '"'] )* as str) "\"" { STRINGVAL (Scanf.unescaped str) }
 | operator as op
     { try
-      Hashtbl.find operator_table op
+      Hashtbl.find Terminals.operator_table op
     with Not_found ->
       lexical_error lexbuf ("Unknown operator: " ^ op)
   }
@@ -175,13 +55,13 @@ rule token = parse
 | ident as name '^' (digit_char+ as num) { IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num)) }
 | mod_ident as kw
     { try
-      Hashtbl.find keyword_table kw
+      Hashtbl.find Terminals.keyword_table kw
     with Not_found ->
       MODIDENT (Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) kw 0)
     }
 | ident as kw
     { try
-      Hashtbl.find keyword_table kw
+      Hashtbl.find Terminals.keyword_table kw
     with Not_found ->
       IDENT (Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) kw 0)
     }
