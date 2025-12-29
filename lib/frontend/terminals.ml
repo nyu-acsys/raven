@@ -7,6 +7,7 @@ let _ =
     ([("assert", SPEC Stmt.Assert);
       ("assume", SPEC Stmt.Assume);
       ("au", AU);
+      ("auCommit", AUCOMMIT);
       ("atomic", ATOMIC);
       ("axiom", AXIOM);
       ("AtomicToken", ATOMICTOKEN);
@@ -64,11 +65,13 @@ let _ =
       ("List", LIST); (*Parser.TYPECONSTR (TypeExt (Ext.ListExtInstance.ListConstr), 1));*)
 
       (* ProphecyExt *)
-      ("NewProph", NEWPROPH);
-      ("NewProph1", NEWPROPH1);
-      ("ResolveProph", RESOLVEPROPH);
+      ("Proph", PROPH);
+      ("new_1", NEW1);
+      ("resolve", RESOLVE);
       ("prophecy", PROPHECY);
-      ("ProphId", PROPHID);
+      (* ("NewProph", NEWPROPH);
+      ("ResolveProph", RESOLVEPROPH);
+      ("ProphId", PROPHID); *)
 
       (* AtomicExt *)
       ("cas", CAS);
@@ -76,11 +79,12 @@ let _ =
       ("xchg", XCHG);
 
       (* ErrorCreditsExt *)
-      ("ECContra", ECCONTRA);
+      ("EC", EC);
+      ("contra", ECCONTRA);
       ("ECFn", ECFN);
       ("ECList", ECLIST);
       ("ECVal", ECVAL);
-      ("Rand", RAND);
+      ("rand", RAND);
     ])
 
 let operator_table = Hashtbl.create 64

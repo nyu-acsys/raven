@@ -51,11 +51,11 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
     ghost var xs2: IntList := openAU(phi);
     assert is_stack(s, xs2);
     push(s, x);
-    commitAU(phi);
+    commitAU(phi, ());
   } else {
     fold is_list(s0, cons(x, xs1))[q := 1.0]; 
     fold is_stack(s, cons(x, xs1));
-    commitAU(phi);
+    commitAU(phi, ());
   }
 
   // assert false;

@@ -22,7 +22,7 @@ open Ast
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
-%token HAVOC NEW RETURN OWN AU
+%token HAVOC NEW RETURN OWN AU AUCOMMIT
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA
@@ -835,10 +835,13 @@ own_expr:
 }*)
 
 au_expr:
-| AU; LPAREN; c = qual_ident; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident c)) es)
+| AU; LT; qid = qual_ident; GT; LPAREN; es = expr_list; RPAREN {
+  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident qid)) es)
 }
-    
+| AUCOMMIT LT qid=qual_ident GT LPAREN es=expr_list; RPAREN {
+  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $startpos $endpos) (AUPredCommit (Expr.to_qual_ident qid)) es)
+}
+
 call_expr:
 | p = qual_ident_expr; es = call {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
@@ -1073,7 +1076,7 @@ bound_var_opt_type:
 
 %public type_expr:
 | ct = CONSTTYPE { Type.mk_app ~loc:(Loc.make $startpos $endpos) ct [] }
-| ATOMICTOKEN LT qid = ident GT { Type.mk_atomic_token (Loc.make $startpos $endpos) (Expr.to_qual_ident qid) }
+| ATOMICTOKEN LT qid = qual_ident GT { Type.mk_atomic_token (Loc.make $startpos $endpos) (Expr.to_qual_ident qid) }
 //| x = IDENT { Type.mk_var (QualIdent.from_ident x) }
 | ct = TYPECONSTR LBRACKET ts = separated_list(COMMA, type_expr) RBRACKET {
   let loc = Loc.make $startpos $endpos in

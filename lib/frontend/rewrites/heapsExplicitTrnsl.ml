@@ -2263,7 +2263,7 @@ module TrnslInhale = struct
     | App (AUPredCommit call_qual_ident, token :: args, _) ->
         Logs.debug (fun m ->
             m
-              "Rewrites.HeapsExplicitTrnsl.TrnslInhale.trnsl_inhale_a0: expr: \
+              "Rewrites.HeapsExplicitTrnsl.TrnslInhale.trnsl_inhale_a0: AUPred/AUPredCommit expr: \
                %a"
               Expr.pr expr);
         let loc = Expr.to_loc expr in

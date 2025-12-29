@@ -52,11 +52,11 @@ module Stack[T: Type] {
       abortAU(phi);
       ghost val xs2: TList := openAU(phi);
       push(s, x);
-      commitAU(phi);
+      commitAU(phi, ());
     } else {
       fold list(s0, cons(x, xs1))[q := 1.0]; 
       fold stack(s, cons(x, xs1));
-      commitAU(phi);
+      commitAU(phi, ());
     }
   }
 

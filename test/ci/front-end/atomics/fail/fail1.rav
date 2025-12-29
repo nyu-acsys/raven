@@ -16,8 +16,8 @@ proc p(x: Ref)
     if (k) {
       abortAU(phi);
     } else {
-      commitAU(phi);
+      commitAU(phi, ());
     }
   !}
-  // commitAU(phi);
+  // commitAU(phi, ());
 }

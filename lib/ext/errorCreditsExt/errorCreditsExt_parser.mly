@@ -4,12 +4,12 @@ open Ext.ErrorCreditsExtInstance
 
 %}
 
-%token ERRORCRED RAND ECVAL ECFN ECLIST ECCONTRA
+%token EC ERRORCRED RAND ECVAL ECFN ECLIST ECCONTRA
 
 %%
 
 %public assign_rhs:
-| RAND LPAREN n_expr = expr RPAREN {
+| EC DOT RAND LPAREN n_expr = expr RPAREN {
   function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
       when QualIdent.is_local qual_ident ->
@@ -18,7 +18,7 @@ open Ext.ErrorCreditsExtInstance
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RandVal"
     | [], _ -> assert false 
 }
-| RAND LPAREN n_expr = expr SEMICOLON ECVAL COLON NEQ errorVal = expr RPAREN {
+| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECVAL COLON NEQ errorVal = expr RPAREN {
   function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
       when QualIdent.is_local qual_ident ->
@@ -27,7 +27,7 @@ open Ext.ErrorCreditsExtInstance
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RandVal"
     | [], _ -> assert false
 }
-| RAND LPAREN n_expr = expr SEMICOLON ECFN COLON ERRORCRED LPAREN ec_expr = expr RPAREN COMMA x = IDENT IMPLIES fn_body = expr RPAREN {
+| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECFN COLON ERRORCRED LPAREN ec_expr = expr RPAREN COMMA x = IDENT IMPLIES fn_body = expr RPAREN {
     function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
       when QualIdent.is_local qual_ident ->
@@ -36,7 +36,7 @@ open Ext.ErrorCreditsExtInstance
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RANDFN"
     | [], _ -> assert false 
 }
-| RAND LPAREN n_expr = expr SEMICOLON ECLIST COLON NOTIN ls_expr = expr RPAREN {
+| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECLIST COLON NOTIN ls_expr = expr RPAREN {
   function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
       when QualIdent.is_local qual_ident ->
@@ -48,7 +48,7 @@ open Ext.ErrorCreditsExtInstance
 ;
 
 %public stmt_ext:
-| ECCONTRA; SEMICOLON { [Stmt.Basic (StmtExt (EC_Contra, []))]}
+| EC DOT ECCONTRA; LPAREN RPAREN SEMICOLON { [Stmt.Basic (StmtExt (EC_Contra, []))]}
 
 %public unary_expr:
 | ERRORCRED; LPAREN e = expr RPAREN {

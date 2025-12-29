@@ -170,10 +170,17 @@ type 'a state = {
 type ('a, 'b) t_ext = 'b state -> 'b state * 'a
 type 'a t = ('a, unit) t_ext
 
+
+(* Using pointers to access certain functions from Typing in certain context while circumventing dependency cycles. *)
+
+(** This is meant to point to:
+      Typing.process_symbol *)
 let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
   fun _ -> Error.unsupported_error Loc.dummy "process_symbol_ref not updated"
 )
 
+(** This is meant to point to:
+      Typing.expand_type_expr *)
 let expand_type_expr_ref : (
     type_expr -> (type_expr, unit) t_ext
   ) ref 
@@ -573,8 +580,26 @@ module Type = struct
     let open Syntax in
     match tp_expr with
     | App (constr, tp_list, tp_attr) ->
-        let+ tp_list = List.map tp_list ~f in
-        Type.App (constr, tp_list, tp_attr)
+      let* tp_list = List.map tp_list ~f in
+
+      let+ constr = match constr with
+        | Data (qi, variant_decls) ->
+          let+ variant_decls = List.map variant_decls ~f:(fun variant_decl ->
+            let+ variant_args = List.map variant_decl.variant_args ~f:(fun var_decl ->
+              let+ var_type = f var_decl.var_type in
+              { var_decl with
+                var_type
+              }
+              )  in
+
+            { variant_decl with variant_args }
+          ) in
+
+          Type.Data (qi, variant_decls)
+
+        | _ -> return constr
+      in
+      Type.App (constr, tp_list, tp_attr)
 
   let rec fold ~(init : 'a) ~(f : 'a -> Type.t -> ('a, 'b) t_ext) tp_expr :
       ('a, 'b) t_ext =
@@ -790,6 +815,12 @@ module Stmt = struct
               stmt with
               stmt_desc = Basic (Fpu { fpu_desc with fpu_old_val; fpu_new_val });
             }
+        | StmtExt (stmt_ext, stmt_args) ->
+          let+ stmt_args =
+            List.map stmt_args ~f:(fun expr -> f expr) in
+          { stmt with
+            stmt_desc = Basic (StmtExt (stmt_ext, stmt_args))
+          }
         (* TODO: add remaining *)
         | _ -> return stmt)
     | Loop loop_desc ->

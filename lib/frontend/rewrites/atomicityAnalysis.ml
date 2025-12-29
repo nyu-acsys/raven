@@ -144,8 +144,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
     in
 
     Logs.debug (fun m ->
-        m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a" QualIdent.pr
-          curr_callable_name);
+        m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a; stmt=%a" QualIdent.pr
+          curr_callable_name Stmt.pr stmt);
 
     let loc = stmt.stmt_loc in
 
@@ -299,18 +299,22 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             in
 
             Rewriter.return assign_stmt
-        | OpenAU (token, call_ident, bound_vars) -> (
-            let* callable, concrete_args, implicit_args = callable_info call_ident in
+        | OpenAU open_au_desc -> (
+            let* callable, concrete_args, implicit_args = callable_info open_au_desc.proc_qi in
             let exhale_stmt =
               Stmt.mk_exhale_expr
                 ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
                 ~loc
-                (Expr.mk_app ~loc ~typ:Type.perm (AUPred curr_callable_name)
-                   (token :: List.map concrete_args ~f:Expr.from_var_decl))
+                (Expr.mk_app ~loc ~typ:Type.perm (AUPred open_au_desc.proc_qi)
+                   (open_au_desc.token :: open_au_desc.proc_args))
             in
 
+            Logs.debug (fun m -> m "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; implicit_args = %a" QualIdent.pr open_au_desc.proc_qi Expr.pr_list open_au_desc.proc_args Expr.pr_list open_au_desc.lhs);
+
+            (* if *)
+
             let alpha_renaming_map =
-              List.fold2_exn implicit_args bound_vars
+              List.fold2_exn (concrete_args @ implicit_args) (open_au_desc.proc_args @ open_au_desc.lhs)
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun acc_map implicit_arg bound_var ->
                     Map.add_exn acc_map
@@ -333,10 +337,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
 
             let atomicity_state =
               open_au ~loc
-                ( token,
-                  curr_callable_name,
-                  List.map concrete_args ~f:Expr.from_var_decl,
-                  bound_vars )
+                ( open_au_desc.token,
+                  open_au_desc.proc_qi,
+                  open_au_desc.proc_args,
+                  open_au_desc.lhs )
                 atomicity_state
             in
             let* _ = Rewriter.set_user_state atomicity_state in
@@ -346,7 +350,13 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             in
 
             Rewriter.return new_stmt)
-        | AbortAU token | CommitAU (token, _) ->
+        | AbortAU _ | CommitAU _ ->
+            let token = begin match auaction_desc.auaction_kind with
+              | AbortAU au_desc -> au_desc.token
+              | CommitAU au_desc -> au_desc.token
+              | _ -> assert false
+              end 
+            in
             let opened_au_token =
               List.find atomicity_state.au_opened ~f:(fun au_token ->
                   Expr.alpha_equal au_token.token token)
@@ -366,6 +376,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               | _ -> Error.error stmt.stmt_loc "Expected a call_def"
             in
 
+            Logs.debug (fun m -> m "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; callable_args = %a" QualIdent.pr opened_au_token.callable Expr.pr_list (opened_au_token.callable_args
+               @ opened_au_token.implicit_bound_vars));
+
+
             let alpha_renaming_map =
               List.fold2_exn callable_decl.call_decl_formals
                 (opened_au_token.callable_args
@@ -379,7 +393,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
 
             let exhale_stmts, inhale_stmt, atomicity_state =
               match auaction_desc.auaction_kind with
-              | AbortAU token ->
+              | AbortAU abort_au_desc ->
                   let loc = Stmt.to_loc stmt in
 
                   let exhale_stmts =
@@ -417,11 +431,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                   let atomicity_state = close_au ~loc token atomicity_state in
 
                   (exhale_stmts, inhale_stmt, atomicity_state)
-              | CommitAU (token, ret_exprs) ->
+              | CommitAU commit_au_desc ->
                   let loc = Stmt.to_loc stmt in
 
                   let alpha_renaming_map =
-                    List.fold2_exn callable_decl.call_decl_returns ret_exprs
+                    List.fold2_exn callable_decl.call_decl_returns commit_au_desc.proc_rets
                       ~init:alpha_renaming_map
                       ~f:(fun acc_map formal_arg actual_arg ->
                         Map.add_exn acc_map
@@ -459,7 +473,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                          (AUPredCommit opened_au_token.callable)
                          (opened_au_token.token
                           :: opened_au_token.callable_args
-                         @ [ Expr.mk_tuple ret_exprs ]))
+                         @ [ Expr.mk_tuple commit_au_desc.proc_rets ]))
                   in
 
                   let atomicity_state = close_au ~loc token atomicity_state in

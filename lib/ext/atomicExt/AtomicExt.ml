@@ -57,6 +57,45 @@ module AtomicExt (Cont : Ext) = struct
   let type_check_type_expr = Cont.type_check_type_expr
   
   let type_check_expr = Cont.type_check_expr 
+
+  let is_type_word_sized (typ: type_expr) : bool Rewriter.t =
+    let open Rewriter.Syntax in
+    Logs.debug (fun m -> m "[EXT] AtomicExt: is_type_word_sized: input=%a" Type.pr typ);
+    let* typ = !Rewriter.expand_type_expr_ref typ in
+
+    match typ with
+    (* either type is a base type *)
+    | _ when Type.is_base_type typ -> Rewriter.return true
+
+    | App (Var qual_iden, [], _) ->
+      let* qual_ident, symbol = 
+        Rewriter.resolve_and_find qual_iden 
+      in
+      let+ qual_ident_def =
+        Rewriter.Symbol.reify_type_def (Type.to_loc typ) symbol
+      in
+      begin match qual_ident_def with
+      | None -> false
+      (* or an algebraic data type, where... *)
+      | Some (App (Data (qi, variant_decls), [], _)) ->
+        (* each constructor takes at most a single, base-type argument *)
+        let are_constrs_base_types = 
+          List.for_all variant_decls ~f:(fun variant_decl ->
+            (List.length variant_decl.variant_args = 0) 
+            || (List.length variant_decl.variant_args = 1 
+                && Type.is_base_type (List.hd_exn variant_decl.variant_args).var_type) 
+          ) 
+        in
+
+        (* and number of constructors <= 4 (so we can fit the tag in 2 bits) *)
+        let can_constr_tag_fit = List.length variant_decls <= 4 in
+
+        can_constr_tag_fit && are_constrs_base_types
+
+      | Some _ -> false
+      end
+      
+    | _ -> Rewriter.return false
   
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
@@ -89,14 +128,14 @@ module AtomicExt (Cont : Ext) = struct
             let* expanded_type =
               type_check_stmt_functs.expand_type_expr expected_fld_typ
             in
-            if
-              Type.(
-                expanded_type = int || expanded_type = bool
-                || expanded_type = ref)
-            then Rewriter.return (expanded_type, tp)
+
+            let* is_type_word_sized = is_type_word_sized expanded_type in
+
+            if is_type_word_sized then 
+              Rewriter.return (expanded_type, tp)
             else
               Error.type_error (Expr.to_loc field_expr)
-                (Printf.sprintf !"%s only allowed over word-sized types Int, Bool, and Ref but found %{Type}"
+                (Printf.sprintf !"%s only allowed over word-sized types (Int, Bool, Ref, or their algebraic sum types) but found %{Type}"
                  (atomic_inbuilt_string ais) expected_fld_typ)
           | _ ->
               Error.type_error (Expr.to_loc field_expr)

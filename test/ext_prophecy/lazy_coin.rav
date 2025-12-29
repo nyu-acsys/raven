@@ -5,16 +5,16 @@ interface PLC {
   import BoolOpt._
 
   field c: BoolOpt
-  field p: ProphId
+  field p: Proph
 
   func nondet_bool() returns (ret: Bool)
 
   proc new_lazy_coin() returns (ret: Ref, implicit ghost b: Bool) 
     ensures lazy_coin(ret, b)
   {
-    var p1: ProphId;
+    var p1: Proph;
     var z: Bool;
-    p1, z := NewProph1[Bool]; 
+    p1, z := Proph.new_1[Bool]; 
 
     var x: Ref := new(c: none, p: p1);
 
@@ -33,7 +33,7 @@ interface PLC {
     if (c_val == none) {
         var b: Bool := nondet_bool();
         coin.c := some(b);
-        ResolveProph(proph_id, b);
+        Proph.resolve(proph_id, b);
         fold lazy_coin(coin, b);
         return b;
     } else {
@@ -44,7 +44,7 @@ interface PLC {
   }
 
   pred lazy_coin (coin: Ref, b: Bool) {
-    exists b': BoolOpt, bs:List[Bool], p': ProphId ::
+    exists b': BoolOpt, bs:List[Bool], p': Proph ::
       own(coin.c, b') && own(coin.p, p') &&
 
       (b' == some(b'.value) ? 
@@ -58,7 +58,7 @@ interface PLC {
         // Whereas one-shot prophecy we want to be a singleton.
         // Ensuring this becoms tricky with the same implementation for both.
         // This becomes even trickier with: one-shot List[Int] prophecy vs multi-shot Int prophecy. How to differentiate at resolve time?
-        (List.hd(bs) == b && prophecy(p', bs)) 
+        (List.hd(bs) == b && Proph.prophecy(p', bs)) 
       )
   }
 }

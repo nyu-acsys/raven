@@ -1,22 +1,22 @@
 
 
 field c: Bool
-ghost field p: ProphId
+ghost field p: Proph
 
 func nondet_bool() returns (ret: Bool) { true }
 
 pred is_coin(coin: Ref, bs: List[Bool]) {
-  exists b: Bool, bs': List[Bool], p': ProphId ::
+  exists b: Bool, bs': List[Bool], p': Proph ::
     own(coin.c, b) && own(coin.p, p') && 
-    (bs == b :: bs' && prophecy(p', bs'))
+    (bs == b :: bs' && Proph.prophecy(p', bs'))
 }
 
 proc new_clairvoyant_coin() returns (ret: Ref, implicit ghost bs: List[Bool]) 
   ensures is_coin(ret, bs)
 {
-  ghost var p1: ProphId;
+  ghost var p1: Proph;
   var z: List[Bool];
-  p1, z := NewProph[Bool]; 
+  p1, z := Proph.new[Bool]; 
 
   var toss := nondet_bool();
 
@@ -52,7 +52,7 @@ proc toss_coin(coin: Ref, implicit ghost bs: List[Bool])
 
   var toss := nondet_bool();
 
-  ResolveProph(proph_var, toss);
+  Proph.resolve(proph_var, toss);
 
   coin.c := toss;
   bs2 := List.tl(bs);

@@ -682,7 +682,7 @@ let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
   | App (constr, expr_list, _) ->
       let* b1 =
         match constr with
-        | Own -> return false
+        | Own | AUPred _ | AUPredCommit _ -> return false
         | Var qual_ident -> (
             if AstDef.QualIdent.is_local qual_ident then return true
             else

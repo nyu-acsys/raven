@@ -147,8 +147,6 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       | None -> Error.type_error loc 
           ("[EXT] ProphecyExt: prophecy() expected to be called with List types; found: " ^ (Type.to_string (Expr.to_type value_expr)))
       | Some _elem_typ ->
-        (* let* _elem_typ = !Rewriter.expand_type_expr_ref _elem_typ in *)
-
         Rewriter.return @@ (Expr.mk_app ~loc ~typ:Type.perm (ExprExt ProphResource) [proph_id_expr; value_expr]) 
       end
     
@@ -173,9 +171,9 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       in
 
       let proph_val_typ = if oneshot_b then
-        typ
+        typ |> Type.set_ghost true
       else
-        Cont.mk_list_tp stmt_loc typ 
+        Cont.mk_list_tp stmt_loc typ |> Type.set_ghost true
       in
 
       begin match Expr.is_ident proph_val with
@@ -195,7 +193,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
     | ResolveProph, [proph_id; resolve_value] ->
       let* proph_id = type_check_stmt_functs.disambiguate_process_expr proph_id (proph_id_type ~loc:stmt_loc) disam_tbl in
 
-      let* resolve_value = type_check_stmt_functs.disambiguate_process_expr resolve_value Type.any disam_tbl in
+      let* resolve_value = type_check_stmt_functs.disambiguate_process_expr resolve_value (Type.any |> Type.set_ghost true) disam_tbl in
 
       (Stmt.StmtExt (
         ResolveProph, [proph_id; resolve_value]

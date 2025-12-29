@@ -111,6 +111,11 @@ module ProcessTypeExpr = struct
               let+ exp_typ = expand_type_expr tp_expr1 in
               exp_typ |> Type.set_ghost_to tp_expr)
         | Var qual_iden, _ -> unexpected_functor_error tp_attr.type_loc
+        | AtomicToken callable_qid, [] ->
+          let+ callable_qid = Rewriter.resolve callable_qid in
+          Type.App (AtomicToken callable_qid, [], tp_attr) |> Type.set_ghost_to tp_expr
+        | AtomicToken _, _ ->
+          unexpected_functor_error tp_attr.type_loc
         | _ ->
             let+ expanded_tp_expr_list =
               Rewriter.List.map tp_expr_list ~f:expand_type_expr
@@ -509,9 +514,12 @@ module ProcessExpr = struct
               Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr)
             in
             check_and_set expr Type.perm Type.perm expected_typ
-        | AUPred call_name, token :: args_list ->
+        | AUPred call_name, token :: args_tuple :: [] ->
+            (* Logs.debug (fun m -> m "Typing.ProcessExpr.process_expr: AUPred: args_list=%a" (Util.Print.pr_list_comma Expr.pr) args_list); *)
             let loc = Expr.to_loc expr in
             let* call_name, symbol = Rewriter.resolve_and_find call_name in
+
+            let args_list = Expr.unfold_tuple args_tuple in
 
             let* callable_decl =
               let+ symbol = Rewriter.Symbol.reify symbol in
@@ -527,19 +535,20 @@ module ProcessExpr = struct
             else
               let* token = process_expr token (Type.atomic_token call_name) in
               let* args_list =
-                process_callable_args loc true callable_decl args_list
+                process_callable_args ~is_called:false loc true callable_decl args_list
               in
               let expr =
-                Expr.App (AUPred call_name, token :: args_list, expr_attr)
+                Expr.App (AUPred call_name, [token; Expr.mk_tuple args_list], expr_attr)
               in
               check_and_set expr Type.perm Type.perm expected_typ
-        | AUPred _, [] ->
+        | AUPred _, _ ->
             Error.type_error (Expr.to_loc expr)
-              "AUPred takes at least one argument"
-        | AUPredCommit call_name, token :: args_list
-          when List.length args_list >= 1 ->
+              "au<proc>() called with incorrect number of arguments. Expected: first argument: AtomicToken<proc>; second argument: tuple of proc args (or unit)"
+        | AUPredCommit call_name, token :: args_tuple :: rets_tuple :: [] ->
             let loc = Expr.to_loc expr in
             let* call_name, symbol = Rewriter.resolve_and_find call_name in
+
+            let args_list = Expr.unfold_tuple args_tuple in
 
             let* callable_decl =
               let+ symbol = Rewriter.Symbol.reify symbol in
@@ -550,30 +559,27 @@ module ProcessExpr = struct
               | _ -> Error.type_error loc "Expected procedure identifier"
             in
 
-            let ret_val = List.last_exn args_list in
-            let args_list = List.drop_last_exn args_list in
-
             if not (Callable.is_atomic callable_decl) then
               Error.type_error loc "Expected procedure with atomic specification"
             else
               let* token = process_expr token (Type.atomic_token call_name) in
               let* args_list =
-                process_callable_args loc true callable_decl args_list
+                process_callable_args ~is_called:false loc true callable_decl args_list
               in
-              let* ret_val =
-                process_expr ret_val
-                  (Type.mk_prod loc
+              let* rets_tuple =
+                process_expr rets_tuple
+                  ((Type.mk_prod loc
                     (List.map callable_decl.call_decl_returns ~f:(fun v ->
                           Logs.debug (fun m -> m !"ret_arg: %{Ident} %b" v.var_name (v.var_type |> Type.is_ghost));
-                          v.var_type)))
+                          v.var_type))) |> Type.set_ghost true)
               in
               let expr =
-                Expr.App (AUPred call_name, token :: args_list, expr_attr)
+                Expr.App (AUPredCommit call_name, [token; Expr.mk_tuple args_list; rets_tuple], expr_attr)
               in
               check_and_set expr Type.perm Type.perm expected_typ
         | AUPredCommit _, _ ->
             Error.type_error (Expr.to_loc expr)
-              "AUPredCommit takes at least two arguments"
+              "auCommit<proc>() called with incorrect number of arguments. Expected: first argument: AtomicToken<proc>; second argument: tuple of prog args (or unit); third argument: tuple of proc ret vals (or unit)"
         (* Data constructor expressions *)
         | DataConstr constr_ident, args_list ->
             let loc = QualIdent.to_loc constr_ident in
@@ -737,11 +743,11 @@ module ProcessExpr = struct
 
 (* end of process_expr *)
 
-  and process_callable_args loc is_ghost_scope callable_decl args_list =
+  and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
     let open Rewriter.Syntax in
     let callable_formals =
       match callable_decl.call_decl_kind with
-      | Proc when is_ghost_scope ->
+      | Proc when is_ghost_scope && is_called ->
         Error.type_error loc "Cannot call procedure in ghost context"
       | Pred | Invariant ->
         callable_decl.call_decl_formals @ callable_decl.call_decl_returns
@@ -752,6 +758,8 @@ module ProcessExpr = struct
       | Pred | Invariant | Lemma -> true
       | _ -> false
     in
+
+    Logs.debug (fun m -> m "Typing.process_callable_args: args_list=%a" (Util.Print.pr_list_comma Expr.pr) args_list);
     
     (* Check if too few arguments given. *)
     let _ =
@@ -792,14 +800,16 @@ module ProcessExpr = struct
       | Pred | Invariant | Lemma -> true
       | _ -> false
     in
+
+    Logs.debug(fun m -> m "Typing.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr callable_decl.call_decl_name Expr.pr_list returns_list);
     
     (* Check if too few returns given. *)
     let _ =
       let num_found = List.length returns_list in
       let num_expected = List.length callable_returns in
-      if num_found > num_expected then
+      if not (num_found = num_expected) then
         Error.type_error loc
-        @@ Printf.sprintf !"%s only has %d return parameter(s), but found %d variable(s) on the left-hand side of call"
+        @@ Printf.sprintf !"%s has %d return parameter(s), but found %d return variable(s)"
           (callable_decl.call_decl_name |> Ident.to_string) num_expected num_found
     in
 
@@ -949,7 +959,7 @@ module ProcessCallable = struct
      (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
      () *)
 
-  let process_au_action_stmt (assign_lhs: qual_ident list) (var_decls_lhs: var_decl list) qual_ident args (loc : location)
+  let process_au_action_stmt (call_decl: Callable.call_decl) (assign_lhs: qual_ident list) (var_decls_lhs: var_decl list) qual_ident args (loc : location)
       (disam_tbl : DisambiguationTbl.t) :
       (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
@@ -1046,11 +1056,59 @@ module ProcessCallable = struct
       let* token =
         disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
       in
-      let proc_qual_ident =
+      let* proc_qual_ident =
         match Expr.to_type token with
-        | App (AtomicToken proc_qual_ident, [], _) -> proc_qual_ident
+        | App (AtomicToken proc_qual_ident, [], _) -> 
+          let+ proc_qual_ident = Rewriter.resolve proc_qual_ident in
+          proc_qual_ident
         | typ ->
           type_mismatch_error (Expr.to_loc token) (Type.atomic_token (Ident.make Loc.dummy "?" 0 |> QualIdent.from_ident)) typ
+      in
+
+      let* proc_call_decl = 
+        let+ proc_callable = Rewriter.find_and_reify_callable proc_qual_ident in
+        proc_callable.call_decl
+      in
+
+      let* proc_args = 
+        let proc_concrete_in_args = List.filter proc_call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
+        
+        let in_args_supplied = begin match args with
+          | in_args :: [] when QualIdent.(qual_ident = from_ident Predefs.openAU_ident || qual_ident = from_ident Predefs.abortAU_ident) ->
+            true 
+          | in_args :: ret :: [] when QualIdent.(qual_ident = from_ident Predefs.commitAU_ident) ->
+            true
+          | [] when QualIdent.(qual_ident = from_ident Predefs.openAU_ident || qual_ident = from_ident Predefs.abortAU_ident) ->
+            false
+          | ret :: [] when QualIdent.(qual_ident = from_ident Predefs.commitAU_ident) ->
+            false
+          | _ ->
+            Error.type_error loc "Incorrect number of arguments supplied to AU operator."
+          end 
+        in
+
+        match in_args_supplied with
+        | true ->
+          let in_args_tuple = List.hd_exn args in
+
+          let tuple_tp = Type.mk_prod loc (List.map proc_concrete_in_args ~f:(fun arg_var_decl -> arg_var_decl.var_type)) |> Type.set_ghost true in
+
+          let* in_args_tuple = disambiguate_process_expr in_args_tuple tuple_tp disam_tbl in
+          let in_args = Expr.unfold_tuple in_args_tuple in
+          Rewriter.return in_args
+
+        | false -> 
+          let* curr_callable_qi = Rewriter.current_scope_id in
+          if QualIdent.(proc_qual_ident = curr_callable_qi) then
+            let curr_callable_concrete_args = List.filter call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
+
+            let+ curr_callable_concrete_arg_exprs = Rewriter.List.map curr_callable_concrete_args ~f:(fun arg ->
+              let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident arg.var_name) in
+              Expr.from_var_decl var_def.var_decl
+            ) in
+            curr_callable_concrete_arg_exprs
+          else
+            Error.type_error loc "Incorrect number of arguments supplied to AU operator; expected in-args (as a single tuple) since another procedure's atomicToken is being manipulated."
       in
       (* openAU *) 
       if
@@ -1060,41 +1118,39 @@ module ProcessCallable = struct
           Base.List.map2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
               Expr.mk_var ~typ:var_decl.var_type qual_ident)
         in
-        match args with
-        | _ :: _ ->
-          Error.type_error loc (Printf.sprintf !"%{QualIdent} expects exactly one argument" qual_ident)
-        | [] -> 
-          let* proc =
-            Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
-          in
-          let implicit_expected_types =
-            Base.List.filter_map proc.call_decl_formals ~f:(fun var_decl ->
-                if var_decl.var_implicit then Some var_decl.var_type
-                else None)
-          in
-          let args = Expr.mk_tuple implicit_vars in
-          let+ _ = ProcessExpr.process_expr args (Type.mk_prod  loc implicit_expected_types) in
-          ( Stmt.AUAction
-              {
-                auaction_kind =
-                  OpenAU (token, proc_qual_ident, implicit_vars);
-              },
-            disam_tbl )
+        let implicit_expected_types =
+          Base.List.filter_map proc_call_decl.call_decl_formals ~f:(fun var_decl ->
+              if var_decl.var_implicit then Some var_decl.var_type
+              else None)
+        in
+        if List.(not (length implicit_expected_types = length implicit_vars)) then
+          Error.type_error loc (Printf.sprintf !"Incorrect number of implicit arguments supplied on LHS for %{QualIdent}" proc_qual_ident)
+        else
+        let args = Expr.mk_tuple ~loc implicit_vars in
+        let+ _ = ProcessExpr.process_expr args ((Type.mk_prod loc implicit_expected_types) |> Type.set_ghost true) in
+        ( Stmt.AUAction
+            {
+              auaction_kind =
+                OpenAU { token; proc_qi = proc_qual_ident; proc_args; lhs = implicit_vars;  };
+            },
+          disam_tbl )
       else if
         QualIdent.(
           qual_ident = QualIdent.from_ident Predefs.commitAU_ident)
       then
         (* commitAU *)
+        let returns_tuple = List.last_exn args in
         let* returns =
-          Rewriter.List.map args ~f:(fun e -> disambiguate_expr e disam_tbl)
+          Rewriter.List.map (Expr.unfold_tuple returns_tuple) ~f:(fun e -> disambiguate_expr e disam_tbl)
         in
         let* proc =
           Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
         in
+        Logs.debug (fun m -> m "Typing.process_au_action_stmt: commitAU: returns = [ %a ]" Expr.pr_list returns);
         let+ returns = ProcessExpr.process_callable_returns loc ~is_ghost_scope:true ~is_call:false proc returns in
         ( Stmt.AUAction
             {
-              auaction_kind = CommitAU (token, returns);
+              auaction_kind = CommitAU { token; proc_args; proc_rets = returns };
             },
           disam_tbl )
       else if
@@ -1102,12 +1158,12 @@ module ProcessCallable = struct
           qual_ident = QualIdent.from_ident Predefs.abortAU_ident)
       then
         (* abortAU *)
-        match args with
+        (* match args with
         | _ :: _ ->
           Error.type_error loc (Printf.sprintf !"%{QualIdent} expects exactly one argument" qual_ident)
-        | [] -> 
+        | [] ->  *)
           Rewriter.return
-            ( Stmt.AUAction { auaction_kind = AbortAU token },
+            ( Stmt.AUAction { auaction_kind = AbortAU { token; proc_args } },
               disam_tbl )
       else Error.type_error loc "Unknown AU action"
     | _ ->
@@ -1223,7 +1279,7 @@ module ProcessCallable = struct
           process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
         (* AU action *)
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
-          process_au_action_stmt assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
+          process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
         | _ -> 
           Logs.debug (fun m ->
               m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
@@ -1405,14 +1461,15 @@ module ProcessCallable = struct
         Option.value pred_def ~default:(Expr.mk_unit Loc.dummy)
         |> Expr.existential_vars_type
       in
-      let find_type ident =
+      let find_type ident : type_expr Rewriter.t =
         let ty_opt = Map.fold exists_vars ~init:None ~f:(fun ~key ~data acc ->
             if Option.is_none acc
             && String.(Ident.name ident = Ident.name key)
             then Some data else acc)
         in
         match ty_opt with
-        | Some ty -> ty
+        | Some ty -> 
+          ProcessTypeExpr.process_type_expr ty
         | _ -> Error.type_error (Ident.to_loc ident)
                  (Printf.sprintf !"Could not find existential variable %{Ident} in %s %{QualIdent}" ident (Symbol.kind symbol) use_desc.use_name)
       in
@@ -1430,13 +1487,13 @@ module ProcessCallable = struct
         Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
             match use_desc.use_kind with
             | Fold ->
-              let ty = find_type i in
+              let* ty = find_type i in
               let+ e = disambiguate_process_expr e (ty |> Type.set_ghost true) disam_tbl in
               (i, e)
             | Unfold ->
               match e with
               | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
-                let ty =
+                let* ty =
                   find_type (QualIdent.unqualify qual_ident)
                 in
                 let+ ie = disambiguate_process_expr (Expr.mk_var ~typ:(Type.mk_any (Ident.to_loc i)) (QualIdent.from_ident i)) (ty |> Type.set_ghost true) disam_tbl in

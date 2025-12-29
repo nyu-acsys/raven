@@ -4,7 +4,16 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
-### Fixes
+### Changed
+
+- Added parser support for auCommit resources; enable 'helping'
+- Expanded definition of "word-sized" types to more flexible types such as algebraic sums of base types.
+- Overhauled extensions to follow namespace-style convention.
+- Added support for helping by allowing auPred resources to refer to another proc; overhauling parser, type-checking and rewriting.
+- Updated syntax so that commitAU always requires at least two argument: token and a tuple of return values (if function returns nothing then it should be ()); and an optional third argument which is a tuple of the callable args (which goes as the middle argument). This optional argument becomes required if the token refers to a different procedure.
+
+
+### Fixed
 
 - Fixed a bug causing a crash on datatype destructors 
 - Sanitizing JSON output in LSP mode.
@@ -13,7 +22,7 @@ All notable changes to this project will be docmented in this file.
 
 ## [1.0.1] - 2025-11-22
 
-### Fixes
+### Fixed
 
 - Supressed generating log files unless debug mode is used.
 

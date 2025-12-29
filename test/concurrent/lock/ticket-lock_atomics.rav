@@ -53,14 +53,14 @@ module TicketLock[R: LockResource] {
 
     if (x == c) {
       fold is_lock(l, r, true);
-      commitAU(phi);
+      commitAU(phi, ());
       return;
     } else {
       fold is_lock(l, r, b);
       abortAU(phi);  
       r, b := openAU(phi);
       wait_loop(l, x);
-      commitAU(phi);
+      commitAU(phi, ());
     }
   }
 
@@ -95,14 +95,14 @@ module TicketLock[R: LockResource] {
       abortAU(phi);
       r, b := openAU(phi);
       wait_loop(l, nxt);
-      commitAU(phi);
+      commitAU(phi, ());
 
     } else {
       fold is_lock(l, r, b);
       abortAU(phi);
       r, b := openAU(phi);
       acquire(l);
-      commitAU(phi);
+      commitAU(phi, ());
     }
   }
   
@@ -123,6 +123,6 @@ module TicketLock[R: LockResource] {
     unfold is_lock(l, r, true);
     l.curr := c1;
     fold is_lock(l, r, false);
-    commitAU(phi);
+    commitAU(phi, ());
   }
 }

@@ -523,6 +523,8 @@ module Type = struct
   let is_const_var vdecl = vdecl.var_const
   let is_implicit_var vdecl = vdecl.var_implicit
 
+  let is_base_type typ = (typ = int) || (typ = bool) || (typ = ref)
+
   let to_loc t = match t with
   | App (_, _, tp_attr) -> tp_attr.type_loc
 
@@ -716,8 +718,8 @@ module Expr = struct
     | Var id -> QualIdent.to_string id
     (* ownership predicates *)
     | Own -> "own"
-    | AUPred id -> "AU_" ^ QualIdent.to_string id
-    | AUPredCommit id -> "AU_commit_" ^ QualIdent.to_string id
+    | AUPred id -> ("au<" ^ QualIdent.to_string id ^ ">")
+    | AUPredCommit id -> ("auCommit<" ^ QualIdent.to_string id ^ ">")
     | ExprExt expr_ext -> !expr_ext_to_string expr_ext
     
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
@@ -1378,9 +1380,21 @@ module Stmt = struct
 
   type auaction_kind =
     | BindAU of qual_ident
-    | OpenAU of expr * qual_ident * expr list
-    | AbortAU of expr
-    | CommitAU of expr * expr list
+    | OpenAU of { 
+      token: expr; 
+      proc_qi: qual_ident; 
+      proc_args: expr list; 
+      lhs: expr list; 
+    } 
+    | AbortAU of {
+      token: expr;
+      proc_args: expr list;
+    }
+    | CommitAU of {
+      token: expr;
+      proc_args: expr list;
+      proc_rets: expr list
+    }
 
   let auaction_kind_to_string = function
     | BindAU _ -> "bindAU"
@@ -1513,10 +1527,12 @@ module Stmt = struct
               cstm.call_args)
     | AUAction { auaction_kind = BindAU token} ->
       fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
-    | AUAction { auaction_kind = OpenAU (token, call_ident, open_au_lhs)} ->
-      fprintf ppf "@[<2>%a := %s(%a)@]" Expr.pr_list open_au_lhs (auaction_kind_to_string (OpenAU (token, call_ident, open_au_lhs))) Expr.pr token
-    | AUAction { auaction_kind; _} ->
-      fprintf ppf "@[<2>%s()@]" (auaction_kind_to_string auaction_kind)
+    | AUAction { auaction_kind = OpenAU open_au_desc} ->
+      fprintf ppf "@[<2>%a := %s(%a, (%a))@]" Expr.pr_list open_au_desc.lhs (auaction_kind_to_string (OpenAU open_au_desc)) Expr.pr open_au_desc.token Expr.pr_list open_au_desc.proc_args
+    | AUAction { auaction_kind = CommitAU commit_au_desc as au_action} ->
+      fprintf ppf "@[<2>%s(%a, (%a), (%a) )@]" (auaction_kind_to_string au_action) Expr.pr commit_au_desc.token Expr.pr_list commit_au_desc.proc_args Expr.pr_list commit_au_desc.proc_rets
+    | AUAction { auaction_kind = AbortAU abort_au_desc as au_action} ->
+      fprintf ppf "@[<2>%s(%a, (%a))@]" (auaction_kind_to_string au_action) Expr.pr abort_au_desc.token Expr.pr_list abort_au_desc.proc_args
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
     | StmtExt (stmt_ext, exprs) -> !pr_stmt_ext ppf stmt_ext exprs
 

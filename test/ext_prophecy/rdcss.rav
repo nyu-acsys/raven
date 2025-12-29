@@ -1,0 +1,585 @@
+
+// DATA TYPE FOR RDCSS
+type NLocTp = data {
+  case quiescent(value: Int);
+  case pending(descr: Ref)
+}
+
+// rdcss field
+field n_loc: NLocTp
+
+// m_loc fields
+module MLocVal {
+  field m_loc_value: Int
+}
+
+module UnitType: Library.Type {
+  rep type T = ()
+}
+
+module PrivatePublicRA: Library.ResourceAlgebra {
+  rep type T = data {
+    case identity
+    case private
+    case public
+    case invalid
+  }
+
+  val id: T = identity
+
+  func valid(a: T) returns (ret: Bool) {
+    a == identity || a == private || a == public
+  }
+
+  func comp(a: T, b: T) returns (ret: T) {
+    a == id ? b : (
+      b == id ? a : (
+        (a == public && b == public) ?
+          public : invalid
+      )
+    )
+  }
+
+  func frame(a: T, b: T) returns (ret: T) {
+    b == id ? a :
+      (a == public && b == public ? public : (
+        a == private && b == private ? id : invalid
+      ))
+  }
+
+  func fpuAllowed(a: T, b: T) returns (ret: Bool) {
+    a == private && b == public
+  }
+}
+
+import PrivatePublicRA._
+
+
+// Initializing Resource Algebras:
+module Excl_Unit = Library.Excl[UnitType]
+module Excl_Int = Library.Excl[Library.IntType]
+module Auth_Excl_Int = Library.Auth[Excl_Int]
+// module Agree_Unit = Library.Agree[UnitType]
+// module OneShotRA = Library.SumRA[Excl_Unit, Agree_Unit]
+
+// descr fields
+module Descr {
+  type L_descr = data {
+    case l_descr_constr(l_m: Ref, m1: Int, n1: Int, n2: Int)
+  }
+
+  field descr_fld: L_descr
+  ghost field prophVar: Proph
+  ghost field token: Excl_Unit
+}
+
+// rdcss ghost fields
+ghost field one_shot: PrivatePublicRA
+ghost field rdcss_state_fld: Auth_Excl_Int
+ghost field rdcss_token: Excl_Unit
+
+
+type AbstractState = data {
+  case quiescentState(value0: Int)
+  case updatingState(l_descr_ref_destr: Ref, l_descr_val: Descr.L_descr, proph: Proph)
+}
+
+/* trnsl:
+  γ_s -> l_descr_ref.one_shot
+  γ_a -> l_descr_ref . (Descr.token) // Token is called `own_descr_token(l_descr_ref)`
+  γ_t -> l_n.rdcss_token // Token is called `own_rdcss_token(l_n)`
+
+  (Q n) or Q_n -> auCommit<rdcss>(token, l_n, l_descr, rdcss_ret)
+
+  P -> au<rdcss>(token, l_n, l_descr)
+  n -> rdcss_ret
+
+*/
+
+auto pred own_rdcss_token(l_n: Ref) {
+  own(l_n.rdcss_token, Excl_Unit.excl(()))
+}
+
+module ProphTyp: Library.Type {
+  rep type T = Proph
+}
+
+module Opt_Proph = Library.Option[ProphTyp]
+
+// RDCSS OPERATIONS
+
+// NEW_RDCSS()
+proc new_rdcss(n: Int) returns (ret: Ref)
+  // ensures is_rdcss(ret) && rdcss_state(ret, n)
+{
+  ret := new(n_loc: quiescent(n));
+  return ret;
+}
+
+// COMPLETE()
+proc complete(l_descr_ref: Ref, l_n: Ref, 
+  implicit ghost l_descr' : Descr.L_descr,
+  implicit ghost token: AtomicToken<rdcss> ,
+  implicit ghost p: Proph, 
+  implicit ghost rdcss_ret: Int,
+  implicit ghost tid_ghost_winner: Proph 
+) 
+  requires rdcss_inv(l_n)
+  requires l_descr'.Descr.n1 == rdcss_ret
+  requires descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr', tid_ghost_winner)
+  requires exists z: Int :: own(l_descr'.(Descr.l_m), MLocVal.m_loc_value, z, 0.1)
+  requires own(l_descr_ref.Descr.descr_fld, l_descr', 0.1)
+  requires own_rdcss_token(l_n)
+  ensures auCommit<rdcss>(token, (l_n, l_descr'), rdcss_ret)
+{
+  var l_descr: Descr.L_descr := l_descr_ref.Descr.descr_fld;
+  var l_m := l_descr.Descr.l_m;
+  var m1 := l_descr.Descr.m1;
+  var n1 := l_descr.Descr.n1;
+  var n2 := l_descr.Descr.n2;
+
+  ghost var vs_ghost: List[Int];
+  ghost var tid_ghost: Proph;
+
+  tid_ghost, vs_ghost := Proph.new[Int];
+
+  var s: AbstractState;
+  var token': AtomicToken<rdcss>;
+  var tid_ghost_winner': Proph;
+
+  unfold rdcss_inv(l_n)[s := s, token' := token, tid_ghost_winner' := tid_ghost_winner];
+
+  ghost var l_m_value': Int;
+  ghost var m': Int;
+  ghost var n': Int;
+
+  ghost var vs: List[(Bool, Proph)];
+  ghost var notDone: Bool;
+  ghost var isPending: Bool;
+
+  {!
+    if (tid_ghost_winner == tid_ghost) {
+      // we are the succeeding thread
+
+      unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[
+        vs := vs,
+        notDone := notDone,
+        isPending := isPending
+      ];
+      
+      if (notDone && isPending) {
+        // descr_inv in `pending`
+        // descr_inv `pending` to `accepted`
+        unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref);
+
+        m', n' := openAU(token, (l_n, l_descr));
+        sync_values(l_n, rdcss_ret, n'); 
+        update_value(l_n, rdcss_ret, n', (m' == m1 && n' == n' ? n2 : n' ));
+
+        commitAU(token, (l_n, l_descr), rdcss_ret);
+
+        fold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost)[vs := vs_ghost];
+
+        isPending := false;
+
+        
+      } else {
+        if (notDone && !isPending) {
+          // descr_inv in `accepted`
+          // contradiction
+          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
+          assert false;
+        }
+        if (!notDone) {
+          // descr_inv in `done`
+          // contradiction
+          unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner);
+          assert false;
+        }
+      }
+
+      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[
+        vs := vs,
+        notDone := notDone,
+        isPending := isPending
+      ];
+    }
+  !}
+
+  var l_m_value := l_m.MLocVal.m_loc_value;
+
+  fold rdcss_inv(l_n)[s := s, token := token', tid_ghost_winner := tid_ghost_winner'];
+
+  var n_new := 
+    l_m_value == m1 ? n2 : n1;
+
+  unfold rdcss_inv(l_n)[s := s, token' := token, tid_ghost_winner' := tid_ghost_winner];
+  unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[
+    vs := vs,
+    notDone := notDone,
+    isPending := isPending
+  ];
+
+  {!
+    if (tid_ghost_winner == tid_ghost) {
+      // we are succeeding thread
+      // complete_succeeding_thread_pending
+      if (notDone && isPending) {
+        // descr_inv in `pending`
+        // contradiction
+        unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref);
+        assert false;
+
+      } else if (notDone && !isPending) {
+        // descr_inv in `accepted`
+        // descr_inv `accepted` to `done`
+        if (s == quiescentState(s.value0)) {
+          assert false;
+        } else {
+          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
+
+          fpu(l_descr_ref.one_shot, public );
+
+          fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := true];
+        }
+
+      } else {
+        // descr_inv in `done`
+        // contradiction
+        unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner);
+        assert false;
+      }
+
+    } else {
+      // we are the failing thread
+      // complete_failing_thread
+
+      if (!notDone) {
+        // descr_inv in `done`
+        if (s == quiescentState(s.value0)) {
+
+        } else {
+          // s is `pendingState`
+          if (s.l_descr_ref_destr == l_descr_ref) {
+            unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner);
+
+            assert false;
+          }
+        }
+      }
+    }
+  !}
+
+
+  var succ: Bool;
+  succ := cas(l_n.n_loc, pending(l_descr_ref), quiescent(n_new));
+
+  ghost var newState: AbstractState := succ ? quiescentState(n_new) : s;
+
+  // Is there a difference between resolving the Proph.prophecy "around" the cas, vs
+  // first doing the cas, and then resolving the Proph.prophecy?
+  Proph.resolve(p, (succ, tid_ghost));
+
+  {!
+    if (tid_ghost_winner != tid_ghost) {
+      // we are failing thread
+      if (notDone) {
+        if (isPending) {
+          // descr_inv in `pending`
+          // contradiction
+          unfold pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref);
+          assert false;
+
+        } else {
+          // descr_inv in `accepted`
+          // contradiction
+          unfold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner);
+          assert false;
+        }
+      }
+    }
+  !}
+
+  fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[
+      vs := List.tl(vs),
+      notDone := !(tid_ghost_winner == tid_ghost || !notDone) ,
+      isPending := isPending
+    ];
+
+  fold rdcss_inv(l_n)[s := newState, token := token', tid_ghost_winner := tid_ghost_winner']; 
+
+  {!
+    if (tid_ghost_winner != tid_ghost) {
+      // we are failing thread
+      if (!notDone) {
+        // descr_inv in `done`
+        if (s == quiescentState(s.value0)) {
+          // s is `quiescentState`
+          state_done_extract_Q(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner);
+        } else {
+          // s is `pendingState`
+          if (s.l_descr_ref_destr != l_descr_ref) {
+            state_done_extract_Q(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner);
+          }
+        }
+      }
+    }
+  !}
+}
+
+// GET ()
+proc get(l_n: Ref) returns (ret: Int)
+  requires false
+{
+  var l_n_val := l_n.n_loc;
+  if (l_n_val == quiescent(l_n_val.value)) {
+    return l_n_val.value;
+  } else {
+    // complete(l_n_val.descr, l_n);
+    var ret := get(l_n);
+    return ret;
+  }
+}
+
+proc rdcss_inner(l_n: Ref, l_descr_ref: Ref) returns(ret: Int)
+  requires false
+{
+  var l_descr := l_descr_ref.Descr.descr_fld;
+  var n1 := l_descr.Descr.n1;
+
+  var r: Bool;
+  // Have to break the CmpXChg into two steps, 
+  // since our cas doesn't return the current value at the location.
+  var l_n_val := l_n.n_loc;
+  r := cas(l_n.n_loc, quiescent(n1), pending(l_descr_ref));
+
+  if (l_n_val == quiescent(l_n_val.value)) {
+    // Quiescent state---time to go!
+    if (r) {
+      // CAS was successful; finish operation
+      // complete(l_descr_ref, l_n);
+      return n1;
+    } else {
+      // CAS failed
+      return l_n_val.value;
+    }
+  } else {
+    // Pending descriptor from a concurrent operation
+    // complete(l_n_val.descr, l_n);
+    ret := rdcss_inner(l_n, l_descr_ref);
+  }
+}
+
+proc rdcss(l_n: Ref, l_descr: Descr.L_descr, implicit ghost m: Int, implicit ghost n: Int) returns (ret: Int)
+  requires false
+  atomic requires own(l_descr.Descr.l_m.MLocVal.m_loc_value, m, 0.1) && rdcss_state(l_n, n)
+  atomic ensures own(l_descr.Descr.l_m.MLocVal.m_loc_value, m, 0.1) && rdcss_state(l_n, ((m == l_descr.Descr.m1 && n == l_descr.Descr.n1) ? l_descr.Descr.n2 : n) )
+{
+  ghost var p: Proph;
+  ghost var prophecies: List[(Bool, Proph)];
+
+  p, prophecies := Proph.new[(Bool, Proph)];
+
+  var l_descr_ref := new(Descr.descr_fld: l_descr, Descr.prophVar: p);
+  // var l_descr_ref := new(Descr.m_loc: l_descr.l_m, Descr.m_value: l_descr.m1, Descr.n1_value: l_descr.n1, Descr.n2_value: l_descr.n2, Descr.prophVar: p);
+
+  ret := rdcss_inner(l_n, l_descr_ref);
+}
+
+pred rdcss_state_auth(l_n: Ref, n: Int) {
+  own(l_n.rdcss_state_fld, Auth_Excl_Int.auth(Excl_Int.excl(n)))
+}
+
+pred rdcss_state(l_n: Ref, n: Int) {
+  own(l_n.rdcss_state_fld, Auth_Excl_Int.frag(Excl_Int.excl(n)))
+}
+
+lemma sync_values(l_n: Ref, n: Int, m: Int) 
+  requires rdcss_state_auth(l_n, n) 
+  requires rdcss_state(l_n, m)
+  ensures n == m 
+    && rdcss_state_auth(l_n, n) 
+    && rdcss_state(l_n, m)
+
+{
+  unfold rdcss_state_auth(l_n, n);
+  unfold rdcss_state(l_n, m);
+  fold rdcss_state(l_n, m);
+  fold rdcss_state_auth(l_n, n);
+}
+
+lemma update_value(l_n: Ref, n1: Int, n2: Int, m: Int)
+  requires rdcss_state_auth(l_n, n1)
+  requires rdcss_state(l_n, n2)
+  ensures rdcss_state_auth(l_n, m)
+  ensures rdcss_state(l_n, m)
+{
+  unfold rdcss_state_auth(l_n, n1);
+  unfold rdcss_state(l_n, n2);
+
+  fpu(l_n.rdcss_state_fld, 
+    Auth_Excl_Int.auth_frag(Excl_Int.excl(m), Excl_Int.excl(m))
+  );
+
+  fold rdcss_state(l_n, m);
+  fold rdcss_state_auth(l_n, m);
+}
+
+func proph_extract_winner(pvs: List[(Bool, Proph)]) returns (ret: Opt_Proph) {
+  (List.len(pvs) == 0) ?
+    Opt_Proph.none : 
+    Opt_Proph.some((List.hd(pvs))#1)
+}
+
+func state_to_val(s: AbstractState) returns (ret: NLocTp) {
+  s == quiescentState(s.value0) ? 
+    quiescent(s.value0) :
+    pending(s.l_descr_ref_destr)
+}
+
+auto pred own_descr_token(l_descr: Ref) {
+  own(l_descr.Descr.token, Excl_Unit.excl(()))
+}
+
+pred pending_state(token: AtomicToken<rdcss> , l_descr: Descr.L_descr, n1: Int, proph_winner: Opt_Proph, tid_ghost_winner: Proph, l_n: Ref, l_descr_ref: Ref) {
+  au<rdcss>(token, (l_n, l_descr)) &&
+  (proph_winner == Opt_Proph.some(proph_winner.(Opt_Proph.value)) ? 
+    proph_winner.Opt_Proph.value == tid_ghost_winner : 
+    true) &&
+  rdcss_state_auth(l_n, n1) && own_descr_token(l_descr_ref)
+}
+
+pred accepted_state(
+  token: AtomicToken<rdcss> , l_n: Ref, l_descr: Descr.L_descr, rdcss_ret: Int,
+  proph_winner: Opt_Proph, tid_ghost_winner: Proph) 
+{
+    auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret)
+    && (exists vs: List[Int] :: Proph.prophecy(tid_ghost_winner, vs))
+    && (proph_winner == Opt_Proph.some(proph_winner.(Opt_Proph.value)) ? 
+      proph_winner.Opt_Proph.value == tid_ghost_winner : 
+      true
+    )
+}
+
+pred done_state(token: AtomicToken<rdcss> , l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr, rdcss_ret: Int, tid_ghost_winner: Proph) {
+  (exists auRetrieved: Bool :: 
+      (auRetrieved ? 
+          own_rdcss_token(l_n) :
+          auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret))
+  ) && 
+  (exists vs: List[Int] :: Proph.prophecy(tid_ghost_winner, vs)) &&
+    own(l_descr_ref.Descr.descr_fld, l_descr, 0.5) &&
+    own_descr_token(l_descr_ref)
+}
+
+inv descr_inv(token: AtomicToken<rdcss> , p: Proph, rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr , tid_ghost_winner: Proph) {
+
+  exists vs: List[(Bool, Proph)] :: Proph.prophecy(p, vs) && (
+    exists notDone: Bool :: notDone ? (
+    // First disjunct: This contains either `pending` or `accepted` state.
+      own(l_descr_ref.one_shot, private)
+      && own(l_n.n_loc, pending(l_descr_ref), 1/2) && (
+        exists isPending: Bool :: isPending ? 
+          // `pending`
+          pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref) 
+        : // or `accepted`
+          accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner)
+      )
+    ) : (
+    // Second disjunct: This contains the `done` state.
+      own(l_descr_ref.one_shot, public) &&
+      done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)
+    )
+  )
+}
+
+inv rdcss_inv(l_n: Ref) {
+  exists s: AbstractState :: 
+    own(l_n.n_loc, state_to_val(s), 0.5) && 
+    (s == quiescentState(s.value0) ? (
+      // n -> s.value0
+      own(l_n.n_loc, quiescent(s.value0), 0.5)
+      && rdcss_state_auth(l_n, s.value0)
+    ) : (
+      // s == updatingState(s.l_descr_ref, s.l_descr_val, s.proph)
+      exists token: AtomicToken<rdcss> , tid_ghost_winner: Proph :: 
+        own(s.l_descr_ref_destr.Descr.descr_fld, s.l_descr_val, 0.6)
+        && descr_inv(token, s.proph, s.l_descr_val.(Descr.n1), l_n, s.l_descr_ref_destr, s.l_descr_val, tid_ghost_winner)
+        && (exists l_m_val: Int :: own(s.l_descr_val.(Descr.l_m), MLocVal.m_loc_value, l_m_val, 0.1))
+    )
+  )
+}
+
+pred is_rdcss(l_n: Ref) {
+  rdcss_inv(l_n)
+}
+
+lemma rdcss_state_exclusive(l_n: Ref, n_1: Int, n_2: Int) 
+  requires rdcss_state(l_n, n_1) && rdcss_state(l_n, n_2)
+  ensures false
+{
+  unfold rdcss_state(l_n, n_1);
+  unfold rdcss_state(l_n, n_2);
+}
+
+lemma state_done_extract_Q(token: AtomicToken<rdcss> , p: Proph, rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr, tid_ghost_winner: Proph)
+  requires descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)
+  requires own(l_descr_ref.one_shot, public)
+  requires own_rdcss_token(l_n)
+  ensures auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret)
+{
+  var notDone: Bool;
+  var isPending: Bool;
+  var vs: List[(Bool, Proph)];
+  unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := notDone, isPending := isPending];
+
+  if (notDone) { /*
+    own(l_n.oneshot, OneShotRA.sum_right( Agree_Unit.agree(()) )) 
+    && own(l_n.oneshot, OneShotRA.sum_left( Excl_Unit.excl(()) )) -> _|_
+    */
+    assert false;
+    fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[notDone := true, isPending := false];
+  } else {
+    var auRetrieved: Bool;
+    unfold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := auRetrieved];
+
+    if (auRetrieved) {
+      // own_rdcss_token(l_n) && own_rdcss_token(l_n) -> _|_
+      assert false;
+      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[notDone := false, isPending := false];
+    } else {
+      // here we can extract the auCommit token from done_state by exchanging it for `own_rdcss_token(l_n)`
+      fold done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)[auRetrieved := true];
+      fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := false, isPending := false];
+    }
+  }
+}
+
+// lemma complete_succeeding_thread_pending(l_n: Ref, token: AtomicToken<rdcss> , p: Proph, n1: Int, rdcss_ret: Int, l_descr_ref: Ref, l_descr: Descr.L_descr, tid_ghost_winner: Proph) 
+//   requires rdcss_inv(l_n)
+//   requires descr_inv(token, p, n1, l_n, l_descr_ref, l_descr, tid_ghost_winner)
+//   requires own_descr_token(l_descr_ref)
+//   // requires own_rdcss_token(l_n) // unsure
+//   requires rdcss_state_auth(l_n, rdcss_ret)
+//   requires own_rdcss_token(l_n)
+//   ensures exists vs: List[(Bool, Proph)] :: Proph.prophecy(p, vs) //&& List.hd(vs)
+//   ensures auCommit<rdcss>(token, l_n, l_descr, rdcss_ret)
+// {
+//   assume false;
+// }
+
+
+// lemma complete_failing_thread(l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr, token: AtomicToken<rdcss> , p: Proph, n1: Int, rdcss_ret: Int, tid_ghost_winner: Proph, tid_ghost: Proph) 
+//   requires tid_ghost_winner != tid_ghost
+//   requires rdcss_inv(l_n)
+//   requires descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)
+//   requires own_descr_token(l_descr_ref)
+//   // requires own_rdcss_token(l_n) // unsure
+//   requires rdcss_state_auth(l_n, rdcss_ret)
+//   requires own_rdcss_token(l_n)
+//   ensures exists vs: List[(Bool, Proph)] :: Proph.prophecy(p, vs) //&& List.hd(vs)
+//   // ensures exists v: NLocTp :: own(l_n.n_loc, v) && (List.hd(vs) == (v== pending(l_descr_ref), tid_ghost))
+//   ensures auCommit<rdcss>(token, l_n, l_descr, rdcss_ret)
+// {
+//   assume false;
+// }
