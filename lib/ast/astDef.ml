@@ -670,6 +670,17 @@ module Expr = struct
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
+  let rec set_recursive_loc loc t =
+    let attr = attr_of t in
+    let attr = { attr with expr_loc = loc } in
+    match t with 
+    | App (constr, expr_list, _expr_attr) -> 
+      let expr_list = List.map expr_list ~f:(set_recursive_loc loc) in
+      App (constr, expr_list, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> 
+      let expr = set_recursive_loc loc expr in
+      Binder (b, v_l, trigs, expr, attr)
+
   let overwrite_loc t loc = 
     if Loc.(loc = dummy) then t else (set_loc t loc)
 
@@ -2545,6 +2556,10 @@ module Predefs = struct
   let lib_frac_chunk_destr1_ident = Ident.make Loc.dummy "frac_proj1" 0
   let lib_frac_chunk_destr2_ident = Ident.make Loc.dummy "frac_proj2" 0
 
+  let lib_fraction_mod_ident = Ident.make Loc.dummy "Fraction" 0
+  let lib_fraction_mod_qual_ident = QualIdent.from_list [lib_ident; lib_fraction_mod_ident]
+  let lib_fraction_frac_constr_ident = Ident.make Loc.dummy "frac" 0
+
   let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
   
   let lib_auth_fun_ident = Ident.make Loc.dummy "auth" 0
@@ -2577,10 +2592,6 @@ module Predefs = struct
   let lib_atomic_token_committed_destr1_ident = Ident.make Loc.dummy "au_commit_proj1" 0
 
   let lib_atomic_token_committed_destr2_ident = Ident.make Loc.dummy "au_commit_proj2" 0
-
-
-
-
 end
 
 

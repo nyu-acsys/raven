@@ -97,9 +97,14 @@ module ErrorCreditsExt (Cont : Ext) = struct
       [EC_Predefs.error_field_qi]
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
+
+  (* Rewriter *)
+  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
+  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+
+
   (* Typing *)
   let type_check_type_expr = Cont.type_check_type_expr
-
 
   let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) = 
     let open Rewriter.Syntax in
@@ -114,7 +119,6 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
-  
 
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
@@ -242,9 +246,6 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
 
-  let lib_fraction_ident = Ident.make Loc.dummy "Fraction" 0
-  let lib_fraction_frac_constr_ident = Ident.make Loc.dummy "frac" 0
-
   (* Rewrites *)
   let rewrite_type_ext = Cont.rewrite_type_ext
   
@@ -259,9 +260,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
       let* ec_field_qi = Rewriter.resolve EC_Predefs.error_field_qi in
       let* ec_field = Rewriter.find_and_reify_field ec_field_qi in
 
-      let* lib_fraction_mod_qual_ident = Rewriter.resolve (QualIdent.from_list [Predefs.lib_ident; lib_fraction_ident]) in
-
-      let* lib_fraction_frac_constr_qi = Rewriter.resolve (QualIdent.append lib_fraction_mod_qual_ident lib_fraction_frac_constr_ident) in
+      let* lib_fraction_frac_constr_qi = Rewriter.resolve (QualIdent.append Predefs.lib_fraction_mod_qual_ident Predefs.lib_fraction_frac_constr_ident) in
       let* lib_fraction_frac_constr_symbol = Rewriter.find_and_reify lib_fraction_frac_constr_qi in
       let constr_decl =
         match lib_fraction_frac_constr_symbol with
@@ -286,9 +285,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
     let* ec_field_qi = Rewriter.resolve EC_Predefs.error_field_qi in
     let* ec_field = Rewriter.find_and_reify_field ec_field_qi in
 
-    let* lib_fraction_mod_qual_ident = Rewriter.resolve (QualIdent.from_list [Predefs.lib_ident; lib_fraction_ident]) in
-
-    let* lib_fraction_frac_constr_qi = Rewriter.resolve (QualIdent.append lib_fraction_mod_qual_ident lib_fraction_frac_constr_ident) in
+    let* lib_fraction_frac_constr_qi = Rewriter.resolve (QualIdent.append Predefs.lib_fraction_mod_qual_ident Predefs.lib_fraction_frac_constr_ident) in
     let* lib_fraction_frac_constr_symbol = Rewriter.find_and_reify lib_fraction_frac_constr_qi in
     let constr_decl =
       match lib_fraction_frac_constr_symbol with

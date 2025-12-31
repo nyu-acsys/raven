@@ -115,6 +115,11 @@ module ListExt (Cont : Ext) = struct
   let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
 
 
+  (* Rewriter *)
+  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
+  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+
+
   (* Typing *)
   let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
     let open Rewriter.Syntax in
@@ -431,6 +436,7 @@ module ListExt (Cont : Ext) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
   let rewrite_stmt_ext = Cont.rewrite_stmt_ext
+
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)

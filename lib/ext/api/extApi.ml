@@ -43,6 +43,19 @@ module type Ext = sig
   val stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
   val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
 
+
+  (* Rewriter *)
+  val expr_ext_rewrite_types :
+    f:(type_expr -> type_expr Rewriter.t)
+    -> Expr.expr_ext 
+    -> Expr.expr_ext Rewriter.t
+
+  val stmt_ext_rewrite_types :
+    f: (type_expr -> type_expr Rewriter.t) 
+    -> Stmt.stmt_ext 
+    -> Stmt.stmt_ext Rewriter.t
+
+
   (* Typing *)
   val type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr Rewriter.t
 

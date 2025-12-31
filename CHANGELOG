@@ -4,8 +4,14 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Added cmpxchg atomic operation.
+
 ### Changed
 
+- Finished implementation of rdcss;
+- Added expr_ext_rewrite_types, stmt_ext_rewrite_types to ExtAPI.
 - Added parser support for auCommit resources; enable 'helping'
 - Expanded definition of "word-sized" types to more flexible types such as algebraic sums of base types.
 - Overhauled extensions to follow namespace-style convention.

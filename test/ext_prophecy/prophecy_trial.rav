@@ -16,6 +16,7 @@ proc p() {
 
   // Multi-shot prophecies
   myProph', bs := Proph.new[Bool];
+  assert Proph.prophecy(myProph', bs);
   Proph.resolve(myProph', true);
 
   assert List.hd(bs) == true;

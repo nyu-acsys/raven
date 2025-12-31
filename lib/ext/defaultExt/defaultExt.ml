@@ -20,6 +20,15 @@ module DefaultExt = struct
   let stmt_ext_local_vars_modified stmt_ext exprs = []
   let stmt_ext_fields_accessed stmt_ext exprs = []
 
+
+  (* Rewriter *)
+  let expr_ext_rewrite_types ~(f: type_expr -> type_expr Rewriter.t) expr_ext =
+    Rewriter.return expr_ext
+
+  let stmt_ext_rewrite_types ~(f: type_expr -> type_expr Rewriter.t) stmt_ext = 
+    Rewriter.return stmt_ext
+
+
   (* Typing *)
   let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
     Error.internal_error type_attr.type_loc "Unhandled Type extension in DefaultExt.type_check_type_expr"
@@ -29,6 +38,7 @@ module DefaultExt = struct
 
   let type_check_stmt (call_decl: Callable.call_decl) (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) (loc: location) (disamTbl: ProgUtils.DisambiguationTbl.t) (type_check_stmt_functs: type_check_stmt_functs) =
       Error.internal_error loc "Unhandled stmt extension in DefaultExt.type_check_stmt"
+
 
   (* Rewrites *)
   let rewrite_type_ext _ _ loc =

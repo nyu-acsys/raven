@@ -119,6 +119,17 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
 
+  (* Rewriter *)
+  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
+  let stmt_ext_rewrite_types ~f stmt_ext = 
+    let open Rewriter.Syntax in
+    match stmt_ext with
+    | NewProph (b, tp_expr) ->
+      let+ tp_expr = f tp_expr in
+      NewProph (b, tp_expr)
+    |_ -> Cont.stmt_ext_rewrite_types ~f stmt_ext
+
+
   (* Typing *)
   let type_check_type_expr type_ext type_args type_attr type_check_type_expr_functs = 
     match type_ext, type_args with
@@ -329,6 +340,8 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       let* proph_module_qi = initialize_prophecy_module loc typ in
       let prophecy_field_qi = QualIdent.append proph_module_qi ProphPredefs.field_ident in
 
+      let* prophecy_field_symbol = Rewriter.find_and_reify_field prophecy_field_qi in
+
       let havoc_stmt1 = Stmt.mk_havoc ~loc (Expr.to_qual_ident proph_id) in
       let havoc_stmt2 = Stmt.mk_havoc ~loc (Expr.to_qual_ident proph_val) in
 
@@ -348,12 +361,20 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       in
 
       let proph_new_stmt =
-        let new_desc = {
+        Stmt.mk_inhale_expr ~loc
+        ~cmnt:("[EXT] ProphExt: Inhale stmt for Prophecy.new()")
+        (Expr.mk_app ~loc ~typ:Type.perm Expr.Own [
+          proph_id; 
+          Expr.mk_var ~typ:prophecy_field_symbol.field_type prophecy_field_qi; 
+          proph_field_val;
+          Expr.mk_real 1.0;
+        ])
+        (* let new_desc = {
           Stmt.new_lhs = Expr.to_qual_ident proph_id;
           new_args = [(prophecy_field_qi, Some proph_field_val)]
           } in
 
-        { Stmt.stmt_desc = Basic (New new_desc); stmt_loc = loc }
+        { Stmt.stmt_desc = Basic (New new_desc); stmt_loc = loc } *)
       in
 
       Rewriter.return (Stmt.mk_block_stmt ~loc ~ghost:true
@@ -437,6 +458,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       Error.type_error loc "[EXT] ProphExt: ResolveProph command called with incorrect number of arguments"
 
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)

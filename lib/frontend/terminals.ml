@@ -62,21 +62,19 @@ let _ =
       ("while", WHILE);
 
       (* ListExt *)
-      ("List", LIST); (*Parser.TYPECONSTR (TypeExt (Ext.ListExtInstance.ListConstr), 1));*)
+      ("List", LIST);
 
       (* ProphecyExt *)
       ("Proph", PROPH);
       ("new_1", NEW1);
       ("resolve", RESOLVE);
       ("prophecy", PROPHECY);
-      (* ("NewProph", NEWPROPH);
-      ("ResolveProph", RESOLVEPROPH);
-      ("ProphId", PROPHID); *)
 
       (* AtomicExt *)
       ("cas", CAS);
       ("faa", FAA);
       ("xchg", XCHG);
+      ("cmpxchg", CMPXCHG);
 
       (* ErrorCreditsExt *)
       ("EC", EC);

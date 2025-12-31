@@ -13,6 +13,7 @@ module ExtName (Cont : Ext) = struct
   type Stmt.stmt_ext +=
     | _
 
+
   (* AstDef *)
   let type_ext_to_name type_ext =
     match type_ext with 
@@ -38,6 +39,12 @@ module ExtName (Cont : Ext) = struct
   let stmt_ext_fields_accessed stmt_ext exprs = 
     match stmt_ext, exprs with
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+
+
+  (* Rewriter *)
+  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
+  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+
 
   (* Typing *)
   let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
@@ -72,6 +79,7 @@ module ExtName (Cont : Ext) = struct
     let open Rewriter.Syntax in
     match stmt_ext, expr_list with
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)

@@ -2259,14 +2259,15 @@ module TrnslInhale = struct
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
         Rewriter.return stmt
-    | App (AUPred call_qual_ident, token :: args, _)
-    | App (AUPredCommit call_qual_ident, token :: args, _) ->
-        Logs.debug (fun m ->
-            m
-              "Rewrites.HeapsExplicitTrnsl.TrnslInhale.trnsl_inhale_a0: AUPred/AUPredCommit expr: \
-               %a"
-              Expr.pr expr);
-        let loc = Expr.to_loc expr in
+    | App (AUPred call_qual_ident as constr, token :: au_args, _)
+    | App (AUPredCommit call_qual_ident as constr, token :: au_args, _) ->
+      let args = match constr, au_args with
+        | AUPred _, [args_tuple] -> Expr.unfold_tuple args_tuple
+        | AUPredCommit _, [args_tuple; ret_tuple] -> 
+          (Expr.unfold_tuple args_tuple) @ [ret_tuple]
+        | _ -> 
+          unsupported_expr_error expr
+      in
         let* heap_elem_type_qual_iden =
           ProgUtils.get_au_utils_rep_type call_qual_ident
         in
@@ -2428,12 +2429,12 @@ module TrnslInhale = struct
           in
 
           let new_chunk =
-            match expr with
-            | App (AUPred _, _, _) ->
+            match constr with
+            | AUPred _ ->
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_uncommitted_constr)
                   [ Expr.mk_tuple args_subst ]
-            | App (AUPredCommit _, _, _) ->
+            | AUPredCommit _ ->
                 let ret_val = List.last_exn args_subst in
                 let call_args = List.drop_last_exn args_subst in
 
@@ -2857,6 +2858,7 @@ module TrnslInhale = struct
                   Rewriter.return stmt
               | _ -> Error.error loc "Expected a predicate definition")
           | _ ->
+            (* Logs.debug (fun m -> m "TrnslInhale.trnsl_inhale_a0: unknown inhale expr"); *)
             unsupported_expr_error expr)
 
   let rec trnsl_assume_expr ?cmnt ?spec_error ~loc (expr : expr) :
@@ -2923,8 +2925,16 @@ module TrnslInhale = struct
         in
 
         Rewriter.return assume_stmt
-    | App (AUPred call_qual_ident, token :: args, _)
-    | App (AUPredCommit call_qual_ident, token :: args, _) ->
+    | App (AUPred call_qual_ident as constr, token :: au_args, _)
+    | App (AUPredCommit call_qual_ident as constr, token :: au_args, _) ->
+        let args = match constr, au_args with
+          | AUPred _, [args_tuple] -> Expr.unfold_tuple args_tuple
+          | AUPredCommit _, [args_tuple; ret_tuple] -> 
+            (Expr.unfold_tuple args_tuple) @ [ret_tuple]
+          | _ -> 
+            (* Logs.debug(fun m -> m "TrnslInhale.trnsl_assume_a0: could not compute args"); *)
+            unsupported_expr_error expr
+        in
         Logs.debug (fun m ->
             m
               "Rewrites.HeapsExplicitTrnsl.Trnslassume.trnsl_assume_a0: expr: \
@@ -2961,12 +2971,12 @@ module TrnslInhale = struct
 
         let assume_stmt =
           let new_chunk =
-            match expr with
-            | App (AUPred _, _ :: args, _) ->
+            match constr with
+            | AUPred _ ->
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_uncommitted_constr)
                   [ Expr.mk_tuple args ]
-            | App (AUPredCommit _, _ :: args, _) ->
+            | AUPredCommit _ ->
                 let ret_val = List.last_exn args in
                 let call_args = List.drop_last_exn args in
 
@@ -3094,7 +3104,7 @@ module TrnslInhale = struct
           in          
           Rewriter.return assume_stmt
     | _ ->
-      Logs.debug (fun m -> m "Here2");
+      (* Logs.debug(fun m -> m "TrnslInhale.trnsl_assume_a0: unknown expr"); *)
       unsupported_expr_error expr
 end
 
@@ -4446,9 +4456,16 @@ module TrnslExhale = struct
         let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
         Rewriter.return stmt
-    | App (AUPred call_qual_ident, token :: args, _)
-    | App (AUPredCommit call_qual_ident, token :: args, _) ->
-        let loc = Expr.to_loc expr in
+    | App (AUPred call_qual_ident as constr, token :: au_args, _)
+    | App (AUPredCommit call_qual_ident as constr, token :: au_args, _) ->
+        let args = match constr, au_args with
+          | AUPred _, [args_tuple] -> Expr.unfold_tuple args_tuple
+          | AUPredCommit _, [args_tuple; ret_tuple] -> 
+            (Expr.unfold_tuple args_tuple) @ [ret_tuple]
+          | _ -> 
+            (* Logs.debug(fun m -> m "TrnslInhale.trnsl_exhale_a0: could not compute args"); *)
+            unsupported_expr_error expr
+        in
         let* heap_elem_type_qual_iden =
           ProgUtils.get_au_utils_rep_type call_qual_ident
         in
@@ -4606,12 +4623,12 @@ module TrnslExhale = struct
           in
 
           let new_chunk =
-            match expr with
-            | App (AUPred _, _, _) ->
+            match constr with
+            | AUPred _ ->
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_uncommitted_constr)
                   [ Expr.mk_tuple args_subst ]
-            | App (AUPredCommit _, _, _) ->
+            | AUPredCommit _ ->
                 let ret_val = List.last_exn args_subst in
                 let call_args = List.drop_last_exn args_subst in
 
@@ -4677,8 +4694,16 @@ module TrnslExhale = struct
         (* pred$Heap := pred$Heap2 *)
         let eq_stmt = Stmt.mk_assign ~loc [ au_heap_expr |> Expr.to_qual_ident ] au_heap2_expr in
 
+        (* Logs.debug (fun m -> m "heapsExplicitTrnsl.trnsl_exhale_a0: Found auPred/auPredCommit; loc=%s expr=%a; Length of spec_error: %i; errors=%a" 
+          (Loc.to_string_simple loc)
+          Expr.pr expr 
+          (List.length spec_error) 
+          (Util.Print.pr_list_nl Format.pp_print_string) (List.map spec_error ~f:(fun err -> err call_qual_ident  loc |> Error.to_string))
+        ); *)
+
         let assert_heap_valid =
-          Stmt.mk_assert_expr ~loc ~spec_error
+          Stmt.mk_assert_expr ~loc ~spec_error:(spec_error @ [Stmt.mk_const_spec_error
+                           (Error.RelatedLoc, Expr.to_loc expr, "This atomic update predicate may not hold")])
             (Expr.mk_app ~loc ~typ:Type.bool (Expr.Var au_heap_valid_fn)
                [ au_heap_expr ])
         in
@@ -5008,6 +5033,13 @@ module TrnslExhale = struct
                     Stmt.mk_assign ~loc [ pred_heap_expr |> Expr.to_qual_ident ] pred_heap2_expr
                   in
 
+                  (* Logs.debug (fun m -> m "heapsExplicitTrnsl.trnsl_exhale_a0: Found pred/inv; loc=%s expr=%a; Length of spec_error: %i; errors=%a" 
+                    (Loc.to_string_simple loc)
+                    Expr.pr expr 
+                    (List.length spec_error) 
+                    (Util.Print.pr_list_nl Format.pp_print_string) (List.map spec_error ~f:(fun err -> err qual_ident  loc |> Error.to_string))
+                  ); *)
+
                   let assert_heap_valid =
                     Stmt.mk_assert_expr ~loc
                       ~spec_error:
@@ -5038,6 +5070,7 @@ module TrnslExhale = struct
                   Rewriter.return stmt
               | _ -> Error.error loc "Expected a predicate definition")
           | _ ->
+            (* Logs.debug(fun m -> m "TrnslInhale.trnsl_exhale_a0: unknown expr"); *)
             unsupported_expr_error expr)
 end
 

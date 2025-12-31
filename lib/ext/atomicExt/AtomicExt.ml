@@ -12,11 +12,13 @@ module AtomicExt (Cont : Ext) = struct
     | Cas 
     | Faa
     | Xchg
+    | CmpXchg
 
   let atomic_inbuilt_string = function
     | Cas -> "cas"
     | Faa -> "faa"
     | Xchg -> "xchg"
+    | CmpXchg -> "cmpxchg"
 
   type Stmt.stmt_ext += 
     | AtomicInbuiltInit of atomic_inbuilt_kind
@@ -52,6 +54,12 @@ module AtomicExt (Cont : Ext) = struct
         [(Expr.to_qual_ident field_expr)]
 
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+
+
+  (* Rewriter *)
+  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
+  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+
 
   (* Typing *)
   let type_check_type_expr = Cont.type_check_type_expr
@@ -116,7 +124,7 @@ module AtomicExt (Cont : Ext) = struct
             Error.type_error stmt_loc "Cannot use atomic operations in a ghost context"
         in
         let* atomic_inbuilt_lhs, var_decl = type_check_stmt_functs.get_assign_lhs (Expr.to_qual_ident lhs_expr) ~is_init:is_init in
-            Logs.debug (fun m -> m "AtomicExt.type_check_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" Expr.pr lhs_expr QualIdent.pr atomic_inbuilt_lhs);
+            Logs.debug (fun m -> m "[EXT] AtomicExt.type_check_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" Expr.pr lhs_expr QualIdent.pr atomic_inbuilt_lhs);
 
         let* atomic_inbuilt_field, symbol =
           Rewriter.resolve_and_find (Expr.to_qual_ident field_expr)
@@ -149,9 +157,7 @@ module AtomicExt (Cont : Ext) = struct
             | old_val_expr :: new_val_expr :: [] ->
             let* cas_old_val = type_check_stmt_functs.disambiguate_process_expr old_val_expr ais_fld_type disam_tbl in
             let* cas_new_val = type_check_stmt_functs.disambiguate_process_expr new_val_expr ais_fld_type disam_tbl in
-            Logs.debug (fun m -> m "AtomicExt.type_check_stmt ERROR START");
             let+ _ = type_check_stmt_functs.disambiguate_process_expr (Expr.mk_var ~typ:var_decl.var_type (Expr.to_qual_ident lhs_expr)) (Type.bool |> Type.set_ghost_to var_decl.var_type) disam_tbl in
-            Logs.debug (fun m -> m "AtomicExt.type_check_stmt ERROR END");
             [ cas_old_val; cas_new_val ]
             | _ -> Error.type_error stmt_loc  "Wrong number of arguments for CAS"
             end
@@ -174,6 +180,21 @@ module AtomicExt (Cont : Ext) = struct
             [ xchg_new_val ]
             | _ -> Error.type_error stmt_loc  "Wrong number of arguments for XCHG"
             end
+          | CmpXchg -> begin 
+            match args with
+            | old_val_expr :: new_val_expr :: [] ->
+            let* cmpxchg_old_val = type_check_stmt_functs.disambiguate_process_expr old_val_expr ais_fld_type disam_tbl in
+            let* cmpxchg_new_val = type_check_stmt_functs.disambiguate_process_expr new_val_expr ais_fld_type disam_tbl in
+            let+ _ = type_check_stmt_functs.disambiguate_process_expr 
+              (Expr.mk_var ~typ:var_decl.var_type (Expr.to_qual_ident lhs_expr)) 
+              (Type.mk_prod stmt_loc [ais_fld_type; Type.bool] |> Type.set_ghost_to var_decl.var_type) 
+              disam_tbl 
+            in
+
+            [ cmpxchg_old_val; cmpxchg_new_val ]
+            | _ -> Error.type_error stmt_loc  "Wrong number of arguments for cmpxchg"
+          end
+
         in
         
         let ais_desc = (ext, 
@@ -205,6 +226,7 @@ module AtomicExt (Cont : Ext) = struct
         | Cas, [old_val; new_val] -> Expr.to_type old_val
         | Faa, [faa_val] -> Type.int
         | Xchg, [xchg_new_val] -> Expr.to_type xchg_new_val
+        | CmpXchg, [cmpxchg_old_val; cmpxchg_new_val] -> Expr.to_type cmpxchg_old_val
         | _ -> Error.type_error loc "Incorrect number of arguments in Atomic extension"
       in
       let new_var_decl =
@@ -248,6 +270,30 @@ module AtomicExt (Cont : Ext) = struct
           [ Stmt.mk_field_write ~loc:loc ref_expr (Expr.to_qual_ident field_expr)
               xchg_new_val;
             Stmt.mk_assign ~loc:loc [ Expr.to_qual_ident lhs_expr ] (Expr.from_var_decl new_var_decl) ]
+        | CmpXchg, [cmpxchg_old_val; cmpxchg_new_val] ->
+          let test_ =
+            Some
+              (Expr.mk_eq ~loc
+                 (Expr.from_var_decl new_var_decl)
+                 cmpxchg_old_val)
+          in
+          let then1_ =
+            Stmt.mk_assign ~loc:loc [ Expr.to_qual_ident lhs_expr ] (Expr.mk_tuple ~loc [
+              Expr.from_var_decl new_var_decl; 
+              Expr.mk_bool true
+            ])
+          in
+          let then2_ =
+            Stmt.mk_field_write ~loc:loc ref_expr (Expr.to_qual_ident field_expr) cmpxchg_new_val
+          in
+          let then_ = Stmt.mk_block_stmt ~loc:loc [ then1_; then2_ ] in
+          let else_ =
+            Stmt.mk_assign ~loc:loc [ Expr.to_qual_ident lhs_expr ] (Expr.mk_tuple ~loc [
+              Expr.from_var_decl new_var_decl;
+              Expr.mk_bool false
+            ])
+          in
+          [Stmt.mk_cond ~loc:loc test_ then_ else_]
         | _ -> assert false
       in
       let new_stmts =
@@ -255,6 +301,7 @@ module AtomicExt (Cont : Ext) = struct
       in
       new_stmts
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)

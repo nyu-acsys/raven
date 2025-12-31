@@ -57,7 +57,7 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
         let error _ loc =
           Error.Verification,
           loc,
-          "A precondition may hold for this call"
+          "A precondition may not hold for this call"
         in
         (*let error_rel =
           ( Error.RelatedLoc,
@@ -877,7 +877,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
           [Expr.mk_app ~loc ~typ:Type.perm
             (Expr.AUPredCommit curr_proc_name)
-            ((atomic_token_var :: concrete_args_expr) @ [ ret_expr ])],
+            ([atomic_token_var; Expr.mk_tuple concrete_args_expr;  ret_expr ])],
           [ Stmt.mk_const_spec_error error ]
         else
           List.map postconds_spec ~f:(fun spec ->
@@ -1086,7 +1086,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
       
       let new_body =
-        Expr.alpha_renaming body new_renaming_map
+        (Expr.alpha_renaming body new_renaming_map) |> (Fn.flip Expr.set_loc loc)
       in
         
       let existential_var_idens_set = Expr.existential_vars new_body in
@@ -1385,7 +1385,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                { spec with spec_form }
              in *)
           let spec_error =
-            match List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_error) with
+            match (List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_error)) with
             | (_ :: _ as err) :: _ -> err
             | _ -> []
           in
@@ -1407,10 +1407,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let exhale_stmts =
             List.map call_decl.call_decl_precond ~f:(fun spec ->
-                (*let spec_error = match spec.spec_error with
-                  | (Error.Verification, _, _) :: _ -> spec.spec_error
-                  | _ -> (Stmt.mk_const_spec_error error :: spec.spec_error
-                in*)
+                (* Logs.debug (fun m -> m "Rewrites.rewrite_call_stmts: Exhale_stmt=%a; Exhale_stmt_error_len = %i; Exhale_stmt_error=%s" Expr.pr spec.spec_form (List.length spec_error) (Error.to_string ((List.hd_exn spec_error) (QualIdent.from_ident call_decl.call_decl_name) stmt.stmt_loc)) ); *)
+
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:(spec_error @ spec.spec_error)
@@ -1537,7 +1535,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                 Stmt.mk_inhale_expr ~cmnt:("au_precond") ~loc
                   (Expr.mk_app ~loc ~typ:Type.perm
                      (Expr.AUPred callable_fully_qual_name)
-                     (atomic_token_var :: concrete_args_expr))
+                     [atomic_token_var; Expr.mk_tuple concrete_args_expr])
               in
 
               let exhale_au =
@@ -1556,7 +1554,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                   ~spec_error:[ Stmt.mk_const_spec_error error ]
                   (Expr.mk_app ~loc ~typ:Type.perm
                      (Expr.AUPredCommit callable_fully_qual_name)
-                     ((atomic_token_var :: concrete_args_expr) @ [ ret_expr ]))
+                     [atomic_token_var; Expr.mk_tuple concrete_args_expr; ret_expr ])
               in
 
               Rewriter.return (inhale_au :: pre_conds, exhale_au :: post_conds)
@@ -1634,16 +1632,6 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
                 (Module.VarDef { var_decl = atomic_token_var; var_init = None })
             in
 
-            (* let* callable_fully_qual_name = Rewriter.current_scope_id in
-
-               let inhale_au =
-                 let concrete_args = List.filter c.call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
-                 let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
-
-                 Stmt.mk_inhale_expr ~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (Expr.from_var_decl atomic_token_var :: concrete_args_expr)) in
-
-               let new_body = Stmt.mk_block_stmt ~loc:(Stmt.loc body) [inhale_au; body] in *)
-            (* let new_proc = Callable.{ c with call_def = ProcDef { proc_body = Some new_body } } in *)
             Rewriter.return c)
   | FuncDef func -> Rewriter.return c
 

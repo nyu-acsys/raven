@@ -174,17 +174,33 @@ type 'a t = ('a, unit) t_ext
 (* Using pointers to access certain functions from Typing in certain context while circumventing dependency cycles. *)
 
 (** This is meant to point to:
-      Typing.process_symbol *)
+      Typing.process_symbol 
+    It is initialized at the end of Typing.ml.
+*)
 let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
-  fun _ -> Error.unsupported_error Loc.dummy "process_symbol_ref not updated"
+  fun _ -> Error.unsupported_error Loc.dummy "Rewriter.process_symbol_ref uninitialized"
 )
 
 (** This is meant to point to:
-      Typing.expand_type_expr *)
+      Typing.expand_type_expr 
+    It is initialized at the end of Typing.ml.
+*)
 let expand_type_expr_ref : (
     type_expr -> (type_expr, unit) t_ext
   ) ref 
-    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref not updated") 
+    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized") 
+
+(** The following are initialized in Ext.ml *)
+let expr_ext_rewrite_types_ref : (f:(type_expr -> type_expr t)
+  -> Expr.expr_ext -> Expr.expr_ext t) ref = ref (fun ~f _ ->
+    Error.internal_error Loc.dummy "Rewriter.expr_ext_rewrite_type_ref uninitialized"
+)
+
+let stmt_ext_rewrite_types_ref : (f: (type_expr -> type_expr t) 
+  -> Stmt.stmt_ext -> Stmt.stmt_ext t) ref = ref (fun ~f _ ->
+    Error.internal_error Loc.dummy "Rewriter.stmt_ext_rewrite_type_ref uninitialized"
+)
+
 
 include State
 
@@ -648,6 +664,14 @@ module Expr = struct
     let open Syntax in
     match expr with
     | App (constr, expr_list, expr_attr) ->
+        let* constr = match constr with
+        | ExprExt expr_ext ->
+          let+ expr_ext = !expr_ext_rewrite_types_ref ~f expr_ext in
+
+          Expr.ExprExt expr_ext
+        | _ ->
+          return constr
+        in
         let+ expr_list = List.map expr_list ~f:(rewrite_types ~f)
         and+ expr_type = f expr_attr.expr_type in
         let expr_attr = { expr_attr with expr_type } in
@@ -876,6 +900,12 @@ module Stmt = struct
           stmt with
           stmt_desc = Basic (VarDef { var_decl; var_init = new_init });
         }
+    | Stmt.Basic (StmtExt (stmt_ext, stmt_args)) ->
+      let* stmt_ext = !stmt_ext_rewrite_types_ref ~f stmt_ext in
+
+      let stmt = { stmt with stmt_desc = Basic (StmtExt (stmt_ext, stmt_args)) } in
+        rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f)
+          stmt
     | _ ->
         rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f)
           stmt

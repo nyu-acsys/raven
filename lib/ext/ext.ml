@@ -3,9 +3,9 @@ module ListExtInstance = ListExt.ListExt(DefaultExtInstance)
 module ProphecyExtInstance = ProphecyExt.ProphecyExt(ListExtInstance)
 module AtomicExtInstance = AtomicExt.AtomicExt(ProphecyExtInstance)
 module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(AtomicExtInstance)
-module Ext = ErrorCreditsExtInstance
 
-module _ : ExtApi.Ext = Ext
+
+module Ext: ExtApi.Ext = ErrorCreditsExtInstance
 
 let _ =
   Ast.Type.type_ext_to_name := Ext.type_ext_to_name;
@@ -13,4 +13,7 @@ let _ =
   Ast.Stmt.pr_stmt_ext := Ext.pr_stmt_ext;
   Ast.Stmt.stmt_ext_symbols := Ext.stmt_ext_symbols;
   Ast.Stmt.stmt_ext_local_vars_modified := Ext.stmt_ext_local_vars_modified;
-  Ast.Stmt.stmt_ext_fields_accessed := Ext.stmt_ext_fields_accessed
+  Ast.Stmt.stmt_ext_fields_accessed := Ext.stmt_ext_fields_accessed;
+  Ast.Rewriter.stmt_ext_rewrite_types_ref := Ext.stmt_ext_rewrite_types;
+  Ast.Rewriter.expr_ext_rewrite_types_ref := Ext.expr_ext_rewrite_types;
+

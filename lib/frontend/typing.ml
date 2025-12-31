@@ -1254,29 +1254,47 @@ module ProcessCallable = struct
 
         match assign_desc.assign_rhs with
         (* Field read *)
-        | App (Read, [ ref_expr; field_expr ], _) ->
-          Logs.debug (fun m ->
-              m "process_stmt: read_assign_rhs: %a" Expr.pr
-                assign_desc.assign_rhs);
-          let field_qual_ident = Expr.to_qual_ident field_expr in
-          let field_read_lhs =
-            match assign_desc.assign_lhs with
-            | [ lhs ] -> lhs
-            | _ ->
-              Error.type_error stmt_loc
-                "Expected exactly one variable on left-hand side of field read"
-          in
+        | App (Read, [ ref_expr; read_expr ], _) ->
+          let read_expr_qi = Expr.to_qual_ident read_expr in
+
+
+          let* read_expr_qi, read_symbol = Rewriter.resolve_and_find read_expr_qi in
+          let* read_symbol = Rewriter.Symbol.reify read_symbol in
+
+          begin match read_symbol with
+          | FieldDef f ->
+
+            Logs.debug (fun m ->
+                m "process_stmt: read_assign_rhs: %a" Expr.pr
+                  assign_desc.assign_rhs);
+            let field_qual_ident = read_expr_qi in
+            let field_read_lhs =
+              match assign_desc.assign_lhs with
+              | [ lhs ] -> lhs
+              | _ ->
+                Error.type_error stmt_loc
+                  "Expected exactly one variable on left-hand side of field read"
+            in
+            
+            let field_read_desc =
+              Stmt.
+                {
+                  field_read_lhs;
+                  field_read_field = field_qual_ident;
+                  field_read_ref = ref_expr;
+                  field_read_is_init = assign_desc.assign_is_init;
+                }
+            in
+            Logs.debug (fun m -> m "process_stmt: starting a fieldRead processing");
+            process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
           
-          let field_read_desc =
-            Stmt.
-              {
-                field_read_lhs;
-                field_read_field = field_qual_ident;
-                field_read_ref = ref_expr;
-                field_read_is_init = assign_desc.assign_is_init;
-              }
-          in
-          process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc disam_tbl
+          | DestrDef destr_def ->
+            let assign_rhs = Expr.mk_app ~loc:stmt_loc ~typ:destr_def.destr_return_type (Expr.DataDestr read_expr_qi) [ref_expr] in
+            process_basic_stmt call_decl (Stmt.Assign { assign_desc with assign_rhs}) stmt_loc disam_tbl
+
+          | _ ->
+            Error.type_error stmt_loc "Expected DestrDef of field read expression, found"
+          end
         (* AU action *)
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
           process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
@@ -2758,7 +2776,8 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
   in
 
   let+ _ = Rewriter.set_symbol symbol in
-  symbol;;
+  symbol
 
-Rewriter.process_symbol_ref := process_symbol;
-Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;
+let _ =
+  Rewriter.process_symbol_ref := process_symbol;
+  Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;

@@ -302,11 +302,17 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         | OpenAU open_au_desc -> (
             let* callable, concrete_args, implicit_args = callable_info open_au_desc.proc_qi in
             let exhale_stmt =
+              let error =
+              ( Error.Verification,
+                loc,
+                "Atomic token resource may not be available" )
+              in
               Stmt.mk_exhale_expr
                 ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
+                ~spec_error:[Stmt.mk_const_spec_error error]
                 ~loc
                 (Expr.mk_app ~loc ~typ:Type.perm (AUPred open_au_desc.proc_qi)
-                   (open_au_desc.token :: open_au_desc.proc_args))
+                   [open_au_desc.token; (Expr.mk_tuple open_au_desc.proc_args)])
             in
 
             Logs.debug (fun m -> m "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; implicit_args = %a" QualIdent.pr open_au_desc.proc_qi Expr.pr_list open_au_desc.proc_args Expr.pr_list open_au_desc.lhs);
@@ -424,8 +430,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~loc
                       (Expr.mk_app ~loc ~typ:Type.perm
                          (AUPred opened_au_token.callable)
-                         (opened_au_token.token
-                         :: opened_au_token.callable_args))
+                         [opened_au_token.token;
+                         (Expr.mk_tuple opened_au_token.callable_args)])
                   in
 
                   let atomicity_state = close_au ~loc token atomicity_state in
@@ -471,9 +477,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~loc
                       (Expr.mk_app ~loc ~typ:Type.perm
                          (AUPredCommit opened_au_token.callable)
-                         (opened_au_token.token
-                          :: opened_au_token.callable_args
-                         @ [ Expr.mk_tuple commit_au_desc.proc_rets ]))
+                         ([opened_au_token.token; 
+                          (Expr.mk_tuple opened_au_token.callable_args);
+                         Expr.mk_tuple commit_au_desc.proc_rets ]))
                   in
 
                   let atomicity_state = close_au ~loc token atomicity_state in
