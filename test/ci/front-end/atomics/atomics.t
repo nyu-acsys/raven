@@ -22,6 +22,10 @@ Atomic Commands Test
   23 | }
         ^
   Verification Error: The atomic specification may not have been committed before reaching this return point.
+  [Error] File "./fail/fail1.rav", line 8, column 0 to line 23, column 1:
+  8 | {
+      ^
+  Related Location: This atomic update predicate may not hold.
   [1]
 
   $ dune exec -- raven --shh ./fail/fail2.rav
@@ -29,4 +33,8 @@ Atomic Commands Test
   22 |   return x1+2;
          ^^^^^^^^^^^^
   Verification Error: The atomic specification may not have been committed before reaching this return point.
+  [Error] File "./fail/fail2.rav", line 22, columns 2-14:
+  22 |   return x1+2;
+         ^^^^^^^^^^^^
+  Related Location: This atomic update predicate may not hold.
   [1]
