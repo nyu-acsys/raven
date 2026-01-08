@@ -1,6 +1,6 @@
 (library
  (name frontend)
- (libraries base ast ext defaultExt listExt prophecyExt AtomicExt)
+ (libraries base ast ext defaultExt listExt prophecyExt atomicExt)
  (preprocess
   (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
 
@@ -32,7 +32,12 @@
  (deps ../ext/errorCreditsExt/errorCreditsExt_parser.mly)
  (action (copy %{deps} %{target})))
 
+(rule
+ (target sampleExt_parser.mly)
+ (deps ../ext/sampleExt/sampleExt_parser.mly)
+ (action (copy %{deps} %{target})))
+
 (menhir
- (modules parser listExt_parser prophecyExt atomicExt_parser errorCreditsExt_parser)
+ (modules parser listExt_parser prophecyExt atomicExt_parser errorCreditsExt_parser sampleExt_parser)
  (merge_into parser)
  (flags --explain))

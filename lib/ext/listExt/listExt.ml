@@ -90,11 +90,7 @@ module ListExt (Cont : Ext) = struct
   let type_ext_to_name type_ext =
     match type_ext with 
     | ListConstr -> "List"
-    | _x -> 
-      (* let ext_string = (Stdlib.Obj.Extension_constructor.name 
-      (Stdlib.Obj.Extension_constructor.of_val (Stdlib.Obj.repr _x))) in *)
-      (* Logs.debug (fun m -> m "[EXT] ProphecyExt: %s" ext_string); *)
-
+    | _ -> 
       Cont.type_ext_to_name type_ext
 
   let expr_ext_to_string expr_ext =

@@ -1,0 +1,10 @@
+field f: Int
+
+proc p() {
+  var x: Ref := new(f: 1);
+
+  var y: (Int, Bool);
+  y := cmpxchg(x.f, 3, 2);
+  assert y#1 == false;
+  assert y#0 == 1;
+}

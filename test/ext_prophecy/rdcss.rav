@@ -6,7 +6,7 @@ This is a translation of the Iris implementation of RDCSS: https://gitlab.mpi-sw
 
 Trnsl:
   γ_s -> l_descr_ref.one_shot
-  γ_a -> l_descr_ref . (Descr.token) // Token is called `own_descr_token(l_descr_ref)`
+  γ_a -> l_descr_ref.(Descr.token) // Token is called `own_descr_token(l_descr_ref)`
   γ_t -> l_descr_ref.rdcss_token // Token is called `own_rdcss_token(l_descr_ref)`
 
   (Q n) or Q_n -> auCommit<rdcss>(token, l_n, l_descr, rdcss_ret)

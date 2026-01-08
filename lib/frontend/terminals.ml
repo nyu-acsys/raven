@@ -83,6 +83,9 @@ let _ =
       ("ECList", ECLIST);
       ("ECVal", ECVAL);
       ("rand", RAND);
+
+      (* SampleExt *)
+      ("randEven", RANDEVEN);
     ])
 
 let operator_table = Hashtbl.create 64

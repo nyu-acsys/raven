@@ -3,9 +3,9 @@ module ListExtInstance = ListExt.ListExt(DefaultExtInstance)
 module ProphecyExtInstance = ProphecyExt.ProphecyExt(ListExtInstance)
 module AtomicExtInstance = AtomicExt.AtomicExt(ProphecyExtInstance)
 module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(AtomicExtInstance)
+module SampleExtInstance = SampleExt.SampleExt(ErrorCreditsExtInstance)
 
-
-module Ext: ExtApi.Ext = ErrorCreditsExtInstance
+module Ext: ExtApi.Ext = SampleExtInstance
 
 let _ =
   Ast.Type.type_ext_to_name := Ext.type_ext_to_name;
