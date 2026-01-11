@@ -26,7 +26,7 @@ interface AbstractPredicates {
         ensures resource(x)
 }
 
-interface Barrier[N: NumThreads, A: AbstractPredicates] {
+module Barrier[N: NumThreads, A: AbstractPredicates] {
 
     // the implementation is parametric over the number of threads and a resource predicate
     import N.threads

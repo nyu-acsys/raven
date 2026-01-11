@@ -8,13 +8,15 @@ let unknown_ident_error loc id =
   Error.error (QualIdent.to_loc id) ("Unknown identifier " ^ QualIdent.to_string id)
 
 (* Substitutions for reifying aliased symbols.
-   The Boolean indicates whether the derived symbol is the result of a functor instantiation.
+   The first Boolean indicates whether the derived symbol is the result of a functor instantiation.
+   The second Boolean indicates whether the derived symbol is still abstract.
  *)
-type subst = bool * QualIdent.subst
+type subst = bool * bool * QualIdent.subst
 
-let is_instance (b, _) = b
-let qid_subst (_, ss) = ss
-let extend_subst s (b, ss) = (b, s :: ss)
+let is_instance (b, _, _) = b
+let is_abstract (_, b, _) = b
+let qid_subst (_, _, ss) = ss
+let extend_subst s (b1, b2, ss) = (b1, b2, s :: ss)
 
 type entry =
   | Symbol of QualIdent.t
@@ -204,9 +206,10 @@ let resolve name (tbl : t) :
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: found Alias: <%a, %a >" QualIdent.pr qual_ident (Util.Print.pr_list_comma
                  (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
                ) subst1) ; *)
+            let subst_is_inst, subst_is_abstract, subst_subst = subst in
             let subst1 =
               List.map subst1 ~f:(fun (s, t) ->
-                  (QualIdent.requalify (snd subst) s, t))
+                  (QualIdent.requalify subst_subst s, t))
             in
 
             (* if the first argument is abstract, then it needs to be requalified. The second arg doesn't because this is taken care of by the order in which elements are added to the subst list. QualIdent.requalify will make sure the renaming on the second argument by existing substitutions happens *)
@@ -223,16 +226,16 @@ let resolve name (tbl : t) :
               | _ ->
                   ( target_qual_ident,
                     fully_qualify first_id scope tbl |> QualIdent.to_list )
-                  :: snd subst
+                  :: subst_subst
             in
-            let subst = fst subst || not @@ List.is_empty subst1, subst1 @ target_subst in
+            let subst = subst_is_inst || not @@ List.is_empty subst1, subst_is_abstract && is_abstract, subst1 @ target_subst in
             let new_inst_scopes =
-              if is_abstract then inst_scopes
+              if is_abstract && Set.is_empty inst_scopes then
+                inst_scopes
               else Set.add inst_scopes target_qual_ident
             in
+            (* Jump back to the root scope because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
             go_forward new_inst_scopes tbl.tbl_root subst new_path
-            (* /// why do we jump to tbl.root from here?
-               TW: Because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
         | Import qual_ident, _ ->
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
             let target_qual_ident = (*QualIdent.requalify subst*) qual_ident in
@@ -264,11 +267,12 @@ let resolve name (tbl : t) :
                let+ alias_qual_ident, subst, is_local =
                  go_forward
                    (Set.empty (module QualIdent))
-                   curr_scope (false, []) (QualIdent.to_list name)
+                   curr_scope (false, curr_scope.scope_is_abstract, []) (QualIdent.to_list name)
                in
+               let _, _, subst_subst = subst in
                (* Compute resolved identifier *)
                let orig_qual_ident =
-                 alias_qual_ident |> QualIdent.requalify (snd subst)
+                 alias_qual_ident |> QualIdent.requalify subst_subst
                in
                (* Don't qualify orig_qual_ident if it identifies a symbol in a local scope *)
                let orig_qual_ident =

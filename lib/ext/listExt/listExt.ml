@@ -280,8 +280,7 @@ module ListExt (Cont : Ext) = struct
         match result with
         | None -> 
           Error.internal_error Loc.dummy "[EXT] ListExt: rewrite_type_ext: largest_prefix scope not found"
-        | Some (qi, (name, symbol, (b, subst_map))) ->
-
+        | Some (qi, (name, symbol, _)) ->
           name, qi
       in
 

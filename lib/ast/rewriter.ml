@@ -1320,8 +1320,12 @@ module Symbol = struct
         let+ tbl = get_table in
         let tbl_scope = SymbolTbl.goto name tbl in
         let symbol0 = match symbol with
-          | AstDef.Module.ModDef mod_def when SymbolTbl.is_instance subst ->
-            let mod_decl = { mod_def.mod_decl with mod_decl_formals = [] } in
+          | AstDef.Module.ModDef mod_def ->
+            let mod_decl =
+              { mod_def.mod_decl with
+                mod_decl_formals = if SymbolTbl.is_instance subst then [] else mod_def.mod_decl.mod_decl_formals;
+                mod_decl_is_interface = SymbolTbl.is_abstract subst
+              } in
             AstDef.Module.ModDef { mod_def with mod_decl }
           | _ -> symbol
         in

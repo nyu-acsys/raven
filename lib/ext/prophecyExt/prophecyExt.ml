@@ -234,7 +234,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
         begin match result with
         | None ->
           Error.internal_error loc "[EXT ProphecyExt: largest_prefix scope not found"
-        | Some (qi, (name, symbol, (b, subst_map))) ->
+        | Some (qi, (name, symbol, _)) ->
           Rewriter.return (name, qi)
         end
       in
