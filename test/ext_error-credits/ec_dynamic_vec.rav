@@ -49,7 +49,7 @@ interface FaultyVector[T: Library.Type] {
         contents' := {|i : Int :: i == fill ? v : contents[i] |};
 
         if (fill+1 == Array_T.length(l)) {
-            l' := extend(Array_T.length(l), l, contents', x);
+            l', contents' := extend(Array_T.length(l), l, contents', x);
             assert(Array_T.length(l') == 2 * Array_T.length(l));
             return (l', fill+1, contents');
         }
