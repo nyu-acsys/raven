@@ -16,4 +16,3 @@ let _ =
   Ast.Stmt.stmt_ext_fields_accessed := Ext.stmt_ext_fields_accessed;
   Ast.Rewriter.stmt_ext_rewrite_types_ref := Ext.stmt_ext_rewrite_types;
   Ast.Rewriter.expr_ext_rewrite_types_ref := Ext.expr_ext_rewrite_types;
-

@@ -1657,7 +1657,7 @@ module ProcessCallable = struct
             disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
             process_symbol_ref = Rewriter.process_symbol_ref;
           }  
-        
+
   let process_stmt ?(new_scope = true) call_decl
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
     (Stmt.t * DisambiguationTbl.t) Rewriter.t =
@@ -2355,13 +2355,13 @@ module ProcessModule = struct
 
     let process_instr = function
       | Module.SymbolDef symbol ->
-          let* symbol =
-            match symbol with
+          let* symbol_def =
+            match symbol.symbol_def with
             | TypeDef type_def -> process_type_def type_def
             | VarDef var_def -> process_var var_def
             | FieldDef field_def -> process_field field_def
             | ConstrDef _ | DestrDef _ ->
-                Rewriter.return symbol
+                Rewriter.return symbol.symbol_def
                 (* These should not occur directly in a module definition *)
             | CallDef call_def -> ProcessCallable.process_callable call_def
             | ModDef mod_def ->
@@ -2414,9 +2414,9 @@ module ProcessModule = struct
               mm
                 !"Processing module %{Ident}: symbol: %a"
                 (Symbol.to_name (ModDef m))
-                Module.pr_symbol symbol);
-          let+ _ = Rewriter.set_symbol symbol in
-          Module.SymbolDef symbol
+                Module.pr_symbol symbol_def);
+          let+ _ = Rewriter.set_symbol symbol_def in
+          Module.SymbolDef { symbol with symbol_def }
       | Import import ->
         (* Handled by symbol table *)
             let* _ = Rewriter.import import in
@@ -2426,14 +2426,14 @@ module ProcessModule = struct
     (* Add formal parameters to module definitions *)
     let mod_def_formals =
       List.map m.mod_decl.mod_decl_formals ~f:(fun mod_def_formal ->
-          Module.SymbolDef (ModInst mod_def_formal))
+          Module.SymbolDef { symbol_def = (ModInst mod_def_formal); is_admitted = false})
     in
     let mod_def = mod_def_formals @ m.mod_def in
     let get_defined_symbols mod_def =
       List.fold mod_def
         ~init:(Set.empty (module Ident))
         ~f:(fun ids -> function
-          | Module.SymbolDef symbol -> Set.add ids (Symbol.to_name symbol)
+          | Module.SymbolDef symbol -> Set.add ids (Symbol.to_name symbol.symbol_def)
           | _ -> ids)
     in
     let defined_symbols = get_defined_symbols mod_def in
@@ -2460,23 +2460,23 @@ module ProcessModule = struct
         | [], mod_def -> (List.rev_append merged mod_def, to_check)
         | Module.Import _ :: parent_mod_def, mod_def ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
-        | Module.SymbolDef (ConstrDef _ | DestrDef _) :: parent_mod_def, mod_def
-        | parent_mod_def, Module.SymbolDef (ConstrDef _ | DestrDef _) :: mod_def
+        | Module.SymbolDef { symbol_def = (ConstrDef _ | DestrDef _); _ }  :: parent_mod_def, mod_def
+        | parent_mod_def, Module.SymbolDef { symbol_def = (ConstrDef _ | DestrDef _); _ } :: mod_def
           ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | Module.SymbolDef parent_symbol :: parent_mod_def, mod_def -> (
-            let parent_symbol_ident = Symbol.to_name parent_symbol in
+            let parent_symbol_ident = Symbol.to_name parent_symbol.symbol_def in
             let annotate_error_msg = function
               | Module.CallDef ({ call_decl; _ } as call) as symbol ->
                 let annotate_spec spec =
                   let error =
                     ( Error.RelatedLoc,
-                      Symbol.to_loc parent_symbol,
+                      Symbol.to_loc parent_symbol.symbol_def,
                       (Printf.sprintf
                          !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
                          (Symbol.kind symbol |> String.capitalize)
                          parent_symbol_ident
-                         (Symbol.kind parent_symbol)
+                         (Symbol.kind parent_symbol.symbol_def)
                          parent_ident parent_symbol_ident))
                   in
                   { spec with Stmt.spec_error = Stmt.mk_const_spec_error error :: spec.Stmt.spec_error }
@@ -2497,8 +2497,8 @@ module ProcessModule = struct
             then
               (* case: parent_symbol should be inherited now *)
               let _ = Logs.info (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
-              let parent_symbol =
-                match parent_symbol with
+              let parent_symbol_def =
+                match parent_symbol.symbol_def with
                 | CallDef call when not @@ Callable.is_abstract call ->
                   Logs.info (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
                   Module.CallDef (Callable.make_free call)
@@ -2526,8 +2526,10 @@ module ProcessModule = struct
                   in
                   annotate_error_msg (CallDef call)
                 | ModDef mod_def -> ModDef (Module.set_free mod_def)
-                | _ -> annotate_error_msg parent_symbol
+                | _ -> annotate_error_msg parent_symbol.symbol_def
               in
+
+              let parent_symbol = { parent_symbol with symbol_def = parent_symbol_def } in
               
               merge_defs
                 (Module.SymbolDef parent_symbol :: merged, to_check, seen)
@@ -2535,7 +2537,7 @@ module ProcessModule = struct
             else
               match mod_def with
               | Module.SymbolDef symbol :: mod_def ->
-                  let symbol_ident = Symbol.to_name symbol in
+                  let symbol_ident = Symbol.to_name symbol.symbol_def in
                   if Set.mem seen symbol_ident then
                     (* case: symbol provides definition of another symbol that has already been seen earlier *)
                     merge_defs
@@ -2546,7 +2548,7 @@ module ProcessModule = struct
                     merge_defs
                       ( Module.SymbolDef symbol :: merged,
                         Map.add_exn to_check ~key:symbol_ident
-                          ~data:parent_symbol,
+                          ~data:parent_symbol.symbol_def,
                         seen )
                       (parent_mod_def, mod_def)
                   else if Set.mem defined_symbols parent_symbol_ident then
@@ -2554,7 +2556,7 @@ module ProcessModule = struct
                     merge_defs
                       ( merged,
                         Map.add_exn to_check ~key:parent_symbol_ident
-                          ~data:parent_symbol,
+                          ~data:parent_symbol.symbol_def,
                         Set.add seen parent_symbol_ident )
                       (parent_mod_def, Module.SymbolDef symbol :: mod_def)
                   else
@@ -2625,11 +2627,11 @@ module ProcessModule = struct
     (*let inherited_symbols = List.rev inherited_symbols in*)
     let mod_def = mod_def_formals @ merged_symbols in
     let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
-    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol)) | _ -> ()) mod_def in
+    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol.symbol_def)) | _ -> ()) mod_def in
     (* Find rep type and add it to module declaration *)
     let mod_decl_rep =
       List.fold_left mod_def ~init:None ~f:(fun rep_type -> function
-        | SymbolDef (TypeDef type_def) when type_def.type_def_rep ->
+        | SymbolDef { symbol_def = (TypeDef type_def); _} when type_def.type_def_rep ->
             Option.map_or_else
               ~m:(fun _ ->
                 Error.syntax_error type_def.type_def_loc
@@ -2686,8 +2688,8 @@ module ProcessModule = struct
 
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
-        | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ -> Rewriter.return ()
-        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol)
+        | Module.SymbolDef {symbol_def = ModInst { mod_inst_def = Some _; _ }; _} | Module.Import _ -> Rewriter.return ()
+        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol.symbol_def)
     in
 
     (* Check and rewrite all symbols *)
@@ -2697,10 +2699,10 @@ module ProcessModule = struct
     let+ _ =
       Rewriter.List.iter mod_def ~f:(function
         | SymbolDef symbol ->
-            let ident = Symbol.to_name symbol in
+            let ident = Symbol.to_name symbol.symbol_def in
             Map.find symbols_to_check ident
             |> Rewriter.Option.iter ~f:(fun orig_symbol ->
-                check_implements_symbol interface_ident symbol orig_symbol)
+                check_implements_symbol interface_ident symbol.symbol_def orig_symbol)
         | _ -> Rewriter.return ())
     in
 
@@ -2709,27 +2711,30 @@ module ProcessModule = struct
       if not mod_decl.mod_decl_is_interface then
         List.iter mod_def ~f:(function
           | Import _ -> ()
-          | SymbolDef symbol -> (
-              match symbol with
+          | SymbolDef ({ is_admitted = false; _} as symbol) -> (
+              match symbol.symbol_def with
               | TypeDef { type_def_expr = None; _ }
               | ModInst { mod_inst_def = None; _ }
               | VarDef { var_decl = { var_const = true; _ }; var_init = None }
               | CallDef { call_def = ProcDef { proc_body = None }; call_decl = { call_decl_is_free = false; _ } }
               | CallDef { call_def = FuncDef { func_body = None }; call_decl = { call_decl_is_free = false; _ } } ->
                 if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
-                  Error.type_error (Symbol.to_loc symbol)
+                  Error.type_error (Symbol.to_loc symbol.symbol_def)
                     (Printf.sprintf
                        !"The %s %{Ident} cannot be abstract here. An abstract member can only be declared in an interface"
-                       (Symbol.kind symbol)
-                       (Symbol.to_name symbol))
+                       (Symbol.kind symbol.symbol_def)
+                       (Symbol.to_name symbol.symbol_def))
                 else 
                   Error.type_error mod_decl.mod_decl_loc
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \
                          %s %{Ident} is still abstract"
-                       mod_decl.mod_decl_name (Symbol.kind symbol)
-                       (Symbol.to_name symbol))
-              | _ -> ()))
+                       mod_decl.mod_decl_name (Symbol.kind symbol.symbol_def)
+                       (Symbol.to_name symbol.symbol_def))
+              | _ -> ())
+              
+          | SymbolDef ({ is_admitted = true; _} as _symbol) -> ()
+        )
     in
     let _ =
       Logs.debug (fun mm ->

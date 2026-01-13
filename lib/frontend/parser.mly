@@ -25,7 +25,7 @@ open Ast
 %token HAVOC NEW RETURN OWN AU AUCOMMIT
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
-%token PROC AXIOM LEMMA
+%token PROC AXIOM LEMMA ADMITTED
 %token CASE DATA ATOMICTOKEN FIELD
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
@@ -140,15 +140,19 @@ member_def_list_opt:
 | (* empty *) { [] }
 
 member_def:
-| def = field_def { Module.SymbolDef (Module.FieldDef def)}
-| def = module_def { Module.SymbolDef def }
+| is_admitted = admitted; def = field_def { Module.SymbolDef { symbol_def = (Module.FieldDef def); is_admitted } }
+| is_admitted = admitted; def = module_def { Module.SymbolDef { symbol_def = def; is_admitted } }
 /*| def = interface_def { Module.SymbolDef def }*/
-| def = type_def { Module.SymbolDef (Module.TypeDef def) }
-| def = var_def { Module.SymbolDef (Module.VarDef def) }
-| def = proc_def 
-| def = func_def {Module.SymbolDef (Module.CallDef def) }
+| is_admitted = admitted; def = type_def { Module.SymbolDef { symbol_def = Module.TypeDef def; is_admitted } }
+| is_admitted = admitted; def = var_def { Module.SymbolDef { symbol_def = Module.VarDef def; is_admitted } }
+| is_admitted = admitted; def = proc_def 
+| is_admitted = admitted; def = func_def {Module.SymbolDef { symbol_def = Module.CallDef def; is_admitted } }
 | imp = import_dir { Module.Import imp }
   
+admitted:
+| ADMITTED { true }
+| { false }
+
 field_def:
 | g = ghost_modifier; FIELD x = IDENT; COLON; t = type_expr {
     let decl =

@@ -974,13 +974,13 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
 
     Rewriter.return
       [
-        Module.SymbolDef (Module.TypeDef type_def);
-        SymbolDef (Module.VarDef var_def);
-        SymbolDef (Module.CallDef heap_valid_fn);
-        SymbolDef (Module.CallDef heap_valid_inhale_fn);
-        SymbolDef (Module.CallDef heap_add_chunk_fn);
-        SymbolDef (Module.CallDef heap_sub_chunk_fn);
-        SymbolDef (Module.CallDef heapchunk_compare_fn);
+        Module.SymbolDef { symbol_def = (Module.TypeDef type_def); is_admitted = false; };
+        SymbolDef { symbol_def = (Module.VarDef var_def); is_admitted = false; };
+        SymbolDef { symbol_def = (Module.CallDef heap_valid_fn); is_admitted = false; };
+        SymbolDef { symbol_def = (Module.CallDef heap_valid_inhale_fn); is_admitted = false; };
+        SymbolDef { symbol_def = (Module.CallDef heap_add_chunk_fn); is_admitted = false; };
+        SymbolDef { symbol_def = (Module.CallDef heap_sub_chunk_fn); is_admitted = false; };
+        SymbolDef { symbol_def = (Module.CallDef heapchunk_compare_fn); is_admitted = false; };
       ]
   in
 

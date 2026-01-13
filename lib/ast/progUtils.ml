@@ -238,14 +238,17 @@ let intros_type_module ~(loc : location) ?scope
 
   let (mod_def : AstDef.Module.module_instr list) =
     [
-      SymbolDef
-        (TypeDef
-           {
-             type_def_name = Predefs.lib_type_rep_type_ident;
-             type_def_expr = Some tp;
-             type_def_rep = true;
-             type_def_loc = loc;
-           });
+      SymbolDef {
+        symbol_def = TypeDef
+          {
+            type_def_name = Predefs.lib_type_rep_type_ident;
+            type_def_expr = Some tp;
+            type_def_rep = true;
+            type_def_loc = loc;
+          };
+          
+        is_admitted = false;
+      }
     ]
   in
 

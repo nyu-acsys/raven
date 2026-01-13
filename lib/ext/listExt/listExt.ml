@@ -203,7 +203,7 @@ module ListExt (Cont : Ext) = struct
         let does_elem_exist = List.find lib_list_module.mod_def ~f:(fun mem -> 
           match mem with 
           | Import _ -> false 
-          | SymbolDef symbol -> Ident.(Symbol.to_name symbol = ident) 
+          | SymbolDef symbol -> Ident.(Symbol.to_name symbol.symbol_def = ident) 
         ) in
       
         match does_elem_exist with

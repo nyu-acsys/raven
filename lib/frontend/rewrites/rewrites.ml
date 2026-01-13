@@ -2860,7 +2860,7 @@ Specification Count: %d"
       match instr with
       | Import _ -> Rewriter.return ps
       | SymbolDef s -> 
-        let+ symbolStats = computeSymbolStats s in
+        let+ symbolStats = computeSymbolStats s.symbol_def in
         merge_prog_stats ps symbolStats
     )
 

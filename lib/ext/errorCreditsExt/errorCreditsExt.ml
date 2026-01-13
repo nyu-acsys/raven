@@ -10,14 +10,16 @@ module ErrorCreditsExt (Cont : Ext) = struct
   module EC_Predefs = struct
     let ec_lib_module_ident = Ident.make Loc.dummy "ErrorCreds" 0
     let ec_lib_field = Ident.make Loc.dummy "error_cred" 0
-    let ec_ref = Ident.make Loc.dummy "$errLoc" 0
+
+    let ec_loc_ident = Ident.make Loc.dummy "error_loc" 0
+
     let error_module_qi = QualIdent.make [Predefs.lib_ident] ec_lib_module_ident
     let error_field_qi = QualIdent.append error_module_qi ec_lib_field
+
+    let error_loc_qi = QualIdent.append error_module_qi ec_loc_ident
   end
 
-  let local_vars = [
-    (Type.mk_var_decl ~const:true ~ghost:true EC_Predefs.ec_ref Type.ref);
-  ]
+  let local_vars = []
 
   type Expr.expr_ext +=
     | ErrorCreds
@@ -256,7 +258,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
     match expr_ext, expr_list with
 
     | ErrorCreds, [ec] ->
-      let* ec_ref_var_def = Rewriter.find_and_reify_var (QualIdent.from_ident EC_Predefs.ec_ref) in
+      let* ec_ref_var_def = Rewriter.find_and_reify_var EC_Predefs.error_loc_qi in
+      let ec_ref_expr = Expr.mk_var ~typ:ec_ref_var_def.var_decl.var_type EC_Predefs.error_loc_qi in
       let* ec_field_qi = Rewriter.resolve EC_Predefs.error_field_qi in
       let* ec_field = Rewriter.find_and_reify_field ec_field_qi in
 
@@ -269,7 +272,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
       in
 
       let own_expr = Expr.mk_app ~loc ~typ:Type.perm Own 
-        [ Expr.from_var_decl ec_ref_var_def.var_decl; 
+        [ ec_ref_expr; 
           Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
           Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [ec]
         ] in
@@ -281,7 +284,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
 
-    let* ec_ref_var_def = Rewriter.find_and_reify_var (QualIdent.from_ident EC_Predefs.ec_ref) in
+    let* ec_ref_var_def = Rewriter.find_and_reify_var EC_Predefs.error_loc_qi in
+    let ec_ref_expr = Expr.mk_var ~typ:ec_ref_var_def.var_decl.var_type EC_Predefs.error_loc_qi in
     let* ec_field_qi = Rewriter.resolve EC_Predefs.error_field_qi in
     let* ec_field = Rewriter.find_and_reify_field ec_field_qi in
 
@@ -322,7 +326,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         ~cmnt:("EC_RandVal precond")
         ~spec_error:[ Stmt.mk_const_spec_error error ]
         (Expr.mk_app ~loc ~typ:Type.perm Expr.Own 
-        [ Expr.from_var_decl ec_ref_var_def.var_decl;
+        [ ec_ref_expr;
           Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
           Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [Expr.mk_app ~typ:Type.real Div [Expr.mk_int 1; n_expr]]
         ])
@@ -497,7 +501,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         ~cmnt:("EC_RandFn precond")
         ~spec_error:[ Stmt.mk_const_spec_error error ]
         (Expr.mk_app ~loc ~typ:Type.perm Expr.Own 
-        [ Expr.from_var_decl ec_ref_var_def.var_decl;
+        [ ec_ref_expr;
           Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
           Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [ec_expr]
         ])
@@ -519,7 +523,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         Stmt.mk_inhale_expr ~loc
           ~cmnt:("EC_RandFn postcond")
           (Expr.mk_app ~loc ~typ:Type.perm Expr.Own 
-          [ Expr.from_var_decl ec_ref_var_def.var_decl;
+          [ ec_ref_expr;
             Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
             Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [Expr.alpha_renaming errFn_def renaming_map]
           ])
@@ -548,7 +552,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         ~cmnt:("EC_RandList precond")
         ~spec_error:[ Stmt.mk_const_spec_error error ]
         (Expr.mk_app ~loc ~typ:Type.perm Expr.Own 
-        [ Expr.from_var_decl ec_ref_var_def.var_decl;
+        [ ec_ref_expr;
           Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
           Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [
             Expr.mk_app ~typ:Type.real Mult [
@@ -588,7 +592,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         ~cmnt:("EC_Contra precond")
         ~spec_error:[ Stmt.mk_const_spec_error error ]
         (Expr.mk_app ~loc ~typ:Type.perm Expr.Own 
-        [ Expr.from_var_decl ec_ref_var_def.var_decl;
+        [ ec_ref_expr;
           Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
           Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [ Expr.mk_real 1.0 ]
         ])

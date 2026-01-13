@@ -409,7 +409,7 @@ let rec import import_instr (tbl : t) : t =
     | ModDef { mod_def; _ }, true ->
         List.iter mod_def ~f:(function
           | SymbolDef symbol ->
-              let symbol_name = Symbol.to_name symbol in
+              let symbol_name = Symbol.to_name symbol.symbol_def in
               let symbol_ident =
                 QualIdent.append unresolved_imported_ident symbol_name
               in

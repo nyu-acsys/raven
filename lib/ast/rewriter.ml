@@ -271,18 +271,18 @@ let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTre
   let open Module in
   match new_symbols_node with Node node ->
 
-  let new_symbols, mod_def = Base.List.fold_map mdef.mod_def ~init:[] ~f:(fun  accum instr ->
+  let new_symbols, mod_def = Base.List.fold_map mdef.mod_def ~init:[] ~f:(fun accum instr ->
     match instr with
     | Import _ -> accum, instr
-    | SymbolDef ((ModDef mdef') as symbol) -> begin
-      match (Map.find node.children (Symbol.to_name symbol)) with
+    | SymbolDef ({ symbol_def = (ModDef mdef'); _ } as symbol)  -> begin
+      match (Map.find node.children (Symbol.to_name symbol.symbol_def)) with
       | None -> accum, (SymbolDef symbol)
       | Some child -> 
         let mdef' = module_add_descendants mdef' child in
-        accum, SymbolDef (ModDef mdef')
+        accum, SymbolDef { symbol with symbol_def = ModDef mdef'; }
       end
-    | SymbolDef ((CallDef call_def) as symbol) -> begin
-      match (Map.find node.children (Symbol.to_name symbol)) with
+    | SymbolDef ({ symbol_def = (CallDef call_def); _ } as symbol) -> begin
+      match (Map.find node.children (Symbol.to_name symbol.symbol_def)) with
       | None -> accum, (SymbolDef symbol)
       | Some (Node child) ->
         
@@ -301,14 +301,14 @@ let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTre
         in
           let call_def = { call_def with call_decl }
       in
-      new_mod_symbols @ accum, SymbolDef (CallDef call_def)
+      new_mod_symbols @ accum, SymbolDef { symbol with symbol_def = CallDef call_def; }
 
       end
     | _ -> accum, instr
   )
   in
 
-  let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef def) (node.symbols @ new_symbols) in
+  let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef { symbol_def = def; is_admitted = false }) (node.symbols @ new_symbols) in
 
   let mdef = { mdef with mod_def = new_instr @ mod_def} in 
 
@@ -1155,14 +1155,14 @@ module Module = struct
       List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
-            let* symbol = f symbol in
-            let* _ = set_symbol symbol in
+            let* symbol_def = f symbol.symbol_def in
+            let* _ = set_symbol symbol_def in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
             let* tbl = get_table in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
-            return (SymbolDef symbol)
+            return (SymbolDef { symbol with symbol_def })
         | import -> return import)
     in
     let mdef = { mdef with mod_def = symbols } in
@@ -1175,18 +1175,18 @@ module Module = struct
     and* symbols =
       List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
-            let* symbol =
-              match symbol with
+            let* symbol_def =
+              match symbol.symbol_def with
               | ModDef mod_def ->
                   let* new_mod_def = rec_rewrite_symbols ~f mod_def in
                   return @@ ModDef new_mod_def
-              | _ -> return symbol
+              | _ -> return symbol.symbol_def
             in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
-            let+ symbol = f symbol and+ _ = set_symbol symbol in
+            let+ symbol_def = f symbol_def and+ _ = set_symbol symbol_def in
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
-            SymbolDef symbol
+            SymbolDef { symbol with symbol_def}
         | import -> return import)
     in
     let mdef = { mdef with mod_def = symbols } in

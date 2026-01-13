@@ -44,15 +44,14 @@ proc p2()
     }
 }
 
-proc p3(n: Int)
-  returns (ret: Bool)
+proc p3(n: Int) returns (ret: Bool)
   requires -*-(1.0/n)
-  ensures (ret == true)
+  ensures ret == true
 {
   var q1: Int := EC.rand(n);
   var q2: Int := EC.rand(n; ECVal: !=q1);
 
-  if (q1 == q2) return false; 
+  if (q1 == q2) { assert false; return false; }
   else return true;
 }
 

@@ -1,11 +1,7 @@
 include "give-up.rav"
 include "../../arrays/ordered_array.rav"
 
-interface RefArray: Array {
-  module E: Library.Type {
-    rep type T = Ref
-  }
-}
+module RefArray = Array[Library.RefType]
 
 interface BPlusTree[AK: OrderedArray, AN: RefArray] : NodeImpl {
   module Spec : SearchStructureSpec {

@@ -258,65 +258,111 @@ This sums up the API itself. In the next section we will discuss many commonly u
 
 In order to correctly implement the right type-checking and rewrite strategies, certain Raven functionality is invaluable. In order to orient a new programmer with the different functionalities, where they are located, and best practices when creating an extension, we provide an overview of certain commonly-used functions and how the rest of the code is organized. Here is a list of notable functions from different sections:
 
-### Typing
 
-process_type_expr
+### [Typing](../frontend/typing.ml)
 
-check_and_set
-process_expr
-type_mismatch_error
+This file contains the code for type-checking Raven AST. It is broadly divided into 4 sections:
+- ProcessTypeExpr
+- ProcessExpr
+- ProcessCallable
+- ProcessModule
 
-get_assign_lhs
-expand_type_expr
-disambiguate_process_expr
-type_mismatch_error
-disam_tbl_add_var_decl
-process_symbol_ref
+Each of these contain functions for type-checking the corresponding constructs. Following is the list of functions that we pass explicitly to type-checking functions in extensions. We briefly describe what they do as well as their signatures.
 
-### AstDef
+- process_type_expr: Type-checks `type_expr`. Takes a `type_expr` argument and returns `type_expr Rewriter.t`, which is a `type_expr` wrapped in the `Rewriter` monad.
 
-Ident.fresh
+- check_and_set: It takes an expression, and three type expressions. These denote a _type lowerbound_, a _type upperbound_ and an _expected type_. Types in Raven form a lattice. This function checks that the expected type satisfies the upper and lower bounds, and then returns an expression with the type updated appropriately. Otherwise it throws a `type_mismatch` error. This function is used in `process_expr` to make sure the given expressions satisfy certain type constraints.
 
-QualIdent.to_loc
+- process_expr: It takes an expression, an expected type, and returns an `expr Rewriter.t`, which is the type-checked expression. It can (and should!) raise `type_errors` when ill-typed input is passed.
 
-Type.mk_prod
-Type.mk_fld
-Type.set_ghost_to
-Type.bool
+- type_mismatch_error: It raises a `type_error`. It takes a `location`, an expected type, and a found type.
 
-Expr.mk_var
-Expr.mk_tuple
-Expr.signature
-Expr.alpha_renaming
-Expr.existential_vars
-Expr.supply_witnesses
-Expr.mk_app
-Expr.mk_and
-Expr.from_var_decl
-Expr.mk_binder
+- get_assign_lhs: It takes a `qual_ident`, and returns a fully qualified `qual_ident`, as well as a variable declaration `var_decl` of the variable being referenced in the `qual_ident`. This function is used when type-checking statements that assign a value to an "lhs" argument, to look up the "lhs" expression.
 
-Stmt.mk_spec
-Stmt.mk_assume_expr
-Stmt.mk_block_stmt
+- expand_type_expr: This takes a `type_expr`, and returns another `type_expr Rewriter.t`. It basically recursively expands all the types referencing other types. For instance, if we have `type T1 = Int; type T2 = T1;`, this function will expand type `T2` into `Int`.
 
-### Rewriter
+- disambiguate_process_expr: While type-checking statements, Raven utilizes a local _disambiguation table_ for each callable, in order to have unique local variable names, and resolve same name being used in multiple different scopes, etc. This process is called _disambiguating_ expressions, ie renaming local variables according to the `disamTbl`. This function combines the _disambiguating_ and _processing_ of expressions. This function takes an expression, an expected type, as well as a disambiguation table. When type-checking statements, one should always use `disambiguate_process_expr` and not `process_expr`.
 
-Rewriter.current_scope_id (find current callable)
-Rewriter.resolve_and_find
-Rewriter.introduce_symbol
-Rewriter.find_and_reify_var
-Rewriter.find_and_reify_callable
-Rewriter.resolve_and_find
-Rewriter.Symbol.reify
-Rewriter.is_ghost_scope
-Rewriter.enter_ghost
-Rewriter.Symbol.reify_field_type
+- disam_tbl_add_var_decl: This function handles a new variable declaration and updates the `disam_tbl` appropriately. It takes a `var_decl` and a `disam_tbl`, and returns an update `var_decl` and `disam_tbl`.
 
-Rewriter.List.fold_right
-Rewriter.List.map
-Rewriter.Option.map
-Rewriter.List.map2_exn
+- process_symbol_ref: This is a reference also defined at `Rewriter.process_symbol_ref`, which contains a pointer to `Typing.process_symbol`. This is passed because some functions such as `Rewriter.introduce_typecheck_symbol` or `ProgUtils.intros_type_module` require this function as an input. (This is done to avoid dependency cycles.) 
 
-Rewriter.current_module_name
-Rewriter.introduce_typecheck_symbol
-Rewriter.introduce_symbol
+### [AstDef](../ast/astDef.ml)
+
+AstDef contains the main Raven syntax constructs, along with helper functions like printing, or building certain terms. Note that AstDef contains many pure functions which don't return `Rewriter.t` monads. One must be careful to make sure they use each function in the right way.
+
+- Ident.fresh: Generates a fresh Ident, by appending a unique `ident_num` to a string. Always use this function when generating new idents to prevents collisions.
+
+- QualIdent.to_loc: Takes a qual_ident and returns its corresponding `location`.
+
+- Type.mk_prod: Takes a list of `type_expr` and returns a product type of all the types.
+
+- Type.mk_fld: Takes a `type_expr`, and generates a type expression for a field of that type.
+
+- Type.set_ghost_to: Updates a type expressions's _ghost_ status. This flag is used to ensure that ghost constructs are not used in non-ghost contexts.
+
+- Type.bool: Returns the `type_expr` corresponding to Raven's `Bool` type.
+
+- Expr.mk_var: Construct a `Var` expression. Takes a `type_expr` and a `qual_ident` and constructs a variable expression of the `qual_ident` with the `type_expr` type.
+
+- Expr.mk_tuple: Takes a list of expressions and returns a `tuple` expression of all its arguments.
+
+- Expr.signature: Returns a map of free variables occuring in an expression, with their types.
+
+- Expr.alpha_renaming: Used to perform alpha-renaming on expressions. Takes an expression and a map from `qual_ident`s to `expr`s, and returns the alpha-renamed expression.
+
+- Expr.existential_vars: Returns a map of existentially quantified variables in an expression, pointing to their types.
+
+- Expr.supply_witnesses: Used to replace existentially quantified witnesses in an expression, with certain user-supplied "witnesses"
+
+- Expr.mk_app: Used as a general constructor to create any expression.
+
+- Expr.mk_and: Constructs a conjunction of a list of expressions passed as an argument.
+
+- Expr.from_var_decl: Constructs an expression for a variable from its declaration.
+
+- Expr.mk_binder: Used to construct existentially/universally quantified expressions.
+
+- Stmt.mk_spec: It takes an expression and converts it into a "spec", or a specification. This is used to construct callable pre/post-conditions.
+
+- Stmt.mk_assume_expr: It takes an expression and converts it into an "assume" statement.
+
+- Stmt.mk_block_stmt: It takes a list of statements and bundles these into one "block" statement.
+
+### [Rewriter](../ast/rewriter.ml)
+
+The Rewriter module mainly provides the monad which carries Raven's symbol table state thorugh the program. As a result, it also has functionality related to looking up symbol and introducing new symbols. 
+
+One notion is that of "reified" declarations. In order to handle higher order module instantiations, when looking up symbols, Raven's SymbolTbl returns a tuple of the symbol, along with certain module name replacements that need to be done. Reifying the declaration implements these replacements and gives us a `Module.symbol` object.
+
+- `Rewriter.current_scope_id`: Return the identifier of the current callable or module scope. Useful when generating fresh symbols tied to the active scope in order to build a fully qualified name.
+
+- `Rewriter.current_module_name`: Return the name of the module currently being rewritten (in the `Rewriter` monad). Useful for creating module-scoped identifiers.
+
+- `Rewriter.is_ghost_scope`: Function that returns whether the current scope is a ghost scope. Certain actions are allowed or disallowed in ghost contexts, so this is useful to distinguish.
+
+- `Rewriter.enter_ghost`: Temporarily enter a "ghost" scope in Raven's symbol table state. This is used to mark for example ghost code-blocks in Raven denoted by `{! ... !}`. There is a corresponding `Rewriter.exit_ghost` that must be called when the ghost section is over.
+
+- `Rewriter.resolve_and_find`: Resolve a qualified identifier (or name) in the current program context and, and also return the corresponding symbol information. This function returns a `qual_ident` denoting the fully qualified (ie not relative) name of the symbol, and also the symbol that the object refers to.
+
+- `Rewriter.Symbol.reify`: Takes an object returned from a `find` function, performs any module substitutions if required, and returns the reified symbol.
+
+- `Rewriter.Symbol.reify_field_type`: Similar to `Rewriter.reify` but makes sure the underlying symbol is a field declaration.
+
+- `Rewriter.find_and_reify_var`: Does a similar thing as `Rewriter.resolve_and_find`, but also goes ahead and _reifies_ the symbol. This also makes sure the symbol is a `VarDef` and unfolds it. Otherwise this function raises an internal error. You should use this function to look up objects that you know are variables.
+
+- `Rewriter.find_and_reify_callable`: Similar to `Rewriter.find_and_reify_var` but for callables.
+
+- `Rewriter.introduce_symbol`: Insert a new symbol (variables, callables, types, modules, etc) into the current symbol table. This inserts the symbol in the "current" location in the symbol table.
+
+- `Rewriter.introduce_typecheck_symbol`: This is similar to `Rewriter.introduce_symbol` but also performs type-checking on the defined symbol. It is almost always better to use this since it ensures type-safety of the newly introduced, and makes certain transformations like type-inference and type propagation. This function requires the `process_symbol` function as an argument, which is where `process_symbol_ref` comes in handy, which can also be found at `Rewriter.process_symbol_ref`
+
+The following are monadic implementations of commonly used higher order functions which are used when we want to use the higher order functions, but also want the monadic state available in the underlying functions.
+
+- `Rewriter.List.fold_right`: Monadic `fold_right` implemented for lists inside the `Rewriter` monad; threads the rewriter state while folding.
+
+- `Rewriter.List.map`: Monadic `map` for lists that applies a `Rewriter` computation to each element and returns the list of results in the `Rewriter` monad.
+
+- `Rewriter.Option.map`: Monadic `map` for `option` values; applies a `Rewriter` computation when the option is `Some` and preserves `None`.
+
+- `Rewriter.List.map2_exn`: Monadic version of `List.map2_exn` that maps a pair of lists with a function returning a `Rewriter` computation; raises on length mismatch.

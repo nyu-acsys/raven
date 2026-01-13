@@ -1,7 +1,7 @@
 include "array.rav"
 
-interface OrderedArray : Array {
-  module E: Library.OrderedType
+interface OrderedArray[E: Library.OrderedType] : Array {
+  // module E: Library.OrderedType
   import E.lt
 
   func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool) {

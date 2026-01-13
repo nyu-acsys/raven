@@ -1,6 +1,6 @@
-interface Array {
-  module E: Library.Type
-  rep type T
+interface Array[E: Library.Type] {
+  // module E: Library.Type
+  rep type T = E
 
   func loc(a: T, i: Int) returns (r: Ref)
   func length(a: T) returns (l: Int)
@@ -34,6 +34,7 @@ interface Array {
     ensures arr(a, m) && arr(b, m) && length(a) == length(b)
   {
     b := alloc(length(a), default);
+    assert length(b) == length(a);
     unfold arr(b);
 
     var i := 0;

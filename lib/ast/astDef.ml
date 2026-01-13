@@ -2311,8 +2311,10 @@ module Module = struct
     | VarDef of Stmt.var_def
     | CallDef of Callable.t
 
+  and symbol_descr = { symbol_def: symbol; is_admitted: bool; }
+
   and module_instr =
-    | SymbolDef of symbol
+    | SymbolDef of symbol_descr
     | Import of import_directive
 
   and t = {
@@ -2343,7 +2345,7 @@ module Module = struct
   and pr_instr ppf =
     let open Stdlib.Format in
     function
-    | SymbolDef symbol -> pr_symbol ppf symbol
+    | SymbolDef symbol -> pr_symbol ppf symbol.symbol_def
     | Import { import_name = qid; import_all = all; _ } ->
       fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
 
@@ -2446,12 +2448,9 @@ module Module = struct
     let mod_decl = { md.mod_decl with mod_decl_is_free = true } in
     { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr -> 
         match instr with
-        | SymbolDef (ModDef md) -> SymbolDef (ModDef (set_free md))
-        | SymbolDef (CallDef cdef) -> SymbolDef (CallDef (Callable.make_free cdef))
+        | SymbolDef ({ symbol_def = ModDef md; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (ModDef (set_free md)) }
+        | SymbolDef ({ symbol_def = CallDef cdef; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (CallDef (Callable.make_free cdef)) }
         | _ -> instr) }
-
-
-
 end
 
 (** Symbols (for convenience) *)

@@ -19,6 +19,10 @@ module Option[E: Type] : Type {
     case none
     case some(value: E)
   }
+
+  func isSome(x: T) returns (ret: Bool) {
+    x == some(x.value) ? true : false
+  }
 }
 
 module ListM[E: Type] : Type {
