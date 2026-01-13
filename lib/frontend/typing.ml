@@ -2696,7 +2696,7 @@ module ProcessModule = struct
     let* mod_def = Rewriter.List.map merged_symbols ~f:process_instr in
 
     (* Check symbols against interface *)
-    let+ _ =
+    let* _ =
       Rewriter.List.iter mod_def ~f:(function
         | SymbolDef symbol ->
             let ident = Symbol.to_name symbol.symbol_def in
@@ -2707,10 +2707,10 @@ module ProcessModule = struct
     in
 
     (* Check whether modules are indeed modules *)
-    let _ =
+    let+ _ =
       if not mod_decl.mod_decl_is_interface then
-        List.iter mod_def ~f:(function
-          | Import _ -> ()
+        Rewriter.List.iter mod_def ~f:(function
+          | Import _ -> Rewriter.return ()
           | SymbolDef ({ is_admitted = false; _} as symbol) -> (
               match symbol.symbol_def with
               | TypeDef { type_def_expr = None; _ }
@@ -2731,10 +2731,22 @@ module ProcessModule = struct
                          %s %{Ident} is still abstract"
                        mod_decl.mod_decl_name (Symbol.kind symbol.symbol_def)
                        (Symbol.to_name symbol.symbol_def))
-              | _ -> ())
+              | ModInst { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ } ->
+                let+ mod_inst_symbol =
+                  Rewriter.find_and_reify mod_inst_func
+                in
+                (match mod_inst_symbol with
+                | Module.ModDef mdef ->              
+                  if mdef.mod_decl.mod_decl_is_interface then
+                  Error.type_error (Symbol.to_loc symbol.symbol_def)
+                    (Printf.sprintf
+                       !"Module %{Ident} must be declared as an interface"
+                       (Symbol.to_name symbol.symbol_def))
+                | _ -> ())
+              | _ -> Rewriter.return ())
               
-          | SymbolDef ({ is_admitted = true; _} as _symbol) -> ()
-        )
+          | _ -> Rewriter.return ())
+      else Rewriter.return ()
     in
     let _ =
       Logs.debug (fun mm ->

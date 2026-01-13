@@ -21,6 +21,7 @@ All notable changes to this project will be docmented in this file.
 
 ### Fixed
 
+- Fixed two bugs in type checker related to interface aliasing (#35)
 - Fixed a bug causing a crash on datatype destructors 
 - Sanitizing JSON output in LSP mode.
 - Catch module-level var declarations in type checker rather than parser (#31).

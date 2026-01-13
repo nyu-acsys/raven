@@ -1,6 +1,6 @@
-include "lock_invariant.rav"
+include "../concurrent/lock/ticket-lock.rav"
 
-module TicketLockClient {
+module LockClient {
 
     field f1: Int
     field f2: Int
@@ -14,7 +14,7 @@ module TicketLockClient {
         }
     }
 
-    module Lk = Lock[LkResource]
+    module Lk = TicketLock[LkResource]
 
     // algorithms
 
