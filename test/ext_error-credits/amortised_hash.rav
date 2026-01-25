@@ -1,0 +1,272 @@
+// The programs here should be the same as in `hash.rav`. The idea is that the specifications amortise the error credits.
+
+module Hash {
+  admitted val val_size: Int
+  admitted val max_hash_size: Int
+
+  admitted auto lemma max_hash_pos()
+    ensures max_hash_size > 0
+  
+  admitted auto lemma val_size_pos()
+    ensures val_size > 0
+
+  val amortized_error: Real = (max_hash_size-1) / (2*(val_size+1))
+
+  module OptInt = Library.Option[Library.IntType]
+
+  type HashMap = List[(Int, Int)]
+
+  field hash_map: HashMap
+
+  func lookUpHashMap(mp: List[(Int, Int)], idx: Int) returns (ret: OptInt) 
+    // ensures List.is_in(proj1(mp), idx) ==> ret == OptInt.some(ret.OptInt.value)
+  {
+    mp == List.cons(List.hd(mp), List.tl(mp)) ?
+      ((List.hd(mp))#0 == idx ? OptInt.some((List.hd(mp))#1) : lookUpHashMap(List.tl(mp), idx)) :
+      OptInt.none 
+  }
+
+  auto lemma lookUpHashMapWorks(mp: List[(Int, Int)], idx: Int)
+    ensures (
+      List.is_in(proj1(mp), idx) ==> OptInt.is_some(lookUpHashMap(mp, idx))
+    )
+  {
+    if (mp == List.nil) {
+
+    } else {
+      if ((List.hd(mp))#0 == idx) {
+
+      } else {
+        lookUpHashMapWorks(List.tl(mp), idx);
+      }
+    }
+  }
+
+  auto lemma lookUpHashMap_proj1_2(mp: List[(Int, Int)], idx: Int)
+    requires OptInt.is_some(lookUpHashMap(mp, idx))
+    ensures List.is_in( proj1(mp), idx)
+  {
+    assume false;
+  }
+
+  proc init_hash_state() returns (ret: HashMap) 
+    ensures ret == List.nil
+  {
+    return List.nil;
+  }
+
+  func proj2(mp: List[(Int, Int)]) returns (ret: List[Int]) 
+  {
+    mp == List.nil ?
+      List.nil :
+      ((List.hd(mp))#1 :: proj2(List.tl(mp)))
+  }
+
+  auto lemma proj_2_preserves_len(mp: List[(Int, Int)])
+    ensures List.len(proj2(mp)) == List.len(mp)
+  {
+    if (mp == List.nil) {
+
+    } else {
+      proj_2_preserves_len(List.tl(mp));
+    }
+  }
+
+  func proj1(mp: List[(Int, Int)]) returns (ret: List[Int]) 
+    // ensures List.len(mp) == List.len(ret)
+  {
+    mp == List.nil ?
+      List.nil :
+      ((List.hd(mp))#0 :: proj1(List.tl(mp)))
+  }
+
+  auto lemma look_up_img_in_proj2(mp: List[(Int, Int)], idx: Int)
+    ensures OptInt.is_some(lookUpHashMap(mp, idx)) ==> List.is_in(proj2(mp), lookUpHashMap(mp, idx).OptInt.value)
+  {
+    if (mp == List.nil) {
+
+    } else {
+      if ((List.hd(mp))#0 == idx) {
+
+      } else {
+        look_up_img_in_proj2(List.tl(mp), idx); 
+      }
+    }
+  }
+
+  lemma coll_free_mp_ins(mp: List[(Int, Int)], b: Int) 
+    requires coll_free(mp) && !List.is_in(proj2(mp), b)
+    ensures forall v: Int :: coll_free( (v,b) :: mp)
+  { }
+
+
+  proc compute_hash(x: Ref, v: Int, implicit ghost mp: HashMap) returns (mp': HashMap, ret: Int) 
+    requires coll_free_hashfun_amortized(x, mp)
+    requires !OptInt.is_some(lookUpHashMap(mp, v)) ==> (
+      -*-(amortized_error) 
+      && List.len(mp) < max_hash_size
+    )
+    
+    ensures OptInt.is_some(lookUpHashMap(mp, v)) ==> (
+        mp == mp' 
+        && ret == (lookUpHashMap(mp, v)).OptInt.value
+    )
+    ensures !OptInt.is_some(lookUpHashMap(mp, v)) ==> (
+        mp' == (v,ret) :: mp
+    )
+    ensures coll_free_hashfun_amortized(x, mp')
+  {
+    var mp0 := x.hash_map;
+    assert mp0 == mp;
+
+    var opt_int := lookUpHashMap(mp0, v);
+
+    if (opt_int == OptInt.none()) {
+
+      {!
+      // if (!OptInt.is_some(lookUpHashMap(mp, v))) {
+        ghost var eps: Real := (((max_hash_size-1) * List.len(mp)) / 2 - sum_n_m(0, List.len(mp)-1)) / (val_size + 1);
+
+        ghost var eps'': Real := (((max_hash_size-1) * (1+List.len(mp)))/2 - sum_n_m(0, List.len(mp))) / (val_size + 1);
+
+        ghost var v := val_size+1;
+        ghost var k := List.len(mp);
+        ghost var h := max_hash_size;
+
+        if (k == 0) {
+          // For some reason need to assert the following fact about Reals;
+          assert (
+            (h-1) / (2*v)  ==  ((h-1) / 2) / v
+          );
+        } 
+      // }
+      !}
+      
+      var b := EC.rand(1+val_size; ECList: !in proj2(mp));
+      mp' := (v, b) :: mp0;
+
+      coll_free_mp_ins(mp, b);
+
+      ret := b;
+    } else {
+      mp' := mp0;
+      ret := opt_int.OptInt.value;
+    }
+
+    x.hash_map := mp';
+    
+    return mp', ret;
+  }
+
+  proc init_hash() returns (ret: Ref)
+    ensures exists mp: HashMap :: coll_free_hashfun(ret, mp)
+      && mp == List.nil
+  {
+    var hm := init_hash_state();
+
+    ret := new(hash_map: hm);
+    return ret;
+  }
+
+  auto pred coll_free(mp: HashMap) {
+    forall k1: Int, k2: Int ::
+      (OptInt.is_some(lookUpHashMap(mp, k1)) && OptInt.is_some(lookUpHashMap(mp, k2)) && lookUpHashMap(mp, k1) == lookUpHashMap(mp, k2)) ==> k1 == k2
+  }
+
+  auto pred hashfun(x:Ref, mp: HashMap) {
+    own(x.hash_map, mp, 1.0) &&
+    (forall k: Int :: (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
+  }
+
+  func sum_n_m(n: Int, m: Int) returns (ret: Int) {
+    n > m ? 0 :
+      (n + sum_n_m(n+1, m))
+  }
+
+  auto lemma sum_n_m_val(n: Int, m: Int)
+    ensures 0 <= n <= m ==> sum_n_m(n, m) == (m*(m+1) - n*(n-1)) / 2
+  {
+    if (0 < n && n == m ) {
+
+    } else if (0 <= n < m) {
+      sum_n_m_val(n+1, m);
+    }
+  }
+
+  // auto pred hashfun_amortized(x: Ref, mp: HashMap) {
+  //   hashfun(x, mp) && (exists k: Int, eps: Real :: (
+  //     k == List.len(mp)
+  //     && eps == (((max_hash_size-1) * k)/2 - sum_n_m(0, k-1) ) / (val_size+1) && -*-(eps)
+  //   ))
+  // }
+
+  auto pred hashfun_amortized(x: Ref, mp: HashMap) {
+    hashfun(x, mp) && ((
+      -*-(((((max_hash_size-1) * List.len(mp))/2 - sum_n_m(0, List.len(mp)-1) ) / (val_size+1)))
+    ))
+  }
+
+  auto pred coll_free_hashfun(x: Ref, mp: HashMap) {
+    hashfun(x, mp) && coll_free(mp)
+  }
+
+  auto pred coll_free_hashfun_amortized(x: Ref, mp: HashMap) {
+    hashfun_amortized(x, mp) && coll_free(mp)
+  }
+
+  // proc wp_hashfun_prev(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+  //   requires OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun(x, mp)
+  //   ensures coll_free_hashfun(x, mp')
+  //   ensures hash == (lookUpHashMap(mp, n)).OptInt.value
+  // {
+  //   mp', hash := compute_hash(x, n);
+  // }
+
+  proc wp_hashfun_prev_amortized(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int) 
+    requires OptInt.is_some(lookUpHashMap(mp, n))
+        && coll_free_hashfun_amortized(x, mp)
+    ensures hash == lookUpHashMap(mp, n).OptInt.value
+        && coll_free_hashfun_amortized(x, mp)
+  
+  {
+    mp', hash := compute_hash(x, n);
+  }
+
+  // proc wp_coll_free_hashfun_prev(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+  //   requires OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun(x, mp)
+  //   ensures coll_free_hashfun(x, mp)
+  // {
+  //   mp', hash := compute_hash(x, n);
+  // }
+
+  proc wp_coll_free_hashfun_prev_amortized(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+    requires OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun_amortized(x, mp)
+    ensures coll_free_hashfun_amortized(x, mp)
+  {
+    mp', hash := compute_hash(x, n);
+  }
+
+  proc wp_insert_new_amortized(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+    requires !OptInt.is_some(lookUpHashMap(mp, n)) 
+        && List.len(mp) < max_hash_size
+        && coll_free_hashfun_amortized(x, mp) 
+
+    requires -*-(amortized_error)
+
+    ensures coll_free_hashfun_amortized(x, (n,hash) :: mp)
+  {
+    mp', hash := compute_hash(x, n);
+  }
+
+  proc wp_insert_amortized(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+    requires List.len(mp) < max_hash_size
+      && coll_free_hashfun_amortized(x, mp)
+      && -*-(amortized_error)
+
+    ensures coll_free_hashfun_amortized(x, mp')
+      && lookUpHashMap(mp', n) == OptInt.some(hash)
+      && List.len(mp') <= 1 + List.len(mp)
+  {
+    mp', hash := compute_hash(x, n);
+  }
+}

@@ -228,10 +228,7 @@ module ProcessExpr = struct
                               Error.type_error callable.call_decl.call_decl_loc
                                 (Printf.sprintf !"This specification of auto lemma %{Ident} is not pure" callable.call_decl.call_decl_name))
                     in
-                    let params = callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns in
-                    if not (List.is_empty params)
-                    then Error.type_error (List.hd_exn params).var_loc
-                        (Printf.sprintf !"An auto lemma cannot have arguments")
+                    ()
                   end
                   else Rewriter.return ()
                 in
@@ -686,7 +683,7 @@ module ProcessExpr = struct
             let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
-        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error}
+        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (

@@ -21,6 +21,8 @@ All notable changes to this project will be docmented in this file.
 
 ### Fixed
 
+- Fixed bug in ComputeStats functionality with looking up abstract members without entering modules.
+- Fixed bug regarding missing quantifiers for auto lemmas with arguments.
 - Fixed two bugs in type checker related to interface aliasing (#35)
 - Fixed a bug causing a crash on datatype destructors 
 - Sanitizing JSON output in LSP mode.

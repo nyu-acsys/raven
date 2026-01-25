@@ -366,18 +366,20 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
           match call_decl.call_decl_precond with
           | [] ->
             assume_expr
-              (Expr.mk_and
-                 (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                      spec.spec_form)))
+              (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals
+                (Expr.mk_and
+                  (List.map call_decl.call_decl_postcond ~f:(fun spec ->
+                    spec.spec_form))))
           | _ ->
             assume_expr
-              (Expr.mk_impl
-                 (Expr.mk_and
+              (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals 
+                (Expr.mk_impl
+                  (Expr.mk_and
                     (List.map call_decl.call_decl_precond ~f:(fun spec ->
-                         spec.spec_form)))
-                 (Expr.mk_and
+                      spec.spec_form)))
+                  (Expr.mk_and
                     (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                         spec.spec_form))))
+                      spec.spec_form)))))
         end
       | _ -> State.return ())
 

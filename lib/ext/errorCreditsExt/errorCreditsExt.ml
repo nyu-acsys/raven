@@ -3,7 +3,7 @@ open Ast
 open ExtApi
 open Util
 
-module ErrorCreditsExt (Cont : Ext) = struct
+module ErrorCreditsExt (Cont : ListApi) = struct
 
   let lib_source = Some ("errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
 
@@ -46,6 +46,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | EC_RandList of bool
 
     | EC_Contra
+
+  module ListFns = Cont.ListFns
 
   (* AstDef *)
   let type_ext_to_name = Cont.type_ext_to_name
@@ -112,7 +114,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
     let open Rewriter.Syntax in
     match expr_ext, expr_list with
     | ErrorCreds, [ec_val] ->
-      let* expr_arg = type_check_expr_functs.process_expr ec_val Type.real in
+      let* expr_arg = type_check_expr_functs.process_expr ec_val (Type.real |> Type.set_ghost_to expected_typ) in
       type_check_expr_functs.check_and_set 
       (App (ExprExt ErrorCreds, [expr_arg], expr_attr)) Type.perm Type.perm Type.perm
 
@@ -153,7 +155,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         type_check_stmt_functs.type_mismatch_error stmt_loc Type.int var_decl.var_type
       else
         let* n_expr = type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl in
-        let* errorVal = type_check_stmt_functs.disambiguate_process_expr errorVal Type.int disam_tbl in
+        let* errorVal = type_check_stmt_functs.disambiguate_process_expr errorVal (Type.int |> Type.set_ghost true) disam_tbl in
 
         Rewriter.return (Stmt.StmtExt (EC_RandVal is_init, [Expr.from_var_decl var_decl; n_expr; errorVal]), disam_tbl)
       
@@ -169,7 +171,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         type_check_stmt_functs.type_mismatch_error stmt_loc Type.int var_decl.var_type
       else
         let* n_expr = type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl in
-        let* ec_expr = type_check_stmt_functs.disambiguate_process_expr ec_expr Type.real disam_tbl in
+        let* ec_expr = type_check_stmt_functs.disambiguate_process_expr ec_expr (Type.real |> Type.set_ghost true) disam_tbl in
 
         if not (Expr.is_ident errFn_arg) then
           Error.type_error stmt_loc "Expected an ident as error function argument."
@@ -203,7 +205,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
       else
         let* n_expr = type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl in
         
-        let* ls_expr = type_check_stmt_functs.disambiguate_process_expr ls_expr (Type.any) disam_tbl in
+        let* ls_expr = type_check_stmt_functs.disambiguate_process_expr ls_expr (Type.any |> Type.set_ghost true) disam_tbl in
         let ls_expr_type = Expr.to_type ls_expr in
         let* _ = match ls_expr_type with
         | Type.App (Var v, [], _) ->
@@ -226,13 +228,19 @@ module ErrorCreditsExt (Cont : Ext) = struct
             in
 
             if Type.(base_type = Type.int) then
-              Rewriter.return Type.unit
+              Rewriter.return ()
             else 
                 Error.type_error (Expr.to_loc ls_expr) "Expected an Integer list type for ECList"
           else 
             Error.type_error (Expr.to_loc ls_expr) "Expected an integer List type for ECList"
-        | _ -> 
-          Error.type_error (Expr.to_loc ls_expr) "Expected a integer list type for ECList"
+
+        | Type.App (TypeExt tp_constr, [elem_typ], _) when Type.compare_type_ext tp_constr (Cont.ListFns.listTpConstr ()) = 0 ->
+          if Type.(not (elem_typ = int)) then
+            type_check_stmt_functs.type_mismatch_error stmt_loc Type.int elem_typ
+          else
+            Rewriter.return ()
+        | _typ -> 
+          Error.type_error (Expr.to_loc ls_expr) ("Expected a integer list type for ECList; found: " ^ (Type.to_string _typ))
         in
         
         Rewriter.return (Stmt.StmtExt (EC_RandList is_init, [Expr.from_var_decl var_decl; n_expr; ls_expr]), disam_tbl)
@@ -546,7 +554,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         let error = 
           (Error.Verification,
             loc,
-            "Not enough error credits to ensure random value does lie in given list"
+            "Not enough error credits to ensure random value doesn't lie in given list"
           ) in
         Stmt.mk_exhale_expr ~loc 
         ~cmnt:("EC_RandList precond")
@@ -555,8 +563,8 @@ module ErrorCreditsExt (Cont : Ext) = struct
         [ ec_ref_expr;
           Expr.mk_var ~typ:(ec_field.field_type) ec_field_qi;
           Expr.mk_app ~loc ~typ:constr_decl.constr_return_type (DataConstr lib_fraction_frac_constr_qi) [
-            Expr.mk_app ~typ:Type.real Mult [
-              (Expr.mk_app ~loc ~typ:Type.int (Var (QualIdent.append ls_mod_qi Predefs.lib_list_len_ident)) [ls_expr]) ;(Expr.mk_app ~typ:Type.real Div [Expr.mk_int 1; n_expr])
+            Expr.mk_app ~typ:Type.real Div [
+              (Expr.mk_app ~loc ~typ:Type.int (Var (QualIdent.append ls_mod_qi Predefs.lib_list_len_ident)) [ls_expr]) ; n_expr
             ]
           ]
         ])

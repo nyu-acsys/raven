@@ -3,9 +3,8 @@ open Ast
 open ExtApi
 open Util
 
-(* module ListExt = ListExt.ListExt(DefaultExt.DefaultExt) *)
 
-module ProphecyExt (Cont : ListApi.ListApi) = struct
+module ProphecyExt (Cont : ListApi) = struct
   let lib_source = Some ("prophecyLib.rav", [%blob "prophecyLib.rav"])
   let local_vars = []
 
@@ -30,6 +29,8 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
   let proph_id_type ~loc = Type.mk_app ~loc ~ghost:true (TypeExt ProphId) []
 
 
+  module ListFns = Cont.ListFns
+
   (* AstDef *)
   let type_ext_to_name type_ext = match type_ext with
   | ProphId -> "ProphId"
@@ -50,13 +51,13 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
     let open Stdlib.Format in
     match ext, expr_list with
     | (NewProph (b, typ)), [proph_id; proph_val] ->
-      fprintf ppf "@[[EXT] %a, %a@ :=@ NewProph(oneshot:%b, typ:%a)@]" Expr.pr proph_id Expr.pr proph_val b Type.pr typ
+      fprintf ppf "@[[EXT] %a, %a@ :=@ Proph.new(oneshot:%b, typ:%a)@]" Expr.pr proph_id Expr.pr proph_val b Type.pr typ
 
     | NewProph _, _ ->
       Error.internal_error Loc.dummy "[EXT] ProphecyExt.pr_stmt_ext: wrong number of arguments called for NewProph"
     
     | ResolveProph, [proph_id; resolve_val] ->
-      fprintf ppf "@[[EXT] ResolveProph(%a -> %a)@]" Expr.pr proph_id Expr.pr resolve_val 
+      fprintf ppf "@[[EXT] Proph.resolve(%a -> %a)@]" Expr.pr proph_id Expr.pr resolve_val 
 
     | ResolveProph, _ ->
       Error.internal_error Loc.dummy "[EXT] ProphecyExt.pr_stmt_ext: wrong number of arguments called for ResolveProph"
@@ -152,7 +153,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       let* value_expr = type_check_expr_functs.process_expr
       value_expr (Type.any |> Type.set_ghost true) in
 
-      let elem_tp_opt = Cont.list_tp_to_elem_typ (Expr.to_type value_expr) in
+      let elem_tp_opt = Cont.ListFns.list_tp_to_elem_typ (Expr.to_type value_expr) in
 
       begin match elem_tp_opt with
       | None -> Error.type_error loc 
@@ -184,7 +185,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
       let proph_val_typ = if oneshot_b then
         typ |> Type.set_ghost true
       else
-        Cont.mk_list_tp stmt_loc typ |> Type.set_ghost true
+        Cont.ListFns.mk_list_tp stmt_loc typ |> Type.set_ghost true
       in
 
       begin match Expr.is_ident proph_val with
@@ -250,7 +251,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
 
       let* type_module_qi = 
         (* Module must be of List[typ] *)
-        let list_typ = Cont.mk_list_tp loc typ in
+        let list_typ = Cont.ListFns.mk_list_tp loc typ in
 
         let type_module_canonical_qi =
           let mod_name_string = ProgUtils.tp_mod_ident_prefix ^ Type.to_string list_typ in
@@ -304,7 +305,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
     match expr_ext, expr_list with
     | ProphResource, [proph_id; value] ->
       let* proph_type = 
-        let elem_tp_opt = Cont.list_tp_to_elem_typ (Expr.to_type value) in
+        let elem_tp_opt = Cont.ListFns.list_tp_to_elem_typ (Expr.to_type value) in
 
         match elem_tp_opt with
         | None -> Error.type_error loc ("[EXT] ProphecyExt: Prophecy resources must hold List values; found: " ^ (Type.to_string (Expr.to_type value)))
@@ -349,7 +350,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
         Rewriter.return proph_val 
       else
           (* For one-shot prophecies, generating an arbitrary tail of predictions. *)
-        let tl_var = Type.mk_var_decl ~const:true ~ghost:true (Ident.fresh loc "$proph_oneshot_trail") (Cont.mk_list_tp loc (Expr.to_type proph_val)) in
+        let tl_var = Type.mk_var_decl ~const:true ~ghost:true (Ident.fresh loc "$proph_oneshot_trail") (Cont.ListFns.mk_list_tp loc (Expr.to_type proph_val)) in
         let+ tl_var_qi = Rewriter.introduce_typecheck_symbol' ~loc (
           VarDef { 
             var_decl=tl_var;
@@ -357,7 +358,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
           }
         ) in
 
-        Cont.ls_cons loc (proph_val) (Expr.from_var_decl tl_var)
+        Cont.ListFns.ls_cons loc (proph_val) (Expr.from_var_decl tl_var)
       in
 
       let proph_new_stmt =
@@ -392,7 +393,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
 
       let* prophecy_field = Rewriter.find_and_reify_field prophecy_field_qi in
 
-      let proph_list_tp = Cont.mk_list_tp loc (Expr.to_type resolve_value) in
+      let proph_list_tp = Cont.ListFns.mk_list_tp loc (Expr.to_type resolve_value) in
 
       let proph_read_var_def, proph_read_var_ident = 
         let proph_read_var_ident = Ident.fresh loc "$proph_read" in
@@ -424,7 +425,7 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
         ~cmnt:("[EXT] ProphecyExt: Prophecising Assertion")
         (Expr.mk_eq 
           resolve_value
-          (Cont.ls_hd loc (Expr.from_var_decl proph_read_var_def.var_decl))
+          (Cont.ListFns.ls_hd loc (Expr.from_var_decl proph_read_var_def.var_decl))
           )
       in
 
@@ -432,13 +433,13 @@ module ProphecyExt (Cont : ListApi.ListApi) = struct
         Stmt.mk_assume_expr ~loc
         ~cmnt:("[EXT] ProphecyExt: Assuming remaining prophecy stream non-empty")
         (Expr.mk_app ~loc ~typ:Type.bool Gt 
-          [(Cont.ls_len loc (Expr.from_var_decl proph_read_var_def.var_decl)); 
+          [(Cont.ListFns.ls_len loc (Expr.from_var_decl proph_read_var_def.var_decl)); 
           Expr.mk_int 2]
         )
       in
 
       let field_write_val = 
-        Cont.ls_tl loc (Expr.from_var_decl proph_read_var_def.var_decl)
+        Cont.ListFns.ls_tl loc (Expr.from_var_decl proph_read_var_def.var_decl)
       in
 
       let field_write_stmt = 

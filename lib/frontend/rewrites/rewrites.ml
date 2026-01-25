@@ -2856,13 +2856,17 @@ Specification Count: %d"
 
   let rec computeStats md : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
-    Rewriter.List.fold_left md.Module.mod_def ~init:init_prog_stats ~f:(fun ps instr ->
+    let* _ = Rewriter.enter_module md in
+    let* prog_stats = Rewriter.List.fold_left md.Module.mod_def ~init:init_prog_stats ~f:(fun ps instr ->
       match instr with
       | Import _ -> Rewriter.return ps
       | SymbolDef s -> 
         let+ symbolStats = computeSymbolStats s.symbol_def in
         merge_prog_stats ps symbolStats
-    )
+    ) in 
+    let+ _ = Rewriter.exit_module md in
+
+    prog_stats
 
   and computeSymbolStats s : prog_stats Rewriter.t =
     match s with

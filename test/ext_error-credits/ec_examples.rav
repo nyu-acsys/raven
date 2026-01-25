@@ -55,10 +55,42 @@ proc p3(n: Int) returns (ret: Bool)
   else return true;
 }
 
+proc p3'(n: Int) returns (ret: Bool)
+  requires 15 < n <= 23
+  requires -*-(1.0/n)
+  requires -*-(0.25)
+  ensures ret == true
+{
+  var n0 := EC.rand(4; ECFn: -*-(0.25), i ==> (i == 0 ? 1.0 : 0.0));
+  var q1: Int := EC.rand(n);
+  var q2: Int := EC.rand(n; ECFn: -*-(1.0/n), x ==> (x == q1 ? 1.0 : 0.0));
+
+  if (q1 == q2) { EC.contra(); assert false; return false; }
+  else return true;
+}
+
+proc toy() returns (ret: Bool)
+  requires -*-(0.1)
+  ensures ret == true
+{
+  var q1: Int := EC.rand(10);
+  var q2: Int := EC.rand(10; ECFn: -*-(0.1), x ==> (x == q1 ? 1.0 : 0.0));
+
+  if (q1 == q2) { EC.contra(); return false; }
+  
+  return true;
+}
+
 proc p4()
 {
   inhale -*-(0.4);
   var n := IntList.cons(1, IntList.cons(2, IntList.nil));
   var k := EC.rand(5; ECList: !in n);
   assert k != 1;
+}
+
+proc p5() {
+  inhale -*-(0.4);
+
+  var k2 := EC.rand(5; ECList: !in (1 :: List.cons(5, List.nil)));
 }

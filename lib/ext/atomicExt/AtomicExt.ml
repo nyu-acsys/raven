@@ -4,7 +4,7 @@ open Util
 
 open ExtApi
 
-module AtomicExt (Cont : Ext) = struct
+module AtomicExt (Cont : ListApi) = struct
   let lib_source = None
   let local_vars = []
 
@@ -24,6 +24,7 @@ module AtomicExt (Cont : Ext) = struct
     | AtomicInbuiltInit of atomic_inbuilt_kind
     | AtomicInbuiltNonInit of atomic_inbuilt_kind
 
+  module ListFns = Cont.ListFns
 
   (* AstDef *)
   let type_ext_to_name = Cont.type_ext_to_name

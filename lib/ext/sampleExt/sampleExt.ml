@@ -3,7 +3,7 @@ open Ast
 open ExtApi
 open Util
 
-module SampleExt (Cont : Ext) = struct
+module SampleExt (Cont : ListApi) = struct
 
   let lib_source = Some ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])
 
@@ -11,6 +11,8 @@ module SampleExt (Cont : Ext) = struct
 
   type Stmt.stmt_ext +=
     | RandEven
+
+  module ListFns = Cont.ListFns
 
   (* AstDef *)
   let type_ext_to_name = Cont.type_ext_to_name

@@ -1,6 +1,6 @@
 (library
  (name errorCreditsExt)
- (libraries base util ast extApi)
+ (libraries base util ast extApi listExt)
  (preprocessor_deps
   (file errorCreditsLib.rav))
  (preprocess

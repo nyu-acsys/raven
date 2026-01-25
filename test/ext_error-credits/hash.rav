@@ -1,0 +1,172 @@
+module Hash {
+  admitted val val_size: Int
+
+  module OptInt = Library.Option[Library.IntType]
+
+  type HashMap = List[(Int, Int)]
+
+  field hash_map: HashMap
+
+  func lookUpHashMap(mp: List[(Int, Int)], idx: Int) returns (ret: OptInt) 
+    // ensures List.is_in(proj1(mp), idx) ==> ret == OptInt.some(ret.OptInt.value)
+  {
+    mp == List.cons(List.hd(mp), List.tl(mp)) ?
+      ((List.hd(mp))#0 == idx ? OptInt.some((List.hd(mp))#1) : lookUpHashMap(List.tl(mp), idx)) :
+      OptInt.none 
+  }
+
+  auto lemma lookUpHashMapWorks(mp: List[(Int, Int)], idx: Int)
+    ensures (
+      List.is_in(proj1(mp), idx) ==> OptInt.is_some(lookUpHashMap(mp, idx))
+    )
+  {
+    if (mp == List.nil) {
+
+    } else {
+      if ((List.hd(mp))#0 == idx) {
+
+      } else {
+        lookUpHashMapWorks(List.tl(mp), idx);
+      }
+    }
+  }
+
+  proc init_hash_state() returns (ret: HashMap) 
+    ensures ret == List.nil
+  {
+    return List.nil;
+  }
+
+  func proj2(mp: List[(Int, Int)]) returns (ret: List[Int]) 
+  {
+    mp == List.nil ?
+      List.nil :
+      ((List.hd(mp))#1 :: proj2(List.tl(mp)))
+  }
+
+  auto lemma proj_2_preserves_len(mp: List[(Int, Int)])
+    ensures List.len(proj2(mp)) == List.len(mp)
+  {
+    if (mp == List.nil) {
+
+    } else {
+      proj_2_preserves_len(List.tl(mp));
+    }
+  }
+
+  func proj1(mp: List[(Int, Int)]) returns (ret: List[Int]) 
+    // ensures List.len(mp) == List.len(ret)
+  {
+    mp == List.nil ?
+      List.nil :
+      ((List.hd(mp))#0 :: proj1(List.tl(mp)))
+  }
+
+  auto lemma look_up_img_in_proj2(mp: List[(Int, Int)], idx: Int)
+    ensures OptInt.is_some(lookUpHashMap(mp, idx)) ==> List.is_in(proj2(mp), lookUpHashMap(mp, idx).OptInt.value)
+  {
+    if (mp == List.nil) {
+
+    } else {
+      if ((List.hd(mp))#0 == idx) {
+
+      } else {
+        look_up_img_in_proj2(List.tl(mp), idx); 
+      }
+    }
+  }
+
+  lemma coll_free_mp_ins(mp: List[(Int, Int)], b: Int) 
+    requires coll_free(mp) && !List.is_in(proj2(mp), b)
+    ensures forall v: Int :: coll_free( (v,b) :: mp)
+  { }
+
+
+  proc compute_hash(x: Ref, v: Int, implicit ghost mp: HashMap) returns (mp': HashMap, ret: Int) 
+    requires coll_free_hashfun(x, mp)
+    requires  !OptInt.is_some(lookUpHashMap(mp, v)) ==>
+      -*-(List.len(mp) / (1+val_size)) 
+    
+    ensures OptInt.is_some(lookUpHashMap(mp, v)) ==> (
+      mp == mp' 
+      && ret == (lookUpHashMap(mp, v)).OptInt.value
+    )
+    ensures !OptInt.is_some(lookUpHashMap(mp, v)) ==> (
+      mp' == (v,ret) :: mp
+    )
+    ensures coll_free_hashfun(x, mp')
+  {
+    var mp0 := x.hash_map;
+    assert mp0 == mp;
+
+    var opt_int := lookUpHashMap(mp0, v);
+
+    if (opt_int == OptInt.none()) {
+
+      var b := EC.rand(1+val_size; ECList: !in proj2(mp));
+      mp' := (v, b) :: mp0;
+
+      coll_free_mp_ins(mp, b);
+
+      ret := b;
+    } else {
+      mp' := mp0;
+      ret := opt_int.OptInt.value;
+    }
+
+    x.hash_map := mp';
+    
+    return mp', ret;
+  }
+
+  proc init_hash() returns (ret: Ref)
+    ensures exists mp: HashMap :: coll_free_hashfun(ret, mp)
+      && mp == List.nil
+  {
+    var hm := init_hash_state();
+
+    ret := new(hash_map: hm);
+    return ret;
+  }
+
+  auto pred coll_free(mp: HashMap) {
+    forall k1: Int, k2: Int ::
+      (OptInt.is_some(lookUpHashMap(mp, k1)) && OptInt.is_some(lookUpHashMap(mp, k2)) && lookUpHashMap(mp, k1) == lookUpHashMap(mp, k2)) ==> k1 == k2
+  }
+
+  auto pred hashfun(x:Ref, mp: HashMap) {
+    own(x.hash_map, mp, 1.0) &&
+    (forall k: Int :: (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
+  }
+
+  auto pred coll_free_hashfun(x: Ref, mp: HashMap) {
+    hashfun(x, mp) && coll_free(mp)
+  }
+
+  proc wp_hashfun_prev(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+    requires OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun(x, mp)
+    ensures coll_free_hashfun(x, mp')
+    ensures hash == (lookUpHashMap(mp, n)).OptInt.value
+  {
+    mp', hash := compute_hash(x, n);
+  }
+
+  proc wp_coll_free_hashfun_prev(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+    requires OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun(x, mp)
+    ensures coll_free_hashfun(x, mp)
+  {
+    mp', hash := compute_hash(x, n);
+  }
+
+  proc wp_insert_no_coll(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
+    requires !OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun(x, mp) 
+    requires -*-(List.len(mp) / (1+val_size))
+    ensures coll_free_hashfun(x, (n,hash) :: mp)
+  {
+    mp', hash := compute_hash(x, n);
+  }
+
+
+
+
+}

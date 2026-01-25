@@ -1,34 +1,40 @@
 open Ast
 
-  type type_check_type_expr_functs = {
-    process_type_expr : type_expr -> type_expr Rewriter.t;
-  }
+(** Set of functions from Typing.ml available for type checking `Type.type_ext`  *)
+type type_check_type_expr_functs = {
+  process_type_expr : type_expr -> type_expr Rewriter.t;
+}
 
-  type type_check_expr_functs = {
-    check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
-    process_expr : expr -> type_expr -> expr Rewriter.t;
-    type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
-  }
+(** Set of functions from Typing.ml available for type checking `Expr.expr_ext`  *)
+type type_check_expr_functs = {
+  check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
+  process_expr : expr -> type_expr -> expr Rewriter.t;
+  type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+  expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
+}
 
-  type type_check_stmt_functs = {
-    get_assign_lhs :  is_init:bool -> 
-                      ?is_ghost_cmd:bool -> 
-                      qual_ident -> 
-                      unit Rewriter.state -> 
-                      unit Rewriter.state * (qual_ident * var_decl);
+(** Set of functions from Typing.ml available for type checking `Stmt.stmt_ext`  *)
+type type_check_stmt_functs = {
+  get_assign_lhs :  is_init:bool -> 
+                    ?is_ghost_cmd:bool -> 
+                    qual_ident -> 
+                    unit Rewriter.state -> 
+                    unit Rewriter.state * (qual_ident * var_decl);
 
-    expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
+  expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
 
-    disambiguate_process_expr : expr -> type_expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
+  disambiguate_process_expr : expr -> type_expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
 
-    type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+  type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
 
-    disam_tbl_add_var_decl : var_decl -> ProgUtils.DisambiguationTbl.t -> var_decl * ProgUtils.DisambiguationTbl.t;
+  disam_tbl_add_var_decl : var_decl -> ProgUtils.DisambiguationTbl.t -> var_decl * ProgUtils.DisambiguationTbl.t;
 
-    process_symbol_ref : (Module.symbol -> Module.symbol Rewriter.t) ref;
-  }
+  process_symbol_ref : (Module.symbol -> Module.symbol Rewriter.t) ref;
+}
 
+(* Main Extension API *)
 module type Ext = sig
+  (* Config *)
   val lib_source : (string * string) option
   val local_vars : var_decl list
 
@@ -79,4 +85,23 @@ module type Ext = sig
 
   val lib_sources : (string * string) list
   val ext_local_vars : var_decl list
+end
+
+
+module type ListFns = sig
+    val listTpConstr : unit -> Type.type_ext
+    val mk_list_tp : location -> type_expr -> type_expr 
+    val ls_cons : location -> expr -> expr -> expr
+    val ls_nil : location -> elem_typ:type_expr -> unit -> expr
+    val ls_hd : location -> expr -> expr
+    val ls_tl : location -> expr -> expr
+    val ls_len : location -> expr -> expr
+    val list_tp_to_elem_typ : type_expr -> type_expr option
+  end
+
+(* ListAPI for extensions that depend on lists such as ProphecyExt and ErrorCreditsExt *)
+module type ListApi = sig
+  include Ext
+
+  module ListFns: ListFns
 end
