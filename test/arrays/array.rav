@@ -1,21 +1,21 @@
-interface Array[E: Library.Type] {
+module Array[E: Library.Type] {
   // module E: Library.Type
   rep type T = E
 
-  func loc(a: T, i: Int) returns (r: Ref)
-  func length(a: T) returns (l: Int)
-  func first(r: Ref) returns (a: T)
-  func second(r: Ref) returns (i: Int)
+  admitted func loc(a: T, i: Int) returns (r: Ref)
+  admitted func length(a: T) returns (l: Int)
+  admitted func first(r: Ref) returns (a: T)
+  admitted func second(r: Ref) returns (i: Int)
   
-  auto axiom all_diff()
+  admitted auto axiom all_diff()
     ensures forall a:T, i: Int :: {loc(a, i)} first(loc(a, i)) == a && second(loc(a, i)) == i
     
-  auto axiom len_nonneg()
+  admitted auto axiom len_nonneg()
     ensures forall a:T :: {length(a)} length(a) >= 0
 
   field value: E
 
-  val default: E
+  admitted val default: E
 
   val default_map: Map[Int, E] = {| i: Int :: default |}
 
@@ -24,7 +24,7 @@ interface Array[E: Library.Type] {
     && (forall j: Int :: {m[j]} (0 > j || j >= length(a)) ==> m[j] == default)
   }
 
-  proc alloc(len: Int, d: E) returns (a: T)
+  admitted proc alloc(len: Int, d: E) returns (a: T)
     requires 0 <= len
     ensures length(a) == len && arr(a, {| i: Int :: 0 <= i < len ? d : default |})
 
@@ -62,18 +62,18 @@ interface Array[E: Library.Type] {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 < i2 < j ==> m[i1] != m[i2]
   }
 
-  func inverse(m: Map[Int, E], i: Int, j: Int, k: E) returns (res: Int)
+  admitted func inverse(m: Map[Int, E], i: Int, j: Int, k: E) returns (res: Int)
 
-  auto lemma invertable()
+  admitted auto lemma invertable()
     ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {inverse(m, i, j, m[i1])} 
       injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1
 
-  auto lemma invertable2()
+  admitted auto lemma invertable2()
     ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)} 
       (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
       (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1)
 
-  auto lemma inverse_update()
+  admitted auto lemma inverse_update()
     ensures forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m, i, j, k2), m[i1 := k]} {inverse(m[i1 := k], i, j, k2)} 
       inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==> 
         inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2))
