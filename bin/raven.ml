@@ -2,7 +2,6 @@ open Base
 open Util
 open Ast
 open Frontend
-open Ext
 
 type config = {
   no_library: bool;
@@ -140,7 +139,8 @@ let parse_and_check_all config file_names =
     if config.no_library then (smt_env, tbl)
     else
       let lib_prog =
-        List.fold_right (Library.sources @ Ext.lib_sources) ~init:empty_prog
+        let (module Ext') = !Ext.ext in
+        List.fold_right (Library.sources @ Ext'.lib_sources) ~init:empty_prog
         ~f:(fun (lib_file_name, lib_source) lib_prog ->
             let lib_source_lexbuf =
               Lexing.from_string lib_source
@@ -279,6 +279,10 @@ let smt_timeout =
   let doc = "Timeout for SMT solver in ms." in 
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
+let extension_mode =
+  let doc = "Extension mode: default, eris, or prophecy." in
+  Arg.(value & opt (enum Ext.ext_map) Ext.DefaultExt & info [ "extension" ] ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
@@ -300,7 +304,7 @@ let print_errors config errs =
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics =
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   let config = {
     no_library;
@@ -312,6 +316,9 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     smt_diagnostics;
     log_level = Logs.level ();
   }
+  in
+  let _ = 
+    Ext.overwrite_ext(Ext.module_map extension_mode);
   in
   try `Ok (parse_and_check_all config input_files) with
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
@@ -330,6 +337,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

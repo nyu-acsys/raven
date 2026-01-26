@@ -78,6 +78,9 @@ OPTIONS
        --color=WHEN (absent=auto)
            Colorize the output. WHEN must be one of auto, always or never.
 
+       --extension=VAL (absent=default)
+           Extension mode: default, eris, or prophecy.
+
        --lsp-mode
            Format error messages for LSP integration.
 

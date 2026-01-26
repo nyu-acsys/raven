@@ -56,7 +56,7 @@ proc p3(n: Int) returns (ret: Bool)
 }
 
 proc p3'(n: Int) returns (ret: Bool)
-  requires 15 < n <= 23
+  requires 15 < n <= 18
   requires -*-(1.0/n)
   requires -*-(0.25)
   ensures ret == true

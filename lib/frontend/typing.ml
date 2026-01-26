@@ -3,8 +3,6 @@ open Ast
 open Util
 open Error
 
-open Ext
-
 let type_mismatch_error loc exp_ty fnd_ty =
   Error.type_error loc
     (Printf.sprintf
@@ -80,6 +78,7 @@ module ProcessTypeExpr = struct
       let+ qid = Rewriter.resolve qid in
       App (AtomicToken qid, [], tp_attr)
     | App (TypeExt type_ext, tp_args, tp_attr) ->
+      let (module Ext) = !Ext.ext in
       Ext.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
@@ -683,7 +682,8 @@ module ProcessExpr = struct
             let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
-        | ExprExt expr_ext, expr_list -> Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
+        | ExprExt expr_ext, expr_list ->
+          let (module Ext) = !Ext.ext in Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -1645,6 +1645,7 @@ module ProcessCallable = struct
         },
       disam_tbl )
     | StmtExt (stmt_ext, expr_list)  -> 
+      let (module Ext) = !Ext.ext in
         Ext.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl 
           {
             ExtApi.get_assign_lhs = get_assign_lhs;
@@ -1778,10 +1779,12 @@ module ProcessCallable = struct
 
     let call_decl_locals = match call_decl.call_decl_kind with
       | Proc | Lemma -> 
+        let (module Ext) = !Ext.ext in
         (* Adding Extension local variables *)
         Logs.debug (fun m -> m "Adding EXT locals on: %a" Ident.pr call_decl.call_decl_name);
         Ext.ext_local_vars @ call_decl_locals
       | Func | Pred | Invariant -> 
+        let (module Ext) = !Ext.ext in
         Ext.ext_local_vars @ 
         call_decl_locals 
     in

@@ -6,7 +6,9 @@ All notable changes to this project will be docmented in this file.
 
 ### Added
 
+- Added ExtensionAPI as a way to modularly add and remove front-end features in Raven.
 - Added cmpxchg atomic operation.
+- Added a new cmdline option `--extension` which (presently) takes one of three values: `default`, `eris`, and `prophecy`. This option can be used to select which extension of Raven are active for a given run.
 
 ### Changed
 

@@ -2,7 +2,6 @@ open Base
 open Ast
 open Util
 open Frontend
-open Ext
 
 let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
@@ -2727,6 +2726,7 @@ let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
     let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
     match type_expr with
     | App (TypeExt type_ext, args, type_attr) ->
+      let (module Ext) = !Ext.ext in
       Ext.rewrite_type_ext type_ext args (Type.to_loc type_expr)
     | _ -> Rewriter.return type_expr
 
@@ -2742,6 +2742,7 @@ let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
     let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
     match expr with
     | App (ExprExt expr_ext, args, expr_attr) -> 
+      let (module Ext) = !Ext.ext in
       Ext.rewrite_expr_ext expr_ext args expr_attr
     | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
   in
@@ -2764,6 +2765,7 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
     | Basic (StmtExt (stmt_ext, args)) -> 
+      let (module Ext) = !Ext.ext in
       Ext.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt_ext
 

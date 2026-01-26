@@ -1,2 +1,2 @@
-  $ dune exec -- raven --shh ./clairvoyant_coin.rav
+  $ dune exec -- raven --shh --extension prophecy ./clairvoyant_coin.rav
   Verification successful.
