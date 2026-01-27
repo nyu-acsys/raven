@@ -38,11 +38,12 @@ WORKDIR /app
 COPY --from=build /home/opam/.opam/5.4/bin/z3 /usr/local/bin/z3
 
 # Copy the compiled binary from the 'build' stage
-# The path usually looks like _build/default/<path_to_source>/main.exe
-COPY --from=build /home/opam/app/_build/default/bin/raven.exe ./raven
+COPY --from=build /home/opam/app/_build/default/bin/raven.exe /usr/local/bin/raven
+
+
 
 # Copy repository of examples
 COPY --from=build /home/opam/app/test ./test
 
 # Set the command to run raven
-ENTRYPOINT ["./raven"]
+ENTRYPOINT ["raven"]

@@ -17,6 +17,14 @@ module SampleExt (Cont: ExtApi.Ext) : ExtApi.Ext
 These are higher-order modules that accept, as a parameter, another extension module implementing the `ExtApi.Ext` interface. This allows us to "stack" these extensions on top of each other, and conveniently adjust the exact set of features we want to support when we compile Raven. This happens in `lib/ext/ext.ml`.
 
 
+## Using Current Extensions
+
+We have added two new optional extensions, Prophecy extension and ErrorCredits extension. These can be selected by using the new `--extension` command-line flag which takes one of three values: `default | prophecy | eris`. For example:
+
+`raven --extension prophecy test/ext_prophecy/clairvoyant_coin.rav` 
+`raven --extension eris test/ext_error-credits/ec_examples.rav`
+
+
 ## Creating a New Extension
 
 An extension typically consists of 3 files, and may contain a 4th file. For a new extension say `SampleExt`, these files are:
@@ -58,7 +66,9 @@ Once the programmer has created the extension such that it successfully compiles
   a. add a new module `SampleExtInstance` that instantiates `SampleExt` with an existing extension and introduce it into the chain of extensions. Typically, newer extensions should be added towards the end as the "outermost" instantiations.
   b. update the definition of `module Ext: ExtApi.Ext` to refer to the new instance `SampleExtInstance`.
 
-5. Run `dune build; dune install` to compile Raven with the new extension.
+5. There is a function `Ext.overwrite_ext` that can be used to set which extensions are active. At present it is called from the `main` function in [raven.ml](../../bin/raven.ml). This can be modified to change which stack of extensions is active.
+
+6. Run `dune build; dune install` to compile Raven with the new extension.
 
 That's it! 
 - With the updated parser, Raven front-end will support the newly defined syntax.

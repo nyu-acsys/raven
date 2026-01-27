@@ -318,6 +318,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
   }
   in
   let _ = 
+    (* [EXT] Overwriting which extensions are activated. *)
     Ext.overwrite_ext(Ext.module_map extension_mode);
   in
   try `Ok (parse_and_check_all config input_files) with
