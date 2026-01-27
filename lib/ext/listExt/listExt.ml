@@ -3,6 +3,15 @@ open Ast
 open ExtApi
 open Util
 
+(** Here we implement an extension that adds support for polymorphic lists. This is a core Raven extension and is always enabled.
+
+This extension introduces:
+  - `List[T]` polymorphic List type.
+  - `List.nil` and `List.cons(., .)` polymorphic constructors 
+  - `List.hd()` and `List.tl()` List destructors.
+  - Some library functions like `List.len()` and `List.is_in()`.
+*)
+
 module ListExt (Cont : Ext) = struct
   (* Config *)
   let lib_source = None

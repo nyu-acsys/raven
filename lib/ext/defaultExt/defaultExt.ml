@@ -3,6 +3,8 @@ open Ast
 open ExtApi
 open Util
 
+(* This is the blank extension used to close the "chain" of extensions. If the code reaches this extension then that means that previous extensions did not do their job. This function mostly just raises errors for everything. *)
+
 module DefaultExt = struct
   let lib_source = None
   let local_vars = []
