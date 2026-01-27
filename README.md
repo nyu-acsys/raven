@@ -1,5 +1,5 @@
 # Raven
-![Version 1.0.1](https://img.shields.io/badge/version-1.0.1-green.svg)
+![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-green.svg)
 [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE)
 [![Builds, tests & co](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml)
 
@@ -67,8 +67,8 @@ $ docker run --rm -it --entrypoint /bin/bash ekanshdeepgupta/raven
 /app# raven --shh test/ci/back-end/inhale_exhale.rav
 Verification successful.
 
-/app# cd /usr/local/bin
-z3    raven
+/app# ls /usr/local/bin
+raven  z3
 ```
 
 
@@ -114,7 +114,25 @@ Verification Error: This update may not be frame-preserving.
 ```
 
 
-### Raven Verifier Manual
+## ExtensionsAPI
+Raven also comes with a modular ExtensionAPI which is designed for front-end designers to be able to extend Raven's syntax directly, to get a custom IVL for their specific domain. They can implement Raven extensions to encode new front-end features, adding custom types, expressions, and commands to the IVL.
+We provide extensive documentation along with a tutorial for this API at [lib/ext/README.md](lib/ext/README.md). We implement multiple different extensions and extensively document their code to demonstrate possibilities, and add several useful features to the language. At present, Raven comes with two optional extensions which can be selected via the command-line flag `--extension`:
+- ErrorCredits Extension (`eris`): This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext_error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext_error-credits/ec_dynamic_vec.rav). For example:
+```bash
+$ raven --extension eris test/ext_error-credits/ec_dynamic_vec.rav
+Raven version 1.x.y
+Verification successful.
+```
+
+- Prophecy Extension (`prophecy`): This extension implements _prophecy variables_ in Raven. For example:
+```bash
+$ raven --extension prophecy test/ext_prophecy/rdcss.rav
+Raven version 1.x.y
+Verification successful.
+```
+
+
+## Raven Verifier Manual
 ```
 RAVEN(1)                         Raven Manual                         RAVEN(1)
 

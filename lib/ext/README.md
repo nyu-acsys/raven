@@ -1,11 +1,11 @@
 # Raven's Extension API
 
-This file contains a thorough documentation of Raven's Extension API. It is intended as a starting point for a verification expert, hereafter referred to as the _programmer_, to be able to add their own features to Raven by implementing their own extensions. For this purpose, not only does this document describe the API in detail, it also contains pointers to parts of several OCaml code files where relevant Raven functionality is implemented.
+This file contains a thorough documentation of Raven's Extension API. It is intended as a starting point for a verification expert developing a front-end verification tool, hereafter referred to as the _programmer_, to be able to add their own features to Raven by implementing their own extensions. For this purpose, not only does this document describe the API in detail, it also contains pointers to parts of several OCaml code files where relevant Raven functionality is implemented.
 
 
 ## Overview
 
-Raven's Extension API is designed to allow a programmer to rapidly adapt Raven's front-end language for specific use-cases, without having to wade into Raven's entire existing pipeline. The programmer can define custom types, expressions, and statements that they want to be added to Raven. 
+Raven's Extension API is designed to allow a programmer to rapidly adapt Raven's front-end language for specific use-cases, without much familiarity with Raven's entire existing pipeline. The programmer can define custom types, expressions, and statements that they want to add to Raven. 
 
 We make use of OCaml's extensible variant types to expose types to the programmer which tie into the core AST representations for Raven's types, expressions, and statements. These types are `AstDef.Type.type_ext`, `AstDef.Expr.expr_ext`, and `AstDef.Stmt.stmt_ext` defined in `lib/ast/astDef.ml`, which allow the programmer to extend types, expressions, and statements respectively.
 
@@ -21,9 +21,56 @@ These are higher-order modules that accept, as a parameter, another extension mo
 
 We have added two new optional extensions, Prophecy extension and ErrorCredits extension. These can be selected by using the new `--extension` command-line flag which takes one of three values: `default | prophecy | eris`. For example:
 
-`raven --extension prophecy test/ext_prophecy/clairvoyant_coin.rav` 
-`raven --extension eris test/ext_error-credits/ec_examples.rav`
+```
+$ raven --extension prophecy test/ext_prophecy/clairvoyant_coin.rav
+$ raven --extension eris test/ext_error-credits/ec_examples.rav
+```
 
+### ErrorCredits Extension (`eris`)
+We implement this extension to add support for reasoning about Error-credits, and probablistic programs. This extension can be enabled with the:
+  `--extension eris`
+command-line argument.
+
+This extension introduces:
+  - `ErrorCreds` expression: these represent error credit resources
+  - `lhs := EC.rand(n);` command: to generate a random number between `0` and `n-1`
+  - `lhs := EC.rand(n; ECVal: !=k);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not equal to `k`
+  - `lhs := EC.rand(n; ECFn: EC.error(e), x ==> body(x));` command: to generate a random number between `0` and `n-1`; then it redistrbutes `e` error credits according to the function defined by `x ==> body(x)`.
+  - `lhs := EC.rand(n; ECList: !in ls);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not in the list `ls`.
+  - `EC.contra()` command: to abort the proof when we get ownership of `EC.error(1.0)`.
+
+This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext_error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext_error-credits/ec_dynamic_vec.rav). For example:
+```bash
+$ raven --extension eris test/ext_error-credits/ec_dynamic_vec.rav
+Raven version 1.x.y
+Verification successful.
+```
+
+### Prophecy Extension (`prophecy`)
+We implement this extension to add support for Iris-style prophecy variables. This extension can be enabled with the 
+  `--extension prophecy`
+command-line argument
+
+A prophecy variable denotes a value (or sequence of values) that will only be 
+observed at a future point during program execution. In particular, the value
+may depend on non-deterministic choices (such as scheduler decisions) that will
+be made between the current point of execution and the point when the value 
+will be observed. A prophecy variable allows one effectively to predict the 
+outcome of such future choices and reason about them before they occur 
+(e.g., via case analysis).
+
+The extension implements:
+  - a new parametric type `Proph[T]` whose values represent prophecies p predicting values of type T, 
+  - a command `proph_id, proph_val := Proph.new[T];` for creating new sequence prophecies.
+  - a command `proph_id, proph_val := Proph.new_1[T];` for creating new one-shot prophecies
+  - a command `Proph.resolve(proph_id, value);` for resolving prophecies.
+
+For example:
+```bash
+$ raven --extension prophecy test/ext_prophecy/rdcss.rav
+Raven version 1.x.y
+Verification successful.
+```
 
 ## Creating a New Extension
 
