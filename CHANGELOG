@@ -4,6 +4,9 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
+
+## [1.1.0] - 2026-01-27
+
 ### Added
 
 - Added ExtensionAPI as a way to modularly add and remove front-end features in Raven.
