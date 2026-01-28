@@ -1,0 +1,35 @@
+type T = List[Bool]
+// type R = List[Int]
+
+proc p() {
+  var z: List[Ref];
+  var x: Ref;
+
+  z := List.cons(x, List.nil);
+  // List.len(z);
+  z := List.cons(x, z);
+
+  assert z == List.cons(x, List.cons(x, List.nil));  
+  assert List.cons(true, List.nil) == List.cons(true, List.nil);
+  assert forall x: List[Ref] :: x == List.nil || true;
+  var zz : List[(Bool, Ref)];
+
+  assert List.len(z) == 2;
+  var zzz := List.cons(1, List.nil);
+
+  var xx := List.cons(0, List.cons(5, List.nil));
+
+  assert List.len(xx) == 2;
+  assert List.is_in(xx, 0) && List.is_in(xx, 5);
+  assert !List.is_in(xx, 2);
+
+  assert List.hd(xx) == 0;
+  assert List.hd(xx) != 5;
+  assert List.hd(List.tl(xx)) == 5;
+  assert List.hd(List.tl(xx)) != 0;
+
+  // This is crashing because List[Int] not initialized, even though it should be.
+  // var zzz := List.cons((1,1), List.nil); // <--- without this, the following all crash.
+      // var b := List.cons((1,1), List.nil) == List.cons((1,1), List.nil); assert b; 
+      // assert List.cons((1,1), List.nil) == List.cons((1,1), List.nil);
+}

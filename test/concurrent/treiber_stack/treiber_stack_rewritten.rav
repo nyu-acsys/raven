@@ -71,7 +71,7 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
 
       fold is_list(s0, cons(x, xs1)); 
       fold is_stack(s, cons(x, xs1));
-      // commitAU(phi);
+      // commitAU(phi, ());
         exhale is_stack(s, cons(x, xs1));
     } else {
       fold is_stack(s, xs1);

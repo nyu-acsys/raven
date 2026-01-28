@@ -9,5 +9,5 @@ proc p(x: Ref)
   ghost var phi: AtomicToken<p>;
   phi := bindAU();
   openAU(phi);
-  commitAU(phi);
+  commitAU(phi, ());
 }

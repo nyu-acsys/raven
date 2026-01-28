@@ -11,6 +11,7 @@ type config = {
   prog_stats: bool;
   smt_timeout: int;
   smt_diagnostics: bool;
+  log_level: Logs.level option;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -107,11 +108,29 @@ let check_cu config tbl smt_env md front_end_out_chan =
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all config file_names =
   (* Start backend solver session *)
-  let smt_env = Backend.Smt_solver.init config.smt_diagnostics config.smt_timeout in
+  
+  (* Variable which controls whether the 
+    - `front_end_processed_output.log` 
+    - `log.smt2`
+    files are created. 
+    At present create them only when in Debug mode and also not in lsp_mode.
+   *)
+  let external_logging = 
+    match config.log_level with
+    | Some Logs.Debug ->
+      if config.lsp_mode then false else
+        true
+    | _ -> false
+  in
+
+  let smt_env = Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout in
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan =
-    Stdio.Out_channel.create front_end_processed_output_log
+    if external_logging then
+      Stdio.Out_channel.create front_end_processed_output_log
+    else 
+      Util.Channel.null_channel ()
   in
 
   (* Parse and check standard library *)
@@ -120,7 +139,8 @@ let parse_and_check_all config file_names =
     if config.no_library then (smt_env, tbl)
     else
       let lib_prog =
-        List.fold_right Library.sources ~init:empty_prog
+        let (module Ext') = !Ext.ext in
+        List.fold_right (Library.sources @ Ext'.lib_sources) ~init:empty_prog
         ~f:(fun (lib_file_name, lib_source) lib_prog ->
             let lib_source_lexbuf =
               Lexing.from_string lib_source
@@ -184,7 +204,8 @@ let parse_and_check_all config file_names =
   in
 
   begin
-  let _ = check_cu config tbl smt_env md front_end_out_chan in
+  let _, _tbl = check_cu config tbl smt_env md front_end_out_chan in
+  (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
   Logs.app (fun m -> m "Verification successful.")
   end
 
@@ -258,6 +279,10 @@ let smt_timeout =
   let doc = "Timeout for SMT solver in ms." in 
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
+let extension_mode =
+  let doc = "Extension mode: default, eris, or prophecy." in
+  Arg.(value & opt (enum Ext.ext_map) Ext.DefaultExt & info [ "extension" ] ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
@@ -279,7 +304,7 @@ let print_errors config errs =
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics =
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   let config = {
     no_library;
@@ -289,7 +314,12 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     base_dir;
     smt_timeout;
     smt_diagnostics;
+    log_level = Logs.level ();
   }
+  in
+  let _ = 
+    (* [EXT] Overwriting which extensions are activated. *)
+    Ext.overwrite_ext(Ext.module_map extension_mode);
   in
   try `Ok (parse_and_check_all config input_files) with
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
@@ -303,11 +333,11 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     print_errors config [Internal, pos, msg]
   | Error.Msg es ->
     print_errors config es
-      
+
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

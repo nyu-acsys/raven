@@ -40,7 +40,7 @@ let root_dependencies (tbl: SymbolTbl.t) (mdef: Module.t) (ag: Graph.t) =
   and analyze_module g ag mdef =
     let* _ = Rewriter.enter_module mdef in
     let* g, ag = Rewriter.List.fold_left mdef.mod_def ~f:(fun (g, ag) -> function
-        | SymbolDef s -> analyze_symbol g ag s
+        | SymbolDef s -> analyze_symbol g ag s.symbol_def
         | _ -> Rewriter.return (g, ag))
         ~init:(g, ag)
     in
@@ -58,7 +58,8 @@ let analyze (tbl: SymbolTbl.t) (mdef: Module.t) (root_auto_g: Graph.t): QualIden
       let open Option.Syntax in
       let+ qid = Set.choose todos in
       (* let _, _, sym, sm = SymbolTbl.resolve_and_find_exn (QualIdent.to_loc qid) qid tbl in *)
-      let _, sym = Rewriter.eval ~update:false (Rewriter.find qid) tbl in
+      let tbl1 = SymbolTbl.goto qid tbl in
+      let _, sym = Rewriter.eval ~update:false (Rewriter.find qid) tbl1 in
       let subst = Rewriter.Symbol.subst sym in
       let orig_qid = Rewriter.Symbol.orig_qid sym in
       let _, reified_sym = Rewriter.eval ~update:false (Rewriter.Symbol.reify sym) tbl in

@@ -13,7 +13,7 @@ proc p1() {
 
 
 module M {
-  var xx: Int = 5;
+  val xx: Int = 5;
 
   proc p2() {
     var x: Int := 4;

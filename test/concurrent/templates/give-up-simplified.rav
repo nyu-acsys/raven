@@ -250,7 +250,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     fold cssR(r, c1);
     fold css(r, c1);
 
-    commitAU(phi);
+    commitAU(phi, ());
   }
    
   lemma fpInCss(r: Ref, n:Ref, c: Set[K], implicit ghost g_i: Flow_K)

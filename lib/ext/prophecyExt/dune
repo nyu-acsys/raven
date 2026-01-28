@@ -1,0 +1,7 @@
+(library
+ (name prophecyExt)
+ (libraries base util ast extApi defaultExt listExt)
+ (preprocessor_deps
+  (file prophecyLib.rav))
+ (preprocess
+  (pps ppx_blob ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))

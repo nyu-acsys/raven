@@ -29,7 +29,7 @@ module SmtSession = struct
     solver_state : solver_state;
   }
 
-  let start_solver () =
+  let start_solver ?(logging = true) () =
     (*let in_read, in_write = Unix.pipe () in
       let out_read, out_write = Unix.pipe () in
       let pid = Unix.create_process "z3" [| "smt2"; "-in" |] out_read in_write in_write in
@@ -53,7 +53,11 @@ module SmtSession = struct
 
     {
       log_file_name;
-      log_out_chan = Stdio.Out_channel.create log_file_name;
+      log_out_chan =
+        if logging then 
+          Stdio.Out_channel.create log_file_name 
+        else 
+          Util.Channel.null_channel ();
       assert_count = 0;
       response_count = 0;
       stack_height = 0;
@@ -169,18 +173,12 @@ module SmtSession = struct
 end
 
 type smt_env = {
-  (* smtTbl: SmtEnv.smt_trnsl qual_ident_map; *)
   session : SmtSession.session;
   path_conditions : term list;
   auto_dependencies : Dependencies.Graph.t;
 }
 
-(* type state = {
-     tbl: SymbolTbl.t;
-     smt_env: smt_env;
-   } *)
-
-type 'a t = ('a, smt_env) Rewriter.t_ext
+type 'a t = smt_env -> smt_env * 'a
 
 (* let smt_env_to_string (smt_env: smt_env) : string =
      Printf.sprintf "path_conditions: %a"
@@ -191,78 +189,58 @@ type 'a t = ('a, smt_env) Rewriter.t_ext
      smt_env_to_string state.smt_env *)
 
 let write cmd : unit t =
-  let open Rewriter.Syntax in
+  let open State.Syntax in
   match cmd with
   | Assert _ ->
       Util.Error.internal_error Util.Loc.dummy
         "Cannot write assert command directly; use assume_expr instead"
   | _ ->
-      let* smt_env = Rewriter.current_user_state in
-      let _ = SmtSession.write smt_env.session cmd in
-
-      Rewriter.return ()
+    let+ smt_env = get_state in
+    SmtSession.write smt_env.session cmd
 
 (* SmtSession.write state.smt_env.session cmd *)
 
 let write_comment cmnt : unit t =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-  let _ = SmtSession.write_comment smt_env.session cmnt in
-
-  Rewriter.return ()
+  let open State.Syntax in
+  let+ smt_env = get_state in
+  SmtSession.write_comment smt_env.session cmnt
 
 let push =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-
-  let session = SmtSession.push smt_env.session in
-  let* _ = Rewriter.set_user_state { smt_env with session } in
-
-  Rewriter.return ()
+  let open State.Syntax in
+  map_state ~f:(fun smt_env ->
+      { smt_env with session = SmtSession.push smt_env.session })
 
 let pop =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-
-  let session = SmtSession.pop smt_env.session in
-  let* _ = Rewriter.set_user_state { smt_env with session } in
-
-  Rewriter.return ()
+  let open State.Syntax in
+  map_state ~f:(fun smt_env ->
+      { smt_env with session = SmtSession.pop smt_env.session })
 
 let push_path_condn (term : term) =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-
-  let path_conditions = term :: smt_env.path_conditions in
-  let* _ = Rewriter.set_user_state { smt_env with path_conditions } in
-
-  Rewriter.return ()
+  let open State.Syntax in
+  map_state ~f:(fun smt_env ->
+      let path_conditions = term :: smt_env.path_conditions in
+      { smt_env with path_conditions })
 
 let pop_path_condn =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-
-  let path_conditions = Base.List.tl_exn smt_env.path_conditions in
-  let* _ = Rewriter.set_user_state { smt_env with path_conditions } in
-
-  Rewriter.return ()
+  let open State.Syntax in
+  map_state ~f:(fun smt_env ->
+      let path_conditions = Base.List.tl_exn smt_env.path_conditions in
+      { smt_env with path_conditions })
 
 let is_sat : bool t =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-
-  Rewriter.return @@ SmtSession.is_sat smt_env.session
+  let open State.Syntax in
+  let+ smt_env = get_state in
+  SmtSession.is_sat smt_env.session
 
 let is_unsat : bool t =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
-
-  Rewriter.return @@ SmtSession.is_unsat smt_env.session
+  let open State.Syntax in
+  let+ smt_env = get_state in
+  SmtSession.is_unsat smt_env.session
 
 let assume_expr (expr : term) : unit t =
   (* Externally facing command to assume expressions. Takes path_condns into account *)
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
+  let open State.Syntax in
+  let+ smt_env = get_state in
 
   let expr =
     match smt_env.path_conditions with
@@ -271,13 +249,11 @@ let assume_expr (expr : term) : unit t =
   in
 
   let cmd = mk_assert expr in
-  let _ = SmtSession.write smt_env.session cmd in
-
-  Rewriter.return ()
+  SmtSession.write smt_env.session cmd
 
 let check_valid (expr : term) : bool t =
-  let open Rewriter.Syntax in
-  let* smt_env = Rewriter.current_user_state in
+  let open State.Syntax in
+  let* smt_env = get_state in
   Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);
 
   let expr =
@@ -288,9 +264,9 @@ let check_valid (expr : term) : bool t =
 
   let res, session = SmtSession.check_valid smt_env.session expr in
 
-  let* _ = Rewriter.set_user_state { smt_env with session } in
+  let+ _ = set_state { smt_env with session } in
 
-  Rewriter.return res
+  res
 
 (* --- *)
 
@@ -322,9 +298,9 @@ let declare_tuple_sort (arity : int) : command =
 
   mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
 
-let init diagnostics timeout : smt_env =
+let init ?(logging = true) diagnostics timeout : smt_env =
   let open SmtSession in
-  let session = start_solver () in
+  let session = start_solver ~logging () in
   let open PreambleConsts in
   let options_list =
     [

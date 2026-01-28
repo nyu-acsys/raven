@@ -1,0 +1,152 @@
+// include "amortised_hash.rav"
+include "cf_hash.rav"
+
+module CollFreeHashMap {
+  import CollFreeHash._
+
+  module OptInt = Library.Option[Library.IntType]
+
+  field cfHashMapVal: OptInt
+
+  admitted func offset(x: Ref, hash: Int) returns (ret: Ref)
+
+  admitted auto lemma offset_injective(x: Ref)
+    ensures forall h1: Int, h2: Int :: offset(x, h1) == offset(x, h2) ==> h1 == h2
+
+
+  type CFHashMap = data {
+    case cf_hashmap_constr(hfval:CFHash, vsval0: Int, sval0: Int, rval0: Int)
+  }
+
+  field cf_hashmap_fld: CFHashMap
+
+  proc insert_elem(x: Ref, v: Int, implicit ghost hmf: CFHashMap, implicit ghost ns: List[Int]) returns (hmf': CFHashMap)
+    requires cf_hashmap_raw(x, hmf, ns)
+      && -*-( (3 * init_r) / (4 * init_val_size))
+
+    ensures cf_hashmap_raw(x, hmf', v :: ns)
+  {
+
+    // unfold cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval);
+
+    // unfold cf_hashmap_raw(x, hf, ns);
+
+    var hmf0 := x.cf_hashmap_fld;
+
+    var off: Int;
+
+    assert hmf0 == hmf;
+
+    // assert exists z: OptInt :: own((offset(x, off)).cfHashMapVal, z, 1.0);
+
+
+
+    var hf': CFHash;
+    off, hf' := compute_cf_hash(x, v, hmf0.hfval);
+
+    // assert hf'.sval == 1 + (hmf0.hfval).sval || hf'.sval == (hmf0.hfval).sval;
+
+    unfold cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval);
+    fold cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval);
+
+    assert 0 <= off < (hmf0.hfval).vsval;
+
+    assert exists z: OptInt :: own((offset(x, off)).cfHashMapVal, z, 1.0);
+
+    var mpVal: OptInt := (offset(x, off)).cfHashMapVal;
+
+    if ( !OptInt.is_some(mpVal) ) {
+      assume  !Hash.OptInt.is_some( Hash.lookUpHashMap(hmf0.hfval.hm, v) );
+
+      assert hf'.sval == 1 + (hmf0.hfval).sval;
+
+      (offset(x, off)).cfHashMapVal := OptInt.some(v);
+
+      assert Hash.proj1(hf'.hm) == v :: Hash.proj1((hmf.hfval).hm);
+      
+
+      if (hmf0.sval0 + 1 == hmf0.rval0) {
+        // allocate extra memory
+        inhale (forall hash: Int :: hmf.vsval0 <= hash < 2 * hmf.vsval0 ==> ( own((offset(x, hash)).cfHashMapVal, OptInt.none, 1.0)));
+
+        // unfold cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval);
+
+        var hmf' := cf_hashmap_constr(hf', 2 * hmf0.vsval0, 1 + hmf0.sval0, 2 * hmf0.rval0);
+
+        x.cf_hashmap_fld := hmf';
+
+        // assert Hash.proj2((hmf'.hfval).hm) ==
+
+        // fold cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval);
+        return hmf';
+      } else {
+        assert hmf0.sval0 + 1 < hmf0.rval0;
+
+        assert hf'.sval == 1 + (hmf0.hfval).sval;
+        assert hf'.vsval == hmf0.vsval0;
+
+        hmf' := cf_hashmap_constr(hf', hmf0.vsval0, 1 + hmf0.sval0, hmf0.rval0);
+        x.cf_hashmap_fld := hmf';
+
+        return hmf';
+      }
+    } else {
+      // hash collision. womp womp
+      // assert OptInt.is_some(mpVal);
+      // assert Hash.lookUpHashMap(hmf0.hfval.hm, mpVal.OptInt.value) == Hash.OptInt.some(off);
+      // assert Hash.lookUpHashMap(hf'.hm, v) == Hash.OptInt.some(off);
+      // assert Hash.lookUpHashMap(hf'.hm, mpVal.OptInt.value) == Hash.OptInt.some(off);
+      // // assert Hash.lookUpHashMap(hmf0.hfval.hm, v) == Hash.OptInt.some(off);
+      // assert mpVal.OptInt.value == v;
+      assume Hash.OptInt.is_some(Hash.lookUpHashMap(hmf0.hfval.hm, v));
+
+      assert hf'.vsval == hmf0.vsval0;
+
+      assert List.is_in( Hash.proj1((hmf0.hfval).hm), v);
+
+      hmf' := cf_hashmap_constr(hf', hmf0.vsval0, hmf0.sval0, hmf0.rval0);
+
+      assert off == Hash.lookUpHashMap(hmf.hfval.hm, v).Hash.OptInt.value;
+
+      x.cf_hashmap_fld := hmf';
+
+      return hmf';
+    }
+  }
+
+  // lemma cf_hashfun_collision_free()
+  //   requires Hash.lookUpHashMap(hm, val0) == Hash.OptInt.some(off)
+  //   requires 
+
+  auto pred cf_hashmap_raw(x: Ref, hmf: CFHashMap, img: List[Int]) {
+    // exists vs0: Int, s0: Int, r0: Int, hm: Hash.HashMap :: 
+    // exists mp: Map[Int, In]
+    true
+      && own(x.cf_hashmap_fld, hmf, 1.0)
+      && (forall hash: Int :: 0 <= hash < hmf.vsval0 ==> (exists z: OptInt :: own((offset(x, hash)).cfHashMapVal, z, 1.0) 
+        && (OptInt.is_some(z) ==> Hash.lookUpHashMap(hmf.hfval.hm, z.OptInt.value) == Hash.OptInt.some(hash))
+        && (Hash.lookUpHashMap(hmf.hfval.hm, z.OptInt.value) == Hash.OptInt.some(hash) ==> OptInt.is_some(z))
+
+      ))
+      && 0 < hmf.vsval0
+      && 0 < (hmf.hfval).vsval
+      && hmf.sval0 < hmf.rval0
+      && cf_hashfun_raw(x, (hmf.hfval).hm, (hmf.hfval).vsval, (hmf.hfval).sval, (hmf.hfval).rval)
+      && hmf.vsval0 == (hmf.hfval).vsval
+      && hmf.sval0 == (hmf.hfval).sval
+      && hmf.rval0 == (hmf.hfval).rval
+      && (forall v: Int :: 
+            (List.is_in( Hash.proj1((hmf.hfval).hm), v)  ==>
+                List.is_in(img, v))
+            &&
+            (List.is_in(img, v) ==> 
+                List.is_in( Hash.proj1((hmf.hfval).hm), v))
+
+            // Hash.lookUpHashMap((hmf.hfval).hm, k) == Hash.OptInt.some(v) 
+            //  == Hash.proj2((hmf.hfval).hm) 
+        )
+
+      && (forall k: Int :: Hash.OptInt.is_some(Hash.lookUpHashMap((hmf.hfval).hm, k)) ==> 0 <= Hash.lookUpHashMap((hmf.hfval).hm, k).Hash.OptInt.value < (hmf.hfval).vsval)
+  }
+
+}

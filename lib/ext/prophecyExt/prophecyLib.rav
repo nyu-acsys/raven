@@ -1,0 +1,7 @@
+// Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module.
+
+// This defines a higher-order module used for defining prophecy variable semantics.
+// The name of this module and field are hard-coded in prophecyExy.ml:ProphecyExt.ProphPredefs
+module Prophecy[Typ: Library.Type] {
+    ghost field prophecyValue: Typ
+}

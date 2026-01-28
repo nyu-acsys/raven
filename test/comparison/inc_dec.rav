@@ -20,12 +20,12 @@ proc incr(x: Ref, k: Int, implicit ghost v: Int)
   var res: Bool := cas(x.c, v1, new_v1);
   
   if (res) {
-    commitAU(phi);
+    commitAU(phi, ());
   } else {
     abortAU(phi);
     ghost var v3: Int := openAU(phi);
     incr(x, k);
-    commitAU(phi);
+    commitAU(phi, ());
   }
 }
 
@@ -45,12 +45,12 @@ proc decr(x: Ref, k: Int, implicit ghost v: Int)
   var res: Bool := cas(x.c, v1, new_v1);
 
   if (res) {
-    commitAU(phi);
+    commitAU(phi, ());
   } else {
     abortAU(phi);
     ghost var v3: Int := openAU(phi);
     decr(x, k);
-    commitAU(phi);
+    commitAU(phi, ());
   }
 }
 

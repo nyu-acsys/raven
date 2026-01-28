@@ -28,10 +28,10 @@ proc incr(x: Ref, implicit ghost v: Int)
     abortAU(phi);
     ghost var v3: Int := openAU(phi);
     incr(x);
-    commitAU(phi);
+    commitAU(phi, ());
   } else {
     fold counter(x, new_v1);
-    commitAU(phi);
+    commitAU(phi, ());
   }
 }
 

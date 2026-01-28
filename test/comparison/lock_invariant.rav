@@ -10,7 +10,8 @@ interface LockResource : Library.Type {
 }
 
 
-interface Lock[R: LockResource] {
+interface Lock {
+  module R: LockResource
   import R.resource
 
   module Agree = Library.Agree[R]

@@ -1,0 +1,511 @@
+include "amortised_hash.rav"
+
+/*
+
+This is a Raven translation of the `collision-free hash` initially implemented in the Eris program logic built on top of the Iris separation logic: 
+  https://github.com/logsem/clutch/blob/main/theories/eris/examples/cf_hash.v
+
+Here is a description of the example, loosely copied from the above source:
+
+===
+A module implementing an auto-resizing "collision-free hash" with constant amortized error. The hash keeps track of a threshold R, a current hash size S such that (S < R) and a size of value space VS. On every query on a new element, it samples uniformly from (0, ..., VS-1). Once S reaches R, the hash is resized so that L becomes R, R becomes 2R and S becomes 2S (this is equivalent to sampling one extra bit uniformly).
+
+This guarantees a constant amortized error cost of 3*R0/4*VS0, assuming on initialization S - 0, R = R0 and VS = VS0.
+This is not a tight bound, it is chosen to work nicely with powers of 2, so there is some extra unused error credits.
+*/
+
+
+module CollFreeHash {
+  import Hash._
+  admitted val init_val_size: Int
+  admitted val init_r: Int
+
+  val amortized_error: Real = (3 * init_r) / (4 * init_val_size)
+
+  admitted auto lemma init_val_size_pos()
+    ensures init_val_size > 0
+  
+  admitted auto lemma init_r_pos()
+    ensures init_val_size > init_r > 0
+
+  type CFHash = data {
+    case cf_hash_constr(hm: HashMap, vsval: Int, sval: Int, rval: Int)
+  }
+
+  field cf_hash_fld: CFHash
+
+  proc compute_cf_hash(x: Ref, v: Int, implicit ghost hf: CFHash) returns (hash: Int, hf': CFHash)
+    // requires hf.sval < hf.rval
+    // requires own(x.cf_hash_fld, hf, 1.0)
+    requires cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+    requires forall k: Int :: OptInt.is_some(lookUpHashMap(hf.hm, k)) ==> 0 <= lookUpHashMap(hf.hm, k).OptInt.value < hf.vsval
+    requires (!OptInt.is_some(lookUpHashMap(hf.hm, v)) && hf.sval + 1 < hf.rval) ==> (
+      // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+      true
+      && 0 < hf.vsval
+      && -*-(amortized_error)
+    )
+    requires (!OptInt.is_some(lookUpHashMap(hf.hm, v)) && hf.sval + 1 == hf.rval) ==> (
+      // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+      true
+      && 0 < hf.vsval
+      && -*-(amortized_error)
+    )
+    requires (OptInt.is_some(lookUpHashMap(hf.hm, v))) ==> (
+      // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+      true
+    )
+
+
+    ensures cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval)
+    ensures forall k: Int :: OptInt.is_some(lookUpHashMap(hf'.hm, k)) ==> 0 <= lookUpHashMap(hf'.hm, k).OptInt.value < hf'.vsval
+    ensures 0 <= hash < hf.vsval
+    ensures (!OptInt.is_some(lookUpHashMap(hf.hm, v)) && hf.sval + 1 < hf.rval) ==> (
+      // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+      true
+      // && -*-(amortized_error)
+      && 0 <= hash < hf.vsval
+      && hf'.hm == ((v, hash) :: hf.hm)
+      && hf'.vsval == hf.vsval
+      && hf'.sval == 1 + hf.sval
+      && hf'.rval == hf.rval
+    )
+    ensures (!OptInt.is_some(lookUpHashMap(hf.hm, v)) && hf.sval + 1 == hf.rval) ==> (
+      // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+      true
+      && 0 <= hash < hf.vsval
+      && hf'.hm == (v, hash) :: hf.hm
+      && hf'.vsval == 2 * hf.vsval
+      && hf'.sval == hf.rval
+      && hf'.rval == 2 * hf.rval
+    )
+    ensures (OptInt.is_some(lookUpHashMap(hf.hm, v))) ==> (
+      // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
+      true
+      && 0 <= hash // < hf.vsval
+      && hash == lookUpHashMap(hf.hm, v).OptInt.value
+      && hf'.hm == hf.hm
+      && hf'.vsval == hf.vsval
+      && hf'.sval == hf.sval
+      && hf'.rval == hf.rval
+    )
+  {
+    unfold cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval);
+
+    assert hf.sval >= 0;
+
+    var hf0 := x.cf_hash_fld;
+
+    var mp: HashMap := hf0.hm;
+    var vsval0 := hf0.vsval;
+    var sval0 := hf0.sval;
+    var rval0 := hf0.rval;
+
+    assert hf == hf0;
+    // assert sval0 == hf.sval;
+
+    if (!(OptInt.is_some(lookUpHashMap(mp, v)))) {
+
+      {!
+
+        if (sval0 + 1 < rval0) {
+          if (((sum_n_m(sval0, rval0-1)) / vsval0) 
+              >
+            ((rval0 - sval0) * amortized_error )  
+          ) {
+            assert ( 2*sval0 > rval0 + 1 ) ? -*-(
+              ((sum_n_m(sval0, rval0-1)) / vsval0)
+              - ((rval0 - sval0) * amortized_error )
+
+              + amortized_error
+            ) : -*-(
+              amortized_error
+            );
+
+          } else {
+
+
+            assert -*-( amortized_error );
+
+            assert sval0 >= 0;
+            // assume sval0 >= 0;
+          }
+
+
+          cf_update_potential_aux(vsval0, sval0, rval0);
+
+        } else {
+          assert sval0 + 1 == rval0;
+          // (sval0 + 1 == rval0)
+
+          assert -*-(
+            ((sum_n_m(sval0, rval0-1)) / vsval0)
+            - ((rval0 - sval0) * amortized_error )
+
+            + amortized_error
+          );
+
+          cf_update_potential_resize(vsval0, sval0, rval0);
+
+          assert (-*-(
+            sval0 / vsval0
+          ));
+
+          assert sval0 == List.len(mp);
+          assert List.len(mp) == List.len(proj2(mp));
+
+        }
+
+
+      !}
+
+
+
+      var b := EC.rand(vsval0; ECList: !in proj2(mp));
+      var mp' := (v, b) :: mp;
+
+      if (sval0 + 1 < rval0) {
+        // assert -*-(amortized_error)
+        
+        // && ((2 * sval0 > rval0 + 1) ==> -*-(
+        //   ((sum_n_m(sval0, rval0-1)) / vsval0)
+        //   - ((rval0 - sval0) * amortized_error )
+        // ));
+
+        // cf_update_potential_aux(vsval0, sval0, rval0);
+
+        // assert (2 * sval0 > rval0 + 1) ==> -*-(  
+        //   ((sum_n_m(sval0+1, rval0-1)) / vsval0)
+        //   - ((rval0 - 1 - sval0) * amortized_error )
+        // );
+
+        // var sval0' := sval0;
+        sval0 := 1 + sval0;
+
+        // var temp0 := ((sum_n_m(sval0'+1, rval0-1)) / vsval0)
+        //   - ((rval0 - 1 - sval0') * amortized_error );
+
+        // assert (2 * sval0' > rval0 + 1) ==> -*-(  
+        //   ((sum_n_m(sval0'+1, rval0-1)) / vsval0)
+        //   - ((rval0 - 1 - sval0') * amortized_error )
+        // );
+
+        // assert (2 * sval0' > rval0 + 1) ==> -*-( temp0 );
+
+        // assert sval0-1 == sval0';
+
+        // var temp1 := ((sum_n_m(sval0, rval0-1)) / vsval0)
+        //   - ((rval0 - sval0) * amortized_error );
+
+
+        // var t0 := ((sum_n_m(sval0'+1, rval0-1)) / vsval0)
+        //   - ((rval0 - 1 - sval0') * amortized_error );
+
+        // var t1 := ((sum_n_m(sval0, rval0-1)) / vsval0)
+        //   - ((rval0 - sval0) * amortized_error );
+
+        // assert t0 == t1;
+
+        // assert temp0 == temp1;
+
+        // assert (2 * sval0' > rval0 + 1) ==> -*-( temp0 );
+
+        // assert (2 * (sval0-1) > rval0 + 1) ==> -*-( temp1 );
+
+        if (2 * sval0 > rval0 + 1 && 2 * (sval0-1) <= rval0 + 1) {
+          extra_credits_math(vsval0, sval0, rval0);
+
+          assert -*-(0.0);
+          // assume false;
+        } else {
+          if (2 * (sval0-1) <= rval0 + 1) {
+            // assume false;
+          }
+
+          if (2 * sval0 > rval0 + 1) {
+            assert  -*-(  
+            ((sum_n_m(sval0, rval0-1)) / vsval0)
+            - ((rval0 - sval0) * amortized_error )
+            );
+
+            assume false;
+          }
+
+        }
+
+        
+
+      } else {
+        assert (sval0 + 1 == rval0);
+          // (sval0 + 1 == rval0)
+
+        // assert( 2*rval0 - rval0) * amortized_error >= sum_n_m(rval0, 2*rval0-1) / (2*vsval0);
+
+        assert -*-(0.0);
+
+
+        sval0 := rval0;
+        vsval0 := 2 * vsval0;
+        rval0 := 2 * rval0;
+
+        // assert (((rval0 - sval0) * amortized_error ) >= ((sum_n_m(sval0, rval0-1)) / vsval0));
+
+        assert !( 2*sval0 > rval0 + 1 );
+
+        // assume false;
+      } 
+
+      hf' := cf_hash_constr(mp', vsval0, sval0, rval0);
+
+      x.cf_hash_fld := hf';
+
+      fold cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval);
+
+      return b, hf';
+    } else {
+      hf' := hf0;
+      assert hf' == hf;
+      fold cf_hashfun_raw(x, hf'.hm, hf'.vsval, hf'.sval, hf'.rval);
+      return (lookUpHashMap(mp, v)).OptInt.value, hf';
+    }
+
+  }
+
+
+
+  proc init_cf_hash_state() returns (ret: Ref)
+    ensures exists hf: CFHash :: own(ret.cf_hash_fld, hf, 1.0) && hf.hm == List.nil
+  {
+    var hm0 := init_hash_state();
+    var vs0 := init_val_size;
+    var s0 := 0;
+    var r := init_r;
+
+    var hf := cf_hash_constr(hm0, vs0, s0, r);
+
+    ret := new(cf_hash_fld: hf);
+  }
+
+  pred cf_hashfun_raw(x: Ref, mp: HashMap, vs0: Int, s0: Int, r0: Int) {
+    own(x.cf_hash_fld, cf_hash_constr(mp, vs0, s0, r0))
+    && 0 < vs0
+    && r0 / vs0 == init_r / init_val_size
+    && s0 < r0 <= vs0
+    && 0 <= s0
+    && s0 == List.len(mp)
+    // && -*-(  
+    //   ((sum_n_m(s0, r0-1)) / vs0)
+    //   - ((r0 - s0) * amortized_error )
+    // )
+    && (
+      ( 2*s0 > r0 + 1 ) ==>
+
+        -*-(  
+          ((sum_n_m(s0, r0-1)) / vs0)
+          - ((r0 - s0) * amortized_error )
+        )
+    )
+  }
+
+  pred cf_hashfun(x: Ref, mp: HashMap) {
+    exists vs0: Int, s0: Int, r0: Int :: cf_hashfun_raw(x, mp, vs0, s0, r0)
+  }
+
+  func sum_n(n: Int) returns (ret: Int)
+  {
+    sum_n_m(1, n)
+  }
+
+  proc wp_insert_no_coll(x:Ref, mp: HashMap, vs0: Int, s0: Int, r0: Int, v: Int) 
+      returns (hash: Int, hf': CFHash )
+    requires !OptInt.is_some(lookUpHashMap(mp, v))
+        && s0 + 1 < r0
+        && 0 < vs0
+        && cf_hashfun_raw(x, mp, vs0, s0, r0)
+        && -*-( amortized_error)
+
+    requires forall k: Int :: OptInt.is_some(lookUpHashMap(mp, k)) ==> 0 <= lookUpHashMap(mp, k).OptInt.value < vs0
+    // requires 
+    ensures hash < vs0
+        && cf_hashfun_raw(x, ((v, hash) :: mp), vs0, 1+s0, r0)
+  {
+    hash, hf' := compute_cf_hash(x, v, cf_hash_constr(mp, vs0, s0, r0));
+  }
+
+
+  lemma cf_update_potential_aux(vs0: Int, s0: Int, r0: Int)
+    requires 0 < vs0
+      && 0 <= s0
+      && 1 + s0 < r0
+      && r0 / vs0 == init_r / init_val_size
+      && ( (2 * s0 > r0 + 1) ?
+            -*-(
+              (sum_n_m(s0, r0-1)) / vs0
+              - (r0 - s0) * amortized_error
+              + amortized_error
+            ) : 
+            -*-(
+              amortized_error
+            )
+      )
+
+    ensures 
+      -*-((s0 / vs0))
+      && ( (2 * s0 > r0 + 1) ?
+          -*-(
+            ((sum_n_m(s0+1, r0-1)) / vs0)
+            - (r0-1-s0) * amortized_error
+          ) : true   
+      )
+
+      // -*-(
+      //   ((sum_n_m(s0+1, r0-1)) / vs0)
+      //   - (r0-1-s0) * amortized_error
+      // )
+  {
+
+    if (2 * s0 > r0 + 1) {
+      
+    } else {
+
+      // <!--  Having the assume, without the assert, the example succeeds. Adding the assert causes a verification failure, but not at the assert. This means the assertion is able to go through, but later it faces an error. Not sure what to do about this.
+
+      assert amortized_error >= (s0 / vs0);
+      // assume amortized_error >= (s0 / vs0);
+    }
+  }
+
+  lemma cf_update_potential(vs0: Int, s0: Int, r0: Int)
+    requires 0 < vs0
+    requires 0 <= s0 
+    requires 1 + s0 < r0
+    requires r0 / vs0 == init_r / init_val_size
+      // && 2 * s0 > r0 + 1 // <- always true by the manner in which we resize; except maybe
+    requires (2 * s0 > r0 + 1) ==> -*-(
+        (sum_n_m(s0, r0-1))/vs0 - (r0 - s0) * amortized_error
+      )
+    requires -*-(
+        amortized_error
+      )
+    
+    ensures (2 * s0 > r0 + 1) ==> -*- (
+        ((sum_n_m(s0+1, r0-1)) / vs0)
+        - (r0 - ( 1 + s0)) * amortized_error
+      )
+      && -*- (
+        s0 / vs0
+      )
+  {
+    assert 0 < vs0;
+    cf_update_potential_aux(vs0, s0, r0);
+
+  }
+
+
+  lemma cf_update_potential_resize(vs0: Int, s0: Int, r0: Int)
+    requires r0 > 0 && vs0 > 0
+    requires s0 + 1 == r0
+      && r0 / vs0 == init_r / init_val_size
+      && -*-(
+        (r0-1) / vs0 // - amortized_error
+      )
+      // && -*-(amortized_error)
+    ensures -*-(
+        s0 / vs0
+      )
+      && ( 
+        ( (2*r0 - (s0 +1)) * amortized_error)
+      ) >= (
+        sum_n_m(s0+1, 2*r0-1) / (2*vs0)
+      )
+  {
+    assert (3 / 4) * (r0 / vs0) == (3 * r0) / (4 * vs0);
+
+    
+    assert r0 * (3 * r0) / (4 * vs0) == r0 * ((3 * r0) / (4 * vs0));
+
+
+    // assert ( (2*r0 - (s0 + 1)) * amortized_error) == r0 * (3 * r0) / (4 * vs0);
+
+
+    // This is a non-trivial math result. Or at least, requires a proof.
+    sum_m_n_r_to_2r(r0);
+    assert sum_n_m(s0+1, 2*r0-1) / (2*vs0) == r0 * (3 * r0 - 1) / (4 * vs0);
+
+    assert r0 * (3 * r0) / (4 * vs0) >= r0 * (3 * r0 - 1) / (4 * vs0);
+
+  }
+
+  lemma sum_m_n_r_to_2r(r0: Int)
+    requires 0 < r0
+    ensures sum_n_m(r0, 2*r0-1) == (1/2) * r0 * (3*r0-1)
+  {
+    if (r0 > 1) {
+      sum_n_m_val(r0, 2*r0-1);
+    }
+    
+  }
+  
+
+  lemma sum_n_m_val(n: Int, m: Int)
+    requires 0 <= n < m
+    ensures sum_n_m(n, m) == m * (m+1) / 2 - n * (n-1) / 2
+  {
+    if (n+1 < m) {
+      sum_n_m_val(n+1, m);
+    }
+  }
+
+  lemma extra_credits_math(vsval0: Int, sval0: Int, rval0: Int)
+    requires 2 * sval0 > rval0 + 1 && 2 * (sval0-1) <= rval0 + 1
+    requires rval0 / vsval0 == init_r / init_val_size
+    // requires 0 < rval0 <= vsval0
+
+    ensures ((sum_n_m(sval0, rval0-1)) / vsval0) == ((rval0 - sval0) * amortized_error )
+  { 
+    assert rval0 == 2 * sval0 - 2 || rval0 == 2 * sval0 - 3; 
+
+    if (rval0 == 2 * sval0 - 2) {
+      assume (rval0 - sval0) * amortized_error == (3 / 2) * (sval0 - 2) * (sval0 - 1) / vsval0;
+
+      assume ((sum_n_m(sval0, rval0-1)) / vsval0) == (3 / 2) * (sval0 - 2) * (sval0 - 1) / vsval0;
+    }
+
+    if (rval0 == 2 * sval0 - 3) {
+      assume false;
+    }
+
+    // assume (rval0 - sval0) * amortized_error == (3 / 2) * (sval0 - 2) * (sval0 - 1) / vsval0;
+
+    // assume ((sum_n_m(sval0, rval0-1)) / vsval0) == (3 / 2) * (sval0 - 2) * (sval0 - 1) / vsval0;
+  }
+
+
+
+  proc wp_insert_no_coll_resize(x:Ref, mp: HashMap, vs0: Int, s0: Int, r0: Int, v: Int) 
+      returns (hash: Int, hf': CFHash )
+    requires !OptInt.is_some(lookUpHashMap(mp, v))
+        && s0 + 1 == r0
+        && 0 < vs0
+        && cf_hashfun_raw(x, mp, vs0, s0, r0)
+        && -*-( amortized_error)
+
+    requires forall k: Int :: OptInt.is_some(lookUpHashMap(mp, k)) ==> 0 <= lookUpHashMap(mp, k).OptInt.value < vs0
+    // requires 
+    ensures hash < vs0
+        && cf_hashfun_raw(x, ((v, hash) :: mp), 2*vs0, r0, 2*r0)
+  {
+    hash, hf' := compute_cf_hash(x, v, cf_hash_constr(mp, vs0, s0, r0));
+  }
+
+  // proc wp_lookup_no_coll()
+
+
+
+
+
+
+
+
+
+}

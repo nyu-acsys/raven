@@ -1,4 +1,4 @@
-include "lock_invariant.rav"
+include "../concurrent/lock/ticket-lock.rav"
 include "tokens.rav"
 
 module RWLockDuoLock[SharedPred: ShareablePredicate] {
@@ -21,7 +21,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     }
   }
 
-  module LkA = Lock[LkAResource]
+  module LkA = TicketLock[LkAResource]
 
   module LkBResource : LockResource {
     rep type T = (Ref, Ref)
@@ -40,7 +40,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
     }
   }
 
-  module LkB = Lock[LkBResource]
+  module LkB = TicketLock[LkBResource]
 
   auto pred is_rwlock(l: Ref; lkA_ref: Ref, lkB_ref: Ref) {
     own(l.lkA_fld, lkA_ref)

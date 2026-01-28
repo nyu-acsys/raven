@@ -1,0 +1,12 @@
+proc p() {
+  var x := randEven(3);
+
+  assert x != 1;
+  assert x == 0 || x == 2;
+
+
+  x := randEven(5);
+  var y := randEven(x);
+
+  assert (x + y) % 2 == 0;
+}

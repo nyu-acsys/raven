@@ -28,7 +28,7 @@ module SpinLock[R: LockResource] : Lock {
     val res: Bool := cas(l.bit, false, true);
     
     if (res) {
-      commitAU(phi);
+      commitAU(phi, ());
       return;
     } else {
       abortAU(phi);
@@ -36,7 +36,7 @@ module SpinLock[R: LockResource] : Lock {
 
     r, b1 := openAU(phi);
     acquire(l, r, b1);
-    commitAU(phi);
+    commitAU(phi, ());
   }
   
   proc release(l: Ref, implicit ghost r: R)
@@ -46,6 +46,6 @@ module SpinLock[R: LockResource] : Lock {
     ghost val phi := bindAU();  
     r := openAU(phi);
     l.bit := false;
-    commitAU(phi);
+    commitAU(phi, ());
   }
 }

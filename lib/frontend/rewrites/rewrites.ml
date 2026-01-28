@@ -2,7 +2,6 @@ open Base
 open Ast
 open Util
 open Frontend
-open Ext
 
 let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
@@ -57,7 +56,7 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
         let error _ loc =
           Error.Verification,
           loc,
-          "A precondition may hold for this call"
+          "A precondition may not hold for this call"
         in
         (*let error_rel =
           ( Error.RelatedLoc,
@@ -667,7 +666,6 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_name = loop_proc_name;
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
-          (* no locals, since all var_decls are removed earlier *)
           call_decl_locals = loop_local_var_decls;
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
@@ -758,14 +756,10 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* curr_state = Rewriter.__get_state in
 
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_loops: Loop introduced symbols:\n %a"
-            (Print.pr_list_comma Symbol.pr)
-            (List.hd_exn curr_state.state_new_symbols));
-
-      Logs.debug (fun m ->
+      (* Logs.debug (fun m ->
+          let open Rewriter in
           m "Rewrites.rewrite_loops: Loop curr_scope:\n %a" QualIdent.pr
-            curr_state.state_table.tbl_curr.scope_id);
+            curr_state.state_table.tbl_curr.scope_id); *)
 
       let new_stmt =
         let lhs_list =
@@ -882,7 +876,7 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
           [Expr.mk_app ~loc ~typ:Type.perm
             (Expr.AUPredCommit curr_proc_name)
-            ((atomic_token_var :: concrete_args_expr) @ [ ret_expr ])],
+            ([atomic_token_var; Expr.mk_tuple concrete_args_expr;  ret_expr ])],
           [ Stmt.mk_const_spec_error error ]
         else
           List.map postconds_spec ~f:(fun spec ->
@@ -1016,68 +1010,6 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         assume_non_null_stmt :: new_inhale_stmts))
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_stmts
 
-(** Replaces a `b := CAS(x.f, v1, v2)` stmt with `v := x.f; if (v == v1) { b := true; x.f := v2 } else { b := false }`. *)
-let rec rewrite_cas_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
-  let open Rewriter.Syntax in
-  match stmt.stmt_desc with
-  | Basic (AtomicInbuilt ais_desc) ->
-      let new_var_name =
-        Ident.fresh stmt.stmt_loc (QualIdent.to_string ais_desc.atomic_inbuilt_lhs ^ "$" ^ Stmt.atomic_inbuilt_string ais_desc.atomic_inbuilt_kind)
-      in
-      let new_var_decl_typ = match ais_desc.atomic_inbuilt_kind with
-        | Cas cas_desc -> Expr.to_type cas_desc.cas_old_val
-        | Faa _ -> Type.int
-        | Xchg xchg_desc -> Expr.to_type xchg_desc.xchg_new_val
-      in
-      let new_var_decl =
-        Type.mk_var_decl ~loc:stmt.stmt_loc ~ghost:true new_var_name
-          new_var_decl_typ
-      in
-      let+ _ =
-        Rewriter.introduce_symbol
-          (Module.VarDef { var_decl = new_var_decl; var_init = None })
-      in
-      let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
-      let read_stmt =
-        Stmt.mk_field_read ~loc:stmt.stmt_loc new_var_qualident
-          ais_desc.atomic_inbuilt_field ais_desc.atomic_inbuilt_ref
-      in
-      let ais_stmts =
-        match ais_desc.atomic_inbuilt_kind with
-        | Cas cas_desc ->
-          let test_ =
-            Some
-              (Expr.mk_eq ~loc:stmt.stmt_loc
-                 (Expr.from_var_decl new_var_decl)
-                 cas_desc.cas_old_val)
-          in
-          let then1_ =
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool true)
-          in
-          let then2_ =
-            Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field cas_desc.cas_new_val
-          in
-          let then_ = Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ then1_; then2_ ] in
-          let else_ =
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.mk_bool false)
-          in
-          [Stmt.mk_cond ~loc:stmt.stmt_loc test_ then_ else_]
-        | Faa faa_desc ->
-          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
-              (Expr.mk_app ~typ:Type.int Expr.Plus [Expr.from_var_decl new_var_decl; faa_desc.faa_val]);
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
-        | Xchg xchg_desc ->
-          [ Stmt.mk_field_write ~loc:stmt.stmt_loc ais_desc.atomic_inbuilt_ref ais_desc.atomic_inbuilt_field
-              xchg_desc.xchg_new_val;
-            Stmt.mk_assign ~loc:stmt.stmt_loc [ ais_desc.atomic_inbuilt_lhs ] (Expr.from_var_decl new_var_decl) ]
-           
-      in
-      let new_stmts =
-        Stmt.mk_block_stmt ~loc:stmt.stmt_loc (read_stmt :: ais_stmts)
-      in
-      new_stmts
-  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_cas_stmts
-
 (** Replaces a `fold p(x, y)` stmt with `exhale p(); inhale p.body`. *)
 let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -1153,7 +1085,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
       
       let new_body =
-        Expr.alpha_renaming body new_renaming_map
+        (Expr.alpha_renaming body new_renaming_map) |> (Fn.flip Expr.set_loc loc)
       in
         
       let existential_var_idens_set = Expr.existential_vars new_body in
@@ -1452,7 +1384,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
                { spec with spec_form }
              in *)
           let spec_error =
-            match List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_error) with
+            match (List.map call_decl.call_decl_precond ~f:(fun spec -> spec.spec_error)) with
             | (_ :: _ as err) :: _ -> err
             | _ -> []
           in
@@ -1474,10 +1406,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           let exhale_stmts =
             List.map call_decl.call_decl_precond ~f:(fun spec ->
-                (*let spec_error = match spec.spec_error with
-                  | (Error.Verification, _, _) :: _ -> spec.spec_error
-                  | _ -> (Stmt.mk_const_spec_error error :: spec.spec_error
-                in*)
+                (* Logs.debug (fun m -> m "Rewrites.rewrite_call_stmts: Exhale_stmt=%a; Exhale_stmt_error_len = %i; Exhale_stmt_error=%s" Expr.pr spec.spec_form (List.length spec_error) (Error.to_string ((List.hd_exn spec_error) (QualIdent.from_ident call_decl.call_decl_name) stmt.stmt_loc)) ); *)
+
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:(spec_error @ spec.spec_error)
@@ -1604,7 +1534,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                 Stmt.mk_inhale_expr ~cmnt:("au_precond") ~loc
                   (Expr.mk_app ~loc ~typ:Type.perm
                      (Expr.AUPred callable_fully_qual_name)
-                     (atomic_token_var :: concrete_args_expr))
+                     [atomic_token_var; Expr.mk_tuple concrete_args_expr])
               in
 
               let exhale_au =
@@ -1623,7 +1553,7 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
                   ~spec_error:[ Stmt.mk_const_spec_error error ]
                   (Expr.mk_app ~loc ~typ:Type.perm
                      (Expr.AUPredCommit callable_fully_qual_name)
-                     ((atomic_token_var :: concrete_args_expr) @ [ ret_expr ]))
+                     [atomic_token_var; Expr.mk_tuple concrete_args_expr; ret_expr ])
               in
 
               Rewriter.return (inhale_au :: pre_conds, exhale_au :: post_conds)
@@ -1701,16 +1631,6 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
                 (Module.VarDef { var_decl = atomic_token_var; var_init = None })
             in
 
-            (* let* callable_fully_qual_name = Rewriter.current_scope_id in
-
-               let inhale_au =
-                 let concrete_args = List.filter c.call_decl.call_decl_formals ~f:(fun var_decl -> not var_decl.var_implicit) in
-                 let concrete_args_expr = List.map concrete_args ~f:(Expr.from_var_decl) in
-
-                 Stmt.mk_inhale_expr ~loc:(Stmt.loc body) (Expr.mk_app ~loc:(Stmt.loc body) ~typ:Type.perm (Expr.AUPred callable_fully_qual_name) (Expr.from_var_decl atomic_token_var :: concrete_args_expr)) in
-
-               let new_body = Stmt.mk_block_stmt ~loc:(Stmt.loc body) [inhale_au; body] in *)
-            (* let new_proc = Callable.{ c with call_def = ProcDef { proc_body = Some new_body } } in *)
             Rewriter.return c)
   | FuncDef func -> Rewriter.return c
 
@@ -2468,6 +2388,9 @@ let rewrite_ssa_transform (c : Callable.t) :
   match c.call_def with
   | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
+      Logs.debug (fun m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma Type.pr_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
+         @ c.call_decl.call_decl_locals) );
+
       let init_map =
         List.fold
           (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
@@ -2590,10 +2513,6 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
 let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
-  Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_cas on module %a" Ident.pr
-        m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_cas_stmts m in
 
   Logs.debug (fun m1 ->
       m1
@@ -2797,25 +2716,56 @@ let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   (* Logs.debug (fun m -> m "Rewrites.all_rewrites: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
   Rewriter.return m
 
+let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_expr_ext: Starting rewrites_type_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
+  let open Rewriter.Syntax in
+  let rec rewrite_type_ext (type_expr : type_expr) : type_expr Rewriter.t =
+    let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
+    match type_expr with
+    | App (TypeExt type_ext, args, type_attr) ->
+      let (module Ext) = !Ext.ext in
+      Ext.rewrite_type_ext type_ext args (Type.to_loc type_expr)
+    | _ -> Rewriter.return type_expr
+
+  in
+  let* m =
+    Rewriter.Module.rewrite_types ~f:rewrite_type_ext m in
+
+  Rewriter.return m
+
 let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
+    let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
     match expr with
     | App (ExprExt expr_ext, args, expr_attr) -> 
-      Ext.rewrite_expr_ext expr_ext args (Expr.to_loc expr)
+      let (module Ext) = !Ext.ext in
+      Ext.rewrite_expr_ext expr_ext args expr_attr
     | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
-
   in
+
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_expr_ext: Starting rewrites_expr_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
   let* m = 
     Rewriter.Module.rewrite_expressions ~f:rewrite_expr_ext m in
 
   Rewriter.return m
 
 let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
+  Logs.debug (fun m1 ->
+  m1 "Rewrites.rewrites_stmt_ext: Starting rewrites_stmt_ext on module %a"
+    Ident.pr m.mod_decl.mod_decl_name);
+
   let open Rewriter.Syntax in
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
     | Basic (StmtExt (stmt_ext, args)) -> 
+      let (module Ext) = !Ext.ext in
       Ext.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt_ext
 
@@ -2835,6 +2785,13 @@ let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
 
   let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
 
+  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
+  
+  (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
+
+  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
   let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
 
@@ -2901,13 +2858,17 @@ Specification Count: %d"
 
   let rec computeStats md : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
-    Rewriter.List.fold_left md.Module.mod_def ~init:init_prog_stats ~f:(fun ps instr ->
+    let* _ = Rewriter.enter_module md in
+    let* prog_stats = Rewriter.List.fold_left md.Module.mod_def ~init:init_prog_stats ~f:(fun ps instr ->
       match instr with
       | Import _ -> Rewriter.return ps
       | SymbolDef s -> 
-        let+ symbolStats = computeSymbolStats s in
+        let+ symbolStats = computeSymbolStats s.symbol_def in
         merge_prog_stats ps symbolStats
-    )
+    ) in 
+    let+ _ = Rewriter.exit_module md in
+
+    prog_stats
 
   and computeSymbolStats s : prog_stats Rewriter.t =
     match s with
@@ -3101,7 +3062,7 @@ Specification Count: %d"
       | _ -> { init_prog_stats with proof_remaining_instr = 1; }
       end
     
-    | AtomicInbuilt _ | Return _ -> 
+    | Return _ -> 
       let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 

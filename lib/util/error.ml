@@ -54,16 +54,25 @@ let to_string (kind, (loc : Loc.t), msg) =
           then Printf.sprintf "%s:%s" (flycheck_string_of_src_pos pos) msg*)
     Printf.sprintf !"%{Loc}%{String}%{String}." loc label msg
 
-let to_lsp_string ppf (kind, (loc : Loc.t), msg) =
+let to_lsp_json (kind, (loc : Loc.t), msg) =
   let r = Str.regexp "\n" in
   let split_msg = Str.split r msg in
-  let pr_string ppf s = Stdlib.Format.fprintf ppf "%s" s in
-  Stdlib.Format.fprintf ppf !"@\n{ \"file\": \"%{String}\", \"start_line\": %d, \"start_col\": %d, \"end_line\": %d, \"end_col\": %d, \"kind\": \"%s\", \"message\": [\"%a\"] }"
-    (Loc.file_name loc) (Loc.start_line loc) (Loc.start_col loc) (Loc.end_line loc) (Loc.end_col loc) (error_kind_to_lsp_string kind) (Print.pr_list_sep "\", \"" pr_string) split_msg
+  let json = `Assoc [
+    ("file", `String (Loc.file_name loc));
+    ("start_line", `Int (Loc.start_line loc));
+    ("start_col", `Int (Loc.start_col loc));
+    ("end_line", `Int (Loc.end_line loc));
+    ("end_col", `Int (Loc.end_col loc));
+    ("kind", `String (error_kind_to_lsp_string kind));
+    ("message", `List (List.map split_msg ~f:(fun s -> `String s)))
+  ] in
+
+  json
 
 let errors_to_lsp_string errs =
-  let print_list ppf errs = Stdlib.Format.fprintf ppf "[@[<2>%a@]]" (Print.pr_list_comma to_lsp_string) errs in
-  Print.string_of_format print_list errs
+  let json_list = List.map ~f:to_lsp_json errs in
+  let json_errs = `List json_list in
+  Yojson.Safe.to_string json_errs
 
 (** Predefined error messags *)
 

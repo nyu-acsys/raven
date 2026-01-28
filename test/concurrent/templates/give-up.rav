@@ -202,7 +202,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     assert cssR(r, c0, g_i0, lockval00, contents0, intf0);
     fold css(r, c0);
 
-    commitAU(phi, contents0[n], intf0[n]);
+    commitAU(phi, (contents0[n], intf0[n]));
     return contents0[n], intf0[n];
   }
 
@@ -243,7 +243,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     assert cssR(r, c1, g_i1, lockval2, contents2, intf2);
     fold css(r, c1);
 
-    commitAU(phi);
+    commitAU(phi, ());
   }
 
   
@@ -399,7 +399,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
 
         nn, cnn, i_nn := traverse(r, n1, k, c2);
 
-        commitAU(phi, nn, cnn, i_nn);
+        commitAU(phi, (nn, cnn, i_nn));
         return nn, cnn, i_nn;
       } else {
         ghost val c0: Set[K] := openAU(phi);
@@ -413,7 +413,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
         
         ghost val c1: Set[K] := openAU(phi);
 
-        commitAU(phi, n, c_n, i_n);
+        commitAU(phi, (n, c_n, i_n));
         return n, c_n, i_n;
       }
     } else {
@@ -448,7 +448,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       fold css(r, c1);
       nn, cnn, i_nn := traverse(r, r, k, c1);
 
-      commitAU(phi, nn, cnn, i_nn);
+      commitAU(phi, (nn, cnn, i_nn));
     }
   }
 
@@ -555,7 +555,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       assert cssR(r, cc, g_i1, lockval2, contents2, intf2);
       fold css(r, cc);
 
-      commitAU(phi, res, cc);
+      commitAU(phi, (res, cc));
 
       return res, cc;
     } else {
@@ -566,7 +566,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
       
       ghost val c1: Set[K] := openAU(phi);
       res, cc := cssOp(dop, r, k, c1);
-      commitAU(phi, res, cc);
+      commitAU(phi, (res, cc));
       
       return res, cc;
     }

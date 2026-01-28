@@ -28,7 +28,7 @@ module Lock {
     {!
       fold lock(l, res || b1);
       if (res) {
-        commitAU(phi);
+        commitAU(phi, ());
       } else {
         abortAU(phi);
       }	
@@ -38,7 +38,7 @@ module Lock {
       ghost val b2: Bool := openAU(phi);
 			assert lock(l, b2);
 			acquire(l);
-			commitAU(phi);
+			commitAU(phi, ());
     }	
   }
 
@@ -53,7 +53,7 @@ module Lock {
     l.(Lock.bit) := false;
     
     fold lock(l, false);
-    commitAU(phi);
+    commitAU(phi, ());
   }
 }
 
@@ -176,7 +176,7 @@ interface SingleNodeTemplate[Node: NodeImpl] {
     unlockNode(r);
 
     fold cssR(r, c1);    
-    commitAU(phi, res1, c1);
+    commitAU(phi, (res1, c1));
 
     return res1, c1;
 

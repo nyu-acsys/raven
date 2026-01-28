@@ -5,14 +5,12 @@ interface LockResource : Library.Type {
   
   // Resource protected by a lock
   pred resource(r: T)
-
-  axiom exclusive(r: T)
-    requires resource(r) && resource(r)
-    ensures false
 }
 
 interface Lock {
   module R: LockResource
+
+  pred locked(l: Ref)
 
   inv lock_inv(l: Ref; r: R)
 
@@ -22,11 +20,15 @@ interface Lock {
 
   proc acquire(l: Ref, implicit ghost r: R)
     requires lock_inv(l, r)
-    ensures R.resource(r)
+    ensures R.resource(r) && locked(l)
 
   proc release(l: Ref, implicit ghost r: R)
-    requires lock_inv(l, r) && R.resource(r)
+    requires lock_inv(l, r) && R.resource(r) && locked(l)
     ensures true
+
+  axiom lk_exclusive(l: Ref)
+    requires locked(l) && locked(l)
+    ensures false
 }
 
 module TicketLock[R: LockResource] : Lock {
@@ -40,6 +42,18 @@ module TicketLock[R: LockResource] : Lock {
  
   ghost field tickets: AuthDisjInts
 
+  module UnitType : Library.Type {
+    rep type T = ()
+  }
+
+  module ExclUnit = Library.Excl[UnitType]
+
+  ghost field exclusive: ExclUnit
+
+  auto pred locked(l: Ref) {
+    own(l.exclusive, ExclUnit.excl(()))
+  }
+
   inv lock_inv(l: Ref; r: R) {
     exists n: Int, c: Int, b: Bool ::
       own(l.next, n, 1.0) && n >= 0
@@ -50,7 +64,7 @@ module TicketLock[R: LockResource] : Lock {
          )
       ) && (b ? 
         own(l.tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
-        resource(r)
+        resource(r) && locked(l)
       )
   }
 
@@ -62,14 +76,15 @@ module TicketLock[R: LockResource] : Lock {
       next: 0, curr: -1,
       tickets: AuthDisjInts.auth(
         IntSet.set({||})
-      )
+      ),
+      exclusive: ExclUnit.excl(())
     );
     fold lock_inv(l, r)[b := false];
   }
   
   proc acquire(l: Ref, implicit ghost r: R)
     requires lock_inv(l, r)
-    ensures resource(r)
+    ensures resource(r) && locked(l)
   {
     ghost var lockAcq: Bool;    
     unfold lock_inv(l, r)[lockAcq := b];
@@ -89,7 +104,7 @@ module TicketLock[R: LockResource] : Lock {
     var crr: Int := -1;
     while (nxt != crr)
       invariant lock_inv(l, r) && (
-        nxt == crr ? resource(r) :
+        nxt == crr ? resource(r) && locked(l) :
           own(l.tickets, AuthDisjInts.frag(IntSet.set({|nxt|})))
       )
     {
@@ -100,13 +115,12 @@ module TicketLock[R: LockResource] : Lock {
   }
 
   proc release(l: Ref, implicit ghost r: R)
-    requires lock_inv(l, r) && resource(r)
+    requires lock_inv(l, r) && resource(r) && locked(l)
     ensures true
   {
     ghost var lockAcq: Bool;
     
     unfold lock_inv(l, r)[ lockAcq := b ];
-    {! if (!lockAcq) R.exclusive(r); !}
     
     val crr: Int := l.curr;
     fold lock_inv(l, r)[b := true];

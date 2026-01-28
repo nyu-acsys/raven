@@ -8,13 +8,15 @@ let unknown_ident_error loc id =
   Error.error (QualIdent.to_loc id) ("Unknown identifier " ^ QualIdent.to_string id)
 
 (* Substitutions for reifying aliased symbols.
-   The Boolean indicates whether the derived symbol is the result of a functor instantiation.
+   The first Boolean indicates whether the derived symbol is the result of a functor instantiation.
+   The second Boolean indicates whether the derived symbol is still abstract.
  *)
-type subst = bool * QualIdent.subst
+type subst = bool * bool * QualIdent.subst
 
-let is_instance (b, _) = b
-let qid_subst (_, ss) = ss
-let extend_subst s (b, ss) = (b, s :: ss)
+let is_instance (b, _, _) = b
+let is_abstract (_, b, _) = b
+let qid_subst (_, _, ss) = ss
+let extend_subst s (b1, b2, ss) = (b1, b2, s :: ss)
 
 type entry =
   | Symbol of QualIdent.t
@@ -162,8 +164,8 @@ let pr_subst ppf (_, subst) =
            (QualIdent.from_list b)))
     subst
 
-(** Check whether [scope] is a parent of the current scope in [tbl]. *)
-let is_parent scope tbl =
+(** Check whether [scope] is an ancestor of the current scope in [tbl]. *)
+let is_ancestor scope tbl =
   let scope_id = get_scope_id scope in
   List.exists (tbl.tbl_curr :: tbl.tbl_path) ~f:(fun p ->
       QualIdent.(get_scope_id p = scope_id))
@@ -173,17 +175,22 @@ let resolve name (tbl : t) :
     (QualIdent.t * QualIdent.t * subst) option =
   let open Option.Syntax in
   let rec go_forward inst_scopes scope subst ids =
-    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a" QualIdent.pr (get_scope_id scope)); *)
-    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: tbl.tbl_path: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map tbl.tbl_path ~f:get_scope_id)); *)
-    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids1: %a" (Util.Print.pr_list_comma (Ident.pr))  ids); *)
+    (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope: %a;\n tbl.tbl_path: %a;\n  ids1: [%a];\n entries: [%a]" 
+      QualIdent.pr (get_scope_id scope) 
+      (Util.Print.pr_list_comma QualIdent.pr) (List.map tbl.tbl_path ~f:get_scope_id)
+      (Util.Print.pr_list_sep " " (Ident.pr)) ids 
+      (Util.Print.pr_list_comma (Ident.pr)) (Hashtbl.keys (get_scope_entries scope))); *)
+
+    (* Logs.debug (fun m -> m "Symbol.resolve.go_forward: tbl.curr_scope=%a; instantiated_scopes=%a" QualIdent.pr tbl.tbl_curr.scope_id (Util.Print.pr_list_comma QualIdent.pr) (Set.to_list inst_scopes)); *)
+
     match ids with
     | [] -> Some (get_scope_id scope, subst, false)
     | first_id :: ids1 -> (
-        (* if scope.scope_is_abstract && (* if this is a functor or interface ... *)
-              not @@ is_parent scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
-              not @@ Set.mem inst_scopes (get_scope_id scope) (* ... or through one of its concrete instantiations. *)
-           then None
-           else *)
+        if scope.scope_is_abstract && (* if this is a functor or interface ... *)
+           not @@ is_ancestor scope tbl && (* ... then we should better be accessing its members from inside its definition ... *)
+           not @@ Set.mem inst_scopes (get_scope_id scope) (* ... or through one of its concrete instantiations. *)
+        then None
+        else
         let scope_symbols = get_scope_entries scope in
         (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: scope_entries: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_symbols)); *)
         (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: ids2: %a" (Util.Print.pr_list_comma (Ident.pr))  ids); *)
@@ -199,9 +206,10 @@ let resolve name (tbl : t) :
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: found Alias: <%a, %a >" QualIdent.pr qual_ident (Util.Print.pr_list_comma
                  (fun ppf (q1,q2) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr q1 (QualIdent.pr) (QualIdent.from_list q2) )
                ) subst1) ; *)
+            let subst_is_inst, subst_is_abstract, subst_subst = subst in
             let subst1 =
               List.map subst1 ~f:(fun (s, t) ->
-                  (QualIdent.requalify (snd subst) s, t))
+                  (QualIdent.requalify subst_subst s, t))
             in
 
             (* if the first argument is abstract, then it needs to be requalified. The second arg doesn't because this is taken care of by the order in which elements are added to the subst list. QualIdent.requalify will make sure the renaming on the second argument by existing substitutions happens *)
@@ -218,21 +226,21 @@ let resolve name (tbl : t) :
               | _ ->
                   ( target_qual_ident,
                     fully_qualify first_id scope tbl |> QualIdent.to_list )
-                  :: snd subst
+                  :: subst_subst
             in
-            let subst = fst subst || not @@ List.is_empty subst1, subst1 @ target_subst in
+            let subst = subst_is_inst || not @@ List.is_empty subst1, subst_is_abstract && is_abstract, subst1 @ target_subst in
             let new_inst_scopes =
-              if is_abstract then inst_scopes
+              if is_abstract && Set.is_empty inst_scopes then
+                inst_scopes
               else Set.add inst_scopes target_qual_ident
             in
+            (* Jump back to the root scope because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
             go_forward new_inst_scopes tbl.tbl_root subst new_path
-            (* /// why do we jump to tbl.root from here?
-               TW: Because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
         | Import qual_ident, _ ->
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
             let target_qual_ident = (*QualIdent.requalify subst*) qual_ident in
             let new_path = QualIdent.to_list target_qual_ident @ ids1 in
-            if is_parent scope tbl then
+            if is_ancestor scope tbl then
               go_forward inst_scopes tbl.tbl_root subst new_path
             else None
         | Symbol qual_ident, [] ->
@@ -259,11 +267,12 @@ let resolve name (tbl : t) :
                let+ alias_qual_ident, subst, is_local =
                  go_forward
                    (Set.empty (module QualIdent))
-                   curr_scope (false, []) (QualIdent.to_list name)
+                   curr_scope (false, curr_scope.scope_is_abstract, []) (QualIdent.to_list name)
                in
+               let _, _, subst_subst = subst in
                (* Compute resolved identifier *)
                let orig_qual_ident =
-                 alias_qual_ident |> QualIdent.requalify (snd subst)
+                 alias_qual_ident |> QualIdent.requalify subst_subst
                in
                (* Don't qualify orig_qual_ident if it identifies a symbol in a local scope *)
                let orig_qual_ident =
@@ -288,13 +297,6 @@ let resolve name (tbl : t) :
   |> Option.map ~f:(fun (alias_qual_ident, orig_qual_ident, subst) ->
       (alias_qual_ident, orig_qual_ident |> QualIdent.set_loc (QualIdent.to_loc name), subst))
 
-(** Like [resolve] but throws an exception if [name] is not found in [tbl]. *)
-let resolve_exn name tbl =
-  (*Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id));
-    Logs.debug (fun m -> m "SymbolTbl.resolve_exn: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children));*)
-  resolve name tbl
-  |> Option.lazy_value ~default:(fun () -> unknown_ident_error (QualIdent.to_loc name) name)
-
 (** Resolve [name] relative to the current scope in [tbl] and return:
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is declared
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is used
@@ -306,6 +308,7 @@ let resolve_and_find name tbl :
   let open Option.Syntax in
   (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: %a" QualIdent.pr name); *)
   let* alias_qual_ident, orig_qual_ident, subst = resolve name tbl in
+
   let+ symbol = Map.find tbl.tbl_symbols alias_qual_ident in
 
   (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find: orig_qual_ident: %a" QualIdent.pr orig_qual_ident); *)
@@ -340,20 +343,19 @@ let find_exn loc name (tbl : t) =
   |> Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
 
 (** Enter the scope [name] from the current scope in [tbl]. *)
-let enter loc name tbl : t =
+let enter name tbl : t option =
   let open Option.Syntax in
-  (let scope_children = get_scope_children tbl.tbl_curr in
-   let+ scope = Hashtbl.find scope_children name in
-   { tbl with tbl_curr = scope; tbl_path = tbl.tbl_curr :: tbl.tbl_path })
-  |> Option.lazy_value ~default:(fun () ->
-         (* let curr_id = get_scope_id tbl.tbl_curr in
-            let parent_scope = match tbl.tbl_path with
-              | [] -> tbl.tbl_root
-              | scope :: _ -> scope in
+  let scope_children = get_scope_children tbl.tbl_curr in
+  (* Logs.debug (fun m -> m "SymbolTbl.enter: name = %a; curr_scope = %a; scope_children = %a" Ident.pr name QualIdent.pr tbl.tbl_curr.scope_id (Util.Print.pr_list_comma Ident.pr) (Hashtbl.keys scope_children)); *)
+  let+ scope = Hashtbl.find scope_children name in
+  (* Logs.debug (fun m -> m "SymbolTbl.enter: scope=%a" QualIdent.pr scope.scope_id ); *)
+  { tbl with tbl_curr = scope; tbl_path = tbl.tbl_curr :: tbl.tbl_path }
 
-            Logs.debug (fun m -> m "SymbolTbl.enter: tbl_curr: %a" QualIdent.pr curr_id);
-            Logs.debug (fun m -> m "SymbolTbl.enter: tbl_parent_scopes: %a" (Util.Print.pr_list_comma QualIdent.pr) (List.map (Hashtbl.to_alist parent_scope.scope_children) ~f:(fun (_, scope) -> scope.scope_id))); *)
-         Error.internal_error loc
+(** Enter the scope [name] from the current scope in [tbl]. *)
+let enter_exn name tbl : t =
+  enter name tbl
+  |> Option.lazy_value ~default:(fun () ->
+         Error.internal_error (Ident.to_loc name)
            (Printf.sprintf
               !"Did not find subscope %{Ident} in scope %{QualIdent}"
               name
@@ -366,9 +368,22 @@ let exit tbl : t =
   | [] -> failwith "Empty symbol table"
 
 (** Go to the scope in [tbl] that declares the symbol associated with absolute identifier [name] *)
-let goto loc name tbl : t =
+let goto name tbl : t =
   List.fold_left (QualIdent.path name) ~init:(reset tbl) ~f:(fun tbl ident ->
-      enter loc ident tbl)
+      enter ident tbl |> Option.value ~default:tbl)
+
+let goto_scope scope tbl : t =
+  (* Logs.debug (fun m -> m "SymbolTbl.goto_scope: scope = %a; tbl_curr=%a" QualIdent.pr scope QualIdent.pr tbl.tbl_curr.scope_id); *)
+  List.fold_left (QualIdent.to_list scope) ~init:(reset tbl) ~f:(fun tbl ident ->
+    match enter ident tbl with
+    | Some tbl -> tbl
+    | None ->
+      Error.internal_error Loc.dummy (Stdlib.Format.asprintf !"SymbolTbl.goto_scope failed. Current_scope = %{QualIdent}; ident not found=%{Ident}; current_scope_children=[%a]" 
+        tbl.tbl_curr.scope_id ident 
+        (Util.Print.pr_list_comma Ident.pr)
+        (Hashtbl.keys tbl.tbl_curr.scope_children)
+      )
+  )
 
 let add_to_map map loc key
     ?(duplicate =
@@ -378,7 +393,7 @@ let add_to_map map loc key
   | `Duplicate -> duplicate map key data
 
 let get_scope_exn scope_name tbl : scope =
-  let tbl = goto Loc.dummy scope_name tbl in
+  let tbl = goto scope_name tbl in
 
   let scope_children = get_scope_children tbl.tbl_curr in
 
@@ -398,7 +413,7 @@ let rec import import_instr (tbl : t) : t =
     | ModDef { mod_def; _ }, true ->
         List.iter mod_def ~f:(function
           | SymbolDef symbol ->
-              let symbol_name = Symbol.to_name symbol in
+              let symbol_name = Symbol.to_name symbol.symbol_def in
               let symbol_ident =
                 QualIdent.append unresolved_imported_ident symbol_name
               in

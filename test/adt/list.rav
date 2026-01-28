@@ -1,4 +1,4 @@
-module List {
+module ListM {
   rep type T = data {
     case cons(head: Int, tail:T);
     case nil

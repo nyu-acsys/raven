@@ -1,0 +1,49 @@
+proc p0()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var phi := bindAU();
+  openAU(phi);
+  commitAU(phi, ());
+}
+
+proc p1(b: Bool, bb: Bool)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var phi := bindAU();
+  openAU(phi);
+  commitAU(phi, ());
+}
+
+proc p2(b: Bool, implicit ghost z: Int, implicit ghost k: Int)
+  returns (ret: Int)
+  atomic requires true
+  atomic ensures true
+{
+  ghost var phi := bindAU();
+  ghost var z': Int;
+  ghost var k': Int;
+  z', k' := openAU(phi);
+  commitAU(phi, (1));
+  return 1;
+}
+
+proc helper(token1: AtomicToken<p1> , token0: AtomicToken<p0> , token2: AtomicToken<p2>)
+  requires au<p0>(token0, ())
+  requires au<p1>(token1, (true, true))
+  requires au<p2>(token2, (true))
+  ensures auCommit<p0>(token0, (), ())
+  ensures auCommit<p1>(token1, (true, true), ())
+  ensures auCommit<p2>(token2, true, 1)
+{
+  openAU(token0, ());
+  commitAU(token0, (), ());
+
+  openAU(token1, (true, true));
+  commitAU(token1, (true, true), ());
+
+  ghost var k: Int; ghost var z: Int;
+  k, z := openAU(token2, true);
+  commitAU(token2, true, (1));
+}

@@ -4,14 +4,47 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
-### Fixes
+
+## [1.1.0] - 2026-01-27
+
+### Added
+
+- Added ExtensionAPI as a way to modularly add and remove front-end features in Raven.
+- Added cmpxchg atomic operation.
+- Added a new cmdline option `--extension` which (presently) takes one of three values: `default`, `eris`, and `prophecy`. This option can be used to select which extension of Raven are active for a given run.
+
+### Changed
+
+- Upgraded [Array interface](test/arrays/array.rav) from an interface to a module.
+- Finished implementation of [rdcss](test/ext_prophecy/rdcss.rav)
+- Added expr_ext_rewrite_types, stmt_ext_rewrite_types to ExtAPI.
+- Added parser support for auCommit resources; enable 'helping'.
+- Expanded definition of "word-sized" types to more flexible types such as algebraic sums of base types.
+- Overhauled extensions to follow namespace-style convention.
+- Added support for helping by allowing auPred resources to refer to another proc; overhauling parser, type-checking and rewriting.
+- Updated syntax so that commitAU always requires at least two argument: token and a tuple of return values (if function returns nothing then it should be ()); and an optional third argument which is a tuple of the callable args (which goes as the middle argument). This optional argument becomes required if the token refers to a different procedure.
+
+
+### Fixed
+
+- Fixed bug in ComputeStats functionality with looking up abstract members without entering modules.
+- Fixed bug regarding missing quantifiers for auto lemmas with arguments.
+- Fixed two bugs in type checker related to interface aliasing (#35)
+- Fixed a bug causing a crash on datatype destructors 
+- Sanitizing JSON output in LSP mode.
+- Catch module-level var declarations in type checker rather than parser (#31).
+- Fix type-checking bug that allowed access to members of interfaces from outside of their scopes.
 
 ## [1.0.1] - 2025-11-22
 
+### Fixed
+
+- Supressed generating log files unless debug mode is used.
+
 - Fixed multiple redundant local variable declarations due to excessive havocing.
-- Variables declared inside while loops are now declared as local variables when while loops are rewritten to proc calls. (#29)
-- Fix missing locations in certain expressions being constructed
-- Fix SMT Backend crash with "_" ident (#22)
+- Variables declared inside while loops are now declared as local variables when while loops are rewritten to proc calls. (#29).
+- Fix missing locations in certain expressions being constructed.
+- Fix SMT Backend crash with "_" ident (#22).
 - Fix crash on FPU stmt in while loops (#27).
 - Added if_block before making call to while_loop proc.
 - Fix spurious type error when type-checking inherited modules (#25).

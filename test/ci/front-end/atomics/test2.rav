@@ -16,5 +16,5 @@ proc p(implicit ghost x: Int)
   ghost var x1: Int := openAU(phi);
   unfold p1(x1);
   fold p1(x1 + 2);
-  commitAU(phi);
+  commitAU(phi, ());
 }

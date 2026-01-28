@@ -139,6 +139,8 @@ module QualIdent = struct
     in
     Print.pr_list_sep "." Ident.pr ppf (path @ [qid.qual_base])
 
+  (* let pr ppf qid = Print.pr_list_sep "." Ident.pr ppf (qid.qual_path @ [qid.qual_base]) *)
+
   let pr_list ppf qids = Print.pr_list_comma pr ppf qids
 
   let to_string qid = Print.string_of_format pr qid
@@ -239,6 +241,24 @@ type 'a qual_ident_hashtbl = 'a QualIdentHashtbl.t
 
 module Type = struct
   module T = struct
+    type type_ext = ..
+    
+    let type_ext_to_name : (type_ext -> string) ref = ref (fun type_ext -> "[TypeExt]")
+    
+    let compare_type_ext (c1: type_ext) (c2: type_ext) = 
+      Stdlib.compare (Stdlib.Obj.tag (Stdlib.Obj.repr c1)) (Stdlib.Obj.tag (Stdlib.Obj.repr c2))
+
+    let equal_type_ext (c1 : type_ext) (c2 : type_ext) : bool =
+      compare_type_ext c1 c2 = 0
+
+    let hash_fold_type_ext state te =
+      let tag = Stdlib.Obj.tag (Stdlib.Obj.repr te) in
+        Ppx_hash_lib.Std.Hash.fold_int state tag
+    
+    let type_ext_of_sexp : (Sexp.t -> type_ext) = (fun sexp -> Sexplib.Conv.of_sexp_error "type_ext_of_sexp: unexpected sexp" sexp)
+
+    let sexp_of_type_ext : (type_ext -> Sexp.t) = (fun type_ext -> Sexplib.Conv.sexp_of_opaque type_ext)
+
     type type_attr = {
       type_loc : Loc.t; [@hash.ignore] [@compare.ignore]
       type_ghost: bool [@hash.ignore] [@compare.ignore]
@@ -275,6 +295,7 @@ module Type = struct
       | Data of QualIdent.t * variant_decl list
       | AtomicToken of QualIdent.t
       | Prod
+      | TypeExt of type_ext
 
     and t = App of constr * t list * type_attr
     [@@deriving compare, hash, sexp]
@@ -327,11 +348,12 @@ module Type = struct
     | Var id -> QualIdent.to_string id
     | AtomicToken id -> Printf.sprintf !"%s<%{QualIdent}>" atomic_token_type_string id
     | Prod -> prod_type_string
+    | TypeExt type_ext -> !type_ext_to_name type_ext
 
   let rec pr_constr ppf t =
     match t with
     | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
-    | Map | Fld | Prod ->
+    | Map | Fld | Prod | TypeExt _ ->
         Stdlib.Format.fprintf ppf "%s" (to_name t)
     | Data (id, decls) ->
       Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
@@ -382,8 +404,8 @@ module Type = struct
   (** Constructors *)
 
   let dummy_attr = { type_loc = Loc.dummy; type_ghost = false }
-  let mk_attr loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = false }
-  let mk_app ?(loc = Loc.dummy) t ts = App (t, ts, mk_attr loc)
+  let mk_attr ?(ghost=false) loc = if Loc.(loc = dummy) then dummy_attr else { type_loc = loc; type_ghost = ghost }
+  let mk_app ?(loc = Loc.dummy) ?(ghost=false) t ts = App (t, ts, mk_attr ~ghost loc)
 
   let mk_int loc = App (Int, [], mk_attr loc)
   let mk_real loc = App (Real, [], mk_attr loc)
@@ -398,7 +420,10 @@ module Type = struct
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
   let mk_data id decls loc = App (Data (id, decls), [], mk_attr loc)
-  let mk_var qid = App (Var qid, [], mk_attr (QualIdent.to_loc qid))
+  let mk_var ?loc qid = 
+    let loc = Option.value loc ~default:(QualIdent.to_loc qid) in
+
+    App (Var qid, [], mk_attr loc)
   let mk_atomic_token loc qid = App (AtomicToken qid, [], mk_attr loc) |> set_ghost true
   let mk_prod loc tp_list = 
     match tp_list with
@@ -433,6 +458,10 @@ module Type = struct
     | Bool, Perm | Perm, Bool -> Perm
     | (Int | Real), (Int | Real) -> Real
     | (Int | Real | Num), (Int | Real | Num) when not @@ Poly.(t1 = t2) -> Num
+    | TypeExt t1, TypeExt t2 ->
+      if Int.(compare_type_ext t1 t2 = 0) then
+        TypeExt t1
+      else Any
     | _, _ -> Any
  
   let rec meet_constr t1 t2 = 
@@ -443,6 +472,10 @@ module Type = struct
     | Int, Real | Real, Int -> Int
     | Int, Num | Num, Int -> Int
     | Real, Num | Num, Real -> Real
+    | TypeExt t1, TypeExt t2 ->
+      if Int.(compare_type_ext t1 t2 = 0) then 
+        TypeExt t1
+      else Bot
     | _, _ -> Bot
 
   let rec join t1 t2 =
@@ -468,7 +501,7 @@ module Type = struct
       (List.map2 ~f:meet ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
       | _ -> App (Bot, [], a1))      
-    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1 
+    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
 
   let subtype_of tp1 tp2 = equal (join tp1 tp2) tp2
@@ -489,6 +522,8 @@ module Type = struct
   let is_ghost_var vdecl = vdecl.var_ghost
   let is_const_var vdecl = vdecl.var_const
   let is_implicit_var vdecl = vdecl.var_implicit
+
+  let is_base_type typ = (typ = int) || (typ = bool) || (typ = ref)
 
   let to_loc t = match t with
   | App (_, _, tp_attr) -> tp_attr.type_loc
@@ -635,6 +670,17 @@ module Expr = struct
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
+  let rec set_recursive_loc loc t =
+    let attr = attr_of t in
+    let attr = { attr with expr_loc = loc } in
+    match t with 
+    | App (constr, expr_list, _expr_attr) -> 
+      let expr_list = List.map expr_list ~f:(set_recursive_loc loc) in
+      App (constr, expr_list, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> 
+      let expr = set_recursive_loc loc expr in
+      Binder (b, v_l, trigs, expr, attr)
+
   let overwrite_loc t loc = 
     if Loc.(loc = dummy) then t else (set_loc t loc)
 
@@ -683,8 +729,8 @@ module Expr = struct
     | Var id -> QualIdent.to_string id
     (* ownership predicates *)
     | Own -> "own"
-    | AUPred id -> "AU_" ^ QualIdent.to_string id
-    | AUPredCommit id -> "AU_commit_" ^ QualIdent.to_string id
+    | AUPred id -> ("au<" ^ QualIdent.to_string id ^ ">")
+    | AUPredCommit id -> ("auCommit<" ^ QualIdent.to_string id ^ ">")
     | ExprExt expr_ext -> !expr_ext_to_string expr_ext
     
   let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
@@ -1298,14 +1344,6 @@ module Stmt = struct
     | Cas _ -> "cas"
     | Faa _ -> "faa"
     | Xchg _ -> "xchg"
-  
-  type atomic_inbuilt_desc = {
-    atomic_inbuilt_lhs : qual_ident;
-    atomic_inbuilt_field : qual_ident;
-    atomic_inbuilt_ref : expr;
-    atomic_inbuilt_is_init : bool;
-    atomic_inbuilt_kind : atomic_inbuilt_kind;
-  }
 
   type call_desc = {
     call_lhs : qual_ident list;
@@ -1314,7 +1352,6 @@ module Stmt = struct
     call_is_spawn : bool;
     call_is_init : bool;
   }
-
 
   type fpu_desc = {
     fpu_ref : expr;
@@ -1354,9 +1391,21 @@ module Stmt = struct
 
   type auaction_kind =
     | BindAU of qual_ident
-    | OpenAU of expr * qual_ident * expr list
-    | AbortAU of expr
-    | CommitAU of expr * expr list
+    | OpenAU of { 
+      token: expr; 
+      proc_qi: qual_ident; 
+      proc_args: expr list; 
+      lhs: expr list; 
+    } 
+    | AbortAU of {
+      token: expr;
+      proc_args: expr list;
+    }
+    | CommitAU of {
+      token: expr;
+      proc_args: expr list;
+      proc_rets: expr list
+    }
 
   let auaction_kind_to_string = function
     | BindAU _ -> "bindAU"
@@ -1383,7 +1432,6 @@ module Stmt = struct
     | Use of use_desc
     | AUAction of auaction_desc
     | Fpu of fpu_desc
-    | AtomicInbuilt of atomic_inbuilt_desc
     | StmtExt of (stmt_ext * expr list) 
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
@@ -1455,10 +1503,6 @@ module Stmt = struct
           bstm.bind_rhs.spec_form)
     | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
     | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
-    | AtomicInbuilt ais ->
-      let kind = atomic_inbuilt_string ais.atomic_inbuilt_kind in
-      let args = atomic_inbuilt_args ais.atomic_inbuilt_kind in
-      fprintf ppf "@[<2>%a@ :=@ %s(%a.%a, %a)@]" QualIdent.pr ais.atomic_inbuilt_lhs kind Expr.pr ais.atomic_inbuilt_ref QualIdent.pr ais.atomic_inbuilt_field Expr.pr_list args
     | Havoc hvc -> fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var (if hvc.havoc_is_init then " (init)" else "")
     | New nstm -> 
         fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
@@ -1494,10 +1538,12 @@ module Stmt = struct
               cstm.call_args)
     | AUAction { auaction_kind = BindAU token} ->
       fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
-    | AUAction { auaction_kind = OpenAU (token, call_ident, open_au_lhs)} ->
-      fprintf ppf "@[<2>%a := %s(%a)@]" Expr.pr_list open_au_lhs (auaction_kind_to_string (OpenAU (token, call_ident, open_au_lhs))) Expr.pr token
-    | AUAction { auaction_kind; _} ->
-      fprintf ppf "@[<2>%s()@]" (auaction_kind_to_string auaction_kind)
+    | AUAction { auaction_kind = OpenAU open_au_desc} ->
+      fprintf ppf "@[<2>%a := %s(%a, (%a))@]" Expr.pr_list open_au_desc.lhs (auaction_kind_to_string (OpenAU open_au_desc)) Expr.pr open_au_desc.token Expr.pr_list open_au_desc.proc_args
+    | AUAction { auaction_kind = CommitAU commit_au_desc as au_action} ->
+      fprintf ppf "@[<2>%s(%a, (%a), (%a) )@]" (auaction_kind_to_string au_action) Expr.pr commit_au_desc.token Expr.pr_list commit_au_desc.proc_args Expr.pr_list commit_au_desc.proc_rets
+    | AUAction { auaction_kind = AbortAU abort_au_desc as au_action} ->
+      fprintf ppf "@[<2>%s(%a, (%a))@]" (auaction_kind_to_string au_action) Expr.pr abort_au_desc.token Expr.pr_list abort_au_desc.proc_args
     | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
     | StmtExt (stmt_ext, exprs) -> !pr_stmt_ext ppf stmt_ext exprs
 
@@ -1654,6 +1700,8 @@ module Stmt = struct
 
   let to_loc s = s.stmt_loc
 
+
+  let stmt_ext_symbols : (stmt_ext -> QualIdentSet.t) ref = ref (fun _ -> Set.empty (module QualIdent))
   (** Extends [accessed] with the set of all symbols occuring free in [s] *)
   (** Assumes that all var_decl stmts are abstracted away during type-checking. *)  
   let symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
@@ -1709,15 +1757,6 @@ module Stmt = struct
 
         | FieldWrite fw_desc ->
           scan_expr_list accesses [fw_desc.field_write_ref; fw_desc.field_write_val]
-
-        | AtomicInbuilt ais_desc ->
-          let accesses = 
-            if not ais_desc.atomic_inbuilt_is_init then
-               Set.add accesses ais_desc.atomic_inbuilt_lhs 
-            else 
-              accesses
-          in
-          scan_expr_list accesses (ais_desc.atomic_inbuilt_ref :: atomic_inbuilt_args ais_desc.atomic_inbuilt_kind)
             
         | Havoc hvc ->
           if not hvc.havoc_is_init then
@@ -1759,7 +1798,9 @@ module Stmt = struct
           | None -> scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_new_val]
           | Some e -> scan_expr_list accesses [fpu_desc.fpu_ref; e; fpu_desc.fpu_new_val])
         
-        | StmtExt (stmt_ext, expr_list) -> scan_expr_list accesses expr_list
+        | StmtExt (stmt_ext, expr_list) -> 
+          let accesses = scan_expr_list accesses expr_list in
+          Set.union accesses (!stmt_ext_symbols stmt_ext)
         end
 
       | Loop l ->
@@ -1830,12 +1871,6 @@ module Stmt = struct
             []
 
         | FieldWrite fw_desc -> 
-            []
-
-        | AtomicInbuilt ais_desc -> 
-          if not ais_desc.atomic_inbuilt_is_init && List.is_empty ais_desc.atomic_inbuilt_lhs.qual_path then
-            [ais_desc.atomic_inbuilt_lhs.qual_base]
-          else
             []
             
         | Havoc hvc ->
@@ -1969,9 +2004,6 @@ module Stmt = struct
         | FieldWrite fw_desc -> 
           [fw_desc.field_write_field]
 
-        | AtomicInbuilt ais_desc -> 
-          [ais_desc.atomic_inbuilt_field]
-            
         | Havoc _ ->
           []
 
@@ -2279,8 +2311,10 @@ module Module = struct
     | VarDef of Stmt.var_def
     | CallDef of Callable.t
 
+  and symbol_descr = { symbol_def: symbol; is_admitted: bool; }
+
   and module_instr =
-    | SymbolDef of symbol
+    | SymbolDef of symbol_descr
     | Import of import_directive
 
   and t = {
@@ -2311,7 +2345,7 @@ module Module = struct
   and pr_instr ppf =
     let open Stdlib.Format in
     function
-    | SymbolDef symbol -> pr_symbol ppf symbol
+    | SymbolDef symbol -> pr_symbol ppf symbol.symbol_def
     | Import { import_name = qid; import_all = all; _ } ->
       fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
 
@@ -2414,12 +2448,9 @@ module Module = struct
     let mod_decl = { md.mod_decl with mod_decl_is_free = true } in
     { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr -> 
         match instr with
-        | SymbolDef (ModDef md) -> SymbolDef (ModDef (set_free md))
-        | SymbolDef (CallDef cdef) -> SymbolDef (CallDef (Callable.make_free cdef))
+        | SymbolDef ({ symbol_def = ModDef md; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (ModDef (set_free md)) }
+        | SymbolDef ({ symbol_def = CallDef cdef; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (CallDef (Callable.make_free cdef)) }
         | _ -> instr) }
-
-
-
 end
 
 (** Symbols (for convenience) *)
@@ -2500,6 +2531,17 @@ module Predefs = struct
   let lib_type_mod_qual_ident = QualIdent.from_list [lib_ident; lib_type_mod_ident]
   let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
 
+  let lib_list_mod_ident = Ident.make Loc.dummy "ListM" 0
+  let lib_list_mod_qual_ident = QualIdent.from_list [lib_ident; lib_list_mod_ident]
+  
+  let lib_list_arg_mod_ident = Ident.make Loc.dummy "E" 0
+  let lib_list_cons_ident = Ident.make Loc.dummy "cons" 0
+  let lib_list_nil_ident = Ident.make Loc.dummy "nil" 0
+  let lib_list_len_ident = Ident.make Loc.dummy "len" 0
+  let lib_list_is_in_ident = Ident.make Loc.dummy "is_in" 0
+  let lib_list_head_destr_ident = Ident.make Loc.dummy "hd" 0
+  let lib_list_tail_destr_ident = Ident.make Loc.dummy "tl" 0
+
   let lib_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "ResourceAlgebra" 0]
 
   let lib_cancellative_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "CancellativeResourceAlgebra" 0]
@@ -2512,6 +2554,10 @@ module Predefs = struct
 
   let lib_frac_chunk_destr1_ident = Ident.make Loc.dummy "frac_proj1" 0
   let lib_frac_chunk_destr2_ident = Ident.make Loc.dummy "frac_proj2" 0
+
+  let lib_fraction_mod_ident = Ident.make Loc.dummy "Fraction" 0
+  let lib_fraction_mod_qual_ident = QualIdent.from_list [lib_ident; lib_fraction_mod_ident]
+  let lib_fraction_frac_constr_ident = Ident.make Loc.dummy "frac" 0
 
   let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
   
@@ -2545,10 +2591,6 @@ module Predefs = struct
   let lib_atomic_token_committed_destr1_ident = Ident.make Loc.dummy "au_commit_proj1" 0
 
   let lib_atomic_token_committed_destr2_ident = Ident.make Loc.dummy "au_commit_proj2" 0
-
-
-
-
 end
 
 

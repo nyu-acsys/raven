@@ -62,8 +62,8 @@ let serialize (s : string) : string =
   let s =
     String.map s ~f:(function
       | '.' -> '_'
-      | '[' -> '-'
-      | ']' -> '-'
+      | '[' -> '\''
+      | ']' -> '\''
       | '(' -> '*'
       | ')' -> '*'
       | ' ' -> '_'
@@ -210,13 +210,16 @@ let find_highest_valid_scope_type_expr loc (tp : type_expr) :
       (* Logs.debug (fun m -> m "ProgUtils.find_highest_valid_scope_type_expr: scope_found = %a" AstDef.QualIdent.pr (QualIdent.from_list new_qi)); *)
       QualIdent.from_list new_qi)
 
+let tp_mod_ident_prefix = "TypeMod$$"
+
 (** Takes a type expression `tp` and introduces a module that implements Library.Type whose rep type T is `tp`. ~f here is expected to be Typing.process_symbol, but it's not hardcoded to prevent recursive dependencies  *)
-let intros_type_module ~(loc : location)
+let intros_type_module ~(loc : location) ?scope
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     (tp : AstDef.type_expr) : qual_ident t =
+    let open Rewriter.Syntax in
   let mod_decl =
     let mod_name =
-      let mod_name_string = AstDef.Type.to_string tp ^ "$Type_Mod" in
+      let mod_name_string = tp_mod_ident_prefix ^ AstDef.Type.to_string tp in
       Ident.fresh loc (serialize mod_name_string)
     in
 
@@ -235,14 +238,17 @@ let intros_type_module ~(loc : location)
 
   let (mod_def : AstDef.Module.module_instr list) =
     [
-      SymbolDef
-        (TypeDef
-           {
-             type_def_name = Predefs.lib_type_rep_type_ident;
-             type_def_expr = Some tp;
-             type_def_rep = true;
-             type_def_loc = loc;
-           });
+      SymbolDef {
+        symbol_def = TypeDef
+          {
+            type_def_name = Predefs.lib_type_rep_type_ident;
+            type_def_expr = Some tp;
+            type_def_rep = true;
+            type_def_loc = loc;
+          };
+          
+        is_admitted = false;
+      }
     ]
   in
 
@@ -252,14 +258,17 @@ let intros_type_module ~(loc : location)
       m "ProgUtils.intros_type_module: symbol = %a" AstDef.Symbol.pr
         symbol);*)
 
-  (* let* topscope_name = find_highest_valid_scope_type_expr loc tp in
+  match scope with
+  | None -> 
+    let+ typ_module_qi = introduce_typecheck_symbol ~loc ~f symbol in
+    Logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
+    typ_module_qi
+  | Some scope_qi -> 
+    Logs.debug (fun m -> m "ProgUtils.intros_type_module: scope_qual_iden = %a; symbol = %a" QualIdent.pr scope_qi Ident.pr (AstDef.Symbol.to_name symbol));
+    let+ typ_module_qi = introduce_typecheck_symbol_at_scope' ~loc symbol scope_qi in
 
-     let topscope_name = match topscope_name with
-       | Some qi -> qi
-       | None -> Error.type_error loc ("Could not find a valid scope to add type definition " ^ (AstDef.Type.to_string tp) ^ " to.")
-
-     in *)
-  introduce_typecheck_symbol ~loc ~f symbol
+    Logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
+    typ_module_qi
 
 let is_ra_type (tp : AstDef.type_expr) : bool t =
   let open Syntax in
@@ -676,7 +685,7 @@ let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
   | App (constr, expr_list, _) ->
       let* b1 =
         match constr with
-        | Own -> return false
+        | Own | AUPred _ | AUPredCommit _ -> return false
         | Var qual_ident -> (
             if AstDef.QualIdent.is_local qual_ident then return true
             else
@@ -807,3 +816,29 @@ let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =
   in
 
   return preds_list
+
+let largest_common_prefix_qi symbols =
+    begin match Set.count ~f:(fun _ -> true) symbols with
+        | 0 -> Predefs.prog_qual_ident
+        | 1 -> Set.choose symbols |> Base.Option.value_exn |> QualIdent.pop
+        | _ -> 
+          (* pop the type ident from an arbitrary element; $Prog.M.Typ -> $Prog.M *)
+          let initial_qi = QualIdent.pop (Set.choose_exn symbols) in
+          
+          let largest_common_prefix_qi = 
+            Set.fold symbols ~init:initial_qi ~f:(fun accum qi ->
+                let rec common_prefix accum (l1: ident list) (l2: ident list) =
+                  match l1, l2 with
+                  | [], _ | _, [] -> accum
+                  | q1 :: l1, q2 :: l2 when Ident.(q1 = q2) ->
+                    common_prefix (accum @ [q1]) l1 l2
+                  | q1 :: l1, q2 :: l2->
+                    accum
+                
+                in
+                QualIdent.from_list (common_prefix [] (QualIdent.to_list accum) (QualIdent.to_list qi))
+            )
+          in
+
+          largest_common_prefix_qi
+        end

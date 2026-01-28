@@ -1,0 +1,33 @@
+import Library._
+
+// abstract interface
+interface Abstract[S: Type] {
+  interface I1[S: Type] {
+    type T = S.T
+  }
+
+  interface I2[S: Type] {
+    type T' = S.T
+  }
+
+  module M = I1[IntType]
+  module N = I2[BoolType]
+
+  type Test = (M.T, N.T')
+
+  /*  Q. For the following, where should the 
+          module List$T2 = Library.List[Type$M_T__N_T'] 
+      instantiation live? 
+      A. inside $Program.Abstract
+  */
+
+  type T2 = List[  (M.T, N.T')  ]
+
+  module PP {
+    proc p() ensures true {
+      var x: T2;
+      var y: List[  (M.T, N.T')  ];
+      y := x;
+    }
+  }
+}

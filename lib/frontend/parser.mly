@@ -8,22 +8,25 @@ open Ast
 
 %token <Ast.Ident.t> IDENT MODIDENT
 %token <Ast.Expr.constr> CONSTVAL
+%token <Ast.Type.constr> CONSTTYPE
+%token <Ast.Type.constr * int> TYPECONSTR
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
-%token DIFF MINUS
+%token MINUS
+%token <Ast.Expr.constr> RABINOP
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token <Int64.t> HASH
 %token AND OR IMPLIES IFF NOT COMMA
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
-%token HAVOC NEW RETURN OWN AU
+%token HAVOC NEW RETURN OWN AU AUCOMMIT
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
-%token PROC AXIOM LEMMA
-%token CASE DATA INT REAL BOOL PERM SET MAP ATOMICTOKEN FIELD REF
+%token PROC AXIOM LEMMA ADMITTED
+%token CASE DATA ATOMICTOKEN FIELD
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
 %token <bool> MODULE
@@ -32,15 +35,11 @@ open Ast
 %token RETURNS REQUIRES ENSURES INVARIANT
 %token EOF
 
-
 %nonassoc IFF
 %nonassoc EQEQ NEQ 
 
 %start main
 %type <(string * Loc.t) list * Ast.Module.t> main
-%type <expr list * bool -> Stmt.stmt_desc * expr option> assignExt
-/* %type <Ast.Type.t> type_def_expr
-%type <Ast.Type.t> type_expr */
 %%
 
 main:
@@ -71,7 +70,6 @@ module_def:
   | ModDef impl ->
       ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
   | ModInst ma ->
-  (* //TODO: Figure out what is happening here *)
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
       else
@@ -137,25 +135,24 @@ mod_inst_args:
 | { [] }
     
 member_def_list_opt:
-| m = member_def; ms = member_def_list_opt {
-  match m with
-  | Module.SymbolDef (VarDef { var_decl = { var_loc = loc; var_const = false; _}; _ }) ->
-      Error.syntax_error loc "Modules and interfaces cannot have var members"
-  | _ -> m :: ms
-}
+| m = member_def; ms = member_def_list_opt { m :: ms }
 | m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
 member_def:
-| def = field_def { Module.SymbolDef (Module.FieldDef def)}
-| def = module_def { Module.SymbolDef def }
+| is_admitted = admitted; def = field_def { Module.SymbolDef { symbol_def = (Module.FieldDef def); is_admitted } }
+| is_admitted = admitted; def = module_def { Module.SymbolDef { symbol_def = def; is_admitted } }
 /*| def = interface_def { Module.SymbolDef def }*/
-| def = type_def { Module.SymbolDef (Module.TypeDef def) }
-| def = var_def { Module.SymbolDef (Module.VarDef def) }
-| def = proc_def 
-| def = func_def {Module.SymbolDef (Module.CallDef def) }
+| is_admitted = admitted; def = type_def { Module.SymbolDef { symbol_def = Module.TypeDef def; is_admitted } }
+| is_admitted = admitted; def = var_def { Module.SymbolDef { symbol_def = Module.VarDef def; is_admitted } }
+| is_admitted = admitted; def = proc_def 
+| is_admitted = admitted; def = func_def {Module.SymbolDef { symbol_def = Module.CallDef def; is_admitted } }
 | imp = import_dir { Module.Import imp }
   
+admitted:
+| ADMITTED { true }
+| { false }
+
 field_def:
 | g = ghost_modifier; FIELD x = IDENT; COLON; t = type_expr {
     let decl =
@@ -523,8 +520,10 @@ stmt_wo_trailing_substmt:
     use_witnesses_or_binds = wtns
   }))]
 }
+| f = stmt_ext { f }
 ;
 
+  
 existential_witness_or_bind:
 | x = IDENT COLONEQ e = expr {
   (x, e)
@@ -581,7 +580,7 @@ with_clause:
     | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
 }
   
-assign_rhs:
+%public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   function 
     | [Expr.App(Expr.Var x, _, _)], _ ->
@@ -606,7 +605,6 @@ assign_rhs:
         in
         Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init }), None
 }
-| f = assignExt { f }
 
 local_var_def:
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
@@ -841,10 +839,13 @@ own_expr:
 }*)
 
 au_expr:
-| AU; LPAREN; c = qual_ident; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident c)) es)
+| AU; LT; qid = qual_ident; GT; LPAREN; es = expr_list; RPAREN {
+  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident qid)) es)
 }
-    
+| AUCOMMIT LT qid=qual_ident GT LPAREN es=expr_list; RPAREN {
+  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $startpos $endpos) (AUPredCommit (Expr.to_qual_ident qid)) es)
+}
+
 call_expr:
 | p = qual_ident_expr; es = call {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
@@ -880,7 +881,7 @@ mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
 
-ident: 
+%public ident: 
 | x = IDENT {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
@@ -913,7 +914,7 @@ lookup_or_update_opt:
 }
 
   
-unary_expr:
+%public unary_expr:
 | e = lookup_or_update_expr { e }
 (*| e = ident { e }*)
 | MINUS; e = unary_expr {
@@ -925,16 +926,9 @@ unary_expr_not_plus_minus:
 | NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any Expr.Not [e] }
 ;
 
-diff_expr:
-| e = unary_expr { e }
-| e1 = diff_expr; DIFF; e2 = unary_expr {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Diff [e1; e2])
-}
-;
-
 mult_expr:
-| e = diff_expr { e }
-| e1 = mult_expr; op = MULTOP; e2 = diff_expr {
+| e = unary_expr { e }
+| e1 = mult_expr; op = MULTOP; e2 = unary_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
@@ -949,17 +943,26 @@ add_expr:
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
+
+%public right_assoc_binary_op:
+| op = RABINOP { op }
   
+right_assoc_binary_op_expr:
+| e = add_expr { e }
+| e1 = add_expr; op = right_assoc_binary_op; e2 = right_assoc_binary_op_expr {
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+}
+    
 rel_expr:
 | c = comp_seq {
   match c with
   | e, [] -> e
   | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Expr.mk_and ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
 }
-| e1 = rel_expr; IN; e2 = add_expr {
+| e1 = rel_expr; IN; e2 = right_assoc_binary_op_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Elem [e1; e2])
   } 
-| e1 = rel_expr; NOTIN; e2 = add_expr {
+| e1 = rel_expr; NOTIN; e2 = right_assoc_binary_op_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Elem [e1; e2]]) 
   }
 ;
@@ -973,8 +976,8 @@ comp_op:
 ;
 
 comp_seq:
-| e = add_expr { (e, []) }
-| e1 = add_expr; op = comp_op; cseq = comp_seq {
+| e = right_assoc_binary_op_expr { (e, []) }
+| e1 = right_assoc_binary_op_expr; op = comp_op; cseq = comp_seq {
   let e2, comps = cseq in
   let loc1 = Expr.to_loc e1 in
   let loc2 = Expr.to_loc e2 in
@@ -1075,16 +1078,21 @@ bound_var_opt_type:
 } 
 ;
 
-type_expr:
-| INT { Type.mk_int (Loc.make $startpos $endpos) }
-| REAL { Type.mk_real (Loc.make $startpos $endpos)}
-| BOOL { Type.mk_bool (Loc.make $startpos $endpos) }
-| REF { Type.mk_ref (Loc.make $startpos $endpos) }
-| PERM { Type.mk_perm (Loc.make $startpos $endpos)}
-| ATOMICTOKEN LT qid = ident GT { Type.mk_atomic_token (Loc.make $startpos $endpos) (Expr.to_qual_ident qid) }
+%public type_expr:
+| ct = CONSTTYPE { Type.mk_app ~loc:(Loc.make $startpos $endpos) ct [] }
+| ATOMICTOKEN LT qid = qual_ident GT { Type.mk_atomic_token (Loc.make $startpos $endpos) (Expr.to_qual_ident qid) }
 //| x = IDENT { Type.mk_var (QualIdent.from_ident x) }
-| SET LBRACKET t = type_expr RBRACKET { Type.mk_set (Loc.make $startpos $endpos) t }
-| MAP LBRACKET; t1 = type_expr; COMMA; t2 = type_expr; RBRACKET { Type.mk_map (Loc.make $startpos $endpos) t1 t2 }
+| ct = TYPECONSTR LBRACKET ts = separated_list(COMMA, type_expr) RBRACKET {
+  let loc = Loc.make $startpos $endpos in
+  if List.length ts <> snd ct then
+    Error.syntax_error loc (Printf.sprintf "This type constructor expects %d argument(s)" (snd ct))
+  else begin
+    match ct, ts with
+    | (Type.Map, 1), [t] ->
+        Type.mk_set loc t
+    | (c, _), _ -> Type.mk_app ~loc c ts
+  end
+  }
 | x = mod_ident { Type.mk_var x }
 | LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
@@ -1119,7 +1127,7 @@ patterns:
 | e = quant_expr { e } 
 ;
 
-expr_list:
+%public expr_list:
 | e = expr; COMMA; es = expr_list { e :: es }
 | e = expr { [e] }
 ;
