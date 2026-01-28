@@ -114,8 +114,8 @@ Verification Error: This update may not be frame-preserving.
 ```
 
 
-## ExtensionsAPI
-Raven also comes with a modular ExtensionAPI which is designed for front-end designers to be able to extend Raven's syntax directly, to get a custom IVL for their specific domain. They can implement Raven extensions to encode new front-end features, adding custom types, expressions, and commands to the IVL.
+## Extension API
+Raven also comes with a modular extension API which is designed for front-end designers to be able to extend Raven's syntax directly, to get a custom IVL for their specific domain. They can implement Raven extensions to encode new front-end features, adding custom types, expressions, and commands to the IVL.
 We provide extensive documentation along with a tutorial for this API at [lib/ext/README.md](lib/ext/README.md). We implement multiple different extensions and extensively document their code to demonstrate possibilities, and add several useful features to the language. At present, Raven comes with two optional extensions which can be selected via the command-line flag `--extension`:
 - ErrorCredits Extension (`eris`): This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext_error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext_error-credits/ec_dynamic_vec.rav). For example:
 ```bash
