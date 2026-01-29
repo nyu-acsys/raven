@@ -35,7 +35,9 @@ fi
 total_lines=0
 
 # Process each section in order
-for section_name in "${SECTIONS[@]}"; do
+for i in "${!SECTIONS[@]}"; do
+  section_name="${SECTIONS[$i]}"
+  
   # Find line number of section marker
   section_line=$(grep -n "(\* $section_name \*)" "$filepath" | cut -d: -f1 | head -1)
   
@@ -44,11 +46,15 @@ for section_name in "${SECTIONS[@]}"; do
     continue
   fi
   
-  # Find the next section marker or use end of file
-  next_section_line=$(tail -n +$((section_line + 1)) "$filepath" | grep -n "(\* [A-Za-z]* \*)" | head -1 | cut -d: -f1)
-  
-  if [ -n "$next_section_line" ]; then
-    end_line=$((section_line + next_section_line - 2))
+  # Find the next section marker using the next section name
+  if [ $((i + 1)) -lt ${#SECTIONS[@]} ]; then
+    next_section_name="${SECTIONS[$((i + 1))]}"
+    next_section_line=$(grep -n "(\* $next_section_name \*)" "$filepath" | cut -d: -f1 | head -1)
+    if [ -n "$next_section_line" ]; then
+      end_line=$((next_section_line - 2))
+    else
+      end_line=$(wc -l < "$filepath")
+    fi
   else
     end_line=$(wc -l < "$filepath")
   fi
@@ -67,7 +73,7 @@ for section_name in "${SECTIONS[@]}"; do
   fi
   
   # Clean up temp file
-  rm -f "$temp_file"
+  # rm -f "$temp_file"
   
   # Print the row (CSV or table format)
   if [ "$csv_mode" = "--csv" ]; then

@@ -66,7 +66,7 @@ module ProphecyExt (Cont : ListApi) = struct
   (* This is to provide access to the ListExt API  to other modules depending on this module, since other extensions rely on the ListExt. *)
   module ListFns = Cont.ListFns
 
-  (** AstDef *)
+  (* AstDef *)
 
   (* Standard pattern: match on our constructors, defer the rest. *)
   let type_ext_to_name type_ext = match type_ext with

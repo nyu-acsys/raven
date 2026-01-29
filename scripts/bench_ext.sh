@@ -18,11 +18,13 @@ EXT_LIST=(
   "lib/ext/listExt"
 )
 
-EXAMPLES=(
+EC_EXAMPLES=(
   "test/ext_error-credits/amortised_hash.rav"
   "test/ext_error-credits/cf_hashmap.rav"
   "test/ext_error-credits/ec_dynamic_vec.rav"
-# 
+)
+
+PROPH_EXAMPLES=( 
   "test/ext_prophecy/clairvoyant_coin.rav"
   "test/ext_prophecy/lazy_coin.rav"
   "test/ext_prophecy/rdcss.rav"
@@ -89,14 +91,11 @@ count_line() {
 
 
 run_benchmark() {
-  # local array_name=$1
+  local array_name="$1[@]"
   local args=$2
-  # local files=("${!array_name}")
-  # Print table header
-  printf "%-45s %10s %10s %10s %10s %10s\n" "File" "ProgLen" "ProofDecl" "ProofInstr" "Overhead" "Runtime(s)"
-  printf "%-45s %10s %10s %10s %10s %10s\n" "$(printf '%.0s=' {1..45})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})"
+  local files=("${!array_name}")
 
-  for file in "${EXAMPLES[@]}"; do
+  for file in "${files[@]}"; do
     if [ -z "$file" ]; then
       echo ""
       continue
@@ -104,7 +103,7 @@ run_benchmark() {
 
     # echo "Running file $file"
     line_count=$(wc -l < "$file")
-    output=$(raven "$file" --stats)
+    output=$(eval "raven $args '$file' --stats")
     
     # Extract statistics from the output
     program_declarations=$(echo "$output" | grep "Program Declarations" | awk '{print $3}')
@@ -135,7 +134,7 @@ run_benchmark() {
     fi
 
     # Run hyperfine to measure runtime
-    runtime=$(hyperfine --warmup $WARMUP --runs $RUNS $args "raven \"$file\"" --export-json /tmp/hyperfine.json)
+    runtime=$(hyperfine --warmup $WARMUP --runs $RUNS --export-json /tmp/hyperfine.json -- "raven $args \"$file\"")
     runtime=$(jq '.results[0].mean' /tmp/hyperfine.json)
     runtime=$(printf "%.3f" "$runtime")
     
@@ -150,4 +149,9 @@ count_line
 echo
 
 echo "Table 2: Program Overhead and Runtimes for Benchmark Examples"
-run_benchmark
+  # Print table header
+  printf "%-45s %10s %10s %10s %10s %10s\n" "File" "ProgLen" "ProofDecl" "ProofInstr" "Overhead" "Runtime(s)"
+  printf "%-45s %10s %10s %10s %10s %10s\n" "$(printf '%.0s=' {1..45})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})"
+run_benchmark EC_EXAMPLES "--extension eris"
+run_benchmark PROPH_EXAMPLES "--extension prophecy"
+
