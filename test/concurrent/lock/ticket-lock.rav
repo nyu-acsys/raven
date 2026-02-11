@@ -7,8 +7,7 @@ interface LockResource : Library.Type {
   pred resource(r: T)
 }
 
-interface Lock {
-  module R: LockResource
+interface Lock[R: LockResource] {
 
   pred locked(l: Ref)
 
