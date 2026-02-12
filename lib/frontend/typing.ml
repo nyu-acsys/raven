@@ -12,17 +12,21 @@ let type_mismatch_error loc exp_ty fnd_ty =
         \  %{Type}"
        exp_ty fnd_ty)
 
-let arguments_to_string d =
-  if d = 1 then "one argument" else Printf.sprintf "%d arguments" d
+let number_to_string kind d =
+  if d = 1 then Printf.sprintf "one %s" kind else Printf.sprintf "%d %ss" d kind
 
 let tuple_arg_mismatch_error loc expected =
   Error.type_error loc
-    (Printf.sprintf "Expected tuple with %d components" expected)
+    (Printf.sprintf "Expected tuple with %s" (number_to_string "component" expected))
 
-let module_arg_mismatch_error loc typ_constr expected =
+let arg_mismatch_error kind loc typ_constr expected =
   Error.type_error loc
-    (Printf.sprintf "Module %s expects %s" (Type.to_name typ_constr)
-       (arguments_to_string expected))
+    (Printf.sprintf "%s %s expects %s" kind (Type.to_name typ_constr)
+       (number_to_string "argument" expected))
+
+let param_mismatch_error kind loc id expected =
+  Error.type_error loc
+    (Printf.sprintf "%s %s expects %s" kind id (number_to_string "parameter" expected))
 
 let unexpected_functor_error loc =
   Error.type_error loc "A functor cannot be instantiated in this context"
@@ -60,13 +64,13 @@ module ProcessTypeExpr = struct
         | [ tp_arg ] ->
             let+ tp_arg' = process_type_expr tp_arg in
             App (constr, [ tp_arg' ], tp_attr)
-        | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) constr 1)
+        | _ -> arg_mismatch_error "Constructor" (Type.to_loc tp_expr) constr 1)
     | App (Map, tp_list, tp_attr) -> (
         match tp_list with
         | [ tp1; tp2 ] ->
             let+ tp1 = process_type_expr tp1 and+ tp2 = process_type_expr tp2 in
             App (Map, [ tp1; tp2 ], tp_attr)
-        | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) Map 2)
+        | _ -> arg_mismatch_error "Type" (Type.to_loc tp_expr) Map 2)
     | App (Data _, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
         Error.internal_error (Type.to_loc tp_expr)
@@ -2306,20 +2310,32 @@ module ProcessModule = struct
              (Symbol.kind orig_symbol) ident interface_ident
              (Symbol.kind symbol))
 
+  (** Check that module `mod_ident` (M) implements interface `int_ident` (I) *)
   let check_module_type mod_ident int_ident =
     let open Rewriter.Syntax in
+    (* Get qualified idents and symbols of M and I *)
     let+ qual_mod_ident, mod_symbol =
       Rewriter.resolve_and_find mod_ident
-    and+ qual_int_ident, _int_symbol =
+    and+ qual_int_ident, int_symbol =
       Rewriter.resolve_and_find int_ident
     in
-    let interfaces =
-      Rewriter.Symbol.extract mod_symbol ~f:(fun _ _subst -> function
+    (* Extract all interfaces implemented by M and check whether it is fully instantiated *)
+    let interfaces, mod_is_instance =
+      Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance subst -> function
         | Ast.Module.ModDef mod_def ->
             (*Set.map (module QualIdent) mod_def.mod_decl.mod_decl_interfaces ~f:subst*)
-            mod_def.mod_decl.mod_decl_interfaces
-        | _ -> Set.empty (module QualIdent))
+          mod_def.mod_decl.mod_decl_interfaces,
+          List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance
+        | _ -> Set.empty (module QualIdent), true)
     in
+    (* Check whether I is fully instantiated *)
+    let int_is_instance =
+      Rewriter.Symbol.extract int_symbol ~f:(fun is_instance _subst -> function
+        | Ast.Module.ModDef mod_def ->
+            List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance
+        | _ -> true)
+    in
+    (* Check if I is one of M's interfaces *)
     if
       not
         (QualIdent.(qual_mod_ident = qual_int_ident)
@@ -2331,6 +2347,18 @@ module ProcessModule = struct
            !"%s %{QualIdent} does not implement interface %{QualIdent}"
            (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
            mod_ident int_ident)
+    else if
+      (* Make sure that I is the type of M itself rather than the expected type
+         of the module obtained by instantiating *)
+      int_is_instance && not mod_is_instance
+    then
+      Error.type_error
+        (QualIdent.to_loc mod_ident)
+        (Printf.sprintf
+           !"%s %{QualIdent} first needs to be instantiated to obtain a module with interface %{QualIdent}"
+           (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
+           mod_ident int_ident)
+      
 
   let rec process_module (m : Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -2370,40 +2398,44 @@ module ProcessModule = struct
                 let+ mod_def = Rewriter.exit_module mod_def in
                 Module.ModDef mod_def
             | ModInst mod_inst ->
+                (* A functor application `module M : I = F[args]` *)
+                (* Get symbol of I *)
                 let* mod_inst_type =
                   Rewriter.resolve mod_inst.mod_inst_type
                 in
                 let symbol = Module.ModInst { mod_inst with mod_inst_type } in
+                (* Pair up formal parameters of F with arguments `args` *)
                 let* to_check =
                   Rewriter.Option.map mod_inst.mod_inst_def
                     ~f:(fun (mod_inst_func, mod_inst_args) ->
                       let* _ = Rewriter.declare_symbol symbol in
+                      (* Get qualified name of F and its symbol *)  
                       let+ qual_functor_ident, functor_symbol =
                         Rewriter.resolve_and_find
                           mod_inst_func
                       in
+                      (* Get formal parameters of F *)
                       let formals =
                         Rewriter.Symbol.extract functor_symbol ~f:(fun is_instance subst ->
                           function
                           | Ast.Module.ModDef mod_def when not is_instance ->
-                              Logs.info (fun m -> m !"%{QualIdent}" mod_inst_func);
                               List.map mod_def.mod_decl.mod_decl_formals
                                 ~f:(fun mod_inst ->
                                   subst mod_inst.mod_inst_type)
                           | _ -> [])
                       in
+                      (* Pair up `args` and formals *)
                       let args_and_formals =
                         match List.zip mod_inst_args formals with
                         | Ok res -> res
                         | Unequal_lengths ->
-                            Error.type_error (*mod_inst.mod_inst_loc*) (QualIdent.to_loc mod_inst_func)
-                              (Printf.sprintf
-                                 !"Module %{QualIdent} expects %d arguments"
-                                 mod_inst_func (List.length formals))
+                            arg_mismatch_error "Module" (QualIdent.to_loc mod_inst_func) (Type.Var mod_inst_func)
+                              (List.length formals)
                       in
                       (qual_functor_ident, mod_inst.mod_inst_type) :: args_and_formals)
                 in
                 let to_check = Option.value to_check ~default:[] in
+                (* Check that `args` satisfy module types of formals *)
                 let+ _ =
                   Rewriter.List.iter to_check ~f:(fun (m, i) ->
                       check_module_type m i)
@@ -2496,11 +2528,11 @@ module ProcessModule = struct
                && (Set.is_empty seen || List.is_empty mod_def)
             then
               (* case: parent_symbol should be inherited now *)
-              let _ = Logs.info (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
+              let _ = Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
               let parent_symbol_def =
                 match parent_symbol.symbol_def with
                 | CallDef call when not @@ Callable.is_abstract call ->
-                  Logs.info (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
+                  Logs.debug (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
                   Module.CallDef (Callable.make_free call)
                 | CallDef
                     ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
@@ -2580,6 +2612,7 @@ module ProcessModule = struct
     let* ( mod_decl_returns,
            mod_decl_interfaces,
            interface_ident,
+           interface_formals,
            (merged_symbols, symbols_to_check) ) =
       let+ interface_opt =
         Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
@@ -2611,23 +2644,24 @@ module ProcessModule = struct
       in
       match interface_opt with
       | Some (qual_interface_ident, interface_ident, ModDef interface) ->
-          ( Some qual_interface_ident,
-            Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
-            interface_ident,
-            merge_defs qual_interface_ident interface.mod_def m.mod_def )
+        ( Some qual_interface_ident,
+          Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
+          interface_ident,
+          Some interface.mod_decl.mod_decl_formals,
+          merge_defs qual_interface_ident interface.mod_def m.mod_def )
       | _ ->
           let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
           let interfaces =
             if is_root then m.mod_decl.mod_decl_interfaces
             else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
           in
-          (None, interfaces, mod_ident, (m.mod_def, Map.empty (module Ident)))
+          (None, interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident)))
     in
 
     (*let inherited_symbols = List.rev inherited_symbols in*)
     let mod_def = mod_def_formals @ merged_symbols in
-    let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
-    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol.symbol_def)) | _ -> ()) mod_def in
+    let _ = Logs.debug (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
+    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.debug (fun m -> m !"%{Ident}" (Symbol.to_name symbol.symbol_def)) | _ -> ()) mod_def in
     (* Find rep type and add it to module declaration *)
     let mod_decl_rep =
       List.fold_left mod_def ~init:None ~f:(fun rep_type -> function
@@ -2686,6 +2720,33 @@ module ProcessModule = struct
       }
     in
 
+    (* Make sure that the module preserves the parameters of its interface *)
+    let _ =
+      let interface_formals = Option.value interface_formals ~default:[] in
+      match interface_formals with
+      | [] -> ()
+      | _ ->
+        let res =
+          List.iter2 mod_decl.mod_decl_formals interface_formals
+            ~f:(fun param oparam ->
+              if
+                Ident.(param.mod_inst_name <> oparam.mod_inst_name)
+                || QualIdent.(param.mod_inst_type <> oparam.mod_inst_type)
+              then
+                Error.type_error param.mod_inst_loc
+                  (Printf.sprintf
+                     !"Parameter %{Ident} of %s %{Ident} does not match declaration of \
+                       parameter %{Ident} of interface %{QualIdent}"
+                     param.mod_inst_name (Symbol.kind (ModDef m)) mod_decl.mod_decl_name
+                     oparam.mod_inst_name interface_ident))
+        in
+        match res with
+        | Ok list -> list
+        | Unequal_lengths ->
+          param_mismatch_error "Interface" (Ident.to_loc mod_decl.mod_decl_name)
+            (QualIdent.to_string interface_ident) (List.length interface_formals)
+    in
+    
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
         | Module.SymbolDef {symbol_def = ModInst { mod_inst_def = Some _; _ }; _} | Module.Import _ -> Rewriter.return ()
@@ -2695,7 +2756,7 @@ module ProcessModule = struct
     (* Check and rewrite all symbols *)
     let* mod_def = Rewriter.List.map merged_symbols ~f:process_instr in
 
-    (* Check symbols against interface *)
+    (* Check symbols against what is specified in the interface *)
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
         | SymbolDef symbol ->

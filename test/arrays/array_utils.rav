@@ -1,6 +1,7 @@
 // This file is just the concatenation of array.rav and ordered_array.rav, for benchmarking purposes
 
-interface Array[E: Library.Type] {
+interface Array {
+  module E: Library.Type
   rep type T
 
   func loc(a: T, i: Int) returns (r: Ref)
@@ -227,7 +228,9 @@ interface OrderedArray[E: Library.OrderedType] : Array {
       i <= j && sorted_map_seg(m, i, j) ==> 
         k !in set_of_map(m, i, map_find(m, i, j, k)) &&
         k !in set_of_map(m, map_find(m, i, j, k) + 1, j)
-  { }
+  { 
+    invertable2();
+  }
 
   lemma map_insert_content_set(m: Map[Int, E], m1: Map[Int, E], idx: Int, k: E, len: Int, new_len: Int)
     requires sorted_map_seg(m, 0, len)

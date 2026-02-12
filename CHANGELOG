@@ -4,7 +4,10 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
+### Fixed
 
+- Fixed some loop holes when type-checking modules against interfaces.
+	
 ## [1.1.0] - 2026-01-27
 
 ### Added
