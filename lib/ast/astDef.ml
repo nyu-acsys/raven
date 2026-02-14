@@ -1285,7 +1285,7 @@ module Stmt = struct
   let spec_error_msg spec call_id loc =
     List.map ~f:(fun msg -> msg call_id loc) spec.spec_error
 
-  type var_def = { var_decl : var_decl; var_init : expr option }
+  type var_def = { var_decl : var_decl; var_init : expr option; var_is_free: bool }
 
   type new_desc = {
     new_lhs : qual_ident;
@@ -2117,6 +2117,10 @@ module Callable = struct
       | true -> "auto "
       | false -> ""
     in
+    let free_modifier = match call_decl.call_decl_is_free with
+      | true -> "free "
+      | false -> ""
+    in
     let kind =
       match call_decl.call_decl_kind with
       | Pred -> "pred"
@@ -2142,7 +2146,7 @@ module Callable = struct
           fprintf ppf "@\n/* mask: (@[<0>%a@]) */" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
     in
     fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a@]" 
-      (auto_modifier ^ kind) 
+      (free_modifier ^ auto_modifier ^ kind) 
       Ident.pr call_decl.call_decl_name 
       (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
       pr_returns call_decl.call_decl_returns 
@@ -2231,13 +2235,14 @@ module Callable = struct
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
 
   (** Change the given symbol to one whose correctness is assumed *)
-  let make_free callable =
-    if is_abstract callable then callable else
-      let call_def = match callable.call_def with
+  let set_free callable =
+    let call_def =
+      if is_abstract callable then callable.call_def else
+        match callable.call_def with
         | ProcDef proc_def -> ProcDef { proc_body = None }
         | call_def -> call_def
-      in
-      { call_def; call_decl = { (to_decl callable) with call_decl_is_free = true } }
+    in
+    { call_def; call_decl = { (to_decl callable) with call_decl_is_free = true } }
 
   let is_atomic c =
     List.exists (c.call_decl_precond @ c.call_decl_postcond) ~f:(fun spec -> spec.spec_atomic)
@@ -2252,6 +2257,7 @@ module Module = struct
     type_def_expr : type_expr option;
     type_def_rep : bool;
     type_def_loc : location;
+    type_def_is_free : bool;
   }
 
   type constr_def = {
@@ -2273,6 +2279,7 @@ module Module = struct
     mod_inst_type : QualIdent.t;
     mod_inst_def : (QualIdent.t * QualIdent.t list) option;
     mod_inst_is_interface : bool;
+    mod_inst_is_free : bool;
     mod_inst_loc : location;
   }
 
@@ -2311,10 +2318,8 @@ module Module = struct
     | VarDef of Stmt.var_def
     | CallDef of Callable.t
 
-  and symbol_descr = { symbol_def: symbol; is_admitted: bool; }
-
   and module_instr =
-    | SymbolDef of symbol_descr
+    | SymbolDef of symbol
     | Import of import_directive
 
   and t = {
@@ -2345,7 +2350,7 @@ module Module = struct
   and pr_instr ppf =
     let open Stdlib.Format in
     function
-    | SymbolDef symbol -> pr_symbol ppf symbol.symbol_def
+    | SymbolDef symbol -> pr_symbol ppf symbol
     | Import { import_name = qid; import_all = all; _ } ->
       fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
 
@@ -2356,14 +2361,17 @@ module Module = struct
     function
     | ModDef md -> pr ppf md
     | ModInst ma ->
-        fprintf ppf "@[<2>module@ %a : %a%a@]" Ident.pr ma.mod_inst_name
+        fprintf ppf "@[<2>%smodule@ %a : %a%a@]" 
+          (if ma.mod_inst_is_free then "free " else "")
+          Ident.pr ma.mod_inst_name
           QualIdent.pr ma.mod_inst_type
           (fun ppf -> function
             | None -> ()
             | Some (t, ts) -> fprintf ppf " =@ %a[%a]" QualIdent.pr t QualIdent.pr_list ts)
           ma.mod_inst_def
     | TypeDef ta ->
-        fprintf ppf "@[%stype %a%a@]"
+        fprintf ppf "@[%s%stype %a%a@]"
+          (if ta.type_def_is_free then "free " else "")
           (if ta.type_def_rep then "rep " else "")
           Ident.pr ta.type_def_name
           (fun ppf -> function
@@ -2444,12 +2452,18 @@ module Module = struct
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
-  let rec set_free md =
+  let rec set_symbol_free = function
+    | ModDef md -> ModDef (set_free md)
+    | CallDef cdef -> CallDef (Callable.set_free cdef)
+    | TypeDef td -> TypeDef { td with type_def_is_free = true }
+    | VarDef vd -> VarDef { vd with var_is_free = true }
+    | ModInst mi -> ModInst { mi with mod_inst_is_free = true }
+    | symbol -> symbol
+  and set_free md =
     let mod_decl = { md.mod_decl with mod_decl_is_free = true } in
     { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr -> 
         match instr with
-        | SymbolDef ({ symbol_def = ModDef md; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (ModDef (set_free md)) }
-        | SymbolDef ({ symbol_def = CallDef cdef; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (CallDef (Callable.make_free cdef)) }
+        | SymbolDef symbol -> SymbolDef (set_symbol_free symbol)
         | _ -> instr) }
 end
 
@@ -2493,13 +2507,25 @@ module Symbol = struct
       match call_def.call_decl.call_decl_kind with
       | Lemma ->
         (match call_def.call_def with
-        | ProcDef {proc_body = None } -> "axiom"
+        | ProcDef { proc_body = None } -> "axiom"
         | _ -> "lemma")
       | Proc -> "procedure"
       | Func -> "function"
       | Pred -> "predicate"
       | Invariant -> "invariant"
 
+  let is_free = function
+    | ModDef mod_def -> mod_def.mod_decl.mod_decl_is_free
+    | ModInst mod_inst -> mod_inst.mod_inst_is_free
+    | TypeDef type_def -> type_def.type_def_is_free
+    | ConstrDef cdef -> false
+    | DestrDef cdef -> false
+    | VarDef var_def -> var_def.var_is_free
+    | FieldDef field_def -> false
+    | CallDef call_def -> call_def.call_decl.call_decl_is_free
+
+  let set_free = Module.set_symbol_free
+  
   let pr = pr_symbol
 
   let to_string m = Print.string_of_format pr m

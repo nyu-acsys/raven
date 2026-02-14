@@ -4,5 +4,5 @@
 module ErrorCreds {
     field error_cred : Library.Fraction
 
-    admitted val error_loc: Ref
+    free val error_loc: Ref
 }

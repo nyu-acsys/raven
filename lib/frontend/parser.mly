@@ -25,7 +25,7 @@ open Ast
 %token HAVOC NEW RETURN OWN AU AUCOMMIT
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
-%token PROC AXIOM LEMMA ADMITTED
+%token PROC AXIOM LEMMA FREE
 %token CASE DATA ATOMICTOKEN FIELD
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
@@ -85,6 +85,7 @@ module_def:
                   mod_inst_type;
                   mod_inst_name = decl.mod_decl_name;
                   mod_inst_is_interface = is_interface;
+                  mod_inst_is_free = false;
                   mod_inst_loc = decl.mod_decl_loc }
   | symbol -> symbol
 }
@@ -118,6 +119,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = Some (mod_name, args);
                      mod_inst_is_interface = false;
+                     mod_inst_is_free = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -126,6 +128,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = None;
                      mod_inst_is_interface = false;
+                     mod_inst_is_free = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -135,22 +138,25 @@ mod_inst_args:
 | { [] }
     
 member_def_list_opt:
-| m = member_def; ms = member_def_list_opt { m :: ms }
-| m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
+| m = member_def_maybe_free; ms = member_def_list_opt { m :: ms }
+| m = member_def_maybe_free; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
-member_def:
-| is_admitted = admitted; def = field_def { Module.SymbolDef { symbol_def = (Module.FieldDef def); is_admitted } }
-| is_admitted = admitted; def = module_def { Module.SymbolDef { symbol_def = def; is_admitted } }
-/*| def = interface_def { Module.SymbolDef def }*/
-| is_admitted = admitted; def = type_def { Module.SymbolDef { symbol_def = Module.TypeDef def; is_admitted } }
-| is_admitted = admitted; def = var_def { Module.SymbolDef { symbol_def = Module.VarDef def; is_admitted } }
-| is_admitted = admitted; def = proc_def 
-| is_admitted = admitted; def = func_def {Module.SymbolDef { symbol_def = Module.CallDef def; is_admitted } }
+member_def_maybe_free:
+| is_free = free symbol = member_def {
+  Module.SymbolDef (if is_free then Symbol.set_free symbol else symbol) }
 | imp = import_dir { Module.Import imp }
+
+member_def:
+| def = field_def { Module.FieldDef def }
+| def = module_def { def }
+| def = type_def { Module.TypeDef def }
+| def = var_def { Module.VarDef def }
+| def = proc_def 
+| def = func_def { Module.CallDef def }
   
-admitted:
-| ADMITTED { true }
+free:
+| FREE { true }
 | { false }
 
 field_def:
@@ -258,6 +264,7 @@ module_param:
              mod_inst_type = t;
              mod_inst_def = None;
              mod_inst_is_interface = false;
+             mod_inst_is_free = false;
              mod_inst_loc = Loc.make $startpos $endpos;
            }
   in
@@ -283,6 +290,7 @@ type_decl:
     Module.{ type_def_name = id;
              type_def_expr = None;
              type_def_rep = m;
+             type_def_is_free = false;
              type_def_loc = Loc.make $startpos $endpos }
   in
   ta
@@ -559,12 +567,12 @@ with_clause:
                  var_implicit = false; }
         in
 
-        let nondet_var_def = VarDef {var_decl = nondet_var; var_init = None} in
+        let nondet_var_def = VarDef {var_decl = nondet_var; var_init = None; var_is_free = false} in
 
         let checks =
           let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) e1 in
           let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
-          List.map (fun decl -> { stmt_desc = Basic (VarDef { var_decl = decl; var_init = None }); stmt_loc = decl.var_loc } ) vs @
+          List.map (fun decl -> { stmt_desc = Basic (VarDef { var_decl = decl; var_init = None; var_is_free = false }); stmt_loc = decl.var_loc } ) vs @
           [{ stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) }; assert_stmt; assume_false]
         in
         let assume_e = Stmt.mk_assume_expr ~loc e in
@@ -630,9 +638,9 @@ local_var_def:
         | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())*)
         | _ -> None
       in
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init })); stmt]
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = false })); stmt]
   | None ->
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None }))]
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = false }))]
 }
 
     
@@ -645,7 +653,7 @@ var_def:
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = e }
+  Stmt.{ var_decl = decl; var_init = e; var_is_free = false }
 }
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr {
   let decl =
@@ -655,7 +663,7 @@ var_def:
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = Some e }
+  Stmt.{ var_decl = decl; var_init = Some e; var_is_free = false }
 }
 
 

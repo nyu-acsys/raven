@@ -274,15 +274,15 @@ let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTre
   let new_symbols, mod_def = Base.List.fold_map mdef.mod_def ~init:[] ~f:(fun accum instr ->
     match instr with
     | Import _ -> accum, instr
-    | SymbolDef ({ symbol_def = (ModDef mdef'); _ } as symbol)  -> begin
-      match (Map.find node.children (Symbol.to_name symbol.symbol_def)) with
+    | SymbolDef (ModDef mdef' as symbol)  -> begin
+      match (Map.find node.children (Symbol.to_name symbol)) with
       | None -> accum, (SymbolDef symbol)
       | Some child -> 
         let mdef' = module_add_descendants mdef' child in
-        accum, SymbolDef { symbol with symbol_def = ModDef mdef'; }
+        accum, SymbolDef (ModDef mdef')
       end
-    | SymbolDef ({ symbol_def = (CallDef call_def); _ } as symbol) -> begin
-      match (Map.find node.children (Symbol.to_name symbol.symbol_def)) with
+    | SymbolDef (CallDef call_def as symbol) -> begin
+      match (Map.find node.children (Symbol.to_name symbol)) with
       | None -> accum, (SymbolDef symbol)
       | Some (Node child) ->
         
@@ -301,14 +301,14 @@ let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTre
         in
           let call_def = { call_def with call_decl }
       in
-      new_mod_symbols @ accum, SymbolDef { symbol with symbol_def = CallDef call_def; }
+      new_mod_symbols @ accum, SymbolDef (CallDef call_def)
 
       end
     | _ -> accum, instr
   )
   in
 
-  let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef { symbol_def = def; is_admitted = false }) (node.symbols @ new_symbols) in
+  let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef def) (node.symbols @ new_symbols) in
 
   let mdef = { mdef with mod_def = new_instr @ mod_def} in 
 
@@ -898,7 +898,7 @@ module Stmt = struct
         let+ _ = add_locals [ var_decl ] in
         {
           stmt with
-          stmt_desc = Basic (VarDef { var_decl; var_init = new_init });
+          stmt_desc = Basic (VarDef { var_decl; var_init = new_init; var_is_free = var_def.var_is_free });
         }
     | Stmt.Basic (StmtExt (stmt_ext, stmt_args)) ->
       let* stmt_ext = !stmt_ext_rewrite_types_ref ~f stmt_ext in
@@ -923,7 +923,7 @@ module Stmt = struct
             and+ var_init =
               Option.map var_def.var_init ~f:(Expr.rewrite_qual_idents ~f)
             in
-            { stmt with stmt_desc = Basic (VarDef { var_decl; var_init }) }
+            { stmt with stmt_desc = Basic (VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }) }
         | Assign assign ->
             let+ assign_rhs = Expr.rewrite_qual_idents ~f assign.assign_rhs in
             let assign_lhs = Base.List.map assign.assign_lhs ~f in
@@ -1155,14 +1155,14 @@ module Module = struct
       List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
-            let* symbol_def = f symbol.symbol_def in
+            let* symbol_def = f symbol in
             let* _ = set_symbol symbol_def in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
             let* tbl = get_table in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
-            return (SymbolDef { symbol with symbol_def })
+            return (SymbolDef symbol_def)
         | import -> return import)
     in
     let mdef = { mdef with mod_def = symbols } in
@@ -1176,17 +1176,17 @@ module Module = struct
       List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
             let* symbol_def =
-              match symbol.symbol_def with
+              match symbol with
               | ModDef mod_def ->
                   let* new_mod_def = rec_rewrite_symbols ~f mod_def in
                   return @@ ModDef new_mod_def
-              | _ -> return symbol.symbol_def
+              | _ -> return symbol
             in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
             let+ symbol_def = f symbol_def and+ _ = set_symbol symbol_def in
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
-            SymbolDef { symbol with symbol_def}
+            SymbolDef symbol_def
         | import -> return import)
     in
     let mdef = { mdef with mod_def = symbols } in
@@ -1253,7 +1253,7 @@ module Module = struct
           and+ var_init =
             Option.map var_def.var_init ~f:(Expr.rewrite_types ~f)
           in
-          VarDef { var_decl; var_init }
+          VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }
       | FieldDef field_def ->
           let+ field_type = f field_def.field_type in
           FieldDef { field_def with field_type }
@@ -1332,7 +1332,7 @@ module Module = struct
         and+ var_init =
           Option.map var_def.var_init ~f:(Expr.rewrite_qual_idents ~f)
         in
-        VarDef { var_decl; var_init }
+        VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }
     | FieldDef field_def ->
         let+ field_type = Type.rewrite_qual_idents ~f field_def.field_type in
         FieldDef { field_def with field_type }
@@ -1400,7 +1400,7 @@ module Symbol = struct
 
         (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
         match symbol1 with
-        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.make_free call_def)
+        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.set_free call_def)
         | _ -> symbol1
 
   let reify_type_def loc (name, symbol, subst) :

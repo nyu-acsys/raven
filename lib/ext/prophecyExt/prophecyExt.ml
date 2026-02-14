@@ -437,6 +437,7 @@ module ProphecyExt (Cont : ListApi) = struct
         mod_inst_type = ProphPredefs.proph_mod_qi;
         mod_inst_def = Some (ProphPredefs.proph_mod_qi, [type_module_qi]);
         mod_inst_is_interface = false;
+        mod_inst_is_free = false;
         mod_inst_loc = loc;
       } in
 
@@ -541,8 +542,9 @@ module ProphecyExt (Cont : ListApi) = struct
         let tl_var = Type.mk_var_decl ~const:true ~ghost:true (Ident.fresh loc "$proph_oneshot_trail") (Cont.ListFns.mk_list_tp loc (Expr.to_type proph_val)) in
         let+ tl_var_qi = Rewriter.introduce_typecheck_symbol' ~loc (
           VarDef { 
-            var_decl=tl_var;
-            var_init=None
+            var_decl = tl_var;
+            var_init = None;
+            var_is_free = false;
           }
         ) in
 
@@ -600,6 +602,7 @@ module ProphecyExt (Cont : ListApi) = struct
         Stmt.{ 
           var_decl = Type.mk_var_decl ~ghost:true proph_read_var_ident ~loc proph_read_type ; 
           var_init = None;
+          var_is_free = false;
         }, proph_read_var_ident
       in
 

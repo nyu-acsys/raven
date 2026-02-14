@@ -4,10 +4,15 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Replace 'admitted' keyword with 'free' and unify handling of admitted and free symbols in AST.
+
 ### Fixed
 
+- Fix bug preventing a functor to abstract over module members of its interface.
 - Fixed some loop holes when type-checking modules against interfaces.
-	
+
 ## [1.1.0] - 2026-01-27
 
 ### Added

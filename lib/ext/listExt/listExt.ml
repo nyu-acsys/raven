@@ -294,7 +294,7 @@ module ListExt (Cont : Ext) = struct
         let does_elem_exist = List.find lib_list_module.mod_def ~f:(fun mem -> 
           match mem with 
           | Import _ -> false 
-          | SymbolDef symbol -> Ident.(Symbol.to_name symbol.symbol_def = ident) 
+          | SymbolDef symbol -> Ident.(Symbol.to_name symbol = ident) 
         ) in
       
         match does_elem_exist with
@@ -437,6 +437,7 @@ module ListExt (Cont : Ext) = struct
             mod_inst_type = Predefs.lib_list_mod_qual_ident;
             mod_inst_def = Some (Predefs.lib_list_mod_qual_ident, [type_module_qi]);
             mod_inst_is_interface = false;
+            mod_inst_is_free = false;
             mod_inst_loc = loc;
       } in
 

@@ -40,7 +40,7 @@ let root_dependencies (tbl: SymbolTbl.t) (mdef: Module.t) (ag: Graph.t) =
   and analyze_module g ag mdef =
     let* _ = Rewriter.enter_module mdef in
     let* g, ag = Rewriter.List.fold_left mdef.mod_def ~f:(fun (g, ag) -> function
-        | SymbolDef s -> analyze_symbol g ag s.symbol_def
+        | SymbolDef s -> analyze_symbol g ag s
         | _ -> Rewriter.return (g, ag))
         ~init:(g, ag)
     in

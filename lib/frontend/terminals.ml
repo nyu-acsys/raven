@@ -4,8 +4,7 @@ open Parser
 let keyword_table = Hashtbl.create 128
 let _ =
   List.iter (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
-    ([("admitted", ADMITTED);
-      ("assert", SPEC Stmt.Assert);
+    ([("assert", SPEC Stmt.Assert);
       ("assume", SPEC Stmt.Assume);
       ("au", AU);
       ("auCommit", AUCOMMIT);
@@ -21,9 +20,10 @@ let _ =
       ("exhale", SPEC Stmt.Exhale);
       ("exists", QUANT(Expr.Exists));
       ("false", CONSTVAL (Expr.Bool false));
+      ("field", FIELD);
       ("forall", QUANT(Expr.Forall));
       ("fold", USE (Stmt.Fold));
-      ("field", FIELD);
+      ("free", FREE);
       ("func", FUNC (Func));
       ("ghost", GHOST);
       ("havoc", HAVOC);

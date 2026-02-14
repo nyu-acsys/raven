@@ -113,7 +113,7 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
       let* _ =
         Rewriter.List.map new_dropped_args ~f:(fun var ->
             Rewriter.introduce_symbol
-              (Module.VarDef { var_decl = var; var_init = None }))
+              (Module.VarDef { var_decl = var; var_init = None; var_is_free = false }))
       in
       
       let new_renaming_map =
@@ -1070,7 +1070,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* _ =
         Rewriter.List.map new_dropped_args ~f:(fun var ->
             Rewriter.introduce_symbol
-              (Module.VarDef { var_decl = var; var_init = None }))
+              (Module.VarDef { var_decl = var; var_init = None; var_is_free = false }))
       in
       
       let new_renaming_map =
@@ -1278,7 +1278,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             in
             let+ _ =
               Rewriter.introduce_symbol
-                (Module.VarDef { var_decl = new_var_decl; var_init = None })
+                (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = false })
             in
             new_var_decl)
       in
@@ -1303,7 +1303,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             let new_var_decl = { lhs with var_name = new_var_name } in
             let* _ =
               Rewriter.introduce_symbol
-                (Module.VarDef { var_decl = new_var_decl; var_init = None })
+                (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = false })
             in
 
             Rewriter.return (Expr.from_var_decl new_var_decl))
@@ -1357,7 +1357,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let* _ =
             Rewriter.List.map new_dropped_args ~f:(fun var ->
                 Rewriter.introduce_symbol
-                  (Module.VarDef { var_decl = var; var_init = None }))
+                  (Module.VarDef { var_decl = var; var_init = None; var_is_free = false }))
           in
 
           (* let build_exhale_spec (spec: Stmt.spec) =
@@ -1628,7 +1628,7 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
 
             let* _ =
               Rewriter.introduce_symbol
-                (Module.VarDef { var_decl = atomic_token_var; var_init = None })
+                (Module.VarDef { var_decl = atomic_token_var; var_init = None; var_is_free = false })
             in
 
             Rewriter.return c)
@@ -1677,6 +1677,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
               mod_inst_def =
                 Some (Predefs.lib_frac_mod_qual_ident, [ tp_module ]);
               mod_inst_is_interface = false;
+              mod_inst_is_free = false;
               mod_inst_loc = f.field_loc;
             }
         in
@@ -2148,7 +2149,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                     let* _ =
                       Rewriter.introduce_symbol
-                        (VarDef { var_decl = new_var_decl; var_init = None })
+                        (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = false })
                     in
 
                     let var_map =
@@ -2191,7 +2192,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
               let* _ =
                 Rewriter.introduce_symbol
-                  (VarDef { var_decl = new_var_decl; var_init = None })
+                  (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = false })
               in
 
               let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
@@ -2221,7 +2222,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                   let* _ =
                     Rewriter.introduce_symbol
-                      (VarDef { var_decl = new_var_decl; var_init = None })
+                      (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = false })
                   in
 
                   let var_map =
@@ -2304,7 +2305,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
             let+ _ =
               Rewriter.introduce_symbol
-                (VarDef { var_decl = new_var_decl; var_init = None })
+                (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = false })
             in
 
             Map.set map ~key:var ~data:new_var_decl)
@@ -2863,7 +2864,7 @@ Specification Count: %d"
       match instr with
       | Import _ -> Rewriter.return ps
       | SymbolDef s -> 
-        let+ symbolStats = computeSymbolStats s.symbol_def in
+        let+ symbolStats = computeSymbolStats s in
         merge_prog_stats ps symbolStats
     ) in 
     let+ _ = Rewriter.exit_module md in
