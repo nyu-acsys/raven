@@ -7,6 +7,7 @@ All notable changes to this project will be docmented in this file.
 ### Changed
 
 - Replace 'admitted' keyword with 'free' and unify handling of admitted and free symbols in AST.
+- Set prophecy extension to be the default extension.
 
 ### Fixed
 
