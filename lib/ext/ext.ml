@@ -4,7 +4,7 @@ type supported_extensions =
   | ProphecyExt
 
 let ext_map = [
-  ("default", DefaultExt);
+  ("default", ProphecyExt);
   ("eris", ErisExt); 
   ("prophecy", ProphecyExt)
 ]

@@ -1,6 +1,6 @@
 // Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module.
 
-// This module is used to define a unique field and Ref location for use by this extension. Here we also see the use of the `admitted` keyword.
+// This module is used to define a unique field and Ref location for use by this extension. Here we also see the use of the `free` keyword.
 module ErrorCreds {
     field error_cred : Library.Fraction
 

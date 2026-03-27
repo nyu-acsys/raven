@@ -281,7 +281,8 @@ let smt_timeout =
 
 let extension_mode =
   let doc = "Extension mode: default, eris, or prophecy." in
-  Arg.(value & opt (enum Ext.ext_map) Ext.DefaultExt & info [ "extension" ] ~doc)
+  let supported_exts = List.map ~f:(fun (e, _) -> (e, e)) Ext.ext_map in
+  Arg.(value & opt (enum supported_exts) "default" & info [ "extension" ] ~doc)
 
 let greeting = "Raven version " ^ Config.version
 
@@ -319,7 +320,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
   in
   let _ = 
     (* [EXT] Overwriting which extensions are activated. *)
-    Ext.overwrite_ext(Ext.module_map extension_mode);
+    Ext.overwrite_ext(Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode));
   in
   try `Ok (parse_and_check_all config input_files) with
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
