@@ -1,0 +1,559 @@
+import Library.Excl
+import Library.Auth
+import Library.ResourceAlgebra
+// This file describes the following program:
+// A user calls the procedure "coinflip" with a pointer "r" and a value carrying the state
+// r.value: Int, r.flag: Bool, r.value_read: Bool, and r.value_published: Once,
+// where *r.flag == false, and *r.value_read == false, and where there exists some value w: Int,
+// *r.value == w.
+// Pictorally:
+// coinflip(r) is called with
+// ===================================~~~~~~~~~~~~~~~~~~~|
+// | r.value | r.flag | r.value_read | r.value_published |
+// |=========+========+==============+~~~~~~~~~~~~~~~~~~~|
+// |    w    |  false |        false |   auth(published, |
+// |         |        |              |        published) |
+// |==================================~~~~~~~~~~~~~~~~~~~|
+// This procedure "coinflip" will appear as an atomic operation wherein a non atomic
+// "coinflip_inner" is called, which spawns two distinct threads.
+// This will be accomplished by the following instructions:
+// In coinflip:
+// - Call coinflip_inner using an atomic token
+// In coinflip_inner:
+// - spawn helper thread with the distinct identity "true"
+// - call helper thread with the distinct identity "false"
+// The threads race to swap the value of r.flag to true, and the
+// thread that wins then sets r.value to w^2 + 1 or -(w^2) - 1.
+// Each thread executes the following set of instructions:
+// - Read r.value into v
+// - Set r.value_read to true
+// - Race to set r.flag to true:
+//   - In the case that the thread won, set r.value to (v^2 + 1) or to (-v^2 - 1) depending on the thread identity
+//   - Otherwise, do nothing.
+// Meanwhile, an interferer thread runs,
+// which, while r.value_read being set to true, and r.flag still being false,
+// attempts to set r.value to 1:
+// - while true:
+//   - read r.value into the variable "n"
+//   - read r.value_read into flag_value_read
+//   - Conditionally perform a restricted double-compare single swap:
+//     - When r.value_read is true,
+//       rdcss(r.flag, r.value, false, n, 1)
+//       (that is, if r.value is still w and r.flag is still false, set _just_ r.value to 1)
+//
+// Because of the interferer thread, it can be the case that between the original read of r.value into v, and the final write,
+// r.value is set to a temporary "spoiler" value, which is not (w^2) + 1 nor -(w^2) - 1.
+//
+// In order to proof that this works, the following technique will be used:
+// The protocol will be described as an invariant, which allows four basic
+// configurations of the state:
+// Pending (1), Accepted (2), Done (3), and Gone (4).
+// The Pending state is the initial state of the protocol.
+// In Accepted, a winning thread has been predicted, and the atomic token has been deposited,
+// allowing it to be retrieved later to linearize to (w^2) + 1 or -(w^2) - 1.
+// Done comprises three disjoint states:
+// done-original,
+// done-interferred, and
+// done-set
+// In all three of these, the token is already committed, and "published" is set;
+// the three merely differ on where they are after the commit: done-interfered happens
+// when the interferer thread sets to a spoiler value,
+// and finally done-set happens when one of the helper threads finally sets r.value to
+// w^2 + 1 or -(w^2) - 1.
+// Finally, in (4) Gone, the token has been removed from the invariant.
+// The structure is otherwise similar to RDCSS, with "excl" tokens used to enforce
+// a linear progression of the protocol.
+//
+// The state of the program itself will also be described as an invariant, containing the invariant
+// of the protocol, as well as ownership of the actual state itself.
+// XX Todo: does this even make sense? It might be the case that we don't need this, because unlike
+//          in the case of rdcss, there is no "quiescent" state.
+//
+// Then, the instructions will be interleaved with ghost code:
+// > Allocate prophecy
+// > Fold prophecy, token into invariant, using excl. tokens
+//   to ensure that the state UNFOLDS as pending and FOLDS
+//   as accepted
+// - Call coinflip_inner using an atomic token
+// > Unfold invariant, using "published" from invariant
+//
+// In coinflip_inner:
+// - spawn helper thread with the distinct identity "true"
+// - spawn helper thread with the distinct identity "false"
+//
+// In helper thread:
+// > Unfold invariant to get read permissions, using excl.
+//   tokens to ensure state is accepted
+// - Read r.value into v
+// > Use the prophesied winner to determine whether this is
+//   the winning thread. If it is, then commit the token
+//   and fold the invariant at done-orignal.
+//   If it is not the winning thread, remain in accepted.
+// > Unfold the invariant, using excl. tokens to ensure
+//   that the invariant is at least in accepted
+// - Set r.value_read to true
+// > fold the invariant, in the case of the winning thread
+//   (using excl tokens to exclude pending + accepted +
+//    future states),
+//   as done-interfered, and in the case
+//   of the losing thread as whatever it was before
+// - Race to set r.flag to true:
+//     > in the case of the winning thread,
+//       unfold and use excl tokens to unfold at exactly
+//       done-interfered
+//     > in the case of the losing thread, use the fact
+//       that the flag is already at set to ensure that
+//       we are past accepted.
+//   - In the case that the thread won, set r.value to (v^2 + 1) or to (-v^2 - 1) depending on the thread identity
+//     > winner: fold at done-set
+//     > loser: nothing
+//   - Otherwise, do nothing.
+//     > in the case of the losing thread, use the fact
+//       that the flag is already at set to ensure that
+//       we are past accepted.
+//     > in the case of the winning thread, use the fact
+//       that done-interfered still has flag as false
+//       to prove a contradiction.
+// The excl. tokens will be set up in the following way:
+// they will be Excl[Bool], and each helper thread
+// receives, as input, one excl token for each state of done, and for gone.
+// The coinflip procedure itself receives an Excl[Unit] token for pending
+//  ensuring the state is accepted, and the coinflip_inner procedure
+// likewise receives an Excl[Unit] token for Pending, which is taken from
+// the original pending state, and ensures that the current state is exactly
+// accepted.
+// In this way, the excl. tokens essentially ensure that the state of the
+// protocol matches exactly the place within the control flow.
+// NOTE: remove the dependence on squaring,
+//       to ease stress on the SMT algorithm.
+// Next step: step through this and make sure that it works exactly as spec'd.
+//
+// Works exactly as spec'd:
+module Unit: ResourceAlgebra {
+  rep type T = data { case unit }
+  val id: T = unit;
+  func comp(x: T, y: T) returns (res: T) { unit }
+  func frame(x: T, y: T) returns (res: T) { unit }
+  func valid(x: T) returns (res: Bool) { true }
+  func fpuAllowed(x: T, y: T) returns (res: Bool) { true }
+}
+
+module Published: ResourceAlgebra {
+  rep type T = data {
+    case unpublished;
+    case published;
+    case top
+  }
+
+  val id: T := unpublished;
+
+  func comp(x: T, y: T) returns (res: T) {
+    (x == unpublished) ? y : (
+    (y == unpublished) ? x : (
+    (x == top || y == top) ? top : published))
+  }
+
+  func frame(x: T, y: T) returns (res: T) {
+    (x == published && y == unpublished) ? published : (
+    (x == published && y == published) ? x :
+    ((x == unpublished && y == unpublished) ? unpublished : top))
+  }
+
+  func valid(x: T) returns (res: Bool) {
+    (x != top)
+  }
+
+  func fpuAllowed(x: T, y: T) returns (res: Bool) {
+    (x == unpublished && y == unpublished) || (y == published)
+  }
+}
+
+module PublishedA = Auth[Published]
+module ExclU = Excl[Unit]
+
+field value: Int
+field initial_value: Int
+field flag: Bool
+field value_read: Bool
+field value_published: PublishedA
+field crossed_pending: ExclU
+field crossed_gone: ExclU
+
+pred accepted(r: Ref, p: Proph, v: Int, tok: AtomicToken<coinflip>) {
+  true
+}
+pred done(r: Ref, p: Proph, v: Int, tok: AtomicToken<coinflip>) {
+  exists res: Int, winn: Bool ::
+  auCommit<coinflip>(tok, (r), (res, winn)) &&
+    (winn ? (res == (v * v) + 1) : (res == (-1 * (v * v)) - 1))
+}
+pred gone(r: Ref, p: Proph, v: Int, tok: AtomicToken<coinflip>) {
+  own(r, crossed_gone, ExclU.excl(Unit.unit))
+}
+
+val helper_accepted: Int = 0;
+val helper_done: Int = 1;
+val helper_gone: Int = 2;
+
+inv helper_protocol(r: Ref, p: Proph, v: Int, tok: AtomicToken<coinflip>) {
+  (exists i: Int, pub: Published :: (0 <= i < 3) &&
+   own(r, value_published, PublishedA.auth_frag(pub, pub)) &&
+   ((i == helper_accepted) ==> (pub == Published.unpublished) && accepted(r, p, v, tok)) &&
+   ((i == helper_done) ==> (pub == Published.published) && done(r, p, v, tok)) &&
+   ((i == helper_gone) ==> (pub == Published.published) && gone(r, p, v, tok)))
+}
+
+pred is_helper_protocol(r: Ref) {
+  exists p: Proph, v: Int, tok: AtomicToken<coinflip> ::
+  own(r, initial_value, v, 0.25) && helper_protocol(r, p, v, tok)
+}
+
+inv coinflip_protocol(r: Ref) {
+  exists helper_protocol_ready: Bool ::
+  helper_protocol_ready ?
+    (own(r, crossed_pending, ExclU.excl(Unit.unit)) &&
+     is_helper_protocol(r)) :
+   true
+}
+
+pred is_coinflip(r: Ref) {
+  own(r, value_published, PublishedA.auth_frag(Published.unpublished, Published.unpublished)) &&
+  coinflip_protocol(r)
+}
+
+proc helper(r: Ref, p: Proph, which: Bool, implicit ghost v: Int, implicit ghost tok: AtomicToken<coinflip>)
+     requires helper_protocol(r, p, v, tok)
+     ensures helper_protocol(r, p, v, tok) &&
+             own(r, value_published, PublishedA.frag(Published.published)) {
+             assume false;
+}
+
+proc coinflip_inner(r: Ref, p: Proph, implicit ghost v: Int, implicit ghost tok: AtomicToken<coinflip>) returns (res: Int, implicit ghost winn: Bool)
+  requires helper_protocol(r, p, v, tok) && own(r, crossed_gone, ExclU.excl(Unit.unit))
+  ensures helper_protocol(r, p, v, tok) &&
+          auCommit<coinflip>(tok, (r), (res, winn)) &&
+          (winn ? (res == (v * v) + 1) : (res == (-1 * (v * v)) - 1)) {
+  spawn helper(r, p, true, v, tok);
+  helper(r, p, false, v, tok);
+  ghost var i: Int; ghost var pub: Published;
+  unfold helper_protocol(r, p, v, tok)[i := i, pub := pub];
+  {!
+    if (i == helper_gone) {
+      unfold gone(r, p, v, tok);
+      assert false;
+    } else {
+      unfold done(r, p, v, tok)[res := res, winn := winn];
+      fold gone(r, p, v, tok);
+    }
+  !}
+  fold helper_protocol(r, p, v, tok)[i := helper_gone, pub := pub];
+}
+
+proc coinflip(r: Ref, implicit ghost v: Int, implicit ghost w: Int) returns (res: Int, implicit ghost winn: Bool)
+  requires is_coinflip(r) && own(r, crossed_pending, ExclU.excl(Unit.unit)) && own(r, initial_value, w, 0.5) && (v == w) && own(r, crossed_gone, ExclU.excl(Unit.unit))
+  atomic requires own(r, value, v) && own(r, initial_value, w, 0.5) && (v == w)
+  atomic ensures winn ? (res == ((v * v) + 1)) : (res == ((-1) * (v * v)) - 1) {
+  ghost var phi: AtomicToken<coinflip> := bindAU();
+  var proph_winner: Proph;
+  var helpers: List[Bool];
+  proph_winner, helpers := Proph.new[Bool];
+  unfold is_coinflip(r);
+  ghost var ready: Bool := false;
+  unfold coinflip_protocol(r)[ready := helper_protocol_ready];
+  assert !ready;
+  fold accepted(r, proph_winner, v, phi);
+  fold helper_protocol(r, proph_winner, v, phi)[i := 0];
+  fold is_helper_protocol(r)[p := proph_winner, tok := phi];
+  fold coinflip_protocol(r)[helper_protocol_ready := ready];
+  var read_v: Int := r.initial_value;
+  ghost var au_v: Int;
+  ghost var au_w: Int;
+  res, winn := coinflip_inner(r, proph_winner, v, phi);
+}
+
+
+// pred rdcss_state_auth(l_n: Ref, n: Int) {
+//   own(l_n.rdcss_state_fld, Auth_Excl_Int.auth(Excl_Int.excl(n)))
+// }
+// 
+// auto pred own_rdcss_token(l_descr_ref: Ref) {
+//   own(l_descr_ref.rdcss_token, Excl_Unit.excl(()))
+// }
+// 
+// auto pred own_descr_token(l_descr: Ref) {
+//   own(l_descr.Descr.token, Excl_Unit.excl(()))
+// }
+// 
+// module Opt_Bool = Library.Option[Library.BoolType]
+// 
+// func extract_winner(vs: List[(Bool, Bool)]) returns (ret: Bool) {
+//   (List.len(vs) == 0) ? true : (List.hd(vs))#1
+// }
+// 
+// pred pending_state(r: Ref,
+//                    implicit ghost v: Int,
+//                    token: AtomicToken<coinflip>) {
+//   au<rdcss>(token, (r, v)) &&
+//   rdcss_state_auth(l_n, n1) && own_descr_token(l_descr_ref)
+// }
+// 
+// pred accepted_state(r: Ref,
+//     implicit ghost v: Int,
+//     rdcss_ret: Int,
+//     proph_winner: Opt_Proph,
+//     tid_ghost_winner: Proph,
+//     token: AtomicToken<rdcss>
+// ) {
+//   auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret)
+//   && (exists vs: List[Int] :: Proph.prophecy(tid_ghost_winner, vs))
+//   && (proph_winner == Opt_Bool.some(proph_winner.(Opt_Proph.value)) ?
+//     proph_winner.Opt_Bool.value == tid_ghost_winner :
+//     true
+//   )
+// }
+// 
+// pred done_state(token: AtomicToken<rdcss> ,
+//     l_n: Ref,
+//     l_descr_ref: Ref,
+//     l_descr: Descr.L_descr,
+//     rdcss_ret: Int,
+//     tid_ghost_winner: Proph
+// ) {
+//   (exists auRetrieved: Bool ::
+//       (auRetrieved ?
+//           own_rdcss_token(l_descr_ref) :
+//           auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret))
+//   ) &&
+//   (exists vs: List[Int] :: Proph.prophecy(tid_ghost_winner, vs)) &&
+//     own(l_descr_ref.Descr.descr_fld, l_descr, 0.5) &&
+//     own_descr_token(l_descr_ref)
+// }
+// 
+// inv descr_inv(token: AtomicToken<rdcss> , p: Proph, rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr , tid_ghost_winner: Proph) {
+//   exists vs: List[(Bool, Proph)] :: Proph.prophecy(p, vs) && (
+//     exists notDone: Bool :: notDone ? (
+//     // First disjunct: This contains either `pending` or `accepted` state.
+//       own(l_descr_ref.one_shot, private)
+//       && own(l_n.n_loc, pending(l_descr_ref), 1/2) && (
+//         exists isPending: Bool :: isPending ?
+//           // `pending`
+//           pending_state(token, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner, l_n, l_descr_ref)
+//         : // or `accepted`
+//           accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost_winner)
+//       )
+//     ) : (
+//     // Second disjunct: This contains the `done` state.
+//       own(l_descr_ref.one_shot, public) &&
+//       done_state(token, l_n, l_descr_ref, l_descr, rdcss_ret, tid_ghost_winner)
+//     )
+//   )
+// }
+// 
+// module Once: ResourceAlgebra {
+//   rep type T = data {
+//     case ready;
+//     case armed;
+//     case top
+//   }
+// 
+//   val id: T := ready;
+// 
+//   func comp(x: T, y: T) returns (res: T) {
+//     (x == ready) ? y : (
+//     (y == ready) ? x : (
+//     (x == top || y == top) ? top : armed))
+//   }
+// 
+//   func frame(x: T, y: T) returns (res: T) {
+//     (x == armed && y == ready) ? armed : (
+//     (x == armed && y == armed) ? x :
+//     ((x == ready && y == ready) ? ready : top))
+//   }
+// 
+//   func valid(x: T) returns (res: Bool) {
+//     (x != top)
+//   }
+// 
+//   func fpuAllowed(x: T, y: T) returns (res: Bool) {
+//     (x == ready && y == ready) || (y == armed)
+//   }
+// }
+// 
+// // Field storing the integer value which the threads are racing to update.
+// // Initially 0, but can be updated to a {positive, negative} value depending
+// // on which thread wins the race.
+// field value: Int
+// // Field set after the value is read, signalling that the interferer
+// // thread must stop interfering.
+// field value_is_read: Bool
+// // Field storing the "flag", which allows the race to be resolved.
+// field flag:  Bool
+// // Field determining whether or not the update is done and can now
+// // be retreived
+// module OnceA = Auth[Once];
+// field update_done: OnceA
+// 
+// // Invariant over the state:
+// inv state_invariant(r: Ref) {
+//   exists v: Value, f: Bool, b: Bool, d: Once, v_original: Int ::
+//   own(r, flag, f, 0.5) && own(r, value, v, 0.5) && own(r, value_is_read, b, 0.5) &&
+//   own(r, update_done, OnceA.auth_frag(d, d)) &&
+//   (!f && !b) ==> (v == 0) &&                                 // 1
+//   (f && !b) ==>  (v == 2) &&                                 // 2
+//   (f && (d == Once.done)) ==> (v != 0)                       // 3
+// }
+// // exists v: Value, f: Bool, b: Bool, d: Once ::
+// // own(r, flag, f) && own(r, value, v) && own(r, value_is_read, b) &&
+// // own(r, update_done, d)
+// // (!f && !b) ==> (v == 0)                                && (1)
+// // (f && !b && (d == Once.ready)) ==> (v == 1) || (v == 0) && (2)
+// // (f && (d == Once.done)) ==> ((v < -1) || (v > 1))          (3)
+// // Case 1: Neither thread has set the flag yet; it is still in init. state
+// // Case 2: The flag has been set, but the interferer thread has not yet been blocked.
+// //         The interferer thread may have written the value as 2
+// // Case 3: The flag is set, and the interferer has been blocked.
+// //         The value has been set, and other threads can see the signal with
+// //         (d) that it is done.
+// 
+// // Other invariant:
+// // Pending --> Accepted --> Done --> Gone, as usual.
+// 
+// inv helper_inv(r: Ref, p: Proph, winner: Bool, ws: List[(Bool, Bool)], tok: AtomicToken<coinflip>) {
+//   exists vs: List[(Bool, Bool)], v: Int, b: Bool ::
+//   own(r, flag, b) &&
+//   own(r, value, v) &&
+//   Proph.prophecy(p, vs) &&
+//   (vs == List.nil ||
+//    vs == List.cons(List.hd(List.tl(ws)), List.nil) ||
+//    vs == ws) &&
+//   Proph.prophecy(p, vs) &&
+//   (b ? (v != 0) : (v == 0))
+// }
+// 
+// func extract_winner(vs: List[(Bool, Bool)]) returns (ret: Bool) {
+//   (List.len(vs) == 0) ? true : (List.hd(vs))#1
+// }
+// 
+// proc fetch_or(r: Ref, fv: Bool, implicit ghost b: Bool) returns (res: Bool)
+//   atomic requires own(r, flag, b)
+//   atomic ensures own(r, flag, b || fv) && (res == b) {
+//   assume false;
+// }
+// 
+// proc double_read(r: Ref, implicit ghost b: Bool, implicit ghost v: Int)
+//   returns (observed_flag: Bool, observed_value_is_read: Bool)
+//   requires own(r, flag, b) && own(r, value, v)
+//   ensures (b == observed_flag) && (v == observed_value) {
+//   assume false;
+// }
+// 
+// proc atomic_conditional_set(r: Ref, observed_value_is_read: Bool, implicit ghost b: Bool, implicit ghost v: Int)
+//   atomic requires own(r, value_is_read, b) && own(r, value, v)
+//   atomic ensures  own(r, value_is_read, b) && own(r, value, ((b == observed_value_is_read) && !observed_value_is_read) ? 2 : v) {
+//   assume false;
+// }
+// 
+// proc interferer(r: Ref)
+//   requires own(r, value, 0) && own(r, value_is_read, false) {
+//   var keep_going := true;
+//   var observed_value_is_read: Bool := false;
+//   var observed_flag := false;
+//   while (!observed_flag) {
+//     observed_flag, observed_value_is_read := double_read(r);
+//   }
+//   atomic_conditional_set(r, observed_value_is_read);
+// }
+// 
+// proc helper(r: Ref,
+//             which: Bool,
+//             implicit ghost p: Proph,
+//             implicit ghost winner: Bool,
+//             implicit ghost ws: List[(Bool, Bool)],
+//             implicit ghost tok: AtomicToken<coinflip>)
+//  requires helper_inv(r, p, winner, ws, tok)
+//  ensures helper_inv(r, p, winner, ws, tok)
+// {
+//   var res: Int;
+//   var vs: List[(Bool, Bool)];
+//   // ======================================================================
+//   // Unimplemented (requires ghost block):
+//   // Open AU.
+//   // Check prophecy exactly here. If it is
+//   // [winner, loser] and which == winner,
+//   // commit tok to
+//   // which ? ((observed_value**2) + 1) : ((-1 * (observed_value**2)) - 1).
+//   // Otherwise, do nothing.
+//   // ======================================================================
+//   unfold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   var observed_value: Int := r.value;
+//   fold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   unfold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   var old_flag: Bool := fetch_or(r, true);
+//   fold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   var succ: Bool := !old_flag;
+//   unfold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   Proph.resolve(p, (succ, which));
+//   fold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   r.value_is_read := true;
+//   if (old_flag) {
+//     // In the completed version, assert that you're in the
+//     // done/gone case. Should be true by the invariant I
+//     // designed
+//   } else {
+//     var res: Int :=
+//                     which ? ((observed_value * observed_value) + 1)
+//                           : ((-1 * (observed_value * observed_value)) - 1);
+//     assert res != 0;
+//     unfold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//     r.value := res;
+//     fold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   }
+// }
+// 
+// proc alloc_prophecy()
+//   returns (ghost p: Proph, ghost prophecies: List[(Bool, Bool)])
+//   ensures Proph.prophecy(p, prophecies)
+// {
+//   p, prophecies := Proph.new[(Bool, Bool)];
+// }
+// 
+// proc coinflip_inner(r: Ref,
+//                     implicit ghost p: Proph,
+//                     implicit ghost winner: Bool,
+//                     implicit ghost ws: List[(Bool, Bool)],
+//                     implicit ghost tok: AtomicToken<coinflip>)
+//   returns (res: Int)
+//   requires helper_inv(r, p, winner, ws, tok)
+//   ensures helper_inv(r, p, winner, ws, tok)
+// {
+//   spawn helper(r, true, p, winner, ws, tok);
+//   helper(r, false, p, winner, ws, tok);
+//   var vs: List[(Bool, Bool)];
+//   unfold helper_inv(r, p, winner, ws, tok)[vs := vs];
+//   res := r.value; // res is now != 0
+//   fold helper_inv(r, p, winner, ws, tok)[vs := vs];
+// }
+// 
+// 
+// proc coinflip(r: Ref, implicit ghost v: Int) returns (res: Int, implicit ghost winn: Bool)
+//   // ---------------------------------------------------
+//   // -- allocate invariant by brute force for example --
+//   requires forall p: Proph, winner: Bool, prophecies: List[(Bool, Bool)], tok: AtomicToken<coinflip> :: helper_inv(r, p, winner, prophecies, tok)
+//   // ---------------------------------------------------
+//   atomic requires own(r, value, v)
+//   atomic ensures own(r, value, winn ? ((v * v) + 1) : ((v * v) - 1))
+// {
+//   ghost var tok: AtomicToken<coinflip> := bindAU();
+//   ghost var p: Proph;
+//   ghost var prophecies: List[(Bool, Bool)];
+//   p, prophecies := alloc_prophecy();
+//   ghost var winner: Bool := extract_winner(prophecies);
+//   res := coinflip_inner(r, p, winner, prophecies, tok);
+//   // ------------------------------------------------
+//   // because this example doesn't manipulate ghost
+//   // state, the atomic token here will need to be
+//   // manipulated manually
+//   // ------------------------------------------------
+//   openAU(tok, (r));
+//   commitAU(tok, (r), res);
+// }
