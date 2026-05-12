@@ -18,14 +18,17 @@ EXT_LIST=(
   "lib/ext/listExt"
 )
 
+## Each entry is "<file> [extra raven args...]". Anything after the first
+## whitespace is forwarded to `raven` (both for --stats collection and for
+## the hyperfine timing run). Leave the extras blank to use defaults.
 EXAMPLES=(
-  "test/ext_error-credits/amortised_hash.rav"
-  "test/ext_error-credits/cf_hashmap.rav"
-  "test/ext_error-credits/ec_dynamic_vec.rav"
+  "test/ext_error-credits/amortised_hash.rav --extension=eris"
+  "test/ext_error-credits/cf_hashmap.rav --extension=eris"
+  "test/ext_error-credits/ec_dynamic_vec.rav --extension=eris"
 # 
-  "test/ext_prophecy/clairvoyant_coin.rav"
-  "test/ext_prophecy/lazy_coin.rav"
-  "test/ext_prophecy/rdcss.rav"
+  "test/ext_prophecy/clairvoyant_coin.rav --extension=prophecy"
+  "test/ext_prophecy/lazy_coin.rav --extension=prophecy"
+  "test/ext_prophecy/rdcss.rav --extension=prophecy"
 )
 
 
@@ -96,15 +99,20 @@ run_benchmark() {
   printf "%-45s %10s %10s %10s %10s %10s\n" "File" "ProgLen" "ProofDecl" "ProofInstr" "Overhead" "Runtime(s)"
   printf "%-45s %10s %10s %10s %10s %10s\n" "$(printf '%.0s=' {1..45})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})"
 
-  for file in "${EXAMPLES[@]}"; do
-    if [ -z "$file" ]; then
+  for entry in "${EXAMPLES[@]}"; do
+    if [ -z "$entry" ]; then
       echo ""
       continue
     fi
 
-    # echo "Running file $file"
+    # Split the entry on the first whitespace: everything before is the
+    # file path, everything after is forwarded to raven as extra args.
+    read -r file extra_args <<< "$entry"
+
+    # echo "Running file $file with args '$extra_args'"
     line_count=$(wc -l < "$file")
-    output=$(raven "$file" --stats)
+    # shellcheck disable=SC2086  # $extra_args is intentionally word-split
+    output=$(raven "$file" $extra_args --stats)
     
     # Extract statistics from the output
     program_declarations=$(echo "$output" | grep "Program Declarations" | awk '{print $3}')
@@ -134,12 +142,15 @@ run_benchmark() {
       overhead=$(echo "scale=2; ($proof_declarations + $proof_instructions) / $program_length" | bc)
     fi
 
-    # Run hyperfine to measure runtime
-    runtime=$(hyperfine --warmup $WARMUP --runs $RUNS $args "raven \"$file\"" --export-json /tmp/hyperfine.json)
+    # Run hyperfine to measure runtime. The per-example $extra_args is
+    # baked into the command string so hyperfine times the same invocation
+    # we collected --stats for.
+    runtime=$(hyperfine --warmup $WARMUP --runs $RUNS $args "raven \"$file\" $extra_args" --export-json /tmp/hyperfine.json)
     runtime=$(jq '.results[0].mean' /tmp/hyperfine.json)
     runtime=$(printf "%.3f" "$runtime")
-    
-    # Print formatted table row to stdout (skip first 5 chars of filename for aesthetics)
+
+    # Print formatted table row to stdout (skip first 5 chars of filename
+    # for aesthetics; per-example args are not shown in the table).
     printf "%-45s %10s %10s %10s %10s %10s\n" "${file:5}" "$program_length" "$proof_declarations" "$proof_instructions" "$overhead" "$runtime"
   done
 }

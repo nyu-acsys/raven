@@ -24,6 +24,7 @@ The extension implements:
 
 
 module ProphecyExt (Cont : ListApi) = struct
+  (* Config *)
   (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
   let lib_source = Some ("prophecyLib.rav", [%blob "prophecyLib.rav"])
   let local_vars = []
@@ -66,8 +67,7 @@ module ProphecyExt (Cont : ListApi) = struct
   (* This is to provide access to the ListExt API  to other modules depending on this module, since other extensions rely on the ListExt. *)
   module ListFns = Cont.ListFns
 
-  (** AstDef *)
-
+  (* AstDef *)
   (* Standard pattern: match on our constructors, defer the rest. *)
   let type_ext_to_name type_ext = match type_ext with
   | ProphId -> "Proph"
