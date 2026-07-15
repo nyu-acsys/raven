@@ -5,8 +5,8 @@ import Library.ListM
 module Stack[T: Type] {
 
   module TOption = Option[T]
-  module TList = ListM[T]
-  import TList._
+  //module ListT = ListM[T]
+  //import ListT._
   import TOption._
 
   field top: Ref
@@ -14,22 +14,22 @@ module Stack[T: Type] {
   field value: T
 
 
-  pred list(x: Ref; xs: TList) {
+  pred list(x: Ref; xs: List[T]) {
     x == null ? 
-      xs == nil : 
-      (xs != nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x.value, xs.hd, q) && own(x.next, tl0, q) && list(tl0, xs.tl))))
+      xs == List.nil : 
+      (xs != List.nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x.value, List.hd(xs), q) && own(x.next, tl0, q) && list(tl0, List.tl(xs)))))
   }
 
-  pred stack(s: Ref; xs: TList) {
+  pred stack(s: Ref; xs: List[T]) {
     exists x: Ref :: own(s.top, x, 1.0) && list(x, xs)
   }
 
-  proc push(s: Ref, x: T, implicit ghost xs: TList)
+  proc push(s: Ref, x: T, implicit ghost xs: List[T])
     atomic requires stack(s, xs)
-    atomic ensures stack(s, cons(x, xs))
+    atomic ensures stack(s, x :: xs)
   {
     ghost val phi := bindAU();
-    ghost val xs0: TList := openAU(phi);
+    ghost val xs0: List[T] := openAU(phi);
 
     unfold stack(s);
     var topv := s.top;
@@ -40,7 +40,7 @@ module Stack[T: Type] {
     var s0 : Ref;
     s0 := new(value: x, next: topv);
 
-    ghost val xs1: TList := openAU(phi);
+    ghost val xs1: List[T] := openAU(phi);
 
     ghost val top1: Ref;
     unfold stack(s)[top1 := x];
@@ -50,26 +50,26 @@ module Stack[T: Type] {
     if (!res) { 
       fold stack(s, xs1);
       abortAU(phi);
-      ghost val xs2: TList := openAU(phi);
+      ghost val xs2: List[T] := openAU(phi);
       push(s, x);
       commitAU(phi, ());
     } else {
-      fold list(s0, cons(x, xs1))[q := 1.0]; 
-      fold stack(s, cons(x, xs1));
+      fold list(s0, x :: xs1)[q := 1.0]; 
+      fold stack(s, x :: xs1);
       commitAU(phi, ());
     }
   }
 
-  proc pop(s: Ref, implicit ghost xs: TList)
+  proc pop(s: Ref, implicit ghost xs: List[T])
     returns (result: TOption)
     atomic requires stack(s, xs)
     atomic ensures 
-      xs == nil ? 
+      xs == List.nil ? 
         (stack(s, xs) && result == none) : 
-        (stack(s, xs.tl) && result == some(xs.hd))
+        (stack(s, List.tl(xs)) && result == some(List.hd(xs)))
   {
     ghost val phi := bindAU();
-    ghost val xs0: TList := openAU(phi);
+    ghost val xs0: List[T] := openAU(phi);
 
     unfold stack(s);
 
@@ -96,7 +96,7 @@ module Stack[T: Type] {
     val top_next := topv.next;
     val top_value := topv.value;
 
-    ghost val xs1: TList := openAU(phi);
+    ghost val xs1: List[T] := openAU(phi);
     ghost val top1: Ref;
     unfold stack(s)[top1 := x];
 
@@ -104,13 +104,13 @@ module Stack[T: Type] {
 
     if (res) {
       unfold list(top1);
-      fold stack(s, xs1.tl);
+      fold stack(s, List.tl(xs1));
       commitAU(phi, some(top_value));
       return some(top_value);
     } else { 
       fold stack(s, xs1);
       abortAU(phi);
-      ghost val xs2: TList := openAU(phi);
+      ghost val xs2: List[T] := openAU(phi);
       val ret := pop(s);
       commitAU(phi, ret);
 

@@ -393,7 +393,34 @@ module ListExt (Cont : Ext) = struct
         | None -> 
           Error.internal_error Loc.dummy "[EXT] ListExt: rewrite_type_ext: largest_prefix scope not found"
         | Some (qi, (name, symbol, _)) ->
-          name, qi
+          (* [name] is the scope where the resolved symbol is defined and [qi] is
+             how it is referenced from here. Normally we insert the generated
+             helper modules into [name] and reference them via [qi] (e.g. for
+             `module M = N[P]; type T' = List[M.T]` we insert into the original
+             interface `N` and refer to it using `M`; and for a `List` over an
+             interface's own abstract member we have [name = qi] and insert into
+             that interface).
+
+             The exception is when [qi] is an abstract module parameter: then
+             resolution follows it through to the *interface* it implements, so
+             [symbol] is that interface and [name] is the interface's qualified
+             name (e.g. `Library.Type`), distinct from [qi]. That interface is
+             not a valid insertion site -- it cannot see the parameter, so
+             inserting the helper module there leaves it referencing an
+             out-of-scope identifier such as `M.T.T` (issue #38). In that case we
+             insert into, and reference from, the scope that declares the
+             parameter, i.e. [QualIdent.pop qi]. *)
+          let resolves_through_abstract_param =
+            match symbol with
+            | Module.ModDef md ->
+              md.mod_decl.mod_decl_is_interface && not (QualIdent.equal name qi)
+            | _ -> false
+          in
+          if resolves_through_abstract_param then
+            let scope = QualIdent.pop qi in
+            scope, scope
+          else
+            name, qi
       in
 
       (* always good to print some state from time to time! *)
