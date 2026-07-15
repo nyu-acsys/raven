@@ -2,5 +2,5 @@
   [Warning] File "./clh-lock.rav", line 51, columns 4-44:
   51 |     fold queued_loc(newloc)[b_disj := true];
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  No witnesses could be computed for: b^200
+  No witnesses could be computed for: b^192
   Verification successful.
