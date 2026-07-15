@@ -1410,7 +1410,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
-                  ~spec_error:(spec_error @ spec.spec_error)
+                  ~spec_error:spec.spec_error
                   (Expr.alpha_renaming spec.spec_form new_renaming_map))
           in
 

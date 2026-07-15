@@ -1,0 +1,12 @@
+// Regression test: a failing precondition at a (tail-)recursive call site must
+// be reported exactly once. Previously the precondition-exhale generated for a
+// call concatenated the precondition's error list onto itself, duplicating the
+// "A precondition may not hold for this call" message whenever the callee had a
+// single precondition (as is the case here, and for desugared loop invariants).
+
+proc rec_bad(n: Int)
+  requires n >= 0
+{
+  // At n = 0 the recursive call's precondition (n - 1 >= 0) does not hold.
+  rec_bad(n - 1);
+}

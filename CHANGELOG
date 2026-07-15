@@ -13,6 +13,7 @@ All notable changes to this project will be docmented in this file.
 
 - Fix bug preventing a functor to abstract over module members of its interface.
 - Fixed some loop holes when type-checking modules against interfaces.
+- Fix duplicated error message when a call precondition (or a desugared loop invariant) fails to verify.
 
 ## [1.1.0] - 2026-01-27
 
