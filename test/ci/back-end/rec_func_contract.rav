@@ -1,0 +1,67 @@
+/* Regression test for auto-generated induction lemmas for recursive function contracts
+   (Rewrites.rewrite_add_func_contract_lemmas). Each function below exercises a different
+   aspect of the encoding; none of them require a hand-written companion lemma to verify. */
+
+/* Basic self-recursion, no precondition. */
+func sum(n: Int) returns (res: Int)
+  ensures res >= n
+{
+  n <= 0 ? 0 : n + sum(n-1)
+}
+
+/* A hand-written companion lemma alongside an auto-generated one still verifies. */
+lemma sum_contract(n: Int)
+  ensures sum(n) >= n
+{
+  if (n > 0) {
+    sum_contract(n-1);
+  }
+}
+
+/* Self-recursion with both a precondition and a postcondition. */
+func fact(n: Int) returns (res: Int)
+  requires n >= 0
+  ensures res >= 1
+{
+  n <= 0 ? 1 : n * fact(n-1)
+}
+
+/* Mutual recursion. */
+func is_even(n: Int) returns (res: Bool)
+  requires n >= 0
+  ensures n == 0 ==> res
+{
+  n == 0 ? true : is_odd(n-1)
+}
+
+func is_odd(n: Int) returns (res: Bool)
+  requires n >= 0
+  ensures n == 0 ==> !res
+{
+  n == 0 ? false : is_even(n-1)
+}
+
+/* Multiple requires and ensures clauses. */
+func bounded_sum(n: Int, lo: Int) returns (res: Int)
+  requires lo <= 0
+  requires n >= lo
+  ensures res >= n
+  ensures res >= lo
+{
+  n <= lo ? lo : n + bounded_sum(n-1, lo)
+}
+
+/* Recursive call nested inside a nested conditional. */
+func nested_cond(n: Int) returns (res: Int)
+  ensures res >= n
+{
+  n <= 0 ? 0 : (n <= 1 ? n : n + nested_cond(n-1))
+}
+
+/* More than one recursive call combined in the same expression. */
+func fib(n: Int) returns (res: Int)
+  requires n >= 0
+  ensures res >= 0
+{
+  n <= 1 ? n : fib(n-1) + fib(n-2)
+}
