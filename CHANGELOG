@@ -15,7 +15,8 @@ All notable changes to this project will be docmented in this file.
 - Fixed some loop holes when type-checking modules against interfaces.
 - Fix duplicated error message when a call precondition (or a desugared loop invariant) fails to verify.
 - Fix rewriting of List[T] types inside abstract modules (#38).
-	
+- Reject procedure/lemma calls embedded in expressions (e.g. return statements) instead of failing later with a confusing error.
+
 ## [1.1.0] - 2026-01-27
 
 ### Added

@@ -166,8 +166,13 @@ module ProcessExpr = struct
       type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
     end
 
-  (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ] *)
-  let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
+  (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ].
+      [allow_proc_call] permits [expr] itself to be a call to a procedure or lemma (as opposed to a
+      function/predicate/invariant). This is only ever true for the top-level right-hand side of an
+      assignment statement of the form [x1, ..., xn := p(e1, ..., em)] -- procedure/lemma calls are
+      statements, not pure expressions, and cannot be embedded anywhere else (e.g. as an argument
+      to another call, inside a return statement, or combined with other operators). *)
+  let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
     =
     Logs.debug (fun m -> m !"process_expr: %{Expr}; expected: %{Type} is ghost: %b" expr expected_typ (Type.is_ghost expected_typ));
     let open Rewriter.Syntax in
@@ -205,7 +210,16 @@ module ProcessExpr = struct
                   expected_typ
             | CallDef callable ->
                 let callable_decl = Callable.to_decl callable in
-                let* is_ghost_scope = Rewriter.is_ghost_scope in 
+                let* _ =
+                  match callable_decl.call_decl_kind with
+                  | (Proc | Lemma) when not allow_proc_call ->
+                      Error.type_error (Expr.to_loc expr)
+                        (Printf.sprintf !"%s %{Ident} can only be called as the right-hand side of an assignment statement, e.g. `x := %{Ident}(...)`. Assign its result to a variable first if you need to use it in an expression"
+                          (match callable_decl.call_decl_kind with Proc -> "Procedure" | _ -> "Lemma")
+                          callable_decl.call_decl_name callable_decl.call_decl_name)
+                  | _ -> Rewriter.return ()
+                in
+                let* is_ghost_scope = Rewriter.is_ghost_scope in
                 let is_ghost_scope =
                   is_ghost_scope ||
                   match callable_decl.call_decl_kind with
@@ -914,14 +928,14 @@ module ProcessCallable = struct
           Expr.(
             Binder (binder, var_decl_list, trgs, disambiguated_expr, expr_attr))
 
-  let disambiguate_process_expr (expr : expr) (expected_typ : type_expr)
+  let disambiguate_process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr)
       (disam_tbl : DisambiguationTbl.t) : expr Rewriter.t =
     let open Rewriter.Syntax in
     let* expr = disambiguate_expr expr disam_tbl in
 
-    let+ processed_expr = 
-      ProcessExpr.process_expr expr expected_typ
-    in 
+    let+ processed_expr =
+      ProcessExpr.process_expr ~allow_proc_call expr expected_typ
+    in
     
     Logs.debug (fun m -> m 
       "Typing.ProcessCallable.disambiguate_process_expr: processed_expr = %a"
@@ -1217,7 +1231,7 @@ module ProcessCallable = struct
           end
         | Some expr ->
           let+ expr =
-            disambiguate_process_expr expr (var_decl.var_type |> Type.set_ghost var_ghost) disam_tbl
+            disambiguate_process_expr expr (var_decl.var_type |> Type.set_ghost var_ghost) disam_tbl ~allow_proc_call:true
           in
           Expr.to_type expr
       in
@@ -1590,7 +1604,7 @@ module ProcessCallable = struct
               call_desc.call_args,
               { Expr.expr_loc = stmt_loc; expr_type = Type.any } )
           |> fun expr ->
-          disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl
+          disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl ~allow_proc_call:true
         in
         let+ _ = Rewriter.exit_ghost in
 
