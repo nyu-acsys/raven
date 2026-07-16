@@ -2196,8 +2196,14 @@ let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
                 (List.map call_decl.call_decl_postcond ~f:(fun post ->
                      Expr.alpha_renaming post.spec_form ret_subst_map))
             in
+            let postcond_error _ loc =
+              ( Error.Verification, loc,
+                "The postcondition of " ^ Ident.to_string call_decl.call_decl_name
+                ^ " may not hold" )
+            in
             let lemma_postconds =
-              [ Stmt.mk_spec (Expr.mk_impl pre_conj post_conj) ]
+              [ Stmt.mk_spec ~spec_error:[ postcond_error ]
+                  (Expr.mk_impl pre_conj post_conj) ]
             in
 
             let lemma_call_decl =

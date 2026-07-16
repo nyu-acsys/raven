@@ -43,7 +43,7 @@ func is_odd(n: Int) returns (res: Bool)
 
 /* Multiple requires and ensures clauses. */
 func bounded_sum(n: Int, lo: Int) returns (res: Int)
-  requires lo <= 0
+  requires lo >= 0
   requires n >= lo
   ensures res >= n
   ensures res >= lo
