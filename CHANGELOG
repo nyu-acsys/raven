@@ -17,6 +17,7 @@ All notable changes to this project will be docmented in this file.
 - Fix rewriting of List[T] types inside abstract modules (#38).
 - Reject procedure/lemma calls embedded in expressions (e.g. return statements) instead of failing later with a confusing error.
 - Fix contracts of recursive (and mutually-recursive) functions failing to verify by auto-generating an inductive proof lemma for each function's ensures clause.
+- Fix tuple constructors in the SMT-LIB encoding being rejected as ambiguous by newer Z3 versions.
 
 ## [1.1.0] - 2026-01-27
 

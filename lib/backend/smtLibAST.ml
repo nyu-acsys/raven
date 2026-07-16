@@ -220,8 +220,13 @@ let rec pr_term ppf (term : term) =
       | Tuple, es -> (
           match List.length es with
           | 0 -> fprintf ppf "@[<2>$tuple_0 @]"
-          | _ ->
-              fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length es) pr_terms es)
+          | n ->
+              (* $tuple_n is a parametric datatype constructor; newer Z3 versions require it to be
+                 disambiguated with an `as` qualification once the datatype has been instantiated
+                 at more than one concrete sort, since the argument sorts alone are no longer
+                 enough for Z3 to resolve which instantiation of the constructor is meant. *)
+              fprintf ppf "@[<2>((as $tuple_%i %a)@ %a)@]" n pr_sort
+                (Expr.to_type term) pr_terms es)
       | Diff, _ | Read, _ | Own, _ | _ ->
           Error.internal_error (Expr.to_loc term)
             ("pr_term: unexpected term: " ^ Expr.to_string term))
