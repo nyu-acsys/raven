@@ -278,23 +278,6 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
               )
         in
 
-        let check_contract_expr =
-          Expr.mk_binder Forall
-            (call_decl.call_decl_formals @ call_decl.call_decl_returns)
-            (Expr.mk_impl
-               (Expr.mk_and
-                  (Expr.mk_eq ret_tuple
-                     (Expr.mk_app ~typ:(Expr.to_type ret_tuple)
-                        (Var fully_qual_name)
-                        (List.map call_decl.call_decl_formals ~f:(fun arg ->
-                             Expr.from_var_decl arg)))
-                  :: List.map call_decl.call_decl_precond ~f:(fun pre ->
-                         pre.spec_form)))
-               (Expr.mk_and
-                  (List.map call_decl.call_decl_postcond ~f:(fun post ->
-                       post.spec_form))))
-        in
-
         let post_cond_expr =
           Expr.mk_binder Forall call_decl.call_decl_formals
             (Expr.mk_impl
@@ -306,22 +289,17 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                        Expr.alpha_renaming post.spec_form alpha_renaming_map))))
         in
 
+        (* Note: the func's contract (that its body satisfies its own postcondition) is not
+           checked here. Instead, [Rewrites.rewrite_add_func_contract_lemmas] generates a
+           companion auto lemma for every func with a postcondition, whose verification (via the
+           ordinary call-rule for its own, possibly recursive/mutually-recursive, lemma calls)
+           establishes exactly this fact -- including, unlike a direct SMT check of this
+           definitional axiom, the induction hypothesis needed for recursive funcs. *)
         let* _ = assume_expr spec_expr in
 
-        let* b =
-          if callable.call_decl.call_decl_is_free
-          then State.return true
-          else check_valid check_contract_expr
-        in
-
-        match b with
-        | true -> (
-            match call_decl.call_decl_postcond with
-            | [] -> State.return ()
-            | _ -> assume_expr post_cond_expr)
-        | false ->
-            Error.verification_error call_decl.call_decl_loc
-              (Printf.sprintf "Contract is not valid"))
+        match call_decl.call_decl_postcond with
+        | [] -> State.return ()
+        | _ -> assume_expr post_cond_expr)
   | ProcDef proc_def -> (
       let* _ =
         match proc_def.proc_body with

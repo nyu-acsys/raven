@@ -2070,6 +2070,173 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
   | _ -> Rewriter.return c
 
 
+(** For every [func] with a body and a non-empty [ensures] clause, synthesizes a companion
+    "auto lemma" that proves the func satisfies its own postcondition, and whose body structurally
+    mirrors the func's body expression: wherever the body branches on a condition (the [?:]
+    ternary), the lemma's body has a matching if/else statement; and wherever the body calls
+    another func that itself has such a companion lemma (including calling itself, or a
+    mutually-recursive sibling func), the lemma's body invokes that other func's companion lemma
+    at the same (guarded) position with the same arguments. Being an auto lemma, once its body is
+    verified (which, since it is an ordinary recursive/mutually-recursive lemma call, is checked via
+    the standard call-rule -- providing the induction hypothesis needed for the recursive case) its
+    postcondition becomes globally available, which is exactly the fact the func's own (otherwise
+    unprovable for recursive funcs) contract needs. The original func is left untouched; the
+    verification of its contract in the back-end relies solely on this generated lemma (see
+    [rewrite_callable_pre_post_conds] / [Callable.call_decl_is_free] handling for that func). *)
+let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let* _ = Rewriter.enter_module m in
+
+  let* mod_def =
+    Rewriter.List.map m.mod_def ~f:(function
+      | Module.SymbolDef (ModDef mod_def) ->
+          let+ mod_def = rewrite_add_func_contract_lemmas mod_def in
+          Module.SymbolDef (Module.ModDef mod_def)
+      | instr -> Rewriter.return instr)
+  in
+  let m = { m with mod_def } in
+
+  let eligible =
+    List.filter_map m.mod_def ~f:(function
+      | Module.SymbolDef
+          (CallDef
+            ({ call_decl; call_def = FuncDef { func_body = Some body } } : Callable.t))
+        when Poly.(call_decl.call_decl_kind = Func)
+             && not (List.is_empty call_decl.call_decl_postcond)
+             && not call_decl.call_decl_is_free ->
+          Some (call_decl, body)
+      | _ -> None)
+  in
+
+  match eligible with
+  | [] -> Rewriter.exit_module m
+  | _ ->
+      let contract_lemma_ident (func_name : Ident.t) : Ident.t =
+        Ident.make Loc.dummy ("$" ^ Ident.to_string func_name ^ "_contract") 0
+      in
+
+      let* module_qual_ident = Rewriter.current_module_name in
+
+      let* eligible_tbl =
+        Rewriter.List.fold_left eligible
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun acc (call_decl, _) ->
+              let+ func_qual_ident =
+                Rewriter.resolve (QualIdent.from_ident call_decl.call_decl_name)
+              in
+              Map.set acc ~key:func_qual_ident ~data:call_decl)
+      in
+
+      let rec gen_stmts (e : expr) : Stmt.t list =
+        match e with
+        | App (Ite, [ cond; e1; e2 ], _) ->
+            gen_stmts cond
+            @ [
+                Stmt.mk_cond ~loc:(Expr.to_loc e) (Some cond)
+                  (Stmt.mk_block_stmt ~loc:(Expr.to_loc e1) (gen_stmts e1))
+                  (Stmt.mk_block_stmt ~loc:(Expr.to_loc e2) (gen_stmts e2));
+              ]
+        | App (Var callee, args, _) -> (
+            let arg_stmts = List.concat_map args ~f:gen_stmts in
+            match Map.find eligible_tbl callee with
+            | None -> arg_stmts
+            | Some callee_decl ->
+                let lemma_qual_ident =
+                  QualIdent.append module_qual_ident
+                    (contract_lemma_ident callee_decl.call_decl_name)
+                in
+                arg_stmts
+                @ [
+                    Stmt.mk_call ~loc:(Expr.to_loc e) ~lhs:[] lemma_qual_ident
+                      args ~is_spawn:false;
+                  ])
+        | App (_, args, _) -> List.concat_map args ~f:gen_stmts
+        | Binder _ -> []
+      in
+
+      let lemma_symbols =
+        List.map eligible ~f:(fun (call_decl, body) ->
+            let lemma_ident = contract_lemma_ident call_decl.call_decl_name in
+
+            let fn_call_expr =
+              Expr.mk_app ~loc:call_decl.call_decl_loc
+                ~typ:(Callable.return_type call_decl)
+                (Var (QualIdent.from_ident call_decl.call_decl_name))
+                (List.map call_decl.call_decl_formals ~f:Expr.from_var_decl)
+            in
+
+            let ret_subst_map =
+              match call_decl.call_decl_returns with
+              | [ r ] ->
+                  Map.singleton
+                    (module QualIdent)
+                    (QualIdent.from_ident r.var_name)
+                    fn_call_expr
+              | rs ->
+                  List.foldi rs
+                    ~init:(Map.empty (module QualIdent))
+                    ~f:(fun i acc r ->
+                        Map.set acc
+                          ~key:(QualIdent.from_ident r.var_name)
+                          ~data:(Expr.mk_tuple_lookup fn_call_expr i))
+            in
+
+            (* Encode the func's own requires clauses as the antecedent of a single implication,
+               rather than as actual requires clauses on the lemma: this way, the lemma is
+               unconditionally callable (no precondition to discharge at each call site,
+               including the recursive ones), and the induction hypothesis obtained from a
+               recursive/mutually-recursive call is itself the implication `pre(args) ==>
+               post(args, callee(args))`. *)
+            let pre_conj =
+              Expr.mk_and
+                (List.map call_decl.call_decl_precond ~f:(fun pre -> pre.spec_form))
+            in
+            let post_conj =
+              Expr.mk_and
+                (List.map call_decl.call_decl_postcond ~f:(fun post ->
+                     Expr.alpha_renaming post.spec_form ret_subst_map))
+            in
+            let lemma_postconds =
+              [ Stmt.mk_spec (Expr.mk_impl pre_conj post_conj) ]
+            in
+
+            let lemma_call_decl =
+              Callable.
+                {
+                  call_decl_kind = Lemma;
+                  call_decl_name = lemma_ident;
+                  call_decl_formals = call_decl.call_decl_formals;
+                  call_decl_returns = [];
+                  call_decl_locals = [];
+                  call_decl_precond = [];
+                  call_decl_postcond = lemma_postconds;
+                  call_decl_is_free = false;
+                  call_decl_is_auto = true;
+                  call_decl_mask = None;
+                  call_decl_loc = call_decl.call_decl_loc;
+                }
+            in
+
+            let lemma_body =
+              Stmt.mk_block_stmt ~loc:call_decl.call_decl_loc (gen_stmts body)
+            in
+
+            Module.CallDef
+              Callable.
+                {
+                  call_decl = lemma_call_decl;
+                  call_def = ProcDef { proc_body = Some lemma_body };
+                })
+      in
+
+      let* _ =
+        Rewriter.introduce_typecheck_symbols ~loc:m.mod_decl.mod_decl_loc
+          ~f:Typing.process_symbol lemma_symbols
+      in
+
+      Rewriter.exit_module m
+
+
 let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m ->
@@ -2514,6 +2681,12 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
 let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
+
+  Logs.debug (fun m1 ->
+      m1
+        "Rewrites.all_rewrites: Starting rewrite_add_func_contract_lemmas on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = rewrite_add_func_contract_lemmas m in
 
   Logs.debug (fun m1 ->
       m1
