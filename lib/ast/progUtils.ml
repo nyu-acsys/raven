@@ -733,7 +733,7 @@ let rec expr_preds_mentioned (expr : AstDef.Expr.t) :
   | App (_, expr_list, _) ->
       List.fold_right expr_list ~init:[] ~f:(fun expr acc ->
           let+ expr_predicates = expr_preds_mentioned expr in
-          acc @ expr_predicates)
+          expr_predicates @ acc)
   | Binder (_, _, _, expr, _) -> expr_preds_mentioned expr
 
 let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =

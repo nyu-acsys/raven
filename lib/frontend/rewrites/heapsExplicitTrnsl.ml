@@ -3582,16 +3582,15 @@ module TrnslExhale = struct
                       let preconds = ( List.concat @@
                          List.mapi witness_arg_exprs  ~f:(fun index_outer (optn_arg1, conds1, e1)
                         ->
-                          List.foldi witness_arg_exprs ~init:[] ~f:(fun index_inner accum (optn_arg2, conds2, e2) ->
+                          List.rev (List.foldi witness_arg_exprs ~init:[] ~f:(fun index_inner accum (optn_arg2, conds2, e2) ->
                             if index_outer >= index_inner then accum else
-                              accum @ [ 
-                                Expr.mk_impl
-                                  (Expr.mk_chained_and (univ_conds @ conds1 @ conds2))
-                                  (Expr.mk_eq 
-                                    (Expr.from_var_decl optn_arg1) (Expr.from_var_decl optn_arg2)
-                                  )
-                              ]
-                          )
+                              Expr.mk_impl
+                                (Expr.mk_chained_and (univ_conds @ conds1 @ conds2))
+                                (Expr.mk_eq
+                                  (Expr.from_var_decl optn_arg1) (Expr.from_var_decl optn_arg2)
+                                )
+                              :: accum
+                          ))
                         )
                       )
 
