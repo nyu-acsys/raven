@@ -82,8 +82,8 @@ module ProcessTypeExpr = struct
       let+ qid = Rewriter.resolve qid in
       App (AtomicToken qid, [], tp_attr)
     | App (TypeExt type_ext, tp_args, tp_attr) ->
-      let (module Ext) = !Ext.ext in
-      Ext.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
@@ -144,10 +144,11 @@ module ProcessExpr = struct
         Error.fail_with
           (List.map msgs ~f:(fun (lbl, _loc, msg) -> (lbl, Expr.to_loc expr, msg)))
     and+ given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub
-    and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ in
+    and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ
+    and+ printers = Rewriter.current_printers in
     let _ =
       if not @@ expected_ghost && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb) then
-        let _ = Logs.debug (fun m -> m !"Failed with %{Expr}" expr) in
+        let _ = Logs.debug (fun m -> m "Failed with %a" printers.pr_expr expr) in
         Error.type_error (Expr.to_loc expr) "Cannot use ghost state in non-ghost context"
     in
     let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
@@ -158,10 +159,10 @@ module ProcessExpr = struct
     given_typ_lb: %a
     given_typ_ub: %a
     expected_typ: %a"
-            Expr.pr expr
-            Type.pr given_typ_lb
-            Type.pr given_typ_ub
-            Type.pr expected_typ 
+            printers.pr_expr expr
+            printers.pr_type given_typ_lb
+            printers.pr_type given_typ_ub
+            printers.pr_type expected_typ
         );
       type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
     end
@@ -174,8 +175,8 @@ module ProcessExpr = struct
       to another call, inside a return statement, or combined with other operators). *)
   let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
     =
-    Logs.debug (fun m -> m !"process_expr: %{Expr}; expected: %{Type} is ghost: %b" expr expected_typ (Type.is_ghost expected_typ));
     let open Rewriter.Syntax in
+    let* () = Rewriter.Logs.debug (fun printers m -> m "process_expr: %a; expected: %a is ghost: %b" printers.pr_expr expr printers.pr_type expected_typ (Type.is_ghost expected_typ)) in
     match expr with
     | App (constr, expr_list, expr_attr) -> (
         match (constr, expr_list) with
@@ -701,7 +702,8 @@ module ProcessExpr = struct
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
         | ExprExt expr_ext, expr_list ->
-          let (module Ext) = !Ext.ext in Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
+          let* ext_hooks = Rewriter.current_ext_hooks in
+          ext_hooks.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -774,8 +776,8 @@ module ProcessExpr = struct
       | _ -> false
     in
 
-    Logs.debug (fun m -> m "Typing.process_callable_args: args_list=%a" (Util.Print.pr_list_comma Expr.pr) args_list);
-    
+    let* () = Rewriter.Logs.debug (fun printers m -> m "Typing.process_callable_args: args_list=%a" (Util.Print.pr_list_comma printers.pr_expr) args_list) in
+
     (* Check if too few arguments given. *)
     let _ =
       List.drop callable_formals (List.length args_list)
@@ -816,8 +818,8 @@ module ProcessExpr = struct
       | _ -> false
     in
 
-    Logs.debug(fun m -> m "Typing.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr callable_decl.call_decl_name Expr.pr_list returns_list);
-    
+    let* () = Rewriter.Logs.debug (fun printers m -> m "Typing.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr callable_decl.call_decl_name printers.pr_expr_list returns_list) in
+
     (* Check if too few returns given. *)
     let _ =
       let num_found = List.length returns_list in
@@ -838,7 +840,7 @@ module ProcessExpr = struct
             || is_ghost_call || is_ghost_scope
           in
           let tp_expr = var_decl.Type.var_type |> Type.set_ghost is_ghost in
-          Logs.debug (fun m -> m !"%{Ident} %{Type} %b" var_decl.var_name tp_expr is_ghost); 
+          let* () = Rewriter.Logs.debug (fun printers m -> m "%a %a %b" Ident.pr var_decl.var_name printers.pr_type tp_expr is_ghost) in
           let+ expr = process_expr expr tp_expr in
           expr
           )
@@ -913,10 +915,10 @@ module ProcessCallable = struct
               in
               (disam_tbl, var_decl'))
         in
-        Logs.debug (fun m -> m
+        let* () = Rewriter.Logs.debug (fun printers m -> m
           "typing.ProcessCallable.disambiguate_expr: expr = %a"
-            Expr.pr expr
-        );
+            printers.pr_expr expr
+        ) in
         let* disambiguated_expr = disambiguate_expr expr disam_tbl in
         let* trgs =
           Rewriter.List.map trgs ~f:(fun trg ->
@@ -932,14 +934,15 @@ module ProcessCallable = struct
       (disam_tbl : DisambiguationTbl.t) : expr Rewriter.t =
     let open Rewriter.Syntax in
     let* expr = disambiguate_expr expr disam_tbl in
+    let* printers = Rewriter.current_printers in
 
     let+ processed_expr =
       ProcessExpr.process_expr ~allow_proc_call expr expected_typ
     in
-    
-    Logs.debug (fun m -> m 
+
+    Logs.debug (fun m -> m
       "Typing.ProcessCallable.disambiguate_process_expr: processed_expr = %a"
-      Expr.pr processed_expr
+      printers.pr_expr processed_expr
     );
     
     processed_expr
@@ -1161,7 +1164,7 @@ module ProcessCallable = struct
         let* proc =
           Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
         in
-        Logs.debug (fun m -> m "Typing.process_au_action_stmt: commitAU: returns = [ %a ]" Expr.pr_list returns);
+        let* () = Rewriter.Logs.debug (fun printers m -> m "Typing.process_au_action_stmt: commitAU: returns = [ %a ]" printers.pr_expr_list returns) in
         let+ returns = ProcessExpr.process_callable_returns loc ~is_ghost_scope:true ~is_call:false proc returns in
         ( Stmt.AUAction
             {
@@ -1279,9 +1282,9 @@ module ProcessCallable = struct
           begin match read_symbol with
           | FieldDef f ->
 
-            Logs.debug (fun m ->
-                m "process_stmt: read_assign_rhs: %a" Expr.pr
-                  assign_desc.assign_rhs);
+            let* () = Rewriter.Logs.debug (fun printers m ->
+                m "process_stmt: read_assign_rhs: %a" printers.pr_expr
+                  assign_desc.assign_rhs) in
             let field_qual_ident = read_expr_qi in
             let field_read_lhs =
               match assign_desc.assign_lhs with
@@ -1314,9 +1317,9 @@ module ProcessCallable = struct
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
           process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
         | _ -> 
-          Logs.debug (fun m ->
-              m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
-                (Assign assign_desc));
+          let* () = Rewriter.Logs.debug (fun printers m ->
+              m "process_stmt: assign_desc: %a" printers.pr_stmt_basic
+                (Assign assign_desc)) in
                   
           let* assign_rhs_callable_opt =
             match assign_desc.assign_rhs with
@@ -1367,9 +1370,9 @@ module ProcessCallable = struct
               disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
             in
             
-            Logs.debug (fun m ->
-                m "process_stmt: disam_assign_rhs: %a" Expr.pr
-                  assign_rhs);
+            let* () = Rewriter.Logs.debug (fun printers m ->
+                m "process_stmt: disam_assign_rhs: %a" printers.pr_expr
+                  assign_rhs) in
             
             let assign_desc =
               Stmt.{ assign_desc with assign_lhs; assign_rhs }
@@ -1662,24 +1665,24 @@ module ProcessCallable = struct
         fpu_new_val;
         },
       disam_tbl )
-    | StmtExt (stmt_ext, expr_list)  -> 
-      let (module Ext) = !Ext.ext in
-        Ext.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl 
+    | StmtExt (stmt_ext, expr_list)  ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+        ext_hooks.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
           {
             ExtApi.get_assign_lhs = get_assign_lhs;
             expand_type_expr = ProcessTypeExpr.expand_type_expr;
             disambiguate_process_expr;
             type_mismatch_error;
             disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-            process_symbol_ref = Rewriter.process_symbol_ref;
-          }  
+            process_symbol = !Rewriter.process_symbol_ref;
+          }
 
   let process_stmt ?(new_scope = true) call_decl
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
     (Stmt.t * DisambiguationTbl.t) Rewriter.t =
     let rec process_stmt ?(new_scope = true) stmt disam_tbl =
-      Logs.debug (fun m -> m "process_stmt: %a" Stmt.pr stmt);
       let open Rewriter.Syntax in
+      let* () = Rewriter.Logs.debug (fun printers m -> m "process_stmt: %a" printers.pr_stmt stmt) in
       let* is_ghost_scope = Rewriter.is_ghost_scope in
       let+ stmt_desc, disam_tbl =
         match stmt.Stmt.stmt_desc with
@@ -1769,9 +1772,9 @@ module ProcessCallable = struct
 
   let process_callable (callable : Callable.t) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
-    Logs.debug (fun m ->
-        m "Typing.process_callable: Start Processing callable: %a" Callable.pr
-          callable);
+    let* () = Rewriter.Logs.debug (fun printers m ->
+        m "Typing.process_callable: Start Processing callable: %a" printers.pr_callable
+          callable) in
     let* _ = Rewriter.enter_callable callable in
     let disam_tbl = DisambiguationTbl.push [] in
     let call_decl = Callable.to_decl callable in
@@ -1795,18 +1798,16 @@ module ProcessCallable = struct
       process_decls call_decl.call_decl_locals disam_tbl
     in
 
+    let* ext_hooks = Rewriter.current_ext_hooks in
     let call_decl_locals = match call_decl.call_decl_kind with
-      | Proc | Lemma -> 
-        let (module Ext) = !Ext.ext in
+      | Proc | Lemma ->
         (* Adding Extension local variables *)
         Logs.debug (fun m -> m "Adding EXT locals on: %a" Ident.pr call_decl.call_decl_name);
-        Ext.ext_local_vars @ call_decl_locals
-      | Func | Pred | Invariant -> 
-        let (module Ext) = !Ext.ext in
-        Ext.ext_local_vars @ 
-        call_decl_locals 
+        ext_hooks.ext_local_vars @ call_decl_locals
+      | Func | Pred | Invariant ->
+        ext_hooks.ext_local_vars @
+        call_decl_locals
     in
-    (* let call_decl_locals = Ext.ext_local_vars @ call_decl_locals in *)
 
     Logs.debug (fun m -> m "adding formals");
     let* _ = Rewriter.add_locals call_decl_formals in
@@ -2044,7 +2045,7 @@ module ProcessModule = struct
                      already defined in interface %{QualIdent}"
                    ident interface_ident)
           | Some _tp, Some _orig_tp ->
-              Logs.debug (fun m -> m !"orig: %{Type}" _orig_tp);
+              let* () = Rewriter.Logs.debug (fun printers m -> m "orig: %a" printers.pr_type _orig_tp) in
               Error.type_error loc
                 (Printf.sprintf
                    !"Type %{Ident} was already defined in interface \
@@ -2457,11 +2458,11 @@ module ProcessModule = struct
                 in
                 symbol
           in
-          Logs.debug (fun mm ->
+          let* () = Rewriter.Logs.debug (fun printers mm ->
               mm
-                !"Processing module %{Ident}: symbol: %a"
-                (Symbol.to_name (ModDef m))
-                Module.pr_symbol symbol_def);
+                "Processing module %a: symbol: %a"
+                Ident.pr (Symbol.to_name (ModDef m))
+                printers.pr_symbol symbol_def) in
           let+ _ = Rewriter.set_symbol symbol_def in
           Module.SymbolDef symbol_def
       | Import import ->
@@ -2659,16 +2660,16 @@ module ProcessModule = struct
                 interface_symbol
             in
 
-            let+ interface_symbol = Rewriter.Symbol.reify interface_symbol in
-            Logs.debug (fun mm ->
+            let* interface_symbol = Rewriter.Symbol.reify interface_symbol in
+            let* () = Rewriter.Logs.debug (fun printers mm ->
                 mm
                   !"Typing.process_module: %{Ident}: checking return type \
-                    %{Symbol}: reified; \n\
+                    %a: reified; \n\
                    \ qual_interface_ident: %{QualIdent} \n\
                    \ mid: %{QualIdent}"
                   (Symbol.to_name (ModDef m))
-                  interface_symbol qual_interface_ident mid);
-            (qual_interface_ident, mid, interface_symbol))
+                  printers.pr_symbol interface_symbol qual_interface_ident mid) in
+            Rewriter.return (qual_interface_ident, mid, interface_symbol))
       in
       match interface_opt with
       | Some (qual_interface_ident, interface_ident, ModDef interface) ->
@@ -2796,7 +2797,7 @@ module ProcessModule = struct
     in
 
     (* Check whether modules are indeed modules *)
-    let+ _ =
+    let* _ =
       if not mod_decl.mod_decl_is_interface then
         Rewriter.List.iter mod_def ~f:(function
           | Import _ -> Rewriter.return ()
@@ -2833,7 +2834,7 @@ module ProcessModule = struct
                        (Symbol.to_name symbol))
                 | _ -> ())
               | _ -> Rewriter.return ())
-              
+
           | _ -> Rewriter.return ())
       else Rewriter.return ()
     in
@@ -2841,16 +2842,16 @@ module ProcessModule = struct
       Logs.debug (fun mm ->
           mm !"Done with processing module %{Ident}" (Symbol.to_name (ModDef m)))
     in
-    Logs.debug (fun mm ->
-          mm !"%{Symbol}" (ModDef (Module.{ mod_decl; mod_def })));
-    Module.{ mod_decl; mod_def }
+    let* () = Rewriter.Logs.debug (fun printers mm ->
+          mm "%a" printers.pr_symbol (ModDef (Module.{ mod_decl; mod_def }))) in
+    Rewriter.return (Module.{ mod_decl; mod_def })
 end
 
-let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
+let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
   let tbl, m =
-    Rewriter.eval
+    Rewriter.eval ?ext_hooks
       (fun st ->
         let st, _ = Rewriter.enter_module m st in
         let st, m = ProcessModule.process_module m st in

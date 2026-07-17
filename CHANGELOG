@@ -13,6 +13,7 @@ All notable changes to this project will be docmented in this file.
 - Semicolons are no longer accepted between top-level module members (fields, procs, modules, etc.); they are now only meaningful terminating a statement in a procedure/lemma body or (optionally) separating the case branches of a data type declaration.
 - Replace 'admitted' keyword with 'free' and unify handling of admitted and free symbols in AST.
 - Set prophecy extension to be the default extension.
+- Refactored the Extension API to remove global mutable state: the active extension is now threaded through the pipeline as an explicit value rather than mutable references.
 
 ### Fixed
 

@@ -252,7 +252,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
           in
 
           (* another log stmt. *)
-          Logs.debug (fun m -> m "ErrorCreditsExt.type_check_stmt: fn_arg_var_decl = %a; errFn_def= %a;\nDisamTbl:%a" Type.pr_var_decl fn_arg_var_decl Expr.pr errFn_def ProgUtils.DisambiguationTbl.pr disam_tbl);
+          let* () = Rewriter.Logs.debug (fun printers m -> m "ErrorCreditsExt.type_check_stmt: fn_arg_var_decl = %a; errFn_def= %a;\nDisamTbl:%a" printers.pr_type_var_decl fn_arg_var_decl printers.pr_expr errFn_def ProgUtils.DisambiguationTbl.pr disam_tbl) in
 
           (* After adding new variable to symbolTbl, we are finally ready to type-check the function definition expresion, `errFn_def` *)
           let* errFn_def = type_check_stmt_functs.disambiguate_process_expr errFn_def Type.real disam_tbl in
@@ -551,9 +551,9 @@ module ErrorCreditsExt (Cont : ListApi) = struct
 
       in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
         m "ErrorCreditsExt.rewrite_stmt_ext: Pre-typecheck sum_func_symbol:\n %a"
-          Symbol.pr sum_func_symbol);
+          printers.pr_symbol sum_func_symbol) in
 
       (* Add the function symbol to the symbolTbl *)
       let* _ =
@@ -645,8 +645,8 @@ module ErrorCreditsExt (Cont : ListApi) = struct
           ])
       in
 
-      Logs.debug (fun m ->
-        m "ErrorCreditsExt.rewrite_stmt_ext: Done rewriting EC_RandFn; output: %a" Stmt.pr (Stmt.mk_block_stmt ~loc [check_valid_stmt1; check_valid_stmt2; exhale_stmt; havoc_stmt; inhale_stmt1; inhale_stmt2]));
+      let* () = Rewriter.Logs.debug (fun printers m ->
+        m "ErrorCreditsExt.rewrite_stmt_ext: Done rewriting EC_RandFn; output: %a" printers.pr_stmt (Stmt.mk_block_stmt ~loc [check_valid_stmt1; check_valid_stmt2; exhale_stmt; havoc_stmt; inhale_stmt1; inhale_stmt2])) in
 
       Rewriter.return (Stmt.mk_block_stmt ~loc [check_valid_stmt1; check_valid_stmt2; exhale_stmt; havoc_stmt; inhale_stmt1; inhale_stmt2])
 

@@ -159,22 +159,125 @@ module NewSymbolsTree = struct
 end
 
 
+(* [ext_hooks] bundles every function an active language extension contributes to the
+   core pipeline (see lib/ext/README.md). It has to be defined mutually with [state]/[t]
+   because several of its fields return [_ t]. A value of this type is installed once,
+   by [eval] below, and threaded through the rest of the pipeline as ordinary monadic
+   state -- there is no global mutable reference standing in for "the active extension". *)
 type 'a state = {
   state_table : SymbolTbl.t;
   state_update_table : bool;
   state_new_symbols_tree : NewSymbolsTree.t;
   state_ghost_scope : bool list;
   state_user_data : 'a;
+  state_ext_hooks : ext_hooks;
 }
 
-type ('a, 'b) t_ext = 'b state -> 'b state * 'a
-type 'a t = ('a, unit) t_ext
+and ('a, 'b) t_ext = 'b state -> 'b state * 'a
+and 'a t = ('a, unit) t_ext
+
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_type_expr] so an extension
+    can recursively process sub-type-expressions using the core type-checker. *)
+and type_check_type_expr_functs = {
+  process_type_expr : type_expr -> type_expr t;
+}
+
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_expr]. *)
+and type_check_expr_functs = {
+  check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr t;
+  process_expr : expr -> type_expr -> expr t;
+  type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+  expand_type_expr : type_expr -> (type_expr, unit) t_ext;
+}
+
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_stmt]. *)
+and type_check_stmt_functs = {
+  get_assign_lhs :  is_init:bool ->
+                    ?is_ghost_cmd:bool ->
+                    qual_ident ->
+                    unit state ->
+                    unit state * (qual_ident * var_decl);
+
+  expand_type_expr : type_expr -> (type_expr, unit) t_ext;
+
+  disambiguate_process_expr : expr -> type_expr -> DisambiguationTbl.t -> expr t;
+
+  type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+
+  disam_tbl_add_var_decl : var_decl -> DisambiguationTbl.t -> var_decl * DisambiguationTbl.t;
+
+  process_symbol : Module.symbol -> Module.symbol t;
+}
+
+(** The complete set of extension callbacks: printing/query hooks for the [*_ext]
+    leaves of the AST (see AstDef's [make_printers]/[make_symbols]/etc.), the
+    type-rewriting hooks used deep inside generic traversal, and the type-checking /
+    rewriting entry points an extension implements (see [ExtApi.Ext] in
+    lib/ext/api/extApi.ml, which every concrete extension satisfies). Built once from
+    the CLI-selected extension by [lib/ext/ext.ml] and installed by [eval]. *)
+and ext_hooks = {
+  type_ext_to_name : Type.type_ext -> string;
+  expr_ext_to_string : Expr.expr_ext -> string;
+  pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
+  stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
+  stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
+  stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list;
+
+  expr_ext_rewrite_types : f:(type_expr -> type_expr t) -> Expr.expr_ext -> Expr.expr_ext t;
+  stmt_ext_rewrite_types : f:(type_expr -> type_expr t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
+
+  type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr t;
+  type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr t;
+  type_check_stmt :
+    Callable.call_decl ->
+    Stmt.stmt_ext -> expr list ->
+    location ->
+    DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    (Stmt.basic_stmt_desc * DisambiguationTbl.t) t;
+
+  rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
+  rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
+  rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
+
+  ext_local_vars : var_decl list;
+}
+
+(** What every [Rewriter.t] computation sees before any extension has been installed.
+    [eval] below always installs the real hooks for the CLI-selected extension; this
+    default only matters for entry points (e.g. the backend, which only ever runs on
+    already-rewritten, extension-free ASTs) that never exercise it. *)
+let default_ext_hooks : ext_hooks = {
+  type_ext_to_name = Type.default_type_ext_to_name;
+  expr_ext_to_string = Expr.default_expr_ext_to_string;
+  pr_stmt_ext = Stmt.default_pr_stmt_ext;
+  stmt_ext_symbols = Stmt.default_stmt_ext_symbols;
+  stmt_ext_local_vars_modified = Stmt.default_stmt_ext_local_vars_modified;
+  stmt_ext_fields_accessed = Stmt.default_stmt_ext_fields_accessed;
+  expr_ext_rewrite_types =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.expr_ext_rewrite_types: no extension configured");
+  stmt_ext_rewrite_types =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.stmt_ext_rewrite_types: no extension configured");
+  type_check_type_expr =
+    (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
+  type_check_expr =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_expr: no extension configured");
+  type_check_stmt =
+    (fun _ _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_stmt: no extension configured");
+  rewrite_type_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
+  rewrite_expr_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_expr_ext: no extension configured");
+  rewrite_stmt_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_stmt_ext: no extension configured");
+  ext_local_vars = [];
+}
 
 
 (* Using pointers to access certain functions from Typing in certain context while circumventing dependency cycles. *)
 
 (** This is meant to point to:
-      Typing.process_symbol 
+      Typing.process_symbol
     It is initialized at the end of Typing.ml.
 *)
 let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
@@ -182,29 +285,18 @@ let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
 )
 
 (** This is meant to point to:
-      Typing.expand_type_expr 
+      Typing.expand_type_expr
     It is initialized at the end of Typing.ml.
 *)
 let expand_type_expr_ref : (
     type_expr -> (type_expr, unit) t_ext
-  ) ref 
-    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized") 
-
-(** The following are initialized in Ext.ml *)
-let expr_ext_rewrite_types_ref : (f:(type_expr -> type_expr t)
-  -> Expr.expr_ext -> Expr.expr_ext t) ref = ref (fun ~f _ ->
-    Error.internal_error Loc.dummy "Rewriter.expr_ext_rewrite_type_ref uninitialized"
-)
-
-let stmt_ext_rewrite_types_ref : (f: (type_expr -> type_expr t) 
-  -> Stmt.stmt_ext -> Stmt.stmt_ext t) ref = ref (fun ~f _ ->
-    Error.internal_error Loc.dummy "Rewriter.stmt_ext_rewrite_type_ref uninitialized"
-)
+  ) ref
+    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized")
 
 
 include State
 
-let eval ?(update = true) m tbl =
+let eval ?(update = true) ?(ext_hooks = default_ext_hooks) m tbl =
   let sin =
     {
       state_table = tbl;
@@ -212,6 +304,7 @@ let eval ?(update = true) m tbl =
       state_new_symbols_tree = NewSymbolsTree.new_symbol_tree (QualIdent.to_ident tbl.tbl_root.scope_id);
       state_ghost_scope = [];
       state_user_data = ();
+      state_ext_hooks = ext_hooks;
     }
   in
   let sout, res = m sin in
@@ -227,6 +320,88 @@ let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
 
 let init s _ = (s, ())
 let get_table s = (s, s.state_table)
+let current_ext_hooks s = (s, s.state_ext_hooks)
+
+type printers = {
+  pr_type : Stdlib.Format.formatter -> type_expr -> unit;
+  pr_type_var_decl : Stdlib.Format.formatter -> var_decl -> unit;
+  pr_type_var_decl_list : Stdlib.Format.formatter -> var_decl list -> unit;
+  pr_expr : Stdlib.Format.formatter -> expr -> unit;
+  pr_expr_list : Stdlib.Format.formatter -> expr list -> unit;
+  pr_stmt : Stdlib.Format.formatter -> Stmt.t -> unit;
+  pr_stmt_basic : Stdlib.Format.formatter -> Stmt.basic_stmt_desc -> unit;
+  pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
+  pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
+  pr_module : Stdlib.Format.formatter -> Module.t -> unit;
+  pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
+  symbol_to_string : Module.symbol -> string;
+}
+
+(** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr],
+    etc.): built from the given extension hooks. Use this (rather than the bare
+    [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over
+    an AST that can still contain [*_ext] nodes, i.e. before [Rewrites.process_module]
+    has rewritten them away. Most callers want [current_printers] below, which reads
+    the hooks out of the active [Rewriter.t] state; this pure version exists for the
+    handful of call sites (e.g. [bin/raven.ml]) that only have an [ext_hooks] value,
+    not a running computation, in scope. *)
+let printers_of_ext_hooks (h : ext_hooks) : printers =
+  let (_, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _) =
+    Type.make_printers ~type_ext_to_name:h.type_ext_to_name
+  in
+  let (_, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _) =
+    Expr.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string
+  in
+  let (_, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _) =
+    Stmt.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+  in
+  let (_, _, pr_callable) =
+    Callable.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+  in
+  let (pr_module, _, _, _) =
+    Module.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+  in
+  let (pr_symbol, symbol_to_string) =
+    Symbol.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+  in
+  { pr_type; pr_type_var_decl; pr_type_var_decl_list; pr_expr; pr_expr_list;
+    pr_stmt; pr_stmt_basic; pr_stmt_spec_list; pr_callable; pr_module; pr_symbol;
+    symbol_to_string }
+
+(** [current_printers] reads the active extension's hooks out of the [Rewriter.t]
+    state -- see [printers_of_ext_hooks] for the pure/no-state version. *)
+let current_printers (s : 'a state) : 'a state * printers =
+  (s, printers_of_ext_hooks s.state_ext_hooks)
+
+(* Captured before [Logs] is shadowed below, for the rest of this file to use when
+   logging something that doesn't need [printers] (plain values, no AST fragments). *)
+module Stdlib_logs = Logs
+
+(** Rewriter-aware counterparts of [Logs.debug]/[info]/[warn]/[err]/[app]: each takes
+    a closure that -- in addition to the usual message-construction function [m] --
+    also receives the [printers] for whichever extension is active in the current
+    state.
+
+    The printer lookup happens inside the closure handed to the underlying [Logs]
+    function, so -- exactly as with plain [Logs.debug] -- it is skipped entirely
+    when the corresponding log level isn't enabled. *)
+module Logs = struct
+  let lift (log : ('a, unit) Stdlib_logs.msgf -> unit)
+      (f : printers -> ('a, unit) Stdlib_logs.msgf) (s : 'st state) : 'st state * unit =
+    log (fun m -> f (printers_of_ext_hooks s.state_ext_hooks) m);
+    (s, ())
+
+  let debug f = lift Stdlib_logs.debug f
+  let info f = lift Stdlib_logs.info f
+  let warn f = lift Stdlib_logs.warn f
+  let err f = lift Stdlib_logs.err f
+  let app f = lift Stdlib_logs.app f
+end
 
 (** Warning: should only be used for debugging purposes *)
 let __get_state s = (s, s)
@@ -435,19 +610,19 @@ let introduce_typecheck_symbols ~loc
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     (symbols : Module.symbol list) (s : 'a state) : 'a state * qual_ident list =
 
-  Logs.debug (fun m -> m 
-    "Rewriter.introduce_typecheck_symbols: symbols = %a" 
-      (Util.Print.pr_list_comma (fun ppf symbol -> Stdlib.Format.fprintf ppf "%a -> %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol) Symbol.pr symbol)) (symbols)
-  );
-    
+  let s, () = Logs.debug (fun printers m -> m
+    "Rewriter.introduce_typecheck_symbols: symbols = %a"
+      (Util.Print.pr_list_comma (fun ppf symbol -> Stdlib.Format.fprintf ppf "%a -> %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol) printers.pr_symbol symbol)) (symbols)
+  ) s in
+
   let current_scope = s.state_table.tbl_curr.scope_id in
   let symbol__qual_idents = Base.List.map ~f:(fun symbol -> symbol, (QualIdent.append current_scope (Symbol.to_name symbol))) symbols in
 
-  Logs.debug (fun m -> m 
+  Stdlib_logs.debug (fun m -> m
     "
       Rewriter.introduce_typecheck_symbols: current_scope = %a \n \
       Rewriter.introduce_typecheck_symbols: qual_ident = %a \n \
-    " 
+    "
       QualIdent.pr current_scope
       (Util.Print.pr_list_comma QualIdent.pr) (snd (Base.List.unzip symbol__qual_idents))
   );
@@ -469,10 +644,10 @@ let introduce_typecheck_symbols ~loc
           s, (symbol, qual_ident)
         else (s, (symbol, qual_ident))
     | _ ->
-        Logs.debug (fun m -> m  
+        let s, () = Logs.debug (fun printers m -> m
             "Rewriter.introduce_typecheck_symbols: Starting to type-check: %a "
-            Symbol.pr symbol
-          );
+            printers.pr_symbol symbol
+          ) s in
 
         if s.state_table.tbl_curr.scope_is_local then
           let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
@@ -505,8 +680,8 @@ let introduce_typecheck_symbols ~loc
 
   let symbols, qual_idents = Base.List.unzip symbol__qual_idents in
 
-  Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol end: symbols = %a" (Print.pr_list_comma Symbol.pr) symbols);
+  let s, () = Logs.debug (fun printers m ->
+      m "Rewriter.introduce_typecheck_symbol end: symbols = %a" (Print.pr_list_comma printers.pr_symbol) symbols) s in
 
   ( { s with
       state_new_symbols_tree = NewSymbolsTree.scope_add_symbols current_scope symbols s.state_new_symbols_tree;
@@ -535,7 +710,7 @@ let introduce_typecheck_symbol_at_scope' ~loc
     state_table = SymbolTbl.goto_scope scope_qi s.state_table
   } in
 
-  Logs.debug (fun m -> m "introduce_typecheck_symbol_at_scope': scope_qi=%a; after goto, cuurent_scope: %a; symbol = %a " QualIdent.pr scope_qi QualIdent.pr s.state_table.tbl_curr.scope_id Ident.pr (Symbol.to_name symbol));
+  Stdlib_logs.debug (fun m -> m "introduce_typecheck_symbol_at_scope': scope_qi=%a; after goto, cuurent_scope: %a; symbol = %a " QualIdent.pr scope_qi QualIdent.pr s.state_table.tbl_curr.scope_id Ident.pr (Symbol.to_name symbol));
 
   let s, _ = declare_symbol symbol s in
   let s, symbol = !process_symbol_ref symbol s in
@@ -666,7 +841,8 @@ module Expr = struct
     | App (constr, expr_list, expr_attr) ->
         let* constr = match constr with
         | ExprExt expr_ext ->
-          let+ expr_ext = !expr_ext_rewrite_types_ref ~f expr_ext in
+          let* ext_hooks = current_ext_hooks in
+          let+ expr_ext = ext_hooks.expr_ext_rewrite_types ~f expr_ext in
 
           Expr.ExprExt expr_ext
         | _ ->
@@ -901,7 +1077,8 @@ module Stmt = struct
           stmt_desc = Basic (VarDef { var_decl; var_init = new_init; var_is_free = var_def.var_is_free });
         }
     | Stmt.Basic (StmtExt (stmt_ext, stmt_args)) ->
-      let* stmt_ext = !stmt_ext_rewrite_types_ref ~f stmt_ext in
+      let* ext_hooks = current_ext_hooks in
+      let* stmt_ext = ext_hooks.stmt_ext_rewrite_types ~f stmt_ext in
 
       let stmt = { stmt with stmt_desc = Basic (StmtExt (stmt_ext, stmt_args)) } in
         rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f)
@@ -1535,4 +1712,6 @@ let find_and_reify_module name : (AstDef.Module.t, 'a) t_ext =
 let is_local qual_ident s =
   let s, qual_ident = resolve qual_ident s in
   (s, Base.List.is_empty qual_ident.qual_path)
+
+
 

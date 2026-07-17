@@ -59,21 +59,22 @@ let parse_cu file_dir top_level_md_ident lexbuf =
   in
   (incls, Ast.Module.set_name md top_level_md_ident)
 
-let check_cu config tbl smt_env md front_end_out_chan =
+let check_cu ~ext_hooks config tbl smt_env md front_end_out_chan =
+  let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
-  let tbl, processed_md = Typing.process_module ~tbl md in
-  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks md in
+  Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
   if config.typecheck_only then (smt_env, tbl) else
-  
-  if config.prog_stats 
-    && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library") 
-  then 
-    let _ = 
-      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr processed_md.mod_decl.mod_decl_name) 
+
+  if config.prog_stats
+    && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library")
+  then
+    let _ =
+      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr processed_md.mod_decl.mod_decl_name)
     in
-    let prog_stats = Rewrites.compute_stats tbl processed_md in
+    let prog_stats = Rewrites.compute_stats ~ext_hooks tbl processed_md in
 
     Logs.app (fun m -> m
       "\nPROGRAM STATISTICS: \n%a"
@@ -82,7 +83,7 @@ let check_cu config tbl smt_env md front_end_out_chan =
     Stdlib.exit 0
   else begin
 
-  let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
+  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks processed_md in
 
   (* Logs.debug (fun m ->
       m "SymbolTbl Symbols: \n%a\n"
@@ -93,12 +94,12 @@ let check_cu config tbl smt_env md front_end_out_chan =
            (Map.filter_keys tbl.tbl_symbols ~f:(fun k ->
                 Poly.(QualIdent.to_string k = "$Program.pr"))))); *)
 
-  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
 
   Stdlib.Format.fprintf
     (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
-    "%a\n" Ast.Module.pr processed_md;
+    "%a\n" printers.pr_module processed_md;
 
   let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
   (smt_env, tbl)
@@ -106,7 +107,7 @@ let check_cu config tbl smt_env md front_end_out_chan =
 
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all config file_names =
+let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
   (* Start backend solver session *)
   
   (* Variable which controls whether the 
@@ -139,8 +140,7 @@ let parse_and_check_all config file_names =
     if config.no_library then (smt_env, tbl)
     else
       let lib_prog =
-        let (module Ext') = !Ext.ext in
-        List.fold_right (Library.sources @ Ext'.lib_sources) ~init:empty_prog
+        List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
         ~f:(fun (lib_file_name, lib_source) lib_prog ->
             let lib_source_lexbuf =
               Lexing.from_string lib_source
@@ -152,7 +152,7 @@ let parse_and_check_all config file_names =
             let md = Ast.Module.set_free md in
             merge_prog md lib_prog)
       in
-      check_cu config tbl smt_env lib_prog front_end_out_chan
+      check_cu ~ext_hooks config tbl smt_env lib_prog front_end_out_chan
   in
   
   (* Parse and check actual input program *)
@@ -204,7 +204,7 @@ let parse_and_check_all config file_names =
   in
 
   begin
-  let _, _tbl = check_cu config tbl smt_env md front_end_out_chan in
+  let _, _tbl = check_cu ~ext_hooks config tbl smt_env md front_end_out_chan in
   (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
   Logs.app (fun m -> m "Verification successful.")
   end
@@ -318,11 +318,16 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     log_level = Logs.level ();
   }
   in
-  let _ = 
-    (* [EXT] Overwriting which extensions are activated. *)
-    Ext.overwrite_ext(Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode));
+  (* [EXT] Resolve which extension is activated for this run and build the hooks the
+     rest of the pipeline dispatches through -- see lib/ext/ext.ml and
+     Ast.Rewriter.ext_hooks. Unlike the old `Ext.overwrite_ext`, this doesn't mutate
+     any global: `chosen_ext`/`ext_hooks` are plain values threaded explicitly into
+     `parse_and_check_all`. *)
+  let (module ChosenExt) =
+    Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode)
   in
-  try `Ok (parse_and_check_all config input_files) with
+  let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
+  try `Ok (parse_and_check_all ~ext_hooks ~lib_sources:ChosenExt.lib_sources config input_files) with
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
     let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
     let pos = match input_files with

@@ -181,16 +181,16 @@ module ListExt (Cont : Ext) = struct
     | _ -> Cont.type_check_type_expr type_ext type_args type_attr type_check_type_expr_functs
 
   (* Type-checking of expressions. This takes an additional `expected_typ` argument which carries typing information from the surrounding. This is often `Type.any`, the most general typing annotation. *)
-  let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) = 
+  let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) =
     let open Rewriter.Syntax in
-    
+
     match expr_ext, expr_list with
     | ListExpr c, exprs -> begin
       (* Our first debugging statement! Debugging statements appear when one runs `raven` with the `-v -v` flag. Be careful though, Raven spits out a _lot_ of debug statements.
-      
-      Usually debug statements print current location as well as values of some relevant variables. Each (most!) type in Raven have a corresponding printer function, which is used to print `ident` and `expr list`. 
+
+      Usually debug statements print current location as well as values of some relevant variables. Each (most!) type in Raven have a corresponding printer function, which is used to print `ident` and `expr list`.
       *)
-      Logs.debug (fun m -> m "[EXT] ListExt.type_check_expr: List.%a; args= %a; expected_is_ghost=%b" Ident.pr c (Util.Print.pr_list_comma Expr.pr) expr_list (Type.is_ghost expected_typ));
+      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.type_check_expr: List.%a; args= %a; expected_is_ghost=%b" Ident.pr c (Util.Print.pr_list_comma printers.pr_expr) expr_list (Type.is_ghost expected_typ)) in
 
       (* Propagating "ghost" attribute to sub-expressions. *)
       let expr_list = List.map expr_list ~f:(fun expr ->
@@ -424,7 +424,7 @@ module ListExt (Cont : Ext) = struct
       in
 
       (* always good to print some state from time to time! *)
-      Logs.debug (fun m -> m "[EXT] ListExt.rewriter_type_ext: Elem_typ=%a; list_module_insert_scope=%a; list_module_reference_scope=%a" Type.pr elem_typ QualIdent.pr list_module_insert_scope QualIdent.pr list_module_reference_scope);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.rewriter_type_ext: Elem_typ=%a; list_module_insert_scope=%a; list_module_reference_scope=%a" printers.pr_type elem_typ QualIdent.pr list_module_insert_scope QualIdent.pr list_module_reference_scope) in
 
       (* we first introduce a Type module implementing the `Library.Type` interface. This is essentially wrapping the type_expr into a module to use as a higher order module argument.  *)
       let* type_module_qi = 
@@ -500,8 +500,8 @@ module ListExt (Cont : Ext) = struct
   (** this function describes how to rewrite the newly introduced expressions into native Raven constructs. The expression being rewritten here is:
     Expr.App (ExprExt expr_ext, expr_list, expr_attr)
   *)
-  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr: Expr.expr_attr) = 
-    (* let open Rewriter.Syntax in *)
+  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr: Expr.expr_attr) =
+    let open Rewriter.Syntax in
     let loc = expr_attr.expr_loc in
 
     match expr_ext, expr_list with
@@ -517,7 +517,7 @@ module ListExt (Cont : Ext) = struct
       end 
       in
 
-      Logs.debug (fun m -> m "[EXT] ListExt.rewrite_expr_ext: expr_typ = %a" Type.pr expr_attr.expr_type);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.rewrite_expr_ext: expr_typ = %a" printers.pr_type expr_attr.expr_type) in
 
       (* Generating the qual_ident for the `cons` constructor, by appending "cons" to the List module name. *)
       let constr_qid = QualIdent.append module_name Predefs.lib_list_cons_ident in
@@ -574,6 +574,7 @@ module ListExt (Cont : Ext) = struct
       Expr.mk_app ~loc ~typ:expr_attr.expr_type (DataDestr constr_qid) [ls_arg] |> Rewriter.return
 
     | ListExpr ident, ls_arg :: args ->
+      let* printers = Rewriter.current_printers in
       Logs.debug (fun m -> m "[EXT] ListExt.rewrite_expr_ext: %a" Ident.pr ident);
 
       (* otherwise, assume it must be a callable. *)
@@ -581,7 +582,7 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Logs.debug (fun m -> m "expr_type: %a" Type.pr expr_attr.expr_type);
+        Logs.debug (fun m -> m "expr_type: %a" printers.pr_type expr_attr.expr_type);
         Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed; expected List Module name type"
       end
       in

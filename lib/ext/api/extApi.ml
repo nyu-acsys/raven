@@ -1,12 +1,17 @@
 open Ast
 
+(* These callback-bundle types are defined in Ast.Rewriter (alongside the [ext_hooks]
+   type they populate) rather than here, because Rewriter's state needs to know their
+   shape without depending on lib/ext. The aliases below keep this module's existing
+   names -- and every extension's [type_check_*] signatures -- unchanged. *)
+
 (** Set of functions from Typing.ml available for type checking `Type.type_ext`  *)
-type type_check_type_expr_functs = {
+type type_check_type_expr_functs = Rewriter.type_check_type_expr_functs = {
   process_type_expr : type_expr -> type_expr Rewriter.t;
 }
 
 (** Set of functions from Typing.ml available for type checking `Expr.expr_ext`  *)
-type type_check_expr_functs = {
+type type_check_expr_functs = Rewriter.type_check_expr_functs = {
   check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
   process_expr : expr -> type_expr -> expr Rewriter.t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
@@ -14,11 +19,11 @@ type type_check_expr_functs = {
 }
 
 (** Set of functions from Typing.ml available for type checking `Stmt.stmt_ext`  *)
-type type_check_stmt_functs = {
-  get_assign_lhs :  is_init:bool -> 
-                    ?is_ghost_cmd:bool -> 
-                    qual_ident -> 
-                    unit Rewriter.state -> 
+type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
+  get_assign_lhs :  is_init:bool ->
+                    ?is_ghost_cmd:bool ->
+                    qual_ident ->
+                    unit Rewriter.state ->
                     unit Rewriter.state * (qual_ident * var_decl);
 
   expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
@@ -29,7 +34,7 @@ type type_check_stmt_functs = {
 
   disam_tbl_add_var_decl : var_decl -> ProgUtils.DisambiguationTbl.t -> var_decl * ProgUtils.DisambiguationTbl.t;
 
-  process_symbol_ref : (Module.symbol -> Module.symbol Rewriter.t) ref;
+  process_symbol : Module.symbol -> Module.symbol Rewriter.t;
 }
 
 (* Main Extension API *)

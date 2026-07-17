@@ -89,7 +89,7 @@ module AtomicExt (Cont : ListApi) = struct
   *)
   let is_type_word_sized (typ: type_expr) : bool Rewriter.t =
     let open Rewriter.Syntax in
-    Logs.debug (fun m -> m "[EXT] AtomicExt: is_type_word_sized: input=%a" Type.pr typ);
+    let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] AtomicExt: is_type_word_sized: input=%a" printers.pr_type typ) in
     let* typ = !Rewriter.expand_type_expr_ref typ in
 
     match typ with
@@ -147,7 +147,7 @@ module AtomicExt (Cont : ListApi) = struct
         in
         (* use `get_assign_lhs` to get the var_decl for `lhs_expr`. *)
         let* atomic_inbuilt_lhs, var_decl = type_check_stmt_functs.get_assign_lhs (Expr.to_qual_ident lhs_expr) ~is_init:is_init in
-            Logs.debug (fun m -> m "[EXT] AtomicExt.type_check_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" Expr.pr lhs_expr QualIdent.pr atomic_inbuilt_lhs);
+            let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] AtomicExt.type_check_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" printers.pr_expr lhs_expr QualIdent.pr atomic_inbuilt_lhs) in
 
         (* Use `Rewriter.resolve_and_find` to find the field. This can very well be replaced by the more compact `Rewriter.find_and_reify_field`; that would be equivalent. *)
         let* atomic_inbuilt_field, symbol =

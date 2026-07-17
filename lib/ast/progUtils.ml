@@ -1,62 +1,18 @@
 open Base
 open AstDef
 open Util
+
+(* Captured before [open Rewriter] below, which brings [Rewriter.Logs] into scope
+   unqualified and would otherwise shadow the real logging library here. *)
+module Stdlib_logs = Logs
+
 open Rewriter
 
 
-(* DisambiguationTbl is used in disambiguating local idents in Typing.ProcessCallable. *)
-module DisambiguationTbl = struct
-  type t = ident ident_map list
-
-  let push (disam_tbl : t) : t = Map.empty (module Ident) :: disam_tbl
-
-  let pop (disam_tbl : t) : t =
-    match disam_tbl with
-    | _ :: disam_tbl -> disam_tbl
-    | [] -> raise (Invalid_argument "Empty DisambiguationTbl")
-
-  let add (disam_tbl : t) loc name new_name : t =
-    match disam_tbl with
-    | hd :: tl -> (
-        match Map.add hd ~key:name ~data:new_name with
-        | `Ok hd -> hd :: tl
-        | `Duplicate -> Error.redeclaration_error loc (Ident.to_string name))
-    | [] -> raise (Invalid_argument "Empty DisambiguationTbl")
-
-  let rec find (disam_tbl : t) name =
-    match disam_tbl with
-    | [] -> None
-    | map :: ts -> (
-        match Map.find map name with
-        | None -> find ts name
-        | Some id -> Some id)
-
-  let rec find_exn (disam_tbl : t) name =
-    match disam_tbl with
-    | map :: ts -> (
-        match Map.find map name with
-        | None -> find_exn ts name
-        | Some id -> id)
-    | [] -> raise Stdlib.Not_found
-
-  let add_var_decl (var_decl : AstDef.Type.var_decl) (disam_tbl : t) :
-      AstDef.Type.var_decl * t =
-    let new_name =
-      Ident.fresh var_decl.var_loc var_decl.var_name.ident_name
-    in
-    let disam_tbl =
-      add disam_tbl var_decl.var_loc var_decl.var_name new_name
-    in
-    let var_decl = { var_decl with var_name = new_name } in
-
-    (var_decl, disam_tbl)
-
-  let pr ppf disam_tbl =
-    let open Stdlib.Format in
-    fprintf ppf "%a"
-      (Fmt.Dump.list (Fmt.Dump.list (Fmt.Dump.pair Ident.pr Ident.pr)))
-      (Base.List.map disam_tbl ~f:Base.Map.to_alist)
-end
+(* DisambiguationTbl is used in disambiguating local idents in Typing.ProcessCallable.
+   Its definition lives in disambiguationTbl.ml, below Rewriter -- see the comment
+   there for why. This re-export keeps ProgUtils.DisambiguationTbl working as before. *)
+module DisambiguationTbl = DisambiguationTbl
 
 let serialize (s : string) : string =
   let s =
@@ -85,9 +41,9 @@ let frac_field_to_frac_mod_qual_ident ~loc field_name_qi field_tp =
 
   QualIdent.append frac_mod_path frac_mod_ident
 
-let is_field_def_real_heap (fld : AstDef.Module.field_def) : bool =
-  Logs.debug (fun m ->
-      m "ProgUtils.is_field_def_real_heap: fld.field_type: %a" AstDef.Type.pr
+let is_field_def_real_heap ~(printers : Rewriter.printers) (fld : AstDef.Module.field_def) : bool =
+  Stdlib_logs.debug (fun m ->
+      m "ProgUtils.is_field_def_real_heap: fld.field_type: %a" printers.pr_type
         fld.field_type);
 
   match fld.field_type with
@@ -258,15 +214,15 @@ let intros_type_module ~(loc : location) ?scope
         symbol);*)
 
   match scope with
-  | None -> 
+  | None ->
     let+ typ_module_qi = introduce_typecheck_symbol ~loc ~f symbol in
-    Logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
+    Stdlib_logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
     typ_module_qi
-  | Some scope_qi -> 
-    Logs.debug (fun m -> m "ProgUtils.intros_type_module: scope_qual_iden = %a; symbol = %a" QualIdent.pr scope_qi Ident.pr (AstDef.Symbol.to_name symbol));
+  | Some scope_qi ->
+    Stdlib_logs.debug (fun m -> m "ProgUtils.intros_type_module: scope_qual_iden = %a; symbol = %a" QualIdent.pr scope_qi Ident.pr (AstDef.Symbol.to_name symbol));
     let+ typ_module_qi = introduce_typecheck_symbol_at_scope' ~loc symbol scope_qi in
 
-    Logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
+    Stdlib_logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
     typ_module_qi
 
 let is_ra_type (tp : AstDef.type_expr) : bool t =

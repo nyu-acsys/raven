@@ -258,8 +258,8 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           Callable.{ call_decl; call_def = FuncDef { func_body = None } }
       in
 
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_compr_expr: compr_fn: %a" Symbol.pr compr_fn_def);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_compr_expr: compr_fn: %a" printers.pr_symbol compr_fn_def) in
 
       let new_expr =
         Expr.mk_app ~typ:ret_typ ~loc:(Expr.to_loc expr)
@@ -275,8 +275,8 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
   | App (Diff, [ expr1; expr2 ], _expr_attr) ->
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_set_diff_expr: expr: %a" Expr.pr expr);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_set_diff_expr: expr: %a" printers.pr_expr expr) in
 
       let* expr1 = rewrite_set_diff_expr expr1 in
       let* expr2 = rewrite_set_diff_expr expr2 in
@@ -492,7 +492,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* loop_postbody = rewrite_loops loop.loop_postbody in
       let loop = { loop with loop_prebody; loop_postbody } in
       let loc = Stmt.to_loc stmt in
-      Logs.debug (fun m -> m "Rewrites.rewrite_loops: loop: %a" Stmt.pr stmt);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_loops: loop: %a" printers.pr_stmt stmt) in
 
       let* ( loop_arg_var_decls,
              loop_arg_renaming_map,
@@ -581,7 +581,12 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls =
         (* Local variables modified from loop body become ret vals for loop procedure *)
-        let curr_loop_rets = Stmt.stmt_local_vars_modified loop.loop_postbody in
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let curr_loop_rets =
+          Stmt.make_stmt_local_vars_modified
+            ~stmt_ext_local_vars_modified:ext_hooks.stmt_ext_local_vars_modified
+            loop.loop_postbody
+        in
         let* curr_loop_ret_var_decls =
           Rewriter.List.map curr_loop_rets ~f:(fun var ->
             let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
@@ -745,9 +750,9 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         Module.CallDef call_def
       in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m "Rewrites.rewrite_loops: Pre-typecheck loop_proc_symbol:\n %a"
-            Symbol.pr loop_proc_symbol);
+            printers.pr_symbol loop_proc_symbol) in
 
       let* _ =
         Rewriter.introduce_typecheck_symbol ~loc:stmt.stmt_loc
@@ -781,7 +786,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           ) (Stmt.mk_skip ~loc)
       in
 
-      Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "Loop new_stmt:\n %a" printers.pr_stmt new_stmt) in
       Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_loops
 
@@ -925,9 +930,10 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (New new_desc) ->
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_new_stmts: new_desc: %a" Stmt.pr stmt);
-      
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_new_stmts: new_desc: %a" printers.pr_stmt stmt) in
+
+
       let assume_non_null_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc 
           ~cmnt:"AssumeNonNull Stmt; from new stmt"
         (Expr.mk_not (
@@ -1347,10 +1353,10 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           (renaming_map, fresh_dropped_args)
       in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m "Rewrites.rewrite_call_stmts: new_renaming_map: %a"
-            (Util.Print.pr_map ~key:QualIdent.pr ~value:Expr.pr)
-            new_renaming_map);
+            (Util.Print.pr_map ~key:QualIdent.pr ~value:printers.pr_expr)
+            new_renaming_map) in
 
       match call_def with
       | ProcDef _ ->
@@ -1582,7 +1588,7 @@ let rec rewrite_add_pred_implicit_args (expr : Expr.t) : Expr.t Rewriter.t =
         Poly.(callable.call_decl.call_decl_kind = Callable.Pred ||
         callable.call_decl.call_decl_kind = Callable.Invariant) ->
       let* callable = Rewriter.find_and_reify_callable qual_iden in
-        Logs.debug (fun m -> m "Rewrites.rewrite_add_pred_implicit_args called on: %a; callable = %a" Expr.pr expr Callable.pr callable);
+        let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_add_pred_implicit_args called on: %a; callable = %a" printers.pr_expr expr printers.pr_callable callable) in
         if List.length (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns) = List.length args then
           Rewriter.return expr
         else 
@@ -1644,12 +1650,12 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
   | FieldDef f ->
       let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 
-      Logs.debug (fun m -> m
+      let* () = Rewriter.Logs.debug (fun printers m -> m
           "Rewrites.rewrite_frac_field_types:
           is_field_an_ra: %a -> %b"
-            Type.pr f.field_type
+            printers.pr_type f.field_type
             is_field_an_ra
-      );
+      ) in
             
       if is_field_an_ra then Rewriter.return symbol
       else
@@ -1715,13 +1721,13 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
      Essentially, makes a uniform 3-arg representation of all own expressions, frac-type as well as RA type.
   *)
   let open Rewriter.Syntax in
-  Logs.debug (fun m ->
-      m "Rewrites.rewrite_own_expr_4_arg: run on expr: %a" Expr.pr expr);
+  let* () = Rewriter.Logs.debug (fun printers m ->
+      m "Rewrites.rewrite_own_expr_4_arg: run on expr: %a" printers.pr_expr expr) in
 
   match expr with
   | App (Own, [ expr1; expr2; expr3; expr4 ], expr_attr) ->
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_own_expr_4_arg: found expr: %a" Expr.pr expr);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_own_expr_4_arg: found expr: %a" printers.pr_expr expr) in
 
       (* let field_type = match Expr.to_type expr2 with
            | App (Fld, [tp_expr], _) -> tp_expr
@@ -1729,30 +1735,30 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
          in *)
       let field_type = Expr.to_type expr2 in
 
-      Logs.debug (fun m -> m
-        "Rewrites.rewrite_own_expr_4_arg: field_type1: %a" 
-          Type.pr field_type
-      );
+      let* () = Rewriter.Logs.debug (fun printers m -> m
+        "Rewrites.rewrite_own_expr_4_arg: field_type1: %a"
+          printers.pr_type field_type
+      ) in
 
       let* field_type = Typing.ProcessTypeExpr.expand_type_expr field_type in
-      let field_name = QualIdent.unqualify (Expr.to_qual_ident expr2) in 
+      let field_name = QualIdent.unqualify (Expr.to_qual_ident expr2) in
 
-      Logs.debug (fun m -> m
-        "Rewrites.rewrite_own_expr_4_arg: field_type2: %a" 
-          Type.pr field_type
-      );
+      let* () = Rewriter.Logs.debug (fun printers m -> m
+        "Rewrites.rewrite_own_expr_4_arg: field_type2: %a"
+          printers.pr_type field_type
+      ) in
 
       let+ expr3 =
         let expr3_1 = expr3 in
         let expr3_2 = expr4 in
 
-        Logs.debug (fun m ->
+        let* () = Rewriter.Logs.debug (fun printers m ->
             m
               "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: \
                tp_module: %a;\n ... & frac_mod_ident: %a"
-              Type.pr field_type QualIdent.pr (QualIdent.from_ident
+              printers.pr_type field_type QualIdent.pr (QualIdent.from_ident
               (ProgUtils.frac_field_to_frac_mod_ident
-                 ~loc:(Expr.to_loc expr) field_name field_type)));
+                 ~loc:(Expr.to_loc expr) field_name field_type))) in
 
         let* frac_mod_name =
           let frac_mod_name = 
@@ -1784,12 +1790,12 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
             [ expr3_1; expr3_2 ]
         in
 
-        Logs.debug (fun m -> m
-          "Rewrites.rewrite_own_expr_4_arg: 
+        let* () = Rewriter.Logs.debug (fun printers m -> m
+          "Rewrites.rewrite_own_expr_4_arg:
             expr3: %a"
 
-            Expr.pr expr3 
-        );
+            printers.pr_expr expr3
+        ) in
 
         Rewriter.return expr3
       in
@@ -2253,7 +2259,11 @@ let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
   | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
       let* preds_list = ProgUtils.stmt_preds_mentioned body in
-      let fields_list = Stmt.stmt_fields_accessed body in
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      let fields_list =
+        Stmt.make_stmt_fields_accessed
+          ~stmt_ext_fields_accessed:ext_hooks.stmt_ext_fields_accessed body
+      in
       let au_preds_list = Set.to_list (Stmt.stmt_au_preds_referenced body) in
 
       Logs.debug (fun m ->
@@ -2304,11 +2314,11 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                   let local_var = QualIdent.to_ident qual_ident in
 
-                    Logs.debug (fun m ->
+                    let* () = Rewriter.Logs.debug (fun printers m ->
                         m
                           "Rewrites.rewrite_ssa_stmts: Assigning to local \
                           variable %a; for stmt %a"
-                          Ident.pr local_var Stmt.pr s);
+                          Ident.pr local_var printers.pr_stmt s) in
                     let old_var_decl = Map.find_exn var_map local_var in
                     let new_var_decl =
                       Type.
@@ -2422,8 +2432,8 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
           Rewriter.return
             Stmt.{ s with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
       | _ ->
-          Logs.debug (fun m ->
-              m "Rewrites.rewrite_ssa_stmts: Skipping statement %a" Stmt.pr s);
+          let* () = Rewriter.Logs.debug (fun printers m ->
+              m "Rewrites.rewrite_ssa_stmts: Skipping statement %a" printers.pr_stmt s) in
           assert false)
   | Block block_stmt ->
       let+ block_body =
@@ -2562,8 +2572,8 @@ let rewrite_ssa_transform (c : Callable.t) :
   match c.call_def with
   | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
-      Logs.debug (fun m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma Type.pr_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
-         @ c.call_decl.call_decl_locals) );
+      let* () = Rewriter.Logs.debug (fun printers m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma printers.pr_type_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
+         @ c.call_decl.call_decl_locals) ) in
 
       let init_map =
         List.fold
@@ -2576,9 +2586,9 @@ let rewrite_ssa_transform (c : Callable.t) :
 
       let* _ = Rewriter.set_user_state init_map in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m "Rewrites.rewrite_ssa_transform: Starting rewrites on callable %a"
-            Callable.pr c);
+            printers.pr_callable c) in
 
       let+ body = rewrite_ssa_stmts body in
 
@@ -2586,9 +2596,9 @@ let rewrite_ssa_transform (c : Callable.t) :
 
 let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
-  Logs.debug (fun m ->
+  let* () = Rewriter.Logs.debug (fun printers m ->
       m "Rewrites.rewrite_assign_stmts: Starting rewrites on statement %a"
-        Stmt.pr s);
+        printers.pr_stmt s) in
 
   match s.stmt_desc with
   | Basic (Assign assign_stmt) ->
@@ -2876,10 +2886,10 @@ let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
       Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_types ~f:rewrite_expand_types m in
 
-  Logs.debug (fun m1 ->
+  let* () = Rewriter.Logs.debug (fun printers m1 ->
       m1
         "Rewrites.all_rewrites: Starting rewrite_ssa_transform on module %a: %a"
-        Ident.pr m.mod_decl.mod_decl_name Module.pr m);
+        Ident.pr m.mod_decl.mod_decl_name printers.pr_module m) in
   let* m =
     Rewriter.eval_with_user_state
       ~init:(Map.empty (module Ident))
@@ -2906,8 +2916,8 @@ let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
     let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
     match type_expr with
     | App (TypeExt type_ext, args, type_attr) ->
-      let (module Ext) = !Ext.ext in
-      Ext.rewrite_type_ext type_ext args (Type.to_loc type_expr)
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_type_ext type_ext args (Type.to_loc type_expr)
     | _ -> Rewriter.return type_expr
 
   in
@@ -2921,9 +2931,9 @@ let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
   let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
     let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
     match expr with
-    | App (ExprExt expr_ext, args, expr_attr) -> 
-      let (module Ext) = !Ext.ext in
-      Ext.rewrite_expr_ext expr_ext args expr_attr
+    | App (ExprExt expr_ext, args, expr_attr) ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_expr_ext expr_ext args expr_attr
     | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
   in
 
@@ -2944,9 +2954,9 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
-    | Basic (StmtExt (stmt_ext, args)) -> 
-      let (module Ext) = !Ext.ext in
-      Ext.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
+    | Basic (StmtExt (stmt_ext, args)) ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt_ext
 
   in
@@ -2955,27 +2965,27 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
+let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  let tbl, m = Rewriter.eval (rewrites_phase_1 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_phase_1 m) tbl in
 
-  let tbl, m = Rewriter.eval (Masks.compute_masks m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (Masks.compute_masks m) tbl in
 
-  let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_phase_2 m) tbl in
 
-  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
-  
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_stmt_ext m) tbl in
+
   (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
 
-  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_stmt_ext m) tbl in
 
-  let tbl, m = Rewriter.eval (rewrites_phase_3 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_phase_3 m) tbl in
 
   (tbl, m)
 
@@ -3157,8 +3167,9 @@ Specification Count: %d"
 
   and computeBasicStmtStats b proc_decl : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
+    let* printers = Rewriter.current_printers in
 
-    (* Logs.debug (fun m -> m 
+    (* Logs.debug (fun m ->m 
       "ProgStats: basic_stmt: %a"
       Stmt.pr_basic_stmt b
     ); *)
@@ -3191,7 +3202,7 @@ Specification Count: %d"
       if is_ghost 
         then { init_prog_stats with proof_remaining_instr = 1; }
       else
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
 
     | New new_desc ->
@@ -3203,12 +3214,12 @@ Specification Count: %d"
       in
 
       if is_ghost && is_concrete then
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; proof_remaining_instr = 1; }
       else if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
     
     | FieldRead field_read_desc ->
@@ -3218,7 +3229,7 @@ Specification Count: %d"
       if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else 
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
     
     | FieldWrite field_write_desc ->
@@ -3228,7 +3239,7 @@ Specification Count: %d"
       if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else 
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
     
     | Call call_desc ->
@@ -3237,13 +3248,13 @@ Specification Count: %d"
       begin match callable.call_decl.call_decl_kind with
       | Lemma -> { init_prog_stats with proof_remaining_instr = 1; }
       | Proc -> 
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
       | _ -> { init_prog_stats with proof_remaining_instr = 1; }
       end
     
     | Return _ -> 
-      let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+      let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 
     | Spec _ | Bind _ | Fpu _ -> 
@@ -3268,9 +3279,9 @@ Specification Count: %d"
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 end
 
-let compute_stats tbl m =
+let compute_stats ?ext_hooks tbl m =
   assert (SymbolTbl.curr_is_root tbl);
 
-  let tbl, prog_stats = Rewriter.eval (ProgStats.computeStats m) tbl in
+  let tbl, prog_stats = Rewriter.eval ?ext_hooks (ProgStats.computeStats m) tbl in
 
   prog_stats

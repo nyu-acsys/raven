@@ -1,9 +1,9 @@
 (env
  (dev
   (flags
-   (:standard -warn-error -A -w -39 -w -27 -w -32)))
+   (:standard -warn-error -A -w -39 -w -27 -w -32 -w -30)))
  (debug
   (flags
-   (:standard -warn-error -A -w -39 -w -27 -w -32))
+   (:standard -warn-error -A -w -39 -w -27 -w -32 -w -30))
   (ocamlopt_flags
    (:standard -g -Oclassic -inline 0))))

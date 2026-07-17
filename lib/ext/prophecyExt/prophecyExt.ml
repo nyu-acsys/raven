@@ -519,7 +519,7 @@ module ProphecyExt (Cont : ListApi) = struct
     (* ```proph_id, proph_val := Proph.new[typ]``` *)
     | NewProph (oneshot_b, typ), [proph_id; proph_val] ->
 
-      Logs.debug (fun m -> m "[EXT] ProphecyExt.rewrite_stmt: NewProph(one_shot:%b; type:%a)" oneshot_b Type.pr typ);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ProphecyExt.rewrite_stmt: NewProph(one_shot:%b; type:%a)" oneshot_b printers.pr_type typ) in
 
       (* using `initialize_prophecy_module` to generate the proph_module_qi. *)
       let* proph_module_qi = initialize_prophecy_module loc typ in

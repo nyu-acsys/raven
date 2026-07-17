@@ -143,9 +143,9 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
       callable, concrete_args, implicit_args
     in
 
-    Logs.debug (fun m ->
+    let* () = Rewriter.Logs.debug (fun printers m ->
         m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a; stmt=%a" QualIdent.pr
-          curr_callable_name Stmt.pr stmt);
+          curr_callable_name printers.pr_stmt stmt) in
 
     let loc = stmt.stmt_loc in
 
@@ -315,7 +315,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                    [open_au_desc.token; (Expr.mk_tuple open_au_desc.proc_args)])
             in
 
-            Logs.debug (fun m -> m "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; implicit_args = %a" QualIdent.pr open_au_desc.proc_qi Expr.pr_list open_au_desc.proc_args Expr.pr_list open_au_desc.lhs);
+            let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; implicit_args = %a" QualIdent.pr open_au_desc.proc_qi printers.pr_expr_list open_au_desc.proc_args printers.pr_expr_list open_au_desc.lhs) in
 
             (* if *)
 
@@ -382,8 +382,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               | _ -> Error.error stmt.stmt_loc "Expected a call_def"
             in
 
-            Logs.debug (fun m -> m "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; callable_args = %a" QualIdent.pr opened_au_token.callable Expr.pr_list (opened_au_token.callable_args
-               @ opened_au_token.implicit_bound_vars));
+            let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; callable_args = %a" QualIdent.pr opened_au_token.callable printers.pr_expr_list (opened_au_token.callable_args
+               @ opened_au_token.implicit_bound_vars)) in
 
 
             let alpha_renaming_map =

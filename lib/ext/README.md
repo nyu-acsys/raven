@@ -111,9 +111,9 @@ Once the programmer has created the extension such that it successfully compiles
 
 4. Finally, in [lib/ext/ext.ml](ext.ml):
   a. add a new module `SampleExtInstance` that instantiates `SampleExt` with an existing extension and introduce it into the chain of extensions. Typically, newer extensions should be added towards the end as the "outermost" instantiations.
-  b. update the definition of `module Ext: ExtApi.Ext` to refer to the new instance `SampleExtInstance`.
+  b. add an entry for it to `module_map`, the function that resolves a `supported_extensions` value (in turn parsed from the `--extension` command-line flag) to the corresponding `(module ExtApi.Ext)`.
 
-5. There is a function `Ext.overwrite_ext` that can be used to set which extensions are active. At present it is called from the `main` function in [raven.ml](../../bin/raven.ml). This can be modified to change which stack of extensions is active.
+5. That's the only place the new extension needs to be registered: [raven.ml](../../bin/raven.ml)'s `main` resolves the `--extension` flag via `Ext.module_map` and passes the result down through the rest of the pipeline automatically (see [Wiring: how `ext_hooks` reaches your code](#wiring-how-ext_hooks-reaches-your-code) below).
 
 6. Run `dune build; dune install` to compile Raven with the new extension.
 
@@ -208,6 +208,26 @@ The `stmt_ext_local_vars_modified` and `stmt_ext_fields_accessed` are two functi
 
 In `stmt_ext_local_vars_modified`, we return the `lhs_expr` converted to an ident if it is "local", ie, does not refer to a global variable, and importantly does not have module qualifiers in its `qual_ident`. Otherwise we return `[]`. In `stmt_ext_fields_accessed` we return `[]` always.
 
+These six functions end up as fields of `Ast.Rewriter.ext_hooks` (see [Wiring](#wiring-how-ext_hooks-reaches-your-code) above) -- `type_ext_to_name`/`expr_ext_to_string`/`pr_stmt_ext` back the *default* AST printers (`AstDef.Type.pr`, `AstDef.Stmt.pr`, etc., built via each module's `make_printers`) whenever they hit a `TypeExt`/`ExprExt`/`StmtExt` leaf, and `stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` are read the same way by `AstDef.Stmt`'s `symbols`/`stmt_local_vars_modified`/`stmt_fields_accessed`. You don't call any of this machinery yourself; it's what makes printing and dependency analysis work correctly on ASTs that still contain your extension's constructs.
+
+#### Printing and logging from your extension
+
+If your own `type_check_*`/`rewrite_*_ext` implementation needs to print or log an expression, statement, or type -- for debugging, or as part of an error message -- reach for `Rewriter.current_printers` rather than `AstDef.Type.pr`/`AstDef.Expr.pr`/`AstDef.Stmt.pr` directly. The bare `AstDef` printers only know about the *default* stub rendering of `*_ext` leaves; `Rewriter.current_printers` reads the `printers` record built from whichever extension is actually active out of the `Rewriter.t` state, so it renders correctly even when the fragment you're printing embeds another extension's constructs (relevant once extensions are stacked, as `AtomicExt`/`ListExt`/`ProphecyExt`/`ErrorCreditsExt` are in `lib/ext/ext.ml`):
+
+```ocaml
+let* printers = Rewriter.current_printers in
+Logs.debug (fun m -> m "my_ext: got expr %a" printers.pr_expr expr)
+```
+
+For debug logging specifically, `Rewriter.Logs.debug`/`info`/`warn`/`err`/`app` fold the `current_printers` lookup into the log call itself, so the common case is one line instead of two -- and the lookup is skipped entirely when that log level isn't enabled, same as plain `Logs.debug`:
+
+```ocaml
+let* () = Rewriter.Logs.debug (fun printers m ->
+    m "my_ext: got expr %a" printers.pr_expr expr) in
+```
+
+Both of these require being inside the `Rewriter.t` monad (i.e. `let open Rewriter.Syntax in ... let*`/`let+`), which every `type_check_*`/`rewrite_*_ext` function already is. See [errorCreditsExt.ml](errorCreditsExt/errorCreditsExt.ml), [prophecyExt.ml](prophecyExt/prophecyExt.ml), [AtomicExt.ml](atomicExt/AtomicExt.ml), or [listExt.ml](listExt/listExt.ml) for real examples of both styles.
+
 ### Rewriter
 
 This API contains the following functions which are used by Raven to perform any _type_ rewrites on the extensions if necessary:
@@ -227,6 +247,8 @@ This API contains the following functions which are used by Raven to perform any
 These are only required if the expression or statement extensions defined in this extension store types. Please take a look at [prophecyExt](prophecyExt/prophecyExt.ml) to see a non-trivial example implementation of these functions.
 
 In [sampleExt.ml](sampleExt/sampleExt.ml), we simply skip these functions, setting them equal to the one from `Cont`.
+
+Like the AstDef functions above, these two end up as `ext_hooks` fields, read out of the `Rewriter.t` state deep inside `Rewriter.Expr.rewrite_types`/`Rewriter.Stmt.rewrite_types` (the generic type-substitution traversal used e.g. when instantiating higher-order modules) whenever it reaches an `ExprExt`/`StmtExt` node -- not something your own code calls directly.
 
 ### Typing
 
@@ -253,7 +275,7 @@ For `type_check_type_expr`:
 
 - The `type_attr`, defined in [astDef.ml](../ast/astDef.ml) refers to _type attribute_, which contains a _location_ as well as ghost status. This location is tied to input location which is used to show to the user the relevant pieces of code for a given error. 
 
-- The next argument is of type `type_check_type_expr_functs` (defined in [extApi.ml](api/extApi.ml)) which is a record object storing a set of functions that are useful during type-checking `type_expr`s. At present, this only contains the `process_type_expr` function which is originally defined in [typing.ml](../frontend/typing.ml). This function is used to process any sub-expressions during the processing of the current type_expr. 
+- The next argument is of type `type_check_type_expr_functs`, which is a record object storing a set of functions that are useful during type-checking `type_expr`s. At present, this only contains the `process_type_expr` function which is originally defined in [typing.ml](../frontend/typing.ml). This function is used to process any sub-expressions during the processing of the current type_expr. This type (along with `type_check_expr_functs` and `type_check_stmt_functs` below) is actually defined in [rewriter.ml](../ast/rewriter.ml), not `extApi.ml` -- it has to live there so that `Ast.Rewriter.ext_hooks` can mention it without `lib/ast` depending on `lib/ext`. [extApi.ml](api/extApi.ml) re-exports it under the same name via `type type_check_type_expr_functs = Rewriter.type_check_type_expr_functs = { ... }`, so this distinction shouldn't matter in practice; you can keep referring to it by its `ExtApi`-qualified name.
 
 - Finally, it has a return type of `type_expr Rewriter.t`. `Rewriter.t`, defined in [rewriter.ml](../ast/rewriter.ml), is a monad that carries Raven's symbol table state throughout the program, letting us do things like seamlessly look up symbol definitions from the program. We use the `let*` and `let+` bindings from `Rewriter.Syntax` in order to interact with this monad. We also use the `Rewriter.return` to wrap a normal value into the monad. In general, keeping the monad in mind is very useful, specially with higher-order functions. The Rewriter module contains its own implementations for commonly used functions such as `List.map`, and `List.fold_right`, implemented in [state.ml](../util/state.ml).
 
@@ -306,6 +328,8 @@ This contains values that properly propate and acculumate the configurations fro
   val ext_local_vars : var_decl list
 ```
 
+These two are read directly off the `(module ExtApi.Ext)` value chosen by `--extension`, but at different points in the pipeline, since only one of them needs to reach the `Rewriter.t` monad: `lib_sources` is read once in `bin/raven.ml`, before type-checking even starts, to assemble the standard library source (see `parse_and_check_all`); `ext_local_vars` is read from `Ast.Rewriter.ext_hooks` (it's a field there too) during `Typing.process_callable`, since it needs to be added to every non-ghost callable's locals while the symbol table is being built.
+
 This sums up the API itself. In the next section we will discuss many commonly used functions in the Raven code-base, and other relevant code in order to provide a starting point into the code-base. At present, the best way to understand how to use each of these functionalities is to read the code, find references to specific functions and see how they're being used. Please contact the authors if you're interested, we will be happy to give a walkthrough, discuss specific extension designs, and answer any questions you may have.
 
 <!-- We will try our best to add documentation and comments to extensions and the code-base in general. -->
@@ -342,7 +366,7 @@ Each of these contain functions for type-checking the corresponding constructs. 
 
 - disam_tbl_add_var_decl: This function handles a new variable declaration and updates the `disam_tbl` appropriately. It takes a `var_decl` and a `disam_tbl`, and returns an update `var_decl` and `disam_tbl`.
 
-- process_symbol_ref: This is a reference also defined at `Rewriter.process_symbol_ref`, which contains a pointer to `Typing.process_symbol`. This is passed because some functions such as `Rewriter.introduce_typecheck_symbol` or `ProgUtils.intros_type_module` require this function as an input. (This is done to avoid dependency cycles.) 
+- process_symbol: `type_check_stmt_functs`'s copy of `Typing.process_symbol`, the function that type-checks a whole `Module.symbol` (used e.g. by `Rewriter.introduce_typecheck_symbol` and `ProgUtils.intros_type_module`, both of which take it as an argument for the same reason described below). It's handed to you as a plain function, already resolved -- you don't need to know that `Typing` itself can only make it available to code outside `typing.ml` via `Rewriter.process_symbol_ref`, a reference set exactly once, at the end of `typing.ml`, to work around the fact that `Rewriter` (in `lib/ast`) can't statically depend on `Typing` (in `lib/frontend`), and that `Typing.process_symbol` itself is defined later in the same file than some of the code that needs it. That reference isn't part of the extension API and isn't something you should need to touch.
 
 ### [AstDef](../ast/astDef.ml)
 
@@ -412,7 +436,11 @@ One notion is that of "reified" declarations. In order to handle higher order mo
 
 - `Rewriter.introduce_symbol`: Insert a new symbol (variables, callables, types, modules, etc) into the current symbol table. This inserts the symbol in the "current" location in the symbol table.
 
-- `Rewriter.introduce_typecheck_symbol`: This is similar to `Rewriter.introduce_symbol` but also performs type-checking on the defined symbol. It is almost always better to use this since it ensures type-safety of the newly introduced, and makes certain transformations like type-inference and type propagation. This function requires the `process_symbol` function as an argument, which is where `process_symbol_ref` comes in handy, which can also be found at `Rewriter.process_symbol_ref`
+- `Rewriter.introduce_typecheck_symbol`: This is similar to `Rewriter.introduce_symbol` but also performs type-checking on the defined symbol. It is almost always better to use this since it ensures type-safety of the newly introduced, and makes certain transformations like type-inference and type propagation. This function requires a `process_symbol`-shaped function as an argument -- pass the `process_symbol` field from `type_check_stmt_functs` if you have one in scope, or `!Rewriter.process_symbol_ref` (the reference `Typing.process_symbol` is installed into, once, at the end of `typing.ml`) otherwise.
+
+- `Rewriter.current_ext_hooks`: Returns the full `ext_hooks` record installed for the active extension (see [Wiring](#wiring-how-ext_hooks-reaches-your-code)). You'll rarely need this directly -- Raven already applies the relevant `ext_hooks` field for you before calling into `type_check_*`/`rewrite_*_ext` -- but it's there if you need to delegate to another extension's hook explicitly.
+
+- `Rewriter.current_printers`/`Rewriter.Logs`: See [Printing and logging from your extension](#printing-and-logging-from-your-extension) above -- use these instead of `AstDef.Type.pr`/`AstDef.Expr.pr`/`AstDef.Stmt.pr`/plain `Logs.debug` whenever you're printing or logging an AST fragment from inside your extension's code, so `*_ext` nodes belonging to other stacked extensions render correctly too.
 
 The following are monadic implementations of commonly used higher order functions which are used when we want to use the higher order functions, but also want the monadic state available in the underlying functions.
 
@@ -423,3 +451,13 @@ The following are monadic implementations of commonly used higher order function
 - `Rewriter.Option.map`: Monadic `map` for `option` values; applies a `Rewriter` computation when the option is `Some` and preserves `None`.
 
 - `Rewriter.List.map2_exn`: Monadic version of `List.map2_exn` that maps a pair of lists with a function returning a `Rewriter` computation; raises on length mismatch.
+
+
+## Wiring: how `ext_hooks` reaches your code
+
+Every function you implement in your extension (`type_ext_to_name`, `type_check_stmt`, `rewrite_expr_ext`, ...) has to be reachable from deep inside `lib/ast`'s and `lib/frontend`'s generic AST traversal, printing, and rewriting code -- code that runs identically regardless of which extension (if any) is active, and that cannot depend on `lib/ext` (extensions depend on the core, not the other way round). Raven resolves this by bundling all of the functions an extension implements into a single record, `Ast.Rewriter.ext_hooks` (defined in [rewriter.ml](../ast/rewriter.ml) alongside the `Rewriter.t` monad itself), and threading that record through the pipeline as an ordinary value:
+
+1. [`bin/raven.ml`](../../bin/raven.ml) resolves the `--extension` flag to a `(module ExtApi.Ext)` via `Ext.module_map`, then converts it to an `ext_hooks` value via `Ext.to_ext_hooks` (in [ext.ml](ext.ml)) -- this is the *only* place a `module Ext : ExtApi.Ext` gets unpacked into plain data.
+2. That `ext_hooks` value is passed as an explicit `~ext_hooks` argument into `Typing.process_module` and `Rewrites.process_module`, which install it into the `Rewriter.t` monad's state via `Rewriter.eval ?ext_hooks`.
+3. From then on, any code running inside the `Rewriter.t` monad -- which is essentially all of type-checking and rewriting, including the code inside your own extension -- can read it back out with `Rewriter.current_printers` (for the printing/query functions) or by pattern-matching `Ast.Rewriter.ext_hooks`'s other fields directly. Extension code practically never needs to do this itself, since Raven only calls into `type_check_type_expr`/`rewrite_stmt_ext`/etc. *with* the relevant pieces of `ext_hooks` already applied (e.g. via the `type_check_*_functs` bundles, see [Typing](#typing) above) -- but it matters if your own implementation wants to print or log an AST fragment that might still contain another extension's constructs (see [Printing and logging from your extension](#printing-and-logging-from-your-extension)).
+
