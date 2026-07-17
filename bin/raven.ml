@@ -320,9 +320,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
   in
   (* [EXT] Resolve which extension is activated for this run and build the hooks the
      rest of the pipeline dispatches through -- see lib/ext/ext.ml and
-     Ast.Rewriter.ext_hooks. Unlike the old `Ext.overwrite_ext`, this doesn't mutate
-     any global: `chosen_ext`/`ext_hooks` are plain values threaded explicitly into
-     `parse_and_check_all`. *)
+     Ast.Rewriter.ext_hooks. *)
   let (module ChosenExt) =
     Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode)
   in

@@ -3,8 +3,7 @@
     This lives below [Rewriter] (rather than inside [ProgUtils], which depends on
     [Rewriter]) so that [Rewriter]'s [ext_hooks] can mention [DisambiguationTbl.t] in
     the signatures it borrows from the extension API without creating a dependency
-    cycle. [ProgUtils.DisambiguationTbl] re-exports this module, so existing call
-    sites are unaffected. *)
+    cycle. *)
 
 open Base
 open AstDef
