@@ -2133,31 +2133,33 @@ let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
               Map.set acc ~key:func_qual_ident ~data:call_decl)
       in
 
-      let rec gen_stmts (e : expr) : Stmt.t list =
-        match e with
-        | App (Ite, [ cond; e1; e2 ], _) ->
-            gen_stmts cond
-            @ [
-                Stmt.mk_cond ~loc:(Expr.to_loc e) (Some cond)
-                  (Stmt.mk_block_stmt ~loc:(Expr.to_loc e1) (gen_stmts e1))
-                  (Stmt.mk_block_stmt ~loc:(Expr.to_loc e2) (gen_stmts e2));
-              ]
-        | App (Var callee, args, _) -> (
-            let arg_stmts = List.concat_map args ~f:gen_stmts in
-            match Map.find eligible_tbl callee with
-            | None -> arg_stmts
-            | Some callee_decl ->
-                let lemma_qual_ident =
-                  QualIdent.append module_qual_ident
-                    (contract_lemma_ident callee_decl.call_decl_name)
-                in
-                arg_stmts
-                @ [
-                    Stmt.mk_call ~loc:(Expr.to_loc e) ~lhs:[] lemma_qual_ident
-                      args ~is_spawn:false;
-                  ])
-        | App (_, args, _) -> List.concat_map args ~f:gen_stmts
-        | Binder _ -> []
+      let gen_stmts (e : expr) : Stmt.t list =
+        let rec go (acc : Stmt.t list) (e : expr) : Stmt.t list =
+          match e with
+          | App (Ite, [ cond; e1; e2 ], _) ->
+              let acc = go acc cond in
+              Stmt.mk_cond ~loc:(Expr.to_loc e) (Some cond)
+                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e1)
+                   (List.rev (go [] e1)))
+                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e2)
+                   (List.rev (go [] e2)))
+              :: acc
+          | App (Var callee, args, _) -> (
+              let acc = List.fold args ~init:acc ~f:go in
+              match Map.find eligible_tbl callee with
+              | None -> acc
+              | Some callee_decl ->
+                  let lemma_qual_ident =
+                    QualIdent.append module_qual_ident
+                      (contract_lemma_ident callee_decl.call_decl_name)
+                  in
+                  Stmt.mk_call ~loc:(Expr.to_loc e) ~lhs:[] lemma_qual_ident
+                    args ~is_spawn:false
+                  :: acc)
+          | App (_, args, _) -> List.fold args ~init:acc ~f:go
+          | Binder _ -> acc
+        in
+        List.rev (go [] e)
       in
 
       let lemma_symbols =
