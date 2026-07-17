@@ -1,10 +1,10 @@
 interface CLHLock {
-  field locked: Bool;
-  field loc: Ref;
-  field predecessor: Ref;
+  field locked: Bool
+  field loc: Ref
+  field predecessor: Ref
   field tail: Ref
 
-  ghost field agr: ();
+  ghost field agr: ()
   
   // Resource protected by the lock
   pred resource()

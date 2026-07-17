@@ -14,7 +14,7 @@ interface IArray {
 }
 
 module DutchFlag[Arr: IArray] {
-    field value: Int;
+    field value: Int
     
     pred ordered(m: Map[Int, Int], len: Int) {
         forall i: Int, j: Int :: 0 <= i && i < j && j < len ==> m[i] <= m[j]

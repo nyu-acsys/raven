@@ -45,7 +45,7 @@ let normalizeFilename base_dir file_name =
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_cu file_dir top_level_md_ident lexbuf =
   let incls, md =
-    try Parser.main Lexer.token lexbuf
+    try Parser.main (Lexer.make_token ()) lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
       Error.syntax_error (Loc.make err_pos err_pos) "Parse error"

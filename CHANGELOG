@@ -4,8 +4,13 @@ All notable changes to this project will be docmented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Semicolons after statements in procedure/lemma bodies are now optional: the lexer performs automatic semicolon insertion based on line breaks, tracking bracket/parenthesis nesting and trailing operators so that only newlines that could plausibly end a statement are turned into semicolons. Semicolons remain otherwise unsupported outside of statement lists and data type case branches.
+
 ### Changed
 
+- Semicolons are no longer accepted between top-level module members (fields, procs, modules, etc.); they are now only meaningful terminating a statement in a procedure/lemma body or (optionally) separating the case branches of a data type declaration.
 - Replace 'admitted' keyword with 'free' and unify handling of admitted and free symbols in AST.
 - Set prophecy extension to be the default extension.
 

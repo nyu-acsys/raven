@@ -139,7 +139,6 @@ mod_inst_args:
     
 member_def_list_opt:
 | m = member_def_maybe_free; ms = member_def_list_opt { m :: ms }
-| m = member_def_maybe_free; SEMICOLON; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
 member_def_maybe_free:

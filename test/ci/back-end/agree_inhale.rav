@@ -1,5 +1,5 @@
 module IntType : Library.Type {
-  rep type T = Int;
+  rep type T = Int
 }
 
 module NatAgree = Library.Agree[IntType]

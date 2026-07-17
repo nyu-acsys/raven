@@ -18,7 +18,7 @@ module MCSLock[R: LockResource] {
   module Frac_Ref_Bool = Library.Frac[Ref_Bool_Type]
   import Frac_Ref_Bool.frac_chunk
 
-  ghost field token: Frac_Ref_Bool;
+  ghost field token: Frac_Ref_Bool
 
   inv signal_loc_inv(v: Ref, n: Ref, r: R) {
     exists b_choice: Bool ::
