@@ -7,6 +7,7 @@ All notable changes to this project will be docmented in this file.
 ### Added
 
 - Semicolons after statements in procedure/lemma bodies are now optional: the lexer performs automatic semicolon insertion based on line breaks, tracking bracket/parenthesis nesting and trailing operators so that only newlines that could plausibly end a statement are turned into semicolons. Semicolons remain otherwise unsupported outside of statement lists and data type case branches.
+- Functors whose formals are all constrained by a rep-typed module/interface (e.g. `Library.Type`) can now be used without an explicit instantiation: `M[Int]` is accepted directly as a type, and calls like `M.foo(3)` are resolved by inferring the missing type argument(s) from the call's arguments and expected type, synthesizing (and deduplicating) the instantiation on demand.
 
 ### Changed
 

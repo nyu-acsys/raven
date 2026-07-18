@@ -1,0 +1,12 @@
+// A user-defined functor used both as a type (`M[Int]`) and via an implicit,
+// uninstantiated call (`M.foo(3)`), with no explicit instantiation boilerplate.
+
+module M[T: Library.Type] {
+  rep type S = data {
+    case c(value: T)
+  }
+
+  func foo(t: T) returns (res: S) { c(t) }
+}
+
+val x: M[Int] = M.foo(3)

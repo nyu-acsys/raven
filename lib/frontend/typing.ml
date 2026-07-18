@@ -58,7 +58,43 @@ module ProcessTypeExpr = struct
                 App (Var rep_fully_qualified_qual_ident, [], tp_attr))
         | ModInst _ -> unexpected_functor_error tp_attr.type_loc
         | _ -> Error.type_error tp_attr.type_loc "Expected type identifier")
-    | App (Var _, _, tp_attr) -> unexpected_functor_error tp_attr.type_loc
+    | App (Var qual_ident, (_ :: _ as tp_args), tp_attr) -> (
+        (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, implicitly
+           instantiate it (see `ProgUtils.instantiate_type_functor`) and resolve to the
+           instantiation's rep type. Anything else is still rejected, as before. *)
+        let* fully_qualified_qual_ident, symbol = Rewriter.resolve_and_find qual_ident in
+        match Rewriter.Symbol.orig_symbol symbol with
+        | ModDef m -> (
+            let* is_generic = ProgUtils.is_generic_functor m.mod_decl in
+            if not is_generic then unexpected_functor_error tp_attr.type_loc
+            else if
+              not
+                (Int.equal (List.length tp_args) (List.length m.mod_decl.mod_decl_formals))
+            then
+              arg_mismatch_error "Module" tp_attr.type_loc (Type.Var qual_ident)
+                (List.length m.mod_decl.mod_decl_formals)
+            else
+              let* tp_args = Rewriter.List.map tp_args ~f:process_type_expr in
+              let* inst_qual_ident =
+                ProgUtils.instantiate_type_functor ~loc:tp_attr.type_loc
+                  ~f:!(Rewriter.process_symbol_ref)
+                  ~functor_qual_ident:fully_qualified_qual_ident
+                  ~functor_mod_decl:m.mod_decl tp_args
+              in
+              (match m.mod_decl.mod_decl_rep with
+              | None ->
+                  Error.type_error tp_attr.type_loc
+                    ("Module "
+                    ^ QualIdent.to_string qual_ident
+                    ^ " does not have a rep type. It cannot be used in a context \
+                       expecting a type")
+              | Some rep_ident ->
+                  Rewriter.return
+                    (App
+                       ( Var (QualIdent.append inst_qual_ident rep_ident),
+                         [],
+                         tp_attr ))))
+        | _ -> unexpected_functor_error tp_attr.type_loc)
     | App ((Fld as constr), tp_list, tp_attr) -> (
         match tp_list with
         | [ tp_arg ] ->
@@ -113,7 +149,12 @@ module ProcessTypeExpr = struct
             | Some tp_expr1 ->
               let+ exp_typ = expand_type_expr tp_expr1 in
               exp_typ |> Type.set_ghost_to tp_expr)
-        | Var qual_iden, _ -> unexpected_functor_error tp_attr.type_loc
+        | Var _, (_ :: _) ->
+            (* `M[T1,...,Tn]` can reach here un-normalized via a self-referential
+               lookup (e.g. a recursive call reading back its own declared type).
+               Route through process_type_expr first, then keep expanding. *)
+            let* tp_expr = process_type_expr tp_expr in
+            expand_type_expr tp_expr
         | AtomicToken callable_qid, [] ->
           let+ callable_qid = Rewriter.resolve callable_qid in
           Type.App (AtomicToken callable_qid, [], tp_attr) |> Type.set_ghost_to tp_expr
@@ -200,7 +241,11 @@ module ProcessExpr = struct
         (* Variables, fields, and call expressions *)
         | Var qual_ident, args_list ->
           (let* qual_ident, symbol =
-              Rewriter.resolve_and_find qual_ident
+              (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
+                 its type argument(s) from the call and rewrite to the instantiation. *)
+              resolve_or_implicit qual_ident ~on_miss:(fun () ->
+                  try_resolve_implicit_instantiation ~loc:(Expr.to_loc expr) ~qual_ident
+                    ~arg_exprs:args_list ~expected_typ)
             in
             (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
             let* symbol = Rewriter.Symbol.reify symbol in
@@ -645,7 +690,14 @@ module ProcessExpr = struct
         (* Read expressions *)
         | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
           let* qual_ident, symbol =
-              Rewriter.resolve_and_find field_ident
+              (* `expr1.M.value` where `M` is an uninstantiated functor: infer from
+                 `expr1`'s peeked type, see try_resolve_implicit_instantiation_destr. *)
+              resolve_or_implicit field_ident ~on_miss:(fun () ->
+                  let* peeked_expr1 =
+                    process_expr expr1 (Type.any |> Type.set_ghost_to expected_typ)
+                  in
+                  try_resolve_implicit_instantiation_destr ~field_ident
+                    ~arg_typ:(Expr.to_type peeked_expr1))
             in
             let* symbol = Rewriter.Symbol.reify symbol in
             match symbol with
@@ -851,6 +903,292 @@ module ProcessExpr = struct
         Error.type_error loc
         @@ Printf.sprintf "Too many values returned for %s"
             (Ident.to_string callable_decl.call_decl_name)
+
+  (** Try plain resolution of [qual_ident]; on failure, invoke [on_miss] (one of
+      [try_resolve_implicit_instantiation] / [try_resolve_implicit_instantiation_destr])
+      and, if it rewrites to a new qual_ident, resolve that instead. [None] if neither
+      applies. *)
+  and resolve_or_implicit_opt (qual_ident : qual_ident)
+      ~(on_miss : unit -> qual_ident option Rewriter.t) :
+      (qual_ident * Rewriter.Symbol.t) option Rewriter.t =
+    let open Rewriter.Syntax in
+    let* resolved = Rewriter.resolve_and_find_opt qual_ident in
+    match resolved with
+    | Some _ -> Rewriter.return resolved
+    | None -> (
+        let* rewritten = on_miss () in
+        match rewritten with
+        | Some rewritten_qual_ident -> Rewriter.resolve_and_find_opt rewritten_qual_ident
+        | None -> Rewriter.return None)
+
+  (** [resolve_or_implicit_opt], but raising the ordinary "unknown identifier" error
+      instead of returning [None] when [on_miss] doesn't apply either. *)
+  and resolve_or_implicit (qual_ident : qual_ident)
+      ~(on_miss : unit -> qual_ident option Rewriter.t) :
+      (qual_ident * Rewriter.Symbol.t) Rewriter.t =
+    let open Rewriter.Syntax in
+    let* resolved = resolve_or_implicit_opt qual_ident ~on_miss in
+    match resolved with
+    | Some resolved -> Rewriter.return resolved
+    | None -> Rewriter.resolve_and_find qual_ident
+
+  (** Resolve [qi] as `<functor>.<member>`: split off the prefix, resolve it, and check
+      it names a functor eligible for implicit instantiation (see
+      [ProgUtils.is_generic_functor]). [None] if [qi] is unqualified, its prefix
+      doesn't resolve, or isn't such a functor. Shared by
+      [try_resolve_implicit_instantiation] and
+      [try_resolve_implicit_instantiation_destr]. *)
+  and resolve_generic_functor_prefix (qi : qual_ident) :
+      (qual_ident * Module.t * ident) option Rewriter.t =
+    let open Rewriter.Syntax in
+    if List.is_empty (QualIdent.path qi) then Rewriter.return None
+    else
+      let functor_qi_written = QualIdent.pop qi in
+      let member_ident = QualIdent.unqualify qi in
+      let* functor_resolved = Rewriter.resolve_and_find_opt functor_qi_written in
+      match functor_resolved with
+      | None -> Rewriter.return None
+      | Some (functor_qual_ident, functor_symbol) -> (
+          match Rewriter.Symbol.orig_symbol functor_symbol with
+          | ModDef m -> (
+              let* is_generic = ProgUtils.is_generic_functor m.mod_decl in
+              if is_generic then Rewriter.return (Some (functor_qual_ident, m, member_ident))
+              else Rewriter.return None)
+          | _ -> Rewriter.return None)
+
+  (** Check whether [qi] is (an alias for) an instantiation of the functor resolved as
+      [functor_qual_ident]: an instantiation's alias resolves back to
+      [functor_qual_ident] itself, via [Rewriter.Symbol.orig_qid]. *)
+  and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
+      bool Rewriter.t =
+    let open Rewriter.Syntax in
+    let+ resolved = Rewriter.resolve_and_find_opt qi in
+    match resolved with
+    | Some (_, symbol) -> QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident
+    | None -> false
+
+  (** Check whether [typ] (normalized via [ProcessTypeExpr.process_type_expr], in case
+      it's a raw, self-referentially-read-back type) names an existing instantiation
+      of functor [m]; return that instantiation's qualified name on success. *)
+  and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Module.t)
+      (typ : type_expr) : qual_ident option Rewriter.t =
+    let open Rewriter.Syntax in
+    match m.mod_decl.mod_decl_rep with
+    | None -> Rewriter.return None
+    | Some rep_ident -> (
+        let* typ = ProcessTypeExpr.process_type_expr typ in
+        match typ with
+        | App (Var qi, [], _)
+          when Ident.equal (QualIdent.unqualify qi) rep_ident
+               && not (List.is_empty (QualIdent.path qi)) -> (
+            let inst_qi = QualIdent.pop qi in
+            let* is_inst = resolves_to_instantiation_of ~functor_qual_ident inst_qi in
+            Rewriter.return (if is_inst then Some inst_qi else None))
+        | _ -> Rewriter.return None)
+
+  (** Unify [pairs] against each other, threading (and extending) the partial solution
+      [u] from [m]'s formals to the concrete types they've been solved to so far. Each
+      pair `(t1, t2)` is `t1`, a type written inside [m]'s own un-instantiated body
+      (e.g. a parameter's declared type), against `t2`, the corresponding concrete type
+      from the call site (e.g. an argument's inferred type). Deliberately a structural
+      approximation, not a full algorithm (no union-find, no occurs check) -- see
+      [unify_one] below for the three cases it distinguishes. *)
+  and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident) (m : Module.t)
+      (u : (ident * type_expr) list) (pairs : (type_expr * type_expr) list) :
+      (ident * type_expr) list Rewriter.t =
+    let open Rewriter.Syntax in
+    (* [formal_reps]: each of [m]'s formals' rep-qualident within [m] (the "unification
+       variables" `t1` can bind); [m_rep_qi]: [m]'s own rep-qualident. *)
+    let* formal_reps =
+      Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+          let+ rep = ProgUtils.resolve_rep_ident formal.mod_inst_type in
+          Base.Option.map rep ~f:(fun (_, rep_ident) ->
+              ( QualIdent.append
+                  (QualIdent.append functor_qual_ident formal.mod_inst_name)
+                  rep_ident,
+                formal.mod_inst_name,
+                rep_ident )))
+    in
+    let formal_reps = List.filter_opt formal_reps in
+    let m_rep_qi =
+      Base.Option.map m.mod_decl.mod_decl_rep ~f:(QualIdent.append functor_qual_ident)
+    in
+    (* Canonicalize via [expand_type_expr] before storing/comparing: two bindings for
+       the same formal can be the same type reached through different alias chains
+       (e.g. `Int` vs. `GenInst$$M$$Int.T.T`), which would otherwise look like a
+       conflict. *)
+    let combine u formal_ident t2 =
+      let* t2 = ProcessTypeExpr.expand_type_expr (t2 |> Type.set_ghost false) in
+      match List.Assoc.find u formal_ident ~equal:Ident.equal with
+      | Some prior when not (Type.equal prior t2) ->
+          Error.type_error loc
+            (Printf.sprintf
+               !"Cannot infer a single type for parameter %{Ident} of %{QualIdent}: \
+                 found both %{Type} and %{Type}"
+               formal_ident functor_qual_ident prior t2)
+      | Some _ -> Rewriter.return u
+      | None -> Rewriter.return (List.Assoc.add u formal_ident t2 ~equal:Ident.equal)
+    in
+    let same_head c1 c2 =
+      Type.equal
+        (Type.App (c1, [], Type.dummy_attr) |> Type.set_ghost false)
+        (Type.App (c2, [], Type.dummy_attr) |> Type.set_ghost false)
+    in
+    let rec go u = function
+      | [] -> Rewriter.return u
+      | (t1, t2) :: pairs ->
+          let* u = unify_one u t1 t2 in
+          go u pairs
+    and unify_one u t1 t2 =
+      (* Normalize only [t2]: [t1] names [m]'s own formals/rep, which are by design
+         unreachable via ordinary resolution from outside [m] -- it's only ever
+         pattern-matched against [formal_reps]/[m_rep_qi] below, never resolved. *)
+      let* t2 = ProcessTypeExpr.process_type_expr t2 in
+      if Type.is_any (t1 |> Type.set_ghost false) || Type.is_any (t2 |> Type.set_ghost false)
+      then Rewriter.return u
+      else
+        (* Three cases: `t1` is a formal's rep (bind/check it against `t2`); `t1` is
+           [m]'s own rep and `t2` is an existing instantiation (read off all formals at
+           once); or both sides recurse structurally on matching head/arity. *)
+        match
+          List.find formal_reps ~f:(fun (rep_qi, _, _) ->
+              match t1 with
+              | App (Var qi, [], _) -> QualIdent.equal rep_qi qi
+              | _ -> false)
+        with
+        | Some (_, formal_ident, _) -> combine u formal_ident t2
+        | None -> (
+            match t1 with
+            | App (Var qi, [], _)
+              when (match m_rep_qi with Some r -> QualIdent.equal qi r | None -> false)
+              -> (
+                match t2 with
+                | App (Var qi2, [], _) -> (
+                    let inst_qi = QualIdent.pop qi2 in
+                    let* is_inst = resolves_to_instantiation_of ~functor_qual_ident inst_qi in
+                    if not is_inst then Rewriter.return u
+                    else
+                      Rewriter.List.fold_left formal_reps ~init:u
+                        ~f:(fun u (_, formal_ident, rep_ident) ->
+                          combine u formal_ident
+                            (Type.mk_var
+                               (QualIdent.append
+                                  (QualIdent.append inst_qi formal_ident)
+                                  rep_ident))))
+                | _ -> Rewriter.return u)
+            | App (c1, args1, _) -> (
+                match t2 with
+                | App (c2, args2, _)
+                  when Int.equal (List.length args1) (List.length args2) && same_head c1 c2
+                  -> go u (List.zip_exn args1 args2)
+                | _ ->
+                    Error.type_error loc
+                      (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2)))
+    in
+    go u pairs
+
+  (** Try to resolve [qual_ident] (e.g. `M.foo`, already failed plain resolution) as a
+      call into a member of an uninstantiated generic functor, implicitly instantiating
+      it. [None] if [qual_ident] isn't `<functor>.<member>`-shaped, or the functor/member
+      doesn't exist; once both exist, either succeeds or raises (the real problem is
+      inference, not a typo). Solves [m]'s formals via [unify_type_list], unifying each
+      argument's peeked type against its formal's declared type, plus the member's own
+      return type against [expected_typ]. *)
+  and try_resolve_implicit_instantiation ~(loc : location) ~(qual_ident : qual_ident)
+      ~(arg_exprs : expr list) ~(expected_typ : type_expr) : qual_ident option Rewriter.t
+      =
+    let open Rewriter.Syntax in
+    let* prefix = resolve_generic_functor_prefix qual_ident in
+    match prefix with
+    | None -> Rewriter.return None
+    | Some (functor_qual_ident, m, member_ident) -> (
+        (* The member can be an ordinary callable or a data constructor -- both are
+           addressable as `<module>.<member>(...)` and solved identically below. *)
+        let member_info =
+          List.find_map m.mod_def ~f:(function
+            | SymbolDef (CallDef call_def)
+              when Ident.equal (Callable.to_decl call_def).call_decl_name member_ident
+              ->
+                let call_decl = Callable.to_decl call_def in
+                let return_type =
+                  match call_decl.call_decl_returns with
+                  | [ r ] -> Some r.Type.var_type
+                  | _ -> None
+                in
+                Some (call_decl.call_decl_formals, return_type)
+            | SymbolDef (ConstrDef constr_def)
+              when Ident.equal constr_def.constr_name member_ident ->
+                Some (constr_def.constr_args, Some constr_def.constr_return_type)
+            | _ -> None)
+        in
+        match member_info with
+        | None -> Rewriter.return None
+        | Some (member_formals, return_type_opt) ->
+            if List.length member_formals <> List.length arg_exprs then
+              arg_mismatch_error "Callable" loc (Type.Var qual_ident)
+                (List.length member_formals)
+            else
+              (* Peek each argument's type; the processed expr itself is discarded and
+                 reprocessed once the instantiation is resolved. *)
+              let* arg_pairs =
+                Rewriter.List.map2_exn member_formals arg_exprs
+                  ~f:(fun formal_var_decl arg_expr ->
+                    let+ arg_expr =
+                      process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ)
+                    in
+                    (formal_var_decl.Type.var_type, Expr.to_type arg_expr))
+              in
+              let pairs =
+                match return_type_opt with
+                | Some return_type -> (return_type, expected_typ) :: arg_pairs
+                | None -> arg_pairs
+              in
+              let* bindings = unify_type_list ~loc ~functor_qual_ident m [] pairs in
+              (match
+                 List.find m.mod_decl.mod_decl_formals ~f:(fun formal ->
+                     not
+                       (List.Assoc.mem bindings formal.mod_inst_name ~equal:Ident.equal))
+               with
+              | Some formal ->
+                  Error.type_error loc
+                    (Printf.sprintf
+                       !"Cannot infer a type argument for parameter %{Ident} of \
+                         %{QualIdent}; write an explicit instantiation, e.g. `module \
+                         M_X = %{QualIdent}[...]`"
+                       formal.mod_inst_name functor_qual_ident functor_qual_ident)
+              | None ->
+                  let arg_types =
+                    List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+                        List.Assoc.find_exn bindings formal.mod_inst_name
+                          ~equal:Ident.equal)
+                  in
+                  let+ inst_qual_ident =
+                    ProgUtils.instantiate_type_functor ~loc ~f:!(Rewriter.process_symbol_ref)
+                      ~functor_qual_ident ~functor_mod_decl:m.mod_decl arg_types
+                  in
+                  Some (QualIdent.append inst_qual_ident member_ident)))
+
+  (** The `Read`-expression (`expr1.M.value`) counterpart of
+      [try_resolve_implicit_instantiation]. A destructor has no arguments to infer a
+      type from, only [arg_typ] ([expr1]'s peeked type) -- so this only succeeds when
+      [arg_typ] already names an existing instantiation of `M`, rewriting to that
+      instantiation's destructor. *)
+  and try_resolve_implicit_instantiation_destr ~(field_ident : qual_ident)
+      ~(arg_typ : type_expr) : qual_ident option Rewriter.t =
+    let open Rewriter.Syntax in
+    let* prefix = resolve_generic_functor_prefix field_ident in
+    match prefix with
+    | None -> Rewriter.return None
+    | Some (functor_qual_ident, m, member_ident) ->
+        let has_member =
+          List.exists m.mod_def ~f:(function
+            | SymbolDef (DestrDef destr_def) -> Ident.equal destr_def.destr_name member_ident
+            | _ -> false)
+        in
+        if not has_member then Rewriter.return None
+        else
+          let+ inst_qi_opt = resolve_existing_instantiation ~functor_qual_ident m arg_typ in
+          Option.map inst_qi_opt ~f:(fun inst_qi -> QualIdent.append inst_qi member_ident)
 end
 
 
@@ -1224,9 +1562,20 @@ module ProcessCallable = struct
           if Ident.(Predefs.bindAU_ident = QualIdent.unqualify qual_ident) then
             Type.mk_atomic_token (QualIdent.to_loc qual_ident) curr_callable
           else Type.meet var_decl.var_type Type.any
-        | Some (App (Read, [ _; field_expr ], _)) ->
+        | Some (App (Read, [ expr1; field_expr ], _)) ->
           let field_qual_ident = Expr.to_qual_ident field_expr in
-          let+ symbol = Rewriter.find_and_reify field_qual_ident in
+          let* _, symbol =
+            (* `expr1.M.value` where `M` is an uninstantiated functor, see
+               ProcessExpr.try_resolve_implicit_instantiation_destr. *)
+            ProcessExpr.resolve_or_implicit field_qual_ident ~on_miss:(fun () ->
+                let* peeked_expr1 =
+                  disambiguate_process_expr expr1 (Type.any |> Type.set_ghost var_ghost)
+                    disam_tbl
+                in
+                ProcessExpr.try_resolve_implicit_instantiation_destr
+                  ~field_ident:field_qual_ident ~arg_typ:(Expr.to_type peeked_expr1))
+          in
+          let+ symbol = Rewriter.Symbol.reify symbol in
           begin match symbol with
             | FieldDef { field_type = App (Fld, [typ], _); _ } -> typ
             | DestrDef destr_def -> destr_def.destr_return_type
@@ -1275,8 +1624,17 @@ module ProcessCallable = struct
         | App (Read, [ ref_expr; read_expr ], _) ->
           let read_expr_qi = Expr.to_qual_ident read_expr in
 
-
-          let* read_expr_qi, read_symbol = Rewriter.resolve_and_find read_expr_qi in
+          let* read_expr_qi, read_symbol =
+            (* `ref_expr.M.value` where `M` is an uninstantiated functor, see
+               ProcessExpr.try_resolve_implicit_instantiation_destr. *)
+            ProcessExpr.resolve_or_implicit read_expr_qi ~on_miss:(fun () ->
+                let* peeked_ref_expr =
+                  disambiguate_process_expr ref_expr (Type.any |> Type.set_ghost is_ghost_scope)
+                    disam_tbl
+                in
+                ProcessExpr.try_resolve_implicit_instantiation_destr
+                  ~field_ident:read_expr_qi ~arg_typ:(Expr.to_type peeked_ref_expr))
+          in
           let* read_symbol = Rewriter.Symbol.reify read_symbol in
 
           begin match read_symbol with
@@ -1327,11 +1685,28 @@ module ProcessCallable = struct
               let* qual_ident =
                 disambiguate_ident qual_ident disam_tbl
               in
-              let* qual_ident, symbol =
-                Rewriter.resolve_and_find qual_ident
+              (* Peek at whether the RHS is a procedure/lemma call, without raising if
+                 it doesn't resolve as-is -- `M.foo` may still resolve via implicit
+                 functor instantiation. Falls through to the ordinary expression path
+                 (and its error) otherwise. *)
+              let* resolved =
+                ProcessExpr.resolve_or_implicit_opt qual_ident ~on_miss:(fun () ->
+                    (* `args` needs disambiguating here since try_resolve_implicit_instantiation's
+                       argument peek doesn't disambiguate local identifiers itself. *)
+                    let* args =
+                      Rewriter.List.map args ~f:(fun e -> disambiguate_expr e disam_tbl)
+                    in
+                    ProcessExpr.try_resolve_implicit_instantiation ~loc:stmt_loc
+                      ~qual_ident ~arg_exprs:args
+                      ~expected_typ:(Type.any |> Type.set_ghost is_ghost_scope))
               in
-              let+ symbol = Rewriter.Symbol.reify symbol in
-              match symbol with CallDef call_def -> Some (symbol, qual_ident, args) | _ -> None)
+              match resolved with
+              | None -> Rewriter.return None
+              | Some (qual_ident, symbol) ->
+                  let+ symbol = Rewriter.Symbol.reify symbol in
+                  (match symbol with
+                  | CallDef call_def -> Some (symbol, qual_ident, args)
+                  | _ -> None))
             | _ -> Rewriter.return None
           in
                   

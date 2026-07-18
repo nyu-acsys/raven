@@ -10,19 +10,18 @@ interface ForkJoinResource : Library.Type {
 module ForkJoin[R: ForkJoinResource] {
 
     module Excl = Library.Excl[Library.UnitRA]
-    module OptionResult = Library.Option[R.Result]
 
-    import OptionResult._
+    import Library.Option
 
-    field result: OptionResult
+    field result: Option[R.Result]
     ghost field excl: Excl
 
     inv is_join(l: Ref, r: R) {
-        exists v: OptionResult, b: Bool ::
-            own(l.result, v) 
-        && (v == some(v.value) ? 
-                (b ? own(l.excl, Excl.excl(())) : R.resource(r, v.value)) 
-            : true) 
+        exists v: Option[R.Result], b: Bool ::
+            own(l.result, v)
+        && (v == Option.some(v.Option.value) ?
+                (b ? own(l.excl, Excl.excl(())) : R.resource(r, v.Option.value))
+            : true)
     }
 
     auto pred join_handle(l: Ref) {
@@ -36,7 +35,7 @@ module ForkJoin[R: ForkJoinResource] {
         requires true
         ensures is_join(l, r) && join_handle(l)
     {
-        l := new(result: none, excl: Excl.excl(()));
+        l := new(result: Option.none, excl: Excl.excl(()));
         // passing b to suppress warning
         fold is_join(l, r)[b := true];
     }
@@ -46,7 +45,7 @@ module ForkJoin[R: ForkJoinResource] {
         ensures true
     {
         unfold is_join(l, r);
-        l.result := some(v);
+        l.result := Option.some(v);
         fold is_join(l, r)[b := false];
     }
 
@@ -59,15 +58,15 @@ module ForkJoin[R: ForkJoinResource] {
         unfold is_join(l, r)[b := b];
         var w: R.Result := l.result;
         {!
-            if (w == some(w.value)) {
+            if (w == Option.some(w.Option.value)) {
                 fold is_join(l, r)[b := true];
             } else {
                 fold is_join(l, r)[b := b];
             }
         !}
 
-        if (w == some(w.value)) {
-            return w.value;
+        if (w == Option.some(w.Option.value)) {
+            return w.Option.value;
         } else {
             v := wait(l, r);
             return v;

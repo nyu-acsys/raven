@@ -1,22 +1,19 @@
 // Have to use an interface to be able to leave nondet_bool unspecified
 interface PLC {
 
-  module BoolOpt = Library.Option[Library.BoolType]
-  import BoolOpt._
-
-  field c: BoolOpt
+  field c: Library.Option[Bool]
   field p: Proph
 
   func nondet_bool() returns (ret: Bool)
 
-  proc new_lazy_coin() returns (ret: Ref, implicit ghost b: Bool) 
+  proc new_lazy_coin() returns (ret: Ref, implicit ghost b: Bool)
     ensures lazy_coin(ret, b)
   {
     var p1: Proph;
     var z: Bool;
-    p1, z := Proph.new_1[Bool]; 
+    p1, z := Proph.new_1[Bool];
 
-    var x: Ref := new(c: none, p: p1);
+    var x: Ref := new(c: Library.Option.none, p: p1);
 
     fold lazy_coin(x, z);
     return x, z;
@@ -30,25 +27,25 @@ interface PLC {
     unfold lazy_coin(coin, b);
     var c_val := coin.c;
     ghost var proph_id := coin.p;
-    if (c_val == none) {
+    if (c_val == Library.Option.none) {
         var b: Bool := nondet_bool();
-        coin.c := some(b);
+        coin.c := Library.Option.some(b);
         Proph.resolve(proph_id, b);
         fold lazy_coin(coin, b);
         return b;
     } else {
-        var res := c_val.value;
+        var res := c_val.Library.Option.value;
         fold lazy_coin(coin, b);
         return res;
     }
   }
 
   pred lazy_coin (coin: Ref, b: Bool) {
-    exists b': BoolOpt, bs:List[Bool], p': Proph ::
+    exists b': Library.Option[Bool], bs:List[Bool], p': Proph ::
       own(coin.c, b') && own(coin.p, p') &&
 
-      (b' == some(b'.value) ? 
-        b'.value == b :
+      (b' == Library.Option.some(b'.Library.Option.value) ?
+        b'.Library.Option.value == b :
 
         // How do we encode one-shot prophecies as opposed to multi-shot prophecies?
         // At present have to do this trick, because one-shot prophecies are encoded basically exactly like multi-shot prophecies.

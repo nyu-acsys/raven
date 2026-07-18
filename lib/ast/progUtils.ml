@@ -772,6 +772,83 @@ let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =
 
   return preds_list
 
+(** If [interface_qi] resolves to a module/interface with a rep type, return its
+    qualified name together with the rep type identifier; else [None]. *)
+let resolve_rep_ident (interface_qi : qual_ident) : (qual_ident * ident) option t =
+  let open Rewriter.Syntax in
+  let+ resolved = Rewriter.resolve_and_find_opt interface_qi in
+  match resolved with
+  | Some (qi, symbol) -> (
+      match Rewriter.Symbol.orig_symbol symbol with
+      | AstDef.Module.ModDef m -> (
+          match m.mod_decl.mod_decl_rep with
+          | Some rep_ident -> Some (qi, rep_ident)
+          | None -> None)
+      | _ -> None)
+  | None -> None
+
+(** True iff every formal of [mod_decl] is constrained by a rep-typed
+    module/interface, making the functor eligible for implicit instantiation. *)
+let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
+  let open Rewriter.Syntax in
+  if Base.List.is_empty mod_decl.mod_decl_formals then Rewriter.return false
+  else
+    Rewriter.List.for_all mod_decl.mod_decl_formals ~f:(fun formal ->
+        let+ rep = resolve_rep_ident formal.mod_inst_type in
+        Base.Option.is_some rep)
+
+let inst_mod_ident_prefix = "GenInst$$"
+
+(** Deterministic name for the module wrapping [tp] as an implementation of
+    [interface_qual_ident]. Folds in the interface identity so the same type wrapped
+    for two different interfaces doesn't collide/dedup. *)
+let rep_module_name_string ~(interface_qual_ident : qual_ident) (tp : AstDef.type_expr) :
+    string =
+  tp_mod_ident_prefix ^ QualIdent.to_string interface_qual_ident ^ "$$"
+  ^ AstDef.Type.to_string tp
+
+(** Like [intros_type_module], generalized to an arbitrary rep-typed interface: wraps
+    [tp] in a fresh module implementing [interface_qual_ident] with rep type [tp]. Kept
+    separate so [intros_type_module]'s existing [Library.Type]-only callers are
+    unaffected. *)
+let intros_rep_module ~(loc : location) ?scope
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    ~(interface_qual_ident : qual_ident) ~(rep_ident : ident) (tp : AstDef.type_expr) :
+    qual_ident t =
+  let mod_decl =
+    let mod_name =
+      Ident.fresh loc (serialize (rep_module_name_string ~interface_qual_ident tp))
+    in
+    {
+      AstDef.Module.mod_decl_name = mod_name;
+      mod_decl_formals = [];
+      mod_decl_returns = Some interface_qual_ident;
+      mod_decl_interfaces = Set.empty (module QualIdent);
+      mod_decl_rep = Some rep_ident;
+      mod_decl_is_ra = false;
+      mod_decl_is_interface = false;
+      mod_decl_is_free = true;
+      mod_decl_loc = loc;
+    }
+  in
+  let (mod_def : AstDef.Module.module_instr list) =
+    [
+      SymbolDef
+        (TypeDef
+           {
+             type_def_name = rep_ident;
+             type_def_expr = Some tp;
+             type_def_rep = true;
+             type_def_loc = loc;
+             type_def_is_free = false;
+           });
+    ]
+  in
+  let symbol = AstDef.Module.ModDef { mod_decl; mod_def } in
+  match scope with
+  | None -> introduce_typecheck_symbol ~loc ~f symbol
+  | Some scope_qi -> introduce_typecheck_symbol_at_scope' ~loc symbol scope_qi
+
 let largest_common_prefix_qi symbols =
     begin match Set.count ~f:(fun _ -> true) symbols with
         | 0 -> Predefs.prog_qual_ident
@@ -797,3 +874,119 @@ let largest_common_prefix_qi symbols =
 
           largest_common_prefix_qi
         end
+
+(** Compute (insertion_scope, reference_scope) for the modules synthesized when
+    instantiating a functor with [tps]: where to introduce them, and how to reference
+    them from here. The two differ when [tps] are reached through an abstract
+    parameter. *)
+let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
+    (qual_ident * qual_ident) t =
+  let open Rewriter.Syntax in
+  let symbols =
+    Base.List.fold tps
+      ~init:(Set.empty (module QualIdent))
+      ~f:(fun acc tp -> Set.union acc (AstDef.Type.symbols tp))
+  in
+  let largest_prefix = largest_common_prefix_qi symbols in
+  (* [qi] may sit behind several nested abstract parameters (e.g. [ForkJoin.R.Result]),
+     so keep popping and re-resolving until we land on a concrete scope. *)
+  let rec find_concrete_scope (qi : qual_ident) : (qual_ident * qual_ident) t =
+    let* result = Rewriter.resolve_and_find_opt qi in
+    match result with
+    | None ->
+        Error.internal_error Loc.dummy
+          "ProgUtils.find_insertion_scope_for_types: scope not found"
+    | Some (qi, (name, symbol, _)) ->
+        let resolves_through_abstract_param =
+          match symbol with
+          | AstDef.Module.ModDef md ->
+              md.mod_decl.mod_decl_is_interface && not (QualIdent.equal name qi)
+          | _ -> false
+        in
+        if resolves_through_abstract_param then find_concrete_scope (QualIdent.pop qi)
+        else Rewriter.return (name, qi)
+  in
+  find_concrete_scope largest_prefix
+
+(** Get or create (and typecheck) the instantiation
+    [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
+    what [ListExt.rewrite_type_ext] does for `List[T]`. Every formal of
+    [functor_mod_decl] must be constrained by a rep-typed module/interface (see
+    [is_generic_functor]). Each argument type is wrapped via [intros_rep_module]
+    (deduplicated), the instantiation is named deterministically and introduced via
+    [Rewriter.introduce_typecheck_symbol_at_scope']. Returns its qualified name.
+
+    [canonical_mod_ident], if given, overrides the derived name -- used by [ListExt] to
+    keep its pre-existing `ListExtMod$$`-prefixed naming. *)
+let instantiate_type_functor ~(loc : location)
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    ~(functor_qual_ident : qual_ident)
+    ~(functor_mod_decl : AstDef.Module.module_decl)
+    ?(canonical_mod_ident : ident option)
+    (arg_types : AstDef.type_expr list) : qual_ident t =
+  let open Rewriter.Syntax in
+  if
+    Base.List.length arg_types <> Base.List.length functor_mod_decl.mod_decl_formals
+  then
+    Error.internal_error loc
+      "ProgUtils.instantiate_type_functor: wrong number of type arguments"
+  else
+    let* insert_scope, reference_scope = find_insertion_scope_for_types arg_types in
+    let* arg_module_qis =
+      Rewriter.List.map2_exn functor_mod_decl.mod_decl_formals arg_types
+        ~f:(fun formal tp ->
+          let* rep = resolve_rep_ident formal.mod_inst_type in
+          match rep with
+          | None ->
+              Error.internal_error loc
+                (Printf.sprintf
+                   !"ProgUtils.instantiate_type_functor: formal %{Ident}'s constraint \
+                     %{QualIdent} has no rep type"
+                   formal.mod_inst_name formal.mod_inst_type)
+          | Some (interface_qual_ident, rep_ident) ->
+              let canonical_qi =
+                QualIdent.append reference_scope
+                  (Ident.make loc
+                     (serialize (rep_module_name_string ~interface_qual_ident tp))
+                     0)
+              in
+              let* resolve_result = Rewriter.resolve_opt canonical_qi in
+              match resolve_result with
+              | Some _ -> return canonical_qi
+              | None ->
+                  intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident
+                    ~rep_ident tp)
+    in
+    let inst_mod_ident =
+      match canonical_mod_ident with
+      | Some ident -> ident
+      | None ->
+          let mod_name_string =
+            inst_mod_ident_prefix
+            ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
+            ^ "$$"
+            ^ String.concat ~sep:","
+                (Base.List.map arg_types ~f:AstDef.Type.to_string)
+          in
+          Ident.make loc (serialize mod_name_string) 0
+    in
+    let inst_qi = QualIdent.append reference_scope inst_mod_ident in
+    let* resolve_result = Rewriter.resolve_opt inst_qi in
+    match resolve_result with
+    | Some _ -> return inst_qi
+    | None ->
+        let functor_inst =
+          AstDef.Module.ModInst
+            {
+              mod_inst_name = inst_mod_ident;
+              mod_inst_type = functor_qual_ident;
+              mod_inst_def = Some (functor_qual_ident, arg_module_qis);
+              mod_inst_is_interface = false;
+              mod_inst_is_free = false;
+              mod_inst_loc = loc;
+            }
+        in
+        let+ _ =
+          Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope
+        in
+        inst_qi

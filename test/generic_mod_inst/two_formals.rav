@@ -1,0 +1,10 @@
+// A functor with two independent `Library.Type` formals, both solved from direct
+// argument occurrences in a single implicit call.
+
+module Pair[T1: Library.Type, T2: Library.Type] : Library.Type {
+  rep type T = data {
+    case pair(fst: T1, snd: T2)
+  }
+}
+
+val q: Pair[Int, Bool] = Pair.pair(3, true)

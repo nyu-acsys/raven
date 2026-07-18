@@ -1,13 +1,7 @@
 import Library.Type
 import Library.Option
-import Library.ListM
 
 module Stack[T: Type] {
-
-  module TOption = Option[T]
-  //module ListT = ListM[T]
-  //import ListT._
-  import TOption._
 
   field top: Ref
   field next: Ref
@@ -15,8 +9,8 @@ module Stack[T: Type] {
 
 
   pred list(x: Ref; xs: List[T]) {
-    x == null ? 
-      xs == List.nil : 
+    x == null ?
+      xs == List.nil :
       (xs != List.nil && (exists tl0: Ref, q: Real ::  q > 0.0 && (own(x.value, List.hd(xs), q) && own(x.next, tl0, q) && list(tl0, List.tl(xs)))))
   }
 
@@ -44,29 +38,29 @@ module Stack[T: Type] {
 
     ghost val top1: Ref;
     unfold stack(s)[top1 := x];
-    
+
     var res := cas(s.top, topv, s0);
 
-    if (!res) { 
+    if (!res) {
       fold stack(s, xs1);
       abortAU(phi);
       ghost val xs2: List[T] := openAU(phi);
       push(s, x);
       commitAU(phi, ());
     } else {
-      fold list(s0, x :: xs1)[q := 1.0]; 
+      fold list(s0, x :: xs1)[q := 1.0];
       fold stack(s, x :: xs1);
       commitAU(phi, ());
     }
   }
 
   proc pop(s: Ref, implicit ghost xs: List[T])
-    returns (result: TOption)
+    returns (result: Option[T])
     atomic requires stack(s, xs)
-    atomic ensures 
-      xs == List.nil ? 
-        (stack(s, xs) && result == none) : 
-        (stack(s, List.tl(xs)) && result == some(List.hd(xs)))
+    atomic ensures
+      xs == List.nil ?
+        (stack(s, xs) && result == Option.none) :
+        (stack(s, List.tl(xs)) && result == Option.some(List.hd(xs)))
   {
     ghost val phi := bindAU();
     ghost val xs0: List[T] := openAU(phi);
@@ -74,23 +68,23 @@ module Stack[T: Type] {
     unfold stack(s);
 
     var topv := s.top;
-  
+
     ghost val q: Real; ghost val tl0: Ref;
-    
+
     if (topv == null) {
       unfold list(topv)[q := q];
       fold list(topv, xs0)[q := q];
       fold stack(s, xs0);
-      commitAU(phi, none);
+      commitAU(phi, Option.none);
     } else {
       unfold list(topv)[tl0 := tl0, q := q];
       fold list(topv, xs0)[q := q/2.0];
       fold stack(s, xs0);
       abortAU(phi);
     }
-    
+
     if (topv == null) {
-      return none;
+      return Option.none;
     }
 
     val top_next := topv.next;
@@ -105,9 +99,9 @@ module Stack[T: Type] {
     if (res) {
       unfold list(top1);
       fold stack(s, List.tl(xs1));
-      commitAU(phi, some(top_value));
-      return some(top_value);
-    } else { 
+      commitAU(phi, Option.some(top_value));
+      return Option.some(top_value);
+    } else {
       fold stack(s, xs1);
       abortAU(phi);
       ghost val xs2: List[T] := openAU(phi);

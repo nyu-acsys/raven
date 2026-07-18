@@ -1,0 +1,11 @@
+module M[T: Library.Type] {
+  rep type S = data {
+    case c(fst: T, snd: T)
+  }
+
+  func mk(a: T, b: T) returns (res: S) { c(a, b) }
+}
+
+proc p() {
+  var x := M.mk(3, true);
+}

@@ -373,124 +373,25 @@ module ListExt (Cont : Ext) = struct
   let rewrite_type_ext (type_ext: Type.type_ext) (tp_list: type_expr list) (loc: location) =
     let open Rewriter.Syntax in
     match type_ext, tp_list with
-    | ListConstr, [elem_typ] -> 
-      (* This is where the magic happens. We rewrite the new constructors into existing Raven expressions.
-      
-      What happens is that for the given elem_typ, we instantiate the `Library.ListM` module with it, and replace any `ListConstr` type_expr with the name of this module.
-
-      We make sure this module is canonical and uniquely generated, so that all reference to the same type get rewritten into the same type_expr.
-      *)
-      
-      (* This has to do with Raven's higher-order module system. We're computing where to insert the list module and what to call it. *)
-      let* list_module_insert_scope, list_module_reference_scope =
-        (* In case of elem_typ being in an instantiated module, like so:
-          `module M = N[P]; type T' = List[M.T]` 
-        we need to insert the elem_typ Type Module in the original interface `N`, and refer to it using `M` *)
-      
-        let largest_prefix = ProgUtils.largest_common_prefix_qi (Type.symbols elem_typ) in
-        let+ result = Rewriter.resolve_and_find_opt largest_prefix in
-        match result with
-        | None -> 
-          Error.internal_error Loc.dummy "[EXT] ListExt: rewrite_type_ext: largest_prefix scope not found"
-        | Some (qi, (name, symbol, _)) ->
-          (* [name] is the scope where the resolved symbol is defined and [qi] is
-             how it is referenced from here. Normally we insert the generated
-             helper modules into [name] and reference them via [qi] (e.g. for
-             `module M = N[P]; type T' = List[M.T]` we insert into the original
-             interface `N` and refer to it using `M`; and for a `List` over an
-             interface's own abstract member we have [name = qi] and insert into
-             that interface).
-
-             The exception is when [qi] is an abstract module parameter: then
-             resolution follows it through to the *interface* it implements, so
-             [symbol] is that interface and [name] is the interface's qualified
-             name (e.g. `Library.Type`), distinct from [qi]. That interface is
-             not a valid insertion site -- it cannot see the parameter, so
-             inserting the helper module there leaves it referencing an
-             out-of-scope identifier such as `M.T.T` (issue #38). In that case we
-             insert into, and reference from, the scope that declares the
-             parameter, i.e. [QualIdent.pop qi]. *)
-          let resolves_through_abstract_param =
-            match symbol with
-            | Module.ModDef md ->
-              md.mod_decl.mod_decl_is_interface && not (QualIdent.equal name qi)
-            | _ -> false
-          in
-          if resolves_through_abstract_param then
-            let scope = QualIdent.pop qi in
-            scope, scope
-          else
-            name, qi
-      in
-
-      (* always good to print some state from time to time! *)
-      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.rewriter_type_ext: Elem_typ=%a; list_module_insert_scope=%a; list_module_reference_scope=%a" printers.pr_type elem_typ QualIdent.pr list_module_insert_scope QualIdent.pr list_module_reference_scope) in
-
-      (* we first introduce a Type module implementing the `Library.Type` interface. This is essentially wrapping the type_expr into a module to use as a higher order module argument.  *)
-      let* type_module_qi = 
-        let type_module_canonical_qi = 
-          (* add a consisten prefix to these Type modules. This functionality is taken from  *)
-          let mod_name_string = ProgUtils.tp_mod_ident_prefix ^ Type.to_string elem_typ in
-          let type_module_ident = Ident.make loc (ProgUtils.serialize mod_name_string) 0 in
-          QualIdent.append list_module_reference_scope type_module_ident
-        in
-
-        (* check if it already exists *)
-        let* resolve_result = 
-          Rewriter.resolve_opt type_module_canonical_qi in
-        
-        match resolve_result with
-        | Some _ ->
-          (* if so, then we're done, we can return *)
-          Rewriter.return type_module_canonical_qi
-        | None ->
-          (* else, we introduce the type module. Fortunately, this functionality is implemented in `ProgUtils`. It takes an optional `scope` argument indicating the scope of where to introduce the type_module. *)
-          let+ _ = 
-            ProgUtils.intros_type_module ~loc ~scope:list_module_insert_scope ~f:!(Rewriter.process_symbol_ref) elem_typ in
-          type_module_canonical_qi
-      in 
-
-      Logs.debug (fun m -> m "[EXT] ListExt.rewriter_type_ext: type_module_qi=%a" QualIdent.pr type_module_qi);
-
-      (* creating ident for list_module *)
-      let list_module_ident = 
+    | ListConstr, [elem_typ] ->
+      (* Instantiate `Library.ListM` with [elem_typ] and replace `ListConstr` with the
+         name of that instantiation -- the `List[T]`-specific case of
+         `ProgUtils.instantiate_type_functor`. *)
+      let* lib_list_module = Rewriter.find_and_reify_module Predefs.lib_list_mod_qual_ident in
+      (* Keep the `ListExtMod$$`-prefixed naming other extensions rely on structurally
+         (see [ListFns.list_tp_to_elem_typ]). *)
+      let canonical_mod_ident =
         let mod_name_string = ListPredefs.list_mod_ident_prefix ^ Type.to_string elem_typ in
         Ident.make loc (ProgUtils.serialize mod_name_string) 0
       in
-
-      (* preparing the Module Instantiation symbol definition *)
-      let list_module_inst = Module.ModInst {
-            mod_inst_name = list_module_ident;
-            mod_inst_type = Predefs.lib_list_mod_qual_ident;
-            mod_inst_def = Some (Predefs.lib_list_mod_qual_ident, [type_module_qi]);
-            mod_inst_is_interface = false;
-            mod_inst_is_free = false;
-            mod_inst_loc = loc;
-      } in
-
-      let* list_module_inst_qi = 
-        let module_qi = QualIdent.append list_module_reference_scope list_module_ident in
-
-        (* next we check for the List module. *)
-        let* resolve_result = Rewriter.resolve_opt module_qi in
-        match resolve_result with
-          | Some _ -> 
-            (* if it exists, no need to do anything *)
-            Rewriter.return module_qi
-          | None ->
-            let+ _ = 
-              (* else we introduce this symbol using `Rewriter.introduce_typecheck_symbol_at_scope'`. This function allows one to introduce a new Raven symbol at an arbitrary scope. It also makes sure to type-check the symbol before adding.
-              
-              It is recommended to use either `Rewrite.introduce_typecheck_symbol'` if adding a symbol to the current scope, or this function to introduce new symbols to the AST.
-              *)
-            Rewriter.introduce_typecheck_symbol_at_scope' ~loc list_module_inst list_module_insert_scope in
-            module_qi
+      let+ list_module_inst_qi =
+        ProgUtils.instantiate_type_functor ~loc ~f:!(Rewriter.process_symbol_ref)
+          ~functor_qual_ident:Predefs.lib_list_mod_qual_ident
+          ~functor_mod_decl:lib_list_module.mod_decl ~canonical_mod_ident [ elem_typ ]
       in
 
-      Logs.debug (fun m -> m "[EXT] ListExt.rewriter_type_ext: list_module_inst_qi=%a" QualIdent.pr list_module_inst_qi);
-
       (* Make a var type pointing to the newly introduced list module's rep type. *)
-      Rewriter.return (Type.mk_var ~loc (QualIdent.append list_module_inst_qi Predefs.lib_type_rep_type_ident))
+      Type.mk_var ~loc (QualIdent.append list_module_inst_qi Predefs.lib_type_rep_type_ident)
 
     | ListConstr, _ ->
       Error.type_error loc "[EXT] ListExt: List type used with unexpected number of arguments"

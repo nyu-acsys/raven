@@ -1,0 +1,13 @@
+// The implicit call `M.foo(3)` and the implicit type `M[Int]` must dedup to the exact
+// same synthesized module, or `val y: M[Int] = x` fails to type-check.
+
+module M[T: Library.Type] {
+  rep type S = data {
+    case c(value: T)
+  }
+
+  func foo(t: T) returns (res: S) { c(t) }
+}
+
+val x: M[Int] = M.foo(3)
+val y: M[Int] = x

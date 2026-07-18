@@ -1,0 +1,12 @@
+// Regression test: `R.Result` sits behind two nested abstract parameters (`R` is
+// `Outer`'s formal, `.Result` is itself abstract within `R`'s constraint interface).
+// ProgUtils.find_insertion_scope_for_types must not stop popping too early.
+
+interface Resource : Library.Type {
+  rep type T
+  module Result: Library.Type
+}
+
+module Outer[R: Resource] {
+  field result: Library.Option[R.Result]
+}

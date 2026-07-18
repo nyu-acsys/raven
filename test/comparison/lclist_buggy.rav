@@ -34,7 +34,6 @@ interface LCList {
 
     module LCLock = Lock[NodeResource] 
     
-    module OptionInt = Library.Option[Library.IntType]
 
     import NodeResource.resource
     import NodeResource.exclusive
@@ -205,7 +204,7 @@ interface LCList {
     }
 
     proc read_first(r: Ref)
-        returns (res: OptionInt)
+        returns (res: Library.Option[Int])
         requires is_list(r, 0) && r != null
         ensures true
     {
@@ -216,7 +215,7 @@ interface LCList {
             fold resource((r, 0))[vx := vn];
             release_lock_high(r, 0);
 
-            return OptionInt.none;
+            return Library.Option.none;
         } else {
             fold resource((r, 0))[vx := vn];
             release_lock_high(r, 0);
@@ -226,12 +225,12 @@ interface LCList {
 
             fold resource((n, vn))[vx := vnn];
             release_lock_high(n, n_value);
-            return OptionInt.some(n_value);
+            return Library.Option.some(n_value);
         }
     }
 
     proc pop_first(r: Ref)
-        returns (res: OptionInt)
+        returns (res: Library.Option[Int])
         requires is_list(r, 0) && r != null
         ensures true
     {
@@ -242,7 +241,7 @@ interface LCList {
             fold resource((r, 0))[vx := vn];
             release_lock_high(r, 0);
 
-            return OptionInt.none;
+            return Library.Option.none;
         } else {
             var n_next: Ref; var n_value: Int; ghost var vnn: Int;
             n_next, n_value, vnn := acquire_lock_high(n, vn);
@@ -255,13 +254,13 @@ interface LCList {
             // free n
             exhale own(n.next, n_next) && own(n.value, n_value);
 
-            res := OptionInt.some(n_value); 
+            res := Library.Option.some(n_value); 
             return res;
         }
     }
 
-    proc read_last_from_nodelist(p: Ref, c: Ref, prev: OptionInt, vp: Int, implicit ghost vc: Int)
-        returns (res: OptionInt)
+    proc read_last_from_nodelist(p: Ref, c: Ref, prev: Library.Option[Int], vp: Int, implicit ghost vc: Int)
+        returns (res: Library.Option[Int])
         requires is_list(p, vp) && is_list(c, vc)
         requires own(p.next, c) && own(p.value, vp) && (vp <= vc)
         ensures true
@@ -274,13 +273,13 @@ interface LCList {
             var cn: Ref; var vcc: Int; ghost var vcn: Int;
             cn, vcc, vcn := acquire_lock_high(c, vc);
 
-            res := read_last_from_nodelist(c, cn, OptionInt.some(vcc), vcc, vcn);
+            res := read_last_from_nodelist(c, cn, Library.Option.some(vcc), vcc, vcn);
             return res;
         }
     }
 
     proc read_last(r: Ref, k: Int)
-        returns (res: OptionInt)
+        returns (res: Library.Option[Int])
         requires k > 0
         requires is_list(r, 0) && r != null
         ensures true
@@ -288,12 +287,12 @@ interface LCList {
         var n: Ref; var vr: Int; ghost var vn: Int;
         n, vr, vn := acquire_lock_high(r, 0);
 
-        res := read_last_from_nodelist(r, n, OptionInt.none, 0, vn);
+        res := read_last_from_nodelist(r, n, Library.Option.none, 0, vn);
         return res;
     }
 
     proc pop_last_from_nodelist(p: Ref, c: Ref, vp: Int, implicit ghost vc: Int)
-        returns (res: OptionInt)
+        returns (res: Library.Option[Int])
         requires is_list(p, vp) && is_list(c, vc) && c != null
         requires own(p.next, c) && own(p.value, vp) && (vp <= vc)
         ensures true
@@ -306,7 +305,7 @@ interface LCList {
             fold is_list(null, vp);
             fold resource((p, vp))[nx := null, vx := vp];
             release_lock_high(p, vp);
-            return OptionInt.some(vcc);
+            return Library.Option.some(vcc);
         } else {
             fold resource((p, vp))[nx := c, vx := vc];
             release_lock_high(p, vp);
@@ -317,7 +316,7 @@ interface LCList {
     }
 
     proc pop_last(r: Ref)
-        returns (res: OptionInt)
+        returns (res: Library.Option[Int])
         requires is_list(r, 0) && r != null
         ensures true
     {
@@ -327,7 +326,7 @@ interface LCList {
         if (n == null) {
             fold resource((r, 0))[nx := n, vx := vn];
             release_lock_high(r, 0);
-            return OptionInt.none;
+            return Library.Option.none;
         } else {
             res := pop_last_from_nodelist(r, n, 0, vn);
             return res;
