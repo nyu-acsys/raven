@@ -62,12 +62,11 @@ module ProcessTypeExpr = struct
         (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, implicitly
            instantiate it (see `ProgUtils.instantiate_type_functor`) and resolve to the
            instantiation's rep type. Anything else is still rejected, as before. *)
-        let* fully_qualified_qual_ident, symbol = Rewriter.resolve_and_find qual_ident in
-        match Rewriter.Symbol.orig_symbol symbol with
-        | ModDef m -> (
-            let* is_generic = ProgUtils.is_generic_functor m.mod_decl in
-            if not is_generic then unexpected_functor_error tp_attr.type_loc
-            else if
+        let* generic_functor = ProgUtils.resolve_generic_functor qual_ident in
+        match generic_functor with
+        | None -> unexpected_functor_error tp_attr.type_loc
+        | Some (fully_qualified_qual_ident, m) ->
+            if
               not
                 (Int.equal (List.length tp_args) (List.length m.mod_decl.mod_decl_formals))
             then
@@ -94,7 +93,6 @@ module ProcessTypeExpr = struct
                        ( Var (QualIdent.append inst_qual_ident rep_ident),
                          [],
                          tp_attr ))))
-        | _ -> unexpected_functor_error tp_attr.type_loc)
     | App ((Fld as constr), tp_list, tp_attr) -> (
         match tp_list with
         | [ tp_arg ] ->
@@ -945,16 +943,9 @@ module ProcessExpr = struct
     else
       let functor_qi_written = QualIdent.pop qi in
       let member_ident = QualIdent.unqualify qi in
-      let* functor_resolved = Rewriter.resolve_and_find_opt functor_qi_written in
-      match functor_resolved with
-      | None -> Rewriter.return None
-      | Some (functor_qual_ident, functor_symbol) -> (
-          match Rewriter.Symbol.orig_symbol functor_symbol with
-          | ModDef m -> (
-              let* is_generic = ProgUtils.is_generic_functor m.mod_decl in
-              if is_generic then Rewriter.return (Some (functor_qual_ident, m, member_ident))
-              else Rewriter.return None)
-          | _ -> Rewriter.return None)
+      let+ functor_resolved = ProgUtils.resolve_generic_functor functor_qi_written in
+      Option.map functor_resolved ~f:(fun (functor_qual_ident, m) ->
+          (functor_qual_ident, m, member_ident))
 
   (** Check whether [qi] is (an alias for) an instantiation of the functor resolved as
       [functor_qual_ident]: an instantiation's alias resolves back to
@@ -2842,6 +2833,21 @@ module ProcessModule = struct
           Module.SymbolDef symbol_def
       | Import import ->
         (* Handled by symbol table *)
+            let* () =
+              if not import.import_all then Rewriter.return ()
+              else
+                let* generic_functor = ProgUtils.resolve_generic_functor import.import_name in
+                match generic_functor with
+                | None -> Rewriter.return ()
+                | Some _ ->
+                    let import_name_str = QualIdent.to_string import.import_name in
+                    Error.type_error import.import_loc
+                      (Printf.sprintf
+                         "Cannot import all members of `%s` because it is a generic functor \
+                          that has not been instantiated; write `import %s[...]._` after an \
+                          explicit instantiation"
+                         import_name_str import_name_str)
+            in
             let* _ = Rewriter.import import in
             Rewriter.return (Module.Import import)
     in

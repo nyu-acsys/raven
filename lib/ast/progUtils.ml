@@ -797,6 +797,24 @@ let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
         let+ rep = resolve_rep_ident formal.mod_inst_type in
         Base.Option.is_some rep)
 
+(** Resolve [qi] and, if it names an uninstantiated generic functor (see
+    [is_generic_functor]), return its fully qualified name together with its module
+    definition; [None] otherwise -- including when [qi] fails to resolve, doesn't name
+    a module, or names an instantiation of such a functor rather than the functor
+    itself. *)
+let resolve_generic_functor (qi : qual_ident) :
+    (qual_ident * AstDef.Module.t) option t =
+  let open Rewriter.Syntax in
+  let* resolved = Rewriter.resolve_and_find_opt qi in
+  match resolved with
+  | None -> Rewriter.return None
+  | Some (fully_qual_ident, symbol) -> (
+      match Rewriter.Symbol.orig_symbol symbol with
+      | AstDef.Module.ModDef m when not (Rewriter.Symbol.is_instance symbol) ->
+          let+ is_generic = is_generic_functor m.mod_decl in
+          if is_generic then Some (fully_qual_ident, m) else None
+      | _ -> Rewriter.return None)
+
 let inst_mod_ident_prefix = "GenInst$$"
 
 (** Deterministic name for the module wrapping [tp] as an implementation of
