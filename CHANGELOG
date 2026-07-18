@@ -26,6 +26,7 @@ All notable changes to this project will be docmented in this file.
 - Fix contracts of recursive (and mutually-recursive) functions failing to verify by auto-generating an inductive proof lemma for each function's ensures clause.
 - Fix tuple constructors in the SMT-LIB encoding being rejected as ambiguous by newer Z3 versions.
 - Fix misleading error when `import M._` (import-all) is used on an uninstantiated generic functor: report a clear diagnostic at the import site instead of a confusing "unknown identifier" error attributed to the stdlib's own source (#40).
+- Explain type mismatches that are really the same underlying module reached through two different names (a manifest alias, or two separate instantiations of the same functor with the same arguments) instead of just printing two similarly-named types with no context.
 
 ## [1.1.0] - 2026-01-27
 
