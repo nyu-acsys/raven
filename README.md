@@ -16,6 +16,16 @@ Raven ships with a [library](lib/library/resource_algebra.rav) of standard resou
 
 Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/) separation logic framework. We simplify the Iris logic by carefully restricting its features (like higher-order quantification, impredicativity, and step-indexing). At the same time, we add complementary features like the higher-order module system to regain expressivity. The resulting logic is sufficiently expressive to verify complex concurrent algorithms, yet, amenable to robust SMT-based automation. The mechanization of Raven's program logic as an instance of the Iris framework is part of ongoing work.
 
+## Contents
+- [Portable Usage (via Docker)](#portable-usage-via-docker)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Examples](#examples)
+- [Extension API](#extension-api)
+- [Development](#development)
+- [Raven Verifier Manual](#raven-verifier-manual)
+- [Scientific Background](#scientific-background)
+
 
 ## Portable Usage (via Docker):
 We have made available a Docker image of Raven on DockerHub that can be directly executed without any installation, as follows:
@@ -73,33 +83,23 @@ raven  z3
 
 
 ## Installation
-To install Raven locally, it requires [`opam`](https://opam.ocaml.org/) (>= 2.1.0) as well as OCaml (>= 4.12.0) and various OCaml libraries. See [`dune-project`](dune-project) for the full list of dependencies. Raven and all its depdencies other than `opam` can be installed by running the following sequence of commmands.
+To install Raven locally, it requires [`opam`](https://opam.ocaml.org/) (>= 2.1.0), OCaml (5.x; CI uses 5.1), and [Z3](https://github.com/Z3Prover/z3) (>= 4.13.0). Z3 is pulled in automatically as an opam dependency; if that build fails, consult the [`z3` opam package](https://opam.ocaml.org/packages/z3/) for its system-level prerequisites (a C++ toolchain and Python are typically needed). See [`dune-project`](dune-project) for the full list of OCaml library dependencies. Raven and all its dependencies other than `opam` can be installed by running the following sequence of commands.
 ```
 $ git clone https://github.com/nyu-acsys/raven.git
 $ cd ./raven
 $ opam switch create raven 5.2.0
-$ opam switch raven
-$ opam install . --deps
+$ eval $(opam env)
+$ opam install . --deps-only --with-test
 $ dune build; dune install; dune runtest
 ```
 
 A [Visual Studio Code extension](https://github.com/nyu-acsys/raven-lang) for IDE integration is also available.
 
 
-## Examples
-Several examples of Raven programs can be found in the [test](test) folder. The [ci](test/ci) folder contains many small examples that can be used to learn Raven's syntax for specific features. Complete verified implementations of concurrent data structures can be found in the [concurrent](test/concurrent) folder. Here are a few notable ones to get started, in roughly increasing order of complexity:
-1. [spin_lock](test/concurrent/lock/spin-lock.rav)
-1. [monotonic_counter](test/concurrent/counter/counter_monotonic.rav)
-1. [treiber_stack](test/concurrent/treiber_stack/treiber_stack_atomics.rav)
-1. [atomic_resource_counter](test/comparison/arc_atomics.rav)
-1. [give-up template](test/concurrent/templates/give-up.rav)
-1. [bplustree](test/concurrent/templates/bplustree.rav)
-
-
 ## Usage
-The Raven verifier can be executed on a file `test/concurrent/treiber_stack/treiber_stack_atomics.rav` as follows:
+The Raven verifier can be executed on a file `test/concurrent/treiber_stack/treiber_stack_atomic.rav` as follows:
 ```
-$ raven test/concurrent/treiber_stack/treiber_stack_atomics.rav
+$ raven test/concurrent/treiber_stack/treiber_stack_atomic.rav
 Raven version 1.x.y
 Verification successful.
 ```
@@ -112,6 +112,16 @@ Raven version 1.x.y
       ^^^^^^^^^^^^
 Verification Error: This update may not be frame-preserving.
 ```
+
+
+## Examples
+Several examples of Raven programs can be found in the [test](test) folder. The [ci](test/ci) folder contains many small examples that can be used to learn Raven's syntax for specific features. Complete verified implementations of concurrent data structures can be found in the [concurrent](test/concurrent) folder. Here are a few notable ones to get started, in roughly increasing order of complexity:
+1. [spin_lock](test/concurrent/lock/spin-lock.rav)
+1. [monotonic_counter](test/concurrent/counter/counter_monotonic.rav)
+1. [treiber_stack](test/concurrent/treiber_stack/treiber_stack_atomic.rav)
+1. [atomic_resource_counter](test/comparison/arc_atomics.rav)
+1. [give-up template](test/concurrent/templates/give-up.rav)
+1. [bplustree](test/concurrent/templates/bplustree.rav)
 
 
 ## Extension API
@@ -132,73 +142,27 @@ Verification successful.
 ```
 
 
+## Development
+Raven's tests are [cram](https://dune.readthedocs.io/en/stable/tests.html) tests: each `.t` file under [`test`](test) runs `raven` on a sibling `.rav` file and diffs stdout against the recorded expected output.
+
+To run a single test:
+```bash
+$ dune build @test/ci/back-end/agree_inhale        # runs test/ci/back-end/agree_inhale.t
+```
+If you've intentionally changed verifier output, accept the new output with:
+```bash
+$ dune promote
+```
+Other flags useful during development: `--typeonly` (type-check only), `--verbosity=debug` (also writes `front_end_processed_output.log`, the elaborated AST, and `log.smt2`, the SMT queries submitted to Z3, to the working directory).
+
+
 ## Raven Verifier Manual
-```
-RAVEN(1)                         Raven Manual                         RAVEN(1)
-
-NAME
-       raven
-
-SYNOPSIS
-       raven [OPTION]… [INPUT]…
-
-ARGUMENTS
-       INPUT
-           Input file.
-
-OPTIONS
-       --base-dir=VAL
-           Base directory for resolving include directives. Default: current
-           working directory.
-           
-       --color=WHEN (absent=auto)
-           Colorize the output. WHEN must be one of auto, always or never.
-
-       --extension=VAL (absent=default)
-           Extension mode: default, eris, or prophecy.
-
-       --lsp-mode
-           Format error messages for LSP integration.
-
-       --nostdlib
-           Skip standard library.
-
-       -q, --quiet
-           Be quiet. Takes over -v and --verbosity.
-
-       --shh
-           Suppress greeting.
-
-       --smt-info
-           Let Z3 produce diagostic output.
-
-       --smt-timeout=VAL (absent=10000)
-           Timeout for SMT solver in ms.
-
-       --stats
-           Output only program stats: concrete instruction steps, ghost
-           instruction steps, and number of specification formulae
-
-       --typeonly
-           Only type-check input program but do not verify it.
-
-       -v, --verbose
-           Increase verbosity. Repeatable, but more than twice does not bring
-           more.
-
-       --verbosity=LEVEL (absent=warning)
-           Be more or less verbose. LEVEL must be one of quiet, error,
-           warning, info or debug. Takes over -v.
-
-COMMON OPTIONS
-       --help[=FMT] (default=auto)
-           Show this help in format FMT. The value FMT must be one of auto,
-           pager, groff or plain. With auto, the format is pager or plain
-           whenever the TERM env var is dumb or undefined.
-
-       --version
-           Show version information.
-```
+Run `raven --help` for the full, authoritative option list. A few of the most commonly used flags:
+- `--extension=VAL` (`default`, `eris`, or `prophecy`) — select a front-end extension.
+- `--typeonly` — type-check the input without running verification.
+- `--smt-timeout=VAL` (default `10000`) — timeout for the SMT solver, in ms.
+- `--nostdlib` — skip loading the standard library.
+- `--stats` — output only program stats (concrete/ghost instruction steps, number of specification formulae) instead of verifying.
 
 ## Scientific Background
 
