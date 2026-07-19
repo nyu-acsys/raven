@@ -3359,7 +3359,7 @@ module TrnslExhale = struct
             )
           in
 
-          let* (witnesses : (conditions * expr option) list ident_map) =
+          let* (raw_witnesses : (conditions * expr option) list ident_map) =
             let init_map =
               List.fold var_decls
                 ~init:(Map.empty (module Ident))
@@ -3370,13 +3370,13 @@ module TrnslExhale = struct
             elim_a0 univ_vars var_decls (univ_conds, []) e init_map
           in
 
-          (* Sanitizing witnesses: 
+          (* Sanitizing witnesses:
           * a. getting rid of expr option; and
           * b. filtering empty lists [] from map *)
           let witnesses : (conditions * expr) list ident_map =
-              let witnesses : (conditions * expr) list ident_map = 
-                Map.map witnesses ~f:(fun cnd_expr_optn_list ->
-                  List.filter_map cnd_expr_optn_list ~f:(fun (cnd, expr_optn) -> 
+              let witnesses : (conditions * expr) list ident_map =
+                Map.map raw_witnesses ~f:(fun cnd_expr_optn_list ->
+                  List.filter_map cnd_expr_optn_list ~f:(fun (cnd, expr_optn) ->
                     match expr_optn with
                     | None -> None
                     | Some e -> Some (cnd, e)
@@ -3384,11 +3384,11 @@ module TrnslExhale = struct
                 )
               in
 
-              let witnesses : (conditions * expr) list ident_map = 
+              let witnesses : (conditions * expr) list ident_map =
                 Map.filter witnesses ~f:(fun cnd_expr_list ->
                   not @@ List.is_empty cnd_expr_list
                 )
-              in 
+              in
 
             witnesses
           in
@@ -3549,14 +3549,29 @@ module TrnslExhale = struct
                 (Map.to_alist witnesses)
           ) in
 
+          let e_local_vars = Expr.local_vars e in
+
           let* skolem_fn_records =
             Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
                 let* preconds, postconds, optn_args =
                   match Map.find witness_args_conds_exprs_map var_decl.var_name with
                   | None | Some [] ->
-                    Logs.warn (fun m -> m "%s%s" 
-                      (Loc.to_string (Expr.to_loc expr)) 
-                      ("No witnesses could be computed for: " ^ Ident.to_string var_decl.var_name));
+                    (* Only warn if the variable actually occurs somewhere in the
+                       exhaled/asserted expression. If it doesn't occur at all -- e.g.
+                       it dropped out entirely once other existentials in the same
+                       quantifier were instantiated by an explicit `fold`/`unfold`
+                       binding -- then leaving it unconstrained is provably inert:
+                       there's nothing left for its value to influence. If it does
+                       occur (even only in a pure guard the search doesn't look
+                       inside), its value can still affect what gets exhaled or what
+                       later code can prove, so the warning stays. *)
+                    if Set.mem e_local_vars var_decl.var_name then
+                      Logs.warn (fun m -> m "%s%s"
+                        (Loc.to_string (Expr.to_loc expr))
+                        (Printf.sprintf
+                           "No witness could be computed for `%s` -- it will be treated as an arbitrary unconstrained value, which may cause later assertions about it to fail."
+                           (Ident.name var_decl.var_name)));
+
                     Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
                       let witness_arg_exprs = 
