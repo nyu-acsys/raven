@@ -59,14 +59,22 @@ let parse_cu file_dir top_level_md_ident lexbuf =
   in
   (incls, Ast.Module.set_name md top_level_md_ident)
 
-let check_cu ~ext_hooks config tbl smt_env md front_end_out_chan =
+(** Type-checks and front-end-processes (rewrites) a single compilation unit. This is
+    kept separate from the actual backend/SMT checking ([backend_check_cu] below) so that
+    the full set of tuple sorts a program needs (see [Backend.TupleArities]) can be
+    computed from the fully elaborated symbol table -- of both the library and the main
+    program -- before any backend checking (and hence any tuple-sort declaration) begins.
+    Returns [None] in place of the processed module when there is nothing to backend-check
+    (`--typeonly`); the `--stats` short-circuit below exits the process directly, as
+    before. *)
+let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks md in
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
-  if config.typecheck_only then (smt_env, tbl) else
+  if config.typecheck_only then (tbl, None) else
 
   if config.prog_stats
     && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library")
@@ -101,9 +109,12 @@ let check_cu ~ext_hooks config tbl smt_env md front_end_out_chan =
     (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
     "%a\n" printers.pr_module processed_md;
 
-  let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
-  (smt_env, tbl)
+  (tbl, Some processed_md)
   end
+
+(** Runs backend/SMT checking for a single already-elaborated compilation unit. *)
+let backend_check_cu tbl smt_env processed_md =
+  Backend.Checker.check_module processed_md tbl smt_env
 
 
 (** Parse and check all compilation units in files [file_names] *)
@@ -136,8 +147,8 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
 
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
-  let smt_env, tbl =
-    if config.no_library then (smt_env, tbl)
+  let tbl, lib_processed_md =
+    if config.no_library then (tbl, None)
     else
       let lib_prog =
         List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
@@ -152,7 +163,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
             let md = Ast.Module.set_free md in
             merge_prog md lib_prog)
       in
-      check_cu ~ext_hooks config tbl smt_env lib_prog front_end_out_chan
+      elaborate_cu ~ext_hooks config tbl lib_prog front_end_out_chan
   in
   
   (* Parse and check actual input program *)
@@ -203,9 +214,26 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
       empty_prog
   in
 
+  let tbl, prog_processed_md = elaborate_cu ~ext_hooks config tbl md front_end_out_chan in
+
   begin
-  let _, _tbl = check_cu ~ext_hooks config tbl smt_env md front_end_out_chan in
   (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
+  let processed_mds = List.filter_map [ lib_processed_md; prog_processed_md ] ~f:Fn.id in
+
+  (match processed_mds with
+   | [] -> (* `--typeonly`: nothing left to backend-check *) ()
+   | _ ->
+     (* Only now -- once both the library and the main program have been fully
+        elaborated -- do we know every tuple sort ([$tuple_n]) the program actually
+        needs (see Backend.TupleArities), so this is the earliest point at which we
+        can declare them. *)
+     let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
+     let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
+     let (_ : Backend.Smt_solver.smt_env) =
+       List.fold processed_mds ~init:smt_env ~f:(backend_check_cu tbl)
+     in
+     ());
+
   Logs.app (fun m -> m "Verification successful.")
   end
 

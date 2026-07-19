@@ -1,0 +1,13 @@
+// Regression test for https://github.com/nyu-acsys/raven/issues/28:
+// a function returning more values than could be represented by the
+// (formerly hardcoded) range of pre-declared SMT tuple sorts must still verify.
+func many_returns(x: Int)
+  returns (r0: Int, r1: Int, r2: Int, r3: Int, r4: Int, r5: Int, r6: Int,
+           r7: Int, r8: Int, r9: Int, r10: Int, r11: Int)
+{
+  (x, x, x, x, x, x, x, x, x, x, x, x)
+}
+
+proc p() {
+  assert many_returns(5) == many_returns(5);
+}
