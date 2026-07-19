@@ -189,7 +189,7 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
         unfold read_l_m(l_descr.Descr.l_m)[q := q];
         fold read_l_m(l_descr.Descr.l_m)[q := q];
         sync_values(l_n, rdcss_ret, n'); 
-        update_value(l_n, rdcss_ret, n', (m' == m1 && n' == n' ? n2 : n' ));
+        update_value(l_n, rdcss_ret, n', (m' == m1 && n' == n1 ? n2 : n' ));
 
         commitAU(token, (l_n, l_descr), rdcss_ret);
         fold accepted_state(token, l_n, l_descr, rdcss_ret, proph_extract_winner(vs), tid_ghost)[vs := vs_ghost];
