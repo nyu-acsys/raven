@@ -36,7 +36,6 @@ module ErrorCreditsExt (Cont : ListApi) = struct
   end
 
   (* Not defining any local variables. *)
-  let local_vars = []
 
   (* Expression for ErrorCredits *)
   type Expr.expr_ext +=
@@ -121,9 +120,23 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     (* Normal EC.rand() does not access any resources. *)
     | EC_Rand _, _ -> []
     (* All other function calls interact with the error_field. *)
-    | (EC_RandFn _ | EC_RandList _ | EC_RandVal _ | EC_Contra), _ -> 
+    | (EC_RandFn _ | EC_RandList _ | EC_RandVal _ | EC_Contra), _ ->
       [EC_Predefs.error_field_qi]
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+
+  let type_ext_is_recognized = Cont.type_ext_is_recognized
+
+  let expr_ext_is_recognized expr_ext =
+    match expr_ext with
+    | ErrorCreds -> true
+    | _ -> Cont.expr_ext_is_recognized expr_ext
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with
+    | EC_Rand _ | EC_RandVal _ | EC_RandFn _ | EC_RandList _ | EC_Contra -> true
+    | _ -> Cont.stmt_ext_is_recognized stmt_ext
+
+  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
 
 
   (* Rewriter *)
@@ -174,10 +187,13 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     In addition, a `disam_tbl` must be returned.
     `type_check_stmt_functs` is a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
+  let type_check_contract_ext = Cont.type_check_contract_ext
+  let contract_ext_to_string = Cont.contract_ext_to_string
+
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
-      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t = 
+      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     match stmt_ext, expr_list with
@@ -372,6 +388,11 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
 
+  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
+  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
+  let rewrite_callable_entry = Cont.rewrite_callable_entry
+  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+
   (* Rewriting Statements *)
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -517,6 +538,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         call_decl_locals = [];
         call_decl_precond = [];
         call_decl_postcond = [];
+        call_decl_contract_ext = [];
         call_decl_is_free = false;
         call_decl_is_auto = false;
         call_decl_mask = None;
@@ -734,5 +756,4 @@ module ErrorCreditsExt (Cont : ListApi) = struct
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

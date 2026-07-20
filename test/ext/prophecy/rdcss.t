@@ -1,4 +1,4 @@
-  $ dune exec -- raven --shh --extension prophecy ./rdcss.rav
+  $ dune exec -- raven --shh ./rdcss.rav
   [Warning] File "./rdcss.rav", line 617, column 8 to line 623, column 5:
   617 |     ) : (
                 ^

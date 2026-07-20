@@ -219,12 +219,33 @@ and ext_hooks = {
   type_ext_to_name : Type.type_ext -> string;
   expr_ext_to_string : Expr.expr_ext -> string;
   pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
+  contract_ext_to_string : Stmt.contract_ext -> string;
   stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
   stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
   stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list;
 
+  (** Best-effort "did you mean" lookup: given a [*_ext] tag the *active* extension
+      chain didn't recognize, checks whether some *other* known [--extension] choice
+      would have, and if so returns that flag's name. [None] means no known extension
+      anywhere recognizes the construct -- a genuine internal error, not a
+      wrong-flag situation. Independent of which chain is currently active (computed
+      once, up front, from every entry in [lib/ext/ext.ml]'s [ext_map]); used only to
+      turn the [DefaultExt] "no active extension recognizes this ..." fallback into an
+      actionable message. *)
+  suggest_extension_for_type_ext : Type.type_ext -> string option;
+  suggest_extension_for_expr_ext : Expr.expr_ext -> string option;
+  suggest_extension_for_stmt_ext : Stmt.stmt_ext -> string option;
+  suggest_extension_for_contract_ext : Stmt.contract_ext -> string option;
+
   expr_ext_rewrite_types : f:(type_expr -> type_expr t) -> Expr.expr_ext -> Expr.expr_ext t;
   stmt_ext_rewrite_types : f:(type_expr -> type_expr t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
+
+  (** Applies [f] to every expression a [contract_ext] value carries (e.g. each
+      measure's [spec_form] for [decreases]), for the same reason
+      [stmt_ext_rewrite_types] exists: generic substitution during things like module
+      instantiation, where core code needs to rewrite every expression in a callable's
+      contract uniformly without knowing what a given [contract_ext] means. *)
+  contract_ext_rewrite_exprs : f:(expr -> expr t) -> Stmt.contract_ext -> Stmt.contract_ext t;
 
   type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr t;
   type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr t;
@@ -236,11 +257,42 @@ and ext_hooks = {
     type_check_stmt_functs ->
     (Stmt.basic_stmt_desc * DisambiguationTbl.t) t;
 
+  type_check_contract_ext :
+    Callable.call_decl ->
+    Stmt.contract_ext ->
+    location ->
+    DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    Stmt.contract_ext t;
+
   rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
   rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
   rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
 
-  ext_local_vars : var_decl list;
+  rewrite_contract_ext_call :
+    Callable.call_decl -> Callable.call_decl -> expr list -> location -> Stmt.t list t;
+
+  (** Called once for every [Proc]/[Lemma] callable, before any of its statements are
+      visited elsewhere. Returns statements to prepend at the very top of the
+      callable's body. General-purpose, not tied to [contract_ext]: any extension can
+      use it for whatever per-callable body setup it needs (e.g. introducing and
+      initializing ghost locals sized to that specific callable, as [DecreasesExt]
+      does for its `decreases` measure snapshot). Default (no extension using this
+      hook) is to prepend nothing. *)
+  rewrite_callable_entry : Callable.call_decl -> Stmt.t list t;
+
+  (** Called by [rewrite_loops] as it transfers a loop's [loop_contract_ext] entries
+      onto the synthesized tail-recursive procedure's [call_decl_contract_ext]. [subst]
+      is the same substitution [rewrite_loops] applies to [loop_contract] (loop-local
+      variables -> the synthesized procedure's fresh formals); an extension applies it
+      to whatever expressions its value carries, and may also swap in loop-specific
+      wording (e.g. via a payload that reuses [Stmt.spec]'s [spec_error], the same
+      mechanism [rewrite_stmt_error_msg]'s [Loop] case already uses for invariants) --
+      capturing the original location before calling [subst], not after, since
+      substituting a bare-identifier expression replaces the whole node. Pure: default
+      (no active contract extension, or a tag the extension doesn't recognize) is the
+      identity. *)
+  rewrite_contract_ext_loop_transfer : subst:(expr -> expr) -> Stmt.contract_ext -> Stmt.contract_ext;
 }
 
 (** What every [Rewriter.t] computation sees before any extension has been installed.
@@ -251,26 +303,39 @@ let default_ext_hooks : ext_hooks = {
   type_ext_to_name = Type.default_type_ext_to_name;
   expr_ext_to_string = Expr.default_expr_ext_to_string;
   pr_stmt_ext = Stmt.default_pr_stmt_ext;
+  contract_ext_to_string = Stmt.default_contract_ext_to_string;
   stmt_ext_symbols = Stmt.default_stmt_ext_symbols;
   stmt_ext_local_vars_modified = Stmt.default_stmt_ext_local_vars_modified;
   stmt_ext_fields_accessed = Stmt.default_stmt_ext_fields_accessed;
+  suggest_extension_for_type_ext = (fun _ -> None);
+  suggest_extension_for_expr_ext = (fun _ -> None);
+  suggest_extension_for_stmt_ext = (fun _ -> None);
+  suggest_extension_for_contract_ext = (fun _ -> None);
   expr_ext_rewrite_types =
     (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.expr_ext_rewrite_types: no extension configured");
   stmt_ext_rewrite_types =
     (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.stmt_ext_rewrite_types: no extension configured");
+  contract_ext_rewrite_exprs =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.contract_ext_rewrite_exprs: no extension configured");
   type_check_type_expr =
     (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
   type_check_expr =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_expr: no extension configured");
   type_check_stmt =
     (fun _ _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_stmt: no extension configured");
+  type_check_contract_ext =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_contract_ext: no extension configured");
   rewrite_type_ext =
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
   rewrite_expr_ext =
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_expr_ext: no extension configured");
   rewrite_stmt_ext =
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_stmt_ext: no extension configured");
-  ext_local_vars = [];
+  rewrite_contract_ext_call =
+    (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_contract_ext_call: no extension configured");
+  rewrite_callable_entry =
+    (fun _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_callable_entry: no extension configured");
+  rewrite_contract_ext_loop_transfer = (fun ~subst:_ tag -> tag);
 }
 
 
@@ -356,18 +421,22 @@ let printers_of_ext_hooks (h : ext_hooks) : printers =
   let (_, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _) =
     Stmt.make_printers ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   let (_, _, pr_callable) =
     Callable.make_printers ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   let (pr_module, _, _, _) =
     Module.make_printers ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   let (pr_symbol, symbol_to_string) =
     Symbol.make_printers ~type_ext_to_name:h.type_ext_to_name
       ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
   in
   { pr_type; pr_type_var_decl; pr_type_var_decl_list; pr_expr; pr_expr_list;
     pr_stmt; pr_stmt_basic; pr_stmt_spec_list; pr_callable; pr_module; pr_symbol;
@@ -1028,6 +1097,9 @@ module Stmt = struct
           List.map loop_desc.loop_contract ~f:(fun contract ->
               let+ new_spec_form = f contract.spec_form in
               { contract with spec_form = new_spec_form })
+        and+ new_contract_ext =
+          let* ext_hooks = current_ext_hooks in
+          List.map loop_desc.loop_contract_ext ~f:(ext_hooks.contract_ext_rewrite_exprs ~f)
         and+ new_prebody = c loop_desc.loop_prebody
         and+ new_test = f loop_desc.loop_test
         and+ new_postbody = c loop_desc.loop_postbody in
@@ -1037,6 +1109,7 @@ module Stmt = struct
             Loop
               {
                 loop_contract = new_contract;
+                loop_contract_ext = new_contract_ext;
                 loop_prebody = new_prebody;
                 loop_test = new_test;
                 loop_postbody = new_postbody;
@@ -1227,6 +1300,10 @@ module Callable = struct
           { spec with spec_form = new_spec_form })
     in
     let call_decl = Callable.to_decl callable in
+    (* [call_decl_contract_ext] is left as-is here, same as [stmt_ext] in the proc body
+       below -- neither extension point is substituted during this generic rewrite
+       (used for e.g. module-instantiation substitution), a pre-existing gap this
+       doesn't attempt to close. *)
     let* _ = add_call_decl_locals call_decl
     and* new_preconds = rewrite_specs call_decl.call_decl_precond
     and* new_postconds = rewrite_specs call_decl.call_decl_postcond in

@@ -242,6 +242,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           call_decl_locals = [];
           call_decl_precond = [];
           call_decl_postcond = [ postcond ];
+          call_decl_contract_ext = [];
           call_decl_is_free = true;
           call_decl_is_auto = false;
           call_decl_mask = None;
@@ -409,6 +410,7 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
           call_decl_locals = [];
           call_decl_precond = [];
           call_decl_postcond = [ postcond ];
+          call_decl_contract_ext = [];
           call_decl_is_free = true;
           call_decl_is_auto = false;
           call_decl_mask = None;
@@ -636,6 +638,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           ~f:(fun ~key ~data map -> Map.set map ~key ~data)
       in
 
+      let* ext_hooks = Rewriter.current_ext_hooks in
+
       let new_proc_decl =
         let loop_precond =
           List.map loop.loop_contract ~f:(fun spec ->
@@ -666,6 +670,22 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
             ]
         in
 
+        (* Transfer the loop's own decreases (or other contract-extension) clauses onto
+           the synthesized recursive procedure the same way loop_contract is transferred
+           above: once here, the generic recursive-call instrumentation pass picks up
+           [call_decl_contract_ext] uniformly, so loop termination checking needs no
+           separate code path -- see WISHLIST.md, "decreases clauses", Phase 1.
+           [rewrite_contract_ext_loop_transfer] applies the same substitution used for
+           [loop_contract] above and lets an extension swap in loop-specific wording
+           (e.g. via a payload built on [Stmt.spec], whose [spec_error] the extension
+           can override) -- without this code needing to know what any [contract_ext]
+           value means. *)
+        let loop_contract_ext =
+          List.map loop.loop_contract_ext
+            ~f:(ext_hooks.rewrite_contract_ext_loop_transfer
+                  ~subst:(fun e -> Expr.alpha_renaming e loop_arg_renaming_map))
+        in
+
         {
           Callable.call_decl_kind = Proc;
           call_decl_name = loop_proc_name;
@@ -674,6 +694,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_locals = loop_local_var_decls;
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
+          call_decl_contract_ext = loop_contract_ext;
           call_decl_is_free = false;
           call_decl_is_auto = false;
           call_decl_mask = None;
@@ -925,6 +946,76 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_ret_stmts
+
+(** Runs once per [Proc]/[Lemma] callable, before [rewrite_contract_ext_calls]
+    below visits any of its statements: delegates to [ext_hooks.rewrite_callable_entry]
+    to (possibly) prepend statements at the top of the body -- e.g. ghost locals
+    snapshotting a decreases measure's entry-time value, needed because the
+    callable's own formals may be reassigned by the body before a recursive call is
+    reached. General-purpose, not tied to [contract_ext] at all (see
+    [ExtApi.Ext.rewrite_callable_entry]'s doc comment), so this runs unconditionally
+    for every [Proc]/[Lemma] rather than gating on [call_decl_contract_ext]; it's up
+    to each extension's own implementation to decide whether it has anything to do
+    for a given callable, and the default is to prepend nothing. *)
+let rewrite_callable_entries (callable : Callable.t) : Callable.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match callable.call_decl.call_decl_kind, callable.call_def with
+  | (Proc | Lemma), ProcDef { proc_body = Some body } ->
+    let* ext_hooks = Rewriter.current_ext_hooks in
+    let+ prepend_stmts = ext_hooks.rewrite_callable_entry callable.call_decl in
+    (match prepend_stmts with
+     | [] -> callable
+     | _ ->
+       let new_body =
+         Stmt.mk_block_stmt ~loc:callable.call_decl.call_decl_loc (prepend_stmts @ [ body ])
+       in
+       { callable with call_def = ProcDef { proc_body = Some new_body } })
+  | _ -> Rewriter.return callable
+
+(** For every call in a [Proc]/[Lemma] body whose *callee* has a non-empty
+    [call_decl_contract_ext], delegates to [ext_hooks.rewrite_contract_ext_call] to
+    (possibly) insert statements (e.g. a decreases progress-check assert) immediately
+    before the call. Core code here doesn't know what [call_decl_contract_ext] means --
+    it only knows that any non-empty payload means some extension may want to
+    instrument this call site; the per-call [call_decl_contract_ext <> []] check keeps
+    this a no-op (beyond one symbol lookup) for the overwhelming majority of calls,
+    whose callee has no contract-extension clauses at all.
+
+    Note this is *not* restricted to self-recursive calls: any call to any callable
+    carrying a contract-extension clause is offered to the hook, caller and callee
+    identity included, so an extension can filter down to whatever notion of
+    "recursive"/"relevant" it needs (e.g. [DecreasesExt] only acts when caller and
+    callee are literally the same callable, Phase 1 scope per WISHLIST.md) without
+    core needing to know what that notion is. This also means a future contract
+    extension whose calls don't need to be recursive at all -- e.g. something that
+    must hold at *every* call to a given callable -- doesn't need a different pass.
+
+    Since [rewrite_loops] (which runs immediately before this pass -- see
+    [rewrites_phase_1]) has already turned every loop into a self-recursive tail proc
+    and transferred its [loop_contract_ext] onto that proc's [call_decl_contract_ext],
+    loop termination checking falls out of this same pass with no separate code path. *)
+let rec rewrite_contract_ext_calls (stmt : Stmt.t) : Stmt.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match stmt.stmt_desc with
+  | Basic (Call call_desc) ->
+    let loc = Stmt.to_loc stmt in
+    let* callee_qual_ident = Rewriter.resolve call_desc.call_name in
+    let* callee_callable = Rewriter.find_and_reify_callable callee_qual_ident in
+    let callee_call_decl = callee_callable.call_decl in
+    if List.is_empty callee_call_decl.call_decl_contract_ext then
+      Rewriter.return stmt
+    else
+      let* caller_qual_ident = Rewriter.current_scope_id in
+      let* caller_callable = Rewriter.find_and_reify_callable caller_qual_ident in
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      let+ extra_stmts =
+        ext_hooks.rewrite_contract_ext_call caller_callable.call_decl callee_call_decl
+          call_desc.call_args loc
+      in
+      (match extra_stmts with
+       | [] -> stmt
+       | _ -> Stmt.mk_block_stmt ~loc (extra_stmts @ [ stmt ]))
+  | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_contract_ext_calls
 
 let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -2041,6 +2132,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_locals = [];
               call_decl_precond = [];
               call_decl_postcond = postconds;
+              call_decl_contract_ext = [];
               call_decl_is_free = false;
               call_decl_is_auto = false;
               call_decl_mask = None;
@@ -2102,13 +2194,21 @@ let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
   in
   let m = { m with mod_def } in
 
+  (* A func needs this pass's scaffolding either to prove its own postcondition (the
+     pass's original purpose) or -- even with no postcondition at all -- to give a
+     contract extension (e.g. `decreases`) a lemma body to instrument, since a func's
+     own body is a pure expression with no call site of its own. Without the second
+     disjunct, a func with e.g. a `decreases` clause but no `ensures` clause would
+     never get a companion lemma, so its self-recursive calls would never be walked by
+     [gen_stmts] below, silently skipping the contract-extension check entirely. *)
   let eligible =
     List.filter_map m.mod_def ~f:(function
       | Module.SymbolDef
           (CallDef
             ({ call_decl; call_def = FuncDef { func_body = Some body } } : Callable.t))
         when Poly.(call_decl.call_decl_kind = Func)
-             && not (List.is_empty call_decl.call_decl_postcond)
+             && (not (List.is_empty call_decl.call_decl_postcond)
+                 || not (List.is_empty call_decl.call_decl_contract_ext))
              && not call_decl.call_decl_is_free ->
           Some (call_decl, body)
       | _ -> None)
@@ -2133,37 +2233,55 @@ let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
               Map.set acc ~key:func_qual_ident ~data:call_decl)
       in
 
-      let gen_stmts (e : expr) : Stmt.t list =
-        let rec go (acc : Stmt.t list) (e : expr) : Stmt.t list =
+      (* [current_call_decl] is the func whose companion lemma body is being generated
+         (i.e. the "caller"); [callee_decl] is whichever eligible func the call
+         resolves to (itself, for self-recursion, or a sibling func also eligible for
+         this pass). Delegating to [ext_hooks.rewrite_contract_ext_call] here is how a
+         `decreases` clause on a func gets its progress check inserted, piggybacking on
+         this auto-lemma mechanism exactly as func bodies have no call-site of their
+         own to instrument directly (see WISHLIST.md, "decreases clauses", Phase 1) --
+         note this is called for *every* eligible-func call, not just self-recursive
+         ones (mirroring [rewrite_contract_ext_calls] above); it's up to the hook
+         itself to decide whether caller and callee identity matter to it. *)
+      let gen_stmts (current_call_decl : Callable.call_decl) (e : expr) : Stmt.t list Rewriter.t =
+        let rec go (acc : Stmt.t list) (e : expr) : Stmt.t list Rewriter.t =
           match e with
           | App (Ite, [ cond; e1; e2 ], _) ->
-              let acc = go acc cond in
+              let* acc = go acc cond in
+              let* then_stmts = go [] e1 in
+              let+ else_stmts = go [] e2 in
               Stmt.mk_cond ~loc:(Expr.to_loc e) (Some cond)
-                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e1)
-                   (List.rev (go [] e1)))
-                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e2)
-                   (List.rev (go [] e2)))
+                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e1) (List.rev then_stmts))
+                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e2) (List.rev else_stmts))
               :: acc
           | App (Var callee, args, _) -> (
-              let acc = List.fold args ~init:acc ~f:go in
+              let* acc = Rewriter.List.fold_left args ~init:acc ~f:go in
               match Map.find eligible_tbl callee with
-              | None -> acc
+              | None -> Rewriter.return acc
               | Some callee_decl ->
                   let lemma_qual_ident =
                     QualIdent.append module_qual_ident
                       (contract_lemma_ident callee_decl.call_decl_name)
                   in
-                  Stmt.mk_call ~loc:(Expr.to_loc e) ~lhs:[] lemma_qual_ident
-                    args ~is_spawn:false
-                  :: acc)
-          | App (_, args, _) -> List.fold args ~init:acc ~f:go
-          | Binder _ -> acc
+                  let lemma_call =
+                    Stmt.mk_call ~loc:(Expr.to_loc e) ~lhs:[] lemma_qual_ident
+                      args ~is_spawn:false
+                  in
+                  let* ext_hooks = Rewriter.current_ext_hooks in
+                  let+ progress_checks =
+                    ext_hooks.rewrite_contract_ext_call current_call_decl
+                      callee_decl args (Expr.to_loc e)
+                  in
+                  lemma_call :: (List.fold progress_checks ~init:acc ~f:(fun acc s -> s :: acc)))
+          | App (_, args, _) -> Rewriter.List.fold_left args ~init:acc ~f:go
+          | Binder _ -> Rewriter.return acc
         in
-        List.rev (go [] e)
+        let+ stmts = go [] e in
+        List.rev stmts
       in
 
-      let lemma_symbols =
-        List.map eligible ~f:(fun (call_decl, body) ->
+      let* lemma_symbols =
+        Rewriter.List.map eligible ~f:(fun (call_decl, body) ->
             let lemma_ident = contract_lemma_ident call_decl.call_decl_name in
 
             let fn_call_expr =
@@ -2224,6 +2342,7 @@ let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
                   call_decl_locals = [];
                   call_decl_precond = [];
                   call_decl_postcond = lemma_postconds;
+                  call_decl_contract_ext = [];
                   call_decl_is_free = false;
                   call_decl_is_auto = true;
                   call_decl_mask = None;
@@ -2231,8 +2350,9 @@ let rec rewrite_add_func_contract_lemmas (m : Module.t) : Module.t Rewriter.t =
                 }
             in
 
+            let+ lemma_body_stmts = gen_stmts call_decl body in
             let lemma_body =
-              Stmt.mk_block_stmt ~loc:call_decl.call_decl_loc (gen_stmts body)
+              Stmt.mk_block_stmt ~loc:call_decl.call_decl_loc lemma_body_stmts
             in
 
             Module.CallDef
@@ -2668,6 +2788,16 @@ let rec rewrites_phase_1 (m : Module.t) : Module.t Rewriter.t =
       m1 "Rewrites.all_rewrites: Starting rewrite_loops on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
+
+  Logs.debug (fun m1 ->
+      m1 "Rewrites.all_rewrites: Starting rewrite_callable_entries on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_entries m in
+
+  Logs.debug (fun m1 ->
+      m1 "Rewrites.all_rewrites: Starting rewrite_contract_ext_calls on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_contract_ext_calls m in
 
   Logs.debug (fun m1 ->
       m1 "Rewrites.all_rewrites: Starting rewrite_inline_preds_expr on module %a"

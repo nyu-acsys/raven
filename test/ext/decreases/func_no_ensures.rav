@@ -1,0 +1,11 @@
+/* Regression test: a func with a `decreases` clause but no `ensures` clause must
+   still be eligible for the auto-lemma scaffolding that hosts the termination check
+   -- otherwise it would be silently unchecked, since a func body has no call site of
+   its own to instrument directly. */
+func fac(n: Int)
+  returns (res: Int)
+  requires n >= 0
+  decreases n
+{
+  n > 0 ? n * fac(n-1) : 1
+}

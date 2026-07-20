@@ -2173,6 +2173,24 @@ module ProcessCallable = struct
                 ~f:(process_stmt_spec disam_tbl)
             in
 
+            let* loop_contract_ext =
+              let* ext_hooks = Rewriter.current_ext_hooks in
+              Rewriter.List.map loop_desc.loop_contract_ext
+                ~f:(fun contract_ext ->
+                    ext_hooks.type_check_contract_ext call_decl contract_ext (Stmt.to_loc stmt) disam_tbl
+                      {
+                        ExtApi.get_assign_lhs =
+                          (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                             Error.internal_error (QualIdent.to_loc qi)
+                               "assignments are not permitted in a contract clause");
+                        expand_type_expr = ProcessTypeExpr.expand_type_expr;
+                        disambiguate_process_expr;
+                        type_mismatch_error;
+                        disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                        process_symbol = !Rewriter.process_symbol_ref;
+                      })
+            in
+
             let disam_tbl = DisambiguationTbl.push disam_tbl in
             let* loop_prebody, disam_tbl =
               process_stmt loop_desc.loop_prebody disam_tbl
@@ -2191,7 +2209,7 @@ module ProcessCallable = struct
 
             (* Actually think about what variables need to be collected in `locals`. What if same variable is declared in multiple scopes in a callable, do all of them go in the `call_decl.call_decl_locals`? TW: I would say yes, unless you already have that information in the SymbolTable and always lookup locals through that. *)
             let (loop_desc : Stmt.loop_desc) =
-              { loop_contract; loop_prebody; loop_test; loop_postbody }
+              { loop_contract; loop_contract_ext; loop_prebody; loop_test; loop_postbody }
             in
 
             (Stmt.Loop loop_desc, disam_tbl)
@@ -2256,15 +2274,6 @@ module ProcessCallable = struct
     in
 
     let* ext_hooks = Rewriter.current_ext_hooks in
-    let call_decl_locals = match call_decl.call_decl_kind with
-      | Proc | Lemma ->
-        (* Adding Extension local variables *)
-        Logs.debug (fun m -> m "Adding EXT locals on: %a" Ident.pr call_decl.call_decl_name);
-        ext_hooks.ext_local_vars @ call_decl_locals
-      | Func | Pred | Invariant ->
-        ext_hooks.ext_local_vars @
-        call_decl_locals
-    in
 
     Logs.debug (fun m -> m "adding formals");
     let* _ = Rewriter.add_locals call_decl_formals in
@@ -2284,7 +2293,28 @@ module ProcessCallable = struct
       Rewriter.List.map call_decl.call_decl_postcond
         ~f:(process_stmt_spec disam_tbl)
     in
-    
+
+    let call_decl_for_ext =
+      { call_decl with call_decl_formals; call_decl_returns; call_decl_locals }
+    in
+    let* call_decl_contract_ext =
+      Rewriter.List.map call_decl.call_decl_contract_ext
+        ~f:(fun contract_ext ->
+            ext_hooks.type_check_contract_ext call_decl_for_ext contract_ext
+              call_decl.call_decl_loc disam_tbl
+              {
+                ExtApi.get_assign_lhs =
+                  (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                     Error.internal_error (QualIdent.to_loc qi)
+                       "assignments are not permitted in a contract clause");
+                expand_type_expr = ProcessTypeExpr.expand_type_expr;
+                disambiguate_process_expr;
+                type_mismatch_error;
+                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                process_symbol = !Rewriter.process_symbol_ref;
+              })
+    in
+
     Logs.debug (fun m -> m "done processing pre/post cond");
     let call_decl =
       {
@@ -2294,6 +2324,7 @@ module ProcessCallable = struct
         call_decl_locals;
         call_decl_precond;
         call_decl_postcond;
+        call_decl_contract_ext;
       }
     in
     let* callable =

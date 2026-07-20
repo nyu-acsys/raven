@@ -17,15 +17,15 @@ This is not a tight bound, it is chosen to work nicely with powers of 2, so ther
 
 module CollFreeHash {
   import Hash._
-  admitted val init_val_size: Int
-  admitted val init_r: Int
+  free val init_val_size: Int
+  free val init_r: Int
 
   val amortized_error: Real = (3 * init_r) / (4 * init_val_size)
 
-  admitted auto lemma init_val_size_pos()
+  free auto lemma init_val_size_pos()
     ensures init_val_size > 0
   
-  admitted auto lemma init_r_pos()
+  free auto lemma init_r_pos()
     ensures init_val_size > init_r > 0
 
   type CFHash = data {

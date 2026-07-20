@@ -41,7 +41,6 @@ type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
 module type Ext = sig
   (* Config *)
   val lib_source : (string * string) option
-  val local_vars : var_decl list
 
   (* AstDef *)
   val type_ext_to_name : (Type.type_ext -> string)
@@ -49,22 +48,47 @@ module type Ext = sig
   val expr_ext_to_string : (Expr.expr_ext -> string)
 
   val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
+  val contract_ext_to_string : Stmt.contract_ext -> string
 
   val stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
   val stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
   val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
 
+  (** Whether *this extension itself* (not [Cont]) declares the given constructor --
+      not "does this chain recognize it" (that's what chaining to [Cont] in the
+      wildcard case already gives every other hook here). Used solely so
+      [lib/ext/ext.ml] can build a "did you mean `--extension X`" suggestion when the
+      active chain's [type_check_*]/etc. hits its terminal [DefaultExt] case: it tries
+      every *other* known `--extension` chain's [type_ext_is_recognized] & co. against
+      the same value, and if exactly one recognizes it, names that flag in the error
+      instead of a bare "no active extension recognizes this". Implement by matching
+      only your own constructors (`true`) and deferring everything else to [Cont]. *)
+  val type_ext_is_recognized : Type.type_ext -> bool
+  val expr_ext_is_recognized : Expr.expr_ext -> bool
+  val stmt_ext_is_recognized : Stmt.stmt_ext -> bool
+  val contract_ext_is_recognized : Stmt.contract_ext -> bool
+
 
   (* Rewriter *)
   val expr_ext_rewrite_types :
     f:(type_expr -> type_expr Rewriter.t)
-    -> Expr.expr_ext 
+    -> Expr.expr_ext
     -> Expr.expr_ext Rewriter.t
 
   val stmt_ext_rewrite_types :
-    f: (type_expr -> type_expr Rewriter.t) 
-    -> Stmt.stmt_ext 
+    f: (type_expr -> type_expr Rewriter.t)
+    -> Stmt.stmt_ext
     -> Stmt.stmt_ext Rewriter.t
+
+  (** Applies [f] to every expression a [contract_ext] value carries (e.g. each
+      measure's [spec_form] for `decreases`). Used for generic substitution during
+      things like module instantiation, the same reason [stmt_ext_rewrite_types]
+      exists for types -- core code needs to rewrite every expression in a callable's
+      contract uniformly without knowing what a given [contract_ext] means. *)
+  val contract_ext_rewrite_exprs :
+    f:(expr -> expr Rewriter.t)
+    -> Stmt.contract_ext
+    -> Stmt.contract_ext Rewriter.t
 
 
   (* Typing *)
@@ -72,7 +96,7 @@ module type Ext = sig
 
   val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t
 
-  val type_check_stmt : 
+  val type_check_stmt :
     Callable.call_decl ->
     Stmt.stmt_ext -> expr list ->
     location ->
@@ -80,16 +104,83 @@ module type Ext = sig
     type_check_stmt_functs ->
     (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t
 
+  (** Type-checks one entry of a [call_decl_contract_ext]/[loop_contract_ext] list
+      against the declaring callable's/loop's formals (given via [call_decl] -- for a
+      loop this is the [call_decl] of the tail-recursive procedure the loop is about to
+      be rewritten into, since loop contracts are type-checked before that rewrite runs
+      but share the same formal-scope shape). Takes and returns a whole [contract_ext]
+      value. *)
+  val type_check_contract_ext :
+    Callable.call_decl ->
+    Stmt.contract_ext ->
+    location ->
+    ProgUtils.DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    Stmt.contract_ext Rewriter.t
+
 
   (* Rewrites *)
   val rewrite_type_ext : Ast.Type.type_ext -> type_expr list -> location -> type_expr Rewriter.t
 
   val rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
-  
+
   val rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
 
+  (** Called once for every call site found in a [Proc]/[Lemma] body whose *callee*
+      has a non-empty [call_decl_contract_ext] (or, for [Func]s, at the point
+      [rewrite_add_func_contract_lemmas] emits a call to a companion auto-lemma, for
+      every eligible-func call) where [caller_call_decl] and [callee_call_decl] denote
+      the calling and called callable's declarations and [call_args] are the actual
+      arguments of that call. Returns statements (typically an assert) to insert
+      immediately before the call. This is *not* restricted to recursive calls --
+      caller and callee may be entirely unrelated callables; it's up to the extension
+      to decide, from [caller_call_decl]/[callee_call_decl], whether and how they're
+      related (e.g. [DecreasesExt] only acts when they're the same callable, which is
+      as far as termination checking currently goes -- see WISHLIST.md -- but a
+      different contract extension might care about every call to a given callable
+      regardless of who's calling). Core code invokes this uniformly for every
+      candidate call site -- it does not know what [call_decl_contract_ext] means,
+      only that some extension may want to instrument the call; the default (no
+      active contract extension) is to return no extra statements. *)
+  val rewrite_contract_ext_call :
+    Callable.call_decl ->
+    Callable.call_decl ->
+    expr list ->
+    location ->
+    Stmt.t list Rewriter.t
+
+  (** Called once for every [Proc]/[Lemma] callable, before any of its statements are
+      visited by [rewrite_contract_ext_call] above (or by anything else). Returns
+      statements to prepend at the very top of the callable's body. Not tied to
+      [contract_ext] at all -- any extension can use this for whatever per-callable
+      body setup it needs, e.g. introducing (via [Rewriter.introduce_symbol]) and
+      initializing ghost locals sized/typed however that specific callable requires.
+      [DecreasesExt] uses it to snapshot a `decreases` measure's entry-time value,
+      needed because the measure may itself be reassigned by the body before a
+      recursive call is reached (see lib/ext/README.md, "Rewrites"). This is also the
+      general replacement for what a fixed-size, uniformly-added-to-every-callable
+      pool of scratch locals would otherwise be used for: unlike such a pool, what
+      gets introduced here can vary per callable (in count, in type, in name) and
+      costs nothing for callables that don't need it. Default (no active extension
+      using this hook) is to prepend nothing. *)
+  val rewrite_callable_entry :
+    Callable.call_decl -> Stmt.t list Rewriter.t
+
+  (** Called by [rewrite_loops] for every entry of a loop's [loop_contract_ext] as it
+      transfers that entry onto the synthesized tail-recursive procedure's
+      [call_decl_contract_ext]. [subst] is the same substitution [rewrite_loops] applies
+      to [loop_contract] (loop-local variables -> the synthesized procedure's fresh
+      formals); an extension applies it to whatever expressions its value carries, and
+      may also swap in loop-specific wording (e.g. via a payload that reuses
+      [Stmt.spec]'s [spec_error], the same mechanism [rewrite_stmt_error_msg]'s [Loop]
+      case already uses for invariants) -- capturing the original location before
+      calling [subst], not after, since substituting a bare-identifier expression
+      replaces the whole node. Pure and total: default (no active contract extension,
+      or a tag the extension doesn't recognize) is the identity. *)
+  val rewrite_contract_ext_loop_transfer :
+    subst:(expr -> expr) -> Stmt.contract_ext -> Stmt.contract_ext
+
   val lib_sources : (string * string) list
-  val ext_local_vars : var_decl list
 end
 
 

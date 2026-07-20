@@ -5,7 +5,6 @@ open Util
 
 module ExtName (Cont : Ext) = struct
   let lib_source = _
-  let local_vars = _
 
   type Expr.expr_ext +=
     | _
@@ -39,6 +38,18 @@ module ExtName (Cont : Ext) = struct
   let stmt_ext_fields_accessed stmt_ext exprs = 
     match stmt_ext, exprs with
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+
+  let type_ext_is_recognized type_ext =
+    match type_ext with
+    | _ -> Cont.type_ext_is_recognized type_ext
+
+  let expr_ext_is_recognized expr_ext =
+    match expr_ext with
+    | _ -> Cont.expr_ext_is_recognized expr_ext
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with
+    | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
 
   (* Rewriter *)
@@ -84,5 +95,4 @@ module ExtName (Cont : Ext) = struct
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

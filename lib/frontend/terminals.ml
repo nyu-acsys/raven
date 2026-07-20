@@ -71,6 +71,9 @@ let _ =
       ("resolve", RESOLVE);
       ("prophecy", PROPHECY);
 
+      (* DecreasesExt *)
+      ("decreases", DECREASES);
+
       (* AtomicExt *)
       ("cas", CAS);
       ("faa", FAA);

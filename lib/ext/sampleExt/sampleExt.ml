@@ -7,7 +7,6 @@ module SampleExt (Cont : ListApi) = struct
 
   let lib_source = Some ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])
 
-  let local_vars = []
 
   type Stmt.stmt_ext +=
     | RandEven
@@ -41,10 +40,20 @@ module SampleExt (Cont : ListApi) = struct
       Error.internal_error Loc.dummy "wrong number of arguments for randEven(...)"
     | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
   
-  let stmt_ext_fields_accessed stmt_ext exprs = 
+  let stmt_ext_fields_accessed stmt_ext exprs =
     match stmt_ext, exprs with
     | RandEven, _ -> []
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+
+  let type_ext_is_recognized = Cont.type_ext_is_recognized
+  let expr_ext_is_recognized = Cont.expr_ext_is_recognized
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with
+    | RandEven -> true
+    | _ -> Cont.stmt_ext_is_recognized stmt_ext
+
+  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
 
 
   (* Rewriter *)
@@ -56,10 +65,13 @@ module SampleExt (Cont : ListApi) = struct
   let type_check_type_expr = Cont.type_check_type_expr
   let type_check_expr = Cont.type_check_expr
 
+  let type_check_contract_ext = Cont.type_check_contract_ext
+  let contract_ext_to_string = Cont.contract_ext_to_string
+
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
-      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t = 
+      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
     match stmt_ext, expr_list with
     | RandEven, [lhs_expr; n_expr] ->
@@ -84,6 +96,11 @@ module SampleExt (Cont : ListApi) = struct
   let rewrite_type_ext = Cont.rewrite_type_ext
   
   let rewrite_expr_ext = Cont.rewrite_expr_ext
+
+  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
+  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
+  let rewrite_callable_entry = Cont.rewrite_callable_entry
+  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
 
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     match stmt_ext, expr_list with
@@ -112,5 +129,4 @@ module SampleExt (Cont : ListApi) = struct
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

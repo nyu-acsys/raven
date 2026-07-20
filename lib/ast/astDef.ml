@@ -1456,6 +1456,13 @@ module Stmt = struct
   }
   
   type stmt_ext = ..
+
+  (** Extension point for contract-level clauses (e.g. [decreases]) that attach to a
+      callable's or loop's contract rather than to a single statement. Carried as
+      [(tag * expr list)], the same shape as [StmtExt], so core code (alpha-renaming,
+      symbol collection) can walk the payload without knowing what the tag means. *)
+  type contract_ext = ..
+
   type basic_stmt_desc =
     | VarDef of var_def
     | Spec of spec_kind * spec (* x *)
@@ -1476,6 +1483,7 @@ module Stmt = struct
 
   and loop_desc = {
     loop_contract : spec list;  (** the loop invariant *)
+    loop_contract_ext : contract_ext list;  (** extension-defined loop contract clauses, e.g. [decreases]; each extension defines its own constructor(s) of [contract_ext], carrying whatever payload it needs (e.g. [Decreases of spec list], reusing [spec] for its error-message/location handling) *)
     loop_prebody : t;
         (** the statement executed before testing the loop condition *)
     loop_test : expr;  (** the loop condition *)
@@ -1496,9 +1504,11 @@ module Stmt = struct
   let default_pr_stmt_ext : Formatter.t -> stmt_ext -> expr list -> unit =
     fun ppf _ _ -> Stdlib.Format.fprintf ppf "@[ext]"
 
+  let default_contract_ext_to_string : contract_ext -> string = fun _ -> "[ext]"
+
   (** Builds the mutually-recursive statement printer family, parameterized by how to
-      render [TypeExt]/[ExprExt]/[StmtExt] leaves. *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext =
+      render [TypeExt]/[ExprExt]/[StmtExt]/[contract_ext] leaves. *)
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
     let (_, type_pr, _, _, _, _, _, _, _, _) = Type.make_printers ~type_ext_to_name in
     let module Type = struct
       include Type
@@ -1605,12 +1615,20 @@ module Stmt = struct
       let open Stdlib.Format in
       match stmt.stmt_desc with
       | Loop ldesc ->
-          fprintf ppf "%awhile (%a)@ @,@[<2>@ @ %a@]@\n%a"
+          let pr_loop_contract_ext ppf = function
+            | [] -> ()
+            | exts ->
+              fprintf ppf "@\n%a"
+                (Print.pr_list_sep "@\n" (fun ppf ce ->
+                     fprintf ppf "%s" (contract_ext_to_string ce)))
+                exts
+          in
+          fprintf ppf "%awhile (%a)@ @,@[<2>@ @ %a%a@]@\n%a"
             (fun ppf -> function
               | { stmt_desc = Block { block_body = []; _ }; _ } -> ()
               | s -> pr ppf s)
             ldesc.loop_prebody Expr.pr ldesc.loop_test (pr_spec_list "invariant")
-            ldesc.loop_contract pr ldesc.loop_postbody
+            ldesc.loop_contract pr_loop_contract_ext ldesc.loop_contract_ext pr ldesc.loop_postbody
       | Cond cdesc -> (
           match cdesc.cond_test, cdesc.cond_else.stmt_desc with
           | Some test, Block { block_body = []; _ } ->
@@ -1645,6 +1663,7 @@ module Stmt = struct
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_stmt_ext:default_pr_stmt_ext
+      ~contract_ext_to_string:default_contract_ext_to_string
 
   (** Constructors *)
 
@@ -2159,6 +2178,7 @@ module Callable = struct
     call_decl_locals : var_decl list;  (** all local variables, excluding formal parameters and return parameters *)
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
+    call_decl_contract_ext : Stmt.contract_ext list;  (** extension-defined contract clauses, e.g. [decreases]; see [Stmt.loop_desc.loop_contract_ext] *)
     call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
     call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
     call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
@@ -2174,7 +2194,7 @@ module Callable = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers], which this composes). *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
     let (_, _, _, expr_pr, _, _, _, _, _, expr_pr_var_decl, expr_pr_var_decl_list, _) =
       Expr.make_printers ~type_ext_to_name ~expr_ext_to_string
     in
@@ -2185,7 +2205,7 @@ module Callable = struct
       let pr_var_decl_list = expr_pr_var_decl_list
     end in
     let (_, stmt_pr_spec_list, _, stmt_pr, _, _, _) =
-      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext
+      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -2198,8 +2218,17 @@ module Callable = struct
         | [] -> ()
         | specs -> fprintf ppf "@\n%a" (Stmt.pr_spec_list stype) specs
       in
-      fprintf ppf "%a%a" (pr_specs "requires") call_decl.call_decl_precond
+      let pr_contract_ext ppf = function
+        | [] -> ()
+        | exts ->
+          fprintf ppf "@\n%a"
+            (Print.pr_list_sep "@\n" (fun ppf ce ->
+                 fprintf ppf "%s" (contract_ext_to_string ce)))
+            exts
+      in
+      fprintf ppf "%a%a%a" (pr_specs "requires") call_decl.call_decl_precond
         (pr_specs "ensures") call_decl.call_decl_postcond
+        pr_contract_ext call_decl.call_decl_contract_ext
     in
     let pr_call_decl has_body ppf call_decl =
       let open Stdlib.Format in
@@ -2270,6 +2299,7 @@ module Callable = struct
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_stmt_ext:Stmt.default_pr_stmt_ext
+      ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
   (** Auxiliary functions *)
 
@@ -2313,6 +2343,10 @@ module Callable = struct
       | ProcDef { proc_body = Some s; _ } -> Stmt.symbols s
       | _ -> Set.empty (module QualIdent)
     in
+    (* Symbols referenced only inside a [call_decl_contract_ext] entry (e.g. a helper
+       function called from a `decreases` measure) are not accounted for here -- same
+       pre-existing limitation as [stmt_ext], whose contribution [Stmt.symbols] also
+       always treats as empty (see [default_stmt_ext_symbols]). *)
     let symbols_w_locals_and_spec =
       List.fold ~f:(fun syms spec -> Expr.symbols ~acc:syms spec.spec_form)
         ~init:symbols_w_locals
@@ -2427,7 +2461,7 @@ module Module = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
     let (_, type_pr, _, _, _, _, _, _, type_pr_list, _) =
       Type.make_printers ~type_ext_to_name
     in
@@ -2437,14 +2471,14 @@ module Module = struct
       let pr_list = type_pr_list
     end in
     let (stmt_pr_var_def, _, _, _, _, _, _) =
-      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext
+      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
       let pr_var_def = stmt_pr_var_def
     end in
     let (_, _, callable_pr) =
-      Callable.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext
+      Callable.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Callable = struct
       include Callable
@@ -2529,6 +2563,7 @@ module Module = struct
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_stmt_ext:Stmt.default_pr_stmt_ext
+      ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
   let to_string m = Print.string_of_format pr m
   let print chan m = Print.print_of_format pr m chan
@@ -2656,9 +2691,9 @@ module Symbol = struct
 
   let set_free = Module.set_symbol_free
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
     let (_, _, _, pr_symbol) =
-      Module.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext
+      Module.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
     in
     let to_string m = Print.string_of_format pr_symbol m in
     (pr_symbol, to_string)
@@ -2667,6 +2702,7 @@ module Symbol = struct
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
       ~pr_stmt_ext:Stmt.default_pr_stmt_ext
+      ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
 end
 

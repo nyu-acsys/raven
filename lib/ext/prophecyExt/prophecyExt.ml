@@ -3,9 +3,7 @@ open Ast
 open ExtApi
 open Util
 
-(** Here, we implement an extension that adds support for Iris-style _prophecy variables_. This extension can be enabled with the 
-  `--extension prophecy`
-command-line argument
+(** Here, we implement an extension that adds support for Iris-style _prophecy variables_. This is what `--extension default` (equivalently, no `--extension` flag) activates -- it has no flag of its own, and is mutually exclusive with the ErrorCredits extension (`--extension eris`), since combining the two is not sound.
 
 A prophecy variable denotes a value (or sequence of values) that will only be 
 observed at a future point during program execution. In particular, the value
@@ -26,7 +24,6 @@ The extension implements:
 module ProphecyExt (Cont : ListApi) = struct
   (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
   let lib_source = Some ("prophecyLib.rav", [%blob "prophecyLib.rav"])
-  let local_vars = []
 
   (* Defining pre-fixed idents from `Prophecy` module defined in prophecyLib.rav. This module gets added to Raven's `Library`, and thus can be accessed as `Library.Prophecy`. We instantiate this module for each type used in the program.  *)
   module ProphPredefs = struct
@@ -171,6 +168,23 @@ module ProphecyExt (Cont : ListApi) = struct
 
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
+  let type_ext_is_recognized type_ext =
+    match type_ext with
+    | ProphId -> true
+    | _ -> Cont.type_ext_is_recognized type_ext
+
+  let expr_ext_is_recognized expr_ext =
+    match expr_ext with
+    | ProphResource -> true
+    | _ -> Cont.expr_ext_is_recognized expr_ext
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with
+    | NewProph _ | ResolveProph -> true
+    | _ -> Cont.stmt_ext_is_recognized stmt_ext
+
+  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
+
 
   (* Rewriter *)
 
@@ -272,10 +286,13 @@ module ProphecyExt (Cont : ListApi) = struct
     In addition, a `disam_tbl` must be returned.
     `type_check_stmt_functs` is again a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
+  let type_check_contract_ext = Cont.type_check_contract_ext
+  let contract_ext_to_string = Cont.contract_ext_to_string
+
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
-      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t = 
+      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
 
     (* A Raven debug statement. *)
     Logs.debug (fun m -> m "[EXT] ProphecyExt.type_check_stmt: started");
@@ -509,6 +526,11 @@ module ProphecyExt (Cont : ListApi) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
 
+  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
+  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
+  let rewrite_callable_entry = Cont.rewrite_callable_entry
+  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+
   (* Rewriting Statements *)
   let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -674,5 +696,4 @@ module ProphecyExt (Cont : ListApi) = struct
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

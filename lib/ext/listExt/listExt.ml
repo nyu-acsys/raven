@@ -15,7 +15,6 @@ This extension introduces:
 module ListExt (Cont : Ext) = struct
   (* Config *)
   let lib_source = None
-  let local_vars = []
 
   (* Defining pre-fixed idents for List functions  *)
   module ListPredefs = struct
@@ -131,8 +130,21 @@ module ListExt (Cont : Ext) = struct
 
   (* We can even define functions directly equal. *)
   let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  
+
   let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
+
+  let type_ext_is_recognized type_ext =
+    match type_ext with
+    | ListConstr -> true
+    | _ -> Cont.type_ext_is_recognized type_ext
+
+  let expr_ext_is_recognized expr_ext =
+    match expr_ext with
+    | ListExpr _ -> true
+    | _ -> Cont.expr_ext_is_recognized expr_ext
+
+  let stmt_ext_is_recognized = Cont.stmt_ext_is_recognized
+  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
 
 
   (* Rewriter *)
@@ -371,6 +383,8 @@ module ListExt (Cont : Ext) = struct
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
   let type_check_stmt = Cont.type_check_stmt
+  let type_check_contract_ext = Cont.type_check_contract_ext
+  let contract_ext_to_string = Cont.contract_ext_to_string
 
   (* Rewrites *)
   let rewrite_type_ext (type_ext: Type.type_ext) (tp_list: type_expr list) (loc: location) =
@@ -504,10 +518,13 @@ module ListExt (Cont : Ext) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
   let rewrite_stmt_ext = Cont.rewrite_stmt_ext
+  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
+  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
+  let rewrite_callable_entry = Cont.rewrite_callable_entry
+  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
 
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

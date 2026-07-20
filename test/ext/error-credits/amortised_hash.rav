@@ -1,13 +1,13 @@
 // The programs here should be the same as in `hash.rav`. The idea is that the specifications amortise the error credits.
 
 module Hash {
-  admitted val val_size: Int
-  admitted val max_hash_size: Int
+  free val val_size: Int
+  free val max_hash_size: Int
 
-  admitted auto lemma max_hash_pos()
+  free auto lemma max_hash_pos()
     ensures max_hash_size > 0
   
-  admitted auto lemma val_size_pos()
+  free auto lemma val_size_pos()
     ensures val_size > 0
 
   val amortized_error: Real = (max_hash_size-1) / (2*(val_size+1))

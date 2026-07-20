@@ -5,9 +5,11 @@ This file contains a thorough documentation of Raven's Extension API. It is inte
 
 ## Overview
 
-Raven's Extension API is designed to allow a programmer to rapidly adapt Raven's front-end language for specific use-cases, without much familiarity with Raven's entire existing pipeline. The programmer can define custom types, expressions, and statements that they want to add to Raven. 
+Raven's Extension API is designed to allow a programmer to rapidly adapt Raven's front-end language for specific use-cases, without much familiarity with Raven's entire existing pipeline. The programmer can define custom types, expressions, statements, and contract clauses that they want to add to Raven.
 
-We make use of OCaml's extensible variant types to expose types to the programmer which tie into the core AST representations for Raven's types, expressions, and statements. These types are `AstDef.Type.type_ext`, `AstDef.Expr.expr_ext`, and `AstDef.Stmt.stmt_ext` defined in `lib/ast/astDef.ml`, which allow the programmer to extend types, expressions, and statements respectively.
+We make use of OCaml's extensible variant types to expose types to the programmer which tie into the core AST representations for Raven's types, expressions, statements, and contracts. These types are `AstDef.Type.type_ext`, `AstDef.Expr.expr_ext`, `AstDef.Stmt.stmt_ext`, and `AstDef.Stmt.contract_ext` defined in `lib/ast/astDef.ml`, which allow the programmer to extend types, expressions, statements, and callable/loop contracts respectively.
+
+The first three extension points share one shape: a new constructor is embedded in an existing AST node (`Type.App (TypeExt ..., args, attr)`, `Expr.App (ExprExt ..., args, attr)`, `Stmt.Basic (StmtExt (..., args))`) alongside a generic `expr list` of arguments, and the extension's job is to type-check and then *rewrite that one node* into simpler, "native" Raven constructs. `contract_ext` is structurally different: `Callable.call_decl` and `Stmt.loop_desc` each carry a plain `Stmt.contract_ext list` (`call_decl_contract_ext`/`loop_contract_ext`), and each list entry is a self-contained value -- the extension's constructor carries whatever payload it needs directly.
 
 To make an extension, broadly speaking, the programmer needs to implement a module satisfying the `ExtApi.Ext` API. These modules have a signature like so:
 ```
@@ -19,11 +21,32 @@ These are higher-order modules that accept, as a parameter, another extension mo
 
 ## Using Current Extensions
 
-We have added two new optional extensions, Prophecy extension and ErrorCredits extension. These can be selected by using the new `--extension` command-line flag which takes one of three values: `default | prophecy | eris`. For example:
+We have added two new extensions, Prophecy extension and ErrorCredits extension. These are mutually exclusive -- combining Iris-style prophecy variables with Eris-style error credits is not sound, so the two are never stacked together. Prophecy is what `default` (no `--extension` flag at all) means; ErrorCredits is selected instead via `--extension eris`. The `--extension` command-line flag takes one of two values: `default | eris`. For example:
 
 ```
-$ raven --extension prophecy test/ext_prophecy/clairvoyant_coin.rav
-$ raven --extension eris test/ext_error-credits/ec_examples.rav
+$ raven test/ext/prophecy/clairvoyant_coin.rav
+$ raven --extension eris test/ext/error-credits/ec_examples.rav
+```
+
+There is also a Decreases extension, described below; unlike Prophecy and ErrorCredits, it is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](ext.ml)) rather than being one more mutually-exclusive value the flag can take.
+
+### Decreases Extension
+
+We implement this extension (`lib/ext/decreasesExt/`) to check termination of recursive `func`s, `proc`s, `lemma`s, and `while` loops, via a `decreases` contract clause. It is the reference implementation of a `contract_ext`-based extension -- see [Contracts](#contracts) below for how the API it uses works in general.
+
+`decreases e1, ..., en` declares a termination measure: a lexicographic tuple of expressions over the callable's own parameters (or, on a loop, over its loop variables), each currently required to be of type `Int` and bounded below by `0`. The extension inserts an assertion before every self-recursive call that the measure computed from the call's actual arguments is lexicographically smaller than the measure at the callable's current parameter values -- for `proc`/`lemma`, this happens directly in the callable's own body; for `func`, it piggybacks on the auto-generated contract-checking lemma (`Rewrites.rewrite_add_func_contract_lemmas`), since a `func` body is a pure expression with no statements of its own to instrument. A `while` loop's `decreases` clause is desugared for free: `Rewrites.rewrite_loops` already turns every loop into a self-recursive tail-call procedure, so once its `decreases` clause is transferred onto that procedure's contract, no separate loop-specific logic is needed.
+
+Checking is opt-in per callable: a recursive callable with no `decreases` clause is left completely unchecked, exactly as if this extension didn't exist. Only mutual self-recursion is supported -- a call from one callable to a *different* one is never instrumented, even if both declare `decreases` clauses.
+
+```
+func fac(n: Int)
+  returns (res: Int)
+  requires n >= 0
+  ensures res >= 1
+  decreases n
+{
+  n > 0 ? n * fac(n-1) : 1
+}
 ```
 
 ### ErrorCredits Extension (`eris`)
@@ -39,17 +62,15 @@ This extension introduces:
   - `lhs := EC.rand(n; ECList: !in ls);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not in the list `ls`.
   - `EC.contra()` command: to abort the proof when we get ownership of `EC.error(1.0)`.
 
-This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext_error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext_error-credits/ec_dynamic_vec.rav). For example:
+This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext/error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext/error-credits/ec_dynamic_vec.rav). For example:
 ```bash
-$ raven --extension eris test/ext_error-credits/ec_dynamic_vec.rav
+$ raven --extension eris test/ext/error-credits/ec_dynamic_vec.rav
 Raven version 1.x.y
 Verification successful.
 ```
 
-### Prophecy Extension (`prophecy`)
-We implement this extension to add support for Iris-style prophecy variables. This extension can be enabled with the 
-  `--extension prophecy`
-command-line argument
+### Prophecy Extension
+We implement this extension to add support for Iris-style prophecy variables. This extension is what `--extension default` (equivalently, no `--extension` flag at all) activates -- it requires no flag of its own. It is mutually exclusive with the ErrorCredits extension below (combining the two is not sound), so it is *not* active under `--extension eris`.
 
 A prophecy variable denotes a value (or sequence of values) that will only be 
 observed at a future point during program execution. In particular, the value
@@ -67,7 +88,7 @@ The extension implements:
 
 For example:
 ```bash
-$ raven --extension prophecy test/ext_prophecy/rdcss.rav
+$ raven test/ext/prophecy/rdcss.rav
 Raven version 1.x.y
 Verification successful.
 ```
@@ -113,6 +134,8 @@ Once the programmer has created the extension such that it successfully compiles
   a. add a new module `SampleExtInstance` that instantiates `SampleExt` with an existing extension and introduce it into the chain of extensions. Typically, newer extensions should be added towards the end as the "outermost" instantiations.
   b. add an entry for it to `module_map`, the function that resolves a `supported_extensions` value (in turn parsed from the `--extension` command-line flag) to the corresponding `(module ExtApi.Ext)`.
 
+  Not every extension needs to be one more `--extension` choice, though: `DecreasesExt` (see [Decreases Extension](#decreases-extension)) is instead stacked directly into the base of the chain, so it's present under every `--extension` value rather than being mutually exclusive with the others. Do this if your extension's functionality is orthogonal to which of the existing extensions is active, by inserting your `<Ext>Instance` earlier in the chain (as `Cont` for the modules built on top of it) instead of adding it to `module_map`.
+
 5. That's the only place the new extension needs to be registered: [raven.ml](../../bin/raven.ml)'s `main` resolves the `--extension` flag via `Ext.module_map` and passes the result down through the rest of the pipeline automatically (see [Wiring: how `ext_hooks` reaches your code](#wiring-how-ext_hooks-reaches-your-code) below).
 
 6. Run `dune build; dune install` to compile Raven with the new extension.
@@ -126,9 +149,9 @@ That's it!
 
 In this section we describe the API that the programmer must implement in order to build an extension.
 
-Any module for an extension implementing the API starts with declarations introducing new branches for some or all of `Type.type_ext`, `Expr.expr_ext`, or `Stmt.stmt_ext` types, thereby extending Raven's syntax by introducing new types, expressions, and statements, respectively. 
+Any module for an extension implementing the API starts with declarations introducing new branches for some or all of `Type.type_ext`, `Expr.expr_ext`, `Stmt.stmt_ext`, or `Stmt.contract_ext` types, thereby extending Raven's syntax by introducing new types, expressions, statements, and contract clauses, respectively.
 
-As a running example, let us consider that we want to add a new statement `randEven(n)` which denotes randomly sampling an _even_ number from 0 to n-1.
+As a running example for `type_ext`/`expr_ext`/`stmt_ext`, let us consider that we want to add a new statement `randEven(n)` which denotes randomly sampling an _even_ number from 0 to n-1.
 
 So, one would introduce a new kind of statement as follows:
 
@@ -139,7 +162,7 @@ type Stmt.stmt_ext +=
 
 This constructor directly extends Raven's AST with a new statement type. Note that we do not indicate any arguments for the new statement. In Raven, each statement is combined with an expression array of arguments.
 
-While developing the extension, the general principle is that whenever an extension matches on the corresponding types `typeExt, exprExt, and stmt_ext`, it should handle all the cases of the constructor that are defined in this file, and include a catch-all case which calls the corresponding functionality from the `Cont` module. Here is an example:
+While developing the extension, the general principle is that whenever an extension matches on the corresponding types `type_ext`, `expr_ext`, `stmt_ext`, or `contract_ext`, it should handle all the cases of the constructor that are defined in this file, and include a catch-all case which calls the corresponding functionality from the `Cont` module. Here is an example:
 
 ```ocaml
   let stmt_ext_symbols stmt_ext =
@@ -169,10 +192,7 @@ b. add `(preprocessor_deps (file sampleExt_lib.rav))` to the `library` stanza.
 
 Please take a look at [sampleExt.ml](sampleExt/sampleExt.ml) and [dune](sampleExt/dune) for an example of how to include an optional library file.
 
-- `val local_vars : var_decl list`
-This value contains a list of variables that the extension depends on, which can be blank if no such variables are needed. These variables are added as local variables to every procedure in the program, so that these can be reliably used during rewriting to encode the new constructs.
-
-Please see [errorCreditsExt.ml](errorCreditsExt/errorCreditsExt.ml) for an example of how to declare a local variable.
+If your extension needs its own local variables to reliably encode new constructs during rewriting (e.g. a scratch ghost local), don't reach for a config value here -- there isn't one, on purpose. See `rewrite_callable_entry` under [Rewrites](#rewrites): it lets you introduce (via `Rewriter.introduce_symbol`) and initialize whatever locals a specific callable needs, sized/typed/named however that callable requires, rather than a fixed set added uniformly (and mostly unused) to every callable in the program.
 
 ### AstDef
 
@@ -184,15 +204,21 @@ The API contains the following functions in the AstDef section:
   val expr_ext_to_string : (Expr.expr_ext -> string)
 
   val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
+  val contract_ext_to_string : Stmt.contract_ext -> string
 
   val stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
   val stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
   val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
+
+  val type_ext_is_recognized : Type.type_ext -> bool
+  val expr_ext_is_recognized : Expr.expr_ext -> bool
+  val stmt_ext_is_recognized : Stmt.stmt_ext -> bool
+  val contract_ext_is_recognized : Stmt.contract_ext -> bool
 ```
 
 These functions are used in Raven's AST to be able to print the new constructs, or collect certain information about statements, such as local variables and fields accessed.
 
-In each of these functions, the programmer is expected to case match on the corresponding extension argument (type_ext/expr_ext/stmt_ext), and match for all the cases that are declared in this extension. For any unknown case, the extension is required to defer to the remaining extensions by calling the same functionality from the `Cont` module.
+In each of these functions, the programmer is expected to case match on the corresponding extension argument (type_ext/expr_ext/stmt_ext/contract_ext), and match for all the cases that are declared in this extension. For any unknown case, the extension is required to defer to the remaining extensions by calling the same functionality from the `Cont` module.
 
 If a construct category is not modified in the extension, then these functions can also be directly defined from `Cont`, for example:
 ```ocaml
@@ -202,17 +228,24 @@ If a construct category is not modified in the extension, then these functions c
 
 The `pr_stmt_ext` command takes a `stmt_ext` and `expr_list`, a list of expressions. The programmer is supposed to fill in how to print this statement. Certain assumptions can be made about the number and types of arguments in `expr_list`; these are usually guaranteed by type-checking or the parser. The programmer can thus throw internal errors if this is violated, as seen in [sampleExt.ml](sampleExt/sampleExt.ml).
 
-The `stmt_ext_symbols` is a function that is almost always expected to return `Set.empty (module QualIdent)`, but included for future expansion.
+`contract_ext_to_string` is `pr_stmt_ext`'s counterpart for contract clauses, but simpler in shape: since a `contract_ext` value owns its whole payload already (there's no separate `expr_list` argument), it's just a plain string-returning function, the same shape as `expr_ext_to_string`. [decreasesExt.ml](decreasesExt/decreasesExt.ml) renders its `Decreases specs` as `"decreases e1, e2, ..."` by printing each spec's `spec_form`.
+
+The `stmt_ext_symbols` is a function that is almost always expected to return `Set.empty (module QualIdent)`, but included for future expansion. There is no `contract_ext_symbols` counterpart: `Callable.symbols` (used for dependency analysis) treats `stmt_ext`'s contribution as always empty too, so `contract_ext` simply isn't consulted there either -- a pre-existing limitation, not something specific to contracts.
 
 The `stmt_ext_local_vars_modified` and `stmt_ext_fields_accessed` are two functions with which the programmer lets Raven know what variables to refresh and what fields to model when encoding the program into logical constraints. These functions have a return type of `ident list` and `qual_ident list` respectively, and are expected to return which local variables and fields are updated by a specific command. In [sampleExt.ml](sampleExt/sampleExt.ml) we see the use of `Expr.to_qual_ident`, `QualIdent.is_local` and `QualIdent.to_ident` functions. These are all implemented in `lib/ast/astDef.ml`, and discussed more thoroughly in [Userful Functions](#useful-functions). 
 
 In `stmt_ext_local_vars_modified`, we return the `lhs_expr` converted to an ident if it is "local", ie, does not refer to a global variable, and importantly does not have module qualifiers in its `qual_ident`. Otherwise we return `[]`. In `stmt_ext_fields_accessed` we return `[]` always.
 
-These six functions end up as fields of `Ast.Rewriter.ext_hooks` (see [Wiring](#wiring-how-ext_hooks-reaches-your-code) above) -- `type_ext_to_name`/`expr_ext_to_string`/`pr_stmt_ext` back the *default* AST printers (`AstDef.Type.pr`, `AstDef.Stmt.pr`, etc., built via each module's `make_printers`) whenever they hit a `TypeExt`/`ExprExt`/`StmtExt` leaf, and `stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` are read the same way by `AstDef.Stmt`'s `symbols`/`stmt_local_vars_modified`/`stmt_fields_accessed`. You don't call any of this machinery yourself; it's what makes printing and dependency analysis work correctly on ASTs that still contain your extension's constructs.
+`type_ext_is_recognized`/`expr_ext_is_recognized`/`stmt_ext_is_recognized`/`contract_ext_is_recognized` answer a narrower question than every other function in this section: not "what does this construct mean" but just "did *this extension itself* (not `Cont`) declare this specific constructor" -- implemented the same chain-deferral way (match your own constructors as `true`, defer everything else to `Cont`), so calling one on the currently-active chain answers "does *any* extension in this chain recognize it", same as the others. The only consumer is [`lib/ext/ext.ml`](ext.ml): when the active chain's `type_check_*` hits its terminal `DefaultExt` case (meaning nothing in the active chain recognized the construct), it uses these -- called against every *other* known `--extension` chain -- to check whether some other chain would have, and if so names that flag in the error (`this expression belongs to the 'eris' extension; re-run with --extension eris`) instead of a bare "no active extension recognizes this". If your extension declares no constructors of a given kind, defer the whole function to `Cont` directly, same as `type_ext_to_name`/`expr_ext_to_string` above:
+```ocaml
+  let type_ext_is_recognized = Cont.type_ext_is_recognized
+```
+
+These functions end up as fields of `Ast.Rewriter.ext_hooks` (see [Wiring](#wiring-how-ext_hooks-reaches-your-code) above) -- `type_ext_to_name`/`expr_ext_to_string`/`pr_stmt_ext`/`contract_ext_to_string` back the *default* AST printers (`AstDef.Type.pr`, `AstDef.Stmt.pr`, `AstDef.Callable.pr`, etc., built via each module's `make_printers`) whenever they hit a `TypeExt`/`ExprExt`/`StmtExt` leaf or a `call_decl_contract_ext`/`loop_contract_ext` entry, and `stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` are read the same way by `AstDef.Stmt`'s `symbols`/`stmt_local_vars_modified`/`stmt_fields_accessed`. You don't call any of this machinery yourself; it's what makes printing and dependency analysis work correctly on ASTs that still contain your extension's constructs. The `_is_recognized` functions are the one exception: they aren't installed into `ext_hooks` directly (there'd be nothing to install -- see [`suggest_extension_for_type_ext`](ext.ml) & co., which *are* installed, and are computed once in `lib/ext/ext.ml` by calling these across every known chain); you still implement them the same chain-deferral way as everything else here.
 
 #### Printing and logging from your extension
 
-If your own `type_check_*`/`rewrite_*_ext` implementation needs to print or log an expression, statement, or type -- for debugging, or as part of an error message -- reach for `Rewriter.current_printers` rather than `AstDef.Type.pr`/`AstDef.Expr.pr`/`AstDef.Stmt.pr` directly. The bare `AstDef` printers only know about the *default* stub rendering of `*_ext` leaves; `Rewriter.current_printers` reads the `printers` record built from whichever extension is actually active out of the `Rewriter.t` state, so it renders correctly even when the fragment you're printing embeds another extension's constructs (relevant once extensions are stacked, as `AtomicExt`/`ListExt`/`ProphecyExt`/`ErrorCreditsExt` are in `lib/ext/ext.ml`):
+If your own `type_check_*`/`rewrite_*_ext` implementation needs to print or log an expression, statement, or type -- for debugging, or as part of an error message -- reach for `Rewriter.current_printers` rather than `AstDef.Type.pr`/`AstDef.Expr.pr`/`AstDef.Stmt.pr` directly. The bare `AstDef` printers only know about the *default* stub rendering of `*_ext` leaves; `Rewriter.current_printers` reads the `printers` record built from whichever extension is actually active out of the `Rewriter.t` state, so it renders correctly even when the fragment you're printing embeds another extension's constructs (relevant once extensions are stacked, as `AtomicExt`/`ListExt`/`DecreasesExt`/`ProphecyExt`/`ErrorCreditsExt` are in `lib/ext/ext.ml`):
 
 ```ocaml
 let* printers = Rewriter.current_printers in
@@ -230,7 +263,7 @@ Both of these require being inside the `Rewriter.t` monad (i.e. `let open Rewrit
 
 ### Rewriter
 
-This API contains the following functions which are used by Raven to perform any _type_ rewrites on the extensions if necessary:
+This API contains the following functions which are used by Raven to perform any _type_ (or, for contracts, _expression_) rewrites on the extensions if necessary:
 
 ```ocaml
   val expr_ext_rewrite_types :
@@ -242,13 +275,20 @@ This API contains the following functions which are used by Raven to perform any
     f: (type_expr -> type_expr Rewriter.t) 
     -> Stmt.stmt_ext 
     -> Stmt.stmt_ext Rewriter.t
+
+  val contract_ext_rewrite_exprs :
+    f:(expr -> expr Rewriter.t)
+    -> Stmt.contract_ext
+    -> Stmt.contract_ext Rewriter.t
 ```
 
-These are only required if the expression or statement extensions defined in this extension store types. Please take a look at [prophecyExt](prophecyExt/prophecyExt.ml) to see a non-trivial example implementation of these functions.
+`expr_ext_rewrite_types`/`stmt_ext_rewrite_types` are only required if the expression or statement extensions defined in this extension store types. Please take a look at [prophecyExt](prophecyExt/prophecyExt.ml) to see a non-trivial example implementation of these functions.
+
+`contract_ext_rewrite_exprs` plays the analogous role for `contract_ext`, except it rewrites *expressions*, not types (a `contract_ext` value doesn't have a separate type-carrying slot the way `NewProph (bool, type_expr)` does for `stmt_ext` -- what it carries are the expressions of the clause itself, e.g. each measure's `spec_form` for `decreases`). Applying `f` to every expression your value carries is what lets generic code -- currently, substitution during higher-order module instantiation -- rewrite a contract clause without knowing what it means. [decreasesExt.ml](decreasesExt/decreasesExt.ml) implements it by mapping `f` over each `spec.spec_form` and rebuilding the `Decreases` value.
 
 In [sampleExt.ml](sampleExt/sampleExt.ml), we simply skip these functions, setting them equal to the one from `Cont`.
 
-Like the AstDef functions above, these two end up as `ext_hooks` fields, read out of the `Rewriter.t` state deep inside `Rewriter.Expr.rewrite_types`/`Rewriter.Stmt.rewrite_types` (the generic type-substitution traversal used e.g. when instantiating higher-order modules) whenever it reaches an `ExprExt`/`StmtExt` node -- not something your own code calls directly.
+Like the AstDef functions above, these end up as `ext_hooks` fields, read out of the `Rewriter.t` state deep inside `Rewriter.Expr.rewrite_types`/`Rewriter.Stmt.rewrite_types` (the generic type-substitution traversal used e.g. when instantiating higher-order modules) whenever it reaches an `ExprExt`/`StmtExt` node, or (for `contract_ext_rewrite_exprs`) inside the analogous generic expression-substitution traversal over a loop's `loop_contract_ext` -- not something your own code calls directly.
 
 ### Typing
 
@@ -300,6 +340,22 @@ We use a function from `type_check_stmt_functs` to get the variable declaration 
 
 If the arguments are not what we expect, then we throw a type error straightaway. And if it is an unknown constructor, then we defer to the continuation extension `Cont`, as usual.
 
+`type_check_contract_ext` is `contract_ext`'s counterpart to `type_check_stmt`:
+
+```ocaml
+  val type_check_contract_ext :
+    Callable.call_decl ->
+    Stmt.contract_ext ->
+    location ->
+    ProgUtils.DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    Stmt.contract_ext Rewriter.t
+```
+
+It's called once per entry of a `call_decl_contract_ext`/`loop_contract_ext` list, and takes (and returns) a whole `Stmt.contract_ext` value -- unlike `type_check_stmt`, there's no separate `expr list` alongside it, since a `contract_ext` constructor already carries whatever payload it needs. `call_decl` is the declaring callable (for a loop's clause, this is the `call_decl` of the tail-recursive procedure the loop is about to be desugared into -- loop contracts are type-checked before that desugaring runs, but the formal-scope shape is the same one the clause will end up with). `type_check_stmt_functs` is the same callback bundle `type_check_stmt` gets; `disambiguate_process_expr` is what you'll use to type-check the expressions your value carries.
+
+[decreasesExt.ml](decreasesExt/decreasesExt.ml) case-matches on `Decreases specs`, and for each `spec` in the list, type-checks `spec.spec_form` against `Type.int` via `disambiguate_process_expr`, and installs a default error message into `spec.spec_error` (via `Stmt.mk_const_spec_error`) if one isn't already set -- this last part matters because of a wrinkle worth calling out for any extension whose clause can end up on a `rewrite_loops`-synthesized procedure: that procedure gets *re*-type-checked when it's introduced (`Rewriter.introduce_typecheck_symbol'`), so `type_check_contract_ext` will see the same clause a second time, by then already carrying whatever `rewrite_contract_ext_loop_transfer` (see [Contracts](#contracts) below) set on it -- overwriting `spec_error` unconditionally at that point would silently discard it.
+
 
 ### Rewrites
 
@@ -318,17 +374,57 @@ These functions are more straight-forward to follow. Essentially for each new co
 
 In [sampleExt.ml](sampleExt/sampleExt.ml), we introduce one `havoc` statement, to havoc the value of the lhs expression, and then inhale a statement expressing constraints about the newly-assigned value.
 
+There is no `rewrite_contract_ext` counterpart to the three functions above: a contract clause isn't one node to rewrite into an equivalent "native" encoding, it's a property that has to be enforced by instrumenting the *body* of whichever callable it's attached to (e.g. inserting a check before every recursive call). That's what [Contracts](#contracts), below, is for. One more function belongs here, though, since it isn't specific to contracts at all:
+
+```ocaml
+  val rewrite_callable_entry :
+    Callable.call_decl -> Stmt.t list Rewriter.t
+```
+
+`rewrite_callable_entry` is called once for every `Proc`/`Lemma` callable, before any of its statements are visited by anything else, and returns statements to prepend at the very top of the callable's body -- unconditionally, for every such callable in the program, regardless of whether your extension has anything to do with it; the default (no extension using this hook) is to prepend nothing, so implementing it is opt-in per extension the same way every other hook here is. This is the general-purpose tool for a need that doesn't have a dedicated config value: introducing (via `Rewriter.introduce_symbol`) and initializing your own local variables, sized/typed/named however a *specific* callable requires, rather than a fixed set added uniformly (and mostly unused) to every callable. [decreasesExt.ml](decreasesExt/decreasesExt.ml) uses this to snapshot a `decreases` measure's entry-time value into a ghost local variable -- necessary because the callable's own formals may be reassigned later in the body (e.g. a loop counter), so "the measure at entry" can't just mean "the clause's expressions evaluated at the formals" read back at the call site. It declares that variable here with a *tuple* type sized to exactly as many components as this specific callable's `decreases` clause has (via `Type.mk_prod`; `Type.mk_prod`/`Expr.mk_tuple`/`Expr.mk_tuple_lookup` all collapse the single-component case to a bare `Int`, so `decreases n` doesn't pay for tuple-ness it doesn't need), checking first (via a small helper that looks for a `decreases` clause on the given `call_decl`) whether there's anything to do at all -- most callables have no `decreases` clause, so this is a no-op for those.
+
+
+### Contracts
+
+A `contract_ext` extension's job is different in kind from the other three: `type_ext`/`expr_ext`/`stmt_ext` are each a single AST node that gets type-checked and then rewritten away into simpler terms, in isolation. A contract clause instead describes a property of an entire callable (or loop), so an extension needs to (a) type-check the clause once, against the declaring callable's formals, and (b) find every place in that callable's body -- specifically, every recursive call -- where the property needs to be instrumented. Declaring the extension point itself works the same way as the other three:
+
+```ocaml
+type Stmt.contract_ext +=
+  | Decreases of Stmt.spec list
+```
+
+Unlike `stmt_ext`/`expr_ext`/`type_ext`, there's no separate `expr list` carried alongside the tag in an AST node -- `call_decl_contract_ext`/`loop_contract_ext` are plain `Stmt.contract_ext list` fields on `Callable.call_decl`/`Stmt.loop_desc`, and each list entry is one self-contained `contract_ext` value. So your constructor should carry whatever payload it needs directly. [decreasesExt.ml](decreasesExt/decreasesExt.ml)'s `Decreases of Stmt.spec list` is one `Stmt.spec` per measure component (`decreases n, m` desugars to two specs) precisely so it can reuse `spec`'s existing `spec_form`/`spec_comment`/`spec_error` fields, the same way `call_decl_precond`/`loop_contract` already do -- this is what lets a `decreases` clause participate in Raven's normal located, worded error-reporting machinery instead of needing its own.
+
+The type-checking and printing/rewrite-type hooks for `contract_ext` (`type_check_contract_ext`, `contract_ext_to_string`, `contract_ext_rewrite_exprs`) are documented in [AstDef](#astdef), [Rewriter](#rewriter), and [Typing](#typing) above alongside their `stmt_ext`/`expr_ext`/`type_ext` counterparts. `rewrite_callable_entry`, documented under [Rewrites](#rewrites) just above, is also commonly relevant here (that's exactly how `DecreasesExt` uses it) but isn't `contract_ext`-specific itself. What's new here are two functions with no peer among the other three extension points, because they instrument calls between callables rather than rewriting one node:
+
+```ocaml
+  val rewrite_contract_ext_call :
+    Callable.call_decl ->
+    Callable.call_decl ->
+    expr list ->
+    location ->
+    Stmt.t list Rewriter.t
+
+  val rewrite_contract_ext_loop_transfer :
+    subst:(expr -> expr) -> Stmt.contract_ext -> Stmt.contract_ext
+```
+
+`rewrite_contract_ext_call` is called once for every call site whose *callee* has a non-empty `call_decl_contract_ext`: for every `Stmt.Call` inside a `Proc`/`Lemma` body, and, for `Func`s (whose body is a pure expression, so there's no statement of their own to instrument), at every call `Rewrites.rewrite_add_func_contract_lemmas` emits into a callee's auto-generated contract-checking lemma. `caller_call_decl`/`callee_call_decl` are the calling and called callable's declarations, `call_args` are the actual arguments of that call, and the function returns statements (typically an `assert`) to insert immediately before it. Core code calls this uniformly for every such call site -- it doesn't know what `call_decl_contract_ext` means, only that some extension might want to instrument the call, and critically **this is not limited to recursive calls**: caller and callee can be any two (or the same) callable, and it's up to your implementation to check `caller_call_decl`/`callee_call_decl` for whatever relationship it cares about. [decreasesExt.ml](decreasesExt/decreasesExt.ml) only acts when they're literally the same callable (`Ident.equal` on the names) -- that's as far as termination checking currently goes (mutually-recursive groups are future work, see the WISHLIST) -- but a different contract extension enforcing something that has to hold at *every* call to a given callable, recursive or not, needs no different hook or pass to do that: it would simply not filter on caller/callee identity at all. Do bear in mind that since core can no longer cheaply skip most calls (it has to resolve and look up every callee to check its `call_decl_contract_ext`, one symbol-table lookup per call site), this does cost a little more than a recursion-only version would; that cost only escalates further (an extra lookup of the caller too) once a callee's `call_decl_contract_ext` is actually non-empty, which is rare.
+
+`rewrite_contract_ext_loop_transfer` is called by `Rewrites.rewrite_loops` for every entry of a loop's `loop_contract_ext`, as that function desugars the loop into a self-recursive tail-call procedure and transfers the loop's own contract onto it -- the same way it already transfers `loop_contract` onto the new procedure's `call_decl_precond`/`call_decl_postcond`. `subst` is that same substitution (loop-local variables -> the synthesized procedure's fresh formals); apply it to whatever expressions your value carries, and use the opportunity to swap in more accurate wording if your default message would otherwise refer to the callable currently being checked (which, for a loop, is an internal, synthesized name the user never wrote). [decreasesExt.ml](decreasesExt/decreasesExt.ml) does this by rebuilding each spec's `spec_error` to say "this loop may not terminate" instead of "this recursive call...", capturing `Expr.to_loc spec.spec_form` *before* calling `subst` -- substituting a bare-identifier expression (e.g. the common case `decreases i`) replaces the whole node, which would otherwise lose its source location. This is the same technique `Rewrites.rewrite_stmt_error_msg`'s `Loop` case already uses to word failing-invariant errors correctly, not just a similar one. Once this transfer is done, the synthesized procedure is just another self-recursive `Proc` as far as `rewrite_contract_ext_call` is concerned, so loop termination checking needs no separate code path at all.
+
+Because these two functions (and `rewrite_callable_entry`) instrument callable bodies/calls rather than rewriting one node, none of them are things you call yourself, and (unlike `rewrite_stmt_ext`, say) there's no expectation that every contract-extending extension implements both meaningfully -- the defaults (no active contract extension) are all no-ops or the identity, so implementing only what your extension actually needs and deferring the rest to `Cont` is normal.
+
 
 ### Epilogue
 
-This contains values that properly propate and acculumate the configurations from successive extensions. There is usually no need to modify these values, which is why this section carries a warning in the comments.
+This contains a value that properly propagates and accumulates the configuration from successive extensions. There is usually no need to modify it, which is why this section carries a warning in the comments.
 
 ```ocaml
   val lib_sources : (string * string) list
-  val ext_local_vars : var_decl list
 ```
 
-These two are read directly off the `(module ExtApi.Ext)` value chosen by `--extension`, but at different points in the pipeline, since only one of them needs to reach the `Rewriter.t` monad: `lib_sources` is read once in `bin/raven.ml`, before type-checking even starts, to assemble the standard library source (see `parse_and_check_all`); `ext_local_vars` is read from `Ast.Rewriter.ext_hooks` (it's a field there too) during `Typing.process_callable`, since it needs to be added to every non-ghost callable's locals while the symbol table is being built.
+This is read directly off the `(module ExtApi.Ext)` value chosen by `--extension`, once in `bin/raven.ml`, before type-checking even starts, to assemble the standard library source (see `parse_and_check_all`).
 
 This sums up the API itself. In the next section we will discuss many commonly used functions in the Raven code-base, and other relevant code in order to provide a starting point into the code-base. At present, the best way to understand how to use each of these functionalities is to read the code, find references to specific functions and see how they're being used. Please contact the authors if you're interested, we will be happy to give a walkthrough, discuss specific extension designs, and answer any questions you may have.
 
@@ -404,9 +500,13 @@ AstDef contains the main Raven syntax constructs, along with helper functions li
 
 - Expr.mk_binder: Used to construct existentially/universally quantified expressions.
 
-- Stmt.mk_spec: It takes an expression and converts it into a "spec", or a specification. This is used to construct callable pre/post-conditions.
+- Stmt.mk_spec: It takes an expression and converts it into a "spec", or a specification. This is used to construct callable pre/post-conditions, and (see [Contracts](#contracts)) is a natural payload type for a `contract_ext` constructor.
 
 - Stmt.mk_assume_expr: It takes an expression and converts it into an "assume" statement.
+
+- Stmt.mk_assert_expr: Like `mk_assume_expr`, but for "assert" statements -- what actually gets checked. Give it a `~spec_error` (see `mk_const_spec_error` below) or the checker fails silently on a violation: `Error.fail_with` on an assert with an empty `spec_error` raises an exception carrying no error messages, which the top-level handler reports as nothing printed and a non-zero exit code.
+
+- Stmt.mk_const_spec_error: Takes an `Error.t` (an `error_kind * Loc.t * string` triple) and wraps it into the `qual_ident -> Loc.t -> Error.t` shape `spec.spec_error` expects, ignoring both arguments -- use this when your message and location are already fully determined at the point you're building the spec, which is the common case. (`spec_error` is a *list* of such functions precisely so it can support cases where the message legitimately depends on which callable is being checked at report time -- see how `Rewrites.rewrite_stmt_error_msg`'s `Loop` case distinguishes "may not hold on loop entry" from "may not be maintained" for invariants.)
 
 - Stmt.mk_block_stmt: It takes a list of statements and bundles these into one "block" statement.
 

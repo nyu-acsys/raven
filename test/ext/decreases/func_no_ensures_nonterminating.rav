@@ -1,0 +1,10 @@
+/* Same as func_no_ensures.rav, but non-terminating: without `ensures`, this used to
+   verify silently because the func was never eligible for the auto-lemma pass that
+   hosts the decreases check. */
+func fac(n: Int)
+  returns (res: Int)
+  requires n >= 0
+  decreases n
+{
+  n > 0 ? n * fac(n+1) : 1
+}

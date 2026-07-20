@@ -1,0 +1,10 @@
+proc f(m: Int, n: Int)
+  requires m >= 0 && n >= 0
+  decreases m, n
+{
+  if (n > 0) {
+    f(m, n - 1);
+  } else if (m > 0) {
+    f(m - 1, 100);
+  }
+}

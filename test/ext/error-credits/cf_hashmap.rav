@@ -8,9 +8,9 @@ module CollFreeHashMap {
 
   field cfHashMapVal: OptInt
 
-  admitted func offset(x: Ref, hash: Int) returns (ret: Ref)
+  free func offset(x: Ref, hash: Int) returns (ret: Ref)
 
-  admitted auto lemma offset_injective(x: Ref)
+  free auto lemma offset_injective(x: Ref)
     ensures forall h1: Int, h2: Int :: offset(x, h1) == offset(x, h2) ==> h1 == h2
 
 

@@ -42,7 +42,7 @@ $ docker run --rm ekanshdeepgupta/raven test/concurrent/lock/ticket-lock.rav
 Raven version 1.x.y
 Verification successful.
 
-$ docker run --rm ekanshdeepgupta/raven --extension prophecy test/ext_prophecy/lazy_coin.rav
+$ docker run --rm ekanshdeepgupta/raven test/ext/prophecy/lazy_coin.rav
 Raven version 1.x.y
 Verification successful.
 
@@ -126,17 +126,17 @@ Several examples of Raven programs can be found in the [test](test) folder. The 
 
 ## Extension API
 Raven also comes with a modular extension API which is designed for front-end designers to be able to extend Raven's syntax directly, to get a custom IVL for their specific domain. They can implement Raven extensions to encode new front-end features, adding custom types, expressions, and commands to the IVL.
-We provide extensive documentation along with a tutorial for this API at [lib/ext/README.md](lib/ext/README.md). We implement multiple different extensions and extensively document their code to demonstrate possibilities, and add several useful features to the language. At present, Raven comes with two optional extensions which can be selected via the command-line flag `--extension`:
-- ErrorCredits Extension (`eris`): This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext_error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext_error-credits/ec_dynamic_vec.rav). For example:
+We provide extensive documentation along with a tutorial for this API at [lib/ext/README.md](lib/ext/README.md). We implement multiple different extensions and extensively document their code to demonstrate possibilities, and add several useful features to the language. At present, Raven comes with one optional extension which can be selected via the command-line flag `--extension`:
+- ErrorCredits Extension (`eris`): This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext/error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext/error-credits/ec_dynamic_vec.rav). For example:
 ```bash
-$ raven --extension eris test/ext_error-credits/ec_dynamic_vec.rav
+$ raven --extension eris test/ext/error-credits/ec_dynamic_vec.rav
 Raven version 1.x.y
 Verification successful.
 ```
 
-- Prophecy Extension (`prophecy`): This extension implements _prophecy variables_ in Raven. For example:
+Raven also comes with the Prophecy Extension, which implements _prophecy variables_. This is what plain `raven` (no `--extension` flag, i.e. `--extension default`) activates -- it has no flag of its own, and is mutually exclusive with the ErrorCredits extension above (combining the two is not sound), so it is not active under `--extension eris`. For example:
 ```bash
-$ raven --extension prophecy test/ext_prophecy/rdcss.rav
+$ raven test/ext/prophecy/rdcss.rav
 Raven version 1.x.y
 Verification successful.
 ```

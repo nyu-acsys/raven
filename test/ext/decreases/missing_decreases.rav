@@ -1,0 +1,10 @@
+/* Recursive callables with no `decreases` clause are left completely unchecked --
+   checking is opt-in per callable, so this must keep verifying exactly as it did
+   before the DecreasesExt extension existed. */
+func fac(n: Int)
+  returns (res: Int)
+  requires n >= 0
+  ensures res >= 1
+{
+  n > 0 ? n * fac(n-1) : 1
+}

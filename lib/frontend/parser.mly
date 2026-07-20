@@ -319,7 +319,7 @@ func_decl:
 
 callable_decl:
   id = IDENT; LPAREN; formals = var_decls_with_modifiers; RPAREN; returns = return_params; cs = contracts {
-  let precond, postcond = cs in
+  let precond, postcond, contract_ext = cs in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
@@ -328,6 +328,7 @@ callable_decl:
                call_decl_locals = [];
                call_decl_precond = precond;
                call_decl_postcond = postcond;
+               call_decl_contract_ext = contract_ext;
                call_decl_is_free = false;
                call_decl_is_auto = false;
                call_decl_mask = None;
@@ -338,7 +339,7 @@ callable_decl:
 
 callable_decl_out_vars:
   id = IDENT; LPAREN; formals = var_decls_with_modifiers; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
-  let precond, postcond = cs in
+  let precond, postcond, contract_ext = cs in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
@@ -347,6 +348,7 @@ callable_decl_out_vars:
                call_decl_locals = [];
                call_decl_precond = precond;
                call_decl_postcond = postcond;
+               call_decl_contract_ext = contract_ext;
                call_decl_is_free = false;
                call_decl_is_auto = false;
                call_decl_mask = None;
@@ -379,8 +381,11 @@ var_decl_with_modifiers:
 ;
 
 contracts:
-| c = contract; cs = contracts { (fst c @ fst cs, snd c @ snd cs) }
-| /* empty */ { [], [] }
+| c = contract; cs = contracts {
+  let (pre1, post1, ext1) = c and (pre2, post2, ext2) = cs in
+  (pre1 @ pre2, post1 @ post2, ext1 @ ext2)
+}
+| /* empty */ { [], [], [] }
 ;
 
 contract:
@@ -392,7 +397,7 @@ contract:
            spec_error = [];
          }
   in
-  ([spec], [])
+  ([spec], [], [])
 }
 | m = contract_mods; ENSURES; e = expr {
   let spec =
@@ -402,7 +407,10 @@ contract:
            spec_error = [];
          }
   in
-  ([], [spec])
+  ([], [spec], [])
+}
+| ce = contract_ext {
+  ([], [], [ce])
 }
 ;
 
@@ -746,8 +754,10 @@ if_then_else_stmt_no_short_if:
   
 while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; cs = loop_contract_list; s = block {
+  let loop_contract, loop_contract_ext = cs in
   let loop =
-    Stmt.{ loop_contract = cs;
+    Stmt.{ loop_contract;
+           loop_contract_ext;
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = { stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) };
@@ -758,6 +768,7 @@ while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt {
   let loop =
     Stmt.{ loop_contract = [];
+           loop_contract_ext = [];
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(s) $endpos(s)) s;
@@ -771,18 +782,28 @@ while_stmt_no_short_if:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt_no_short_if {
   let loop =
     Stmt.{ loop_contract = [];
+           loop_contract_ext = [];
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = s;
          }
   in
   [Stmt.Loop loop]
-} 
+}
 ;
 
 loop_contract_list:
-| loop_contract loop_contract_list { $1 :: $2 }
-| loop_contract { [$1] }
+| c = loop_contract; cs = loop_contract_list {
+  let (inv, ext) = cs in
+  match c with
+  | `Invariant spec -> (spec :: inv, ext)
+  | `Ext ce -> (inv, ce :: ext)
+}
+| c = loop_contract {
+  match c with
+  | `Invariant spec -> ([spec], [])
+  | `Ext ce -> ([], [ce])
+}
 ;
 
 loop_contract:
@@ -793,7 +814,7 @@ loop_contract:
     loc,
     if caller = proc_name then
       "This loop invariant may not hold on loop entry"
-    else 
+    else
       "This loop invariant may not be maintained by the loop"
   in*)
   let spec =
@@ -803,8 +824,9 @@ loop_contract:
            spec_error = [];
          }
   in
-  spec
+  `Invariant spec
 }
+| ce = contract_ext { `Ext ce }
 ;
 
 (** Expressions *)
