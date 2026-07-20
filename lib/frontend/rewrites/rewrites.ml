@@ -519,8 +519,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
               match symbol with
               | VarDef v -> v.var_decl
               | _ ->
-                  Error.error stmt.stmt_loc
-                    ("Expected a variable (1); found " ^ Symbol.to_string symbol
+                  Error.internal_error stmt.stmt_loc
+                    ("expected a variable; found " ^ Symbol.to_string symbol
                    ^ " for var: " ^ Ident.to_string var))
         in
 
@@ -989,7 +989,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               in
               match field_symbol with
               | FieldDef f -> Rewriter.return f.field_type
-              | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
             in
 
             let inhale_expr =
@@ -1031,8 +1031,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             let spec =
               match c.call_def with
               | ProcDef p ->
-                  Error.error stmt.stmt_loc
-                    "Expected a func_def inside a fold/unfold stmt"
+                  Error.internal_error stmt.stmt_loc
+                    "expected a func_def inside a fold/unfold stmt"
               | FuncDef { func_body = None } ->
                   Error.error stmt.stmt_loc (*(QualIdent.to_loc use_desc.use_name)*)
                     ("Cannot (un)fold abstract predicate " ^ (use_desc.use_name |> QualIdent.unqualify |> Ident.to_string)) (* TW: this should already be checked during typing *)
@@ -1040,7 +1040,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             in
 
             (c.call_decl, Expr.set_loc spec (Stmt.to_loc stmt))
-        | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
       in
 
       begin match pred_decl.call_decl_kind, pred_decl.call_decl_is_auto with
@@ -1130,7 +1130,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
               begin match bd_var_symbol with
               | VarDef v -> v.var_decl
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
               end
             in
 
@@ -1265,7 +1265,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           if call_desc.call_is_spawn
           then ({c.call_decl with call_decl_postcond = []; call_decl_returns= []}, c.call_def)
           else (c.call_decl, c.call_def)
-        | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
       in
 
       let _, dropped_returns =
@@ -1296,8 +1296,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             match symbol with
             | VarDef v -> Rewriter.return v.var_decl
             | _ ->
-                Error.error stmt.stmt_loc
-                  ("Expected a variable (3); found " ^ Symbol.to_string symbol))
+                Error.internal_error stmt.stmt_loc
+                  ("expected a variable; found " ^ Symbol.to_string symbol))
       in
       let lhs_list = lhs_list @ fresh_dropped_returns in
 
@@ -1829,7 +1829,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
                       | _ ->
                           Error.type_error (Expr.to_loc expr)
                             "Expected field identifier.")
-                  | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+                  | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
                 in
 
                 let* field_elem_typ_expanded =
@@ -1880,7 +1880,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
               match f.field_type with
               | App (Fld, [ tp_expr ], _) -> tp_expr
               | _ -> Error.type_error loc "Expected field identifier.")
-          | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+          | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
         in
 
         let* field_elem_typ_expanded =
@@ -1895,7 +1895,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
             match field_symbol with
             | FieldDef f -> f.field_type
-            | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+            | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
           in
 
           let frac_mod_name =

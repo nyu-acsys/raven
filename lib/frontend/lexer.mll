@@ -222,7 +222,7 @@ rule token_lex st = parse
 | digits as num { emit st (CONSTVAL (Expr.Int (Int64.of_string num))) }
 | float as num { emit st (CONSTVAL (Expr.Real (Float.of_string num))) }
 | eof { st, EOF, None }
-| _ { lexical_error lexbuf "Unexpected character" }
+| _ { lexical_error lexbuf (Printf.sprintf "Unexpected character '%c'" (lexeme_char lexbuf 0)) }
 
 and comments level st = parse
 | "*/" { if level = 0 then token_lex st lexbuf

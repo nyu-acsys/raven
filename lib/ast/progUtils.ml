@@ -256,14 +256,14 @@ let field_get_ra_qual_iden (field : AstDef.Module.field_def) =
     match field.field_type with
     | App (Fld, [ tp_expr ], _) -> tp_expr
     | _ ->
-        Error.error field.field_loc
-          "ProgUtils.field_get_ra_module: Expected field definition"
+        Error.internal_error field.field_loc
+          "expected a field definition"
   in
   match field_type with
   | App (Var qual_iden, [], _) -> QualIdent.pop qual_iden
   | _ ->
-      Error.error field.field_loc
-        "ProgUtils.field_get_ra_module: Expected field type to be a type identifier"
+      Error.internal_error field.field_loc
+        "expected the field type to be a type identifier"
 
 let pred_get_ra_qual_iden pred_qual_iden =
   let open Syntax in
@@ -475,14 +475,14 @@ let get_field_utils_id field_name : expr t =
     match field with
     | AstDef.Module.FieldDef { field_type; _ } -> field_type
     | _ ->
-        Error.error loc
-          "ProgUtils.get_field_utils_id: Expected field definition"
+        Error.internal_error loc
+          "expected a field definition"
   in
 
   let field_elem_type =
     match field_type with
     | App (Fld, [ tp ], _) -> tp
-    | _ -> Error.error loc "ProgUtils.get_field_utils_id: Expected field type"
+    | _ -> Error.internal_error loc "expected a field type"
   in
 
   let id_qual_ident =
@@ -542,11 +542,11 @@ let pred_ra_constr_qual_ident loc pred_name =
           QualIdent.append pred_ra_qual_iden
             AstDef.Predefs.lib_agree_constr_ident
       | _ ->
-          Error.error loc
-            "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition")
+          Error.internal_error loc
+            "expected a predicate definition")
   | _ ->
-      Error.error loc
-        "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
+      Error.internal_error loc
+        "expected a predicate definition"
 
 let au_ra_uncommitted_constr_qual_ident loc call_name =
   let open Syntax in
@@ -583,11 +583,11 @@ let pred_ra_val_destr_qual_ident loc pred_name =
           QualIdent.append pred_ra_qual_iden
             AstDef.Predefs.lib_agree_destr1_ident
       | _ ->
-          Error.error loc
-            "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition")
+          Error.internal_error loc
+            "expected a predicate definition")
   | _ ->
-      Error.error loc
-        "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
+      Error.internal_error loc
+        "expected a predicate definition"
 
 let pred_in_types pred_name =
   let open Syntax in
@@ -601,9 +601,9 @@ let pred_in_types pred_name =
       Base.List.map c.call_decl.call_decl_formals ~f:(fun var_decl ->
           var_decl.var_type)
   | _ ->
-      Error.error
+      Error.internal_error
         (AstDef.QualIdent.to_loc pred_name)
-        "ProgUtils.pred_in_types: Expected pred definition"
+        "expected a predicate definition"
 
 let pred_out_types pred_name =
   let open Syntax in
@@ -617,9 +617,9 @@ let pred_out_types pred_name =
       Base.List.map c.call_decl.call_decl_returns ~f:(fun var_decl ->
           var_decl.var_type)
   | _ ->
-      Error.error
+      Error.internal_error
         (AstDef.QualIdent.to_loc pred_name)
-        "ProgUtils.pred_in_types: Expected pred definition"
+        "expected a predicate definition"
 
 let pred_heap_type pred_name =
   let open Syntax in
@@ -653,8 +653,8 @@ let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
               | FieldDef _ -> return false
               | VarDef _ | ConstrDef _ | DestrDef _ -> return true
               | _ ->
-                  Error.error (AstDef.Expr.to_loc expr)
-                    "ProgUtils.is_expr_pure: Expected a function or a variable")
+                  Error.internal_error (AstDef.Expr.to_loc expr)
+                    "expected a function or a variable")
         | _ -> return true
       in
 
@@ -675,9 +675,9 @@ let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
         match constr_def.constr_return_type with
         | App (Var qi, _, _) -> qi
         | _ ->
-            Error.error
+            Error.internal_error
               (AstDef.QualIdent.to_loc qual_ident)
-              "ProgUtils.get_data_destrs_from_constr: Expected a variable"
+              "expected a variable"
       in
 
       let* symbol = find_and_reify tp_name in
@@ -692,28 +692,26 @@ let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
 
               match variant_decl with
               | None ->
-                  Error.error
+                  Error.internal_error
                     (AstDef.QualIdent.to_loc qual_ident)
-                    "ProgUtils.get_data_destrs_from_constr: Expected a variant \
-                     declaration"
+                    "expected a variant declaration"
               | Some variant_decl ->
                   return
                     (Base.List.map variant_decl.variant_args ~f:(fun var_decl ->
                          QualIdent.append (QualIdent.pop qual_ident)
                            var_decl.var_name)))
           | _ ->
-              Error.error
+              Error.internal_error
                 (AstDef.QualIdent.to_loc qual_ident)
-                "ProgUtils.get_data_destrs_from_constr: Expected a data type")
+                "expected a data type")
       | _ ->
-          Error.error
+          Error.internal_error
             (AstDef.QualIdent.to_loc qual_ident)
-            "ProgUtils.get_data_destrs_from_constr: Expected a type definition")
+            "expected a type definition")
   | _ ->
-      Error.error
+      Error.internal_error
         (AstDef.QualIdent.to_loc qual_ident)
-        "ProgUtils.get_data_destrs_from_constr: Expected a constructor \
-         definition"
+        "expected a constructor definition"
 
 let rec expr_preds_mentioned (expr : AstDef.Expr.t) :
     (QualIdent.t list, 'a) t_ext =
@@ -913,7 +911,7 @@ let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
     match result with
     | None ->
         Error.internal_error Loc.dummy
-          "ProgUtils.find_insertion_scope_for_types: scope not found"
+          "could not find a concrete scope for these type arguments"
     | Some (qi, (name, symbol, _)) ->
         let resolves_through_abstract_param =
           match symbol with
@@ -947,7 +945,7 @@ let instantiate_type_functor ~(loc : location)
     Base.List.length arg_types <> Base.List.length functor_mod_decl.mod_decl_formals
   then
     Error.internal_error loc
-      "ProgUtils.instantiate_type_functor: wrong number of type arguments"
+      "wrong number of type arguments for this functor instantiation"
   else
     let* insert_scope, reference_scope = find_insertion_scope_for_types arg_types in
     let* arg_module_qis =
@@ -958,8 +956,7 @@ let instantiate_type_functor ~(loc : location)
           | None ->
               Error.internal_error loc
                 (Printf.sprintf
-                   !"ProgUtils.instantiate_type_functor: formal %{Ident}'s constraint \
-                     %{QualIdent} has no rep type"
+                   !"formal %{Ident}'s constraint %{QualIdent} has no rep type"
                    formal.mod_inst_name formal.mod_inst_type)
           | Some (interface_qual_ident, rep_ident) ->
               let canonical_qi =

@@ -48,7 +48,12 @@ let parse_cu file_dir top_level_md_ident lexbuf =
     try Parser.main (Lexer.make_token ()) lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
-      Error.syntax_error (Loc.make err_pos err_pos) "Parse error"
+      let tok = Lexing.lexeme lexbuf in
+      let msg =
+        if String.is_empty tok then "Unexpected end of file"
+        else Printf.sprintf "Unexpected token '%s'" tok
+      in
+      Error.syntax_error (Loc.make err_pos err_pos) msg
   in
   let incls = List.map incls ~f:(fun (incl, loc) ->
       let incl = normalizeFilename file_dir incl in
@@ -177,7 +182,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
             try stream_of_file file_name
             with Sys_error _ ->
               let loc = Hashtbl.find include_map file_name |> Option.value ~default:Loc.dummy in
-              Error.error loc "File does not exist"
+              Error.error loc (Printf.sprintf "Cannot find file '%s' (referenced by an include)" file_name)
           in
           let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
 
@@ -354,6 +359,13 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
   in
   let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
   try `Ok (parse_and_check_all ~ext_hooks ~lib_sources:ChosenExt.lib_sources config input_files) with
+  | Unix.Unix_error (err, _, prog) ->
+    let msg =
+      Printf.sprintf
+        "Could not start '%s' (%s). Raven requires Z3 (>= 4.13.0) to be installed and on your PATH."
+        prog (Unix.error_message err)
+    in
+    print_errors config [ (Generic, Loc.dummy, msg) ]
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
     let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
     let pos = match input_files with

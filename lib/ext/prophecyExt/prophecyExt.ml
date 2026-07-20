@@ -88,14 +88,14 @@ module ProphecyExt (Cont : ListApi) = struct
 
     (* Make sure to have a case for malformed arguments; ensures we catch all our cases. *)
     | NewProph _, _ ->
-      Error.internal_error Loc.dummy "[EXT] ProphecyExt.pr_stmt_ext: wrong number of arguments called for NewProph"
+      Error.internal_error Loc.dummy "wrong number of arguments for Proph.new(...)"
 
-    
+
     | ResolveProph, [proph_id; resolve_val] ->
-      fprintf ppf "@[[EXT] Proph.resolve(%a -> %a)@]" Expr.pr proph_id Expr.pr resolve_val 
+      fprintf ppf "@[[EXT] Proph.resolve(%a -> %a)@]" Expr.pr proph_id Expr.pr resolve_val
 
     | ResolveProph, _ ->
-      Error.internal_error Loc.dummy "[EXT] ProphecyExt.pr_stmt_ext: wrong number of arguments called for ResolveProph"
+      Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
 
     | _ -> Cont.pr_stmt_ext ppf ext expr_list
 
@@ -122,14 +122,14 @@ module ProphecyExt (Cont : ListApi) = struct
 
     (* Catching general arguments *)
     | NewProph _, _ ->
-      Error.internal_error Loc.dummy "[EXT] ProphecyExt: wrong number of arguments called for NewProph"
+      Error.internal_error Loc.dummy "wrong number of arguments for Proph.new(...)"
 
     | ResolveProph, [proph_id; resolve_val] ->
       (* In this case, no _variables_ are being updated, only resources are manipulated.  *)
       []
 
     | ResolveProph, _ ->
-      Error.internal_error Loc.dummy "[EXT] ProphecyExt: wrong number of arguments called for ResolveProph"
+      Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
 
     | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
 
@@ -167,7 +167,7 @@ module ProphecyExt (Cont : ListApi) = struct
       [QualIdent.append proph_mod_qi proph_field_ident]
 
     | ResolveProph, _ ->
-      Error.internal_error Loc.dummy "[EXT] ProphecyExt: wrong number of arguments called for ResolveProph"
+      Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
 
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
 
@@ -206,7 +206,7 @@ module ProphecyExt (Cont : ListApi) = struct
       
     | ProphId, _ ->
       (* Raise type_error otherwise. *)
-      Error.type_error type_attr.Type.type_loc "[EXT] ProphecyExt: wrong number of arguments used with ProphId type"
+      Error.type_error type_attr.Type.type_loc "Proph type expects no type arguments"
 
     | _ -> Cont.type_check_type_expr type_ext type_args type_attr type_check_type_expr_functs
 
@@ -245,8 +245,8 @@ module ProphecyExt (Cont : ListApi) = struct
 
       begin match elem_tp_opt with
       (* A `List[.]` type NOT found. That's a type_error. *)
-      | None -> Error.type_error loc 
-          ("[EXT] ProphecyExt: prophecy() expected to be called with List types; found: " ^ (Type.to_string (Expr.to_type value_expr)))
+      | None -> Error.type_error loc
+          ("Proph.prophecy(...) expects its second argument to be a List value; found: " ^ (Type.to_string (Expr.to_type value_expr)))
       (* Okay, everything checks out. Type-checking successful. Reconstruct the expression, with the right type (Type.perm, for "permissions" represents the type_expr for resources ) *)
       | Some _elem_typ ->
         Rewriter.return @@ (Expr.mk_app ~loc ~typ:Type.perm (ExprExt ProphResource) [proph_id_expr; value_expr]) 
@@ -254,7 +254,7 @@ module ProphecyExt (Cont : ListApi) = struct
     
     (* Incorrect number of arguments found; raise a type_error. *)
     | ProphResource, _ ->
-      Error.type_error loc "[EXT] ProphecyExt: prophecy() called with incorrect number of arguments"
+      Error.type_error loc "Proph.prophecy(...) called with incorrect number of arguments"
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
@@ -302,7 +302,7 @@ module ProphecyExt (Cont : ListApi) = struct
       begin match Expr.is_ident proph_val with
       | false ->
         (* Must be called on a local variable; otherwise type_error. *)
-        Error.type_error stmt_loc "[EXT] ProphecyExt: NewProph should only be called with a local variable for value."
+        Error.type_error stmt_loc "Proph.new(...) must be assigned to a local variable"
       
       | true ->
         (* Type-checking proph_val. *)
@@ -316,7 +316,7 @@ module ProphecyExt (Cont : ListApi) = struct
         ), disam_tbl) |> Rewriter.return
       end
     | NewProph _, _ ->
-      Error.type_error stmt_loc "[EXT] ProphecyExt: NewProph called with incorrect number of arguments"
+      Error.type_error stmt_loc "Proph.new(...) called with incorrect number of arguments"
 
       (* ```Proph.resolve(proph_id, resolve_value)``` *)
     | ResolveProph, [proph_id; resolve_value] ->
@@ -331,7 +331,7 @@ module ProphecyExt (Cont : ListApi) = struct
       ), disam_tbl) |> Rewriter.return
 
     | ResolveProph, _ ->
-      Error.type_error stmt_loc "[EXT] ProphecyExt: ResolveProph called with incorrect number of arguments"
+      Error.type_error stmt_loc "Proph.resolve(...) called with incorrect number of arguments"
 
     | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
@@ -389,7 +389,7 @@ module ProphecyExt (Cont : ListApi) = struct
         let* result = Rewriter.resolve_and_find_opt largest_prefix in
         begin match result with
         | None ->
-          Error.internal_error loc "[EXT ProphecyExt: largest_prefix scope not found"
+          Error.internal_error loc "could not find the enclosing scope while initializing the prophecy module"
         | Some (qi, (name, symbol, _)) ->
           (* This returns an internal symbol_tbl object. This includes a potential renaming map, which is not too important. *)
           Rewriter.return (name, qi)
@@ -459,7 +459,7 @@ module ProphecyExt (Cont : ListApi) = struct
     | ProphId, [] ->
       Rewriter.return Type.ref
     | ProphId, _ ->
-      Error.type_error loc "[EXT] ProphExt: ProphId type constructor used with incorrect number of arguments"
+      Error.type_error loc "Proph type expects no type arguments"
     | _ -> Cont.rewrite_type_ext type_ext tp_list loc
 
 
@@ -476,7 +476,7 @@ module ProphecyExt (Cont : ListApi) = struct
 
         match elem_tp_opt with
         (* Must be a List[.] type *)
-        | None -> Error.type_error loc ("[EXT] ProphecyExt: Prophecy resources must hold List values; found: " ^ (Type.to_string (Expr.to_type value)))
+        | None -> Error.internal_error loc ("expected the prophecy resource's value to be a List (already validated during type-checking); found: " ^ (Type.to_string (Expr.to_type value)))
         | Some elem_typ -> 
           (* We call `Typing.expand_type_expr` (via the Rewriter.expand_type_expr_ref), to make sure we get uniform, fully expanded types. *)
           let+ elem_typ = !Rewriter.expand_type_expr_ref elem_typ in
@@ -578,7 +578,7 @@ module ProphecyExt (Cont : ListApi) = struct
       )
 
     | NewProph _, _ ->
-            Error.type_error loc "[EXT] ProphExt: NewProph command called with incorrect number of arguments"
+            Error.internal_error loc "unexpected argument count for Proph.new(...) at rewrite time (already validated during type-checking)"
 
     (* For ```Proph.resolve(proph_id, resolve_value)``` statements *)
     | ResolveProph, [proph_id; resolve_value] ->
@@ -666,7 +666,7 @@ module ProphecyExt (Cont : ListApi) = struct
         [field_read_stmt; prophetic_assertion; list_non_empty; field_write_stmt])
 
     | ResolveProph, _ ->
-      Error.type_error loc "[EXT] ProphExt: ResolveProph command called with incorrect number of arguments"
+      Error.internal_error loc "unexpected argument count for Proph.resolve(...) at rewrite time (already validated during type-checking)"
 
     | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
 

@@ -110,9 +110,9 @@ module SmtSession = struct
         let in_chan = in_channel_of_descr in_descr in
         let result = In_channel.input_line in_chan in
         match result with
-        | None -> Error.fail ~lbl:Internal Loc.dummy "Read from SMT Solver returned nothing"
+        | None -> Error.fail ~lbl:Internal Loc.dummy "Lost communication with the Z3 process while checking this proof obligation -- Z3 may have crashed or been killed; re-run with --verbosity=debug to inspect log.smt2"
         | Some str -> str)
-    | None -> Error.fail ~lbl:Internal Loc.dummy  "Read from SMT Solver returned nothing"
+    | None -> Error.fail ~lbl:Internal Loc.dummy "Lost communication with the Z3 process while checking this proof obligation -- Z3 may have crashed or been killed; re-run with --verbosity=debug to inspect log.smt2"
   (* state.response_count <- state.response_count + 1; *)
   (* if state.response_count > session.response_count
      then begin
@@ -131,7 +131,7 @@ module SmtSession = struct
     | "sat" -> true
     | "unsat" -> false
     | "unknown" -> false
-    | str -> Error.fail ~lbl:Internal Loc.dummy ("Unexpected solver output: " ^ str)
+    | str -> Error.fail ~lbl:Internal Loc.dummy (Printf.sprintf "Z3 returned unexpected output while checking this proof obligation: %s (re-run with --verbosity=debug to inspect log.smt2)" str)
 
   let is_unsat session =
     Int.incr num_of_sat_queries;
@@ -140,7 +140,7 @@ module SmtSession = struct
     | "unsat" -> true
     | "sat" -> false
     | "unknown" -> false
-    | str -> Error.fail ~lbl:Internal Loc.dummy ("Unexpected solver output: " ^ str)
+    | str -> Error.fail ~lbl:Internal Loc.dummy (Printf.sprintf "Z3 returned unexpected output while checking this proof obligation: %s (re-run with --verbosity=debug to inspect log.smt2)" str)
 
   let push session =
     write session (mk_push 1);

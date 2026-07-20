@@ -110,7 +110,8 @@ let param_mismatch_error kind loc id expected =
     (Printf.sprintf "%s %s expects %s" kind id (number_to_string "parameter" expected))
 
 let unexpected_functor_error loc =
-  Error.type_error loc "A functor cannot be instantiated in this context"
+  Error.type_error loc
+    "A functor can only be instantiated as the definition of a module (e.g. 'module M = F[...]'), not used as a type or value here"
 
 module ProcessTypeExpr = struct
   let rec process_type_expr (tp_expr : type_expr) : type_expr Rewriter.t =
@@ -270,7 +271,8 @@ module ProcessExpr = struct
     let _ =
       if not @@ expected_ghost && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb) then
         let _ = Logs.debug (fun m -> m "Failed with %a" printers.pr_expr expr) in
-        Error.type_error (Expr.to_loc expr) "Cannot use ghost state in non-ghost context"
+        Error.type_error (Expr.to_loc expr)
+          "This expression reads ghost state, so it can only be used inside a ghost block, spec, or ghost-typed field"
     in
     let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
     if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
@@ -458,7 +460,9 @@ module ProcessExpr = struct
                   let idx = Expr.to_int expr2 in
                   begin match typ1 with
                     | App (Prod, ts, _) when idx < List.length ts && idx >= 0 -> typ1
-                    | App (Prod, _, _) -> Error.type_error (Expr.to_loc expr2) "Index out of bounds"
+                    | App (Prod, ts, _) ->
+                      Error.type_error (Expr.to_loc expr2)
+                        (Printf.sprintf !"Tuple index %d is out of bounds; %{Type} has %d component(s)" idx typ1 (List.length ts))
                     | App _ ->
                       Error.type_error (Expr.to_loc expr1) (Printf.sprintf !"Expected product type, but found %{Type}" typ1)
                   end
@@ -641,7 +645,7 @@ module ProcessExpr = struct
               | [e] ->
                 if is_ra_type
                 then Error.type_error (Expr.to_loc e)
-                    "Unexpected argument supplied to predicate 'own' with RA-valued field"
+                    "'own(...)' for a field whose value is a resource algebra (RA) element does not take an extra fraction argument"
                 else
                 let+ e = process_expr e (Type.real |> Type.set_ghost_to expected_typ) in
                 [e]
@@ -1409,7 +1413,7 @@ module ProcessCallable = struct
             begin match symbol with
               | FieldDef field_decl when not field_decl.field_is_ghost ->
                 Error.type_error (QualIdent.to_loc qual_ident)
-                  "Frame-preserving updates are only allowed on ghost fields"
+                  "Frame-preserving updates ('fpu') can only be applied to ghost fields whose value is a resource algebra (RA) element"
               | FieldDef { field_type = App (Fld, [ given_type ], _); _ }  ->
                 Some (field_qual_ident, given_type)
               | _ -> None
@@ -1594,7 +1598,8 @@ module ProcessCallable = struct
           Rewriter.return
             ( Stmt.AUAction { auaction_kind = AbortAU { token; proc_args } },
               disam_tbl )
-      else Error.type_error loc "Unknown AU action"
+      else Error.type_error loc
+        (Printf.sprintf !"'%{QualIdent}' is not a recognized atomic-update (AU) action (expected one of bindAU, openAU, commitAU, abortAU, ...)" qual_ident)
     | _ ->
       Error.type_error loc
         (Printf.sprintf !"%{QualIdent} expects at least one argument" qual_ident)
@@ -1742,7 +1747,8 @@ module ProcessCallable = struct
             process_basic_stmt call_decl (Stmt.Assign { assign_desc with assign_rhs}) stmt_loc disam_tbl
 
           | _ ->
-            Error.type_error stmt_loc "Expected DestrDef of field read expression, found"
+            Error.type_error stmt_loc
+              (Printf.sprintf "Expected a data destructor on the right-hand side of this field read, but found %s" (Symbol.kind read_symbol))
           end
         (* AU action *)
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
@@ -1853,7 +1859,10 @@ module ProcessCallable = struct
         | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
       in
       let* is_field_an_ra = ProgUtils.is_ra_type field_type in
-      let _ = if is_field_an_ra then Error.type_error stmt_loc "Cannot assign RA-valued field. Did you mean to use fpu?" in
+      let _ = if is_field_an_ra then
+          Error.type_error stmt_loc
+            (Printf.sprintf !"Cannot assign directly to field %{QualIdent}, whose value is a resource algebra (RA) element; use a frame-preserving update ('fpu') instead" fw_desc.field_write_field)
+      in
       let* field_write_ref =
         disambiguate_process_expr fw_desc.field_write_ref Type.ref
           disam_tbl

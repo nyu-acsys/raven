@@ -15,6 +15,7 @@ All notable changes to this project will be docmented in this file.
 - Replace 'admitted' keyword with 'free' and unify handling of admitted and free symbols in AST.
 - Set prophecy extension to be the default extension.
 - Refactored the Extension API to remove global mutable state: the active extension is now threaded through the pipeline as an explicit value rather than mutable references.
+- Overhauled user-facing error messages throughout the verifier (parser, lexer, type-checker, atomicity analysis, extensions, and the SMT backend) for clarity and consistency: vague or jargon-heavy wording was reworded, extension messages no longer leak internal implementation details (e.g. `[EXT]` tags or OCaml identifiers), internal-invariant violations are now correctly labeled as Internal Errors instead of ordinary or verification errors, solver-communication failures now point users at `--verbosity=debug`/`log.smt2`, and a handful of outright bugs turned up along the way were fixed (a crash with no installed Z3, an incomplete message, a tuple-index message missing its index, and a couple of copy-pasted/mismatched messages).
 
 ### Fixed
 

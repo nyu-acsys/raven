@@ -281,7 +281,7 @@ module AtomicExt (Cont : ListApi) = struct
         | Faa, [faa_val] -> Type.int
         | Xchg, [xchg_new_val] -> Expr.to_type xchg_new_val
         | CmpXchg, [cmpxchg_old_val; cmpxchg_new_val] -> Expr.to_type cmpxchg_old_val
-        | _ -> Error.type_error loc "Incorrect number of arguments in Atomic extension"
+        | _ -> Error.internal_error loc "unexpected argument count for atomic command at rewrite time (already validated during type-checking)"
       in
       let new_var_decl =
         Type.mk_var_decl ~loc:loc ~ghost:true new_var_name

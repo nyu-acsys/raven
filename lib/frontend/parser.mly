@@ -71,15 +71,17 @@ module_def:
       ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
   | ModInst ma ->
       if decl.mod_decl_formals <> [] then
-        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
+        Error.syntax_error (Loc.make $startpos(def) $startpos(def))
+          "A module with parameters cannot be defined with '=' (module instantiation syntax); give it a body in '{ ... }' instead"
       else
         let mod_inst_type =
           match decl.mod_decl_returns, ma.mod_inst_def with
-        | Some mod_inst_type, _ 
+        | Some mod_inst_type, _
         | None, Some (mod_inst_type, _) -> mod_inst_type
         | None, None ->
             Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
-              ("Expected specification of interface implemented by this module")
+              (Printf.sprintf !"Module %{Ident} has no body and no interface: write 'module %{Ident} : I' naming the interface it stands for"
+                 decl.mod_decl_name decl.mod_decl_name)
         in
         ModInst { ma with
                   mod_inst_type;

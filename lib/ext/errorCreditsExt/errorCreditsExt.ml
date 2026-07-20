@@ -156,7 +156,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
       (App (ExprExt ErrorCreds, [expr_arg], expr_attr)) Type.perm Type.perm Type.perm
 
     | ErrorCreds, _ ->
-      Error.type_error expr_attr.expr_loc "Incorrect number of arguments for ErrorCredits expression"
+      Error.type_error expr_attr.expr_loc "'-*-(...)' takes exactly one argument"
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
@@ -200,7 +200,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         Rewriter.return (Stmt.StmtExt (EC_Rand is_init, [Expr.from_var_decl var_decl; n_expr]), disam_tbl)
 
     | EC_Rand is_init, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_Rand()"
+      Error.type_error stmt_loc "'EC.rand(...)' called with incorrect number of arguments"
     
     (* ```lhs_expr := EC.rand(n_expr; ECVal: != errorVal);``` *)
     | EC_RandVal is_init, [lhs_expr; n_expr; errorVal] -> 
@@ -219,7 +219,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         Rewriter.return (Stmt.StmtExt (EC_RandVal is_init, [Expr.from_var_decl var_decl; n_expr; errorVal]), disam_tbl)
       
     | EC_RandVal _, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_RandVal()"
+      Error.type_error stmt_loc "'EC.rand(...; ECVal: != ...)' called with incorrect number of arguments"
 
     (* ```lhs_expr := EC.rand(n_expr; ECFn; ec_expr, errFn_arg ==> errFn_def)``` *)
     | EC_RandFn is_init, [lhs_expr; n_expr; ec_expr; errFn_arg; errFn_def] ->
@@ -264,7 +264,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
           Rewriter.return (Stmt.StmtExt (EC_RandFn is_init, [Expr.from_var_decl var_decl; n_expr; ec_expr; (Expr.from_var_decl fn_arg_var_decl); errFn_def ]), disam_tbl)
 
     | EC_RandFn _, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_RandFn()"
+      Error.type_error stmt_loc "'EC.rand(...; ECFn: ...)' called with incorrect number of arguments"
 
     (* ```lhs_expr := EC.rand(n_expr; ECList: !in ls_expr)``` *)
     | EC_RandList is_init, [lhs_expr; n_expr; ls_expr] ->
@@ -321,13 +321,13 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         
         Rewriter.return (Stmt.StmtExt (EC_RandList is_init, [Expr.from_var_decl var_decl; n_expr; ls_expr]), disam_tbl)
     | EC_RandList _, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_RandList()"
+      Error.type_error stmt_loc "'EC.rand(...; ECList: !in ...)' called with incorrect number of arguments"
 
     | EC_Contra, [] ->
       Rewriter.return ( Stmt.StmtExt (EC_Contra, []), disam_tbl)
 
     | EC_Contra, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_Contra()"
+      Error.type_error stmt_loc "'EC.contra()' called with incorrect number of arguments"
 
     | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 

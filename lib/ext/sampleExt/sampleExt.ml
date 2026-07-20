@@ -24,7 +24,7 @@ module SampleExt (Cont : ListApi) = struct
     | RandEven, [lhs_expr; n_expr] ->
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr
     | RandEven, _ ->
-      Error.internal_error Loc.dummy "[EXT] SampleExt.pr_stmt_ext: Incorrect number of arguments for randEven()" 
+      Error.internal_error Loc.dummy "wrong number of arguments for randEven(...)"
     | _ -> Cont.pr_stmt_ext ppf ext expr_list
 
   let stmt_ext_symbols stmt_ext =
@@ -38,7 +38,7 @@ module SampleExt (Cont : ListApi) = struct
       let lhs_qi = Expr.to_qual_ident lhs_expr in
       if QualIdent.is_local lhs_qi then [QualIdent.to_ident lhs_qi] else []
     | RandEven, _ ->
-      Error.internal_error Loc.dummy "[EXT] SampleExt.stmt_ext_local_vars_modified: Incorrect number of arguments for randEven()" 
+      Error.internal_error Loc.dummy "wrong number of arguments for randEven(...)"
     | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
   
   let stmt_ext_fields_accessed stmt_ext exprs = 
@@ -75,7 +75,7 @@ module SampleExt (Cont : ListApi) = struct
         Rewriter.return (Stmt.StmtExt (RandEven, [Expr.from_var_decl var_decl; n_expr]), disam_tbl)
 
     | RandEven, _ ->
-      Error.type_error stmt_loc "[EXT] SampleExt.stmt_ext_local_vars_modified: Incorrect number of arguments for randEven()"
+      Error.type_error stmt_loc "randEven(...) called with incorrect number of arguments"
 
     | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 

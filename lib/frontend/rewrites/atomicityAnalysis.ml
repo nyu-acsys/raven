@@ -37,16 +37,18 @@ let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
       "Cannot take a non-atomic step inside an atomic block"
 
 let open_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
-  if
+  let already_open =
     List.exists atomicity_state.invs_opened ~f:(fun inv ->
         QualIdent.(inv.inv_name = inv_name)
         && List.for_all2_exn inv_args inv.inv_args ~f:Expr.alpha_equal)
-    || not (Set.mem atomicity_state.mask inv_name)
-  then
+  in
+  if already_open then
     Error.verification_error loc
-      (Printf.sprintf
-         !"Cannot open invariant %{Ident}. Invariant already opened or not in \
-           mask"
+      (Printf.sprintf !"Invariant %{Ident} is already open"
+         (inv_name |> QualIdent.unqualify))
+  else if not (Set.mem atomicity_state.mask inv_name) then
+    Error.verification_error loc
+      (Printf.sprintf !"Invariant %{Ident} is not in the current mask"
          (inv_name |> QualIdent.unqualify))
   else
     {
@@ -74,8 +76,10 @@ let close_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
     && not (Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name))
   then
     Error.error loc
-      "Invariant not already opened; cannot be closed. Invariant not in mask; \
-       cannot be allocated."
+      (Printf.sprintf
+         !"Cannot close invariant %{Ident}: it is neither currently open nor \
+           available in the mask to be freshly allocated"
+         (inv_name |> QualIdent.unqualify))
   else
     let invs_opened =
       List.filter atomicity_state.invs_opened ~f:(fun inv ->
@@ -95,7 +99,7 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
   if
     List.exists atomicity_state.au_opened ~f:(fun au ->
         Expr.alpha_equal au.token token)
-  then Error.error loc "Atomic token already opened"
+  then Error.error loc (Printf.sprintf !"Atomic token %{Expr} is already open" token)
   else
     {
       atomicity_state with
@@ -109,7 +113,7 @@ let close_au ~loc token atomicity_state : atomicity_check =
     not
       (List.exists atomicity_state.au_opened ~f:(fun au ->
            Expr.alpha_equal au.token token))
-  then Error.error loc "Atomic token not already opened"
+  then Error.error loc (Printf.sprintf !"Atomic token %{Expr} is not open (nothing to close)" token)
   else
     let au_opened =
       List.filter atomicity_state.au_opened ~f:(fun au ->
@@ -157,7 +161,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
           let* symbol = Rewriter.find_and_reify new_desc.new_lhs in
           match symbol with
           | VarDef v -> Rewriter.return v
-          | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+          | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
         in
 
         if new_lhs.var_decl.var_ghost then Rewriter.return stmt
@@ -178,7 +182,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               let atomicity_state = take_atomic_step ~loc atomicity_state in
               let* _ = Rewriter.set_user_state atomicity_state in
               Rewriter.return stmt
-        | _ -> Error.error stmt.stmt_loc "Expected a var_def")
+        | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
     | Basic (FieldWrite field_write_desc) -> (
         let* symbol =
           Rewriter.find_and_reify field_write_desc.field_write_field
@@ -190,7 +194,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               let atomicity_state = take_atomic_step ~loc atomicity_state in
               let* _ = Rewriter.set_user_state atomicity_state in
               Rewriter.return stmt
-        | _ -> Error.error stmt.stmt_loc "Expected a var_def")
+        | _ -> Error.internal_error stmt.stmt_loc "expected a field_def")
     | Basic (Havoc hvc) ->
         Rewriter.return stmt
     | Basic (Call call_desc) ->
@@ -198,7 +202,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         let call_decl, call_def =
           match symbol with
           | CallDef c -> (c.call_decl, c.call_def)
-          | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+          | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
         in
 
         if
@@ -228,7 +232,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                 let* symbol = Rewriter.find_and_reify qual_iden in
                 match symbol with
                 | VarDef v -> Rewriter.return v.var_decl.var_ghost
-                | _ -> Error.error stmt.stmt_loc "Expected a var_def")
+                | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
           in
 
           if
@@ -268,8 +272,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
 
                 let* _ = Rewriter.set_user_state atomicity_state in
                 Rewriter.return stmt
-            | _ -> Error.error stmt.stmt_loc "Expected a pred or invariant")
-        | _ -> Error.error stmt.stmt_loc "Expected a call_def")
+            | _ -> Error.internal_error stmt.stmt_loc "expected a predicate or invariant")
+        | _ -> Error.internal_error stmt.stmt_loc "expected a call_def")
     | Basic (AUAction auaction_desc) -> (
         match auaction_desc.auaction_kind with
         | BindAU qual_iden ->
@@ -278,7 +282,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               let+ symbol = Rewriter.find_and_reify qual_iden in
               match symbol with
               | VarDef v -> v
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
             in
 
             let* au_token_var =
@@ -290,7 +294,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               in
               match symbol with
               | VarDef v -> v
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
             in
 
             let assign_stmt =
@@ -379,7 +383,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               let+ symbol = Rewriter.find_and_reify opened_au_token.callable in
               match symbol with
               | CallDef c -> c.call_decl
-              | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
             in
 
             let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; callable_args = %a" QualIdent.pr opened_au_token.callable printers.pr_expr_list (opened_au_token.callable_args

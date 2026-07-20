@@ -116,11 +116,15 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
                  | Some e ->
                    Error.verification_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
               )
-          | _ -> Error.verification_error stmt.stmt_loc "Unexpected spec kind")
+          | _ ->
+              Error.internal_error stmt.stmt_loc
+                (Printf.sprintf "Internal error: statement %s reached the backend with an unexpected spec kind (this indicates a bug in the verifier, not a problem with your proof)" (Stmt.to_string stmt)))
       | _ ->
-          Error.verification_error stmt.stmt_loc
-            ("Unexpected basic stmt: " ^ Stmt.to_string stmt))
-  | _ -> Error.verification_error stmt.stmt_loc "Unexpected stmt"
+          Error.internal_error stmt.stmt_loc
+            (Printf.sprintf "Internal error: statement %s reached the backend in an unexpected form (this indicates a bug in the verifier, not a problem with your proof)" (Stmt.to_string stmt)))
+  | _ ->
+      Error.internal_error stmt.stmt_loc
+        (Printf.sprintf "Internal error: statement %s reached the backend in an unexpected form (this indicates a bug in the verifier, not a problem with your proof)" (Stmt.to_string stmt))
 
 let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
     unit t =

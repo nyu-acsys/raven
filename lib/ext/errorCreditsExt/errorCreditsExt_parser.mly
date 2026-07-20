@@ -15,7 +15,7 @@ open Ext.ErrorCreditsExtInstance
       when QualIdent.is_local qual_ident ->
       let args = e :: n_expr :: [] in
       Stmt.(Basic (StmtExt (EC_Rand is_init, args))), Some (Expr.mk_int 0)
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RandVal"
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected a single local variable on the left-hand side of 'EC.rand(...)'"
     | [], _ -> assert false 
 }
 | EC DOT RAND LPAREN n_expr = expr SEMICOLON ECVAL COLON NEQ errorVal = expr RPAREN {
@@ -24,7 +24,7 @@ open Ext.ErrorCreditsExtInstance
       when QualIdent.is_local qual_ident ->
       let args = e :: n_expr :: errorVal :: [] in
       Stmt.(Basic (StmtExt (EC_RandVal is_init, args))), Some (Expr.mk_int 0)
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RandVal"
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected a single local variable on the left-hand side of 'EC.rand(...)'"
     | [], _ -> assert false
 }
 | EC DOT RAND LPAREN n_expr = expr SEMICOLON ECFN COLON ERRORCRED LPAREN ec_expr = expr RPAREN COMMA x = IDENT IMPLIES fn_body = expr RPAREN {
@@ -33,7 +33,7 @@ open Ext.ErrorCreditsExtInstance
       when QualIdent.is_local qual_ident ->
       let args = e :: n_expr :: ec_expr :: (Expr.mk_var ~typ:Type.int (QualIdent.from_ident x)) :: fn_body :: [] in
       Stmt.(Basic (StmtExt (EC_RandFn is_init, args))), Some (Expr.mk_int 0)
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RANDFN"
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected a single local variable on the left-hand side of 'EC.rand(...)'"
     | [], _ -> assert false 
 }
 | EC DOT RAND LPAREN n_expr = expr SEMICOLON ECLIST COLON NOTIN ls_expr = expr RPAREN {
@@ -42,7 +42,7 @@ open Ext.ErrorCreditsExtInstance
       when QualIdent.is_local qual_ident ->
       let args = e :: n_expr :: ls_expr :: [] in
       Stmt.(Basic (StmtExt (EC_RandList is_init , args))), Some (Expr.mk_int 0)
-    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable on left-hand side of RANDFN"
+    | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected a single local variable on the left-hand side of 'EC.rand(...)'"
     | [], _ -> assert false 
 }
 ;

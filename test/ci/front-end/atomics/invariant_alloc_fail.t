@@ -2,5 +2,5 @@
   [Error] File "./invariant_alloc_fail.rav", line 12, columns 2-21:
   12 |   fold counterInv(x);
          ^^^^^^^^^^^^^^^^^^^
-  Error: Invariant not already opened; cannot be closed. Invariant not in mask; cannot be allocated..
+  Error: Cannot close invariant counterInv: it is neither currently open nor available in the mask to be freshly allocated.
   [1]

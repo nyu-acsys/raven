@@ -66,7 +66,7 @@ module ListExt (Cont : Ext) = struct
       let elem_type = 
         match (Expr.to_type ls_expr) with
         | Type.App (TypeExt ListConstr, [elem_tp], _) -> elem_tp
-        | _ -> Error.type_error loc "[EXT] ListExt: List.hd called on a mistyped argument"
+        | _ -> Error.type_error loc "List.hd(...) called on an argument that isn't a List"
       in
       Expr.mk_app ~loc ~typ:(elem_type) 
         (ExprExt (ListExpr ListPredefs.hd_destr_ident))
@@ -175,7 +175,7 @@ module ListExt (Cont : Ext) = struct
       (* If incorrect number of arguments are given, throw a type_error.
         lib/util/error.ml provides error-handling. `Error.type_error` takes a _loc_ argument. This _loc_ refers to a location in the source text stream. This is used to locate errors for the user. Most Raven objects carry location data with them in one form or another.
       *)
-      Error.type_error type_attr.type_loc "[ListExt] List type called with incorrect number of arguments"
+      Error.type_error type_attr.type_loc "List[...] type expects exactly one type argument (the element type)"
 
       (* Otherwise defer to `Cont`. *)
     | _ -> Cont.type_check_type_expr type_ext type_args type_attr type_check_type_expr_functs
@@ -255,7 +255,7 @@ module ListExt (Cont : Ext) = struct
 
       | ident, _ when Ident.(c = cons_ident)  ->
         (* if it is a `List.cons` expression with a different number of arguments, raise a type_error. *)
-        Error.type_error expr_attr.expr_loc "Incorrect number of arguments for List Cons expression"
+        Error.type_error expr_attr.expr_loc "List.cons(...) takes exactly two arguments (the head and the tail)"
 
       | ident, [] when Ident.(ident = nil_ident) ->
         (* `List.nil` *)
@@ -277,11 +277,12 @@ module ListExt (Cont : Ext) = struct
         (App (ExprExt (ListExpr nil_ident), [], expr_attr)) list_type list_type list_type
 
       | ident, _ when Ident.(ident = nil_ident) ->
-        Error.type_error expr_attr.expr_loc "Incorrect number of arguments for List.nil expression"
+        Error.type_error expr_attr.expr_loc "List.nil takes no arguments"
 
       | ident, [] ->
         (* the assumption is that all `List` library arguments will take the list as the first arguement. Thus, if no arguments, that's an error. *)
-        Error.internal_error expr_attr.expr_loc ("[EXT] ListExt.type_check_expr: Unknown list function called: " ^ (Ident.to_string ident))
+        Error.type_error expr_attr.expr_loc
+          (Printf.sprintf !"'%{Ident}' is not a List function (expected one of: cons, nil, hd, tl, len, is_in)" ident)
 
       | ident, ls_expr :: args ->
         (* assume first expr is the list expression *)
@@ -301,7 +302,8 @@ module ListExt (Cont : Ext) = struct
         (* callable does not exist inside Library.ListM *)
         | None | Some Import _->
           (* Generate an error if function not found *)
-          Error.internal_error expr_attr.expr_loc ("[EXT] ListExt: Unknown list function called: " ^ (Ident.to_string ident))
+          Error.type_error expr_attr.expr_loc
+            (Printf.sprintf !"'%{Ident}' is not a List function (expected one of: cons, nil, hd, tl, len, is_in)" ident)
 
         (* found callable inside Library.ListM *)
         | Some SymbolDef symbol ->
@@ -335,7 +337,7 @@ module ListExt (Cont : Ext) = struct
             | [] -> type_check_expr_functs.check_and_set (Expr.App (ExprExt (ListExpr ident), [ls_expr], expr_attr)) expected_typ expected_typ expected_typ
             | _ -> 
               (* type-error *)
-              Error.type_error expr_attr.expr_loc "[EXT] ListExt: List.len called with incorrect number of arguments"
+              Error.type_error expr_attr.expr_loc "List.len(...) takes exactly one argument"
           else if Ident.(ident = is_in_ident) then
             (* `List.is_in()` *)
             let expected_typ = Type.bool |> Type.set_ghost is_ghost in
@@ -347,22 +349,23 @@ module ListExt (Cont : Ext) = struct
               else 
                 (* else, type error *)
                 type_check_expr_functs.type_mismatch_error (Expr.to_loc elem_arg) elem_type (Expr.to_type elem_arg)
-            | _ -> Error.type_error expr_attr.expr_loc "[EXT] ListExt: List.is_in called with incorrect number of arguments"
+            | _ -> Error.type_error expr_attr.expr_loc "List.is_in(...) takes exactly two arguments"
           else if Ident.(ident = hd_destr_ident) then
             (* `List.hd` *)
             match args with
             | [] -> 
               type_check_expr_functs.check_and_set (Expr.App (ExprExt (ListExpr ident), [ls_expr], expr_attr)) elem_type elem_type elem_type
 
-            | _ -> Error.type_error expr_attr.expr_loc "[EXT] ListExt: List.hd called with incorrect number of arguments"
+            | _ -> Error.type_error expr_attr.expr_loc "List.hd(...) takes exactly one argument"
           else if Ident.(ident = tl_destr_ident) then
             (* `List.tl` *)
             match args with 
             | [] ->
               type_check_expr_functs.check_and_set (Expr.App (ExprExt (ListExpr ident), [ls_expr], expr_attr)) list_type list_type list_type
-            | _ -> Error.type_error expr_attr.expr_loc "[EXT] List.tl called with incorrect number of arguments"
+            | _ -> Error.type_error expr_attr.expr_loc "List.tl(...) takes exactly one argument"
           else
-            Error.internal_error expr_attr.expr_loc ("[EXT] ListExt.type_check_expr: Unknown list function called: " ^ (Ident.to_string ident))
+            Error.internal_error expr_attr.expr_loc
+              (Printf.sprintf "List function '%s' is defined in the standard library but not handled by the List extension (internal inconsistency, not a problem with your program)" (Ident.to_string ident))
       end
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
@@ -394,7 +397,7 @@ module ListExt (Cont : Ext) = struct
       Type.mk_var ~loc (QualIdent.append list_module_inst_qi Predefs.lib_type_rep_type_ident)
 
     | ListConstr, _ ->
-      Error.type_error loc "[EXT] ListExt: List type used with unexpected number of arguments"
+      Error.type_error loc "List[...] type expects exactly one type argument (the element type)"
 
     | _ -> Cont.rewrite_type_ext type_ext tp_list loc
 
@@ -414,8 +417,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed1; expected List Module name type"
-      end 
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
+      end
       in
 
       let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.rewrite_expr_ext: expr_typ = %a" printers.pr_type expr_attr.expr_type) in
@@ -435,8 +438,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _tp ->
-        Error.internal_error loc ("[EXT] ListExt.rewrite_expr_ext crashed2; expected List Module name type; got " ^ (Type.to_string _tp))
-      end 
+        Error.internal_error loc ("expected the receiver of this List operation to have a List module type; found " ^ (Type.to_string _tp))
+      end
       in
 
       (* Generating the qual_ident *)
@@ -451,8 +454,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed3; expected List Module name type"
-      end 
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
+      end
       in
 
       let constr_qid = QualIdent.append module_name Predefs.lib_list_head_destr_ident in
@@ -466,8 +469,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed4; expected List Module name type"
-      end 
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
+      end
       in
 
       let constr_qid = QualIdent.append module_name Predefs.lib_list_tail_destr_ident in
@@ -484,7 +487,7 @@ module ListExt (Cont : Ext) = struct
         QualIdent.pop tp_qid
       | _ ->
         Logs.debug (fun m -> m "expr_type: %a" printers.pr_type expr_attr.expr_type);
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed; expected List Module name type"
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
       end
       in
 
@@ -495,7 +498,8 @@ module ListExt (Cont : Ext) = struct
     
     
     | ListExpr ident, [] ->
-      Error.type_error loc "[EXT] ListExt.rewrite_expr_ext: Unknown ident." 
+      Error.internal_error loc
+        (Printf.sprintf !"unrecognized zero-argument List expression %{Ident} reached the rewrite phase" ident)
 
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 

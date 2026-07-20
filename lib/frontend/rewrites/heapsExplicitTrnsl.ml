@@ -208,7 +208,7 @@ let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal
         let+ symbol = Rewriter.find_and_reify qual_ident in
         match symbol with
         | VarDef v -> v.var_decl
-        | _ -> Error.error loc "Expected a variable declaration")
+        | _ -> Error.internal_error loc "expected a variable declaration")
   in
 
   let* () = Rewriter.Logs.debug (fun printers m ->
@@ -1167,7 +1167,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
               match f.field_type with
               | App (Fld, [ tp_expr ], _) -> tp_expr
               | _ -> Error.type_error f.field_loc "Expected field identifier.")
-          | _ -> Error.error Loc.dummy "Expected a field_def"
+          | _ -> Error.internal_error Loc.dummy "expected a field_def"
         in
 
         (* Done so that Ident is aware of this name being used; prevents the same name from being generated again during SSA transform *)
@@ -1484,7 +1484,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let* symbol = Rewriter.find_and_reify fpu_desc.fpu_field in
         match symbol with
         | FieldDef f -> Rewriter.return f
-        | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+        | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
       in
 
       let field_expr =
@@ -1508,7 +1508,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
               in
               match symbol with
               | VarDef v -> Rewriter.return v.var_decl
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
             in
 
             Rewriter.return
@@ -1687,8 +1687,8 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr) 
               match Map.find var_map vd1.var_name with
               | Some _ -> var_map
               | None ->
-                  Error.error (Expr.to_loc expr1)
-                    "Unexpected existential quantifier in expr1; expected all \
+                  Error.internal_error (Expr.to_loc expr1)
+                    "unexpected existential quantifier in expr1; expected all \
                      existentials to be declared in var_map")
         in
 
@@ -1746,8 +1746,8 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr) 
              match expr with
              | Some e -> (var_decl, e)
              | None ->
-                 Error.error (Expr.to_loc expr1)
-                   "Expected all variables to be matched up"))
+                 Error.internal_error (Expr.to_loc expr1)
+                   "expected all variables to be matched up"))
   | None -> None
 
 module ParseAssertionLang = struct
@@ -2445,7 +2445,7 @@ module TrnslInhale = struct
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_committed_constr)
                   [ Expr.mk_tuple call_args; ret_val ]
-            | _ -> Error.error loc "Internal error"
+            | _ -> Error.internal_error loc "expected an atomic-update predicate expression (AUPred or AUPredCommit)"
           in
 
           Stmt.mk_assume_expr ~loc
@@ -2756,9 +2756,8 @@ module TrnslInhale = struct
                         | Invariant ->
                             [ Expr.mk_tuple actual_arg_out_exprs_subst ]
                         | _ ->
-                            Error.error loc
-                              "Internal error: Expected a predicate or \
-                               invariant"
+                            Error.internal_error loc
+                              "expected a predicate or invariant"
                       in
 
                       Expr.mk_app ~loc ~typ:heap_elem_type
@@ -2860,7 +2859,7 @@ module TrnslInhale = struct
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
                   Rewriter.return stmt
-              | _ -> Error.error loc "Expected a predicate definition")
+              | _ -> Error.internal_error loc "expected a predicate definition")
           | _ ->
             (* Logs.debug (fun m -> m "TrnslInhale.trnsl_inhale_a0: unknown inhale expr"); *)
             unsupported_expr_error expr)
@@ -2987,7 +2986,7 @@ module TrnslInhale = struct
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_committed_constr)
                   [ Expr.mk_tuple call_args; ret_val ]
-            | _ -> Error.error loc "Internal error"
+            | _ -> Error.internal_error loc "expected an atomic-update predicate expression (AUPred or AUPredCommit)"
           in
 
           Stmt.mk_assume_expr ~loc
@@ -3468,8 +3467,8 @@ module TrnslExhale = struct
                 match symbol with
                 | VarDef v -> v.var_decl
                 | _ ->
-                    Error.error (Ident.to_loc iden)
-                      "Expected a variable declaration")
+                    Error.internal_error (Ident.to_loc iden)
+                      "expected a variable declaration")
           in
 
           let* () = Rewriter.Logs.debug (fun printers m -> m
@@ -4135,8 +4134,8 @@ module TrnslExhale = struct
                       | DestrDef destr ->
                           Rewriter.return destr.destr_return_type
                       | _ ->
-                          Error.error (Expr.to_loc given_expr)
-                            "Expected a destructor definition"
+                          Error.internal_error (Expr.to_loc given_expr)
+                            "expected a destructor definition"
                     in
 
                     (destr, destr_ret_type))
@@ -4655,7 +4654,7 @@ module TrnslExhale = struct
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_committed_constr)
                   [ Expr.mk_tuple call_args; ret_val ]
-            | _ -> Error.error loc "Internal error"
+            | _ -> Error.internal_error loc "expected an atomic-update predicate expression (AUPred or AUPredCommit)"
           in
 
           Stmt.mk_assume_expr ~loc
@@ -4977,9 +4976,8 @@ module TrnslExhale = struct
                         | Invariant ->
                             [ Expr.mk_tuple actual_arg_out_exprs_subst ]
                         | _ ->
-                            Error.error loc
-                              "Internal error: Expected a predicate or \
-                               invariant"
+                            Error.internal_error loc
+                              "expected a predicate or invariant"
                       in
 
                       Expr.mk_app ~loc ~typ:heap_elem_type
@@ -5088,7 +5086,7 @@ module TrnslExhale = struct
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
                   Rewriter.return stmt
-              | _ -> Error.error loc "Expected a predicate definition")
+              | _ -> Error.internal_error loc "expected a predicate definition")
           | _ ->
             (* Logs.debug(fun m -> m "TrnslInhale.trnsl_exhale_a0: unknown expr"); *)
             unsupported_expr_error expr)

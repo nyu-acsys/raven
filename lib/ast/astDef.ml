@@ -2557,7 +2557,7 @@ module Module = struct
       
   let rec find_mod (mod_defs: t list) (name: Ident.t) =
     match mod_defs with
-    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module %s not found in list " (Ident.to_string name)
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module '%s' not found" (Ident.to_string name)
     | mod_def :: mod_defs ->
       if Ident.equal mod_def.mod_decl.mod_decl_name name then
         mod_def
@@ -2567,12 +2567,12 @@ module Module = struct
   let find_callable (call_defs: Callable.t list) (name: ident) =
     let res = List.find call_defs ~f:(fun call_def -> Ident.equal (Callable.to_decl call_def).call_decl_name name) in
     match res with
-    | None -> Error.error Loc.dummy @@ Printf.sprintf "Callable %s not found in list " (Ident.to_string name)
+    | None -> Error.error Loc.dummy @@ Printf.sprintf "Callable '%s' not found" (Ident.to_string name)
     | Some call_def -> call_def
 
   let rec find_var (var_defs: Stmt.var_def list) (name: Ident.t) = 
     match var_defs with
-    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Variable %s not found in list " (Ident.to_string name)
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Variable '%s' not found" (Ident.to_string name)
     | var_def :: var_defs ->
       if Ident.equal (var_def.var_decl.var_name) name then
         var_def
