@@ -85,6 +85,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     type_check_expr = Ext.type_check_expr;
     type_check_stmt = Ext.type_check_stmt;
     type_check_contract_ext = Ext.type_check_contract_ext;
+    check_contract_ext_group_compatible = Ext.check_contract_ext_group_compatible;
     rewrite_type_ext = Ext.rewrite_type_ext;
     rewrite_expr_ext = Ext.rewrite_expr_ext;
     rewrite_stmt_ext = Ext.rewrite_stmt_ext;

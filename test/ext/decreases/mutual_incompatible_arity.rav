@@ -1,0 +1,17 @@
+proc ping(n: Int, m: Int)
+  requires n >= 0 && m >= 0
+  decreases n, m
+{
+  if (n > 0) {
+    pong(n - 1);
+  }
+}
+
+proc pong(n: Int)
+  requires n >= 0
+  decreases n
+{
+  if (n > 0) {
+    ping(n - 1, n - 1);
+  }
+}

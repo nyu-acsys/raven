@@ -136,6 +136,7 @@ module AtomicExt (Cont : ListApi) = struct
     | _ -> Rewriter.return false
   
   let type_check_contract_ext = Cont.type_check_contract_ext
+  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
   let contract_ext_to_string = Cont.contract_ext_to_string
 
   (* type-check each statement *)

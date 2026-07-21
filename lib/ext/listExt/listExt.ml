@@ -384,6 +384,7 @@ module ListExt (Cont : Ext) = struct
 
   let type_check_stmt = Cont.type_check_stmt
   let type_check_contract_ext = Cont.type_check_contract_ext
+  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
   let contract_ext_to_string = Cont.contract_ext_to_string
 
   (* Rewrites *)

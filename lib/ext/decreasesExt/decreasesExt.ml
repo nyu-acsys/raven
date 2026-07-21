@@ -18,16 +18,22 @@ open Util
     clause's own source location, the same way a failing loop invariant does, instead
     of naming the internal synthesized procedure (see [rewrite_contract_ext_loop_transfer]).
 
-    For every self-recursive call found in a `proc`/`lemma` body, and for every
-    self-recursive call `rewrite_add_func_contract_lemmas` emits inside a `func`'s
-    companion auto-lemma, this extension inserts an assertion that the measure
+    For every call found within a strongly-connected component of the module's call
+    graph -- self-recursive calls, and (Phase 2) calls between distinct
+    mutually-recursive callables alike -- found in a `proc`/`lemma` body, and for every
+    such call `rewrite_add_func_contract_lemmas` emits inside a `func`'s companion
+    auto-lemma, this extension inserts an assertion that the *callee's* measure
     evaluated at the call's actual arguments is lexicographically smaller than the
-    measure evaluated at the enclosing callable's current parameter values. Checking is
-    entirely opt-in: a recursive callable with no `decreases` clause is left exactly as
-    it was before this extension existed.
-
-    Mutually-recursive callables (Phase 2 of the WISHLIST plan) are out of scope here:
-    this extension only recognizes calls back to the *same* callable. *)
+    *caller's* measure evaluated at the caller's own entry-time parameter values.
+    Checking is opt-in per callable in the sense that a recursive callable with no
+    `decreases` clause is left exactly as it was before this extension existed --
+    *unless* it's part of a mutually-recursive group (a strongly-connected component
+    with more than one member) where some *other* member does declare one, in which
+    case leaving it unchecked would give a false sense of a proved termination
+    guarantee for the whole cycle, so [check_contract_ext_group_compatible] rejects
+    that as a hard error instead (see its doc comment). Members of such a group must
+    also all declare measures of the same lexicographic arity, checked by the same
+    hook. *)
 
 module DecreasesExt (Cont : ListApi) = struct
   let lib_source = None
@@ -68,6 +74,13 @@ module DecreasesExt (Cont : ListApi) = struct
       ( Error.Verification, Expr.to_loc spec_form,
         "This decreases clause's termination measure may not decrease on this \
          recursive call" )
+
+  (** Finds the `decreases` clause (if any) declared on [call_decl], as the raw list of
+      per-component specs (in terms of [call_decl]'s own formals). *)
+  let find_decreases_measure (call_decl : Callable.call_decl) : Stmt.spec list option =
+    List.find_map call_decl.call_decl_contract_ext ~f:(function
+      | Decreases specs -> Some specs
+      | _ -> None)
 
   (** AstDef *)
   let type_ext_to_name = Cont.type_ext_to_name
@@ -157,6 +170,56 @@ module DecreasesExt (Cont : ListApi) = struct
         Decreases specs
     | _ -> Cont.type_check_contract_ext call_decl contract_ext loc disam_tbl type_check_stmt_functs
 
+  (** Called once for every group of mutually-recursive callables (a call-graph
+      strongly-connected component with more than one member). If none declare a
+      `decreases` clause, there's nothing for this extension to check here (the group
+      stays entirely unchecked, exactly as any recursive callable without a clause
+      always has). If *some* do and others don't, that's a hard error: an unguarded
+      edge in the cycle means the cycle's termination isn't actually proved, even
+      though it might look checked at a glance -- see the file-level doc comment.
+      If *all* do, they must share the same lexicographic arity, since
+      [rewrite_contract_ext_call] below zips a caller's measure against a callee's
+      one-for-one; v1 only supports `Int` components (see [type_check_contract_ext]),
+      so arity is the only compatibility dimension to check for now. *)
+  let check_contract_ext_group_compatible (call_decls : Callable.call_decl list) : unit Rewriter.t =
+    let open Rewriter.Syntax in
+    let with_measure, without_measure =
+      List.partition_map call_decls ~f:(fun call_decl ->
+          match find_decreases_measure call_decl with
+          | Some specs -> First (call_decl, specs)
+          | None -> Second call_decl)
+    in
+    let* () =
+      match with_measure, without_measure with
+      | [], _ | _, [] -> Rewriter.return ()
+      | _, missing :: _ ->
+        let covered = List.map with_measure ~f:(fun (cd, _) -> "`" ^ Ident.to_string cd.call_decl_name ^ "`") in
+        Error.type_error missing.call_decl_loc
+          (Printf.sprintf
+             "`%s` does not declare a `decreases` clause, but it is mutually recursive with %s, which \
+              declare(s) one; every member of a mutually-recursive group must declare a `decreases` clause, \
+              or none of them may -- otherwise this cycle's termination isn't actually guaranteed by the check"
+             (Ident.to_string missing.call_decl_name)
+             (String.concat ~sep:", " covered))
+    in
+    let* () =
+      match with_measure with
+      | [] | [ _ ] -> Rewriter.return ()
+      | (first_decl, first_specs) :: rest ->
+        let expected_arity = List.length first_specs in
+        Rewriter.List.iter rest ~f:(fun (call_decl, specs) ->
+            let arity = List.length specs in
+            if arity <> expected_arity then
+              Error.type_error call_decl.call_decl_loc
+                (Printf.sprintf
+                   "this `decreases` clause has %d measure component(s), but `%s` (in the same \
+                    mutually-recursive group) has %d; every member of a mutually-recursive group must \
+                    declare `decreases` clauses of the same arity"
+                   arity (Ident.to_string first_decl.call_decl_name) expected_arity)
+            else Rewriter.return ())
+    in
+    Cont.check_contract_ext_group_compatible call_decls
+
   (* Rewrites *)
   let rewrite_type_ext = Cont.rewrite_type_ext
   let rewrite_expr_ext = Cont.rewrite_expr_ext
@@ -202,13 +265,6 @@ module DecreasesExt (Cont : ListApi) = struct
         Error.internal_error loc "decreases: mismatched measure arity between call site and declaration"
     in
     go (measures_at_entry, measures_at_call)
-
-  (** Finds the `decreases` clause (if any) declared on [call_decl], as the raw list of
-      per-component specs (in terms of [call_decl]'s own formals). *)
-  let find_decreases_measure (call_decl : Callable.call_decl) : Stmt.spec list option =
-    List.find_map call_decl.call_decl_contract_ext ~f:(function
-      | Decreases specs -> Some specs
-      | _ -> None)
 
   (* Projects the [i]-th lexicographic component back out of the (possibly
      tuple-typed, possibly -- for a single-component clause -- bare `Int`) snapshot
@@ -259,53 +315,63 @@ module DecreasesExt (Cont : ListApi) = struct
     own_stmts @ cont_stmts
 
   let rewrite_contract_ext_call (caller_call_decl : Callable.call_decl)
-      (callee_call_decl : Callable.call_decl) (call_args : expr list) (loc : location) :
+      (callee_call_decl : Callable.call_decl) (in_same_scc : bool) (call_args : expr list) (loc : location) :
       Stmt.t list Rewriter.t =
     let open Rewriter.Syntax in
     let own_checks =
-      if not (Ident.equal caller_call_decl.call_decl_name callee_call_decl.call_decl_name) then
-        (* This hook is now offered every call whose callee has a decreases clause,
-           not just recursive ones (core no longer pre-filters -- see
-           `rewrite_contract_ext_calls` in rewrites.ml) -- so this check is what
-           restricts DecreasesExt's own behavior to Phase 1 scope: only self-recursive
-           calls are instrumented. Mutually-recursive calls across distinct callables
-           are Phase 2 (WISHLIST) work; an ordinary non-recursive call to a
-           decreases-bearing callable is also correctly a no-op here. *)
+      if not in_same_scc then
+        (* An ordinary non-recursive call to a decreases-bearing callable is correctly
+           a no-op here -- nothing to check unless caller and callee are (mutually or
+           self-) recursive with each other. *)
         []
       else
-        match find_decreases_measure caller_call_decl with
-        | None -> []
-        | Some specs ->
-          (* Each [spec]'s own [spec_form] still carries the `decreases ...` clause's
-             source location, and its [spec_error] already has the right wording
-             (generic, or loop-specific if this clause went through
-             [rewrite_contract_ext_loop_transfer]) -- use the first component's for
-             the combined lexicographic check, mirroring how failing loop invariants
-             are reported (`rewrite_stmt_error_msg`'s [Loop] case, same file): neither
-             names the callable currently being checked or points at the call site. *)
-          let raw_measures = List.map specs ~f:(fun s -> s.Stmt.spec_form) in
-          let spec_error = (List.hd_exn specs).Stmt.spec_error in
-          let subst_map =
+        match find_decreases_measure caller_call_decl, find_decreases_measure callee_call_decl with
+        | None, _ | _, None ->
+          (* Unreachable for a genuine (>1-member) mutually-recursive group:
+             [check_contract_ext_group_compatible] already rejects a group where some
+             members have a `decreases` clause and others don't, before this code ever
+             runs. For the singleton self-loop case (caller == callee), this is
+             exactly Phase 1's "no clause, nothing to check" no-op. *)
+          []
+        | Some caller_specs, Some callee_specs ->
+          (* [spec_error] comes from the caller's own clause -- it's the caller's
+             declared termination argument being checked at this call site, so its
+             own wording (generic, or loop-specific via
+             [rewrite_contract_ext_loop_transfer]) is what should be reported,
+             mirroring how failing loop invariants point at the loop's own clause
+             rather than the internal callable being checked. *)
+          let spec_error = (List.hd_exn caller_specs).Stmt.spec_error in
+          (* measures_at_call: the *callee's* own clause, evaluated at the call's
+             actual arguments by substituting the callee's own formals -- not the
+             caller's, which only coincided in Phase 1 because caller and callee were
+             always the same callable there. *)
+          let callee_subst_map =
             List.zip_exn
-              (List.map caller_call_decl.call_decl_formals ~f:(fun vd -> QualIdent.from_ident vd.Type.var_name))
+              (List.map callee_call_decl.call_decl_formals ~f:(fun vd -> QualIdent.from_ident vd.Type.var_name))
               call_args
             |> Map.of_alist_exn (module QualIdent)
           in
           let measures_at_call =
-            List.map raw_measures ~f:(fun e -> Expr.alpha_renaming e subst_map)
+            List.map callee_specs ~f:(fun s -> Expr.alpha_renaming s.Stmt.spec_form callee_subst_map)
           in
+          (* measures_at_entry: still the *caller's* own clause, exactly as in Phase 1. *)
+          let caller_raw_measures = List.map caller_specs ~f:(fun s -> s.Stmt.spec_form) in
           let measures_at_entry =
             match caller_call_decl.call_decl_kind with
             | Proc | Lemma ->
               (* Read back the ghost snapshot [rewrite_callable_entry] initialized,
                  since the formals themselves may have been reassigned. *)
-              decreases_snapshot_exprs caller_call_decl raw_measures
+              decreases_snapshot_exprs caller_call_decl caller_raw_measures
             | Func | Pred | Invariant ->
               (* Func bodies are pure expressions -- the formals can't be reassigned,
                  so "entry" and "current" always coincide; no snapshot exists (or is
                  needed) for the func case, which piggybacks on the auto-lemma body. *)
-              raw_measures
+              caller_raw_measures
           in
+          (* [mk_progress_check] requires equal-length lists; guaranteed here by
+             [check_contract_ext_group_compatible] for any real (>1-member) group,
+             and trivially true for the singleton case where caller == callee (so
+             caller_specs and callee_specs are the very same list). *)
           let check_expr = mk_progress_check ~loc measures_at_entry measures_at_call in
           [ Stmt.mk_assert_expr ~loc
               ~cmnt:"[EXT] DecreasesExt: termination measure must decrease on recursive call"
@@ -313,7 +379,7 @@ module DecreasesExt (Cont : ListApi) = struct
               check_expr
           ]
     in
-    let* cont_checks = Cont.rewrite_contract_ext_call caller_call_decl callee_call_decl call_args loc in
+    let* cont_checks = Cont.rewrite_contract_ext_call caller_call_decl callee_call_decl in_same_scc call_args loc in
     Rewriter.return (own_checks @ cont_checks)
 
   (* --------------------- *)

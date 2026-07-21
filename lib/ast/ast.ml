@@ -13,3 +13,7 @@ end
 module ProgUtils = struct
   include ProgUtils
 end
+
+module CallGraph = struct
+  include CallGraph
+end

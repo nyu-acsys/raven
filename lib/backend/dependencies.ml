@@ -3,51 +3,42 @@ open Util
 open Ast
 
 
-module Graph = Graph.Make (QualIdent)
+module Graph = Ast.CallGraph.Graph
 
-(** Compute partial dependency graph from all symbols that are explicitely represented in the AST *)
+(** Compute partial dependency graph from all symbols that are explicitely represented in the AST.
+    The base graph [g] is [Ast.CallGraph.build] (shared with front-end rewrite passes, e.g. the
+    `decreases` extension's SCC analysis); this walk layers on top of it the backend-only
+    auto-lemma edges (an [ag] accumulator: for every [call_decl_is_auto] callable, an edge from
+    each same-path dependency back to it), which is module-instantiation/backend bookkeeping with
+    no front-end use. *)
 let root_dependencies (tbl: SymbolTbl.t) (mdef: Module.t) (ag: Graph.t) =
-  let empty = Set.empty (module QualIdent) in
   let open Module in
   let open Rewriter.Syntax in
-  let rec analyze_symbol (g: Graph.t) (ag: Graph.t) sym =
+  let rec analyze_auto_deps (ag: Graph.t) sym =
     match sym with
-    | ModDef mod_def -> analyze_module g ag mod_def
-    | TypeDef type_def ->
-      let+ qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
-      let deps = Option.map type_def.type_def_expr ~f:Type.symbols |> Option.value ~default:empty in
-      Graph.add_edges g qid deps, ag
-    | VarDef var_def ->
-      let+ qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
-      let deps = Option.map var_def.var_init ~f:Expr.symbols |> Option.value ~default:empty in
-      let deps = Set.union deps (Type.symbols var_def.var_decl.var_type) in
-      Graph.add_edges g qid deps, ag
-    | CallDef call_def -> 
+    | ModDef mod_def -> analyze_auto_deps_module ag mod_def
+    | CallDef call_def when (Callable.to_decl call_def).call_decl_is_auto ->
       let+ qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
       let deps = Callable.symbols call_def in
       Logs.debug (fun m -> m "Dependencies.root_dependencies: Adding dependencies of callable %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
-      Graph.add_edges g qid deps,
-      if (Callable.to_decl call_def).call_decl_is_auto
-      then Set.fold deps ~f:(fun g dep_qid ->
+      Set.fold deps ~f:(fun ag dep_qid ->
           if List.equal Ident.(=) QualIdent.(path qid) QualIdent.(path dep_qid)
           then
             let _ = Logs.debug (fun m -> m "Dependencies.root_dependencies: adding auto dependency %a -> %a" QualIdent.pr dep_qid QualIdent.pr qid) in
-            Graph.add_edge g dep_qid qid else g) ~init:ag
-      else ag
-    (*| ConstrDef cdef -> ???
-      | DestrDef cdef -> ??? *)
-    | _ -> Rewriter.return (g, ag)
-  and analyze_module g ag mdef =
+            Graph.add_edge ag dep_qid qid else ag) ~init:ag
+    | _ -> Rewriter.return ag
+  and analyze_auto_deps_module ag mdef =
     let* _ = Rewriter.enter_module mdef in
-    let* g, ag = Rewriter.List.fold_left mdef.mod_def ~f:(fun (g, ag) -> function
-        | SymbolDef s -> analyze_symbol g ag s
-        | _ -> Rewriter.return (g, ag))
-        ~init:(g, ag)
+    let* ag = Rewriter.List.fold_left mdef.mod_def ~f:(fun ag -> function
+        | SymbolDef s -> analyze_auto_deps ag s
+        | _ -> Rewriter.return ag)
+        ~init:ag
     in
     let+ _ = Rewriter.exit_module mdef in
-    g, ag
+    ag
   in
-  let _, (g, ag) = Rewriter.eval ~update:false (analyze_module Graph.empty ag mdef) tbl in
+  let g = Ast.CallGraph.build tbl mdef in
+  let _, ag = Rewriter.eval ~update:false (analyze_auto_deps_module ag mdef) tbl in
   g, ag
 
 (** Produce a topological sort of the strongly connected components in the dependency graph of module [mdef]. *)

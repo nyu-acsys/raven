@@ -118,6 +118,20 @@ module type Ext = sig
     type_check_stmt_functs ->
     Stmt.contract_ext Rewriter.t
 
+  (** Called once for every group of mutually-recursive callables (a strongly-connected
+      component of the call graph with more than one member) found in a module, given
+      every member's [call_decl]. [type_check_contract_ext] above only ever sees one
+      callable at a time, so it can't check a property that has to hold *across* a
+      group -- e.g. [DecreasesExt] uses this to require that if any member of the group
+      has a `decreases` clause, every member does (an unguarded edge in the cycle would
+      mean the cycle's termination isn't actually proved) and that all members' clauses
+      share the same lexicographic shape, raising a located [Util.Error] otherwise.
+      Singleton groups (including self-recursive ones) are never passed to this hook --
+      a lone callable's own clause is already fully checked by
+      [type_check_contract_ext]. Default (no active contract extension, or a group none
+      of them care about) is to do nothing. *)
+  val check_contract_ext_group_compatible : Callable.call_decl list -> unit Rewriter.t
+
 
   (* Rewrites *)
   val rewrite_type_ext : Ast.Type.type_ext -> type_expr list -> location -> type_expr Rewriter.t
@@ -130,21 +144,27 @@ module type Ext = sig
       has a non-empty [call_decl_contract_ext] (or, for [Func]s, at the point
       [rewrite_add_func_contract_lemmas] emits a call to a companion auto-lemma, for
       every eligible-func call) where [caller_call_decl] and [callee_call_decl] denote
-      the calling and called callable's declarations and [call_args] are the actual
-      arguments of that call. Returns statements (typically an assert) to insert
-      immediately before the call. This is *not* restricted to recursive calls --
-      caller and callee may be entirely unrelated callables; it's up to the extension
-      to decide, from [caller_call_decl]/[callee_call_decl], whether and how they're
-      related (e.g. [DecreasesExt] only acts when they're the same callable, which is
-      as far as termination checking currently goes -- see WISHLIST.md -- but a
+      the calling and called callable's declarations, the [bool] says whether caller and
+      callee lie in the same strongly-connected component of the module's call graph
+      (always [true] for a literal self-call; also [true] for any two callables that are
+      mutually recursive with each other, even through intermediate calls -- computed
+      once per module from the whole call graph, see [lib/frontend/rewrites/rewrites.ml]),
+      and [call_args] are the actual arguments of that call. Returns statements
+      (typically an assert) to insert immediately before the call. This is *not*
+      restricted to recursive calls -- caller and callee may be entirely unrelated
+      callables, and the [bool] is [false] for such a call; it's up to the extension to
+      decide, from [caller_call_decl]/[callee_call_decl]/the [bool], whether and how
+      they're related (e.g. [DecreasesExt] only acts when the [bool] is [true], i.e. for
+      calls within a recursive group, self- or mutually-recursive alike -- but a
       different contract extension might care about every call to a given callable
-      regardless of who's calling). Core code invokes this uniformly for every
-      candidate call site -- it does not know what [call_decl_contract_ext] means,
-      only that some extension may want to instrument the call; the default (no
-      active contract extension) is to return no extra statements. *)
+      regardless of recursion). Core code invokes this uniformly for every candidate
+      call site -- it does not know what [call_decl_contract_ext] means, only that some
+      extension may want to instrument the call; the default (no active contract
+      extension) is to return no extra statements. *)
   val rewrite_contract_ext_call :
     Callable.call_decl ->
     Callable.call_decl ->
+    bool ->
     expr list ->
     location ->
     Stmt.t list Rewriter.t

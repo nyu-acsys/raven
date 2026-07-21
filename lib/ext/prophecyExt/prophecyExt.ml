@@ -287,6 +287,7 @@ module ProphecyExt (Cont : ListApi) = struct
     `type_check_stmt_functs` is again a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
   let type_check_contract_ext = Cont.type_check_contract_ext
+  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
   let contract_ext_to_string = Cont.contract_ext_to_string
 
   let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)

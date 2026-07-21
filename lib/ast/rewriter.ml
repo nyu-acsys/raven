@@ -265,12 +265,25 @@ and ext_hooks = {
     type_check_stmt_functs ->
     Stmt.contract_ext t;
 
+  (** Called once per module for every group of mutually-recursive callables (a
+      strongly-connected component of the call graph with more than one member), given
+      every member's [call_decl] -- see [ExtApi.Ext.check_contract_ext_group_compatible]
+      for why this can't just be folded into [type_check_contract_ext]. Default (no
+      active contract extension) is to do nothing. *)
+  check_contract_ext_group_compatible : Callable.call_decl list -> unit t;
+
   rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
   rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
   rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
 
+  (** [caller_call_decl -> callee_call_decl -> in_same_scc -> call_args -> loc -> ...] --
+      see [ExtApi.Ext.rewrite_contract_ext_call]'s doc comment for the full contract;
+      [in_same_scc] says whether caller and callee lie in the same strongly-connected
+      component of the module's call graph (self-recursion included, as the
+      size-1-with-self-loop case), computed once per module by
+      [lib/frontend/rewrites/rewrites.ml]. *)
   rewrite_contract_ext_call :
-    Callable.call_decl -> Callable.call_decl -> expr list -> location -> Stmt.t list t;
+    Callable.call_decl -> Callable.call_decl -> bool -> expr list -> location -> Stmt.t list t;
 
   (** Called once for every [Proc]/[Lemma] callable, before any of its statements are
       visited elsewhere. Returns statements to prepend at the very top of the
@@ -325,6 +338,8 @@ let default_ext_hooks : ext_hooks = {
     (fun _ _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_stmt: no extension configured");
   type_check_contract_ext =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_contract_ext: no extension configured");
+  check_contract_ext_group_compatible =
+    (fun _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.check_contract_ext_group_compatible: no extension configured");
   rewrite_type_ext =
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
   rewrite_expr_ext =
@@ -332,7 +347,7 @@ let default_ext_hooks : ext_hooks = {
   rewrite_stmt_ext =
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_stmt_ext: no extension configured");
   rewrite_contract_ext_call =
-    (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_contract_ext_call: no extension configured");
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_contract_ext_call: no extension configured");
   rewrite_callable_entry =
     (fun _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_callable_entry: no extension configured");
   rewrite_contract_ext_loop_transfer = (fun ~subst:_ tag -> tag);

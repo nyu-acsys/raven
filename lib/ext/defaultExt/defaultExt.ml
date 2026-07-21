@@ -78,6 +78,10 @@ module DefaultExt = struct
     | Some ext_name -> extension_mismatch_error loc ext_name "contract clause"
     | None -> Error.internal_error loc "unhandled contract extension reached type-checking (no active extension recognizes this contract clause)"
 
+  (* Base of the chain: no more extensions to check group compatibility for. *)
+  let check_contract_ext_group_compatible (_call_decls: Callable.call_decl list) : unit Rewriter.t =
+    Rewriter.return ()
+
 
   (* Rewrites *)
   let rewrite_type_ext _ _ loc =
@@ -90,7 +94,7 @@ module DefaultExt = struct
     Error.internal_error loc "unhandled statement extension reached the rewrite phase"
 
   (* Base of the chain: no more extensions to contribute recursive-call checks. *)
-  let rewrite_contract_ext_call (_caller_call_decl: Callable.call_decl) (_callee_call_decl: Callable.call_decl) (_call_args: expr list) (_loc: location) : Stmt.t list Rewriter.t =
+  let rewrite_contract_ext_call (_caller_call_decl: Callable.call_decl) (_callee_call_decl: Callable.call_decl) (_in_same_scc: bool) (_call_args: expr list) (_loc: location) : Stmt.t list Rewriter.t =
     Rewriter.return []
 
   let rewrite_callable_entry (_call_decl: Callable.call_decl) : Stmt.t list Rewriter.t =

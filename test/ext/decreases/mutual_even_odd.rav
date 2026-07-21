@@ -1,0 +1,13 @@
+func is_even(n: Int) returns (res: Bool)
+  requires n >= 0
+  decreases n
+{
+  n > 0 ? is_odd(n - 1) : true
+}
+
+func is_odd(n: Int) returns (res: Bool)
+  requires n >= 0
+  decreases n
+{
+  n > 0 ? is_even(n - 1) : false
+}
