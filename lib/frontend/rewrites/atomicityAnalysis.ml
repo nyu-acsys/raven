@@ -11,7 +11,16 @@ type au_token = {
   implicit_bound_vars : expr list;
 }
 
-type invs = { inv_name : QualIdent.t; inv_args : Expr.t list }
+type invs = {
+  inv_name : QualIdent.t;
+  inv_args : Expr.t list;
+  (* Snapshot of [inv_args]' values at the moment this instance was opened,
+     in a fresh ghost local. The matching [fold] must prove its own
+     arguments equal this snapshot, since a local variable in [inv_args] can
+     be reassigned between [unfold] and [fold] with no argument-value check
+     otherwise catching it (reassignment isn't an atomic step). *)
+  inv_snapshot : Expr.t;
+}
 
 type atomicity_check = {
   au_opened : au_token list;
@@ -36,7 +45,12 @@ let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
     Error.verification_error loc
       "Cannot take a non-atomic step inside an atomic block"
 
-let open_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
+let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
+    atomicity_check =
+  (* The mask is keyed per invariant name, not per instance, so the
+     mask-membership check below already rejects opening a second instance
+     of [inv_name] regardless of args -- making this check unreachable in
+     practice. Left for a clearer error on the exact-duplicate case. *)
   let already_open =
     List.exists atomicity_state.invs_opened ~f:(fun inv ->
         QualIdent.(inv.inv_name = inv_name)
@@ -53,27 +67,27 @@ let open_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
   else
     {
       atomicity_state with
-      invs_opened = { inv_name; inv_args } :: atomicity_state.invs_opened;
+      invs_opened =
+        { inv_name; inv_args; inv_snapshot } :: atomicity_state.invs_opened;
       mask = Set.remove atomicity_state.mask inv_name;
     }
 
-let close_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
-  if
-    (not
-       (List.exists atomicity_state.invs_opened ~f:(fun inv ->
-            QualIdent.(inv.inv_name = inv_name)
-            && List.for_all2_exn inv_args inv.inv_args ~f:Expr.alpha_equal)))
-    && Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name)
+(* Matches by invariant name alone, not [alpha_equal] on args: the mask is
+   per-name, so at most one instance can be open at a time and name already
+   identifies it unambiguously. Whether the [fold]'s args actually match that
+   instance's value is checked separately, against its snapshot, by
+   [rewrite_au_cmnds]'s [Use] case. *)
+let close_inv ~loc inv_name atomicity_state : atomicity_check =
+  let is_open =
+    List.exists atomicity_state.invs_opened ~f:(fun inv ->
+        QualIdent.(inv.inv_name = inv_name))
+  in
+  if (not is_open) && Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name)
   then
     (* Folding a new invariant *)
     (* Allowed if invariant not already opened, but exists in the mask *)
     atomicity_state
-  else if
-    (not
-       (List.exists atomicity_state.invs_opened ~f:(fun inv ->
-            QualIdent.(inv.inv_name = inv_name)
-            && List.for_all2_exn inv_args inv.inv_args ~f:Expr.alpha_equal)))
-    && not (Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name))
+  else if (not is_open) && not (Set.exists atomicity_state.mask ~f:(QualIdent.equal inv_name))
   then
     Error.error loc
       (Printf.sprintf
@@ -83,9 +97,7 @@ let close_inv ~loc (inv_name, inv_args) atomicity_state : atomicity_check =
   else
     let invs_opened =
       List.filter atomicity_state.invs_opened ~f:(fun inv ->
-          not
-            (QualIdent.(inv.inv_name = inv_name)
-            && List.for_all2_exn inv_args inv.inv_args ~f:Expr.alpha_equal))
+          not QualIdent.(inv.inv_name = inv_name))
     in
 
     let mask = Set.add atomicity_state.mask inv_name in
@@ -257,21 +269,97 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         | CallDef c -> (
             match c.call_decl.call_decl_kind with
             | Pred -> Rewriter.return stmt
-            | Invariant ->
-                let atomicity_state =
-                  match use_desc.use_kind with
-                  | Unfold ->
+            | Invariant -> (
+                match use_desc.use_kind with
+                | Unfold ->
+                    (* See [invs.inv_snapshot]. Skip for 0-arity invariants
+                       (e.g. [inv inv1() { ... }]): only one instance is
+                       possible, so there's no identity to freeze. *)
+                    let* snap_expr, snap_stmts =
+                      match use_desc.use_args with
+                      | [] -> Rewriter.return (Expr.mk_bool ~loc true, [])
+                      | _ :: _ ->
+                          let snap_ident =
+                            Ident.fresh loc
+                              ("$inv_snapshot_"
+                              ^ Ident.to_string
+                                  (QualIdent.unqualify use_desc.use_name))
+                          in
+                          let snap_type =
+                            Type.mk_prod loc
+                              (List.map use_desc.use_args ~f:Expr.to_type)
+                          in
+                          let snap_var_decl =
+                            Type.mk_var_decl ~ghost:true ~loc snap_ident
+                              snap_type
+                          in
+                          let+ () =
+                            Rewriter.introduce_symbol
+                              (Module.VarDef
+                                 {
+                                   var_decl = snap_var_decl;
+                                   var_init = None;
+                                   var_is_free = false;
+                                 })
+                          in
+                          let snap_expr =
+                            Expr.mk_var ~typ:snap_type
+                              (QualIdent.from_ident snap_ident)
+                          in
+                          let snap_assign_stmt =
+                            Stmt.mk_assign ~loc ~is_init:true
+                              [ QualIdent.from_ident snap_ident ]
+                              (Expr.mk_tuple ~loc use_desc.use_args)
+                          in
+                          (snap_expr, [ snap_assign_stmt ])
+                    in
+                    let atomicity_state =
                       open_inv ~loc
-                        (use_desc.use_name, use_desc.use_args)
+                        (use_desc.use_name, use_desc.use_args, snap_expr)
                         atomicity_state
-                  | Fold ->
-                      close_inv ~loc
-                        (use_desc.use_name, use_desc.use_args)
-                        atomicity_state
-                in
-
-                let* _ = Rewriter.set_user_state atomicity_state in
-                Rewriter.return stmt
+                    in
+                    let* _ = Rewriter.set_user_state atomicity_state in
+                    Rewriter.return
+                      (Stmt.mk_block_stmt ~loc (snap_stmts @ [ stmt ]))
+                | Fold ->
+                    (* Unambiguous lookup: at most one instance of this name
+                       can be open (see [close_inv]). Present means this
+                       fold closes it and must match its snapshot; absent
+                       means this is a fresh allocation, as before. *)
+                    let matching_open_inv =
+                      List.find atomicity_state.invs_opened ~f:(fun inv ->
+                          QualIdent.equal inv.inv_name use_desc.use_name)
+                    in
+                    let atomicity_state =
+                      close_inv ~loc use_desc.use_name atomicity_state
+                    in
+                    let* _ = Rewriter.set_user_state atomicity_state in
+                    (match matching_open_inv, use_desc.use_args with
+                    | None, _ | _, [] ->
+                        (* Fresh allocation, or 0-arity (no snapshot exists). *)
+                        Rewriter.return stmt
+                    | Some inv, _ :: _ ->
+                        let spec_error =
+                          let error =
+                            ( Error.Verification,
+                              loc,
+                              Printf.sprintf
+                                !"Cannot fold %{Ident}: its arguments no \
+                                  longer match the instance that was opened \
+                                  by the corresponding unfold (a variable \
+                                  used to identify the instance may have \
+                                  been reassigned in between)"
+                                (use_desc.use_name |> QualIdent.unqualify) )
+                          in
+                          [ Stmt.mk_const_spec_error error ]
+                        in
+                        let assert_stmt =
+                          Stmt.mk_assert_expr ~loc ~spec_error
+                            (Expr.mk_eq ~loc inv.inv_snapshot
+                               (Expr.mk_tuple ~loc use_desc.use_args))
+                        in
+                        Rewriter.return
+                          (Stmt.mk_block_stmt ~loc [ assert_stmt; stmt ])))
             | _ -> Error.internal_error stmt.stmt_loc "expected a predicate or invariant")
         | _ -> Error.internal_error stmt.stmt_loc "expected a call_def")
     | Basic (AUAction auaction_desc) -> (

@@ -1,0 +1,22 @@
+// After copying a ref into an alias (`y := x`), a field write performed
+// through the *original* variable (`x.f := ...`) causes the verifier to lose
+// track of ownership of that same field accessed through the alias (`y.f`),
+// even though `y` was never reassigned and so still provably equals `x`.
+// This is specific to writing through the aliased variable itself: neither
+// omitting the write, nor writing to an unrelated ref instead, causes this
+// (see the accompanying .t file / try commenting out `x.f := 2` above the
+// assert, or replacing it with a write to some other ref `z.f := 2`).
+// Not related to invariants/atomicity (this incompleteness was found while
+// investigating the atomicity-analysis redesign, but it is an independent,
+// more basic gap in how field writes interact with aliasing).
+
+field f: Int
+
+proc p(x: Ref)
+  requires own(x.f, 1)
+{
+  var y: Ref;
+  y := x;
+  x.f := 2;
+  assert own(y.f, 1);
+}

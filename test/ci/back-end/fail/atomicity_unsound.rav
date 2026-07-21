@@ -1,0 +1,17 @@
+field f: Int
+
+inv test(x: Ref) {
+  own(x.f, 1)
+}  
+
+proc p(x: Ref, y: Ref)
+  requires own(y.f, 1)
+  requires test(x)
+{
+  var z: Ref;
+  unfold test(x);
+  z := x;
+  x := y;
+  fold test(x);
+  z.f := 3;
+}
