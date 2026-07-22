@@ -2,13 +2,6 @@
 
 WARMUP=0
 RUNS=2
-OPAM_SWITCH="raven"
-
-opam switch $OPAM_SWITCH
-
-eval $(opam env --switch=$OPAM_SWITCH)
-
-
 
 # Array of extensions to count
 EXT_LIST=(
@@ -18,14 +11,15 @@ EXT_LIST=(
   "lib/ext/listExt"
 )
 
+# Format changed to "path:extension"
 EXAMPLES=(
-  "test/ext_error-credits/amortised_hash.rav"
-  "test/ext_error-credits/cf_hashmap.rav"
-  "test/ext_error-credits/ec_dynamic_vec.rav"
+  "test/ext_error-credits/amortised_hash.rav:eris"
+  "test/ext_error-credits/cf_hashmap.rav:eris"
+  "test/ext_error-credits/ec_dynamic_vec.rav:eris"
 # 
-  "test/ext_prophecy/clairvoyant_coin.rav"
-  "test/ext_prophecy/lazy_coin.rav"
-  "test/ext_prophecy/rdcss.rav"
+  "test/ext_prophecy/clairvoyant_coin.rav:prophecy"
+  "test/ext_prophecy/lazy_coin.rav:prophecy"
+  "test/ext_prophecy/rdcss.rav:prophecy"
 )
 
 
@@ -89,22 +83,25 @@ count_line() {
 
 
 run_benchmark() {
-  # local array_name=$1
   local args=$2
-  # local files=("${!array_name}")
   # Print table header
   printf "%-45s %10s %10s %10s %10s %10s\n" "File" "ProgLen" "ProofDecl" "ProofInstr" "Overhead" "Runtime(s)"
   printf "%-45s %10s %10s %10s %10s %10s\n" "$(printf '%.0s=' {1..45})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})" "$(printf '%.0s=' {1..10})"
 
-  for file in "${EXAMPLES[@]}"; do
-    if [ -z "$file" ]; then
+  for item in "${EXAMPLES[@]}"; do
+    if [ -z "$item" ]; then
       echo ""
       continue
     fi
 
-    # echo "Running file $file"
+    # Split the string by the colon delimiter
+    file="${item%%:*}"
+    extension="${item##*:}"
+
     line_count=$(wc -l < "$file")
-    output=$(raven "$file" --stats)
+    
+    # Added the --extension flag here
+    output=$(raven "$file" --stats --extension="$extension")
     
     # Extract statistics from the output
     program_declarations=$(echo "$output" | grep "Program Declarations" | awk '{print $3}')
@@ -134,8 +131,8 @@ run_benchmark() {
       overhead=$(echo "scale=2; ($proof_declarations + $proof_instructions) / $program_length" | bc)
     fi
 
-    # Run hyperfine to measure runtime
-    runtime=$(hyperfine --warmup $WARMUP --runs $RUNS $args "raven \"$file\"" --export-json /tmp/hyperfine.json)
+    # Added the --extension flag here as well for hyperfine timing consistency
+    runtime=$(hyperfine --warmup $WARMUP --runs $RUNS $args "raven \"$file\" --extension=\"$extension\"" --export-json /tmp/hyperfine.json)
     runtime=$(jq '.results[0].mean' /tmp/hyperfine.json)
     runtime=$(printf "%.3f" "$runtime")
     
