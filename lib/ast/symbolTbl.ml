@@ -16,7 +16,12 @@ type subst = bool * bool * QualIdent.subst
 let is_instance (b, _, _) = b
 let is_abstract (_, b, _) = b
 let qid_subst (_, _, ss) = ss
-let extend_subst s (b1, b2, ss) = (b1, b2, s :: ss)
+(* Appended, not prepended: [QualIdent.requalify_path] applies the rules of
+   [ss] in list order, left to right, threading each rule's output into the
+   next -- so for a substitution added on top of an already-resolved (e.g.
+   aliased/instantiated) symbol to correctly apply to whatever that existing
+   chain produces, it must come after it in the list, not before. *)
+let extend_subst s (b1, b2, ss) = (b1, b2, ss @ [ s ])
 
 type entry =
   | Symbol of QualIdent.t
