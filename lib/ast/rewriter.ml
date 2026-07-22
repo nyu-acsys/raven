@@ -890,6 +890,8 @@ module Type = struct
     let open Syntax in
     match tp_expr with
     | App (Var id, [], tp_attr) -> return (Type.App (Var (f id), [], tp_attr))
+    | App (AtomicToken qual_id, [], tp_attr) ->
+        return (Type.App (AtomicToken (f qual_id), [], tp_attr))
     | App (Data (qual_id, variant_decls_list), [], tp_attr) ->
         let qual_id = f qual_id in
         let* variant_decls_list =
