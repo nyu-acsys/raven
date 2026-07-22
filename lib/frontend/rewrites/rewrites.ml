@@ -3194,6 +3194,8 @@ let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
 
   let tbl, m = Rewriter.eval ?ext_hooks (Masks.compute_masks m) tbl in
 
+  let tbl, m = Rewriter.eval ?ext_hooks (Masks.check_no_interface_reach_back m) tbl in
+
   let tbl, m = Rewriter.eval ?ext_hooks (rewrites_phase_2 m) tbl in
 
   let tbl, m = Rewriter.eval ?ext_hooks (rewrites_type_ext m) tbl in
