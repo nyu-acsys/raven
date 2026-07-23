@@ -1213,7 +1213,21 @@ module ProcessExpr = struct
                     let+ arg_expr =
                       process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ)
                     in
-                    (formal_var_decl.Type.var_type, Expr.to_type arg_expr))
+                    let arg_typ = Expr.to_type arg_expr in
+                    (* An underdetermined literal (e.g. `{||}`) peeked with no expected
+                       type gives `Bot` for its missing type information -- that's not a
+                       real type argument to solve the instantiation with, so reject it
+                       here instead of letting it flow into a bogus instantiation. *)
+                    if Type.contains_bot arg_typ then
+                      Error.type_error (Expr.to_loc arg_expr)
+                        (Printf.sprintf
+                           !"Cannot infer a type argument for %{QualIdent} from this \
+                             argument: the type of `%{Expr}` cannot be uniquely \
+                             determined here. Give it an explicit type annotation, or \
+                             write an explicit instantiation, e.g. `module M_X = \
+                             %{QualIdent}[...]`"
+                           functor_qual_ident arg_expr functor_qual_ident)
+                    else (formal_var_decl.Type.var_type, arg_typ))
               in
               let pairs =
                 match return_type_opt with

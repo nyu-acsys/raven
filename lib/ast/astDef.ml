@@ -530,6 +530,14 @@ module Type = struct
 
   let is_any tp_expr = equal tp_expr any
 
+  (** True iff [Bot] occurs anywhere in [tp_expr], e.g. `Set(Bot)` -- the type an
+      empty collection literal (`{||}`) is given absent any expected type to pin
+      down its element type. Such a type carries no real information and should
+      never be treated as a successfully inferred type argument. *)
+  let rec contains_bot = function
+    | App (Bot, _, _) -> true
+    | App (_, ts, _) -> List.exists ts ~f:contains_bot
+
   let is_set tp_expr = match tp_expr with
     | App (Map, [_; App(Bool, _, _)], _) -> true
     | _ -> false
