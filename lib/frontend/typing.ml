@@ -3350,9 +3350,42 @@ module ProcessModule = struct
     Rewriter.return (Module.{ mod_decl; mod_def })
 end
 
+(* Return variables are only meaningful once the callable has returned, so they must not
+   occur in a `requires` clause -- only in `ensures` clauses. This is checked here, as a
+   syntactic pass over the freshly parsed AST (rather than inside [ProcessCallable.process_callable]),
+   because that function is also re-entered by the rewrite passes to type-check
+   compiler-generated callables (e.g. skolem functions in [HeapsExplicitTrnsl]) whose
+   preconditions may legitimately mention their own "return" variable by construction. *)
+let rec check_return_vars_not_in_precond (m : Module.t) : unit =
+  List.iter m.mod_def ~f:(function
+    | Module.SymbolDef (CallDef callable) ->
+        let call_decl = callable.call_decl in
+        let return_qual_idents =
+          List.map call_decl.call_decl_returns ~f:(fun var_decl ->
+              QualIdent.from_ident var_decl.var_name)
+          |> Set.of_list (module QualIdent)
+        in
+        List.iter call_decl.call_decl_precond ~f:(fun spec ->
+            match
+              Set.choose
+                (Set.inter (Expr.symbols spec.spec_form) return_qual_idents)
+            with
+            | Some qual_ident ->
+                Error.type_error (QualIdent.to_loc qual_ident)
+                  (Printf.sprintf
+                     !"Return variable %{QualIdent} cannot be used in a requires clause; it is only in scope in ensures clauses"
+                     qual_ident)
+            | None -> ())
+    | Module.SymbolDef (ModDef nested_md) ->
+        check_return_vars_not_in_precond nested_md
+    | Module.SymbolDef (ModInst _ | TypeDef _ | ConstrDef _ | DestrDef _ | FieldDef _ | VarDef _)
+    | Module.Import _ ->
+        ())
+
 let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
+  let () = check_return_vars_not_in_precond m in
   let tbl, m =
     Rewriter.eval ?ext_hooks
       (fun st ->
