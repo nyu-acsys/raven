@@ -8,5 +8,4 @@ log*.smt2
 front_end_processed_output.log
 benchmarks.csv
 CLAUDE.md
-WISHLIST.md
-atomiticy_redesign.md
+local/

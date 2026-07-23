@@ -19,12 +19,12 @@
     + fix missing triggers in all `Expr.mk_binder` calls
 
 - [x] add forks
-- toy around with preds as macros
+- [x] toy around with preds as macros
 
 
 
 Type-checking:
-  - Ensure that return variables are not allowed in pre-conditions
+  - [x] Ensure that return variables are not allowed in pre-conditions
   - Check that openAU, commitAU having right number of arguments
   - Check that assertion expressions having the right format -- conditionals in ternary expr being pure, etc
   - Ensure that return variables of functions are not used in the function body
