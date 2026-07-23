@@ -1052,7 +1052,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
               ProgUtils.pred_to_ra_mod_ident ~loc
                 c.call_decl.call_decl_name;
             mod_inst_type;
-            mod_inst_def = Some (mod_inst_def_ra, [ pred_ret_type_module ]);
+            mod_inst_def = Some (mod_inst_def_ra, [ Module.ModArg pred_ret_type_module ]);
             mod_inst_is_interface = false;
             mod_inst_is_free = false;
             mod_inst_loc = loc;
@@ -1128,7 +1128,8 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
               mod_inst_def =
                 Some
                   ( Predefs.lib_atomic_token_ra_mod_qual_ident,
-                    [ proc_conrete_args_type_module; proc_ret_type_module ] );
+                    [ Module.ModArg proc_conrete_args_type_module;
+                      Module.ModArg proc_ret_type_module ] );
               mod_inst_is_interface = false;
               mod_inst_is_free = false;
               mod_inst_loc = loc;

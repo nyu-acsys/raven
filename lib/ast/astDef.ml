@@ -2425,10 +2425,18 @@ module Module = struct
     destr_return_type : type_expr;
   }
 
+  (** An argument to a functor application `F[args]`. [ModArg] names an
+      existing module; [TypeArg] is a bare type (e.g. `Int`), auto-wrapped
+      at type-checking time into a fresh module implementing the
+      corresponding formal's rep-typed interface. *)
+  type module_inst_arg =
+    | ModArg of QualIdent.t
+    | TypeArg of type_expr
+
   type module_inst = {
     mod_inst_name : ident;
     mod_inst_type : QualIdent.t;
-    mod_inst_def : (QualIdent.t * QualIdent.t list) option;
+    mod_inst_def : (QualIdent.t * module_inst_arg list) option;
     mod_inst_is_interface : bool;
     mod_inst_is_free : bool;
     mod_inst_loc : location;
@@ -2538,13 +2546,17 @@ module Module = struct
       function
       | ModDef md -> pr ppf md
       | ModInst ma ->
+          let pr_mod_inst_arg ppf = function
+            | ModArg qi -> QualIdent.pr ppf qi
+            | TypeArg tp -> Type.pr ppf tp
+          in
           fprintf ppf "@[<2>%smodule@ %a : %a%a@]"
             (if ma.mod_inst_is_free then "free " else "")
             Ident.pr ma.mod_inst_name
             QualIdent.pr ma.mod_inst_type
             (fun ppf -> function
               | None -> ()
-              | Some (t, ts) -> fprintf ppf " =@ %a[%a]" QualIdent.pr t QualIdent.pr_list ts)
+              | Some (t, ts) -> fprintf ppf " =@ %a[%a]" QualIdent.pr t (Print.pr_list_comma pr_mod_inst_arg) ts)
             ma.mod_inst_def
       | TypeDef ta ->
           fprintf ppf "@[%s%stype %a%a@]"

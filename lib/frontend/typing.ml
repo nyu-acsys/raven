@@ -2907,14 +2907,20 @@ module ProcessModule = struct
                 let* mod_inst_type =
                   Rewriter.resolve mod_inst.mod_inst_type
                 in
-                let symbol = Module.ModInst { mod_inst with mod_inst_type } in
-                (* Pair up formal parameters of F with arguments `args` *)
-                let* to_check =
-                  Rewriter.Option.map mod_inst.mod_inst_def
-                    ~f:(fun (mod_inst_func, mod_inst_args) ->
-                      let* _ = Rewriter.declare_symbol symbol in
-                      (* Get qualified name of F and its symbol *)  
-                      let+ qual_functor_ident, functor_symbol =
+                (* Resolve the functor `F` and pair up its formals with `args`,
+                   wrapping any bare-type argument (e.g. `M[Int]`) into a
+                   synthesized module implementing the formal's rep-typed
+                   interface (see `ProgUtils.intros_rep_module`). This must
+                   happen *before* `declare_symbol` below, since
+                   `SymbolTbl.add_symbol` resolves every argument to an
+                   already-existing module to build the instance's
+                   substitution. *)
+                let* mod_inst_def, to_check =
+                  match mod_inst.mod_inst_def with
+                  | None -> Rewriter.return (None, [])
+                  | Some (mod_inst_func, mod_inst_args) ->
+                      (* Get qualified name of F and its symbol *)
+                      let* qual_functor_ident, functor_symbol =
                         Rewriter.resolve_and_find
                           mod_inst_func
                       in
@@ -2924,21 +2930,59 @@ module ProcessModule = struct
                           function
                           | Ast.Module.ModDef mod_def when not is_instance ->
                               List.map mod_def.mod_decl.mod_decl_formals
-                                ~f:(fun mod_inst ->
-                                  subst mod_inst.mod_inst_type)
+                                ~f:(fun formal -> (formal, subst formal.mod_inst_type))
                           | _ -> [])
                       in
                       (* Pair up `args` and formals *)
-                      let args_and_formals =
+                      let* args_and_formals =
                         match List.zip mod_inst_args formals with
-                        | Ok res -> res
+                        | Ok res -> Rewriter.return res
                         | Unequal_lengths ->
                             arg_mismatch_error "Module" (QualIdent.to_loc mod_inst_func) (Type.Var mod_inst_func)
                               (List.length formals)
                       in
-                      (qual_functor_ident, mod_inst.mod_inst_type) :: args_and_formals)
+                      let+ resolved_args =
+                        Rewriter.List.map args_and_formals
+                          ~f:(fun (arg, (formal, formal_iface)) ->
+                            match arg with
+                            | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
+                            | Module.TypeArg tp -> (
+                                let* rep = ProgUtils.resolve_rep_ident formal_iface in
+                                match rep with
+                                | None ->
+                                    Error.type_error (Type.to_loc tp)
+                                      (Printf.sprintf
+                                         !"Cannot pass a type as argument for parameter \
+                                           %{Ident}: interface %{QualIdent} does not \
+                                           declare a rep type"
+                                         formal.mod_inst_name formal_iface)
+                                | Some (interface_qual_ident, rep_ident) ->
+                                    let* insert_scope, reference_scope =
+                                      ProgUtils.find_insertion_scope_for_types [ tp ]
+                                    in
+                                    let+ qi =
+                                      ProgUtils.get_or_intros_rep_module
+                                        ~loc:(Type.to_loc tp)
+                                        ~f:!(Rewriter.process_symbol_ref)
+                                        ~insert_scope ~reference_scope
+                                        ~interface_qual_ident ~rep_ident tp
+                                    in
+                                    (qi, formal_iface)))
+                      in
+                      ( Some
+                          ( qual_functor_ident,
+                            List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi) ),
+                        (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
                 in
-                let to_check = Option.value to_check ~default:[] in
+                let symbol = Module.ModInst { mod_inst with mod_inst_type; mod_inst_def } in
+                (* Only instantiations (`mod_inst_def = Some _`) are declared here;
+                   abstract module parameters (`mod_inst_def = None`) are already
+                   declared by the pre-declare pass above. *)
+                let* _ =
+                  match mod_inst.mod_inst_def with
+                  | None -> Rewriter.return ()
+                  | Some _ -> Rewriter.declare_symbol symbol
+                in
                 (* Check that `args` satisfy module types of formals *)
                 let+ _ =
                   Rewriter.List.iter to_check ~f:(fun (m, i) ->

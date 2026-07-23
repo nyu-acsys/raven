@@ -489,10 +489,18 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                     let formal_id =
                       QualIdent.append mod_inst_func formal.mod_inst_name
                     in
-                    let _, arg, _arg_symbol, _arg_subst =
-                      resolve_and_find_exn arg tbl
+                    let arg_qi =
+                      match arg with
+                      | Module.ModArg qi -> qi
+                      | Module.TypeArg tp ->
+                          Error.internal_error (Type.to_loc tp)
+                            "Type argument was not resolved to a module before \
+                             being declared"
                     in
-                    (formal_id, QualIdent.to_list arg))
+                    let _, arg_qi, _arg_symbol, _arg_subst =
+                      resolve_and_find_exn arg_qi tbl
+                    in
+                    (formal_id, QualIdent.to_list arg_qi))
               in
               match res with
               | Ok subst ->

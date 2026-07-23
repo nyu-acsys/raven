@@ -924,6 +924,27 @@ let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
   in
   find_concrete_scope largest_prefix
 
+(** Get the module wrapping [tp] as an implementation of [interface_qual_ident]
+    (with rep type [rep_ident]), reusing an existing wrapper at the
+    deterministic name (see [rep_module_name_string]) already in scope, or
+    else creating one via [intros_rep_module]. [insert_scope]/[reference_scope]
+    are as computed by [find_insertion_scope_for_types]. *)
+let get_or_intros_rep_module ~(loc : location)
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    ~(insert_scope : qual_ident) ~(reference_scope : qual_ident)
+    ~(interface_qual_ident : qual_ident) ~(rep_ident : ident)
+    (tp : AstDef.type_expr) : qual_ident t =
+  let open Rewriter.Syntax in
+  let canonical_qi =
+    QualIdent.append reference_scope
+      (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0)
+  in
+  let* resolve_result = Rewriter.resolve_opt canonical_qi in
+  match resolve_result with
+  | Some _ -> return canonical_qi
+  | None ->
+      intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident ~rep_ident tp
+
 (** Get or create (and typecheck) the instantiation
     [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
     what [ListExt.rewrite_type_ext] does for `List[T]`. Every formal of
@@ -959,18 +980,8 @@ let instantiate_type_functor ~(loc : location)
                    !"formal %{Ident}'s constraint %{QualIdent} has no rep type"
                    formal.mod_inst_name formal.mod_inst_type)
           | Some (interface_qual_ident, rep_ident) ->
-              let canonical_qi =
-                QualIdent.append reference_scope
-                  (Ident.make loc
-                     (serialize (rep_module_name_string ~interface_qual_ident tp))
-                     0)
-              in
-              let* resolve_result = Rewriter.resolve_opt canonical_qi in
-              match resolve_result with
-              | Some _ -> return canonical_qi
-              | None ->
-                  intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident
-                    ~rep_ident tp)
+              get_or_intros_rep_module ~loc ~f ~insert_scope ~reference_scope
+                ~interface_qual_ident ~rep_ident tp)
     in
     let inst_mod_ident =
       match canonical_mod_ident with
@@ -995,7 +1006,7 @@ let instantiate_type_functor ~(loc : location)
             {
               mod_inst_name = inst_mod_ident;
               mod_inst_type = functor_qual_ident;
-              mod_inst_def = Some (functor_qual_ident, arg_module_qis);
+              mod_inst_def = Some (functor_qual_ident, Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi));
               mod_inst_is_interface = false;
               mod_inst_is_free = false;
               mod_inst_loc = loc;

@@ -136,7 +136,11 @@ module_inst_or_impl_or_decl:
 }
 
 mod_inst_args:
-| LBRACKET ids = separated_list(COMMA, mod_ident) RBRACKET { ids }
+| LBRACKET tps = separated_list(COMMA, type_expr) RBRACKET {
+  List.map (function
+    | Type.App (Type.Var qi, [], _) -> Module.ModArg qi
+    | tp -> Module.TypeArg tp) tps
+}
 | { [] }
     
 member_def_list_opt:

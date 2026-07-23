@@ -1845,7 +1845,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
                   f.field_name field_type;
               mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
               mod_inst_def =
-                Some (Predefs.lib_frac_mod_qual_ident, [ tp_module ]);
+                Some (Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ]);
               mod_inst_is_interface = false;
               mod_inst_is_free = false;
               mod_inst_loc = f.field_loc;

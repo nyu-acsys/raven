@@ -1598,13 +1598,20 @@ module Module = struct
     let open Module in
     function
     | ModInst mod_inst ->
-        let mod_inst_def =
-          Base.Option.map mod_inst.mod_inst_def
+        let+ mod_inst_def =
+          Option.map mod_inst.mod_inst_def
             ~f:(fun (mod_inst_def_funct, mod_inst_def_args) ->
-              (f mod_inst_def_funct, Base.List.map ~f mod_inst_def_args))
+              let+ mod_inst_def_args =
+                List.map mod_inst_def_args ~f:(function
+                  | Module.ModArg qi -> return (Module.ModArg (f qi))
+                  | Module.TypeArg tp ->
+                      let+ tp = Type.rewrite_qual_idents ~f tp in
+                      Module.TypeArg tp)
+              in
+              (f mod_inst_def_funct, mod_inst_def_args))
         in
         let mod_inst_type = f mod_inst.mod_inst_type in
-        return @@ ModInst { mod_inst with mod_inst_type; mod_inst_def }
+        ModInst { mod_inst with mod_inst_type; mod_inst_def }
     | TypeDef type_def ->
         let+ type_def_expr =
           Option.map type_def.type_def_expr ~f:(Type.rewrite_qual_idents ~f)
