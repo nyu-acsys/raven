@@ -1,0 +1,8 @@
+// A subexpression can be annotated with a type, `(e: T)` -- or, as a call
+// argument, `f(e: T)` without the extra parens. This disambiguates an
+// otherwise-underdetermined expression like the empty set literal `{||}`,
+// whose element type would otherwise be unresolvable when passed to an
+// uninstantiated generic functor.
+val s = Library.DisjSet.set({||} : Set[Int])
+
+val t = (1 + 1 : Int)

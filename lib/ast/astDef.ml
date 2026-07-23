@@ -665,7 +665,15 @@ module Expr = struct
 
   type binder = Forall | Exists | Compr [@@deriving compare]
 
-  type expr_attr = { expr_loc : location [@compare.ignore]; expr_type : type_expr }
+  type expr_attr = {
+    expr_loc : location [@compare.ignore];
+    expr_type : type_expr;
+    (* User-written type annotation `(e: T)`, if any -- set by the parser,
+       consumed (and cleared) by the type-checker, which must verify it
+       against [e]'s own type and the surrounding expected type rather than
+       taking it for granted. *)
+    expr_type_annot : type_expr option [@compare.ignore];
+  }
 
   and t =
     (* Application expressions *)
@@ -673,15 +681,23 @@ module Expr = struct
     (* Variable binder expressions *)
     | Binder of binder * var_decl list * (t list) list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
 
-  let mk_attr loc t = { expr_loc = loc; expr_type = t }
+  let mk_attr loc t = { expr_loc = loc; expr_type = t; expr_type_annot = None }
   let attr_of = function App (_, _, attr) | Binder (_, _, _, _, attr) -> attr
   let to_loc t = t |> attr_of |> fun attr -> attr.expr_loc
   let to_type t = t |> attr_of |> fun attr -> attr.expr_type
+  let to_type_annot t = t |> attr_of |> fun attr -> attr.expr_type_annot
 
-  let set_type t tp = 
+  let set_type t tp =
     let attr = attr_of t in
     let attr = { attr with expr_type = tp } in
-    match t with 
+    match t with
+    | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
+
+  let set_type_annot t tp_annot =
+    let attr = attr_of t in
+    let attr = { attr with expr_type_annot = tp_annot } in
+    match t with
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 

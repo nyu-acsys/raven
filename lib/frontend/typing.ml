@@ -300,6 +300,18 @@ module ProcessExpr = struct
     =
     let open Rewriter.Syntax in
     let* () = Rewriter.Logs.debug (fun printers m -> m "process_expr: %a; expected: %a is ghost: %b" printers.pr_expr expr printers.pr_type expected_typ (Type.is_ghost expected_typ)) in
+    match Expr.to_type_annot expr with
+    | Some annot_typ ->
+        (* `(e: T)`: check `e` against the user's annotation `T` (which disambiguates
+           an otherwise-underdetermined `e`, e.g. `({||}: Set[Int])`), then check that
+           the resulting type is still consistent with the surrounding context
+           [expected_typ] -- the annotation is never taken for granted. *)
+        let* annot_typ = ProcessTypeExpr.process_type_expr annot_typ in
+        let annot_typ = annot_typ |> Type.set_ghost_to expected_typ in
+        let* e = process_expr ~allow_proc_call (Expr.set_type_annot expr None) annot_typ in
+        let actual_typ = Expr.to_type e in
+        check_and_set e actual_typ actual_typ expected_typ
+    | None -> (
     match expr with
     | App (constr, expr_list, expr_attr) -> (
         match (constr, expr_list) with
@@ -892,7 +904,7 @@ module ProcessExpr = struct
             let expr =
               Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr)
             in
-            check_and_set expr expr_typ expr_typ expected_typ)
+            check_and_set expr expr_typ expr_typ expected_typ))
 
 (* end of process_expr *)
 
@@ -2076,7 +2088,7 @@ module ProcessCallable = struct
           Expr.App
             ( Var call_desc.call_name,
               call_desc.call_args,
-              { Expr.expr_loc = stmt_loc; expr_type = Type.any } )
+              Expr.mk_attr stmt_loc Type.any )
           |> fun expr ->
           disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl ~allow_proc_call:true
         in

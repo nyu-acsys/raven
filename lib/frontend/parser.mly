@@ -840,6 +840,9 @@ primary:
 | LPAREN; es = separated_list(COMMA, expr); RPAREN {
   Expr.mk_tuple ~loc:(Loc.make $startpos $endpos) es
 }
+| LPAREN; e = expr; COLON; t = type_expr; RPAREN {
+  Expr.set_type_annot e (Some t)
+}
 | e = compr_expr { e }
 | e = dot_expr { e }
 | e = own_expr { e }
@@ -887,7 +890,13 @@ call_expr:
 }
   
 call:
-| LPAREN; es = separated_list(COMMA, expr); RPAREN { es }
+| LPAREN; es = separated_list(COMMA, call_arg); RPAREN { es }
+
+(* A call argument, optionally annotated with a type (`f(e: T)`) without needing
+   the extra parens the standalone `(e: T)` form (see `primary`) would require. *)
+call_arg:
+| e = expr { e }
+| e = expr; COLON; t = type_expr { Expr.set_type_annot e (Some t) }
   
 call_opt:
 | es = call { 
