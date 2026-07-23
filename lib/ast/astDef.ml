@@ -2168,6 +2168,17 @@ module Stmt = struct
     stmt_au_preds_referenced s
 end
 
+(** Whether a callable's/module's correctness is checked, admitted via the user's own
+    `free` keyword, or established free by the compiler (e.g. an interface member
+    inherited unchanged). The latter two aren't interchangeable: see
+    [Rewriter.is_relaxed_lookup] for a case that must trust only [MachineFree]. *)
+type free_status =
+  | NotFree
+  | UserFree
+  | MachineFree
+
+let is_free = function NotFree -> false | UserFree | MachineFree -> true
+
 (** Callables *)
 
 module Callable = struct
@@ -2185,7 +2196,7 @@ module Callable = struct
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_contract_ext : Stmt.contract_ext list;  (** extension-defined contract clauses, e.g. [decreases]; see [Stmt.loop_desc.loop_contract_ext] *)
-    call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
+    call_decl_status : free_status; (** Whether this callable's correctness is checked, admitted, or established free by the compiler -- see [free_status] *)
     call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
     call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
     call_decl_loc : location;  (** source location of declaration *)
@@ -2242,9 +2253,9 @@ module Callable = struct
         | true -> "auto "
         | false -> ""
       in
-      let free_modifier = match call_decl.call_decl_is_free with
-        | true -> "free "
-        | false -> ""
+      let free_modifier = match call_decl.call_decl_status with
+        | NotFree -> ""
+        | UserFree | MachineFree -> "free "
       in
       let kind =
         match call_decl.call_decl_kind with
@@ -2371,15 +2382,18 @@ module Callable = struct
       ~init:symbols_w_locals_and_spec
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
 
-  (** Change the given symbol to one whose correctness is assumed *)
-  let set_free callable =
+  (** Change the given symbol to one whose correctness is assumed, with the given [free_status] *)
+  let set_status status callable =
     let call_def =
       if is_abstract callable then callable.call_def else
         match callable.call_def with
         | ProcDef proc_def -> ProcDef { proc_body = None }
         | call_def -> call_def
     in
-    { call_def; call_decl = { (to_decl callable) with call_decl_is_free = true } }
+    { call_def; call_decl = { (to_decl callable) with call_decl_status = status } }
+
+  let set_free callable = set_status UserFree callable
+  let set_machine_free callable = set_status MachineFree callable
 
   let is_atomic c =
     List.exists (c.call_decl_precond @ c.call_decl_postcond) ~f:(fun spec -> spec.spec_atomic)
@@ -2435,7 +2449,7 @@ module Module = struct
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
-    mod_decl_is_free : bool;
+    mod_decl_status : free_status; (** See [call_decl_status]/[free_status] *)
     mod_decl_loc : location;
   }
 
@@ -2588,7 +2602,7 @@ module Module = struct
       mod_decl_loc = Loc.dummy;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
-      mod_decl_is_free = false;
+      mod_decl_status = NotFree;
     }
 
 
@@ -2623,19 +2637,24 @@ module Module = struct
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
-  let rec set_symbol_free = function
-    | ModDef md -> ModDef (set_free md)
-    | CallDef cdef -> CallDef (Callable.set_free cdef)
+  let rec set_symbol_status status = function
+    | ModDef md -> ModDef (set_status status md)
+    | CallDef cdef -> CallDef (Callable.set_status status cdef)
     | TypeDef td -> TypeDef { td with type_def_is_free = true }
     | VarDef vd -> VarDef { vd with var_is_free = true }
     | ModInst mi -> ModInst { mi with mod_inst_is_free = true }
     | symbol -> symbol
-  and set_free md =
-    let mod_decl = { md.mod_decl with mod_decl_is_free = true } in
-    { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr -> 
+  and set_status status md =
+    let mod_decl = { md.mod_decl with mod_decl_status = status } in
+    { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr ->
         match instr with
-        | SymbolDef symbol -> SymbolDef (set_symbol_free symbol)
+        | SymbolDef symbol -> SymbolDef (set_symbol_status status symbol)
         | _ -> instr) }
+
+  let set_free = set_status UserFree
+  let set_symbol_free = set_symbol_status UserFree
+  let set_machine_free = set_status MachineFree
+  let set_symbol_machine_free = set_symbol_status MachineFree
 end
 
 (** Symbols (for convenience) *)
@@ -2686,14 +2705,14 @@ module Symbol = struct
       | Invariant -> "invariant"
 
   let is_free = function
-    | ModDef mod_def -> mod_def.mod_decl.mod_decl_is_free
+    | ModDef mod_def -> is_free mod_def.mod_decl.mod_decl_status
     | ModInst mod_inst -> mod_inst.mod_inst_is_free
     | TypeDef type_def -> type_def.type_def_is_free
     | ConstrDef cdef -> false
     | DestrDef cdef -> false
     | VarDef var_def -> var_def.var_is_free
     | FieldDef field_def -> false
-    | CallDef call_def -> call_def.call_decl.call_decl_is_free
+    | CallDef call_def -> is_free call_def.call_decl.call_decl_status
 
   let set_free = Module.set_symbol_free
 
@@ -2822,7 +2841,10 @@ let merge_prog (prog1: Module.t) (prog2: Module.t) =
       mod_decl_rep = prog2.mod_decl.mod_decl_rep;
       mod_decl_is_ra = prog1.mod_decl.mod_decl_is_ra || prog2.mod_decl.mod_decl_is_ra;
       mod_decl_is_interface = prog1.mod_decl.mod_decl_is_interface || prog2.mod_decl.mod_decl_is_interface;
-      mod_decl_is_free = prog1.mod_decl.mod_decl_is_free && prog2.mod_decl.mod_decl_is_free;
+      mod_decl_status =
+        (match prog1.mod_decl.mod_decl_status, prog2.mod_decl.mod_decl_status with
+         | NotFree, _ | _, NotFree -> NotFree
+         | _, status2 -> status2);
       mod_decl_loc = prog2.mod_decl.mod_decl_loc;
     }
   

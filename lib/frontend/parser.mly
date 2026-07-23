@@ -329,7 +329,7 @@ callable_decl:
                call_decl_precond = precond;
                call_decl_postcond = postcond;
                call_decl_contract_ext = contract_ext;
-               call_decl_is_free = false;
+               call_decl_status = NotFree;
                call_decl_is_auto = false;
                call_decl_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
@@ -349,7 +349,7 @@ callable_decl_out_vars:
                call_decl_precond = precond;
                call_decl_postcond = postcond;
                call_decl_contract_ext = contract_ext;
-               call_decl_is_free = false;
+               call_decl_status = NotFree;
                call_decl_is_auto = false;
                call_decl_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);

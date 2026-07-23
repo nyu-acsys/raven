@@ -169,6 +169,9 @@ type 'a state = {
   state_update_table : bool;
   state_new_symbols_tree : NewSymbolsTree.t;
   state_ghost_scope : bool list;
+  (* Stack mirroring [state_ghost_scope]: true inside a [MachineFree] (not [UserFree])
+     scope. See [resolve_and_find_opt]'s fallback, the only consumer. *)
+  state_relaxed_lookup : bool list;
   state_user_data : 'a;
   state_ext_hooks : ext_hooks;
 }
@@ -383,6 +386,7 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks) m tbl =
       state_update_table = update;
       state_new_symbols_tree = NewSymbolsTree.new_symbol_tree (QualIdent.to_ident tbl.tbl_root.scope_id);
       state_ghost_scope = [];
+      state_relaxed_lookup = [];
       state_user_data = ();
       state_ext_hooks = ext_hooks;
     }
@@ -521,6 +525,16 @@ let is_ghost_scope s =
 let exit_ghost s = ({ s with state_ghost_scope = Base.List.tl_exn s.state_ghost_scope }, ())
 let enter_ghost b s = ({ s with state_ghost_scope = b :: s.state_ghost_scope }, ())
 
+let is_relaxed_lookup s =
+  (s, Base.List.hd s.state_relaxed_lookup |> Base.Option.value ~default:false)
+let exit_relaxed_lookup s = ({ s with state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup }, ())
+let enter_relaxed_lookup b s = ({ s with state_relaxed_lookup = b :: s.state_relaxed_lookup }, ())
+
+(** Looks [qual_ident] up directly in the flat table of all fully-qualified symbols
+    seen so far, bypassing [resolve]'s scope-relative guard/alias-chasing. Only valid
+    for qualidents that already resolved successfully once before. *)
+let find_absolute qual_ident s = (s, Base.Map.find s.state_table.tbl_symbols qual_ident)
+
 let exit_block s = exit_ghost s
 let enter_block block s =
   let is_ghost_scope = Base.List.hd_exn s.state_ghost_scope || block.Stmt.block_is_ghost in
@@ -591,10 +605,12 @@ let exit_module (mdef : Module.t) s =
   in
 
   let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
-  ( { s with 
-      state_table = SymbolTbl.exit tbl; 
-      state_new_symbols_tree; 
-      state_ghost_scope 
+  let state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup in
+  ( { s with
+      state_table = SymbolTbl.exit tbl;
+      state_new_symbols_tree;
+      state_ghost_scope;
+      state_relaxed_lookup;
     }, mdef )
 
 let exit_callable (call_def : Callable.t) s =
@@ -637,7 +653,8 @@ let exit_callable (call_def : Callable.t) s =
   in
 
   let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
-  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols_tree; state_ghost_scope },
+  let state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup in
+  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols_tree; state_ghost_scope; state_relaxed_lookup },
     call_def )
 
 let enter symbol s =
@@ -650,6 +667,17 @@ let enter symbol s =
     | ModDef _ | CallDef _ -> false
     | _ -> failwith "enter: expected module or callable symbol"
   in
+  (* [MachineFree] only: a user-marked [UserFree] symbol's contract isn't pre-validated,
+     so it must not enable [resolve_and_find_opt]'s relaxed-lookup fallback. *)
+  let is_free_scope =
+    match symbol with
+    | Module.CallDef { call_decl = { call_decl_status = MachineFree; _ }; _ } -> true
+    | ModDef { mod_decl = { mod_decl_status = MachineFree; _ }; _ } -> true
+    | _ -> false
+  in
+  let relaxed_lookup =
+    is_free_scope || (Base.List.hd s.state_relaxed_lookup |> Base.Option.value ~default:false)
+  in
   let symbol_ident = Symbol.to_name symbol in
   let _, scope_id = current_scope_id s in
   let state_new_symbols_tree = NewSymbolsTree.create_node ~is_ghost:is_ghost_scope (QualIdent.append scope_id symbol_ident) s.state_new_symbols_tree in
@@ -657,6 +685,7 @@ let enter symbol s =
       s with
       state_table = SymbolTbl.enter_exn symbol_ident s.state_table;
       state_ghost_scope = is_ghost_scope :: s.state_ghost_scope;
+      state_relaxed_lookup = relaxed_lookup :: s.state_relaxed_lookup;
       state_new_symbols_tree;
     },
     () )
@@ -1671,7 +1700,7 @@ module Symbol = struct
 
         (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
         match symbol1 with
-        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.set_free call_def)
+        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.set_machine_free call_def)
         | _ -> symbol1
 
   let reify_type_def loc (name, symbol, subst) :
@@ -1728,15 +1757,32 @@ module Symbol = struct
       subst
 end
 
+let resolve_and_find_opt name: ((QualIdent.t * Symbol.t) option, 'a) t_ext =
+  let open Syntax in
+  let* tbl = get_table in
+
+  match SymbolTbl.resolve_and_find name tbl with
+  | Some (alias_qual_ident, qual_ident, symbol, subst) ->
+    return (Some (qual_ident, (alias_qual_ident, symbol, subst)))
+  | None ->
+    (* Last resort for a machine-free symbol's already-validated contract/body: a prior
+       qualident substitution (e.g. a functor formal rewritten to its argument) can
+       produce an absolute reference that no longer carries the instantiation context
+       that made it legal, so the scope-relative guard above rejects it here even
+       though it already resolved once. Only reached after that guard has failed, so
+       it can't change the outcome for anything that resolves normally. *)
+    let* relaxed = is_relaxed_lookup in
+    if not relaxed then return None
+    else
+      let+ symbol = find_absolute name in
+      Base.Option.map symbol ~f:(fun symbol -> (name, (name, symbol, (false, false, []))))
+
 let resolve_and_find name : (QualIdent.t * Symbol.t, 'a) t_ext =
   let open Syntax in
-  let+ tbl = get_table in
-  (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id)); *)
-  (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children)); *)
-  let alias_qual_ident, qual_ident, symbol, subst =
-    SymbolTbl.resolve_and_find_exn name tbl
-  in
-  (qual_ident, (alias_qual_ident, symbol, subst))
+  let+ resolved = resolve_and_find_opt name in
+  match resolved with
+  | Some resolved -> resolved
+  | None -> SymbolTbl.unknown_ident_error (QualIdent.to_loc name) name
 
 let resolve name : (QualIdent.t, 'a) t_ext =
   let open Syntax in
@@ -1745,15 +1791,6 @@ let resolve name : (QualIdent.t, 'a) t_ext =
       m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name
         QualIdent.pr qual_ident);*)
   qual_ident
-
-let resolve_and_find_opt name: ((QualIdent.t * Symbol.t) option, 'a) t_ext =
-  let open Syntax in
-  let+ tbl = get_table in
-
-  match SymbolTbl.resolve_and_find name tbl with
-  | None -> None
-  | Some (alias_qual_ident, qual_ident, symbol, subst) ->
-    Some (qual_ident, (alias_qual_ident, symbol, subst))
 
 let resolve_opt name : (QualIdent.t option, 'a) t_ext =
   let open Syntax in

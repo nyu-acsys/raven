@@ -187,7 +187,7 @@ let intros_type_module ~(loc : location) ?scope
       mod_decl_rep = Some Predefs.lib_type_rep_type_ident;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
-      mod_decl_is_free = true;
+      mod_decl_status = MachineFree;
       mod_decl_loc = loc;
     }
   in
@@ -843,7 +843,7 @@ let intros_rep_module ~(loc : location) ?scope
       mod_decl_rep = Some rep_ident;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
-      mod_decl_is_free = true;
+      mod_decl_status = MachineFree;
       mod_decl_loc = loc;
     }
   in

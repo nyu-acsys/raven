@@ -243,7 +243,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           call_decl_precond = [];
           call_decl_postcond = [ postcond ];
           call_decl_contract_ext = [];
-          call_decl_is_free = true;
+          call_decl_status = MachineFree;
           call_decl_is_auto = false;
           call_decl_mask = None;
           call_decl_loc = Expr.to_loc expr;
@@ -411,7 +411,7 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
           call_decl_precond = [];
           call_decl_postcond = [ postcond ];
           call_decl_contract_ext = [];
-          call_decl_is_free = true;
+          call_decl_status = MachineFree;
           call_decl_is_auto = false;
           call_decl_mask = None;
           call_decl_loc = Expr.to_loc expr;
@@ -695,7 +695,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
           call_decl_contract_ext = loop_contract_ext;
-          call_decl_is_free = false;
+          call_decl_status = NotFree;
           call_decl_is_auto = false;
           call_decl_mask = None;
           call_decl_loc = stmt.stmt_loc;
@@ -2103,7 +2103,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
     Callable.t Rewriter.t =
   let open Rewriter.Syntax in
-  if c.call_decl.call_decl_is_free then Rewriter.return c else
+  if is_free c.call_decl.call_decl_status then Rewriter.return c else
   match c.call_decl.call_decl_kind with
   | Pred | Invariant -> (
       match (c.call_decl.call_decl_returns, c.call_def) with
@@ -2206,7 +2206,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_precond = [];
               call_decl_postcond = postconds;
               call_decl_contract_ext = [];
-              call_decl_is_free = false;
+              call_decl_status = NotFree;
               call_decl_is_auto = false;
               call_decl_mask = None;
               call_decl_loc = c.call_decl.call_decl_loc;
@@ -2253,7 +2253,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
     postcondition becomes globally available, which is exactly the fact the func's own (otherwise
     unprovable for recursive funcs) contract needs. The original func is left untouched; the
     verification of its contract in the back-end relies solely on this generated lemma (see
-    [rewrite_callable_pre_post_conds] / [Callable.call_decl_is_free] handling for that func). *)
+    [rewrite_callable_pre_post_conds] / [Callable.call_decl_status] handling for that func). *)
 let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let* _ = Rewriter.enter_module m in
@@ -2282,7 +2282,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
         when Poly.(call_decl.call_decl_kind = Func)
              && (not (List.is_empty call_decl.call_decl_postcond)
                  || not (List.is_empty call_decl.call_decl_contract_ext))
-             && not call_decl.call_decl_is_free ->
+             && not (is_free call_decl.call_decl_status) ->
           Some (call_decl, body)
       | _ -> None)
   in
@@ -2420,7 +2420,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                   call_decl_precond = [];
                   call_decl_postcond = lemma_postconds;
                   call_decl_contract_ext = [];
-                  call_decl_is_free = false;
+                  call_decl_status = NotFree;
                   call_decl_is_auto = true;
                   call_decl_mask = None;
                   call_decl_loc = call_decl.call_decl_loc;
@@ -3285,8 +3285,8 @@ Specification Count: %d"
 
   and computeSymbolStats s : prog_stats Rewriter.t =
     match s with
-    | ModDef md -> 
-      if md.mod_decl.mod_decl_is_free then
+    | ModDef md ->
+      if is_free md.mod_decl.mod_decl_status then
         Rewriter.return init_prog_stats
       else
         computeStats md
@@ -3308,7 +3308,7 @@ Specification Count: %d"
   and computeCallableStats c : prog_stats Rewriter.t =
     let open Rewriter.Syntax in 
 
-    if c.call_decl.call_decl_is_free then
+    if is_free c.call_decl.call_decl_status then
       Rewriter.return init_prog_stats
     else
 

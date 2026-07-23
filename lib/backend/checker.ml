@@ -256,7 +256,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
   | ProcDef proc_def -> (
       let* _ =
         match proc_def.proc_body with
-        | Some stmt when not callable.call_decl.call_decl_is_free ->
+        | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
             let* _ = push in
             let* _ =
               write_comment
@@ -281,7 +281,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 
             State.return ()
         | _ ->
-          Logs.debug (fun m -> m "Skipping %b" callable.call_decl.call_decl_is_free);
+          Logs.debug (fun m -> m "Skipping %b" (is_free callable.call_decl.call_decl_status));
           State.return ()
       in
 

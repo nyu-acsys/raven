@@ -2799,7 +2799,7 @@ module ProcessModule = struct
           | _ -> Rewriter.return ())
     | ModDef mod_def, ModDef _orig_mod_def ->
       (* If LHS is free, then we are checking an inherited module against itself, which is OK. *)
-      if mod_def.mod_decl.mod_decl_is_free then Rewriter.return () else
+      if is_free mod_def.mod_decl.mod_decl_status then Rewriter.return () else
       (* Otherwise, RHS is being redefined, which is not OK. *)
         Error.type_error loc
           (Printf.sprintf
@@ -3067,7 +3067,7 @@ module ProcessModule = struct
                 match parent_symbol with
                 | CallDef call when not @@ Callable.is_abstract call ->
                   Logs.debug (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
-                  Module.CallDef (Callable.set_free call)
+                  Module.CallDef (Callable.set_machine_free call)
                 | CallDef
                     ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
                   when Callable.is_abstract call
@@ -3086,12 +3086,12 @@ module ProcessModule = struct
                     }
                   in
                   let call =
-                    if m.mod_decl.mod_decl_is_free
-                    then Callable.set_free call
+                    if is_free m.mod_decl.mod_decl_status
+                    then Callable.set_machine_free call
                     else call
                   in
                   annotate_error_msg (CallDef call)
-                | ModDef mod_def -> ModDef (Module.set_free mod_def)
+                | ModDef mod_def -> ModDef (Module.set_machine_free mod_def)
                 | _ -> annotate_error_msg parent_symbol
               in
 
@@ -3310,7 +3310,7 @@ module ProcessModule = struct
               | ModInst { mod_inst_def = None; _ }
               | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
               | CallDef { call_def = (ProcDef { proc_body = None } | FuncDef { func_body = None });
-                          call_decl = { call_decl_is_free = false; _ } } ->
+                          call_decl = { call_decl_status = NotFree; _ } } ->
                 if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
                   Error.type_error (Symbol.to_loc symbol)
                     (Printf.sprintf
