@@ -924,26 +924,67 @@ let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
   in
   find_concrete_scope largest_prefix
 
+(** If [tp] is exactly `<M>.<rep_ident>` for some already-resolved module [M] that
+    is fully instantiated and genuinely implements [interface_qual_ident] (not just
+    a bare rep type), return [M]'s qualified name. Used by [get_or_intros_rep_module]
+    to reuse an existing, fully-implemented module instead of synthesizing a
+    rep-type-only stub for it -- synthesizing one would be unsound whenever
+    [interface_qual_ident] requires more than a rep type (e.g. a resource algebra's
+    [valid]/[comp]/etc.), since the stub is [MachineFree] and leaves every member
+    beyond the rep type completely unconstrained. *)
+let existing_module_for_rep_type ~(interface_qual_ident : qual_ident)
+    ~(rep_ident : ident) (tp : AstDef.type_expr) : qual_ident option t =
+  let open Rewriter.Syntax in
+  match tp with
+  | App (Var qi, [], _)
+    when Ident.equal (QualIdent.unqualify qi) rep_ident
+         && not (Base.List.is_empty (QualIdent.path qi)) -> (
+      let mod_qi = QualIdent.pop qi in
+      let* resolved = Rewriter.resolve_and_find_opt mod_qi in
+      match resolved with
+      | None -> return None
+      | Some (mod_qi, mod_symbol) ->
+          let interfaces, mod_is_instance =
+            Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance _subst -> function
+              | AstDef.Module.ModDef mod_def ->
+                  ( mod_def.mod_decl.mod_decl_interfaces,
+                    Base.List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance )
+              | _ -> (Set.empty (module QualIdent), true))
+          in
+          if
+            mod_is_instance
+            && (QualIdent.equal mod_qi interface_qual_ident
+               || Set.mem interfaces interface_qual_ident)
+          then return (Some mod_qi)
+          else return None)
+  | _ -> return None
+
 (** Get the module wrapping [tp] as an implementation of [interface_qual_ident]
-    (with rep type [rep_ident]), reusing an existing wrapper at the
-    deterministic name (see [rep_module_name_string]) already in scope, or
-    else creating one via [intros_rep_module]. [insert_scope]/[reference_scope]
-    are as computed by [find_insertion_scope_for_types]. *)
+    (with rep type [rep_ident]): reuses an existing module already implementing
+    [interface_qual_ident] if [tp] happens to be exactly its rep type (see
+    [existing_module_for_rep_type]), else an existing wrapper at the deterministic
+    name (see [rep_module_name_string]) already in scope, else creates one via
+    [intros_rep_module]. [insert_scope]/[reference_scope] are as computed by
+    [find_insertion_scope_for_types]. *)
 let get_or_intros_rep_module ~(loc : location)
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     ~(insert_scope : qual_ident) ~(reference_scope : qual_ident)
     ~(interface_qual_ident : qual_ident) ~(rep_ident : ident)
     (tp : AstDef.type_expr) : qual_ident t =
   let open Rewriter.Syntax in
-  let canonical_qi =
-    QualIdent.append reference_scope
-      (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0)
-  in
-  let* resolve_result = Rewriter.resolve_opt canonical_qi in
-  match resolve_result with
-  | Some _ -> return canonical_qi
+  let* existing = existing_module_for_rep_type ~interface_qual_ident ~rep_ident tp in
+  match existing with
+  | Some mod_qi -> return mod_qi
   | None ->
-      intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident ~rep_ident tp
+      let canonical_qi =
+        QualIdent.append reference_scope
+          (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0)
+      in
+      let* resolve_result = Rewriter.resolve_opt canonical_qi in
+      match resolve_result with
+      | Some _ -> return canonical_qi
+      | None ->
+          intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident ~rep_ident tp
 
 (** Get or create (and typecheck) the instantiation
     [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
