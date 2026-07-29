@@ -9,7 +9,14 @@ Raven's Extension API is designed to allow a programmer to rapidly adapt Raven's
 
 We make use of OCaml's extensible variant types to expose types to the programmer which tie into the core AST representations for Raven's types, expressions, statements, and contracts. These types are `AstDef.Type.type_ext`, `AstDef.Expr.expr_ext`, `AstDef.Stmt.stmt_ext`, and `AstDef.Stmt.contract_ext` defined in `lib/ast/astDef.ml`, which allow the programmer to extend types, expressions, statements, and callable/loop contracts respectively.
 
-The first three extension points share one shape: a new constructor is embedded in an existing AST node (`Type.App (TypeExt ..., args, attr)`, `Expr.App (ExprExt ..., args, attr)`, `Stmt.Basic (StmtExt (..., args))`) alongside a generic `expr list` of arguments, and the extension's job is to type-check and then *rewrite that one node* into simpler, "native" Raven constructs. `contract_ext` is structurally different: `Callable.call_decl` and `Stmt.loop_desc` each carry a plain `Stmt.contract_ext list` (`call_decl_contract_ext`/`loop_contract_ext`), and each list entry is a self-contained value -- the extension's constructor carries whatever payload it needs directly.
+`type_ext`/`expr_ext` share one shape: a new constructor is embedded in an existing AST node (`Type.App (TypeExt ..., args, attr)`, `Expr.App (ExprExt ..., args, attr)`) alongside a generic `expr list` of arguments, and the extension's job is to type-check and then *rewrite that one node* into simpler, "native" Raven constructs. `Stmt.stmt_ext` (the single OCaml extensible type) backs *two* different extension points, because a `basic_stmt_desc` (the kind of statement that can never contain nested statements of its own -- an assignment, a `fold`/`unfold`, a `havoc`, etc.) has no case for embedding a nested `Stmt.t`:
+
+- `Stmt.basic_stmt_desc`'s `BasicStmtExt of (stmt_ext * expr list)` case follows the same flat `(tag, expr list)` shape as `type_ext`/`expr_ext` above, for a custom statement that's just an argument list -- e.g. `AtomicExt`'s `cas(...)`/`faa(...)`.
+- `Stmt.stmt_desc`'s `StmtExt of stmt_ext` case (a sibling of `Block`/`Basic`/`Loop`/`Cond`, not nested inside `Basic`) is self-contained: your constructor carries whatever payload it needs directly, including a nested `Stmt.t` if your construct needs one -- e.g. `AssertWithExt`'s `assert e with { ... }`, whose payload includes the whole proof block. See [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below.
+
+Both cases live in the same `type Stmt.stmt_ext = ..`, and the `ExtApi.Ext` API accordingly has two parallel families of hooks for them (`..._basic_stmt_ext_...`/`type_check_basic_stmt`/`rewrite_basic_stmt_ext` for the first, `..._stmt_ext_...`/`type_check_stmt_ext`/`rewrite_stmt_ext` for the second) -- pick whichever shape fits your construct; nothing stops a single extension from declaring constructors of both kinds.
+
+`contract_ext` is structurally different again: `Callable.call_decl` and `Stmt.loop_desc` each carry a plain `Stmt.contract_ext list` (`call_decl_contract_ext`/`loop_contract_ext`), and each list entry is a self-contained value -- the extension's constructor carries whatever payload it needs directly, the same self-contained shape as the `stmt_desc`-level `StmtExt` above, just attached to a callable/loop rather than embedded as a statement.
 
 To make an extension, broadly speaking, the programmer needs to implement a module satisfying the `ExtApi.Ext` API. These modules have a signature like so:
 ```
@@ -28,7 +35,7 @@ $ raven test/ext/prophecy/clairvoyant_coin.rav
 $ raven --extension eris test/ext/error-credits/ec_examples.rav
 ```
 
-There is also a Decreases extension, described below; unlike Prophecy and ErrorCredits, it is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](ext.ml)) rather than being one more mutually-exclusive value the flag can take.
+There are also a Decreases extension and an AssertWith extension, both described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](ext.ml)) rather than being one more mutually-exclusive value the flag can take.
 
 ### Decreases Extension
 
@@ -46,6 +53,25 @@ func fac(n: Int)
   decreases n
 {
   n > 0 ? n * fac(n-1) : 1
+}
+```
+
+### AssertWith Extension
+
+We implement this extension (`lib/ext/assertWithExt/`) for `assert e with { proof }`, Raven's natural-deduction-style construct for proving a fact `e` via an auxiliary ghost proof block that is checked in isolation and then discarded, so the proof's scratch work never pollutes the surrounding SMT state. It is the reference implementation of a `stmt_desc`-level, statement-bodied `stmt_ext` extension -- see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below for how the API it uses works in general.
+
+`e` may be a bare fact, or headed by `forall`/`exists`:
+- For a bare fact or a `forall`-headed goal, the proof block is checked once against a truly arbitrary instance (the `forall`'s bound variables are `const` throughout the proof, so it cannot pin them to a specific witness and then illegitimately generalize), then discarded, and only `assume e` survives.
+- For an `exists`-headed goal, the bound variables stay mutable, and the proof is expected to establish a concrete witness (typically via assignment) -- ordinary existential introduction, which needs no generalization step.
+
+Soundness of "prove once, discard the proof, keep only the conclusion" depends on `e` being *pure* (no `own`/predicate/atomic-update content): the goal is type-checked against `Type.bool` rather than the wider `Type.perm` ordinary `assert`/`assume` specs accept, since `assume`ing an impure fact for free -- with nothing on the surviving path having paid for whatever resource the discarded proof consumed -- would conjure that resource out of nothing.
+
+```
+proc example()
+{
+  assert forall x: Int :: x * x >= 0 with {
+    // ... proof steps here, isolated from the rest of the callable's SMT state ...
+  }
 }
 ```
 
@@ -151,7 +177,7 @@ In this section we describe the API that the programmer must implement in order 
 
 Any module for an extension implementing the API starts with declarations introducing new branches for some or all of `Type.type_ext`, `Expr.expr_ext`, `Stmt.stmt_ext`, or `Stmt.contract_ext` types, thereby extending Raven's syntax by introducing new types, expressions, statements, and contract clauses, respectively.
 
-As a running example for `type_ext`/`expr_ext`/`stmt_ext`, let us consider that we want to add a new statement `randEven(n)` which denotes randomly sampling an _even_ number from 0 to n-1.
+As a running example for `type_ext`/`expr_ext`/`stmt_ext`, let us consider that we want to add a new statement `randEven(n)` which denotes randomly sampling an _even_ number from 0 to n-1. This is a `basic_stmt_desc`-level (flat, `expr list`-only) statement -- see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below instead if your construct needs to carry a nested `Stmt.t` of its own, e.g. a proof block.
 
 So, one would introduce a new kind of statement as follows:
 
@@ -165,14 +191,14 @@ This constructor directly extends Raven's AST with a new statement type. Note th
 While developing the extension, the general principle is that whenever an extension matches on the corresponding types `type_ext`, `expr_ext`, `stmt_ext`, or `contract_ext`, it should handle all the cases of the constructor that are defined in this file, and include a catch-all case which calls the corresponding functionality from the `Cont` module. Here is an example:
 
 ```ocaml
-  let stmt_ext_symbols stmt_ext =
+  let basic_stmt_ext_symbols stmt_ext =
     match stmt_ext with
     | RandEven -> 
       (* Handle the RandEven case *)
       Set.empty (module QualIdent)
     | _ -> 
       (* Defer to the continuation for any other case *)
-      Cont.stmt_ext_symbols stmt_ext
+      Cont.basic_stmt_ext_symbols stmt_ext
 ```
 
 This, combined with the "chain" in which we instantiate these modules, means that each extension constructor gets handled by the right extension.
@@ -203,12 +229,17 @@ The API contains the following functions in the AstDef section:
 
   val expr_ext_to_string : (Expr.expr_ext -> string)
 
-  val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
+  val pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
   val contract_ext_to_string : Stmt.contract_ext -> string
 
-  val stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
-  val stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
-  val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
+  val basic_stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
+  val basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
+  val basic_stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
+
+  val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> unit
+  val stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t
+  val stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list
+  val stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list
 
   val type_ext_is_recognized : Type.type_ext -> bool
   val expr_ext_is_recognized : Expr.expr_ext -> bool
@@ -226,26 +257,28 @@ If a construct category is not modified in the extension, then these functions c
   let expr_ext_to_string = Cont.expr_ext_to_string
 ```
 
-The `pr_stmt_ext` command takes a `stmt_ext` and `expr_list`, a list of expressions. The programmer is supposed to fill in how to print this statement. Certain assumptions can be made about the number and types of arguments in `expr_list`; these are usually guaranteed by type-checking or the parser. The programmer can thus throw internal errors if this is violated, as seen in [sampleExt.ml](sampleExt/sampleExt.ml).
+There are two parallel families here for statements, one per `stmt_ext` extension point (see [Overview](#overview)): `pr_basic_stmt_ext`/`basic_stmt_ext_symbols`/`basic_stmt_ext_local_vars_modified`/`basic_stmt_ext_fields_accessed` for the flat, `basic_stmt_desc`-level `BasicStmtExt`, and `pr_stmt_ext`/`stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` for the self-contained, `stmt_desc`-level `StmtExt` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below). The only difference in shape between the two families is that the `basic_stmt_ext_*` versions take an extra `expr list` argument (the flat argument list `BasicStmtExt` carries alongside the tag) that the `stmt_ext_*` versions don't need, since a `StmtExt` value already owns its whole payload.
 
-`contract_ext_to_string` is `pr_stmt_ext`'s counterpart for contract clauses, but simpler in shape: since a `contract_ext` value owns its whole payload already (there's no separate `expr_list` argument), it's just a plain string-returning function, the same shape as `expr_ext_to_string`. [decreasesExt.ml](decreasesExt/decreasesExt.ml) renders its `Decreases specs` as `"decreases e1, e2, ..."` by printing each spec's `spec_form`.
+The `pr_basic_stmt_ext`/`pr_stmt_ext` commands take a `stmt_ext` (and, for the `basic_stmt_ext` family, an `expr_list`, a list of expressions). The programmer is supposed to fill in how to print this statement. Certain assumptions can be made about the number and types of arguments; these are usually guaranteed by type-checking or the parser. The programmer can thus throw internal errors if this is violated, as seen in [sampleExt.ml](sampleExt/sampleExt.ml).
 
-The `stmt_ext_symbols` is a function that is almost always expected to return `Set.empty (module QualIdent)`, but included for future expansion. There is no `contract_ext_symbols` counterpart: `Callable.symbols` (used for dependency analysis) treats `stmt_ext`'s contribution as always empty too, so `contract_ext` simply isn't consulted there either -- a pre-existing limitation, not something specific to contracts.
+`contract_ext_to_string` is this family's counterpart for contract clauses, but simpler in shape: since a `contract_ext` value owns its whole payload already (there's no separate `expr_list` argument), it's just a plain string-returning function, the same shape as `expr_ext_to_string`. [decreasesExt.ml](decreasesExt/decreasesExt.ml) renders its `Decreases specs` as `"decreases e1, e2, ..."` by printing each spec's `spec_form`.
 
-The `stmt_ext_local_vars_modified` and `stmt_ext_fields_accessed` are two functions with which the programmer lets Raven know what variables to refresh and what fields to model when encoding the program into logical constraints. These functions have a return type of `ident list` and `qual_ident list` respectively, and are expected to return which local variables and fields are updated by a specific command. In [sampleExt.ml](sampleExt/sampleExt.ml) we see the use of `Expr.to_qual_ident`, `QualIdent.is_local` and `QualIdent.to_ident` functions. These are all implemented in `lib/ast/astDef.ml`, and discussed more thoroughly in [Userful Functions](#useful-functions). 
+`basic_stmt_ext_symbols`/`stmt_ext_symbols` are functions that are almost always expected to return `Set.empty (module QualIdent)`, but included for future expansion. There is no `contract_ext_symbols` counterpart: `Callable.symbols` (used for dependency analysis) treats a `stmt_ext`'s contribution as always empty too, so `contract_ext` simply isn't consulted there either -- a pre-existing limitation, not something specific to contracts. `AssertWithExt` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level)) deliberately keeps this same "always empty" default for its own `StmtExt` value rather than recursing into the nested proof block it carries, for a reason worth knowing if you're tempted to do better: its `StmtExt` is always lowered away long before any pass that would consult `stmt_ext_symbols` runs, and the block still contains raw `VarDef` nodes at this point, which `Stmt.stmt_local_vars_modified` (the counterpart these three feed) rejects once lowering has normally already turned them into `Havoc`s elsewhere in the pipeline.
 
-In `stmt_ext_local_vars_modified`, we return the `lhs_expr` converted to an ident if it is "local", ie, does not refer to a global variable, and importantly does not have module qualifiers in its `qual_ident`. Otherwise we return `[]`. In `stmt_ext_fields_accessed` we return `[]` always.
+`basic_stmt_ext_local_vars_modified`/`basic_stmt_ext_fields_accessed` and their `stmt_ext_*` counterparts are the functions with which the programmer lets Raven know what variables to refresh and what fields to model when encoding the program into logical constraints. These functions have a return type of `ident list` and `qual_ident list` respectively, and are expected to return which local variables and fields are updated by a specific command. In [sampleExt.ml](sampleExt/sampleExt.ml) we see the use of `Expr.to_qual_ident`, `QualIdent.is_local` and `QualIdent.to_ident` functions. These are all implemented in `lib/ast/astDef.ml`, and discussed more thoroughly in [Userful Functions](#useful-functions). 
 
-`type_ext_is_recognized`/`expr_ext_is_recognized`/`stmt_ext_is_recognized`/`contract_ext_is_recognized` answer a narrower question than every other function in this section: not "what does this construct mean" but just "did *this extension itself* (not `Cont`) declare this specific constructor" -- implemented the same chain-deferral way (match your own constructors as `true`, defer everything else to `Cont`), so calling one on the currently-active chain answers "does *any* extension in this chain recognize it", same as the others. The only consumer is [`lib/ext/ext.ml`](ext.ml): when the active chain's `type_check_*` hits its terminal `DefaultExt` case (meaning nothing in the active chain recognized the construct), it uses these -- called against every *other* known `--extension` chain -- to check whether some other chain would have, and if so names that flag in the error (`this expression belongs to the 'eris' extension; re-run with --extension eris`) instead of a bare "no active extension recognizes this". If your extension declares no constructors of a given kind, defer the whole function to `Cont` directly, same as `type_ext_to_name`/`expr_ext_to_string` above:
+In `basic_stmt_ext_local_vars_modified`, we return the `lhs_expr` converted to an ident if it is "local", ie, does not refer to a global variable, and importantly does not have module qualifiers in its `qual_ident`. Otherwise we return `[]`. In `basic_stmt_ext_fields_accessed` we return `[]` always.
+
+`type_ext_is_recognized`/`expr_ext_is_recognized`/`stmt_ext_is_recognized`/`contract_ext_is_recognized` answer a narrower question than every other function in this section: not "what does this construct mean" but just "did *this extension itself* (not `Cont`) declare this specific constructor" -- implemented the same chain-deferral way (match your own constructors as `true`, defer everything else to `Cont`), so calling one on the currently-active chain answers "does *any* extension in this chain recognize it", same as the others. Note that `stmt_ext_is_recognized` is *shared* between the two `stmt_ext` extension points -- there's no separate `basic_stmt_ext_is_recognized` -- since it only answers "is this specific constructor mine", regardless of which of the two shapes (`BasicStmtExt`'s flat payload or `StmtExt`'s self-contained one) that constructor is meant to be embedded under. The only consumer is [`lib/ext/ext.ml`](ext.ml): when the active chain's `type_check_*` hits its terminal `DefaultExt` case (meaning nothing in the active chain recognized the construct), it uses these -- called against every *other* known `--extension` chain -- to check whether some other chain would have, and if so names that flag in the error (`this expression belongs to the 'eris' extension; re-run with --extension eris`) instead of a bare "no active extension recognizes this". If your extension declares no constructors of a given kind, defer the whole function to `Cont` directly, same as `type_ext_to_name`/`expr_ext_to_string` above:
 ```ocaml
   let type_ext_is_recognized = Cont.type_ext_is_recognized
 ```
 
-These functions end up as fields of `Ast.Rewriter.ext_hooks` (see [Wiring](#wiring-how-ext_hooks-reaches-your-code) above) -- `type_ext_to_name`/`expr_ext_to_string`/`pr_stmt_ext`/`contract_ext_to_string` back the *default* AST printers (`AstDef.Type.pr`, `AstDef.Stmt.pr`, `AstDef.Callable.pr`, etc., built via each module's `make_printers`) whenever they hit a `TypeExt`/`ExprExt`/`StmtExt` leaf or a `call_decl_contract_ext`/`loop_contract_ext` entry, and `stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` are read the same way by `AstDef.Stmt`'s `symbols`/`stmt_local_vars_modified`/`stmt_fields_accessed`. You don't call any of this machinery yourself; it's what makes printing and dependency analysis work correctly on ASTs that still contain your extension's constructs. The `_is_recognized` functions are the one exception: they aren't installed into `ext_hooks` directly (there'd be nothing to install -- see [`suggest_extension_for_type_ext`](ext.ml) & co., which *are* installed, and are computed once in `lib/ext/ext.ml` by calling these across every known chain); you still implement them the same chain-deferral way as everything else here.
+These functions end up as fields of `Ast.Rewriter.ext_hooks` (see [Wiring](#wiring-how-ext_hooks-reaches-your-code) above) -- `type_ext_to_name`/`expr_ext_to_string`/`pr_basic_stmt_ext`/`pr_stmt_ext`/`contract_ext_to_string` back the *default* AST printers (`AstDef.Type.pr`, `AstDef.Stmt.pr`, `AstDef.Callable.pr`, etc., built via each module's `make_printers`) whenever they hit a `TypeExt`/`ExprExt`/`BasicStmtExt`/`StmtExt` leaf or a `call_decl_contract_ext`/`loop_contract_ext` entry, and `basic_stmt_ext_symbols`/`stmt_ext_symbols`/etc. are read the same way by `AstDef.Stmt`'s `symbols`/`stmt_local_vars_modified`/`stmt_fields_accessed`. You don't call any of this machinery yourself; it's what makes printing and dependency analysis work correctly on ASTs that still contain your extension's constructs. The `_is_recognized` functions are the one exception: they aren't installed into `ext_hooks` directly (there'd be nothing to install -- see [`suggest_extension_for_type_ext`](ext.ml) & co., which *are* installed, and are computed once in `lib/ext/ext.ml` by calling these across every known chain); you still implement them the same chain-deferral way as everything else here.
 
 #### Printing and logging from your extension
 
-If your own `type_check_*`/`rewrite_*_ext` implementation needs to print or log an expression, statement, or type -- for debugging, or as part of an error message -- reach for `Rewriter.current_printers` rather than `AstDef.Type.pr`/`AstDef.Expr.pr`/`AstDef.Stmt.pr` directly. The bare `AstDef` printers only know about the *default* stub rendering of `*_ext` leaves; `Rewriter.current_printers` reads the `printers` record built from whichever extension is actually active out of the `Rewriter.t` state, so it renders correctly even when the fragment you're printing embeds another extension's constructs (relevant once extensions are stacked, as `AtomicExt`/`ListExt`/`DecreasesExt`/`ProphecyExt`/`ErrorCreditsExt` are in `lib/ext/ext.ml`):
+If your own `type_check_*`/`rewrite_*_ext` implementation needs to print or log an expression, statement, or type -- for debugging, or as part of an error message -- reach for `Rewriter.current_printers` rather than `AstDef.Type.pr`/`AstDef.Expr.pr`/`AstDef.Stmt.pr` directly. The bare `AstDef` printers only know about the *default* stub rendering of `*_ext` leaves; `Rewriter.current_printers` reads the `printers` record built from whichever extension is actually active out of the `Rewriter.t` state, so it renders correctly even when the fragment you're printing embeds another extension's constructs (relevant once extensions are stacked, as `AtomicExt`/`ListExt`/`DecreasesExt`/`AssertWithExt`/`ProphecyExt`/`ErrorCreditsExt` are in `lib/ext/ext.ml`):
 
 ```ocaml
 let* printers = Rewriter.current_printers in
@@ -271,9 +304,15 @@ This API contains the following functions which are used by Raven to perform any
     -> Expr.expr_ext 
     -> Expr.expr_ext Rewriter.t
 
-  val stmt_ext_rewrite_types :
+  val basic_stmt_ext_rewrite_types :
     f: (type_expr -> type_expr Rewriter.t) 
     -> Stmt.stmt_ext 
+    -> Stmt.stmt_ext Rewriter.t
+
+  val stmt_ext_rewrite :
+    f:(expr -> expr Rewriter.t)
+    -> c:(Stmt.t -> Stmt.t Rewriter.t)
+    -> Stmt.stmt_ext
     -> Stmt.stmt_ext Rewriter.t
 
   val contract_ext_rewrite_exprs :
@@ -282,13 +321,15 @@ This API contains the following functions which are used by Raven to perform any
     -> Stmt.contract_ext Rewriter.t
 ```
 
-`expr_ext_rewrite_types`/`stmt_ext_rewrite_types` are only required if the expression or statement extensions defined in this extension store types. Please take a look at [prophecyExt](prophecyExt/prophecyExt.ml) to see a non-trivial example implementation of these functions.
+`expr_ext_rewrite_types`/`basic_stmt_ext_rewrite_types` are only required if the expression or (flat, `basic_stmt_desc`-level) statement extensions defined in this extension store types. Please take a look at [prophecyExt](prophecyExt/prophecyExt.ml) to see a non-trivial example implementation of these functions.
+
+`stmt_ext_rewrite` is `basic_stmt_ext_rewrite_types`'s counterpart for the self-contained, `stmt_desc`-level `StmtExt` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below), but broader: since a `StmtExt` value can carry both expressions *and* a nested `Stmt.t`, it takes two callbacks -- `f` to apply to every expression your value carries (the same role `expr_ext_rewrite_types`/`basic_stmt_ext_rewrite_types` play, just not restricted to type substitution: `f` is instantiated with plain expression substitution, type substitution, or qualified-identifier substitution depending on which generic traversal reached your node), and `c` to apply to every nested `Stmt.t` your value carries, so it can recurse into its own embedded statements the same way core `Cond`/`Loop` nodes do. [assertWithExt.ml](assertWithExt/assertWithExt.ml) implements it by applying `f` to its `spec.spec_form` and `c` to its `proof` block.
 
 `contract_ext_rewrite_exprs` plays the analogous role for `contract_ext`, except it rewrites *expressions*, not types (a `contract_ext` value doesn't have a separate type-carrying slot the way `NewProph (bool, type_expr)` does for `stmt_ext` -- what it carries are the expressions of the clause itself, e.g. each measure's `spec_form` for `decreases`). Applying `f` to every expression your value carries is what lets generic code -- currently, substitution during higher-order module instantiation -- rewrite a contract clause without knowing what it means. [decreasesExt.ml](decreasesExt/decreasesExt.ml) implements it by mapping `f` over each `spec.spec_form` and rebuilding the `Decreases` value.
 
 In [sampleExt.ml](sampleExt/sampleExt.ml), we simply skip these functions, setting them equal to the one from `Cont`.
 
-Like the AstDef functions above, these end up as `ext_hooks` fields, read out of the `Rewriter.t` state deep inside `Rewriter.Expr.rewrite_types`/`Rewriter.Stmt.rewrite_types` (the generic type-substitution traversal used e.g. when instantiating higher-order modules) whenever it reaches an `ExprExt`/`StmtExt` node, or (for `contract_ext_rewrite_exprs`) inside the analogous generic expression-substitution traversal over a loop's `loop_contract_ext` -- not something your own code calls directly.
+Like the AstDef functions above, these end up as `ext_hooks` fields, read out of the `Rewriter.t` state deep inside `Rewriter.Expr.rewrite_types`/`Rewriter.Stmt.rewrite_types`/`Rewriter.Stmt.rewrite_expressions`/`Rewriter.Stmt.rewrite_qual_idents` (the generic substitution traversals used e.g. when instantiating higher-order modules) whenever one reaches an `ExprExt`/`BasicStmtExt`/`StmtExt` node, or (for `contract_ext_rewrite_exprs`) inside the analogous generic expression-substitution traversal over a loop's `loop_contract_ext` -- not something your own code calls directly. One exception worth knowing about: `Rewriter.Stmt.descend`, the generic structural recursor used pervasively by rewrite passes throughout `lib/frontend/rewrites/` (via `f:c` callbacks with a *custom* accumulator state, e.g. atomicity analysis, skolemization), does *not* descend into a `StmtExt` node, even though it does descend into `Block`/`Loop`/`Cond` -- every `ext_hooks` field (including `stmt_ext_rewrite`) is fixed at the plain, no-extra-state `Rewriter.t`, and calling it from inside `descend` would force *every* caller of `descend` onto that same fixed state, breaking the richer-state callers. In practice this only matters if a pass built on `descend` needs to reach into an *unlowered* `StmtExt`'s nested statements; since a `StmtExt` is expected to already be rewritten away (via `rewrite_stmt_ext`, [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below) long before such a pass runs, this is a corner rather than a routine concern.
 
 ### Typing
 
@@ -299,13 +340,21 @@ This API contains the following functions which are used by Raven to type-check 
 
   val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t
 
-  val type_check_stmt : 
+  val type_check_basic_stmt : 
     Callable.call_decl ->
     Stmt.stmt_ext -> expr list ->
     location ->
     ProgUtils.DisambiguationTbl.t ->
     type_check_stmt_functs ->
     (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t
+
+  val type_check_stmt_ext :
+    Callable.call_decl ->
+    Stmt.stmt_ext ->
+    location ->
+    ProgUtils.DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    (Stmt.stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t
 ```
 
 These type signatures are a bit more complicated. Let's go through them one at a time.
@@ -330,17 +379,19 @@ Similarly, for `type_check_expr`:
 
 - The next argument, of type `type_check_expr_functs`. This is the set of functions from [typing.ml](../frontend/typing.ml) that are useful while type-checking expressions. Please refer to [Useful Functions](#useful-functions) to identify how to use each of these functions.
 
-As for `type_check_stmt`, the goal of this function is to make sure the statement is well-formed with well-typed arguments. It has a considerably more complex type signature. In particular, it has a `call_decl` that contains information about the parent callable of this `stmt_ext`. It also contains a `ProgUtils.DisambiguationTbl.t`, which is a local, per-callable data-structure used to disambiguate local variables, for instance using the same variable in multiple different scopes. This procedure also returns a _disambiguation table_ which contains any updates made during type-checking the present statement. As usual, `type_check_stmt_functs` contains a list of useful functions. Notably, `disambiguate_process_expr` and `disam_tbl_add_var_decl` makes use of, and updates the disambiguation table respectively.
+As for `type_check_basic_stmt`, the goal of this function is to make sure the statement is well-formed with well-typed arguments. It has a considerably more complex type signature. In particular, it has a `call_decl` that contains information about the parent callable of this `stmt_ext`. It also contains a `ProgUtils.DisambiguationTbl.t`, which is a local, per-callable data-structure used to disambiguate local variables, for instance using the same variable in multiple different scopes. This procedure also returns a _disambiguation table_ which contains any updates made during type-checking the present statement. As usual, `type_check_stmt_functs` contains a list of useful functions. Notably, `disambiguate_process_expr` and `disam_tbl_add_var_decl` makes use of, and updates the disambiguation table respectively.
 
 In [sampleExt.ml](sampleExt/sampleExt.ml), we first case-match on `RandEven`. For a sample statement like
   `x := randEven(n);`,
 this gets parsed with `lhs_expr` denoting `x` and `n_expr` denoting `n`.
 
-We use a function from `type_check_stmt_functs` to get the variable declaration for the `lhs_expr`. Once we get its `var_type`, we check to make sure it is an `Int` type, otherwise we throw a `type_mismatch_error`. Then we typecheck `n_expr` using `Type.int` or `Int` as the expected type. At this point we are ready to return the updated statement, constructed with the `Stmt.StmtExt` constructor denoting an extension statement, along with `disam_tbl`. 
+We use a function from `type_check_stmt_functs` to get the variable declaration for the `lhs_expr`. Once we get its `var_type`, we check to make sure it is an `Int` type, otherwise we throw a `type_mismatch_error`. Then we typecheck `n_expr` using `Type.int` or `Int` as the expected type. At this point we are ready to return the updated statement, constructed with the `Stmt.BasicStmtExt` constructor denoting an extension statement, along with `disam_tbl`. 
 
 If the arguments are not what we expect, then we throw a type error straightaway. And if it is an unknown constructor, then we defer to the continuation extension `Cont`, as usual.
 
-`type_check_contract_ext` is `contract_ext`'s counterpart to `type_check_stmt`:
+`type_check_stmt_ext` is `type_check_basic_stmt`'s counterpart for the self-contained, `stmt_desc`-level `StmtExt` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below): it takes no separate `expr list`, since a `StmtExt` value owns its whole payload, and it returns a whole `Stmt.stmt_desc` rather than a `Stmt.basic_stmt_desc` -- it isn't constrained to stay "basic", and in fact [assertWithExt.ml](assertWithExt/assertWithExt.ml) uses that freedom to return the *fully lowered* result directly (a `Block`/`Cond` structure) rather than another `StmtExt` left for `rewrite_stmt_ext` to lower later, since it needs the whole synthesized structure type-checked as one unit -- see its own doc comment for why. `type_check_stmt_functs` gains one field beyond what `type_check_basic_stmt` gets: `process_stmt : Callable.call_decl -> Stmt.t -> ProgUtils.DisambiguationTbl.t -> (Stmt.t * ProgUtils.DisambiguationTbl.t) Rewriter.t`, letting you recursively type-check a whole nested `Stmt.t` (e.g. a proof block) the same way `Typing.process_stmt` type-checks an ordinary callable-body statement -- something `type_check_basic_stmt` never needs, since a `basic_stmt_desc` can't embed a nested statement in the first place.
+
+`type_check_contract_ext` is `contract_ext`'s counterpart to `type_check_basic_stmt`/`type_check_stmt_ext`:
 
 ```ocaml
   val type_check_contract_ext :
@@ -352,7 +403,7 @@ If the arguments are not what we expect, then we throw a type error straightaway
     Stmt.contract_ext Rewriter.t
 ```
 
-It's called once per entry of a `call_decl_contract_ext`/`loop_contract_ext` list, and takes (and returns) a whole `Stmt.contract_ext` value -- unlike `type_check_stmt`, there's no separate `expr list` alongside it, since a `contract_ext` constructor already carries whatever payload it needs. `call_decl` is the declaring callable (for a loop's clause, this is the `call_decl` of the tail-recursive procedure the loop is about to be desugared into -- loop contracts are type-checked before that desugaring runs, but the formal-scope shape is the same one the clause will end up with). `type_check_stmt_functs` is the same callback bundle `type_check_stmt` gets; `disambiguate_process_expr` is what you'll use to type-check the expressions your value carries.
+It's called once per entry of a `call_decl_contract_ext`/`loop_contract_ext` list, and takes (and returns) a whole `Stmt.contract_ext` value -- unlike `type_check_basic_stmt`, there's no separate `expr list` alongside it, since a `contract_ext` constructor already carries whatever payload it needs, the same as `type_check_stmt_ext`. `call_decl` is the declaring callable (for a loop's clause, this is the `call_decl` of the tail-recursive procedure the loop is about to be desugared into -- loop contracts are type-checked before that desugaring runs, but the formal-scope shape is the same one the clause will end up with). `type_check_stmt_functs` is the same callback bundle `type_check_basic_stmt`/`type_check_stmt_ext` get -- including `process_stmt`, though a contract clause has no statement of its own to recurse into, so you're unlikely to need it here; `disambiguate_process_expr` is what you'll use to type-check the expressions your value carries.
 
 [decreasesExt.ml](decreasesExt/decreasesExt.ml) case-matches on `Decreases specs`, and for each `spec` in the list, type-checks `spec.spec_form` against `Type.int` via `disambiguate_process_expr`, and installs a default error message into `spec.spec_error` (via `Stmt.mk_const_spec_error`) if one isn't already set -- this last part matters because of a wrinkle worth calling out for any extension whose clause can end up on a `rewrite_loops`-synthesized procedure: that procedure gets *re*-type-checked when it's introduced (`Rewriter.introduce_typecheck_symbol'`), so `type_check_contract_ext` will see the same clause a second time, by then already carrying whatever `rewrite_contract_ext_loop_transfer` (see [Contracts](#contracts) below) set on it -- overwriting `spec_error` unconditionally at that point would silently discard it.
 
@@ -367,10 +418,14 @@ This section contains functions that perform essential rewrites to reduce the ne
 
   val rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
   
-  val rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
+  val rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
+
+  val rewrite_stmt_ext : Stmt.stmt_ext -> location -> Stmt.t Rewriter.t
 ```
 
 These functions are more straight-forward to follow. Essentially for each new construct, we return an equivalent encoding of the data structure in "native" Raven. For instance, expressions can be translated into different expressions involving functions and heap expressions. Statements can be rewritten into equivalent set of statements, combined into one `Stmt.Block` stmt, often involving `inhale` and `exhale` statements, or field reads/writes, etc.
+
+`rewrite_stmt_ext` is `rewrite_basic_stmt_ext`'s counterpart for the self-contained, `stmt_desc`-level `StmtExt` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below); it drops the separate `expr list` for the same reason every other `StmtExt`-side function in this document does. Both are called from `Rewrites.rewrites_stmt_ext` (`lib/frontend/rewrites/rewrites.ml`), which walks the whole module once type-checking is complete and lowers every remaining `BasicStmtExt`/`StmtExt` node it finds -- as noted under [Rewriter](#rewriter) above, if your `type_check_stmt_ext` already returns the fully lowered result (as `AssertWithExt`'s does), your `rewrite_stmt_ext` implementation for that constructor is unreachable in practice; treat that as an invariant to assert, not skip silently, the way [assertWithExt.ml](assertWithExt/assertWithExt.ml) does.
 
 In [sampleExt.ml](sampleExt/sampleExt.ml), we introduce one `havoc` statement, to havoc the value of the lhs expression, and then inhale a statement expressing constraints about the newly-assigned value.
 
@@ -382,6 +437,44 @@ There is no `rewrite_contract_ext` counterpart to the three functions above: a c
 ```
 
 `rewrite_callable_entry` is called once for every `Proc`/`Lemma` callable, before any of its statements are visited by anything else, and returns statements to prepend at the very top of the callable's body -- unconditionally, for every such callable in the program, regardless of whether your extension has anything to do with it; the default (no extension using this hook) is to prepend nothing, so implementing it is opt-in per extension the same way every other hook here is. This is the general-purpose tool for a need that doesn't have a dedicated config value: introducing (via `Rewriter.introduce_symbol`) and initializing your own local variables, sized/typed/named however a *specific* callable requires, rather than a fixed set added uniformly (and mostly unused) to every callable. [decreasesExt.ml](decreasesExt/decreasesExt.ml) uses this to snapshot a `decreases` measure's entry-time value into a ghost local variable -- necessary because the callable's own formals may be reassigned later in the body (e.g. a loop counter), so "the measure at entry" can't just mean "the clause's expressions evaluated at the formals" read back at the call site. It declares that variable here with a *tuple* type sized to exactly as many components as this specific callable's `decreases` clause has (via `Type.mk_prod`; `Type.mk_prod`/`Expr.mk_tuple`/`Expr.mk_tuple_lookup` all collapse the single-component case to a bare `Int`, so `decreases n` doesn't pay for tuple-ness it doesn't need), checking first (via a small helper that looks for a `decreases` clause on the given `call_decl`) whether there's anything to do at all -- most callables have no `decreases` clause, so this is a no-op for those.
+
+
+### Statement-bodied extensions (`StmtExt` at the `stmt_desc` level)
+
+Everything under [AstDef](#astdef)/[Rewriter](#rewriter)/[Typing](#typing)/[Rewrites](#rewrites) above comes in two parallel families for statements, because `Stmt.basic_stmt_desc` (the running `RandEven` example throughout this document) has no case that can embed a nested `Stmt.t`:
+
+```ocaml
+type basic_stmt_desc =
+  | VarDef of var_def
+  | Spec of spec_kind * spec
+  (* ... every other "leaf" statement kind: Assign, FieldRead, Havoc, Use, Fpu, ... *)
+  | BasicStmtExt of (stmt_ext * expr list)
+
+and stmt_desc =
+  | Block of block_desc
+  | Basic of basic_stmt_desc
+  | Loop of loop_desc
+  | Cond of cond_desc
+  | StmtExt of stmt_ext
+```
+
+If your construct is just an argument list -- like `RandEven`, or `AtomicExt`'s `cas`/`faa`/`xchg`/`cmpxchg` -- declare it as a `BasicStmtExt` and use the `..._basic_stmt_ext_...`/`type_check_basic_stmt`/`rewrite_basic_stmt_ext` family documented above; this is the common case, and everything above this section describes it. But if your construct needs to carry a *nested statement* -- a block of Raven code that's semantically part of the construct itself, not just its arguments -- declare it as a `StmtExt` instead, a sibling of `Block`/`Loop`/`Cond` rather than one more case nested inside `Basic`, and use the `..._stmt_ext_...`/`type_check_stmt_ext`/`rewrite_stmt_ext` family instead. Both extension points share the same underlying `type Stmt.stmt_ext = ..`; which family a given constructor uses is determined entirely by which case (`BasicStmtExt`'s tuple, or `StmtExt` directly) you wrap it in when you construct or match on it, not by anything in the constructor's own declaration.
+
+`AssertWithExt` (`lib/ext/assertWithExt/`, see [AssertWith Extension](#assertwith-extension) above) is the reference implementation: `assert e with { proof }` needs `proof` -- an arbitrary block of ghost Raven code, checked and then discarded -- to be part of the statement itself, so it declares
+
+```ocaml
+type Stmt.stmt_ext +=
+  | AssertWith of { spec : Stmt.spec; proof : Stmt.t }
+```
+
+and constructs `Stmt.StmtExt (AssertWith { spec; proof })` directly (no `expr list`, no `Basic` wrapper), from `lib/ext/assertWithExt/assertWithExt_parser.mly`'s grammar action.
+
+A few consequences worth knowing before you reach for this shape:
+
+- **Parsing.** The grammar rule producing your construct returns a `Stmt.stmt_desc list` the same way every other `stmt`-level alternative does (see [Creating a New Extension](#creating-a-new-extension)); just build `Stmt.StmtExt (YourConstructor { ... })` instead of `Stmt.Basic (BasicStmtExt (YourConstructor, args))`. If your construct needs a nested block, add `%public block` (already exported by core `parser.mly`) to your grammar rule to parse it: `assertWithExt_parser.mly`'s production is `sk = SPEC; e = expr; WITH; b = block; { ... }`.
+- **Type-checking can fully resolve the construct, not just check it.** `type_check_stmt_ext` returns a whole `Stmt.stmt_desc`, not constrained to be another `StmtExt` -- if your rewrite needs the *entire* synthesized structure (including any locals it introduces) type-checked as one unit, rather than checked once now and lowered separately later, you can build the raw, not-yet-type-checked target structure and run all of it through the new `process_stmt` field of `type_check_stmt_functs`, then return the result directly. This is exactly what `AssertWithExt` does, and its own doc comment on `type_check_stmt_ext` explains why: a synthesized `VarDef` (e.g. its fresh `$nondet` nondeterminism variable) needs to go through the same VarDef-to-`Havoc` conversion and symbol registration ordinary statements get from `Typing.process_stmt`, which doesn't happen for free if you build it later, in `rewrite_stmt_ext`, after type-checking has already finished. If your construct doesn't have this wrinkle, the simpler, more common shape -- check the pieces, return another `StmtExt` carrying the checked payload, and do the actual lowering in `rewrite_stmt_ext` -- works fine too, and is a closer match to how `BasicStmtExt` extensions are usually written.
+- **`Rewriter.Stmt.descend` doesn't recurse into an unlowered `StmtExt`.** See the note at the end of [Rewriter](#rewriter) above -- in practice this means your `StmtExt` should be lowered (by `rewrite_stmt_ext`, or resolved away entirely by `type_check_stmt_ext` as above) before any pass that relies on `descend` to reach statements nested inside it runs. Since `Rewrites.rewrites_stmt_ext` runs right after type-checking, ahead of the bulk of `lib/frontend/rewrites/`'s passes, this is the default outcome, not something you need to arrange yourself -- it only becomes a real constraint if you're deliberately deferring lowering later than that.
+- **`symbols`/`local_vars_modified`/`fields_accessed` default to empty, safely.** As noted under [AstDef](#astdef) above, `AssertWithExt` keeps the default "always empty" answer for `stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` rather than recursing into its nested `proof`, precisely because that block can still contain raw `VarDef`s at the point these might run, which the corresponding `Stmt.stmt_local_vars_modified` et al. reject outside of extension code too. If your own construct is lowered promptly and its nested statement never contains an un-lowered `VarDef` when these could plausibly be called, recursing into it (via the ordinary `Stmt.symbols`/`Stmt.stmt_local_vars_modified`/`Stmt.stmt_fields_accessed` functions, applied to your own nested `Stmt.t` field) is a reasonable improvement over the default -- just be sure of the ordering before you do.
 
 
 ### Contracts
@@ -463,6 +556,8 @@ Each of these contain functions for type-checking the corresponding constructs. 
 - disam_tbl_add_var_decl: This function handles a new variable declaration and updates the `disam_tbl` appropriately. It takes a `var_decl` and a `disam_tbl`, and returns an update `var_decl` and `disam_tbl`.
 
 - process_symbol: `type_check_stmt_functs`'s copy of `Typing.process_symbol`, the function that type-checks a whole `Module.symbol` (used e.g. by `Rewriter.introduce_typecheck_symbol` and `ProgUtils.intros_type_module`, both of which take it as an argument for the same reason described below). It's handed to you as a plain function, already resolved -- you don't need to know that `Typing` itself can only make it available to code outside `typing.ml` via `Rewriter.process_symbol_ref`, a reference set exactly once, at the end of `typing.ml`, to work around the fact that `Rewriter` (in `lib/ast`) can't statically depend on `Typing` (in `lib/frontend`), and that `Typing.process_symbol` itself is defined later in the same file than some of the code that needs it. That reference isn't part of the extension API and isn't something you should need to touch.
+
+- process_stmt: `type_check_stmt_functs`'s copy of (the relevant part of) `Typing.ProcessCallable.process_stmt`, the function that type-checks one statement of an ordinary callable body, recursing into `Block`/`Loop`/`Cond` and managing their scopes along the way. Only relevant to `type_check_stmt_ext` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level)) -- `type_check_basic_stmt` never needs it, since a `basic_stmt_desc` can't embed a nested `Stmt.t` in the first place. Wired the same way `process_symbol` is, via a `Rewriter.process_stmt_ref` set once at the end of `typing.ml`, for the same dependency-direction reason; again, not something you touch directly.
 
 ### [AstDef](../ast/astDef.ml)
 
@@ -555,7 +650,7 @@ The following are monadic implementations of commonly used higher order function
 
 ## Wiring: how `ext_hooks` reaches your code
 
-Every function you implement in your extension (`type_ext_to_name`, `type_check_stmt`, `rewrite_expr_ext`, ...) has to be reachable from deep inside `lib/ast`'s and `lib/frontend`'s generic AST traversal, printing, and rewriting code -- code that runs identically regardless of which extension (if any) is active, and that cannot depend on `lib/ext` (extensions depend on the core, not the other way round). Raven resolves this by bundling all of the functions an extension implements into a single record, `Ast.Rewriter.ext_hooks` (defined in [rewriter.ml](../ast/rewriter.ml) alongside the `Rewriter.t` monad itself), and threading that record through the pipeline as an ordinary value:
+Every function you implement in your extension (`type_ext_to_name`, `type_check_basic_stmt`, `rewrite_expr_ext`, ...) has to be reachable from deep inside `lib/ast`'s and `lib/frontend`'s generic AST traversal, printing, and rewriting code -- code that runs identically regardless of which extension (if any) is active, and that cannot depend on `lib/ext` (extensions depend on the core, not the other way round). Raven resolves this by bundling all of the functions an extension implements into a single record, `Ast.Rewriter.ext_hooks` (defined in [rewriter.ml](../ast/rewriter.ml) alongside the `Rewriter.t` monad itself), and threading that record through the pipeline as an ordinary value:
 
 1. [`bin/raven.ml`](../../bin/raven.ml) resolves the `--extension` flag to a `(module ExtApi.Ext)` via `Ext.module_map`, then converts it to an `ext_hooks` value via `Ext.to_ext_hooks` (in [ext.ml](ext.ml)) -- this is the *only* place a `module Ext : ExtApi.Ext` gets unpacked into plain data.
 2. That `ext_hooks` value is passed as an explicit `~ext_hooks` argument into `Typing.process_module` and `Rewrites.process_module`, which install it into the `Rewriter.t` monad's state via `Rewriter.eval ?ext_hooks`.

@@ -35,6 +35,8 @@ type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
   disam_tbl_add_var_decl : var_decl -> ProgUtils.DisambiguationTbl.t -> var_decl * ProgUtils.DisambiguationTbl.t;
 
   process_symbol : Module.symbol -> Module.symbol Rewriter.t;
+
+  process_stmt : Callable.call_decl -> Stmt.t -> ProgUtils.DisambiguationTbl.t -> (Stmt.t * ProgUtils.DisambiguationTbl.t) Rewriter.t;
 }
 
 (* Main Extension API *)
@@ -47,12 +49,21 @@ module type Ext = sig
 
   val expr_ext_to_string : (Expr.expr_ext -> string)
 
-  val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
+  val pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit
   val contract_ext_to_string : Stmt.contract_ext -> string
 
-  val stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
-  val stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
-  val stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
+  val basic_stmt_ext_symbols: Stmt.stmt_ext -> QualIdentSet.t
+  val basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list
+  val basic_stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list
+
+  (** The [stmt_desc]-level sibling of the [pr_basic_stmt_ext]/[basic_stmt_ext_*]
+      family above, for the self-contained [Stmt.StmtExt] extension point (statements
+      that need a nested [Stmt.t] of their own -- see
+      [Stmt.basic_stmt_desc.BasicStmtExt]'s doc comment). *)
+  val pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> unit
+  val stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t
+  val stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list
+  val stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list
 
   (** Whether *this extension itself* (not [Cont]) declares the given constructor --
       not "does this chain recognize it" (that's what chaining to [Cont] in the
@@ -75,14 +86,23 @@ module type Ext = sig
     -> Expr.expr_ext
     -> Expr.expr_ext Rewriter.t
 
-  val stmt_ext_rewrite_types :
+  val basic_stmt_ext_rewrite_types :
     f: (type_expr -> type_expr Rewriter.t)
+    -> Stmt.stmt_ext
+    -> Stmt.stmt_ext Rewriter.t
+
+  (** Generic substitution for the top-level [Stmt.StmtExt] extension point: applies
+      [f] to every expression and [c] to every nested [Stmt.t] a [stmt_ext] value
+      carries. *)
+  val stmt_ext_rewrite :
+    f:(expr -> expr Rewriter.t)
+    -> c:(Stmt.t -> Stmt.t Rewriter.t)
     -> Stmt.stmt_ext
     -> Stmt.stmt_ext Rewriter.t
 
   (** Applies [f] to every expression a [contract_ext] value carries (e.g. each
       measure's [spec_form] for `decreases`). Used for generic substitution during
-      things like module instantiation, the same reason [stmt_ext_rewrite_types]
+      things like module instantiation, the same reason [basic_stmt_ext_rewrite_types]
       exists for types -- core code needs to rewrite every expression in a callable's
       contract uniformly without knowing what a given [contract_ext] means. *)
   val contract_ext_rewrite_exprs :
@@ -96,13 +116,26 @@ module type Ext = sig
 
   val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t
 
-  val type_check_stmt :
+  val type_check_basic_stmt :
     Callable.call_decl ->
     Stmt.stmt_ext -> expr list ->
     location ->
     ProgUtils.DisambiguationTbl.t ->
     type_check_stmt_functs ->
     (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t
+
+  (** The [stmt_desc]-level sibling of [type_check_basic_stmt], for the self-contained
+      [Stmt.StmtExt] extension point. Returns a whole [Stmt.stmt_desc] (typically
+      another [StmtExt], left for [rewrite_stmt_ext] to lower once type-checking has
+      run -- e.g. a purity check on an asserted fact) rather than a [basic_stmt_desc],
+      since it isn't constrained to stay "basic". *)
+  val type_check_stmt_ext :
+    Callable.call_decl ->
+    Stmt.stmt_ext ->
+    location ->
+    ProgUtils.DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    (Stmt.stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t
 
   (** Type-checks one entry of a [call_decl_contract_ext]/[loop_contract_ext] list
       against the declaring callable's/loop's formals (given via [call_decl] -- for a
@@ -138,7 +171,11 @@ module type Ext = sig
 
   val rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr Rewriter.t
 
-  val rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
+  val rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t Rewriter.t
+
+  (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for the self-contained
+      [Stmt.StmtExt] extension point. *)
+  val rewrite_stmt_ext : Stmt.stmt_ext -> location -> Stmt.t Rewriter.t
 
   (** Called once for every call site found in a [Proc]/[Lemma] body whose *callee*
       has a non-empty [call_decl_contract_ext] (or, for [Func]s, at the point

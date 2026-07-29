@@ -588,6 +588,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let* ext_hooks = Rewriter.current_ext_hooks in
         let curr_loop_rets =
           Stmt.make_stmt_local_vars_modified
+            ~basic_stmt_ext_local_vars_modified:ext_hooks.basic_stmt_ext_local_vars_modified
             ~stmt_ext_local_vars_modified:ext_hooks.stmt_ext_local_vars_modified
             loop.loop_postbody
         in
@@ -2482,6 +2483,7 @@ let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
       let* ext_hooks = Rewriter.current_ext_hooks in
       let fields_list =
         Stmt.make_stmt_fields_accessed
+          ~basic_stmt_ext_fields_accessed:ext_hooks.basic_stmt_ext_fields_accessed
           ~stmt_ext_fields_accessed:ext_hooks.stmt_ext_fields_accessed body
       in
       let au_preds_list = Set.to_list (Stmt.stmt_au_preds_referenced body) in
@@ -2785,6 +2787,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
                 };
           }
   | Loop loop_stmt -> assert false
+  | StmtExt _ -> assert false
 
 let rewrite_ssa_transform (c : Callable.t) :
     (Callable.t, var_decl ident_map) Rewriter.t_ext =
@@ -3196,9 +3199,12 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
-    | Basic (StmtExt (stmt_ext, args)) ->
+    | Basic (BasicStmtExt (stmt_ext, args)) ->
       let* ext_hooks = Rewriter.current_ext_hooks in
-      ext_hooks.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
+      ext_hooks.rewrite_basic_stmt_ext stmt_ext args (Stmt.to_loc stmt)
+    | StmtExt stmt_ext ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_stmt_ext stmt_ext (Stmt.to_loc stmt)
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt_ext
 
   in
@@ -3406,8 +3412,10 @@ Specification Count: %d"
         ; 
       } in
 
-      merge_prog_stats cond_stats 
+      merge_prog_stats cond_stats
         (merge_prog_stats cond_if_stats cond_else_stats)
+
+    | StmtExt _ -> Rewriter.return init_prog_stats
 
   and computeBasicStmtStats b proc_decl : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
@@ -3519,7 +3527,7 @@ Specification Count: %d"
     | AUAction _ ->
       Rewriter.return { init_prog_stats with proof_au_instr = 1; }
 
-    | StmtExt (stmt_ext, args) -> 
+    | BasicStmtExt (stmt_ext, args) ->
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 end
 

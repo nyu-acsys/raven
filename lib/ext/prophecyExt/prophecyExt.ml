@@ -77,7 +77,7 @@ module ProphecyExt (Cont : ListApi) = struct
     | _ -> Cont.expr_ext_to_string expr_ext
 
   (* Standard format for printer functions. *)
-  let pr_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list = 
     let open Stdlib.Format in
     match ext, expr_list with
     | (NewProph (b, typ)), [proph_id; proph_val] ->
@@ -94,20 +94,20 @@ module ProphecyExt (Cont : ListApi) = struct
     | ResolveProph, _ ->
       Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
 
-    | _ -> Cont.pr_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
 
   (* This is almost always expected to be empty. Only to be used if one stores variables/names within the Stmt _constructor_. Typically all the additional arguments are stored as stmt_args *)
-  let stmt_ext_symbols stmt_ext =
+  let basic_stmt_ext_symbols stmt_ext =
     match stmt_ext with
     | NewProph _ -> Set.empty (module QualIdent)
     | ResolveProph -> Set.empty (module QualIdent)
-    | _ -> Cont.stmt_ext_symbols stmt_ext
+    | _ -> Cont.basic_stmt_ext_symbols stmt_ext
 
   (* This one is more nuanced. Given the statement extension and all its expression arguments (ie the entire statement), we are supposed to return a list of local variables that are modified.
   
   This is used internally during the SSA transformation to determine whether to redefine a local var.
   *)
-  let stmt_ext_local_vars_modified stmt_ext exprs =
+  let basic_stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | NewProph _, [proph_id; proph_val] ->
       if Expr.is_ident proph_val then
@@ -128,7 +128,7 @@ module ProphecyExt (Cont : ListApi) = struct
     | ResolveProph, _ ->
       Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
 
-    | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_local_vars_modified stmt_ext exprs
 
   (* Utility function to generate canonical module name. Using `Type.to_string` to convert the underlying type to a string. Using `ProgUtils.serialize` to make sure the name is compatible with SMT. Using `Ident.make` instead of `Ident.fresh` because we want all references to this ident to be to the same module.  *)
   let prophecy_module_ident ~loc typ = 
@@ -146,7 +146,7 @@ module ProphecyExt (Cont : ListApi) = struct
     QualIdent.append module_scope (prophecy_module_ident ~loc typ)
 
   (* We need to return the list of fields that this command depends on. Since we model prophecy resources using a field defined in `prophecyLib.rav`, that field gets updated. The qual_ident for this is built by combining  *)
-  let stmt_ext_fields_accessed stmt_ext exprs = 
+  let basic_stmt_ext_fields_accessed stmt_ext exprs = 
     match stmt_ext, exprs with
     | NewProph (_, typ), _ ->
       let proph_mod_qi = prophecy_module_from_type_qi ~loc:Loc.dummy typ in
@@ -166,7 +166,12 @@ module ProphecyExt (Cont : ListApi) = struct
     | ResolveProph, _ ->
       Error.internal_error Loc.dummy "wrong number of arguments for Proph.resolve(...)"
 
-    | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
+
+  let pr_stmt_ext = Cont.pr_stmt_ext
+  let stmt_ext_symbols = Cont.stmt_ext_symbols
+  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
+  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
 
   let type_ext_is_recognized type_ext =
     match type_ext with
@@ -195,14 +200,16 @@ module ProphecyExt (Cont : ListApi) = struct
     ~f refers to a function which *rewrites* types. This is part of Raven's internal infrastructure of rewrites.
   *)
   let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types ~f stmt_ext = 
+  let basic_stmt_ext_rewrite_types ~f stmt_ext = 
     let open Rewriter.Syntax in
     match stmt_ext with
     | NewProph (b, tp_expr) ->
       (* We run `f` on the type_expr we contain, and re-build the stmt_ext constr. *)
       let+ tp_expr = f tp_expr in
       NewProph (b, tp_expr)
-    |_ -> Cont.stmt_ext_rewrite_types ~f stmt_ext
+    |_ -> Cont.basic_stmt_ext_rewrite_types ~f stmt_ext
+
+  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
 
 
   (* Typing *)
@@ -275,14 +282,14 @@ module ProphecyExt (Cont : ListApi) = struct
 
   (* Type-checking of stmts. The underlying stmt in the AST is represented as:
       Stmt.{ 
-        stmt_desc = Basic (StmtExt (stmt_ext, expr_list)); 
+        stmt_desc = Basic (BasicStmtExt (stmt_ext, expr_list)); 
         stmt_loc = stmt_loc; 
       }
     
     `disam_tbl` is a data structure used to disambiguate local variables occuring in different subscopes by assigning a unique `ident_num` to each local variable. There is no need to understand how this works or to manipulate this manually. Some functions require and return this argument, which indicates how this must be used. However, care must be made to update and return this correctly.
 
     This function returns a `Stmt.basic_stmt_desc`. This is an object like:
-      (StmtExt (stmt_ext, expr_list))
+      (BasicStmtExt (stmt_ext, expr_list))
     In addition, a `disam_tbl` must be returned.
     `type_check_stmt_functs` is again a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
@@ -290,13 +297,13 @@ module ProphecyExt (Cont : ListApi) = struct
   let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
   let contract_ext_to_string = Cont.contract_ext_to_string
 
-  let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
+  let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
       (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
 
     (* A Raven debug statement. *)
-    Logs.debug (fun m -> m "[EXT] ProphecyExt.type_check_stmt: started");
+    Logs.debug (fun m -> m "[EXT] ProphecyExt.type_check_basic_stmt: started");
     
     let open Rewriter.Syntax in
     (* Determining whether we are in a ghost scope. Certain actions aren't allowed in ghost scopes, such as making concrete program steps, procedure calls, etc. *)
@@ -304,7 +311,7 @@ module ProphecyExt (Cont : ListApi) = struct
     match stmt_ext, expr_list with
       (* ```proph_id, proph_val := Proph.new[typ]``` *)
     | NewProph (oneshot_b, typ), [proph_id; proph_val] ->
-      (* Type-check `proph_id`. From `type_check_stmt`, we must call `disambiguate_process_expr, instead of `process_expr` to make sure we use `disam_tbl` consistently.  *)
+      (* Type-check `proph_id`. From `type_check_basic_stmt`, we must call `disambiguate_process_expr, instead of `process_expr` to make sure we use `disam_tbl` consistently.  *)
       let* proph_id = type_check_stmt_functs.disambiguate_process_expr proph_id (proph_id_type ~loc:stmt_loc) disam_tbl
       
       in
@@ -329,7 +336,7 @@ module ProphecyExt (Cont : ListApi) = struct
         (* Everything checks out. Constructing final `Stmt.basic_stmt_desc` to return.
           Making sure to use updated and type-checked values `proph_id` and `proph_val`. not stale values.
         *)
-        (Stmt.StmtExt (
+        (Stmt.BasicStmtExt (
           NewProph (oneshot_b, typ), [proph_id; proph_val]
         ), disam_tbl) |> Rewriter.return
       end
@@ -344,14 +351,16 @@ module ProphecyExt (Cont : ListApi) = struct
       let* resolve_value = type_check_stmt_functs.disambiguate_process_expr resolve_value (Type.any |> Type.set_ghost true) disam_tbl in
 
       (* Constructing final return `Stmt.basic_stmt_desc` *)
-      (Stmt.StmtExt (
+      (Stmt.BasicStmtExt (
         ResolveProph, [proph_id; resolve_value]
       ), disam_tbl) |> Rewriter.return
 
     | ResolveProph, _ ->
       Error.type_error stmt_loc "Proph.resolve(...) called with incorrect number of arguments"
 
-    | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+    | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+
+  let type_check_stmt_ext = Cont.type_check_stmt_ext
 
 
   (* Rewrites *)
@@ -533,7 +542,7 @@ module ProphecyExt (Cont : ListApi) = struct
   let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
 
   (* Rewriting Statements *)
-  let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
+  let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
 
     Logs.debug (fun m -> m "[EXT] ProphecyExt.rewrite_stmt: Starting");
@@ -691,7 +700,9 @@ module ProphecyExt (Cont : ListApi) = struct
     | ResolveProph, _ ->
       Error.internal_error loc "unexpected argument count for Proph.resolve(...) at rewrite time (already validated during type-checking)"
 
-    | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+    | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
+
+  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
 
 
   (* --------------------- *)

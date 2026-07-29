@@ -1,0 +1,11 @@
+// A `forall`-headed goal's bound variables must stay arbitrary throughout the proof:
+// that's what licenses generalizing from one checked instance to "for all". If the
+// proof could pin the variable to a specific value, the checked instance would no
+// longer be arbitrary, and generalizing to `forall` would be unsound. So these
+// variables are const in the proof's scope.
+proc unsound()
+{
+  assert forall x: Int :: x > 0 with {
+    x := 5;
+  }
+}

@@ -63,7 +63,7 @@ module DecreasesExt (Cont : ListApi) = struct
   module ListFns = Cont.ListFns
 
   (** Tag for `decreases` clauses. Carries one [Stmt.spec] per lexicographic measure
-      component directly (unlike [StmtExt]/[TypeExt]/[ExprExt], [contract_ext] values
+      component directly (unlike [BasicStmtExt]/[TypeExt]/[ExprExt], [contract_ext] values
       own their whole payload rather than sharing a generic [expr list] alongside the
       tag), so each component gets its own location and (after
       [rewrite_contract_ext_loop_transfer]) its own error message for free. *)
@@ -85,7 +85,7 @@ module DecreasesExt (Cont : ListApi) = struct
   (** AstDef *)
   let type_ext_to_name = Cont.type_ext_to_name
   let expr_ext_to_string = Cont.expr_ext_to_string
-  let pr_stmt_ext = Cont.pr_stmt_ext
+  let pr_basic_stmt_ext = Cont.pr_basic_stmt_ext
 
   let contract_ext_to_string (contract_ext : Stmt.contract_ext) : string =
     match contract_ext with
@@ -93,6 +93,10 @@ module DecreasesExt (Cont : ListApi) = struct
       "decreases " ^ String.concat ~sep:", " (List.map specs ~f:(fun s -> Expr.to_string s.Stmt.spec_form))
     | _ -> Cont.contract_ext_to_string contract_ext
 
+  let basic_stmt_ext_symbols = Cont.basic_stmt_ext_symbols
+  let basic_stmt_ext_local_vars_modified = Cont.basic_stmt_ext_local_vars_modified
+  let basic_stmt_ext_fields_accessed = Cont.basic_stmt_ext_fields_accessed
+  let pr_stmt_ext = Cont.pr_stmt_ext
   let stmt_ext_symbols = Cont.stmt_ext_symbols
   let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
   let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
@@ -108,7 +112,8 @@ module DecreasesExt (Cont : ListApi) = struct
 
   (* Rewriter *)
   let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
+  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
 
   let contract_ext_rewrite_exprs ~(f : expr -> expr Rewriter.t) (contract_ext : Stmt.contract_ext) :
       Stmt.contract_ext Rewriter.t =
@@ -126,7 +131,8 @@ module DecreasesExt (Cont : ListApi) = struct
   (* Typing *)
   let type_check_type_expr = Cont.type_check_type_expr
   let type_check_expr = Cont.type_check_expr
-  let type_check_stmt = Cont.type_check_stmt
+  let type_check_basic_stmt = Cont.type_check_basic_stmt
+  let type_check_stmt_ext = Cont.type_check_stmt_ext
 
   (** Type-checks the measure expressions of a single `decreases` clause against the
       declaring callable's/loop's formals, and installs the generic fallback error
@@ -223,6 +229,7 @@ module DecreasesExt (Cont : ListApi) = struct
   (* Rewrites *)
   let rewrite_type_ext = Cont.rewrite_type_ext
   let rewrite_expr_ext = Cont.rewrite_expr_ext
+  let rewrite_basic_stmt_ext = Cont.rewrite_basic_stmt_ext
   let rewrite_stmt_ext = Cont.rewrite_stmt_ext
 
   let rewrite_contract_ext_loop_transfer ~(subst : expr -> expr) (contract_ext : Stmt.contract_ext) :

@@ -42,7 +42,12 @@
  (deps ../ext/decreasesExt/decreasesExt_parser.mly)
  (action (copy %{deps} %{target})))
 
+(rule
+ (target assertWithExt_parser.mly)
+ (deps ../ext/assertWithExt/assertWithExt_parser.mly)
+ (action (copy %{deps} %{target})))
+
 (menhir
- (modules parser listExt_parser prophecyExt atomicExt_parser errorCreditsExt_parser sampleExt_parser decreasesExt_parser)
+ (modules parser listExt_parser prophecyExt atomicExt_parser errorCreditsExt_parser sampleExt_parser decreasesExt_parser assertWithExt_parser)
  (merge_into parser)
  (flags --explain))

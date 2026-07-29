@@ -21,14 +21,19 @@ module AtomicExtInstance = AtomicExt.AtomicExt(ListExtInstance)
    it must be available under `default` and `eris` alike. *)
 module DecreasesExtInstance = DecreasesExt.DecreasesExt(AtomicExtInstance)
 
+(* AssertWithExt (`assert e with { ... }`) is folded in unconditionally too, for the
+   same reason as DecreasesExt above: it's a core-language proof construct, orthogonal
+   to which resource-algebra extension is active. *)
+module AssertWithExtInstance = AssertWithExt.AssertWithExt(DecreasesExtInstance)
+
 (* Core Raven *)
-module RavenCore: ExtApi.Ext = DecreasesExtInstance
+module RavenCore: ExtApi.Ext = AssertWithExtInstance
 
 (* ProphecyExt *)
-module ProphecyExtInstance = ProphecyExt.ProphecyExt(DecreasesExtInstance)
+module ProphecyExtInstance = ProphecyExt.ProphecyExt(AssertWithExtInstance)
 
 (* ErrorCredits *)
-module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(DecreasesExtInstance)
+module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(AssertWithExtInstance)
 module SampleExtInstance = SampleExt.SampleExt(ErrorCreditsExtInstance)
 
 let module_map ext = match ext with
@@ -69,8 +74,12 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
   {
     type_ext_to_name = Ext.type_ext_to_name;
     expr_ext_to_string = Ext.expr_ext_to_string;
-    pr_stmt_ext = Ext.pr_stmt_ext;
+    pr_basic_stmt_ext = Ext.pr_basic_stmt_ext;
     contract_ext_to_string = Ext.contract_ext_to_string;
+    basic_stmt_ext_symbols = Ext.basic_stmt_ext_symbols;
+    basic_stmt_ext_local_vars_modified = Ext.basic_stmt_ext_local_vars_modified;
+    basic_stmt_ext_fields_accessed = Ext.basic_stmt_ext_fields_accessed;
+    pr_stmt_ext = Ext.pr_stmt_ext;
     stmt_ext_symbols = Ext.stmt_ext_symbols;
     stmt_ext_local_vars_modified = Ext.stmt_ext_local_vars_modified;
     stmt_ext_fields_accessed = Ext.stmt_ext_fields_accessed;
@@ -79,15 +88,18 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     suggest_extension_for_stmt_ext;
     suggest_extension_for_contract_ext;
     expr_ext_rewrite_types = Ext.expr_ext_rewrite_types;
-    stmt_ext_rewrite_types = Ext.stmt_ext_rewrite_types;
+    basic_stmt_ext_rewrite_types = Ext.basic_stmt_ext_rewrite_types;
+    stmt_ext_rewrite = Ext.stmt_ext_rewrite;
     contract_ext_rewrite_exprs = Ext.contract_ext_rewrite_exprs;
     type_check_type_expr = Ext.type_check_type_expr;
     type_check_expr = Ext.type_check_expr;
-    type_check_stmt = Ext.type_check_stmt;
+    type_check_basic_stmt = Ext.type_check_basic_stmt;
+    type_check_stmt_ext = Ext.type_check_stmt_ext;
     type_check_contract_ext = Ext.type_check_contract_ext;
     check_contract_ext_group_compatible = Ext.check_contract_ext_group_compatible;
     rewrite_type_ext = Ext.rewrite_type_ext;
     rewrite_expr_ext = Ext.rewrite_expr_ext;
+    rewrite_basic_stmt_ext = Ext.rewrite_basic_stmt_ext;
     rewrite_stmt_ext = Ext.rewrite_stmt_ext;
     rewrite_contract_ext_call = Ext.rewrite_contract_ext_call;
     rewrite_callable_entry = Ext.rewrite_callable_entry;

@@ -1502,7 +1502,13 @@ module Stmt = struct
     | Use of use_desc
     | AUAction of auaction_desc
     | Fpu of fpu_desc
-    | StmtExt of (stmt_ext * expr list) 
+    | BasicStmtExt of (stmt_ext * expr list)
+        (** Extension point for statements that don't need to carry nested statements of
+            their own -- [basic_stmt_desc] has no case that does, by design. An
+            extension whose custom statement needs a nested block (e.g. a proof
+            obligation) must use the top-level [StmtExt] case of [stmt_desc] instead,
+            which carries a self-contained [stmt_ext] value (like [contract_ext]) rather
+            than being forced into this generic [(tag * expr list)] shape. *)
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
 
@@ -1523,17 +1529,25 @@ module Stmt = struct
     | Basic of basic_stmt_desc
     | Loop of loop_desc
     | Cond of cond_desc
+    | StmtExt of stmt_ext
+        (** Self-contained extension point for whole custom statement forms that need
+            nested statements of their own (e.g. `assert e with { ... }`'s proof block).
+            Each extension's own constructor of [stmt_ext] carries whatever payload it
+            needs directly -- the same design as [contract_ext]. *)
 
   (** Pretty printing statements *)
 
-  let default_pr_stmt_ext : Formatter.t -> stmt_ext -> expr list -> unit =
+  let default_pr_basic_stmt_ext : Formatter.t -> stmt_ext -> expr list -> unit =
     fun ppf _ _ -> Stdlib.Format.fprintf ppf "@[ext]"
+
+  let default_pr_stmt_ext : Formatter.t -> stmt_ext -> unit =
+    fun ppf _ -> Stdlib.Format.fprintf ppf "@[ext]"
 
   let default_contract_ext_to_string : contract_ext -> string = fun _ -> "[ext]"
 
   (** Builds the mutually-recursive statement printer family, parameterized by how to
       render [TypeExt]/[ExprExt]/[StmtExt]/[contract_ext] leaves. *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let (_, type_pr, _, _, _, _, _, _, _, _) = Type.make_printers ~type_ext_to_name in
     let module Type = struct
       include Type
@@ -1634,7 +1648,7 @@ module Stmt = struct
       | AUAction { auaction_kind = AbortAU abort_au_desc as au_action} ->
         fprintf ppf "@[<2>%s(%a, (%a))@]" (auaction_kind_to_string au_action) Expr.pr abort_au_desc.token Expr.pr_list abort_au_desc.proc_args
       | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
-      | StmtExt (stmt_ext, exprs) -> pr_stmt_ext ppf stmt_ext exprs
+      | BasicStmtExt (stmt_ext, exprs) -> pr_basic_stmt_ext ppf stmt_ext exprs
 
     and pr ppf stmt =
       let open Stdlib.Format in
@@ -1677,6 +1691,7 @@ module Stmt = struct
             | _ -> fprintf ppf "{!@\n  @[%a@]@\n!}" pr_block stmts
           end
       | Basic bs -> pr_basic_stmt ppf bs
+      | StmtExt stmt_ext -> pr_stmt_ext ppf stmt_ext
 
     and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts
     in
@@ -1687,6 +1702,7 @@ module Stmt = struct
   let (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print) =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:default_pr_basic_stmt_ext
       ~pr_stmt_ext:default_pr_stmt_ext
       ~contract_ext_to_string:default_contract_ext_to_string
 
@@ -1805,11 +1821,12 @@ module Stmt = struct
   let to_loc s = s.stmt_loc
 
 
+  let default_basic_stmt_ext_symbols : stmt_ext -> QualIdentSet.t = fun _ -> Set.empty (module QualIdent)
   let default_stmt_ext_symbols : stmt_ext -> QualIdentSet.t = fun _ -> Set.empty (module QualIdent)
 
   (** Extends [accessed] with the set of all symbols occuring free in [s] *)
   (** Assumes that all var_decl stmts are abstracted away during type-checking. *)
-  let make_symbols ~stmt_ext_symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
+  let make_symbols ~basic_stmt_ext_symbols ~stmt_ext_symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
     let rec symbols (accesses: QualIdentSet.t) (s: t) =
       let scan_expr_list accesses exprs =
         List.fold exprs
@@ -1912,9 +1929,9 @@ module Stmt = struct
           | None -> scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_new_val]
           | Some e -> scan_expr_list accesses [fpu_desc.fpu_ref; e; fpu_desc.fpu_new_val])
         
-        | StmtExt (stmt_ext, expr_list) ->
+        | BasicStmtExt (stmt_ext, expr_list) ->
           let accesses = scan_expr_list accesses expr_list in
-          Set.union accesses (stmt_ext_symbols stmt_ext)
+          Set.union accesses (basic_stmt_ext_symbols stmt_ext)
         end
 
       | Loop l ->
@@ -1926,10 +1943,15 @@ module Stmt = struct
         let accesses = Option.fold ~f:(fun accesses test -> Expr.symbols ~acc:accesses test) ~init:accesses c.cond_test in
         let accesses_then = symbols accesses c.cond_then in
         symbols accesses_then c.cond_else
+
+      | StmtExt stmt_ext ->
+        Set.union accesses (stmt_ext_symbols stmt_ext)
     in
     symbols accessed s
 
-  let symbols ?accessed s = make_symbols ~stmt_ext_symbols:default_stmt_ext_symbols ?accessed s
+  let symbols ?accessed s =
+    make_symbols ~basic_stmt_ext_symbols:default_basic_stmt_ext_symbols
+      ~stmt_ext_symbols:default_stmt_ext_symbols ?accessed s
 
   let local_vars_accessed (s: t) : IdentSet.t =
     let sign = symbols s in
@@ -1939,9 +1961,10 @@ module Stmt = struct
         else Set.add locals (QualIdent.unqualify id))
       ~init:(Set.empty (module Ident))
 
-  let default_stmt_ext_local_vars_modified : stmt_ext -> expr list -> ident list = fun _ _ -> []
+  let default_basic_stmt_ext_local_vars_modified : stmt_ext -> expr list -> ident list = fun _ _ -> []
+  let default_stmt_ext_local_vars_modified : stmt_ext -> ident list = fun _ -> []
 
-  let make_stmt_local_vars_modified ~stmt_ext_local_vars_modified (s: t) : ident list =
+  let make_stmt_local_vars_modified ~basic_stmt_ext_local_vars_modified ~stmt_ext_local_vars_modified (s: t) : ident list =
     let rec stmt_locals_modified (s: t): (ident list) =
       (* Returns all local variables modified in s.
         Assumes that all var_decl stmts are abstracted away during type-checking.   
@@ -2030,7 +2053,7 @@ module Stmt = struct
             | _ -> [])
 
         (* TODO: Implement an API call for vars_modified *)
-        | StmtExt (stmt_ext, expr_list) -> stmt_ext_local_vars_modified stmt_ext expr_list
+        | BasicStmtExt (stmt_ext, expr_list) -> basic_stmt_ext_local_vars_modified stmt_ext expr_list
         end
 
       | Loop l ->
@@ -2043,6 +2066,8 @@ module Stmt = struct
         let modified_else = stmt_locals_modified c.cond_else in
         modified_then @ modified_else
 
+      | StmtExt stmt_ext -> stmt_ext_local_vars_modified stmt_ext
+
     in
 
     let modifieds = stmt_locals_modified s in
@@ -2050,7 +2075,8 @@ module Stmt = struct
     modifieds
 
   let stmt_local_vars_modified s =
-    make_stmt_local_vars_modified ~stmt_ext_local_vars_modified:default_stmt_ext_local_vars_modified s
+    make_stmt_local_vars_modified ~basic_stmt_ext_local_vars_modified:default_basic_stmt_ext_local_vars_modified
+      ~stmt_ext_local_vars_modified:default_stmt_ext_local_vars_modified s
 
   let stmt_local_vars_initialized (s: t) : ident list =
     let rec stmt_locals_init (s: t): ident list =
@@ -2084,15 +2110,18 @@ module Stmt = struct
           let modified_else = stmt_locals_init c.cond_else in
           modified_then @ modified_else
 
+        | StmtExt _ -> []
+
     in
 
     let vars_init = stmt_locals_init s in
     let vars_init = List.dedup_and_sort vars_init ~compare:Ident.compare in
     vars_init
 
-  let default_stmt_ext_fields_accessed : stmt_ext -> expr list -> qual_ident list = fun _ _ -> []
+  let default_basic_stmt_ext_fields_accessed : stmt_ext -> expr list -> qual_ident list = fun _ _ -> []
+  let default_stmt_ext_fields_accessed : stmt_ext -> qual_ident list = fun _ -> []
 
-  let make_stmt_fields_accessed ~stmt_ext_fields_accessed (s: t) : qual_ident list =
+  let make_stmt_fields_accessed ~basic_stmt_ext_fields_accessed ~stmt_ext_fields_accessed (s: t) : qual_ident list =
     let rec stmt_fields_accessed (s: t): (qual_ident list) =
       (* Returns all field heaps accessed in s. *)
 
@@ -2142,7 +2171,7 @@ module Stmt = struct
           [fpu_desc.fpu_field]
         
         (* TODO: Implement an API for fields_accessed *)
-        | StmtExt (stmt_ext, expr_list) -> stmt_ext_fields_accessed stmt_ext expr_list
+        | BasicStmtExt (stmt_ext, expr_list) -> basic_stmt_ext_fields_accessed stmt_ext expr_list
         end
 
       | Loop l ->
@@ -2155,6 +2184,8 @@ module Stmt = struct
         let heaps_accessed_else = stmt_fields_accessed c.cond_else in
         heaps_accessed_then @ heaps_accessed_else
 
+      | StmtExt stmt_ext -> stmt_ext_fields_accessed stmt_ext
+
     in
 
     let heaps_accessed = stmt_fields_accessed s in
@@ -2162,7 +2193,8 @@ module Stmt = struct
     heaps_accessed
 
   let stmt_fields_accessed s =
-    make_stmt_fields_accessed ~stmt_ext_fields_accessed:default_stmt_ext_fields_accessed s
+    make_stmt_fields_accessed ~basic_stmt_ext_fields_accessed:default_basic_stmt_ext_fields_accessed
+      ~stmt_ext_fields_accessed:default_stmt_ext_fields_accessed s
 
   let stmt_au_preds_referenced (s: t) : QualIdentSet.t =
     let rec stmt_au_preds_referenced (s: t): QualIdentSet.t =
@@ -2190,6 +2222,8 @@ module Stmt = struct
         let au_preds_referenced_then = stmt_au_preds_referenced c.cond_then in
         let au_preds_referenced_else = stmt_au_preds_referenced c.cond_else in
         Set.union au_preds_referenced_then au_preds_referenced_else
+
+      | StmtExt _ -> Set.empty (module QualIdent)
 
     in
 
@@ -2323,7 +2357,7 @@ module Callable = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers], which this composes). *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let (_, _, _, expr_pr, _, _, _, _, _, expr_pr_var_decl, expr_pr_var_decl_list, _) =
       Expr.make_printers ~type_ext_to_name ~expr_ext_to_string
     in
@@ -2334,7 +2368,7 @@ module Callable = struct
       let pr_var_decl_list = expr_pr_var_decl_list
     end in
     let (_, stmt_pr_spec_list, _, stmt_pr, _, _, _) =
-      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
@@ -2439,6 +2473,7 @@ module Callable = struct
   let (pr_call_decl_specs, pr_call_decl, pr) =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
       ~pr_stmt_ext:Stmt.default_pr_stmt_ext
       ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
@@ -2613,7 +2648,7 @@ module Module = struct
   (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
       [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
       [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let (_, type_pr, _, _, _, _, _, _, type_pr_list, _) =
       Type.make_printers ~type_ext_to_name
     in
@@ -2623,14 +2658,14 @@ module Module = struct
       let pr_list = type_pr_list
     end in
     let (stmt_pr_var_def, _, _, _, _, _, _) =
-      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
+      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Stmt = struct
       include Stmt
       let pr_var_def = stmt_pr_var_def
     end in
     let (_, _, callable_pr) =
-      Callable.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
+      Callable.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let module Callable = struct
       include Callable
@@ -2718,6 +2753,7 @@ module Module = struct
   let (pr, pr_instr, pr_instr_list, pr_symbol) =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
       ~pr_stmt_ext:Stmt.default_pr_stmt_ext
       ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
@@ -2852,9 +2888,9 @@ module Symbol = struct
 
   let set_free = Module.set_symbol_free
 
-  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string =
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
     let (_, _, _, pr_symbol) =
-      Module.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_stmt_ext ~contract_ext_to_string
+      Module.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
     in
     let to_string m = Print.string_of_format pr_symbol m in
     (pr_symbol, to_string)
@@ -2862,6 +2898,7 @@ module Symbol = struct
   let (pr, to_string) =
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
       ~pr_stmt_ext:Stmt.default_pr_stmt_ext
       ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 

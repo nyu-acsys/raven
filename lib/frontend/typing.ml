@@ -2148,9 +2148,9 @@ module ProcessCallable = struct
         fpu_new_val;
         },
       disam_tbl )
-    | StmtExt (stmt_ext, expr_list)  ->
+    | BasicStmtExt (stmt_ext, expr_list)  ->
       let* ext_hooks = Rewriter.current_ext_hooks in
-        ext_hooks.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
+        ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
           {
             ExtApi.get_assign_lhs = get_assign_lhs;
             expand_type_expr = ProcessTypeExpr.expand_type_expr;
@@ -2158,6 +2158,7 @@ module ProcessCallable = struct
             type_mismatch_error;
             disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
             process_symbol = !Rewriter.process_symbol_ref;
+            process_stmt = !Rewriter.process_stmt_ref;
           }
 
   let process_stmt ?(new_scope = true) call_decl
@@ -2214,6 +2215,10 @@ module ProcessCallable = struct
                         type_mismatch_error;
                         disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
                         process_symbol = !Rewriter.process_symbol_ref;
+                        process_stmt =
+                          (fun _call_decl stmt _disam_tbl ->
+                             Error.internal_error (Stmt.to_loc stmt)
+                               "statements are not permitted in a contract clause");
                       })
             in
 
@@ -2264,6 +2269,21 @@ module ProcessCallable = struct
             in
 
             (Stmt.Cond cond_desc, disam_tbl)
+        | StmtExt stmt_ext ->
+            let* ext_hooks = Rewriter.current_ext_hooks in
+            ext_hooks.type_check_stmt_ext call_decl stmt_ext (Stmt.to_loc stmt) disam_tbl
+              {
+                ExtApi.get_assign_lhs =
+                  (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                     Error.internal_error (QualIdent.to_loc qi)
+                       "assignments are not permitted directly in a top-level statement extension");
+                expand_type_expr = ProcessTypeExpr.expand_type_expr;
+                disambiguate_process_expr;
+                type_mismatch_error;
+                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                process_symbol = !Rewriter.process_symbol_ref;
+                process_stmt = (fun _call_decl stmt disam_tbl -> process_stmt stmt disam_tbl);
+              }
       in
 
       (Stmt.{ stmt_desc; stmt_loc = stmt.stmt_loc }, disam_tbl)
@@ -2338,6 +2358,10 @@ module ProcessCallable = struct
                 type_mismatch_error;
                 disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
                 process_symbol = !Rewriter.process_symbol_ref;
+                process_stmt =
+                  (fun _call_decl stmt _disam_tbl ->
+                     Error.internal_error (Stmt.to_loc stmt)
+                       "statements are not permitted in a contract clause");
               })
     in
 
@@ -3494,3 +3518,5 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
 let _ =
   Rewriter.process_symbol_ref := process_symbol;
   Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;
+  Rewriter.process_stmt_ref :=
+    (fun call_decl stmt disam_tbl -> ProcessCallable.process_stmt call_decl stmt disam_tbl);

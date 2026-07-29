@@ -193,7 +193,7 @@ and type_check_expr_functs = {
   expand_type_expr : type_expr -> (type_expr, unit) t_ext;
 }
 
-(** Callback bundle Typing.ml hands to [ext_hooks.type_check_stmt]. *)
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_basic_stmt]/[type_check_stmt_ext]. *)
 and type_check_stmt_functs = {
   get_assign_lhs :  is_init:bool ->
                     ?is_ghost_cmd:bool ->
@@ -210,6 +210,14 @@ and type_check_stmt_functs = {
   disam_tbl_add_var_decl : var_decl -> DisambiguationTbl.t -> var_decl * DisambiguationTbl.t;
 
   process_symbol : Module.symbol -> Module.symbol t;
+
+  (** Recursively type-checks a nested statement (e.g. a proof block carried by a
+      top-level [Stmt.StmtExt] node) in its own fresh scope, the same way [Typing.ml]'s
+      [process_stmt] type-checks an ordinary callable body statement. Needed because
+      [type_check_stmt_ext] -- unlike the generic tree-walking hooks -- has no other way
+      to recurse: [Stmt.stmt_ext] is an opaque, extension-owned value, so only Typing.ml
+      itself can drive type-checking of whatever [Stmt.t] an extension embeds in it. *)
+  process_stmt : Callable.call_decl -> Stmt.t -> DisambiguationTbl.t -> (Stmt.t * DisambiguationTbl.t) t;
 }
 
 (** The complete set of extension callbacks: printing/query hooks for the [*_ext]
@@ -221,11 +229,21 @@ and type_check_stmt_functs = {
 and ext_hooks = {
   type_ext_to_name : Type.type_ext -> string;
   expr_ext_to_string : Expr.expr_ext -> string;
-  pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
+  pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
   contract_ext_to_string : Stmt.contract_ext -> string;
+  basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
+  basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
+  basic_stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list;
+
+  (** The [stmt_desc]-level sibling of the [pr_basic_stmt_ext]/[basic_stmt_ext_*]
+      family above, for [Stmt.StmtExt] (a self-contained [stmt_ext] value, like
+      [contract_ext], used by extension statements that need a nested [Stmt.t] of
+      their own -- see [Stmt.basic_stmt_desc.BasicStmtExt]'s doc comment for why the
+      two extension points are split). *)
+  pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> unit;
   stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
-  stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
-  stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list;
+  stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list;
+  stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list;
 
   (** Best-effort "did you mean" lookup: given a [*_ext] tag the *active* extension
       chain didn't recognize, checks whether some *other* known [--extension] choice
@@ -241,24 +259,45 @@ and ext_hooks = {
   suggest_extension_for_contract_ext : Stmt.contract_ext -> string option;
 
   expr_ext_rewrite_types : f:(type_expr -> type_expr t) -> Expr.expr_ext -> Expr.expr_ext t;
-  stmt_ext_rewrite_types : f:(type_expr -> type_expr t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
+  basic_stmt_ext_rewrite_types : f:(type_expr -> type_expr t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
+
+  (** Generic substitution for the top-level [Stmt.StmtExt] extension point, applying
+      [f] to every expression and [c] to every nested [Stmt.t] a [stmt_ext] value
+      carries -- used uniformly by [Rewriter.Stmt.rewrite_expressions]/[rewrite_types]/
+      [rewrite_qual_idents] (via [f]) and by [Rewriter.Stmt.descend] (via [c] alone,
+      [f] the identity), so an extension recurses into its own embedded statements the
+      same way [Cond]/[Loop] do, without core code needing to know [stmt_ext]'s shape. *)
+  stmt_ext_rewrite : f:(expr -> expr t) -> c:(Stmt.t -> Stmt.t t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
 
   (** Applies [f] to every expression a [contract_ext] value carries (e.g. each
       measure's [spec_form] for [decreases]), for the same reason
-      [stmt_ext_rewrite_types] exists: generic substitution during things like module
-      instantiation, where core code needs to rewrite every expression in a callable's
-      contract uniformly without knowing what a given [contract_ext] means. *)
+      [basic_stmt_ext_rewrite_types] exists: generic substitution during things like
+      module instantiation, where core code needs to rewrite every expression in a
+      callable's contract uniformly without knowing what a given [contract_ext] means. *)
   contract_ext_rewrite_exprs : f:(expr -> expr t) -> Stmt.contract_ext -> Stmt.contract_ext t;
 
   type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr t;
   type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr t;
-  type_check_stmt :
+  type_check_basic_stmt :
     Callable.call_decl ->
     Stmt.stmt_ext -> expr list ->
     location ->
     DisambiguationTbl.t ->
     type_check_stmt_functs ->
     (Stmt.basic_stmt_desc * DisambiguationTbl.t) t;
+
+  (** The [stmt_desc]-level sibling of [type_check_basic_stmt], for [Stmt.StmtExt].
+      Returns a whole [Stmt.stmt_desc] (typically another [StmtExt], left for
+      [rewrite_stmt_ext] to lower once type-checking -- e.g. a purity check on the
+      asserted fact -- has run) rather than a [basic_stmt_desc], since it isn't
+      constrained to stay "basic". *)
+  type_check_stmt_ext :
+    Callable.call_decl ->
+    Stmt.stmt_ext ->
+    location ->
+    DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    (Stmt.stmt_desc * DisambiguationTbl.t) t;
 
   type_check_contract_ext :
     Callable.call_decl ->
@@ -277,7 +316,10 @@ and ext_hooks = {
 
   rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
   rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
-  rewrite_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
+  rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
+
+  (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for [Stmt.StmtExt]. *)
+  rewrite_stmt_ext : Stmt.stmt_ext -> location -> Stmt.t t;
 
   (** [caller_call_decl -> callee_call_decl -> in_same_scc -> call_args -> loc -> ...] --
       see [ExtApi.Ext.rewrite_contract_ext_call]'s doc comment for the full contract;
@@ -318,8 +360,12 @@ and ext_hooks = {
 let default_ext_hooks : ext_hooks = {
   type_ext_to_name = Type.default_type_ext_to_name;
   expr_ext_to_string = Expr.default_expr_ext_to_string;
-  pr_stmt_ext = Stmt.default_pr_stmt_ext;
+  pr_basic_stmt_ext = Stmt.default_pr_basic_stmt_ext;
   contract_ext_to_string = Stmt.default_contract_ext_to_string;
+  basic_stmt_ext_symbols = Stmt.default_basic_stmt_ext_symbols;
+  basic_stmt_ext_local_vars_modified = Stmt.default_basic_stmt_ext_local_vars_modified;
+  basic_stmt_ext_fields_accessed = Stmt.default_basic_stmt_ext_fields_accessed;
+  pr_stmt_ext = Stmt.default_pr_stmt_ext;
   stmt_ext_symbols = Stmt.default_stmt_ext_symbols;
   stmt_ext_local_vars_modified = Stmt.default_stmt_ext_local_vars_modified;
   stmt_ext_fields_accessed = Stmt.default_stmt_ext_fields_accessed;
@@ -329,16 +375,20 @@ let default_ext_hooks : ext_hooks = {
   suggest_extension_for_contract_ext = (fun _ -> None);
   expr_ext_rewrite_types =
     (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.expr_ext_rewrite_types: no extension configured");
-  stmt_ext_rewrite_types =
-    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.stmt_ext_rewrite_types: no extension configured");
+  basic_stmt_ext_rewrite_types =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.basic_stmt_ext_rewrite_types: no extension configured");
+  stmt_ext_rewrite =
+    (fun ~f:_ ~c:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.stmt_ext_rewrite: no extension configured");
   contract_ext_rewrite_exprs =
     (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.contract_ext_rewrite_exprs: no extension configured");
   type_check_type_expr =
     (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
   type_check_expr =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_expr: no extension configured");
-  type_check_stmt =
-    (fun _ _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_stmt: no extension configured");
+  type_check_basic_stmt =
+    (fun _ _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_basic_stmt: no extension configured");
+  type_check_stmt_ext =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_stmt_ext: no extension configured");
   type_check_contract_ext =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_contract_ext: no extension configured");
   check_contract_ext_group_compatible =
@@ -347,8 +397,10 @@ let default_ext_hooks : ext_hooks = {
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
   rewrite_expr_ext =
     (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_expr_ext: no extension configured");
+  rewrite_basic_stmt_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_basic_stmt_ext: no extension configured");
   rewrite_stmt_ext =
-    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_stmt_ext: no extension configured");
+    (fun _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_stmt_ext: no extension configured");
   rewrite_contract_ext_call =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_contract_ext_call: no extension configured");
   rewrite_callable_entry =
@@ -375,6 +427,18 @@ let expand_type_expr_ref : (
     type_expr -> (type_expr, unit) t_ext
   ) ref
     = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized")
+
+(** This is meant to point to:
+      Typing.process_stmt
+    It is initialized at the end of Typing.ml. Exists so [type_check_stmt_functs] (built
+    while [Typing.process_basic_stmt] -- itself not mutually recursive with
+    [Typing.process_stmt] -- is still being defined) can hand an extension a way to
+    recursively type-check a nested [Stmt.t] (e.g. [AssertWithExt]'s proof block)
+    without a direct forward reference. *)
+let process_stmt_ref : (
+    Callable.call_decl -> Stmt.t -> DisambiguationTbl.t -> (Stmt.t * DisambiguationTbl.t) t
+  ) ref
+    = ref (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.process_stmt_ref uninitialized")
 
 
 include State
@@ -439,22 +503,22 @@ let printers_of_ext_hooks (h : ext_hooks) : printers =
   in
   let (_, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _) =
     Stmt.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   let (_, _, pr_callable) =
     Callable.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   let (pr_module, _, _, _) =
     Module.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   let (pr_symbol, symbol_to_string) =
     Symbol.make_printers ~type_ext_to_name:h.type_ext_to_name
-      ~expr_ext_to_string:h.expr_ext_to_string ~pr_stmt_ext:h.pr_stmt_ext
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
       ~contract_ext_to_string:h.contract_ext_to_string
   in
   { pr_type; pr_type_var_decl; pr_type_var_decl_list; pr_expr; pr_expr_list;
@@ -1045,6 +1109,17 @@ module Stmt = struct
         in
 
         { stmt with stmt_desc = Cond cond_desc }
+    (* [StmtExt] isn't descended into here: unlike [rewrite_expressions_top]/
+       [rewrite_types] below (always run in the plain unit-state [Rewriter.t]),
+       [descend] is reused under arbitrary custom user-states via
+       [eval_with_user_state] (e.g. atomicityAnalysis.ml, heapsExplicitTrnsl.ml's
+       skolemization passes), so it can't call [ext_hooks.stmt_ext_rewrite] --
+       that hook is fixed at unit state, same as every other [ext_hooks] entry, which
+       would pin [descend]'s state type and break every other caller. Same
+       pre-existing, accepted limitation as [Stmt.default_stmt_ext_symbols] and
+       friends; a [StmtExt] node is expected to already be lowered (via
+       [rewrites_stmt_ext]) long before any pass that relies on [descend] to reach a
+       statement nested inside one runs. *)
     | _ -> return stmt
 
   let rewrite_expressions_top ~f ~c (stmt : Stmt.t) : (Stmt.t, 'a) t_ext =
@@ -1130,14 +1205,18 @@ module Stmt = struct
               stmt with
               stmt_desc = Basic (Fpu { fpu_desc with fpu_old_val; fpu_new_val });
             }
-        | StmtExt (stmt_ext, stmt_args) ->
+        | BasicStmtExt (stmt_ext, stmt_args) ->
           let+ stmt_args =
             List.map stmt_args ~f:(fun expr -> f expr) in
           { stmt with
-            stmt_desc = Basic (StmtExt (stmt_ext, stmt_args))
+            stmt_desc = Basic (BasicStmtExt (stmt_ext, stmt_args))
           }
         (* TODO: add remaining *)
         | _ -> return stmt)
+    | StmtExt stmt_ext ->
+        let* ext_hooks = current_ext_hooks in
+        let+ stmt_ext = ext_hooks.stmt_ext_rewrite ~f ~c stmt_ext in
+        { stmt with stmt_desc = StmtExt stmt_ext }
     | Loop loop_desc ->
         let+ new_contract =
           List.map loop_desc.loop_contract ~f:(fun contract ->
@@ -1195,11 +1274,11 @@ module Stmt = struct
           stmt with
           stmt_desc = Basic (VarDef { var_decl; var_init = new_init; var_is_free = var_def.var_is_free });
         }
-    | Stmt.Basic (StmtExt (stmt_ext, stmt_args)) ->
+    | Stmt.Basic (BasicStmtExt (stmt_ext, stmt_args)) ->
       let* ext_hooks = current_ext_hooks in
-      let* stmt_ext = ext_hooks.stmt_ext_rewrite_types ~f stmt_ext in
+      let* stmt_ext = ext_hooks.basic_stmt_ext_rewrite_types ~f stmt_ext in
 
-      let stmt = { stmt with stmt_desc = Basic (StmtExt (stmt_ext, stmt_args)) } in
+      let stmt = { stmt with stmt_desc = Basic (BasicStmtExt (stmt_ext, stmt_args)) } in
         rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f)
           stmt
     | _ ->

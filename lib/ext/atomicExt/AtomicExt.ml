@@ -42,16 +42,16 @@ module AtomicExt (Cont : ListApi) = struct
 
   let expr_ext_to_string = Cont.expr_ext_to_string
   
-  let pr_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list = 
     let open Stdlib.Format in
     match ext, expr_list with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a.%a, %a)@]" Expr.pr lhs_expr (atomic_inbuilt_string ais) Expr.pr ref_expr Expr.pr field_expr Expr.pr_list args
-    | _ -> Cont.pr_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
 
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
+  let basic_stmt_ext_symbols = Cont.basic_stmt_ext_symbols
   
-  let stmt_ext_local_vars_modified stmt_ext exprs =
+  let basic_stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
       (* Only the `lhs_expr` is modified; if it is local, it is returned.  *)
@@ -59,15 +59,20 @@ module AtomicExt (Cont : ListApi) = struct
             [QualIdent.to_ident (Expr.to_qual_ident lhs_expr)]
           else
             []
-    | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_local_vars_modified stmt_ext exprs
 
   (* These commands pretty explicitly access the `field_expr` field. *)
-  let stmt_ext_fields_accessed stmt_ext exprs = 
+  let basic_stmt_ext_fields_accessed stmt_ext exprs = 
     match stmt_ext, exprs with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
         [(Expr.to_qual_ident field_expr)]
 
-    | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
+
+  let pr_stmt_ext = Cont.pr_stmt_ext
+  let stmt_ext_symbols = Cont.stmt_ext_symbols
+  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
+  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
 
   let type_ext_is_recognized = Cont.type_ext_is_recognized
   let expr_ext_is_recognized = Cont.expr_ext_is_recognized
@@ -82,7 +87,8 @@ module AtomicExt (Cont : ListApi) = struct
 
   (* Rewriter *)
   let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
+  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
 
 
   (* Typing *)
@@ -135,12 +141,13 @@ module AtomicExt (Cont : ListApi) = struct
       
     | _ -> Rewriter.return false
   
+  let type_check_stmt_ext = Cont.type_check_stmt_ext
   let type_check_contract_ext = Cont.type_check_contract_ext
   let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
   let contract_ext_to_string = Cont.contract_ext_to_string
 
   (* type-check each statement *)
-  let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
+  let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
       (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t = 
@@ -160,7 +167,7 @@ module AtomicExt (Cont : ListApi) = struct
         in
         (* use `get_assign_lhs` to get the var_decl for `lhs_expr`. *)
         let* atomic_inbuilt_lhs, var_decl = type_check_stmt_functs.get_assign_lhs (Expr.to_qual_ident lhs_expr) ~is_init:is_init in
-            let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] AtomicExt.type_check_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" printers.pr_expr lhs_expr QualIdent.pr atomic_inbuilt_lhs) in
+            let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] AtomicExt.type_check_basic_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" printers.pr_expr lhs_expr QualIdent.pr atomic_inbuilt_lhs) in
 
         (* Use `Rewriter.resolve_and_find` to find the field. This can very well be replaced by the more compact `Rewriter.find_and_reify_field`; that would be equivalent. *)
         let* atomic_inbuilt_field, symbol =
@@ -266,26 +273,27 @@ module AtomicExt (Cont : ListApi) = struct
             atomic_inbuilt_ref :: args)
 
         in
-        Logs.debug (fun m -> m "AtomicExt.type_check_stmt FINISHES");
-        (Stmt.StmtExt ais_desc, disam_tbl)
+        Logs.debug (fun m -> m "AtomicExt.type_check_basic_stmt FINISHES");
+        (Stmt.BasicStmtExt ais_desc, disam_tbl)
 
       (* Type error *)
       | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), _ ->
         Error.type_error stmt_loc "Wrong number of arguments for atomic commands"
 
-      | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+      | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
 
   (* Rewrites *)
   (* Rewriting these atomic commands in equivalent simpler Raven commands. *)
   let rewrite_type_ext = Cont.rewrite_type_ext
   let rewrite_expr_ext = Cont.rewrite_expr_ext
+  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
   let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
   let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
   let rewrite_callable_entry = Cont.rewrite_callable_entry
   let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
 
-  let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
+  let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     match stmt_ext, expr_list with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
@@ -409,7 +417,7 @@ module AtomicExt (Cont : ListApi) = struct
       in
       new_stmts
 
-    | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+    | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
 
 
   (* --------------------- *)

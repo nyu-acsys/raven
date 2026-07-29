@@ -123,6 +123,12 @@ let rec body_calls (s : Stmt.t) :
   | Basic (Call call_desc) ->
       Rewriter.return [ (call_desc.call_name, call_desc.call_args) ]
   | Basic _ -> Rewriter.return []
+  (* Not yet lowered at this point in the pipeline (stmt_ext lowering runs after
+     Masks.compute_masks -- see Rewrites.process_module), but correctly so: an
+     `assert e with { ... }` proof block's calls are never part of the surviving
+     execution (the branch that runs it is always discarded via `assume false`), so
+     they must not be counted towards the enclosing callable's mask either. *)
+  | StmtExt _ -> Rewriter.return []
 
 let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ext
     =

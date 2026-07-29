@@ -4,6 +4,7 @@
 
 open Base
 open Ast
+open Util
 
 let empty_arities = Set.empty (module Int)
 
@@ -66,6 +67,9 @@ let rec stmt_arities (s : Stmt.t) : Set.M(Int).t =
       in
       let acc = Set.union acc (stmt_arities c.cond_then) in
       Set.union acc (stmt_arities c.cond_else)
+  | StmtExt _ ->
+      Error.internal_error s.stmt_loc
+        "unexpected statement extension: should have been rewritten away before the backend"
 
 and basic_stmt_arities (bs : Stmt.basic_stmt_desc) : Set.M(Int).t =
   match bs with
@@ -99,7 +103,7 @@ and basic_stmt_arities (bs : Stmt.basic_stmt_desc) : Set.M(Int).t =
       (match fd.fpu_old_val with
       | None -> acc
       | Some e -> Set.union acc (expr_arities e))
-  | StmtExt (_, es) -> exprs_arities es
+  | BasicStmtExt (_, es) -> exprs_arities es
 
 let var_decl_arities (vd : var_decl) : Set.M(Int).t = type_arities vd.var_type
 

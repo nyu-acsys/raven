@@ -1,0 +1,8 @@
+// A `with` clause is only meaningful for `assert`: it discharges a proof obligation.
+// `assume`/`inhale`/`exhale` don't have a goal to prove, so attaching a proof block to
+// them is rejected.
+proc unsound()
+{
+  assume true with {
+  }
+}

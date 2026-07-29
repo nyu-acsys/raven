@@ -121,11 +121,11 @@ interface ARC {
         var res: Bool := cas(x.c, old_count, new_count);
 
         if (res) {
-            assert tokenCounter(x, old_count) with {
+            {!
                 if (old_count <= 0) {
                     token_interact(x);
                 }
-            }
+            !}
             token_mutate_incr(x, old_count);
 
             fold arcInv(x);

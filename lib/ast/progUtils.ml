@@ -761,6 +761,7 @@ let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =
         | Spec (_, sp) -> expr_preds_mentioned sp.spec_form
         | Use u -> return [ u.use_name ]
         | _ -> return [])
+    | StmtExt _ -> return []
   in
 
   let* preds_list = stmt_preds_mentioned s in

@@ -17,33 +17,38 @@ module SampleExt (Cont : ListApi) = struct
   let type_ext_to_name = Cont.type_ext_to_name
   let expr_ext_to_string = Cont.expr_ext_to_string
 
-  let pr_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list = 
     let open Stdlib.Format in
     match ext, expr_list with
     | RandEven, [lhs_expr; n_expr] ->
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr
     | RandEven, _ ->
       Error.internal_error Loc.dummy "wrong number of arguments for randEven(...)"
-    | _ -> Cont.pr_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
 
-  let stmt_ext_symbols stmt_ext =
+  let basic_stmt_ext_symbols stmt_ext =
     match stmt_ext with
     | RandEven -> Set.empty (module QualIdent)
-    | _ -> Cont.stmt_ext_symbols stmt_ext
+    | _ -> Cont.basic_stmt_ext_symbols stmt_ext
 
-  let stmt_ext_local_vars_modified stmt_ext exprs =
+  let basic_stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | RandEven, [lhs_expr; n_expr] ->
       let lhs_qi = Expr.to_qual_ident lhs_expr in
       if QualIdent.is_local lhs_qi then [QualIdent.to_ident lhs_qi] else []
     | RandEven, _ ->
       Error.internal_error Loc.dummy "wrong number of arguments for randEven(...)"
-    | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_local_vars_modified stmt_ext exprs
   
-  let stmt_ext_fields_accessed stmt_ext exprs =
+  let basic_stmt_ext_fields_accessed stmt_ext exprs =
     match stmt_ext, exprs with
     | RandEven, _ -> []
-    | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
+
+  let pr_stmt_ext = Cont.pr_stmt_ext
+  let stmt_ext_symbols = Cont.stmt_ext_symbols
+  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
+  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
 
   let type_ext_is_recognized = Cont.type_ext_is_recognized
   let expr_ext_is_recognized = Cont.expr_ext_is_recognized
@@ -58,7 +63,8 @@ module SampleExt (Cont : ListApi) = struct
 
   (* Rewriter *)
   let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
+  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
 
 
   (* Typing *)
@@ -69,7 +75,7 @@ module SampleExt (Cont : ListApi) = struct
   let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
   let contract_ext_to_string = Cont.contract_ext_to_string
 
-  let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
+  let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
       (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
@@ -85,25 +91,27 @@ module SampleExt (Cont : ListApi) = struct
       else
         let* n_expr = type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl in
 
-        Rewriter.return (Stmt.StmtExt (RandEven, [Expr.from_var_decl var_decl; n_expr]), disam_tbl)
+        Rewriter.return (Stmt.BasicStmtExt (RandEven, [Expr.from_var_decl var_decl; n_expr]), disam_tbl)
 
     | RandEven, _ ->
       Error.type_error stmt_loc "randEven(...) called with incorrect number of arguments"
 
-    | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+    | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
+  let type_check_stmt_ext = Cont.type_check_stmt_ext
 
   (* Rewrites *)
   let rewrite_type_ext = Cont.rewrite_type_ext
-  
+
   let rewrite_expr_ext = Cont.rewrite_expr_ext
+  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
 
   let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
   let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
   let rewrite_callable_entry = Cont.rewrite_callable_entry
   let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
 
-  let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
+  let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     match stmt_ext, expr_list with
     | RandEven, [lhs_expr; n_expr] ->
       let havoc_stmt = Stmt.mk_havoc ~loc (Expr.to_qual_ident lhs_expr) in
@@ -124,7 +132,7 @@ module SampleExt (Cont : ListApi) = struct
 
       Rewriter.return (Stmt.mk_block_stmt ~loc [havoc_stmt; inhale_stmt])
     
-    | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+    | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
 
 
   (* --------------------- *)

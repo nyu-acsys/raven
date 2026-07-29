@@ -563,45 +563,6 @@ with_clause:
     in
     [Basic (Spec (sk, spec))]
 }
-| WITH b = block; {
-  let open Stmt in
-  function
-    | Assert -> fun e ->
-        let vs, e1 = match e with
-        | Expr.Binder (Expr.Forall, vs, _, e1, _) ->
-            vs, e1
-        | _ -> [], e
-        in
-        let loc : location = Expr.to_loc e in
-        let nondet_var =
-          Type.{ var_name = Ident.fresh loc "$nondet";
-                 var_loc = loc; 
-                 var_type = Type.bool |> Type.set_ghost true;
-                 var_const = true;
-                 var_ghost = true;
-                 var_implicit = false; }
-        in
-
-        let nondet_var_def = VarDef {var_decl = nondet_var; var_init = None; var_is_free = false} in
-
-        let checks =
-          let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) e1 in
-          let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
-          List.map (fun decl -> { stmt_desc = Basic (VarDef { var_decl = decl; var_init = None; var_is_free = false }); stmt_loc = decl.var_loc } ) vs @
-          [{ stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) }; assert_stmt; assume_false]
-        in
-        let assume_e = Stmt.mk_assume_expr ~loc e in
-        let cond_stmt =
-          Cond {
-            cond_test = Some (Expr.from_var_decl nondet_var);
-            cond_then = assume_e;
-            cond_else = (Stmt.mk_block_stmt ~loc checks);
-            cond_if_assumes_false = false;
-        }
-        in
-        [mk_block ~ghost:true [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]]
-    | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
-}
   
 %public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
@@ -696,7 +657,7 @@ var_modifier:
 ; 
 
   
-block:
+%public block:
 | LBRACE; stmts = list(stmt); RBRACE { Stmt.mk_block (List.flatten stmts) }
 ;
 

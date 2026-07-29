@@ -14,14 +14,20 @@ module DefaultExt = struct
 
   let expr_ext_to_string expr_ext =
     Error.internal_error Loc.dummy "unhandled expression extension (no active extension recognizes this expression)"
-  let pr_stmt_ext ppf =
+  let pr_basic_stmt_ext ppf =
     Error.internal_error Loc.dummy "unhandled statement extension (no active extension recognizes this statement)"
   let contract_ext_to_string (contract_ext: Stmt.contract_ext) : string =
     Error.internal_error Loc.dummy "unhandled contract extension (no active extension recognizes this contract clause)"
 
+  let basic_stmt_ext_symbols _ = Set.empty (module QualIdent)
+  let basic_stmt_ext_local_vars_modified stmt_ext exprs = []
+  let basic_stmt_ext_fields_accessed stmt_ext exprs = []
+
+  let pr_stmt_ext ppf =
+    Error.internal_error Loc.dummy "unhandled statement extension (no active extension recognizes this statement)"
   let stmt_ext_symbols _ = Set.empty (module QualIdent)
-  let stmt_ext_local_vars_modified stmt_ext exprs = []
-  let stmt_ext_fields_accessed stmt_ext exprs = []
+  let stmt_ext_local_vars_modified stmt_ext = []
+  let stmt_ext_fields_accessed stmt_ext = []
 
   (* Base of the chain: this extension declares no constructors of its own. *)
   let type_ext_is_recognized (_: Type.type_ext) = false
@@ -34,8 +40,11 @@ module DefaultExt = struct
   let expr_ext_rewrite_types ~(f: type_expr -> type_expr Rewriter.t) expr_ext =
     Rewriter.return expr_ext
 
-  let stmt_ext_rewrite_types ~(f: type_expr -> type_expr Rewriter.t) stmt_ext =
+  let basic_stmt_ext_rewrite_types ~(f: type_expr -> type_expr Rewriter.t) stmt_ext =
     Rewriter.return stmt_ext
+
+  let stmt_ext_rewrite ~(f: expr -> expr Rewriter.t) ~(c: Stmt.t -> Stmt.t Rewriter.t) stmt_ext =
+    Error.internal_error Loc.dummy "unhandled statement extension reached the rewrite phase"
 
   let contract_ext_rewrite_exprs ~(f: expr -> expr Rewriter.t) (contract_ext: Stmt.contract_ext) : Stmt.contract_ext Rewriter.t =
     Error.internal_error Loc.dummy "unhandled contract extension reached the rewrite phase"
@@ -64,7 +73,14 @@ module DefaultExt = struct
     | Some ext_name -> extension_mismatch_error expr_attr.expr_loc ext_name "expression"
     | None -> Error.internal_error expr_attr.expr_loc "unhandled expression extension reached type-checking (no active extension recognizes this expression)"
 
-  let type_check_stmt (call_decl: Callable.call_decl) (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) (loc: location) (disamTbl: ProgUtils.DisambiguationTbl.t) (type_check_stmt_functs: type_check_stmt_functs) =
+  let type_check_basic_stmt (call_decl: Callable.call_decl) (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) (loc: location) (disamTbl: ProgUtils.DisambiguationTbl.t) (type_check_stmt_functs: type_check_stmt_functs) =
+    let open Rewriter.Syntax in
+    let* ext_hooks = Rewriter.current_ext_hooks in
+    match ext_hooks.suggest_extension_for_stmt_ext stmt_ext with
+    | Some ext_name -> extension_mismatch_error loc ext_name "statement"
+    | None -> Error.internal_error loc "unhandled statement extension reached type-checking (no active extension recognizes this statement)"
+
+  let type_check_stmt_ext (call_decl: Callable.call_decl) (stmt_ext: Stmt.stmt_ext) (loc: location) (disamTbl: ProgUtils.DisambiguationTbl.t) (type_check_stmt_functs: type_check_stmt_functs) =
     let open Rewriter.Syntax in
     let* ext_hooks = Rewriter.current_ext_hooks in
     match ext_hooks.suggest_extension_for_stmt_ext stmt_ext with
@@ -90,7 +106,10 @@ module DefaultExt = struct
   let rewrite_expr_ext _ _ (expr_attr: Expr.expr_attr) =
     Error.internal_error expr_attr.expr_loc "unhandled expression extension reached the rewrite phase"
 
-  let rewrite_stmt_ext _ _ loc =
+  let rewrite_basic_stmt_ext _ _ loc =
+    Error.internal_error loc "unhandled statement extension reached the rewrite phase"
+
+  let rewrite_stmt_ext _ loc =
     Error.internal_error loc "unhandled statement extension reached the rewrite phase"
 
   (* Base of the chain: no more extensions to contribute recursive-call checks. *)

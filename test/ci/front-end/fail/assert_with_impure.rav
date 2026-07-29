@@ -1,0 +1,21 @@
+// `assert e with { ... }` is for natural-deduction-style proofs of pure facts: the
+// proof block is checked in an isolated, discarded branch, so the only thing that
+// survives is `assume e`. If `e` is impure (a permission/predicate assertion), that
+// `assume` would conjure the resource for free, since nothing on the surviving path
+// ever paid for it. So the goal must type-check as Bool, not the wider Perm ordinary
+// assert/assume specs accept.
+field f: ()
+
+pred p(x: Ref) {
+  own(x.f, ())
+}
+
+proc unsound(x: Ref)
+  requires own(x.f, ())
+{
+  assert p(x) with {
+    fold p(x);
+  }
+
+  unfold p(x);
+}
