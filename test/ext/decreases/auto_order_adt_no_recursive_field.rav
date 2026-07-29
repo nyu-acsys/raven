@@ -1,0 +1,17 @@
+// A `data` type with no self-recursive field at all (an enum): the
+// auto-generated `lt` is always false, so a `decreases` clause over it can
+// never show progress -- rejected the same way any other unprovable measure
+// would be, not a special case.
+module Color {
+  rep type T = data {
+    case red
+    case green
+    case blue
+  }
+
+  func loopy(c: T, n: Int) returns (ret: Int)
+    decreases c
+  {
+    n <= 0 ? 0 : loopy(c, n - 1)
+  }
+}

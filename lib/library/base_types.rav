@@ -33,12 +33,15 @@ module ListM[E: Type] : Type {
 
   func len(ls:T) returns (ret: Int) 
     ensures ret >= 0
-  {
+    decreases ls
+ {
     ls == nil ? 0 :
       1 + len(ls.tl)
   }
 
-  func is_in(ls: T, e: E) returns (ret: Bool) {
+  func is_in(ls: T, e: E) returns (ret: Bool) 
+    decreases ls
+  {
     ls == nil ? false :
       (e == ls.hd || is_in(ls.tl, e))
   }

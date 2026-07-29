@@ -120,18 +120,154 @@ module DecreasesExt (Cont : ListApi) = struct
     in
     go (Set.empty (module QualIdent)) module_qident
 
+  (* Resolves [tp] to its own qual_ident and [variant_decl list] if [tp] is a
+     `data` type, [None] otherwise -- the same walk [AtomicExt.is_type_word_sized]
+     already does for a different purpose (there: are all constructors
+     base-typed; here: what are the self-recursive field positions). *)
+  let as_data_type (tp : type_expr) : (qual_ident * Type.variant_decl list) option Rewriter.t =
+    let open Rewriter.Syntax in
+    match tp with
+    | App (Var qi, [], _) ->
+      let* qi, symbol = Rewriter.resolve_and_find qi in
+      let+ type_def = Rewriter.Symbol.reify_type_def (QualIdent.to_loc qi) symbol in
+      (match type_def with
+       | Some (App (Data (data_qi, variant_decls), [], _)) -> Some (data_qi, variant_decls)
+       | _ -> None)
+    | _ -> Rewriter.return None
+
+  (* A field of some variant of [data_qi] counts as a recursive position exactly
+     when its own type refers back to [data_qi] itself. Fields of any other type
+     -- a type parameter (e.g. [List[E]]'s [E]), or a *different* data type,
+     including one that's part of a cycle back to this one (mutual recursion) --
+     are simply never recursed into by [mk_auto_order_lt_body] below: sound
+     either way (never over-claims a decrease), just incomplete for anything
+     beyond straightforward self-recursion, which is this scheme's deliberately
+     chosen scope for now. *)
+  let is_self_recursive_field (data_qi : qual_ident) (field : var_decl) : bool =
+    match field.var_type with
+    | App (Var qi, [], _) -> QualIdent.equal qi data_qi
+    | _ -> false
+
+  (* Builds `lt`'s body for the auto-generated order below. Raven has no match
+     expression, so -- exactly like every hand-written `data`-type function in
+     this codebase, e.g. [OrdinalBase.lt] -- [y]'s own constructor is
+     exhaustively discriminated via reconstruct-and-compare, `y == C(y.f1, ...,
+     y.fn)`; for the matching variant, `x` "decreases" `y` iff `x` equals one of
+     that variant's self-recursive fields. Deliberately *not* transitively
+     closed (i.e. this only ever looks one field-selection deep, never `x ==
+     y.f.g` or "recursing into" the disjunction): a `decreases` progress check
+     only ever needs a single-step comparison -- the actual call argument
+     against the caller's own entry-time value -- and a self-referential
+     definition of `lt` itself would risk an E-matching trigger loop for no
+     actual gain, since the sequence of single-step decreases across a whole
+     recursive call chain is what gives termination, not transitivity baked
+     into `lt`. *)
+  let mk_auto_order_lt_body ~(loc : location) (data_qi : qual_ident)
+      (variant_decls : Type.variant_decl list) (x_vd : var_decl) (y_vd : var_decl) : expr =
+    let module_qi = QualIdent.pop data_qi in
+    let x_expr = Expr.from_var_decl x_vd in
+    let y_expr = Expr.from_var_decl y_vd in
+    let field_expr (fvd : var_decl) =
+      let destr_qi = QualIdent.append module_qi fvd.var_name in
+      Expr.mk_app ~loc ~typ:fvd.var_type (DataDestr destr_qi) [ y_expr ]
+    in
+    let rec go = function
+      | [] -> Expr.mk_bool ~loc false
+      | (variant : Type.variant_decl) :: rest ->
+        let is_this_variant =
+          let constr_qi = QualIdent.append module_qi variant.variant_name in
+          let reconstructed =
+            Expr.mk_app ~loc ~typ:y_vd.var_type (DataConstr constr_qi)
+              (List.map variant.variant_args ~f:field_expr)
+          in
+          Expr.mk_eq ~loc y_expr reconstructed
+        in
+        let this_branch =
+          match List.filter variant.variant_args ~f:(is_self_recursive_field data_qi) with
+          | [] -> Expr.mk_bool ~loc false
+          | recursive_fields ->
+            Expr.mk_or ~loc (List.map recursive_fields ~f:(fun fvd -> Expr.mk_eq ~loc x_expr (field_expr fvd)))
+        in
+        Expr.mk_ite ~loc is_this_variant this_branch (go rest)
+    in
+    go variant_decls
+
+  (* [is_wf_order_type] runs from both the type-checking pass and (again, per
+     [type_check_contract_ext]'s own doc comment on why a clause is re-type-checked
+     a second time) the rewrite pass, each with a different "current scope" --
+     [introduce_typecheck_symbol'] resolves a symbol's target scope relative to
+     that, so the same deterministic name from two different scopes lands two
+     distinct qual_idents, not one reused one; a fresh name every call keeps that
+     safe instead of relying on cross-call reuse. Harmless: [lt] carries no
+     [ensures], hence no proof obligation, so a handful of redundant copies cost
+     only elaboration bookkeeping, never SMT effort. *)
+  let auto_order_module_ident (data_qi : qual_ident) : ident =
+    Ident.fresh (QualIdent.to_loc data_qi) ("$decreases_auto_order$" ^ QualIdent.to_string data_qi)
+
+  (* Synthesizes a module containing just a `lt` function for the `data` type
+     [data_qi]/[variant_decls], trusting
+     -- not proving -- that it's well-founded: unlike a real [WellFoundedOrder]
+     instance, this has no [embed]/[lt_embed_mono] at all, since nothing
+     [decreasesExt.ml] generates ever needs them for anything but the
+     interface-conformance bookkeeping this deliberately opts out of (see
+     [WellFoundedOrder]'s own doc comment). The trust this leans on -- that
+     structural descent on an inductively-defined `data` type terminates -- is
+     not a new assumption specific to this scheme: it's the same meta-theoretic
+     fact [OrdinalBase.lt]'s own well-foundedness already rests on (see its doc
+     comment), just applied directly instead of via an embedding proof. *)
+  let auto_order_module_qual_ident ~(loc : location) (data_qi : qual_ident)
+      (variant_decls : Type.variant_decl list) (measure_type : type_expr) : qual_ident Rewriter.t =
+    let x_vd = Type.mk_var_decl ~const:true (Ident.make loc "x" 0) measure_type in
+    let y_vd = Type.mk_var_decl ~const:true (Ident.make loc "y" 0) measure_type in
+    let res_vd = Type.mk_var_decl ~const:true (Ident.make loc "res" 0) Type.bool in
+    let lt_call_decl : Callable.call_decl = {
+      call_decl_kind = Func;
+      call_decl_name = Ident.make loc "lt" 0;
+      call_decl_formals = [ x_vd; y_vd ];
+      call_decl_returns = [ res_vd ];
+      call_decl_locals = [];
+      call_decl_precond = [];
+      call_decl_postcond = [];
+      call_decl_contract_ext = [];
+      call_decl_status = NotFree;
+      call_decl_is_auto = false;
+      call_decl_needs_mask = None;
+      call_decl_grants_mask = None;
+      call_decl_loc = loc;
+    } in
+    let lt_call_def =
+      Callable.FuncDef { func_body = Some (mk_auto_order_lt_body ~loc data_qi variant_decls x_vd y_vd) }
+    in
+    let module_symbol =
+      Module.ModDef {
+        mod_decl = { Module.empty_decl with mod_decl_name = auto_order_module_ident data_qi; mod_decl_loc = loc };
+        mod_def = [ SymbolDef (CallDef { call_decl = lt_call_decl; call_def = lt_call_def }) ];
+      }
+    in
+    Rewriter.introduce_typecheck_symbol' ~loc module_symbol
+
   (* Resolves the [WellFoundedOrder] instance (as the qual_ident of the module
      implementing it) for a `decreases` measure component's type, if any. [Int]
      is special-cased to the library's [IntOrder]: it's a primitive type, not a
-     module-owned rep type the [App (Var qi, [], _)] pattern below can walk to. *)
+     module-owned rep type the [App (Var qi, [], _)] pattern below can walk to.
+     A `data` type with no explicit [WellFoundedOrder]-implementing wrapper falls
+     through to [auto_order_module_qual_ident] instead of [None] -- see its own
+     doc comment for what that trades away. *)
   let is_wf_order_type (tp : type_expr) : qual_ident option Rewriter.t =
     let open Rewriter.Syntax in
     match tp with
     | App (Int, [], _) -> Rewriter.return (Some lib_int_order_qual_ident)
-    | App (Var qi, [], _) ->
+    | App (Var qi, [], _) as tp ->
       let module_qi = QualIdent.pop qi in
-      let+ is_wf = does_module_implement_wf_order module_qi (QualIdent.unqualify qi) in
-      if is_wf then Some module_qi else None
+      let* is_wf = does_module_implement_wf_order module_qi (QualIdent.unqualify qi) in
+      if is_wf then Rewriter.return (Some module_qi)
+      else
+        let* data_type = as_data_type tp in
+        (match data_type with
+         | None -> Rewriter.return None
+         | Some (data_qi, variant_decls) ->
+           let+ order_qi = auto_order_module_qual_ident ~loc:(Type.to_loc tp) data_qi variant_decls tp in
+           Some order_qi)
     | _ -> Rewriter.return None
 
   let get_wf_order_lt_fn_qual_ident (instance_qi : qual_ident) : qual_ident =
