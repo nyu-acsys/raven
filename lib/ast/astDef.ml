@@ -1352,6 +1352,7 @@ module Stmt = struct
   type new_desc = {
     new_lhs : qual_ident;
     new_args : (qual_ident * expr option) list;
+    new_is_init : bool;
   }
 
   type assign_desc = { assign_lhs : qual_ident list; assign_rhs : expr; assign_is_init : bool }
@@ -1833,7 +1834,10 @@ module Stmt = struct
                 Option.map e_opt ~f:(Expr.symbols ~acc:accesses) |>
                 Option.value ~default:accesses) ~init:accesses
           in
-          Set.add accesses new_desc.new_lhs
+          if not new_desc.new_is_init then
+            Set.add accesses new_desc.new_lhs
+          else
+            accesses
 
         | Assign assign_desc ->
             let accesses =
@@ -1956,7 +1960,7 @@ module Stmt = struct
           []
 
         | New new_desc ->
-          if List.is_empty new_desc.new_lhs.qual_path then
+          if not new_desc.new_is_init && List.is_empty new_desc.new_lhs.qual_path then
               [new_desc.new_lhs.qual_base]
           else
             []

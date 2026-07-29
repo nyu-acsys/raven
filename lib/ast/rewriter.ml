@@ -1307,7 +1307,7 @@ module Stmt = struct
                   in
                   (f x, e_opt))
             in
-            { stmt with stmt_desc = Basic (New { new_lhs; new_args }) }
+            { stmt with stmt_desc = Basic (New { new_desc with new_lhs; new_args }) }
         | Fpu fpu_desc ->
             let fpu_field = f fpu_desc.fpu_field in
             let+ fpu_ref = Expr.rewrite_qual_idents ~f fpu_desc.fpu_ref

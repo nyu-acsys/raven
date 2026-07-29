@@ -1,0 +1,7 @@
+field f: Int
+
+proc foo()
+{
+  val y: Ref := new(f: 1);
+  val z := new(f: 2);
+}

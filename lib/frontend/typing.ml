@@ -2024,7 +2024,7 @@ module ProcessCallable = struct
       ( Stmt.Use { use_desc with use_name; use_args; use_witnesses_or_binds },
         disam_tbl )
     | New new_desc ->
-      let* new_qual_ident, var_decl = get_assign_lhs new_desc.new_lhs ~is_init:false in
+      let* new_qual_ident, var_decl = get_assign_lhs new_desc.new_lhs ~is_init:new_desc.new_is_init in
       let* var_type_expanded =
         ProcessTypeExpr.expand_type_expr var_decl.var_type
       in
@@ -2047,7 +2047,7 @@ module ProcessCallable = struct
           Rewriter.List.map new_desc.new_args ~f:process_field_init
         in
         
-        let new_desc = Stmt.{ new_lhs = new_qual_ident; new_args } in
+        let new_desc = Stmt.{ new_desc with new_lhs = new_qual_ident; new_args } in
         
         (Stmt.New new_desc, disam_tbl)
       else

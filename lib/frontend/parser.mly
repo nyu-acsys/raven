@@ -605,12 +605,13 @@ with_clause:
   
 %public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
-  function 
-    | [Expr.App(Expr.Var x, _, _)], _ ->
+  function
+    | [Expr.App(Expr.Var x, _, _)], assign_is_init ->
         let new_descr = Stmt.{
           new_lhs = x;
           new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
-        }  
+          new_is_init = assign_is_init;
+        }
         in
         Stmt.(Basic (New new_descr)), Some (Expr.mk_null ())
     | es, _ -> Error.syntax_error (es |> List.hd |> Expr.to_loc) ("Result of allocation must be assigned to a single variable")
