@@ -27,12 +27,11 @@ Type-checking:
   - [x] Ensure that return variables are not allowed in pre-conditions
   - Check that openAU, commitAU having right number of arguments
   - Check that assertion expressions having the right format -- conditionals in ternary expr being pure, etc
-  - Ensure that return variables of functions are not used in the function body
+  - [x] Ensure that return variables of functions are not used in the function body
   - Ensure that predicates don't have implicit ghost args
   - Ensure that left-hand side of bindAU is well-typed (number of vars matches number of implicit args; types match, etc.) 
 
 - Implement mask computation to check interface <-> module compatibility
-- Improve expression matching algorithm
 - Revamp witness computation code
 
 - [x] Fix `return proc()` stmts
@@ -40,7 +39,7 @@ Type-checking:
     (Thomas did implement a fix for this, but needs review)
 
 - Parse field reads/writes/cas/fpu separately
-- Allow types to be used as modules implementing Library.Type
+- [x] Allow types to be used as modules implementing Library.Type
 
 
 
