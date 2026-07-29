@@ -1,0 +1,41 @@
+// Regression test for the interface/implementation asymmetry
+// `call_decl_grants_mask` used to have: since it was computed purely from
+// a callable's own body (a fold/unfold simulation), an interface's
+// abstract, bodyless declaration always got an empty grants set, even
+// when a concrete implementation of the same member would get something
+// richer -- so a functor reasoning generically about an abstract `P:
+// I` member could never rely on grants credit a concrete instantiation
+// would actually provide. Now that grants are computed from `ensures`
+// text (also unioned with whatever a body-simulation separately finds,
+// for a concrete definition), the abstract declaration's own `ensures`
+// clause is enough on its own -- no body needed. `F`'s `make_and_bump`
+// only ever sees `I`'s abstract `create`, never `M`'s body, and still
+// gets grants credit for `p(x)` straight from `create`'s own contract.
+
+field c: Int
+
+inv p(x: Ref) {
+  own(x.c, 1)
+}
+
+interface I {
+  proc create() returns (x: Ref) ensures p(x)
+}
+
+module F[P: I] {
+  proc make_and_bump() {
+    var x: Ref := P.create();
+    unfold p(x);
+    var v: Int := x.c;
+    fold p(x);
+  }
+}
+
+module M : I {
+  proc create() returns (x: Ref) ensures p(x) {
+    x := new(c: 1);
+    fold p(x);
+  }
+}
+
+module FM = F[M]

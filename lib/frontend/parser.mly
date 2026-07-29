@@ -335,7 +335,8 @@ callable_decl:
                call_decl_contract_ext = contract_ext;
                call_decl_status = NotFree;
                call_decl_is_auto = false;
-               call_decl_mask = None;
+               call_decl_needs_mask = None;
+               call_decl_grants_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl
@@ -355,7 +356,8 @@ callable_decl_out_vars:
                call_decl_contract_ext = contract_ext;
                call_decl_status = NotFree;
                call_decl_is_auto = false;
-               call_decl_mask = None;
+               call_decl_needs_mask = None;
+               call_decl_grants_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl

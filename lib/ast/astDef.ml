@@ -2206,11 +2206,94 @@ let is_free = function NotFree -> false | UserFree | MachineFree -> true
 (** Callables *)
 
 module Callable = struct
-  type call_kind = 
+  type call_kind =
     | Proc | Lemma (* proc *)
     | Func | Pred | Invariant (* func *)
   [@@deriving compare]
-    
+
+  (** A mask entry [(inv_name, arg_prefix)] identifies an invariant declaration
+      together with a (possibly empty) prefix of its own formal-argument list,
+      taken positionally: [] means "the whole declaration, any instance";
+      a full-length list means one exact instance; anything in between denotes
+      the upward closure of everything chained under it. Declaration identity
+      alone (the QualIdent) already gives cross-declaration apartness for
+      free, so no separate namespace-token type is needed here. *)
+  type mask_entry = QualIdent.t * expr list
+
+  (* [expr] (a plain alias to [Expr.t], not itself annotated) doesn't resolve
+     through ppx_compare, so this is spelled out via [Expr.compare]/
+     [QualIdent.compare] directly rather than [@@deriving compare]. *)
+  let compare_mask_entry ((qi1, args1) : mask_entry) ((qi2, args2) : mask_entry) : int =
+    let c = QualIdent.compare qi1 qi2 in
+    if c <> 0 then c else List.compare Expr.compare args1 args2
+
+  (* A mask entry that's a syntactic prefix of another entry for the same
+     declaration denotes the *same* underlying access right, described at
+     two different granularities -- not two independent rights (a shorter
+     prefix is the upward closure of everything a longer one would have
+     needed, per [mask_entry]'s own doc comment). This is [Antichain.Make]'s
+     [Ord.meet] for [mask_entry]: [None] for two entries naming different
+     declarations, or two same-declaration entries that are provably (or
+     just not provably) neither a prefix of the other (purely syntactic,
+     [Expr.alpha_equal] position by position -- no SMT, matching how the
+     rest of this mask machinery avoids the solver where it can; an
+     under-approximated meet here is always safe, just narrower); otherwise
+     [Some] the longer (more specific) of the two, since its region is
+     already a subset of the shorter, coarser one's. This single function
+     is what gives both [mask_canon] (keeping only the maximal entries --
+     e.g. dropping a redundant, specific `(i, [x])` once a coarser `(i,
+     [])` for the same [i] is also present, so the right can't be spent
+     twice under two different descriptions) and [mask_inter] (correctly
+     computing that `{(i, [])}` met with `{(i, [x])}` is `{(i, [x])}` --
+     the largest thing guaranteed by *both* sides -- rather than the empty
+     set a plain element-wise intersection would give, since neither side
+     literally contains the other's exact entry) their correct, consistent
+     behavior for free, from the single underlying partial order. *)
+  let mask_entry_meet ((qi1, args1) : mask_entry) ((qi2, args2) : mask_entry) :
+      mask_entry option =
+    if not (QualIdent.equal qi1 qi2) then None
+    else
+      let is_prefix ~(shorter : expr list) ~(longer : expr list) : bool =
+        List.length shorter <= List.length longer
+        &&
+        match
+          List.for_all2 shorter (List.take longer (List.length shorter))
+            ~f:Expr.alpha_equal
+        with
+        | Ok b -> b
+        | Unequal_lengths -> false
+      in
+      if is_prefix ~shorter:args1 ~longer:args2 then Some (qi2, args2)
+      else if is_prefix ~shorter:args2 ~longer:args1 then Some (qi1, args1)
+      else None
+
+  (* [mask_entry] embeds [expr], which has no [sexp_of_t] (see
+     [Antichain]'s own doc comment for why), so [Base.Set]/[Comparator.Make]
+     isn't available here -- [Antichain.Make] only needs [compare] and
+     [meet]. *)
+  module MaskSet = Antichain.Make (struct
+    type t = mask_entry
+
+    let compare = compare_mask_entry
+    let meet = mask_entry_meet
+  end)
+
+  (** A callable's required mask: a set of [mask_entry]. Transparently a
+      plain list (matching [call_decl_precond]/[call_decl_postcond] in the
+      same record), so ordinary [List] operations on a [mask] value still
+      work; use [mask_union]/[mask_equal] (below) rather than raw list
+      concatenation/equality to keep it in canonical (sorted, deduplicated,
+      maximal-elements-only, see [mask_entry_meet]) form -- see [Antichain]
+      for why that matters (the mask fixpoint's convergence check relies on
+      it). *)
+  type mask = MaskSet.t
+
+  let mask_canon = MaskSet.canon
+  let mask_equal = MaskSet.equal
+  let mask_union = MaskSet.union
+  let mask_union_list = MaskSet.union_list
+  let mask_inter = MaskSet.inter
+
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
     call_decl_name : ident;  (** name of associated declaration *)
@@ -2222,7 +2305,8 @@ module Callable = struct
     call_decl_contract_ext : Stmt.contract_ext list;  (** extension-defined contract clauses, e.g. [decreases]; see [Stmt.loop_desc.loop_contract_ext] *)
     call_decl_status : free_status; (** Whether this callable's correctness is checked, admitted, or established free by the compiler -- see [free_status] *)
     call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
-    call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
+    call_decl_needs_mask : mask option; (** Invariant mask required from this callable's caller -- computed purely from [call_decl_precond] (see [masks.ml]); also the starting mask for checking this callable's own body. *)
+    call_decl_grants_mask : mask option; (** Invariant mask entries a caller is guaranteed to gain by calling this callable, regardless of what it supplies -- computed purely from [call_decl_postcond]. Used only by other callables' checking passes at their own call sites into this one. *)
     call_decl_loc : location;  (** source location of declaration *)
   }
 
@@ -2299,20 +2383,32 @@ module Callable = struct
         | ls ->
             fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
       in
-      let pr_call_mask ppf = function
+      let pr_mask_entries ppf mask =
+        let pr_entry ppf (qi, args) =
+          match args with
+          | [] -> fprintf ppf "%a" QualIdent.pr qi
+          | _ -> fprintf ppf "%a(%a)" QualIdent.pr qi (Print.pr_list_comma Expr.pr) args
+        in
+        fprintf ppf "(@[<0>%a@])" (Print.pr_list_comma pr_entry) mask
+      in
+      let pr_call_needs_mask ppf = function
         | None ->
           fprintf ppf "@\n/* mask: <none> */"
-        | Some mask ->
-            fprintf ppf "@\n/* mask: (@[<0>%a@]) */" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
+        | Some mask -> fprintf ppf "@\n/* needs mask: %a */" pr_mask_entries mask
       in
-      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a@]"
+      let pr_call_grants_mask ppf = function
+        | None -> ()
+        | Some mask -> fprintf ppf "@\n/* grants mask: %a */" pr_mask_entries mask
+      in
+      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a@]"
         (free_modifier ^ auto_modifier ^ kind)
         Ident.pr call_decl.call_decl_name
         (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
         pr_returns call_decl.call_decl_returns
         pr_call_decl_specs call_decl
         pr_call_locals call_decl.call_decl_locals
-        pr_call_mask call_decl.call_decl_mask
+        pr_call_needs_mask call_decl.call_decl_needs_mask
+        pr_call_grants_mask call_decl.call_decl_grants_mask
     in
     let pr ppf def =
       let open Stdlib.Format in

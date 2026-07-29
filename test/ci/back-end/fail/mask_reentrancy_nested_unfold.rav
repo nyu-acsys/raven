@@ -1,0 +1,24 @@
+// Regression test: unfolding two instances of the same invariant without
+// proving them disjoint is rejected, even when both are individually
+// available in the mask. `bar`'s own `requires i(x) && i(y)` supplies two
+// separate mask credits, but nothing establishes `x != y`, so opening both
+// simultaneously risks a reentrant double-open of the same real instance
+// -- caught by `open_inv`'s reentrancy guard (`same_name_open` /
+// `disjointness_condition` in atomicityAnalysis.ml), which requires any
+// two simultaneously-open instances of the same declaration to be
+// provably distinct.
+
+field f: Int
+
+inv i(x: Ref) {
+  own(x.f, 1)
+}
+
+proc bar(x: Ref, y: Ref)
+  requires i(x) && i(y)
+{
+  unfold i(x);
+  unfold i(y);
+  fold i(y);
+  fold i(x);
+}

@@ -1,0 +1,25 @@
+field c: Int
+
+inv counterInv(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+// Fresh allocation itself is unconditionally allowed (no mask check at
+// all) -- but that grants no mask credit to the caller, and the callable's
+// own inferred requirement (needing `counterInv` to satisfy its own later
+// `unfold`) still has to be traceably supplied by whoever calls it. Here
+// nothing does.
+proc make_and_reopen()
+  returns (x: Ref)
+{
+  x := new(c: 0);
+  fold counterInv(x);
+  unfold counterInv(x);
+  fold counterInv(x);
+}
+
+proc caller()
+{
+  var y: Ref;
+  y := make_and_reopen();
+}

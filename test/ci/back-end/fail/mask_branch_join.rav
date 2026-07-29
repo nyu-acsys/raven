@@ -1,0 +1,21 @@
+// Regression test: mask credit established on only one arm of a
+// conditional must not survive to the join -- the forward-credit dataflow
+// for a fresh `fold` joins by intersection, not union. `q`'s own
+// `call_decl_needs_mask` is `()` (nothing in `requires`, and it's never called
+// from anywhere else, so nothing to transitively propagate either), so the
+// only possible source of credit
+// for the `unfold q(x)` below is the `fold q(x)` inside the `then` branch
+// -- which must not count on the path where `cond` is false.
+
+inv q(x: Ref) { true }
+
+proc p(cond: Bool) {
+  var x: Ref;
+  if (cond) {
+    fold q(x);
+  } else {
+
+  }
+  unfold q(x);
+  fold q(x);
+}

@@ -1,0 +1,34 @@
+// Regression test for the call-site reentrancy guard: a call (lemma,
+// ordinary proc, or atomic proc alike) whose own contract requires credit
+// for an invariant declaration must be checked for disjointness against
+// any instance of that same declaration the caller currently has open,
+// exactly like a direct `unfold` is -- otherwise the call can silently
+// reopen the same real instance under a different name. `bar` has `i(x)`
+// open when it calls `foo(y)`, and `foo` itself unfolds its own `i(y)`
+// formal; nothing establishes `x != y`, so this must be rejected the same
+// way `unfold i(x); unfold i(y);` directly inside `bar` would be (see
+// mask_reentrancy_nested_unfold.rav). Before this guard existed, this
+// program verified successfully -- a genuine unsoundness: `bar` could
+// hold `own(x.f, 1)` from its own `unfold i(x)` and, via `foo`, extract a
+// second, aliased copy of it.
+
+field f: Int
+
+inv i(x: Ref) {
+  own(x.f, 1)
+}
+
+lemma foo(y: Ref)
+  requires i(y)
+{
+  unfold i(y);
+  fold i(y);
+}
+
+proc bar(x: Ref, y: Ref)
+  requires i(x) && i(y)
+{
+  unfold i(x);
+  foo(y);
+  fold i(x);
+}

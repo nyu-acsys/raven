@@ -1,0 +1,41 @@
+// Regression test for the further mask-inference gap identified while
+// stress-testing GitHub issue #23's fix: a callable that allocates a fresh
+// invariant instance via a call to a helper and then *directly* unfolds it
+// itself (as opposed to #23's original pattern, where a separate helper
+// does the unfolding) used
+// to still be over-conservatively rejected, because the (now superseded)
+// body-scan-only inference couldn't distinguish "I generated this myself,
+// transitively" from "I genuinely need this from my own caller". The mask
+// a callable requires from its own caller is unaffected by what it does
+// with something it obtained from a callee's `ensures` and immediately
+// consumes itself.
+
+field c: Int
+
+inv p(x: Ref) {
+  own(x.c, 1)
+}
+
+proc create()
+  returns (x: Ref)
+  ensures p(x)
+{
+  x := new(c: 1);
+  fold p(x);
+}
+
+// `make_and_bump`'s own `requires` mentions nothing about `p` -- its
+// `call_decl_needs_mask` is `()`, and the `unfold p(x)` below succeeds purely off
+// `create()`'s grants-set credit, not off anything supplied externally.
+proc make_and_bump() {
+  var x: Ref := create();
+  unfold p(x);
+  var v: Int := x.c;
+  fold p(x);
+}
+
+// A caller of `make_and_bump()` needs nothing related to `p` either --
+// confirming the requirement doesn't leak upward through this call site.
+proc outer_caller() {
+  make_and_bump();
+}

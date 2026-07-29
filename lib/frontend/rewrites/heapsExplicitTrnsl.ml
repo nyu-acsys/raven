@@ -291,7 +291,8 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
         call_decl_status = NotFree;
         call_decl_is_auto = false;
         call_decl_loc = loc;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
       }
     in
 
@@ -450,7 +451,15 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           call_decl_contract_ext = [];
           call_decl_status = NotFree;
           call_decl_is_auto = true;
-          call_decl_mask = None;
+          (* Created in `rewrites_phase_3` (via TrnslInhale/TrnslExhale), after
+             `Masks.compute_masks`/atomicity analysis have already run, so
+             this never goes through the mask fixpoint and `call_decl_needs_mask`
+             would otherwise be stuck at `None` forever. Safe to seed it as
+             `Some []` directly: the body below is just an assert followed by
+             `assume false` (see `generate_injectivity_assertions`), with no
+             call or unfold/fold of any kind. *)
+          call_decl_needs_mask = Some [];
+          call_decl_grants_mask = Some [];
           call_decl_loc = loc;
         }
       in
@@ -586,7 +595,8 @@ let generate_skolem_function (universal_quants : universal_quants)
       call_decl_loc = loc;
       call_decl_status = NotFree;
       call_decl_is_auto = false;
-      call_decl_mask = Some (Set.empty (module QualIdent));
+      call_decl_needs_mask = Some [];
+      call_decl_grants_mask = Some [];
     }
   in
 
@@ -748,7 +758,8 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
         call_decl_loc = loc;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
       }
     in
 
@@ -849,7 +860,8 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
         call_decl_loc = loc;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
       }
     in
 
@@ -898,7 +910,8 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_contract_ext = [];
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
         call_decl_loc = loc;
       }
     in
@@ -948,7 +961,8 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_contract_ext = [];
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
         call_decl_loc = loc;
       }
     in

@@ -1,0 +1,35 @@
+// Regression test: mask credit for `p` -- available to `main` here both
+// because it locally `fold`s a fresh instance and because it transitively
+// needs `p` anyway (it calls `touch`, which requires it) -- is legitimately
+// shared with a spawned thread the same way Iris's Par rule hands the same
+// mask to both resulting sub-proofs rather than splitting it, and a `spawn`
+// call site doesn't consume/debit it: `main`'s own later `unfold` still
+// finds it available afterward. Not a bug, and not something that requires
+// `spawn` to be treated specially at any call site.
+
+field c: Int
+
+inv p(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+proc touch(x: Ref)
+  requires p(x)
+  ensures p(x)
+{
+  unfold p(x);
+  var v: Int := x.c;
+  fold p(x);
+}
+
+// `main`'s own `call_decl_needs_mask` is `()` -- the one local `fold` supplies
+// the credit that both the `spawn touch(x)` call site and `main`'s own
+// later `unfold` draw on.
+proc main() {
+  var x: Ref := new(c: 0);
+  fold p(x);
+  spawn touch(x);
+  unfold p(x);
+  var v: Int := x.c;
+  fold p(x);
+}

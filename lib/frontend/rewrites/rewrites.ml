@@ -245,7 +245,8 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           call_decl_contract_ext = [];
           call_decl_status = MachineFree;
           call_decl_is_auto = false;
-          call_decl_mask = None;
+          call_decl_needs_mask = None;
+          call_decl_grants_mask = None;
           call_decl_loc = Expr.to_loc expr;
         }
       in
@@ -413,7 +414,8 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
           call_decl_contract_ext = [];
           call_decl_status = MachineFree;
           call_decl_is_auto = false;
-          call_decl_mask = None;
+          call_decl_needs_mask = None;
+          call_decl_grants_mask = None;
           call_decl_loc = Expr.to_loc expr;
         }
       in
@@ -697,7 +699,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_contract_ext = loop_contract_ext;
           call_decl_status = NotFree;
           call_decl_is_auto = false;
-          call_decl_mask = None;
+          call_decl_needs_mask = None;
+          call_decl_grants_mask = None;
           call_decl_loc = stmt.stmt_loc;
         }
       in
@@ -2208,7 +2211,15 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_contract_ext = [];
               call_decl_status = NotFree;
               call_decl_is_auto = false;
-              call_decl_mask = None;
+              (* This callable is created in `rewrites_phase_3`, after
+                 `Masks.compute_masks`/atomicity analysis have already run, so
+                 it never goes through the mask fixpoint and `call_decl_needs_mask`
+                 would otherwise be stuck at `None` forever. Safe to seed it
+                 as `Some []` directly: the body below is just two `inhale`s
+                 -- structurally impossible to unfold an invariant, so it can
+                 never have a real mask requirement. *)
+              call_decl_needs_mask = Some [];
+              call_decl_grants_mask = Some [];
               call_decl_loc = c.call_decl.call_decl_loc;
             }
           in
@@ -2422,7 +2433,17 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                   call_decl_contract_ext = [];
                   call_decl_status = NotFree;
                   call_decl_is_auto = true;
-                  call_decl_mask = None;
+                  (* Created in `rewrites_phase_3`, after
+                     `Masks.compute_masks`/atomicity analysis have already
+                     run, so this never goes through the mask fixpoint and
+                     `call_decl_needs_mask` would otherwise be stuck at `None`
+                     forever. Safe to seed it as `Some []` directly: this
+                     lemma's body only ever mirrors a `func`'s (pure
+                     expression) body and calls other such auto-lemmas (see
+                     the doc comment above), so, transitively, it can never
+                     unfold an invariant or need a real mask requirement. *)
+                  call_decl_needs_mask = Some [];
+                  call_decl_grants_mask = Some [];
                   call_decl_loc = call_decl.call_decl_loc;
                 }
             in

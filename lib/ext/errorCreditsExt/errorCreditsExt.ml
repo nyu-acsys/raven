@@ -542,7 +542,13 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         call_decl_contract_ext = [];
         call_decl_status = NotFree;
         call_decl_is_auto = false;
-        call_decl_mask = None;
+        (* Safe to seed directly rather than leave as `None` pending the mask
+           fixpoint: `masks.ml`'s `fixpoint_compute_masks` treats every `Func`
+           (this is one, per `call_decl_kind` above) as `[]` unconditionally,
+           regardless of body content -- funcs are pure expressions and can
+           never unfold an invariant. *)
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
         call_decl_loc = loc;
       } in
 

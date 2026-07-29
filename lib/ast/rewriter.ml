@@ -1433,14 +1433,37 @@ module Callable = struct
         callable
     in
 
-    let call_decl_masks =
-      Base.Option.map callable.call_decl.call_decl_mask
-        ~f:((Base.Set.map (module QualIdent)) ~f)
+    (* [f] (a QualIdent substitution, e.g. from module/functor instantiation)
+       isn't guaranteed injective on mask entries -- two formerly-distinct
+       entries could collapse into the same one, which would otherwise
+       persist as an un-deduped duplicate (see [Callable.mask_canon]); both
+       [call_decl_needs_mask] and [call_decl_grants_mask] need the same rewrite. *)
+    let rewrite_mask mask =
+      let+ mask =
+        List.map mask ~f:(fun (qi, args) ->
+            let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
+            (f qi, args))
+      in
+      Callable.mask_canon mask
+    in
+    let* call_decl_needs_mask =
+      match callable.call_decl.call_decl_needs_mask with
+      | None -> return None
+      | Some mask ->
+          let+ mask = rewrite_mask mask in
+          Some mask
+    in
+    let* call_decl_grants_mask =
+      match callable.call_decl.call_decl_grants_mask with
+      | None -> return None
+      | Some mask ->
+          let+ mask = rewrite_mask mask in
+          Some mask
     in
     let callable =
       {
         callable with
-        call_decl = { callable.call_decl with call_decl_mask = call_decl_masks };
+        call_decl = { callable.call_decl with call_decl_needs_mask; call_decl_grants_mask };
       }
     in
     return callable
