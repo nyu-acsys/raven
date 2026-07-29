@@ -2249,6 +2249,17 @@ module Callable = struct
     | Func | Pred | Invariant (* func *)
   [@@deriving compare]
 
+  (** Whether a callable of this kind is, by itself, a ghost scope -- i.e. every local
+      variable declared in its body is ghost regardless of an explicit `ghost` keyword
+      (see [Rewriter.enter]'s [is_ghost_scope], the sole place this rule was previously
+      duplicated inline, matching the pre-existing call-site rule in [Typing.ml]'s
+      [process_expr]). [Func]/[Pred]/[Invariant] have no [Stmt.t] body at all
+      ([call_def] is [FuncDef], not [ProcDef]), so this only has observable effect for
+      [Proc]/[Lemma]. *)
+  let is_ghost_kind = function
+    | Lemma | Pred | Invariant -> true
+    | Proc | Func -> false
+
   (** A mask entry [(inv_name, arg_prefix)] identifies an invariant declaration
       together with a (possibly empty) prefix of its own formal-argument list,
       taken positionally: [] means "the whole declaration, any instance";

@@ -1,0 +1,16 @@
+proc has_measure(n: Int)
+  requires n >= 0
+  decreases n
+{
+  if (n > 0) {
+    no_measure(n - 1);
+  }
+}
+
+proc no_measure(n: Int)
+  requires n >= 0
+{
+  if (n > 0) {
+    has_measure(n - 1);
+  }
+}

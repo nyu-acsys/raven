@@ -12,6 +12,7 @@ type config = {
   smt_timeout: int;
   smt_diagnostics: bool;
   log_level: Logs.level option;
+  strict: bool;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -64,6 +65,24 @@ let parse_cu file_dir top_level_md_ident lexbuf =
   in
   (incls, Ast.Module.set_name md top_level_md_ident)
 
+(** Under `--strict`, warns about every explicit `free` in [md] (recursing into nested
+    modules). Must run before [Ast.Module.set_free] force-marks a whole file free (e.g.
+    for stdlib/includes below) -- once applied, that override is indistinguishable from
+    a literal `free` written by the user. *)
+let rec warn_free_usage (md : Ast.Module.t) =
+  List.iter md.mod_def ~f:(function
+    | Ast.Module.SymbolDef symbol ->
+      if Ast.Symbol.is_free symbol then
+        Logs.warn (fun m -> m "%s%s"
+          (Loc.to_string (Ast.Symbol.to_loc symbol))
+          (Printf.sprintf
+             !"%s %{Ident} is declared `free`; its contract will be assumed for verification purposes, not checked"
+             (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol)));
+      (match symbol with
+       | Ast.Module.ModDef mod_def -> warn_free_usage mod_def
+       | _ -> ())
+    | Ast.Module.Import _ -> ())
+
 (** Type-checks and front-end-processes (rewrites) a single compilation unit. This is
     kept separate from the actual backend/SMT checking ([backend_check_cu] below) so that
     the full set of tuple sorts a program needs (see [Backend.TupleArities]) can be
@@ -73,9 +92,10 @@ let parse_cu file_dir top_level_md_ident lexbuf =
     (`--typeonly`); the `--stats` short-circuit below exits the process directly, as
     before. *)
 let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
+  let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
-  let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks md in
+  let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks ~cli_config md in
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
@@ -96,7 +116,7 @@ let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
     Stdlib.exit 0
   else begin
 
-  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks processed_md in
+  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks ~cli_config processed_md in
 
   (* Logs.debug (fun m ->
       m "SymbolTbl Symbols: \n%a\n"
@@ -185,6 +205,8 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
               Error.error loc (Printf.sprintf "Cannot find file '%s' (referenced by an include)" file_name)
           in
           let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
+
+          if config.strict then warn_free_usage md;
 
           Stdio.In_channel.close inchan;
 
@@ -317,6 +339,11 @@ let extension_mode =
   let supported_exts = List.map ~f:(fun (e, _) -> (e, e)) Ext.ext_map in
   Arg.(value & opt (enum supported_exts) "default" & info [ "extension" ] ~doc)
 
+let strict =
+  let doc = "Warn about recursive lemmas/functions and loops in lemmas missing \
+             `decreases` clauses, and about explicit user use of `free`." in
+  Arg.(value & flag & info [ "strict" ] ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
@@ -338,7 +365,7 @@ let print_errors config errs =
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode =
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   let config = {
     no_library;
@@ -349,6 +376,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     smt_timeout;
     smt_diagnostics;
     log_level = Logs.level ();
+    strict;
   }
   in
   (* [EXT] Resolve which extension is activated for this run and build the hooks the
@@ -382,6 +410,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

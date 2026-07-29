@@ -1,0 +1,11 @@
+free proc foo()
+{
+}
+
+func fac(n: Int)
+  returns (res: Int)
+  requires n >= 0
+  ensures res >= 1
+{
+  n > 0 ? n * fac(n-1) : 1
+}

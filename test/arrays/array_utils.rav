@@ -194,6 +194,7 @@ interface OrderedArray[E: Library.OrderedType] : Array {
   { }
 
   func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
+    decreases j - i
   {
     i < j && lt(m[i], k) ? map_find(m, i + 1, j, k) : i  
   }
@@ -203,6 +204,7 @@ interface OrderedArray[E: Library.OrderedType] : Array {
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
         (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
         (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
+    decreases j - i
   {
     if (i < j && sorted_map_seg(m, i, j)) {
       map_find_spec(m, i+1, j, k);

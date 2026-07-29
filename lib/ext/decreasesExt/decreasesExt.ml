@@ -255,10 +255,18 @@ module DecreasesExt (Cont : ListApi) = struct
       if List.is_empty specs then
         Error.type_error loc "decreases clause expects at least one measure expression"
       else
+        (* [call_decl]'s own body/contract is a ghost scope precisely when
+           [Callable.is_ghost_kind] says so (e.g. a [Lemma]); a measure expression
+           referencing a value that's only meaningful there (e.g. a lemma-local
+           variable) needs the same ghost expectation, or [disambiguate_process_expr]
+           rejects it as "reads ghost state" -- mirroring how ordinary expression
+           processing derives its own expected ghost-ness (see [Typing.ml]'s repeated
+           [Type.set_ghost var_ghost]/[Type.set_ghost is_ghost_scope] pattern). *)
+        let expected_typ = Type.any |> Type.set_ghost (Callable.is_ghost_kind call_decl.call_decl_kind) in
         let+ specs =
           Rewriter.List.map specs ~f:(fun spec ->
               let* spec_form =
-                type_check_stmt_functs.disambiguate_process_expr spec.Stmt.spec_form Type.any disam_tbl
+                type_check_stmt_functs.disambiguate_process_expr spec.Stmt.spec_form expected_typ disam_tbl
               in
               let* wf_order = is_wf_order_type (Expr.to_type spec_form) in
               match wf_order with
@@ -283,13 +291,15 @@ module DecreasesExt (Cont : ListApi) = struct
         Decreases specs
     | _ -> Cont.type_check_contract_ext call_decl contract_ext loc disam_tbl type_check_stmt_functs
 
-  (** Called once for every group of mutually-recursive callables (a call-graph
-      strongly-connected component with more than one member). If none declare a
-      `decreases` clause, there's nothing for this extension to check here (the group
+  (** Called once for every recursive call-graph component -- a self-loop singleton, or
+      a strongly-connected component with more than one member (mutual recursion).
+      Library-rooted members are already filtered out by the caller. If none declare a
+      `decreases` clause, there's nothing to check here for correctness (the group
       stays entirely unchecked, exactly as any recursive callable without a clause
-      always has). If *some* do and others don't, that's a hard error: an unguarded
-      edge in the cycle means the cycle's termination isn't actually proved, even
-      though it might look checked at a glance -- see the file-level doc comment.
+      always has) -- though under `--strict`, every recursive `Lemma`/`Func` among them
+      gets a warning (see below). If *some* do and others don't, that's a hard error: an
+      unguarded edge in the cycle means the cycle's termination isn't actually proved,
+      even though it might look checked at a glance -- see the file-level doc comment.
       If *all* do, they must share the same lexicographic arity, since
       [rewrite_contract_ext_call] below zips a caller's measure against a callee's
       one-for-one, and the same [WellFoundedOrder] instance (see
@@ -297,7 +307,9 @@ module DecreasesExt (Cont : ListApi) = struct
       caller's entry-time measure against a callee's call-time measure componentwise
       using whichever instance the *caller's* component type resolves to, so a
       callee using a different instance at that position would silently compare
-      values from two unrelated orders. *)
+      values from two unrelated orders. (The arity/instance checks below still just
+      no-op for a singleton, since [with_measure]/[without_measure] can't disagree with
+      themselves -- no special-casing needed for the now-possible 1-element case.) *)
   let check_contract_ext_group_compatible (call_decls : Callable.call_decl list) : unit Rewriter.t =
     let open Rewriter.Syntax in
     let with_measure, without_measure =
@@ -310,14 +322,40 @@ module DecreasesExt (Cont : ListApi) = struct
       match with_measure, without_measure with
       | [], _ | _, [] -> Rewriter.return ()
       | _, missing :: _ ->
-        let covered = List.map with_measure ~f:(fun (cd, _) -> "`" ^ Ident.to_string cd.call_decl_name ^ "`") in
+        let covered = List.map with_measure ~f:(fun (cd, _) -> Ident.to_string cd.call_decl_name) in
         Error.type_error missing.call_decl_loc
           (Printf.sprintf
-             "`%s` does not declare a `decreases` clause, but it is mutually recursive with %s, which \
+             "%s does not declare a `decreases` clause, but it is mutually recursive with %s, which \
               declare(s) one; every member of a mutually-recursive group must declare a `decreases` clause, \
               or none of them may -- otherwise this cycle's termination isn't actually guaranteed by the check"
              (Ident.to_string missing.call_decl_name)
              (String.concat ~sep:", " covered))
+    in
+    (* `--strict`: flag every recursive `Lemma`/`Func` left with no `decreases` clause
+       at all -- not unsound to leave unchecked (partial correctness just gets no
+       termination guarantee for it), but worth a warning. By this point the group's
+       coverage is already known consistent (the mixed-coverage error above would have
+       aborted first otherwise), so [without_measure] is never a half-covered group.
+       [Proc] is excluded: partial correctness doesn't require procs to terminate.
+       [Pred]/[Invariant] can't reach here with a body to be recursive in ([call_def] is
+       [FuncDef], not [ProcDef]) other than through their own (non-loop) call graph, and
+       aren't part of what soundness needs checked either. *)
+    let* () =
+      let* cli_config = Rewriter.current_cli_config in
+      if not cli_config.cli_strict then Rewriter.return ()
+      else begin
+        List.iter without_measure ~f:(fun call_decl ->
+            match call_decl.Callable.call_decl_kind with
+            | Lemma | Func ->
+              Logs.warn (fun m -> m "%s%s"
+                (Loc.to_string call_decl.call_decl_loc)
+                (Printf.sprintf
+                   "%s is recursive but declares no `decreases` clause; its termination will be \
+                    assumed for verification purposes, not checked"
+                   (Ident.to_string call_decl.call_decl_name)))
+            | Proc | Pred | Invariant -> ());
+        Rewriter.return ()
+      end
     in
     let* () =
       match with_measure with
@@ -330,7 +368,7 @@ module DecreasesExt (Cont : ListApi) = struct
               if arity <> expected_arity then
                 Error.type_error call_decl.call_decl_loc
                   (Printf.sprintf
-                     "this `decreases` clause has %d measure component(s), but `%s` (in the same \
+                     "this `decreases` clause has %d measure component(s), but %s (in the same \
                       mutually-recursive group) has %d; every member of a mutually-recursive group must \
                       declare `decreases` clauses of the same arity"
                      arity (Ident.to_string first_decl.call_decl_name) expected_arity)
@@ -350,7 +388,7 @@ module DecreasesExt (Cont : ListApi) = struct
             | Some _ ->
               Error.type_error call_decl.call_decl_loc
                 (Printf.sprintf
-                   "this `decreases` clause uses a different WellFoundedOrder instance than `%s` (in the \
+                   "this `decreases` clause uses a different WellFoundedOrder instance than %s (in the \
                     same mutually-recursive group) at some lexicographic position; every member of a \
                     mutually-recursive group must use matching instances position-by-position"
                    (Ident.to_string first_decl.call_decl_name)))

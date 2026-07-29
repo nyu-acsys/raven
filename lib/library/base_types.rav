@@ -31,7 +31,9 @@ module ListM[E: Type] : Type {
     case cons(hd: E, tl: T) 
   }
 
-  func len(ls:T) returns (ret: Int) {
+  func len(ls:T) returns (ret: Int) 
+    ensures ret >= 0
+  {
     ls == nil ? 0 :
       1 + len(ls.tl)
   }
@@ -39,16 +41,6 @@ module ListM[E: Type] : Type {
   func is_in(ls: T, e: E) returns (ret: Bool) {
     ls == nil ? false :
       (e == ls.hd || is_in(ls.tl, e))
-  }
-
-  auto lemma len_non_neg(ls: T) 
-    ensures len(ls) >= 0
-  {
-    if (ls == nil) {
-
-    } else {
-      len_non_neg(ls.tl);
-    }
   }
 }
 

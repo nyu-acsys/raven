@@ -1,0 +1,6 @@
+module IntList = Library.ListM[Library.IntType]
+
+proc use_list(l: IntList.T)
+{
+  var n: Int := IntList.len(l);
+}

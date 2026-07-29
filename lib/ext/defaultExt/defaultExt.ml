@@ -57,7 +57,7 @@ module DefaultExt = struct
      [suggest_extension_for_type_ext] & co. in Ast.Rewriter.ext_hooks. *)
   let extension_mismatch_error loc ext_name construct =
     Error.error loc
-      (Printf.sprintf "this %s belongs to the `%s` extension; re-run with `--extension %s`" construct ext_name ext_name)
+      (Printf.sprintf "this %s belongs to the %s extension; re-run with --extension %s" construct ext_name ext_name)
 
   let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
     let open Rewriter.Syntax in

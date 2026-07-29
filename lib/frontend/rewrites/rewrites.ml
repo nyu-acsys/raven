@@ -488,6 +488,15 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
     }
   ```
 *)
+
+(** `--strict` diagnostics never fire inside the standard library (core or
+    extension-supplied): it's not the user's code to annotate, and its declarations
+    don't even have a real path on disk to print a source excerpt from ([Loc.context]
+    only special-cases the core [Library.sources] strings, not extension [lib_sources]
+    files like `well_founded_order.rav`). *)
+let is_library_qual_ident (qid : QualIdent.t) : bool =
+  String.(Ident.name (QualIdent.first_ident qid) = Ident.name Predefs.lib_ident)
+
 let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
@@ -630,9 +639,16 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls)
       in
 
-      let* loop_proc_name =
-        let+ proc_name = Rewriter.current_scope_id in
-        Ident.fresh stmt.stmt_loc (proc_name.qual_base.ident_name ^ "_loop")
+      (* A loop's synthesized recursive callable inherits [Lemma] from its enclosing
+         callable (instead of always being a [Proc]) so that a loop inside a lemma is
+         just another self-recursive [Lemma] as far as everything downstream is
+         concerned (decreases-group analysis, ghost/non-ghost call checking, etc.) --
+         no separate loop-specific handling needed anywhere else. *)
+      let* loop_proc_name, enclosing_call_decl_kind =
+        let* proc_name = Rewriter.current_scope_id in
+        let+ enclosing = Rewriter.find_and_reify_callable proc_name in
+        ( Ident.fresh stmt.stmt_loc (proc_name.qual_base.ident_name ^ "_loop"),
+          enclosing.Callable.call_decl.call_decl_kind )
       in
 
       (* Create new map which replaces loop_arg vars with loop_ret vars, for post conditions *)
@@ -690,7 +706,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         in
 
         {
-          Callable.call_decl_kind = Proc;
+          Callable.call_decl_kind =
+            (match enclosing_call_decl_kind with Lemma -> Lemma | _ -> Proc);
           call_decl_name = loop_proc_name;
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
@@ -985,15 +1002,23 @@ let rewrite_callable_entries (callable : Callable.t) : Callable.t Rewriter.t =
     exactly a singleton component with a self-loop -- [CallGraph.Graph.topsort]
     doesn't merge it with anything else, so this subsumes Phase 1's plain
     self-recursion check as the size-1 case, with no special-casing needed. *)
-type scc_map = { sccs : QualIdent.t list list; scc_id_of : int qual_ident_map }
+type scc_map = {
+  sccs : QualIdent.t list list;
+  scc_id_of : int qual_ident_map;
+  self_loops : QualIdentSet.t;  (** vertices with an edge to themselves *)
+}
 
 let build_scc_map (tbl : SymbolTbl.t) (m : Module.t) : scc_map =
-  let sccs = CallGraph.Graph.topsort (CallGraph.build tbl m) in
+  let g = CallGraph.build tbl m in
+  let sccs = CallGraph.Graph.topsort g in
   let scc_id_of =
     List.concat_mapi sccs ~f:(fun i members -> List.map members ~f:(fun v -> (v, i)))
     |> Map.of_alist_exn (module QualIdent)
   in
-  { sccs; scc_id_of }
+  let self_loops =
+    Set.filter (CallGraph.Graph.vertices g) ~f:(fun v -> Set.mem (CallGraph.Graph.succs g v) v)
+  in
+  { sccs; scc_id_of; self_loops }
 
 let same_scc (sm : scc_map) (a : QualIdent.t) (b : QualIdent.t) : bool =
   match Map.find sm.scc_id_of a, Map.find sm.scc_id_of b with
@@ -1001,20 +1026,25 @@ let same_scc (sm : scc_map) (a : QualIdent.t) (b : QualIdent.t) : bool =
   | _ -> false
 
 (** Runs once per module, after [build_scc_map] and before any per-callable pass below,
-    for every strongly-connected component with more than one member -- i.e. every
-    group of *mutually* (not just self-) recursive callables -- delegating to
-    [ext_hooks.check_contract_ext_group_compatible] with the full group's [call_decl]s.
+    for every strongly-connected component that's actually recursive -- a self-loop
+    singleton, or any >1-member (mutually-recursive) group -- delegating to
+    [ext_hooks.check_contract_ext_group_compatible] with the resolved [call_decl]s.
     Core doesn't know what "compatible" means for any given [contract_ext]; it only
-    knows a >1-member group is exactly the shape a whole-group check (as opposed to
-    [type_check_contract_ext]'s single-callable view) needs. Singleton components
-    (self-recursive or not) are never passed to the hook -- a lone callable's own
-    clause is already fully checked by [type_check_contract_ext]. A component can
-    contain non-callable vertices too (e.g. two mutually-recursive `data` type
-    definitions -- [CallGraph.build] graphs every top-level symbol, not just
-    callables), so members are looked up and silently filtered down to callables
-    first; a component with fewer than two callable members after filtering isn't a
-    mutually-recursive *callable* group and is skipped the same as any other
-    singleton. Each lookup uses [SymbolTbl.goto] against the plain (non-monadic) [tbl]
+    knows this component is recursive, which is exactly the shape a whole-group check
+    (as opposed to [type_check_contract_ext]'s single-callable view) needs --
+    [DecreasesExt] uses it both for its cross-member mixed-coverage/arity/instance
+    checks (which no-op harmlessly when there's only one resolved member, so a
+    self-loop singleton costs it nothing extra to handle) and, under `--strict`, for
+    its missing-`decreases` diagnostic (self- or mutually-recursive alike -- see
+    [rewrite_loops], which gives a loop's synthesized tail-recursive callable the same
+    kind as whatever callable the loop came from, so a loop is just another
+    self-recursive vertex here, no separate handling needed). A component can contain
+    non-callable vertices too (e.g. two mutually-recursive `data` type definitions --
+    [CallGraph.build] graphs every top-level symbol, not just callables), and members
+    rooted in the standard library (core or extension-supplied) are dropped before
+    resolution -- diagnosing library internals isn't this hook's job, and library
+    declarations don't have a real path on disk for [Loc.context] to print an excerpt
+    from. Each lookup uses [SymbolTbl.goto] against the plain (non-monadic) [tbl]
     snapshot the SCC map was built from, then a throwaway, non-state-updating
     [Rewriter.eval] -- exactly how [Dependencies.analyze]'s [inst_dependencies]
     (lib/backend/dependencies.ml) already resolves arbitrary graph-vertex idents found
@@ -1022,30 +1052,30 @@ let same_scc (sm : scc_map) (a : QualIdent.t) (b : QualIdent.t) : bool =
     resolves names relative to whatever scope is current, not as absolute paths. *)
 let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) : unit Rewriter.t =
   let open Rewriter.Syntax in
+  let resolve_call_decls members =
+    List.filter_map members ~f:(fun qid ->
+        if is_library_qual_ident qid then None
+        else
+          let tbl1 = SymbolTbl.goto qid tbl in
+          let _, symbol = Rewriter.eval ~update:false (Rewriter.find_and_reify qid) tbl1 in
+          match symbol with
+          | Module.CallDef call_def -> Some call_def.Callable.call_decl
+          | _ -> None)
+  in
   Rewriter.List.iter sm.sccs ~f:(fun members ->
-      match members with
-      | [] | [ _ ] ->
-        (* Skip resolving singleton components entirely -- the overwhelming majority
-           of vertices (e.g. every self-recursive-only `while`-loop-derived proc),
-           and the only case where [SymbolTbl.goto]-based lookup below would need to
-           handle a not-yet-fully-qualified vertex ident (a loop-proc's self-call
-           target is constructed fresh during [rewrite_loops], not resolved through
-           the normal type-checking path some other references go through). *)
-        Rewriter.return ()
-      | _ ->
-        let call_decls =
-          List.filter_map members ~f:(fun qid ->
-              let tbl1 = SymbolTbl.goto qid tbl in
-              let _, symbol = Rewriter.eval ~update:false (Rewriter.find_and_reify qid) tbl1 in
-              match symbol with
-              | Module.CallDef call_def -> Some call_def.Callable.call_decl
-              | _ -> None)
-        in
-        (match call_decls with
-         | [] | [ _ ] -> Rewriter.return ()
-         | _ ->
-           let* ext_hooks = Rewriter.current_ext_hooks in
-           ext_hooks.check_contract_ext_group_compatible call_decls))
+      let is_recursive =
+        match members with
+        | [] -> false
+        | [ qid ] -> Set.mem sm.self_loops qid
+        | _ -> true
+      in
+      if not is_recursive then Rewriter.return ()
+      else
+        match resolve_call_decls members with
+        | [] -> Rewriter.return ()
+        | call_decls ->
+          let* ext_hooks = Rewriter.current_ext_hooks in
+          ext_hooks.check_contract_ext_group_compatible call_decls)
 
 (** For every call in a [Proc]/[Lemma] body whose *callee* has a non-empty
     [call_decl_contract_ext], delegates to [ext_hooks.rewrite_contract_ext_call] to
@@ -3213,29 +3243,29 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
+let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  let tbl, (m, scc_map) = Rewriter.eval ?ext_hooks (rewrites_phase_1 m) tbl in
+  let tbl, (m, scc_map) = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_1 m) tbl in
 
-  let tbl, m = Rewriter.eval ?ext_hooks (Masks.compute_masks m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (Masks.compute_masks m) tbl in
 
-  let tbl, m = Rewriter.eval ?ext_hooks (Masks.check_no_interface_reach_back m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (Masks.check_no_interface_reach_back m) tbl in
 
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_phase_2 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_2 m) tbl in
 
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_stmt_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
 
   (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
 
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_stmt_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
 
-  let tbl, m = Rewriter.eval ?ext_hooks (rewrites_phase_3 scc_map m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_3 scc_map m) tbl in
 
   (tbl, m)
 

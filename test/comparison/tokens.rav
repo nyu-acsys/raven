@@ -206,6 +206,7 @@ module Tokens[SharedPred: ShareablePredicate] {
         requires noTokens(x, 1.0) && SharedPred.p_chunk(x, 1.0)
         requires n > 0
         ensures tokenCounter(x, n) && token_iter(x, n)
+        decreases n
     {
         if (n == 1) {
             token_mutate_generate(x);

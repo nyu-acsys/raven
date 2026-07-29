@@ -174,7 +174,13 @@ type 'a state = {
   state_relaxed_lookup : bool list;
   state_user_data : 'a;
   state_ext_hooks : ext_hooks;
+  state_cli_config : cli_config;
 }
+
+(* CLI flags the pipeline needs deep inside rewrite/check passes (e.g. [--strict]).
+   Read-only for the whole run, so -- like [ext_hooks] -- it's just re-supplied to each
+   [eval] call rather than threaded back out. *)
+and cli_config = { cli_strict : bool }
 
 and ('a, 'b) t_ext = 'b state -> 'b state * 'a
 and 'a t = ('a, unit) t_ext
@@ -353,6 +359,8 @@ and ext_hooks = {
   rewrite_contract_ext_loop_transfer : subst:(expr -> expr) -> Stmt.contract_ext -> Stmt.contract_ext;
 }
 
+let default_cli_config : cli_config = { cli_strict = false }
+
 (** What every [Rewriter.t] computation sees before any extension has been installed.
     [eval] below always installs the real hooks for the CLI-selected extension; this
     default only matters for entry points (e.g. the backend, which only ever runs on
@@ -443,7 +451,7 @@ let process_stmt_ref : (
 
 include State
 
-let eval ?(update = true) ?(ext_hooks = default_ext_hooks) m tbl =
+let eval ?(update = true) ?(ext_hooks = default_ext_hooks) ?(cli_config = default_cli_config) m tbl =
   let sin =
     {
       state_table = tbl;
@@ -453,6 +461,7 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks) m tbl =
       state_relaxed_lookup = [];
       state_user_data = ();
       state_ext_hooks = ext_hooks;
+      state_cli_config = cli_config;
     }
   in
   let sout, res = m sin in
@@ -469,6 +478,7 @@ let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
 let init s _ = (s, ())
 let get_table s = (s, s.state_table)
 let current_ext_hooks s = (s, s.state_ext_hooks)
+let current_cli_config s = (s, s.state_cli_config)
 
 type printers = {
   pr_type : Stdlib.Format.formatter -> type_expr -> unit;
@@ -727,8 +737,8 @@ let enter symbol s =
   (* Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Symbol.pr (symbol)); *)
   let is_ghost_scope =
     match symbol with
-    | Module.CallDef { call_decl = { call_decl_kind = (Lemma | Pred); _}; _ } -> true
-    | ModDef _ | CallDef _ -> false
+    | Module.CallDef { call_decl; _ } -> Callable.is_ghost_kind call_decl.call_decl_kind
+    | ModDef _ -> false
     | _ -> failwith "enter: expected module or callable symbol"
   in
   (* [MachineFree] only: a user-marked [UserFree] symbol's contract isn't pre-validated,

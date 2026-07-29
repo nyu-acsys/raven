@@ -5,6 +5,7 @@
 /* Basic self-recursion, no precondition. */
 func sum(n: Int) returns (res: Int)
   ensures res >= n
+  decreases n
 {
   n <= 0 ? 0 : n + sum(n-1)
 }
@@ -12,6 +13,7 @@ func sum(n: Int) returns (res: Int)
 /* A hand-written companion lemma alongside an auto-generated one still verifies. */
 lemma sum_contract(n: Int)
   ensures sum(n) >= n
+  decreases n
 {
   if (n > 0) {
     sum_contract(n-1);
@@ -22,6 +24,7 @@ lemma sum_contract(n: Int)
 func fact(n: Int) returns (res: Int)
   requires n >= 0
   ensures res >= 1
+  decreases n
 {
   n <= 0 ? 1 : n * fact(n-1)
 }
@@ -30,15 +33,17 @@ func fact(n: Int) returns (res: Int)
 func is_even(n: Int) returns (res: Bool)
   requires n >= 0
   ensures n == 0 ==> res
+  decreases n
 {
-  n == 0 ? true : is_odd(n-1)
+  n <= 0 ? true : is_odd(n-1)
 }
 
 func is_odd(n: Int) returns (res: Bool)
   requires n >= 0
   ensures n == 0 ==> !res
+  decreases n
 {
-  n == 0 ? false : is_even(n-1)
+  n <= 0 ? false : is_even(n-1)
 }
 
 /* Multiple requires and ensures clauses. */
@@ -54,6 +59,7 @@ func bounded_sum(n: Int, lo: Int) returns (res: Int)
 /* Recursive call nested inside a nested conditional. */
 func nested_cond(n: Int) returns (res: Int)
   ensures res >= n
+  decreases n
 {
   n <= 0 ? 0 : (n <= 1 ? n : n + nested_cond(n-1))
 }
@@ -62,6 +68,7 @@ func nested_cond(n: Int) returns (res: Int)
 func fib(n: Int) returns (res: Int)
   requires n >= 0
   ensures res >= 0
+  decreases n
 {
   n <= 1 ? n : fib(n-1) + fib(n-2)
 }

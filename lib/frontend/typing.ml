@@ -3476,12 +3476,12 @@ let rec check_return_vars_not_in_precond (m : Module.t) : unit =
     | Module.Import _ ->
         ())
 
-let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
+let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
   let () = check_return_vars_not_in_precond m in
   let tbl, m =
-    Rewriter.eval ?ext_hooks
+    Rewriter.eval ?ext_hooks ?cli_config
       (fun st ->
         let st, _ = Rewriter.enter_module m st in
         let st, m = ProcessModule.process_module m st in

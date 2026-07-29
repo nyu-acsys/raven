@@ -3590,7 +3590,7 @@ module TrnslExhale = struct
                       Logs.warn (fun m -> m "%s%s"
                         (Loc.to_string (Expr.to_loc expr))
                         (Printf.sprintf
-                           "No witness could be computed for `%s` -- it will be treated as an arbitrary unconstrained value, which may cause later assertions about it to fail."
+                           "No witness could be computed for %s -- it will be treated as an arbitrary unconstrained value, which may cause later assertions about it to fail."
                            (Ident.name var_decl.var_name)));
 
                     Rewriter.return ([], [], [])

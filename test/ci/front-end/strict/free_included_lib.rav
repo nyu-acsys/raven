@@ -1,0 +1,7 @@
+free proc bar()
+{
+}
+
+proc baz()
+{
+}
