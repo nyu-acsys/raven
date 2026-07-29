@@ -25,6 +25,27 @@ module SampleExt (Cont: ExtApi.Ext) : ExtApi.Ext
 
 These are higher-order modules that accept, as a parameter, another extension module implementing the `ExtApi.Ext` interface. This allows us to "stack" these extensions on top of each other, and conveniently adjust the exact set of features we want to support when we compile Raven. This happens in `lib/ext/ext.ml`.
 
+`ExtApi.Ext` is a large signature -- dozens of `val`s across [AstDef](#astdef)/[Rewriter](#rewriter)/[Typing](#typing)/[Rewrites](#rewrites)/[Contracts](#contracts) -- but a typical extension only cares about a handful of them; the rest should just do whatever `Cont` (the rest of the chain) would have done anyway. Since `Cont` is itself a first-class module already satisfying `ExtApi.Ext`, the way to get that "do what `Cont` does" behavior for free, for every hook you don't otherwise mention, is to open your module with `include Cont`:
+
+```ocaml
+module MyExt (Cont : ExtApi.Ext) = struct
+  include Cont   (* every hook defaults to Cont's, no line needed per hook *)
+
+  type Stmt.contract_ext += MyClause of Stmt.spec list
+
+  (* Only the handful of hooks MyExt actually cares about need a definition below;
+     everything else -- pr_stmt_ext, type_check_expr, rewrite_type_ext, the other
+     three contract_ext hooks, etc. -- is already covered by `include Cont` above. *)
+  let contract_ext_is_recognized = function
+    | MyClause _ -> true
+    | other -> Cont.contract_ext_is_recognized other
+  let type_check_contract_ext = ...
+  ...
+end
+```
+
+This is the pattern every extension in `lib/ext/` uses; when a new hook is added to `ExtApi.Ext` in the future, only the extensions that actually need to do something for it have to change -- every other extension keeps compiling unmodified, since `include Cont` picks up the new hook's default automatically. The one thing this can silently get wrong if you're not careful: `include Cont` also pulls in `Cont.lib_source`/`lib_sources`, but every extension needs its *own* `lib_source` (or `None`) and must still explicitly define `lib_sources` as `(Option.to_list lib_source) @ Cont.lib_sources` (see [Epilogue](#epilogue)) -- if you skip that and just let `include Cont` supply `lib_sources`, your own library file silently never gets compiled in.
+
 
 ## Using Current Extensions
 
@@ -251,11 +272,7 @@ These functions are used in Raven's AST to be able to print the new constructs, 
 
 In each of these functions, the programmer is expected to case match on the corresponding extension argument (type_ext/expr_ext/stmt_ext/contract_ext), and match for all the cases that are declared in this extension. For any unknown case, the extension is required to defer to the remaining extensions by calling the same functionality from the `Cont` module.
 
-If a construct category is not modified in the extension, then these functions can also be directly defined from `Cont`, for example:
-```ocaml
-  let type_ext_to_name = Cont.type_ext_to_name
-  let expr_ext_to_string = Cont.expr_ext_to_string
-```
+If a construct category is not modified in the extension, its functions need no definition at all: `include Cont` at the top of the module (see [Overview](#overview)) already covers `type_ext_to_name`/`expr_ext_to_string`/etc. with `Cont`'s own behavior. You'll still see the explicit form, `let type_ext_to_name = Cont.type_ext_to_name`, here and there in the existing extensions and in this document's examples -- it's equivalent, just spelled out for the sake of the walkthrough.
 
 There are two parallel families here for statements, one per `stmt_ext` extension point (see [Overview](#overview)): `pr_basic_stmt_ext`/`basic_stmt_ext_symbols`/`basic_stmt_ext_local_vars_modified`/`basic_stmt_ext_fields_accessed` for the flat, `basic_stmt_desc`-level `BasicStmtExt`, and `pr_stmt_ext`/`stmt_ext_symbols`/`stmt_ext_local_vars_modified`/`stmt_ext_fields_accessed` for the self-contained, `stmt_desc`-level `StmtExt` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level) below). The only difference in shape between the two families is that the `basic_stmt_ext_*` versions take an extra `expr list` argument (the flat argument list `BasicStmtExt` carries alongside the tag) that the `stmt_ext_*` versions don't need, since a `StmtExt` value already owns its whole payload.
 

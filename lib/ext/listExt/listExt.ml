@@ -13,6 +13,10 @@ This extension introduces:
 *)
 
 module ListExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
+  include Cont
+
   (* Config *)
   let lib_source = None
 
@@ -119,24 +123,8 @@ module ListExt (Cont : Ext) = struct
     | ListExpr c -> "List." ^ Ident.to_string c 
     | _ -> Cont.expr_ext_to_string expr_ext
 
-  (* No statement extension, so directly defer to `Cont`. *)
-  let pr_basic_stmt_ext ppf ext expr_list = 
-    match ext, expr_list with
-    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
-
-  let basic_stmt_ext_symbols stmt_ext =
-    match stmt_ext with
-    | _ -> Cont.basic_stmt_ext_symbols stmt_ext
-
-  (* We can even define functions directly equal. *)
-  let basic_stmt_ext_local_vars_modified = Cont.basic_stmt_ext_local_vars_modified
-
-  let basic_stmt_ext_fields_accessed = Cont.basic_stmt_ext_fields_accessed
-
-  let pr_stmt_ext = Cont.pr_stmt_ext
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
+  (* No statement extension, so every basic_stmt_ext_*/stmt_ext_* hook is left at
+     Cont's default (via `include Cont` above). *)
 
   let type_ext_is_recognized type_ext =
     match type_ext with
@@ -148,15 +136,14 @@ module ListExt (Cont : Ext) = struct
     | ListExpr _ -> true
     | _ -> Cont.expr_ext_is_recognized expr_ext
 
-  let stmt_ext_is_recognized = Cont.stmt_ext_is_recognized
-  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
+  (* stmt_ext_is_recognized/contract_ext_is_recognized: no constructors of either kind
+     here, so Cont's default (via `include Cont`) is exactly right. *)
 
 
   (* Rewriter *)
-  (* These functions are meant to be used if a `expr_ext` or `stmt_ext` constructor stores a `type_expr`, for example `ProphecyExt`. In most extensions, these are deferred to `Cont`. *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
-  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite are only
+     needed if an expr_ext or stmt_ext constructor stores a `type_expr`/nested `Stmt.t`
+     -- not the case here, so Cont's default is used. *)
 
 
   (* Typing *)
@@ -388,11 +375,9 @@ module ListExt (Cont : Ext) = struct
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
-  let type_check_basic_stmt = Cont.type_check_basic_stmt
-  let type_check_stmt_ext = Cont.type_check_stmt_ext
-  let type_check_contract_ext = Cont.type_check_contract_ext
-  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
-  let contract_ext_to_string = Cont.contract_ext_to_string
+  (* type_check_basic_stmt/type_check_stmt_ext/type_check_contract_ext/
+     check_contract_ext_group_compatible/contract_ext_to_string: nothing to override,
+     Cont's default is used. *)
 
   (* Rewrites *)
   let rewrite_type_ext (type_ext: Type.type_ext) (tp_list: type_expr list) (loc: location) =
@@ -525,12 +510,9 @@ module ListExt (Cont : Ext) = struct
 
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
-  let rewrite_basic_stmt_ext = Cont.rewrite_basic_stmt_ext
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
-  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
-  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
-  let rewrite_callable_entry = Cont.rewrite_callable_entry
-  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+  (* rewrite_basic_stmt_ext/rewrite_stmt_ext/contract_ext_rewrite_exprs/
+     rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: nothing to override, Cont's default is used. *)
 
 
   (* --------------------- *)

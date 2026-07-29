@@ -21,23 +21,19 @@ open ExtApi
     and needs no such restriction. This is a core Raven construct, enabled by default
     (folded into `RavenCore` in lib/ext/ext.ml), not one more `--extension` choice. *)
 module AssertWithExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
+     ones actually overridden below need a definition. *)
+  include Cont
+
   let lib_source = None
 
   type Stmt.stmt_ext +=
     | AssertWith of { spec : Stmt.spec; proof : Stmt.t }
 
-  module ListFns = Cont.ListFns
-
   (* AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
-  let expr_ext_to_string = Cont.expr_ext_to_string
-
-  let pr_basic_stmt_ext = Cont.pr_basic_stmt_ext
-  let contract_ext_to_string = Cont.contract_ext_to_string
-
-  let basic_stmt_ext_symbols = Cont.basic_stmt_ext_symbols
-  let basic_stmt_ext_local_vars_modified = Cont.basic_stmt_ext_local_vars_modified
-  let basic_stmt_ext_fields_accessed = Cont.basic_stmt_ext_fields_accessed
+  (* type_ext_to_name/expr_ext_to_string/pr_basic_stmt_ext/contract_ext_to_string/
+     basic_stmt_ext_*: no type_ext/expr_ext/BasicStmtExt/contract_ext constructors
+     here (this extension only adds a top-level StmtExt), so Cont's default is used. *)
 
   let pr_stmt_ext ppf stmt_ext =
     let open Stdlib.Format in
@@ -67,19 +63,14 @@ module AssertWithExt (Cont : ListApi) = struct
     | AssertWith _ -> []
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext
 
-  let type_ext_is_recognized = Cont.type_ext_is_recognized
-  let expr_ext_is_recognized = Cont.expr_ext_is_recognized
-
   let stmt_ext_is_recognized stmt_ext =
     match stmt_ext with
     | AssertWith _ -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
-  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
-
   (* Rewriter *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types: no expr_ext/BasicStmtExt
+     constructors here, so Cont's default is used. *)
 
   let stmt_ext_rewrite ~(f : expr -> expr Rewriter.t) ~(c : Stmt.t -> Stmt.t Rewriter.t)
       (stmt_ext : Stmt.stmt_ext) : Stmt.stmt_ext Rewriter.t =
@@ -91,14 +82,10 @@ module AssertWithExt (Cont : ListApi) = struct
         AssertWith { spec = { spec with spec_form }; proof }
     | _ -> Cont.stmt_ext_rewrite ~f ~c stmt_ext
 
-  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
-
   (* Typing *)
-  let type_check_type_expr = Cont.type_check_type_expr
-  let type_check_expr = Cont.type_check_expr
-  let type_check_basic_stmt = Cont.type_check_basic_stmt
-  let type_check_contract_ext = Cont.type_check_contract_ext
-  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
+  (* type_check_type_expr/type_check_expr/type_check_basic_stmt/
+     type_check_contract_ext/check_contract_ext_group_compatible: no type_ext/expr_ext/
+     BasicStmtExt/contract_ext constructors here, so Cont's default is used. *)
 
   let type_check_stmt_ext (call_decl : Callable.call_decl) (stmt_ext : Stmt.stmt_ext)
       (loc : location) (disam_tbl : ProgUtils.DisambiguationTbl.t)
@@ -194,9 +181,8 @@ module AssertWithExt (Cont : ListApi) = struct
     | _ -> Cont.type_check_stmt_ext call_decl stmt_ext loc disam_tbl type_check_stmt_functs
 
   (* Rewrites *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-  let rewrite_expr_ext = Cont.rewrite_expr_ext
-  let rewrite_basic_stmt_ext = Cont.rewrite_basic_stmt_ext
+  (* rewrite_type_ext/rewrite_expr_ext/rewrite_basic_stmt_ext: no type_ext/expr_ext/
+     BasicStmtExt constructors here, so Cont's default is used. *)
 
   (* [type_check_stmt_ext] above fully lowers [AssertWith] into ordinary statements
      (a [Cond] guarded by a fresh nondet local) itself, rather than leaving that to
@@ -212,9 +198,8 @@ module AssertWithExt (Cont : ListApi) = struct
            lowered by type_check_stmt_ext)"
     | _ -> Cont.rewrite_stmt_ext stmt_ext loc
 
-  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
-  let rewrite_callable_entry = Cont.rewrite_callable_entry
-  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+  (* rewrite_contract_ext_call/rewrite_callable_entry/rewrite_contract_ext_loop_transfer:
+     no contract_ext constructors here, so Cont's default is used. *)
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)

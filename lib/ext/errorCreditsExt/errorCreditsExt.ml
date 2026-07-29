@@ -19,6 +19,10 @@ This extension introduces:
 
 
 module ErrorCreditsExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
+     ones actually overridden below need a definition. *)
+  include Cont
+
   (* Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module. *)
   let lib_source = Some ("errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
 
@@ -65,11 +69,8 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     (* Command for EC.contra() *)
     | EC_Contra
 
-  (* Forwarding List module API  *)
-  module ListFns = Cont.ListFns
-
   (* AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
+  (* type_ext_to_name: no type_ext constructors here, so Cont's default is used. *)
 
   let expr_ext_to_string expr_ext =
     match expr_ext with 
@@ -124,12 +125,8 @@ module ErrorCreditsExt (Cont : ListApi) = struct
       [EC_Predefs.error_field_qi]
     | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
 
-  let pr_stmt_ext = Cont.pr_stmt_ext
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
-
-  let type_ext_is_recognized = Cont.type_ext_is_recognized
+  (* pr_stmt_ext/stmt_ext_*: no top-level StmtExt constructors here, so Cont's default
+     is used. type_ext_is_recognized: no type_ext constructors here either. *)
 
   let expr_ext_is_recognized expr_ext =
     match expr_ext with
@@ -141,20 +138,19 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     | EC_Rand _ | EC_RandVal _ | EC_RandFn _ | EC_RandList _ | EC_Contra -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
-  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
+  (* contract_ext_is_recognized: no contract_ext constructors here, so Cont's default
+     is used. *)
 
 
   (* Rewriter *)
-  (* Almost always skipped. Only used with the extension constructor contains a `type_expr`; see Prophecy extension. *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
-  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
+  (* Almost always skipped. Only used with the extension constructor contains a `type_expr`; see Prophecy extension.
+     expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: nothing here
+     stores a type_expr or a nested Stmt.t, so Cont's default is used. *)
 
 
   (* Typing *)
 
-  (* No new types. *)
-  let type_check_type_expr = Cont.type_check_type_expr
+  (* No new types. type_check_type_expr: Cont's default is used. *)
 
   (* Type-checking for ErrorCreds expressions. The underlying expression in the AST that we are type-checking is:
       Expr.App ((ExprExt expr_ext), expr_list, expr_attr)
@@ -193,9 +189,9 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     In addition, a `disam_tbl` must be returned.
     `type_check_stmt_functs` is a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
-  let type_check_contract_ext = Cont.type_check_contract_ext
-  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
-  let contract_ext_to_string = Cont.contract_ext_to_string
+  (* type_check_contract_ext/check_contract_ext_group_compatible/
+     contract_ext_to_string: no contract_ext constructors here, so Cont's default is
+     used. *)
 
   let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
@@ -354,13 +350,14 @@ module ErrorCreditsExt (Cont : ListApi) = struct
 
     | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
-  let type_check_stmt_ext = Cont.type_check_stmt_ext
+  (* type_check_stmt_ext: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* Rewrites *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-  
-  (* Rewrite expressions. We rewrite the resource 
+  (* rewrite_type_ext: no type_ext constructors here, so Cont's default is used. *)
+
+  (* Rewrite expressions. We rewrite the resource
       `EC.error(ec)` to ~~>
       
       `own(Library.ErrorCreds.error_loc, Library.ErrorCreds.error_cred, Library.Fraction.frac(ec))` *)
@@ -397,10 +394,9 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
 
-  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
-  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
-  let rewrite_callable_entry = Cont.rewrite_callable_entry
-  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+  (* contract_ext_rewrite_exprs/rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: no contract_ext constructors here, so Cont's
+     default is used. *)
 
   (* Rewriting Statements *)
   let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
@@ -767,7 +763,8 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     
     | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
 
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
+  (* rewrite_stmt_ext: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* --------------------- *)

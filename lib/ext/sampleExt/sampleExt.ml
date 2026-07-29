@@ -5,19 +5,21 @@ open Util
 
 module SampleExt (Cont : ListApi) = struct
 
+  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
+     ones actually overridden below need a definition. *)
+  include Cont
+
   let lib_source = Some ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])
 
 
   type Stmt.stmt_ext +=
     | RandEven
 
-  module ListFns = Cont.ListFns
-
   (* AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
-  let expr_ext_to_string = Cont.expr_ext_to_string
+  (* type_ext_to_name/expr_ext_to_string: no type_ext/expr_ext constructors here, so
+     Cont's default is used. *)
 
-  let pr_basic_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list =
     let open Stdlib.Format in
     match ext, expr_list with
     | RandEven, [lhs_expr; n_expr] ->
@@ -45,35 +47,24 @@ module SampleExt (Cont : ListApi) = struct
     | RandEven, _ -> []
     | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
 
-  let pr_stmt_ext = Cont.pr_stmt_ext
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
-
-  let type_ext_is_recognized = Cont.type_ext_is_recognized
-  let expr_ext_is_recognized = Cont.expr_ext_is_recognized
+  (* pr_stmt_ext/stmt_ext_*/contract_ext_is_recognized: no top-level StmtExt/
+     contract_ext constructors here, so Cont's default is used. *)
 
   let stmt_ext_is_recognized stmt_ext =
     match stmt_ext with
     | RandEven -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
-  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
-
 
   (* Rewriter *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
-  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: no
+     expr_ext/type-storing stmt_ext constructors here, so Cont's default is used. *)
 
 
   (* Typing *)
-  let type_check_type_expr = Cont.type_check_type_expr
-  let type_check_expr = Cont.type_check_expr
-
-  let type_check_contract_ext = Cont.type_check_contract_ext
-  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
-  let contract_ext_to_string = Cont.contract_ext_to_string
+  (* type_check_type_expr/type_check_expr/type_check_contract_ext/
+     check_contract_ext_group_compatible/contract_ext_to_string: no type_ext/expr_ext/
+     contract_ext constructors here, so Cont's default is used. *)
 
   let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
@@ -98,18 +89,10 @@ module SampleExt (Cont : ListApi) = struct
 
     | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
-  let type_check_stmt_ext = Cont.type_check_stmt_ext
-
   (* Rewrites *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-
-  let rewrite_expr_ext = Cont.rewrite_expr_ext
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
-
-  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
-  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
-  let rewrite_callable_entry = Cont.rewrite_callable_entry
-  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+  (* rewrite_type_ext/rewrite_expr_ext/rewrite_stmt_ext/contract_ext_rewrite_exprs/
+     rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: nothing to override, Cont's default is used. *)
 
   let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     match stmt_ext, expr_list with

@@ -35,7 +35,13 @@ open Util
     also all declare measures of the same lexicographic arity, checked by the same
     hook. *)
 
+(* DecreasesExt itself doesn't use lists, but sits below ProphecyExt/ErrorCreditsExt in
+   the stack (see lib/ext/ext.ml), both of which require a ListApi Cont. *)
 module DecreasesExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
+     ones actually overridden below need a definition. *)
+  include Cont
+
   let lib_source = None
 
   (* Deterministic (not fresh) so that the initializing assignment
@@ -58,10 +64,6 @@ module DecreasesExt (Cont : ListApi) = struct
   let decreases_snapshot_type (call_decl : Callable.call_decl) (arity : int) : type_expr =
     Type.mk_prod call_decl.call_decl_loc (List.init arity ~f:(fun _ -> Type.int))
 
-  (* DecreasesExt itself doesn't use lists, but sits below ProphecyExt/ErrorCreditsExt
-     in the stack (see lib/ext/ext.ml), both of which require a ListApi Cont. *)
-  module ListFns = Cont.ListFns
-
   (** Tag for `decreases` clauses. Carries one [Stmt.spec] per lexicographic measure
       component directly (unlike [BasicStmtExt]/[TypeExt]/[ExprExt], [contract_ext] values
       own their whole payload rather than sharing a generic [expr list] alongside the
@@ -83,9 +85,10 @@ module DecreasesExt (Cont : ListApi) = struct
       | _ -> None)
 
   (** AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
-  let expr_ext_to_string = Cont.expr_ext_to_string
-  let pr_basic_stmt_ext = Cont.pr_basic_stmt_ext
+  (* type_ext_to_name/expr_ext_to_string/pr_basic_stmt_ext/basic_stmt_ext_*/
+     pr_stmt_ext/stmt_ext_*/type_ext_is_recognized/expr_ext_is_recognized/
+     stmt_ext_is_recognized: no type_ext/expr_ext/stmt_ext constructors here (this
+     extension only adds a contract_ext), so Cont's default is used for all of them. *)
 
   let contract_ext_to_string (contract_ext : Stmt.contract_ext) : string =
     match contract_ext with
@@ -93,27 +96,14 @@ module DecreasesExt (Cont : ListApi) = struct
       "decreases " ^ String.concat ~sep:", " (List.map specs ~f:(fun s -> Expr.to_string s.Stmt.spec_form))
     | _ -> Cont.contract_ext_to_string contract_ext
 
-  let basic_stmt_ext_symbols = Cont.basic_stmt_ext_symbols
-  let basic_stmt_ext_local_vars_modified = Cont.basic_stmt_ext_local_vars_modified
-  let basic_stmt_ext_fields_accessed = Cont.basic_stmt_ext_fields_accessed
-  let pr_stmt_ext = Cont.pr_stmt_ext
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
-
-  let type_ext_is_recognized = Cont.type_ext_is_recognized
-  let expr_ext_is_recognized = Cont.expr_ext_is_recognized
-  let stmt_ext_is_recognized = Cont.stmt_ext_is_recognized
-
   let contract_ext_is_recognized contract_ext =
     match contract_ext with
     | Decreases _ -> true
     | _ -> Cont.contract_ext_is_recognized contract_ext
 
   (* Rewriter *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
-  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: no
+     type_ext/stmt_ext constructors here, so Cont's default is used. *)
 
   let contract_ext_rewrite_exprs ~(f : expr -> expr Rewriter.t) (contract_ext : Stmt.contract_ext) :
       Stmt.contract_ext Rewriter.t =
@@ -129,10 +119,8 @@ module DecreasesExt (Cont : ListApi) = struct
     | _ -> Cont.contract_ext_rewrite_exprs ~f contract_ext
 
   (* Typing *)
-  let type_check_type_expr = Cont.type_check_type_expr
-  let type_check_expr = Cont.type_check_expr
-  let type_check_basic_stmt = Cont.type_check_basic_stmt
-  let type_check_stmt_ext = Cont.type_check_stmt_ext
+  (* type_check_type_expr/type_check_expr/type_check_basic_stmt/type_check_stmt_ext:
+     no type_ext/expr_ext/stmt_ext constructors here, so Cont's default is used. *)
 
   (** Type-checks the measure expressions of a single `decreases` clause against the
       declaring callable's/loop's formals, and installs the generic fallback error
@@ -227,10 +215,8 @@ module DecreasesExt (Cont : ListApi) = struct
     Cont.check_contract_ext_group_compatible call_decls
 
   (* Rewrites *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-  let rewrite_expr_ext = Cont.rewrite_expr_ext
-  let rewrite_basic_stmt_ext = Cont.rewrite_basic_stmt_ext
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
+  (* rewrite_type_ext/rewrite_expr_ext/rewrite_basic_stmt_ext/rewrite_stmt_ext: no
+     type_ext/expr_ext/stmt_ext constructors here, so Cont's default is used. *)
 
   let rewrite_contract_ext_loop_transfer ~(subst : expr -> expr) (contract_ext : Stmt.contract_ext) :
       Stmt.contract_ext =

@@ -16,6 +16,10 @@ At present this adds the following atomic primitives:
 The difference between `cas` and `cmpxchg` is that `cas` only returns a bool indicating whether the swap succeeded, whereas `cmpxchg` returns the initial value at the location in addition to whether the swap succeeded or not.
 *)
 module AtomicExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
+  include Cont
+
   let lib_source = None
 
   type atomic_inbuilt_kind =
@@ -35,22 +39,17 @@ module AtomicExt (Cont : ListApi) = struct
     | AtomicInbuiltInit of atomic_inbuilt_kind
     | AtomicInbuiltNonInit of atomic_inbuilt_kind
 
-  module ListFns = Cont.ListFns
+  (* ListFns, type_ext_to_name, expr_ext_to_string: no override needed, Cont's
+     (via `include Cont` above, which already covers `ListFns` since Cont : ListApi). *)
 
   (* AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
-
-  let expr_ext_to_string = Cont.expr_ext_to_string
-  
-  let pr_basic_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list =
     let open Stdlib.Format in
     match ext, expr_list with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a.%a, %a)@]" Expr.pr lhs_expr (atomic_inbuilt_string ais) Expr.pr ref_expr Expr.pr field_expr Expr.pr_list args
     | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
 
-  let basic_stmt_ext_symbols = Cont.basic_stmt_ext_symbols
-  
   let basic_stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
@@ -69,32 +68,22 @@ module AtomicExt (Cont : ListApi) = struct
 
     | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
 
-  let pr_stmt_ext = Cont.pr_stmt_ext
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
-
-  let type_ext_is_recognized = Cont.type_ext_is_recognized
-  let expr_ext_is_recognized = Cont.expr_ext_is_recognized
+  (* No expr_ext/type_ext/top-level stmt_ext/contract_ext constructors here, so
+     pr_stmt_ext/stmt_ext_*/type_ext_is_recognized/expr_ext_is_recognized/
+     contract_ext_is_recognized all use Cont's default. *)
 
   let stmt_ext_is_recognized stmt_ext =
     match stmt_ext with
     | AtomicInbuiltInit _ | AtomicInbuiltNonInit _ -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
-  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
-
 
   (* Rewriter *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types = Cont.basic_stmt_ext_rewrite_types
-  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: nothing here
+     stores a type_expr or a nested Stmt.t, so Cont's default is used. *)
 
 
   (* Typing *)
-  let type_check_type_expr = Cont.type_check_type_expr
-  
-  let type_check_expr = Cont.type_check_expr 
 
   (** Here we define a custom logic to decide whether a type is "word-sized" (ie operable in an atomic hardware step), or not.  
   
@@ -140,11 +129,9 @@ module AtomicExt (Cont : ListApi) = struct
       end
       
     | _ -> Rewriter.return false
-  
-  let type_check_stmt_ext = Cont.type_check_stmt_ext
-  let type_check_contract_ext = Cont.type_check_contract_ext
-  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
-  let contract_ext_to_string = Cont.contract_ext_to_string
+
+  (* type_check_stmt_ext/type_check_contract_ext/check_contract_ext_group_compatible/
+     contract_ext_to_string: nothing to override, Cont's default is used. *)
 
   (* type-check each statement *)
   let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
@@ -284,14 +271,10 @@ module AtomicExt (Cont : ListApi) = struct
 
 
   (* Rewrites *)
-  (* Rewriting these atomic commands in equivalent simpler Raven commands. *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-  let rewrite_expr_ext = Cont.rewrite_expr_ext
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
-  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
-  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
-  let rewrite_callable_entry = Cont.rewrite_callable_entry
-  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+  (* Rewriting these atomic commands in equivalent simpler Raven commands.
+     rewrite_type_ext/rewrite_expr_ext/rewrite_stmt_ext/contract_ext_rewrite_exprs/
+     rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: nothing to override, Cont's default is used. *)
 
   let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in

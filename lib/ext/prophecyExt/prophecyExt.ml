@@ -22,6 +22,10 @@ The extension implements:
 
 
 module ProphecyExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
+     ones actually overridden below need a definition. *)
+  include Cont
+
   (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
   let lib_source = Some ("prophecyLib.rav", [%blob "prophecyLib.rav"])
 
@@ -59,9 +63,6 @@ module ProphecyExt (Cont : ListApi) = struct
       - []: This is a list of arguments the type constructor takes. Polymorphic types such as `Set` and `Map` use these arguments.
   *)
   let proph_id_type ~loc = Type.mk_app ~loc ~ghost:true (TypeExt ProphId) []
-
-  (* This is to provide access to the ListExt API  to other modules depending on this module, since other extensions rely on the ListExt. *)
-  module ListFns = Cont.ListFns
 
   (** AstDef *)
 
@@ -168,10 +169,8 @@ module ProphecyExt (Cont : ListApi) = struct
 
     | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
 
-  let pr_stmt_ext = Cont.pr_stmt_ext
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
+  (* pr_stmt_ext/stmt_ext_*: no top-level StmtExt constructors here, so Cont's default
+     is used. *)
 
   let type_ext_is_recognized type_ext =
     match type_ext with
@@ -188,19 +187,22 @@ module ProphecyExt (Cont : ListApi) = struct
     | NewProph _ | ResolveProph -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
-  let contract_ext_is_recognized = Cont.contract_ext_is_recognized
+  (* contract_ext_is_recognized: no contract_ext constructors here, so Cont's default
+     is used. *)
 
 
   (* Rewriter *)
 
-  (* These methods are used if our constructors contain _type_expr_'s. They will mostly directly be copied from `Cont`.
-    
-    In this rare case, the NewProph constructor contains a type expression. 
-    
+  (* These methods are used if our constructors contain _type_expr_'s.
+
+    In this rare case, the NewProph constructor contains a type expression.
+
     ~f refers to a function which *rewrites* types. This is part of Raven's internal infrastructure of rewrites.
+
+    expr_ext_rewrite_types: no expr_ext constructor here stores a type_expr, so Cont's
+    default is used.
   *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let basic_stmt_ext_rewrite_types ~f stmt_ext = 
+  let basic_stmt_ext_rewrite_types ~f stmt_ext =
     let open Rewriter.Syntax in
     match stmt_ext with
     | NewProph (b, tp_expr) ->
@@ -209,7 +211,8 @@ module ProphecyExt (Cont : ListApi) = struct
       NewProph (b, tp_expr)
     |_ -> Cont.basic_stmt_ext_rewrite_types ~f stmt_ext
 
-  let stmt_ext_rewrite = Cont.stmt_ext_rewrite
+  (* stmt_ext_rewrite: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* Typing *)
@@ -293,9 +296,9 @@ module ProphecyExt (Cont : ListApi) = struct
     In addition, a `disam_tbl` must be returned.
     `type_check_stmt_functs` is again a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
-  let type_check_contract_ext = Cont.type_check_contract_ext
-  let check_contract_ext_group_compatible = Cont.check_contract_ext_group_compatible
-  let contract_ext_to_string = Cont.contract_ext_to_string
+  (* type_check_contract_ext/check_contract_ext_group_compatible/
+     contract_ext_to_string: no contract_ext constructors here, so Cont's default is
+     used. *)
 
   let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
@@ -360,7 +363,8 @@ module ProphecyExt (Cont : ListApi) = struct
 
     | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
-  let type_check_stmt_ext = Cont.type_check_stmt_ext
+  (* type_check_stmt_ext: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* Rewrites *)
@@ -536,10 +540,9 @@ module ProphecyExt (Cont : ListApi) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
 
-  let contract_ext_rewrite_exprs = Cont.contract_ext_rewrite_exprs
-  let rewrite_contract_ext_call = Cont.rewrite_contract_ext_call
-  let rewrite_callable_entry = Cont.rewrite_callable_entry
-  let rewrite_contract_ext_loop_transfer = Cont.rewrite_contract_ext_loop_transfer
+  (* contract_ext_rewrite_exprs/rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: no contract_ext constructors here, so Cont's
+     default is used. *)
 
   (* Rewriting Statements *)
   let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
@@ -702,7 +705,8 @@ module ProphecyExt (Cont : ListApi) = struct
 
     | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
 
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
+  (* rewrite_stmt_ext: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* --------------------- *)
