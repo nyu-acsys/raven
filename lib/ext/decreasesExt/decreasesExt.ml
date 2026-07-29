@@ -11,9 +11,11 @@ open Util
     termination measure: a lexicographic tuple of expressions over the callable's own
     parameters, each ranging over any type with a [Library.WellFoundedOrder] instance,
     resolved from the expression's own type via [is_wf_order_type] -- see
-    lib/library/well_founded_order.rav for the shipped instances (`IntOrder`,
-    `Ordinal`, `LexOrder`, `MultisetOrder`) and why fixed-arity lexicographic tuples of
-    `Int` alone aren't enough to express e.g. a multiset-based termination argument.
+    well_founded_order.rav (this extension's own library, shipped via [lib_source]
+    below rather than the generic standard library) for the shipped instances
+    (`IntOrder`, `Ordinal`, `LexOrder`, `MultisetOrder`) and why fixed-arity
+    lexicographic tuples of `Int` alone aren't enough to express e.g. a
+    multiset-based termination argument.
 
     The clause's payload is a [Stmt.spec list], one [spec] per lexicographic component,
     reusing [spec]'s existing [spec_form]/[spec_error] machinery -- this is what lets a
@@ -45,7 +47,7 @@ module DecreasesExt (Cont : ListApi) = struct
      ones actually overridden below need a definition. *)
   include Cont
 
-  let lib_source = None
+  let lib_source = Some ("well_founded_order.rav", [%blob "well_founded_order.rav"])
 
   (** ExtApi/core has no notion of [WellFoundedOrder] -- this is entirely
       DecreasesExt's own vocabulary, resolved on demand here rather than

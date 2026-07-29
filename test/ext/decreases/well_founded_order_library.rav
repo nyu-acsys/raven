@@ -1,5 +1,5 @@
 /* Direct checks of the WellFoundedOrder instances shipped in
-   lib/library/well_founded_order.rav (Ordinal, MultisetOrder, LexOrder) and
+   lib/ext/decreasesExt/well_founded_order.rav (Ordinal, MultisetOrder, LexOrder) and
    the OrdinalBase foundation they embed into, independently of any decreases
    clause. MultisetOrder in particular is the motivating example for
    generalizing decreases beyond Int: the Dershowitz-Manna multiset order has
