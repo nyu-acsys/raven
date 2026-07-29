@@ -1,0 +1,171 @@
+// Ordinals below epsilon_0 in Cantor Normal Form: Zero, or
+// Cons(exp, coeff, rest) representing omega^exp * coeff + rest. No
+// well-formedness/normal-form side condition is checked (e.g. rest's leading
+// exponent isn't required to be smaller than exp), and lt is defined by
+// structural recursion over immediate subterms only, so its well-foundedness
+// on all of T follows from T's own inductive well-foundedness by structural
+// induction on term size -- the same free meta-fact that makes any
+// structurally-recursive function over a `data` type total -- *provided*
+// coeff is compared as a bounded-below-by-0 Int, not bare Int `<`: unlike
+// exp/rest, coeff isn't a smaller subterm to recurse into, so an unbounded
+// comparison there would admit an infinite descending chain (..., cons(e, 1,
+// r), cons(e, 0, r), cons(e, -1, r), ...) even though every individual term
+// is finite.
+//
+// Deliberately has no dependency on WellFoundedOrder below: this is the
+// trusted foundation every WellFoundedOrder instance's well-foundedness
+// ultimately reduces to (via embed, see WellFoundedOrder's doc comment), so
+// it must not itself depend on the interface it grounds.
+module OrdinalBase {
+  rep type T = data {
+    case zero
+    case cons(exp: T, coeff: Int, rest: T)
+  }
+
+  func lt(a: T, b: T) returns (res: Bool) {
+    b == zero ? false :
+      (a == zero ? true :
+        (lt(a.exp, b.exp) ||
+          (a.exp == b.exp &&
+            ((a.coeff >= 0 && a.coeff < b.coeff) ||
+              (a.coeff == b.coeff && lt(a.rest, b.rest))))))
+  }
+}
+
+// A well-founded order: a type T together with a strict order lt on T that
+// has no infinite descending chain. Used as the domain of `decreases` clause
+// termination measures (see lib/ext/decreasesExt).
+//
+// Well-foundedness of lt is not just asserted per instance: every instance
+// must also supply embed, a function into OrdinalBase.T, together with a
+// proof that embed is order-preserving (lt_embed_mono). Since a pullback of a
+// well-founded relation along any function is automatically well-founded,
+// this reduces every instance's well-foundedness to OrdinalBase.lt's -- the
+// one thing actually trusted (by structural induction, see OrdinalBase's doc
+// comment) rather than merely assumed. lt_embed_mono is not `auto`: nothing
+// decreasesExt.ml generates ever needs to invoke it, or otherwise reference
+// embed/OrdinalBase at all, since the fact exists purely for this
+// meta-theoretic soundness argument.
+interface WellFoundedOrder : Type {
+  func lt(x: T, y: T) returns (res: Bool)
+  func embed(x: T) returns (res: OrdinalBase.T)
+
+  axiom lt_embed_mono()
+    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y))
+}
+
+// WellFoundedOrder instance for OrdinalBase itself, via the trivial
+// embedding (embed = unwrap). Not `rep type T = OrdinalBase.T` directly: a
+// `rep type` defined as an alias to another module's type resolves
+// transparently to that module's own identity once elaborated (confirmed
+// empirically -- this holds even for a non-generic alias, not just a generic
+// instantiation like MultisetOrder's comment below describes), which would
+// make a `decreases` measure of this type resolve to OrdinalBase (which
+// deliberately doesn't implement WellFoundedOrder) rather than to Ordinal
+// itself. A single-constructor wrapper keeps its own module identity while
+// still making embed a one-line unwrap.
+module Ordinal : WellFoundedOrder {
+  rep type T = data {
+    case wrap(unwrap: OrdinalBase.T)
+  }
+
+  func lt(x: T, y: T) returns (res: Bool) {
+    OrdinalBase.lt(x.unwrap, y.unwrap)
+  }
+
+  func embed(x: T) returns (res: OrdinalBase.T) {
+    x.unwrap
+  }
+}
+
+// The non-negative integers under their usual order. Folds the "bounded
+// below by 0" side condition into lt itself. embed ranks n as the ordinal
+// omega^0 * n = n.
+module IntOrder : WellFoundedOrder {
+  rep type T = Int
+
+  func lt(x: T, y: T) returns (res: Bool) {
+    x >= 0 && x < y
+  }
+
+  func embed(x: T) returns (res: OrdinalBase.T) {
+    OrdinalBase.cons(OrdinalBase.zero, x, OrdinalBase.zero)
+  }
+}
+
+// Lexicographic combination of two well-founded orders. embed builds one
+// more CNF layer on top of A's embedding, at coefficient 1, with B's
+// embedding as the remainder -- so a strict decrease in the first component
+// dominates via the exponent position, and a tie falls through to comparing
+// the remainder, exactly mirroring lt's own definition.
+module LexOrder[A: WellFoundedOrder, B: WellFoundedOrder] : WellFoundedOrder {
+  rep type T = (A.T, B.T)
+
+  func lt(x: T, y: T) returns (res: Bool) {
+    A.lt(x#0, y#0) || (x#0 == y#0 && B.lt(x#1, y#1))
+  }
+
+  func embed(x: T) returns (res: OrdinalBase.T) {
+    OrdinalBase.cons(A.embed(x#0), 1, B.embed(x#1))
+  }
+
+  lemma lt_embed_mono()
+    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y))
+  {
+    A.lt_embed_mono();
+    B.lt_embed_mono();
+  }
+}
+
+// Finite multisets of non-negative Int, ordered by the Dershowitz-Manna
+// multiset extension of IntOrder -- a well-founded order whose order type
+// (omega^omega) exceeds any fixed-arity lexicographic tuple of Int, so it
+// cannot be expressed by ranking into Int alone. Elements are required to be
+// non-negative (like IntOrder itself) for embed to be order-preserving.
+//
+// embed repeatedly extracts the bag's current maximum element and its
+// multiplicity as one CNF term (omega^max * multiplicity), then recurses on
+// the bag with all copies of that max removed -- so each recursive step's
+// term has a strictly smaller exponent than the last, which is exactly
+// CNF's normal-form invariant, and is what makes embed order-preserving (a
+// naive one-term-per-list-element embedding that didn't extract the max
+// first would *not* be, since two bags of equal length can disagree on which
+// is "smaller" depending on which elements are compared first). lt is
+// defined directly as the pullback of OrdinalBase.lt along embed, so
+// lt_embed_mono is a tautology by construction rather than a fact requiring
+// its own proof -- the same trick Ordinal's trivial embedding above uses.
+module MultisetOrder : WellFoundedOrder {
+  // Deliberately not `ListM[IntType].T`: see Ordinal's doc comment above for
+  // why a `rep type` alias would lose this module's own identity here.
+  rep type T = data {
+    case bag_nil
+    case bag_cons(bag_hd: Int, bag_tl: T)
+  }
+
+  func max(bag: T) returns (res: Int) {
+    bag == bag_nil ? 0 :
+      (bag.bag_hd >= max(bag.bag_tl) ? bag.bag_hd : max(bag.bag_tl))
+  }
+
+  func count(bag: T, v: Int) returns (res: Int) {
+    bag == bag_nil ? 0 :
+      (bag.bag_hd == v ? 1 + count(bag.bag_tl, v) : count(bag.bag_tl, v))
+  }
+
+  func remove_all(bag: T, v: Int) returns (res: T) {
+    bag == bag_nil ? bag_nil :
+      (bag.bag_hd == v ? remove_all(bag.bag_tl, v) : bag_cons(bag.bag_hd, remove_all(bag.bag_tl, v)))
+  }
+
+  func embed(bag: T) returns (res: OrdinalBase.T) {
+    bag == bag_nil ? OrdinalBase.zero :
+      OrdinalBase.cons(
+        OrdinalBase.cons(OrdinalBase.zero, max(bag), OrdinalBase.zero),
+        count(bag, max(bag)),
+        embed(remove_all(bag, max(bag))))
+  }
+
+  func lt(x: T, y: T) returns (res: Bool) {
+    OrdinalBase.lt(embed(x), embed(y))
+  }
+}

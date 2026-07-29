@@ -1,0 +1,18 @@
+/* A lexicographic decreases clause combining an Int component and an
+   Ordinal.T component -- exercises per-position WellFoundedOrder resolution
+   in mk_progress_check when the components don't all share the same
+   instance. */
+proc f(n: Int, o: Library.Ordinal.T)
+  requires n >= 0 && !(o.Library.Ordinal.unwrap == Library.OrdinalBase.zero) &&
+    o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff >= 0
+  decreases n, o
+{
+  if (n > 0) {
+    f(n - 1, Library.Ordinal.wrap(Library.OrdinalBase.cons(Library.OrdinalBase.zero, 100, Library.OrdinalBase.zero)));
+  } else if (!(o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff == 0)) {
+    f(n, Library.Ordinal.wrap(Library.OrdinalBase.cons(
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.exp,
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff - 1,
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.rest)));
+  }
+}

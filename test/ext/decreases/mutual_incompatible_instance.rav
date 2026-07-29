@@ -1,0 +1,24 @@
+/* Two mutually-recursive callables whose decreases clauses use different
+   WellFoundedOrder instances (IntOrder vs Ordinal) at the same lexicographic
+   position -- check_contract_ext_group_compatible must reject this, since
+   mk_progress_check compares a caller's measure against a callee's using the
+   caller's own resolved instance, and Ordinal.lt/IntOrder.lt don't agree on
+   anything. */
+proc ping(o: Library.Ordinal.T)
+  requires !(o.Library.Ordinal.unwrap == Library.OrdinalBase.zero) &&
+    o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff >= 0
+  decreases o
+{
+  if (!(o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff == 0)) {
+    pong(o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff);
+  }
+}
+
+proc pong(n: Int)
+  requires n >= 0
+  decreases n
+{
+  if (n > 0) {
+    ping(Library.Ordinal.wrap(Library.OrdinalBase.cons(Library.OrdinalBase.zero, n - 1, Library.OrdinalBase.zero)));
+  }
+}

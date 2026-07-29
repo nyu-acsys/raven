@@ -2,7 +2,8 @@
  (name library)
  (preprocessor_deps
   (file base_types.rav)
-  (file resource_algebra.rav))
+  (file resource_algebra.rav)
+  (file well_founded_order.rav))
  (preprocess
   (pps ppx_blob)))
 
@@ -11,5 +12,6 @@
   %{project_root}/bin/raven.exe
   %{project_root}/lib/library/base_types.rav
   %{project_root}/lib/library/resource_algebra.rav
+  %{project_root}/lib/library/well_founded_order.rav
   (:rav
    (glob_files_rec *.rav))))

@@ -2,8 +2,5 @@
   [Error] File "./bad_domain.rav", line 2, columns 12-13:
   2 |   decreases b
                   ^
-  Type Error: Expected an expression of type
-    Int
-  but found an expression of type
-    Bool.
+  Type Error: this decreases clause's measure type has no WellFoundedOrder instance.
   [1]

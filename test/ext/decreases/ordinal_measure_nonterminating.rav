@@ -1,0 +1,14 @@
+/* Same shape as ordinal_measure.rav, but the coefficient increases instead of
+   decreasing, so the termination measure never actually decreases. */
+proc countup(o: Library.Ordinal.T)
+  requires !(o.Library.Ordinal.unwrap == Library.OrdinalBase.zero) &&
+    o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff >= 0
+  decreases o
+{
+  if (!(o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff == 0)) {
+    countup(Library.Ordinal.wrap(Library.OrdinalBase.cons(
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.exp,
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff + 1,
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.rest)));
+  }
+}
