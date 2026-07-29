@@ -1,5 +1,9 @@
 // Ordinals below epsilon_0 in Cantor Normal Form: Zero, or
-// Cons(exp, coeff, rest) representing omega^exp * coeff + rest. No
+// Cons(exp, coeff, rest) representing omega^exp * coeff + rest. This
+// flattened-list-of-(exponent, coefficient) encoding follows ACL2's ordinal
+// representation; see Panagiotis Manolios and Daron Vroon, "Ordinal
+// Arithmetic: Algorithms and Mechanization", Journal of Automated Reasoning
+// 34(4), 2005. No
 // well-formedness/normal-form side condition is checked (e.g. rest's leading
 // exponent isn't required to be smaller than exp), and lt is defined by
 // structural recursion over immediate subterms only, so its well-foundedness
