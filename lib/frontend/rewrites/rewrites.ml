@@ -1650,13 +1650,9 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           Rewriter.return new_stmt
       | FuncDef _ ->
-          let exhale_stmts =
-            List.map call_decl.call_decl_precond ~f:(fun spec ->
-                Stmt.mk_exhale_spec
-                  ~cmnt:("Call: " ^ Stmt.to_string stmt)
-                  ~loc:stmt.stmt_loc spec)
-          in
-
+          (* No exhale here: func/pred/invariant contracts can't carry a `requires`
+             (see [Typing.check_no_requires_on_pure_callables]), so there is nothing to
+             check at this call site. *)
           let ret_typ =
             Type.mk_prod stmt.stmt_loc
               (List.map call_decl.call_decl_returns ~f:(fun var_decl ->
@@ -1678,8 +1674,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let new_stmt =
             Stmt.mk_block_stmt ~loc:stmt.stmt_loc
               (match lhs_list with
-              | [] -> exhale_stmts @ [ new_assign_stmt ]
-              | _ -> exhale_stmts @ [ new_assign_stmt; reassign_lhs_stmt ])
+              | [] -> [ new_assign_stmt ]
+              | _ -> [ new_assign_stmt; reassign_lhs_stmt ])
           in
 
           Rewriter.return new_stmt)

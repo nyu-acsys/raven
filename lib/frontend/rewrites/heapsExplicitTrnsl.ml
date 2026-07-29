@@ -571,15 +571,24 @@ let generate_skolem_function (universal_quants : universal_quants)
       (Expr.from_var_decl ret_var_decl)
     in
 
-    List.map preconds ~f:(fun precond -> 
+    List.map preconds ~f:(fun precond ->
       Expr.alpha_renaming precond ret_var_renam_map),
-    List.map postconds ~f:(fun postcond -> 
+    List.map postconds ~f:(fun postcond ->
       Expr.alpha_renaming postcond ret_var_renam_map)
   in
 
-  let preconds, postconds =
-    List.map preconds ~f:(fun precond -> Stmt.mk_spec precond),
-    List.map postconds ~f:(fun postcond -> Stmt.mk_spec postcond)
+  (* Funcs can't carry a `requires` (their contracts must be total), so fold the
+     precondition into the antecedent of each postcondition instead. For a body-less
+     func this is not just equivalent but identical to what used to be assumed: see
+     the `FuncDef { func_body = None }` case in [Checker.check_callable], which turns
+     a separate precond/postcond pair into exactly `pre(args) ==> post(args, f(args))`. *)
+  (* [mk_chained_and], not [mk_and]: this feeds into a postcondition that gets
+     type-checked again below (via [generate_skolem_functions]'s call into
+     [Typing.process_symbol]), and the type-checker only accepts `&&` as binary. *)
+  let precond_conj = Expr.mk_chained_and preconds in
+  let postconds =
+    List.map postconds ~f:(fun postcond ->
+        Stmt.mk_spec (Expr.mk_impl precond_conj postcond))
   in
 
   let call_decl =
@@ -589,7 +598,7 @@ let generate_skolem_function (universal_quants : universal_quants)
       call_decl_formals = formal_var_decls;
       call_decl_returns = [ ret_var_decl ];
       call_decl_locals = [];
-      call_decl_precond = preconds;
+      call_decl_precond = [];
       call_decl_postcond = postconds;
       call_decl_contract_ext = [];
       call_decl_loc = loc;

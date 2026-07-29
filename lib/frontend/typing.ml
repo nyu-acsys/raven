@@ -2340,6 +2340,41 @@ module ProcessCallable = struct
         ~f:(process_stmt_spec disam_tbl)
     in
 
+    let () =
+      (* Return variables are only meaningful once the callable has returned, so they
+         must not occur in a `requires` clause -- only in `ensures` clauses. *)
+      let return_qual_idents =
+        List.map call_decl_returns ~f:(fun var_decl ->
+            QualIdent.from_ident var_decl.var_name)
+        |> Set.of_list (module QualIdent)
+      in
+      List.iter call_decl_precond ~f:(fun spec ->
+          match
+            Set.choose
+              (Set.inter (Expr.symbols spec.spec_form) return_qual_idents)
+          with
+          | Some qual_ident ->
+              Error.type_error (QualIdent.to_loc qual_ident)
+                (Printf.sprintf
+                   !"Return variable %{QualIdent} cannot be used in a requires clause; it is only in scope in ensures clauses"
+                   qual_ident)
+          | None -> ())
+    in
+
+    let () =
+      (* Func/pred/invariant contracts are meant to be total -- the verifier never
+         checks expressions for well-definedness, so a `requires` clause on one of
+         these would be silently unenforced at any call site nested inside another
+         expression. A domain restriction belongs in a guarded `ensures` instead. *)
+      match call_decl.call_decl_kind, call_decl_precond with
+      | (Func | Pred | Invariant), _ :: _ ->
+          Error.type_error call_decl.call_decl_loc
+            (Printf.sprintf
+               !"%{Ident} may not have a requires clause; func/pred/invariant contracts must be total"
+               call_decl.call_decl_name)
+      | _ -> ()
+    in
+
     let call_decl_for_ext =
       { call_decl with call_decl_formals; call_decl_returns; call_decl_locals }
     in
@@ -2384,7 +2419,45 @@ module ProcessCallable = struct
           let+ func_body =
             Rewriter.Option.map func_def.func_body ~f:(fun expr ->
                 let expected_return_type = Callable.return_type call_decl in
-                disambiguate_process_expr expr expected_return_type disam_tbl)
+                let* expr =
+                  disambiguate_process_expr expr expected_return_type disam_tbl
+                in
+                let () =
+                  (* A func's body is the single expression that defines its return
+                     value, so referencing the return variable inside it is circular
+                     (and, since nothing detects it as a recursive call, an
+                     undetected non-terminating definition) -- unlike `ensures`,
+                     where the return variable denotes the already-computed result.
+                     Pred/Invariant don't have this problem: the parameters after
+                     `;` in their signature aren't a computed return value at all,
+                     just ordinary parameters that are meant to be used in the body
+                     (e.g. `pred counter(x: Ref; v: Int) { own(x, v) }`) -- see the
+                     `Pred | Invariant -> ...` case in [Checker.check_callable],
+                     which never builds a defining axiom for them in the first
+                     place. *)
+                  match call_decl.call_decl_kind with
+                  | Pred | Invariant | Proc | Lemma -> ()
+                  | Func ->
+                    let return_qual_idents =
+                      List.map call_decl_returns ~f:(fun var_decl ->
+                          QualIdent.from_ident var_decl.var_name)
+                      |> Set.of_list (module QualIdent)
+                    in
+                    (match
+                       Set.choose (Set.inter (Expr.symbols expr) return_qual_idents)
+                     with
+                    | Some qual_ident ->
+                        (* Post-disambiguation, so print the plain source name
+                           rather than [QualIdent.pr]/[Ident.pr]'s disambiguated
+                           `name^N` form. *)
+                        Error.type_error (QualIdent.to_loc qual_ident)
+                          (Printf.sprintf
+                             !"Return variable %{String} cannot be used in the body of %{String}; it is only in scope in ensures clauses"
+                             (Ident.name (QualIdent.to_ident qual_ident))
+                             (Ident.name call_decl.call_decl_name))
+                    | None -> ())
+                in
+                Rewriter.return expr)
           in
 
           let func_def =
@@ -3444,42 +3517,9 @@ module ProcessModule = struct
     Rewriter.return (Module.{ mod_decl; mod_def })
 end
 
-(* Return variables are only meaningful once the callable has returned, so they must not
-   occur in a `requires` clause -- only in `ensures` clauses. This is checked here, as a
-   syntactic pass over the freshly parsed AST (rather than inside [ProcessCallable.process_callable]),
-   because that function is also re-entered by the rewrite passes to type-check
-   compiler-generated callables (e.g. skolem functions in [HeapsExplicitTrnsl]) whose
-   preconditions may legitimately mention their own "return" variable by construction. *)
-let rec check_return_vars_not_in_precond (m : Module.t) : unit =
-  List.iter m.mod_def ~f:(function
-    | Module.SymbolDef (CallDef callable) ->
-        let call_decl = callable.call_decl in
-        let return_qual_idents =
-          List.map call_decl.call_decl_returns ~f:(fun var_decl ->
-              QualIdent.from_ident var_decl.var_name)
-          |> Set.of_list (module QualIdent)
-        in
-        List.iter call_decl.call_decl_precond ~f:(fun spec ->
-            match
-              Set.choose
-                (Set.inter (Expr.symbols spec.spec_form) return_qual_idents)
-            with
-            | Some qual_ident ->
-                Error.type_error (QualIdent.to_loc qual_ident)
-                  (Printf.sprintf
-                     !"Return variable %{QualIdent} cannot be used in a requires clause; it is only in scope in ensures clauses"
-                     qual_ident)
-            | None -> ())
-    | Module.SymbolDef (ModDef nested_md) ->
-        check_return_vars_not_in_precond nested_md
-    | Module.SymbolDef (ModInst _ | TypeDef _ | ConstrDef _ | DestrDef _ | FieldDef _ | VarDef _)
-    | Module.Import _ ->
-        ())
-
 let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  let () = check_return_vars_not_in_precond m in
   let tbl, m =
     Rewriter.eval ?ext_hooks ?cli_config
       (fun st ->

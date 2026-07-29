@@ -1,5 +1,4 @@
 func sum(n: Int) returns (res: Int)
-  requires n >= 0
 {
   n <= 0 ? 0 : n + sum(n-1)
 }

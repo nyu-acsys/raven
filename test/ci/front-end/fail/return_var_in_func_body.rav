@@ -1,0 +1,7 @@
+// A func's body is the single expression that defines its return value, so
+// referencing the return variable inside it is circular -- only `ensures` clauses may
+// refer to it.
+
+func f() returns (res: Int) {
+  res
+}

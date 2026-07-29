@@ -20,9 +20,8 @@ lemma sum_contract(n: Int)
   }
 }
 
-/* Self-recursion with both a precondition and a postcondition. */
+/* Self-recursion with a postcondition; the base case at n <= 0 keeps this total. */
 func fact(n: Int) returns (res: Int)
-  requires n >= 0
   ensures res >= 1
   decreases n
 {
@@ -31,7 +30,6 @@ func fact(n: Int) returns (res: Int)
 
 /* Mutual recursion. */
 func is_even(n: Int) returns (res: Bool)
-  requires n >= 0
   ensures n == 0 ==> res
   decreases n
 {
@@ -39,19 +37,17 @@ func is_even(n: Int) returns (res: Bool)
 }
 
 func is_odd(n: Int) returns (res: Bool)
-  requires n >= 0
   ensures n == 0 ==> !res
   decreases n
 {
   n <= 0 ? false : is_even(n-1)
 }
 
-/* Multiple requires and ensures clauses. */
+/* Multiple ensures clauses; the domain restriction that used to be a `requires` is now
+   folded into the antecedent of a guarded ensures, since func contracts must be total. */
 func bounded_sum(n: Int, lo: Int) returns (res: Int)
-  requires lo >= 0
-  requires n >= lo
-  ensures res >= n
-  ensures res >= lo
+  ensures lo >= 0 && n >= lo ==> res >= n
+  ensures lo >= 0 && n >= lo ==> res >= lo
 {
   n <= lo ? lo : n + bounded_sum(n-1, lo)
 }
@@ -64,10 +60,10 @@ func nested_cond(n: Int) returns (res: Int)
   n <= 0 ? 0 : (n <= 1 ? n : n + nested_cond(n-1))
 }
 
-/* More than one recursive call combined in the same expression. */
+/* More than one recursive call combined in the same expression; guarded ensures again
+   stands in for what used to be a `requires n >= 0`. */
 func fib(n: Int) returns (res: Int)
-  requires n >= 0
-  ensures res >= 0
+  ensures n >= 0 ==> res >= 0
   decreases n
 {
   n <= 1 ? n : fib(n-1) + fib(n-2)

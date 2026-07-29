@@ -4,7 +4,6 @@
    its own to instrument directly. */
 func fac(n: Int)
   returns (res: Int)
-  requires n >= 0
   decreases n
 {
   n > 0 ? n * fac(n-1) : 1
