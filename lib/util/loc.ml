@@ -73,6 +73,14 @@ let to_string_simple loc =
     Printf.sprintf "%s:%d:%d-%d" (file_name loc) (start_line loc) start_col
       end_col
 
+(** Extension-supplied library sources (e.g. `well_founded_order.rav`), registered by
+    the driver once the active extension is known. [Library.sources] only covers the
+    core standard library, which is fixed at compile time; extension libraries vary
+    with `--extension`, so they can't be baked in here the same way. Locations inside
+    either are virtual: there is no real file on disk to fall back to reading. *)
+let registered_sources : (string * string) list ref = ref []
+let register_sources sources = registered_sources := sources
+
 let context loc =
   let rec in_channel_line ic (line_num : int) =
     let next_line =
@@ -87,7 +95,7 @@ let context loc =
       in_channel_line ic (line_num - 1))
   in
   let ctx =
-    List.find_map Library.sources ~f:(fun (lib_file_name, lib_source) ->
+    List.find_map (Library.sources @ !registered_sources) ~f:(fun (lib_file_name, lib_source) ->
         if String.(file_name loc = lib_file_name) then
           let lib_source_str = String.split_lines lib_source in
           let ctx = List.nth_exn lib_source_str (start_line loc - 1) in

@@ -144,6 +144,12 @@ let backend_check_cu tbl smt_env processed_md =
 
 (** Parse and check all compilation units in files [file_names] *)
 let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
+  (* Locations inside extension library sources (e.g. well_founded_order.rav) are
+     virtual -- there's no real file on disk for Loc.context to fall back to reading.
+     Register them so it can find the text the same way it already does for the core
+     standard library ([Library.sources]). *)
+  Loc.register_sources lib_sources;
+
   (* Start backend solver session *)
   
   (* Variable which controls whether the 
