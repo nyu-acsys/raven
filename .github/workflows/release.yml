@@ -42,10 +42,38 @@ jobs:
       # binary (raven shells out to the z3 CLI at runtime; it doesn't link
       # the OCaml z3 library), so there's nothing here that needs a real z3
       # binary present -- just satisfy the opam dependency without building
-      # it. --fake is safe since this opam switch is thrown away at the end
-      # of the job.
+      # it.
+      #
+      # `opam install z3 --fake` was tried first but rejected: --fake also
+      # fakes z3's entire build-dependency cone (ocamlfind, zarith, conf-c++,
+      # conf-python-3) in one shot, which silently "installs" a
+      # non-functional ocamlfind and breaks every later opam build in the
+      # same switch. Pinning z3 to a trivial local package with no
+      # dependencies and a no-op install avoids that: opam only ever
+      # considers actions for z3 itself.
       - name: Satisfy opam's z3 dependency without building from source
-        run: opam install z3 --fake
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(gh api repos/Z3Prover/z3/releases/latest --jq .tag_name | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          pin_dir="$RUNNER_TEMP/z3-opam-pin"
+          mkdir -p "$pin_dir"
+          cat > "$pin_dir/opam" <<EOF
+          opam-version: "2.0"
+          name: "z3"
+          version: "$version"
+          maintainer: "n/a"
+          authors: "n/a"
+          license: "MIT"
+          homepage: "https://github.com/Z3prover/z3"
+          bug-reports: "https://github.com/Z3prover/z3/issues"
+          synopsis: "Stand-in for z3: this job never invokes z3, it only needs the opam dependency satisfied"
+          build: []
+          install: []
+          EOF
+          opam pin add -y z3 "$pin_dir"
 
       - run: opam install . --deps-only
 

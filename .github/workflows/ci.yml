@@ -37,6 +37,7 @@ jobs:
       # the z3 CLI (it doesn't link the OCaml z3 library), so grab a prebuilt
       # release binary and put it on PATH instead.
       - name: Download prebuilt Z3
+        id: z3
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,6 +50,9 @@ jobs:
           unzip -q "$zipfile"
           dir=$(unzip -Z1 "$zipfile" | head -1 | cut -d/ -f1)
           echo "$PWD/$dir/bin" >> "$GITHUB_PATH"
+          export PATH="$PWD/$dir/bin:$PATH"
+          version=$(z3 --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set-up OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v3
@@ -56,13 +60,36 @@ jobs:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
 
       # Satisfy the opam "z3" dependency without triggering its from-source
-      # build -- the real binary is already on PATH from the step above.
-      # --fake just records the package as installed; safe here since this
-      # opam switch is thrown away at the end of the job. If raven ever
-      # starts linking the OCaml z3 findlib library for real, this will need
-      # to become a genuine install.
+      # build -- the real binary is already on PATH from the step above, this
+      # just makes opam consider the version constraint satisfied.
+      #
+      # `opam install z3 --fake` was tried first but rejected: --fake also
+      # fakes z3's entire build-dependency cone (ocamlfind, zarith, conf-c++,
+      # conf-python-3) in one shot, which silently "installs" a
+      # non-functional ocamlfind and breaks every later opam build in the
+      # same switch. Pinning z3 to a trivial local package with no
+      # dependencies and a no-op install avoids that: opam only ever
+      # considers actions for z3 itself.
       - name: Satisfy opam's z3 dependency without building from source
-        run: opam install z3 --fake
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin_dir="$RUNNER_TEMP/z3-opam-pin"
+          mkdir -p "$pin_dir"
+          cat > "$pin_dir/opam" <<EOF
+          opam-version: "2.0"
+          name: "z3"
+          version: "${{ steps.z3.outputs.version }}"
+          maintainer: "n/a"
+          authors: "n/a"
+          license: "MIT"
+          homepage: "https://github.com/Z3prover/z3"
+          bug-reports: "https://github.com/Z3prover/z3/issues"
+          synopsis: "Stand-in for z3: the real binary is already on PATH from the download step above"
+          build: []
+          install: []
+          EOF
+          opam pin add -y z3 "$pin_dir"
 
       - run: opam install . --deps-only --with-test
 
