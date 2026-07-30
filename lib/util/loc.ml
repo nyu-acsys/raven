@@ -42,6 +42,21 @@ let end_col loc = column loc.loc_end
 let start_bol loc = loc.loc_start.pos_bol
 let end_bol loc = loc.loc_end.pos_bol
 let file_name loc = loc.loc_start.pos_fname
+
+(** [file_name loc], shortened to be relative to the current directory when it's
+    underneath it -- for display only. Locations are always stored (and looked up,
+    e.g. in [context] below) by the real, absolute path: that's what the LSP JSON
+    output ([Error.to_lsp_json]) sends as-is for the editor to resolve against an open
+    document's URI, and what the file-inclusion dedup logic in bin/raven.ml keys on.
+    Neither of those should see a shortened path; only human-facing text (this
+    module's [to_string] and [to_string_simple]) should. *)
+let display_file_name loc =
+  let fname = file_name loc in
+  let cwd = Stdlib.Sys.getcwd () ^ "/" in
+  if String.is_prefix fname ~prefix:cwd then
+    String.drop_prefix fname (String.length cwd)
+  else fname
+
 let to_end loc = { loc with loc_start = loc.loc_end }
 let to_start loc = { loc with loc_end = loc.loc_start }
 
@@ -63,14 +78,14 @@ let merge l1 l2 =
 
 let to_string_simple loc =
   if start_line loc <> end_line loc then
-    Printf.sprintf "%s:%d:%d" (file_name loc) (start_line loc) (start_col loc)
+    Printf.sprintf "%s:%d:%d" (display_file_name loc) (start_line loc) (start_col loc)
   else
     let start_col, end_col =
       if start_col loc = end_col loc then
         if start_col loc = 0 then (0, 1) else (start_col loc - 1, end_col loc)
       else (start_col loc, end_col loc)
     in
-    Printf.sprintf "%s:%d:%d-%d" (file_name loc) (start_line loc) start_col
+    Printf.sprintf "%s:%d:%d-%d" (display_file_name loc) (start_line loc) start_col
       end_col
 
 (** Extension-supplied library sources (e.g. `well_founded_order.rav`), registered by
@@ -122,11 +137,11 @@ let context loc =
 
 let to_string loc =
   if loc.loc_start.pos_lnum = loc.loc_end.pos_lnum then
-    Printf.sprintf "File \"%s\", line %d, columns %d-%d:\n%s" (file_name loc)
+    Printf.sprintf "File \"%s\", line %d, columns %d-%d:\n%s" (display_file_name loc)
       (start_line loc) (start_col loc) (end_col loc) (context loc)
   else
     Printf.sprintf "File \"%s\", line %d, column %d to line %d, column %d:\n%s"
-      (file_name loc) (start_line loc) (start_col loc) (end_line loc)
+      (display_file_name loc) (start_line loc) (start_col loc) (end_line loc)
       (end_col loc) (context loc)
 
 let ( = ) = equal
