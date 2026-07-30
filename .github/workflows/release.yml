@@ -26,7 +26,6 @@ jobs:
             artifact: raven-win32-x64
 
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - name: Checkout tree
