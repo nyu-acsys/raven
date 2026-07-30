@@ -25,8 +25,6 @@ jobs:
             ocaml-compiler: "5.1"
 
     runs-on: ${{ matrix.os }}
-    # Windows support is still stabilizing; don't let it block CI yet (mirrors release.yml).
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - name: Checkout tree
