@@ -24,13 +24,23 @@ let stream_of_file file_name =
   let _ = Lexer.set_file_name lexbuf file_name in
   (inchan, lexbuf)
 
+(* `include` paths in .rav source are always written with forward slashes
+   (portable, editor-agnostic convention -- see e.g. test/concurrent/templates),
+   regardless of which OS raven runs on. Splitting only on Filename.dir_sep -- "\\"
+   on Windows -- would leave a "./"-prefixed include like "./ccm.rav" un-split, so it
+   normalizes to a different string than a same-file include written as "ccm.rav"
+   elsewhere; the two spellings then dedupe as different files and get declared
+   twice. Split on either separator so both spellings always normalize the same way,
+   and always rejoin with "/" so the result is one canonical, platform-independent
+   string throughout (used as-is both as a file path -- Windows accepts "/" same as
+   "\\" -- and in diagnostics, where dune's cram tests expect forward slashes). *)
 let normalizeFilename base_dir file_name =
   let fullname =
     if Stdlib.Filename.is_relative file_name then
       base_dir ^ Stdlib.Filename.dir_sep ^ file_name
     else file_name
   in
-  let sep = Str.regexp_string Stdlib.Filename.dir_sep in
+  let sep = Str.regexp "[/\\\\]" in
   let parts = Str.split_delim sep fullname in
   let remaining =
     List.fold_left
@@ -41,7 +51,7 @@ let normalizeFilename base_dir file_name =
         | x -> x :: acc)
       ~init:[] parts
   in
-  String.concat ~sep:Stdlib.Filename.dir_sep (List.rev remaining)
+  String.concat ~sep:"/" (List.rev remaining)
 
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_cu file_dir top_level_md_ident lexbuf =
@@ -167,6 +177,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
   in
 
   let smt_env = Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout in
+  Stdlib.Fun.protect ~finally:(fun () -> Backend.Smt_solver.stop smt_env) @@ fun () ->
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan =

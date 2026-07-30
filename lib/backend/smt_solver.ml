@@ -343,6 +343,13 @@ let init ?(logging = true) diagnostics timeout : smt_env =
 
   smt_env
 
+(** Tells the Z3 subprocess to exit and waits for it to do so. Callers must run this
+    on every path out of a session, including error paths: nothing currently reaps the
+    Z3 child otherwise, which on Windows can leave a lingering process holding a handle
+    into the working directory, blocking cleanup of anything using it as a cwd (e.g. a
+    dune sandbox directory). *)
+let stop (smt_env : smt_env) = SmtSession.stop_solver smt_env.session
+
 (** Declares exactly the generic tuple sorts ([$tuple_n]) the program being checked
     actually needs, rather than an arbitrary fixed range. [arities] is computed from the
     fully elaborated program (see [Backend.TupleArities]) once parsing and front-end
