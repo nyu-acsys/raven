@@ -37,6 +37,16 @@ jobs:
         with:
           ocaml-compiler: "5.1"
 
+      # opam's "z3" package compiles all of Z3 from source, which is slow and
+      # has no dedicated Windows build recipe. This job only builds the raven
+      # binary (raven shells out to the z3 CLI at runtime; it doesn't link
+      # the OCaml z3 library), so there's nothing here that needs a real z3
+      # binary present -- just satisfy the opam dependency without building
+      # it. --fake is safe since this opam switch is thrown away at the end
+      # of the job.
+      - name: Satisfy opam's z3 dependency without building from source
+        run: opam install z3 --fake
+
       - run: opam install . --deps-only
 
       - run: opam exec -- dune build bin/raven.exe

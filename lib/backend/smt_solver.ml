@@ -37,6 +37,8 @@ module SmtSession = struct
       close out_read;
       close in_write;*)
     let in_chan, out_chan = Unix.open_process_args "z3" [| "smt2"; "-in" |] in
+    (* Strip \r\n line endings from Z3's output on Windows; no-op elsewhere. *)
+    Stdlib.set_binary_mode_in in_chan false;
 
     let solver_state =
       {

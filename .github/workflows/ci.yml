@@ -13,22 +13,56 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-latest
-          - ubuntu-latest
-        ocaml-compiler:
-          - "5.1"
+        include:
+          - os: macos-latest
+            z3_glob: "*arm64-osx*.zip"
+            ocaml-compiler: "5.1"
+          - os: ubuntu-latest
+            z3_glob: "*x64-glibc*.zip"
+            ocaml-compiler: "5.1"
+          - os: windows-latest
+            z3_glob: "*x64-win.zip"
+            ocaml-compiler: "5.1"
 
     runs-on: ${{ matrix.os }}
+    # Windows support is still stabilizing; don't let it block CI yet (mirrors release.yml).
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
 
     steps:
       - name: Checkout tree
         uses: actions/checkout@v4
 
+      # opam's "z3" package compiles all of Z3 from source, which is slow and
+      # has no dedicated Windows build recipe. Raven only ever shells out to
+      # the z3 CLI (it doesn't link the OCaml z3 library), so grab a prebuilt
+      # release binary and put it on PATH instead.
+      - name: Download prebuilt Z3
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir z3dl
+          gh release download --repo Z3Prover/z3 --pattern "${{ matrix.z3_glob }}" --dir z3dl
+          cd z3dl
+          zipfile=$(ls *.zip)
+          unzip -q "$zipfile"
+          dir=$(unzip -Z1 "$zipfile" | head -1 | cut -d/ -f1)
+          echo "$PWD/$dir/bin" >> "$GITHUB_PATH"
+
       - name: Set-up OCaml ${{ matrix.ocaml-compiler }}
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
+
+      # Satisfy the opam "z3" dependency without triggering its from-source
+      # build -- the real binary is already on PATH from the step above.
+      # --fake just records the package as installed; safe here since this
+      # opam switch is thrown away at the end of the job. If raven ever
+      # starts linking the OCaml z3 findlib library for real, this will need
+      # to become a genuine install.
+      - name: Satisfy opam's z3 dependency without building from source
+        run: opam install z3 --fake
 
       - run: opam install . --deps-only --with-test
 
