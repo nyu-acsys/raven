@@ -1,9 +1,12 @@
-# Raven
-![Version 1.1.0](https://img.shields.io/badge/version-1.1.0-green.svg)
-[![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE)
-[![Builds, tests & co](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nyu-acsys/raven/actions/workflows/ci.yml)
+<p align="center">
+  <img width="100%" src=".github/assets/banner.png" alt="Raven Verifier"/>
+</p>
 
-<img align="right" width="200" src=".github/assets/logo.png"/>
+<p align="center">
+  <img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-green.svg"/>
+  <a href="https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-blue.svg"/></a>
+  <a href="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml"><img alt="Builds, tests &amp; co" src="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main"/></a>
+</p>
 
 Raven is an intermediate verification language and SMT-based deductive verifier based on concurrent separation logic. It is intended as an intermediate layer for building program verification tools that target concurrent programs. Raven can also be used as a standalone educational tool.
 
