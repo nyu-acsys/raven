@@ -1,0 +1,93 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: raven-linux-x64
+          - os: ubuntu-24.04-arm
+            artifact: raven-linux-arm64
+          - os: macos-13
+            artifact: raven-darwin-x64
+          - os: macos-14
+            artifact: raven-darwin-arm64
+          - os: windows-latest
+            artifact: raven-win32-x64
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
+    steps:
+      - name: Checkout tree
+        uses: actions/checkout@v4
+
+      - name: Set-up OCaml 5.1
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.1"
+
+      - run: opam install . --deps-only
+
+      - run: opam exec -- dune build bin/raven.exe
+
+      - name: Strip binary
+        if: matrix.os != 'windows-latest'
+        run: strip _build/default/bin/raven.exe
+
+      - name: Stage binary (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp _build/default/bin/raven.exe dist/raven
+
+      - name: Stage binary (windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp _build/default/bin/raven.exe dist/raven.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble release archives
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            name=$(basename "$dir")
+            tar -C "$dir" -czf "release/${name}.tar.gz" .
+          done
+          ls -la release
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*.tar.gz
+          fail_on_unmatched_files: true
