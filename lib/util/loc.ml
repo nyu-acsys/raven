@@ -52,7 +52,14 @@ let file_name loc = loc.loc_start.pos_fname
     module's [to_string] and [to_string_simple]) should. *)
 let display_file_name loc =
   let fname = file_name loc in
-  let cwd = Stdlib.Sys.getcwd () ^ "/" in
+  (* [fname] is always forward-slash-normalized (see normalizeFilename in
+     bin/raven.ml), but Sys.getcwd () returns a native path -- backslash-separated on
+     Windows -- so it has to be normalized the same way before comparing prefixes. *)
+  let cwd =
+    Stdlib.Sys.getcwd ()
+    |> String.map ~f:(function '\\' -> '/' | c -> c)
+    |> fun s -> s ^ "/"
+  in
   if String.is_prefix fname ~prefix:cwd then
     String.drop_prefix fname (String.length cwd)
   else fname
