@@ -49,7 +49,15 @@ jobs:
           zipfile=$(ls *.zip)
           unzip -q "$zipfile"
           dir=$(unzip -Z1 "$zipfile" | head -1 | cut -d/ -f1)
-          echo "$PWD/$dir/bin" >> "$GITHUB_PATH"
+          bin_dir="$PWD/$dir/bin"
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            # Git Bash's $PWD is an MSYS-style path (/d/...). GITHUB_PATH is
+            # read by later non-bash steps and, at runtime, by raven's own
+            # Win32 SearchPath call -- neither understands MSYS paths, so
+            # convert to a native Windows path before publishing it.
+            bin_dir=$(cygpath -w "$bin_dir")
+          fi
+          echo "$bin_dir" >> "$GITHUB_PATH"
           export PATH="$PWD/$dir/bin:$PATH"
           version=$(z3 --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
