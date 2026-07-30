@@ -1880,8 +1880,11 @@ module ProcessCallable = struct
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       let field_type = match symbol with
-        | FieldDef { field_type = App (Fld, [ field_type ], _); _ }  ->
-          field_type
+        | FieldDef { field_type = App (Fld, [ field_type ], _); field_is_ghost; _ }  ->
+          if is_ghost_scope && not field_is_ghost then
+            Error.type_error (QualIdent.to_loc fw_desc.field_write_field)
+              (Printf.sprintf !"Cannot assign to non-ghost field %{QualIdent} in ghost context" fw_desc.field_write_field)
+          else field_type
         | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
       in
       let* is_field_an_ra = ProgUtils.is_ra_type field_type in
