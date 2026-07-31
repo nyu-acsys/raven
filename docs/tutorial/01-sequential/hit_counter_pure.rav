@@ -70,6 +70,19 @@ func boundedNext(c: Int, cap: Int) returns (r: Outcome)
   c >= cap ? capped : ok(c + 1)
 }
 
+// Taking an `Outcome` apart again: `match` picks the case and names its
+// arguments in one step, and `is` tests which case a value was built with --
+// useful in a contract, where there's no `match` arm to stand in for it.
+func settle(r: Outcome, fallback: Int) returns (v: Int)
+  ensures r is ok ==> v == r.value
+  ensures r is capped ==> v == fallback
+{
+  match r {
+    case ok(n) => n
+    case capped => fallback
+  }
+}
+
 // A tiny use of Set[Int] and a quantified specification: track which visitor IDs
 // have been seen so far as a set, and specify `recordVisitor` purely in terms of
 // set membership. `forall`/`exists` here range over plain (non-resource) values --

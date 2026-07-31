@@ -238,6 +238,57 @@ ahead of schedule. Part 3 gives `Counter` a second implementation, built around 
 idea, that stops counting at a cap instead of overflowing — `Outcome` (or a type just like it) is
 what its `create`/`increment` operations will return there.
 
+So far `Outcome` values only ever get *built*. Two constructs take one apart again.
+
+The smaller one is `is`: `r is ok` is a `Bool` saying which case `r` was built with. It pairs
+with plain field access — `r.value` reads the argument of an `ok`, which is only meaningful when
+`r` really *is* an `ok`, so the two usually travel together:
+
+```raven
+ensures r is ok ==> v == r.value
+```
+
+`is` binds exactly like `==`, so it sits inside a larger formula without needing parentheses:
+`r is ok && v > 0` and `r is ok ==> ...` both group the way you'd expect.
+
+For a case with no arguments the two are interchangeable — `r is capped` and the `r == capped`
+that `boundedNext` above already used say exactly the same thing. `is` earns its keep on cases
+that *do* carry arguments, where the equality you'd otherwise write has to reconstruct the value
+field by field: `r == ok(r.value)`.
+
+Writing a whole case analysis that way gets tedious, though, and inside a function body you'd
+reach for `match` instead — it picks the case *and* names its arguments in one step:
+
+```raven
+func settle(r: Outcome, fallback: Int) returns (v: Int)
+  ensures r is ok ==> v == r.value
+  ensures r is capped ==> v == fallback
+{
+  match r {
+    case ok(n) => n
+    case capped => fallback
+  }
+}
+```
+
+Each arm names a case and binds one variable per argument — `n` above is the `Int` inside an
+`ok`, in scope only for that arm's body. A nullary case binds nothing and takes no parentheses,
+hence the bare `case capped =>`. A `match` is an ordinary expression, so every arm has to produce
+the same type, here the `Int` this `func` returns.
+
+Raven checks that the arms are **exhaustive**: name every case exactly once, or end with a
+catch-all `case _ =>` arm covering whatever's left. Forgetting one is a type error rather than a
+silent gap that only shows up later as a failed proof. You can also write `_` in place of an
+argument name when you don't need it (`case ok(_) => 0`).
+
+That leaves `is` for the places a `match` arm can't reach — a contract, as above, or one branch
+of a larger condition.
+
+Naming an arm's pattern variable after the field it binds is fine, and often clearest —
+`case ok(value) => ...` does not stop a later `r.value` from resolving. The `f` in `r.f` is a
+field name looked up in `r`'s own type, not a reference to whatever `f` happens to mean nearby,
+so it never collides with a variable of the same name.
+
 ## 7. Quantifiers, briefly
 
 `recordVisitor` above already used a `forall`. Two things worth knowing now, in more depth once
