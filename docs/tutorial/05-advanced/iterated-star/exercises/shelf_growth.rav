@@ -1,0 +1,39 @@
+// Exercise: the "shelf grows by one cell" stretch goal mentioned in
+// ../index.md. Rather than growing shelf_of_counters.rav's own
+// `Map[Int, Ref]`-addressed shelf directly (a genuinely harder proof --
+// Raven checks an ISC's injectivity as a property of the *predicate's own
+// definition*, for arbitrary arguments, not something a specific runtime
+// map value can satisfy), this uses a different representation: a shelf
+// built by prepending one cell at a time, following `next` pointers,
+// exactly like a Treiber stack's `is_list`.
+//
+// `mkEmpty` is done for you. `grow` is filled in except for its last line --
+// the `fold` that re-establishes `shelfList` one cell longer.
+//
+// Hint: `shelfList`'s recursive case needs a witness for `tl`, the existentially
+// quantified rest of the list. The cell you just allocated (`hd2`) points at
+// the *old* head via its `next` field -- that's exactly what should stand in
+// for `tl`. Supply it explicitly: `fold shelfList(hd2, n + 1)[tl := ???];`.
+field count: Int
+field next: Ref
+
+pred shelfList(hd: Ref; n: Int) {
+  hd == null ?
+    n == 0 :
+    (n > 0 && (exists tl: Ref :: own(hd.count, 0) && own(hd.next, tl) && shelfList(tl, n - 1)))
+}
+
+proc mkEmpty() returns (hd: Ref)
+  ensures shelfList(hd, 0)
+{
+  hd := null;
+  fold shelfList(hd, 0);
+}
+
+proc grow(hd: Ref, n: Int) returns (hd2: Ref)
+  requires shelfList(hd, n) && n >= 0
+  ensures shelfList(hd2, n + 1)
+{
+  hd2 := new (count: 0, next: hd);
+  // TODO: fold shelfList(hd2, n + 1) with the right witness for `tl`.
+}

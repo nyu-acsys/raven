@@ -1,0 +1,153 @@
+// Step 5 of this capstone's build-up: `token` is a real (but still plain,
+// non-`auto`) predicate, backed by the `Excl` resource algebra, with an
+// explicit proof of `token_unique`. Everything works, but every place that
+// touches `token` needs an explicit `fold`/`unfold`, including a proof
+// step inside `join` that step 6 (../fork_join.rav) makes disappear
+// entirely once `token` becomes `auto`.
+module Excl : Library.ResourceAlgebra {
+  rep type T = data {
+    case bot;
+    case excl;
+    case top
+  }
+
+  val id: T = bot
+
+  func valid(a: T) returns (res: Bool) {
+    a != top
+  }
+
+  func comp(a: T, b: T) returns (res: T) {
+    a == id ? b : (b == id ? a : top)
+  }
+
+  func frame(a: T, b: T) returns (res: T) {
+    b == id ? a : (a == excl && b == excl ? id : top)
+  }
+
+  func fpuAllowed(a: T, b: T) returns (res: Bool) {
+    false
+  }
+}
+
+interface Instance {
+  type R
+
+  pred resource(r: R)
+
+  proc task() returns (r: R)
+    ensures resource(r)
+}
+
+module ForkJoin[I: Instance] {
+  import I._
+  import Library.Option
+
+  field value: Option[R]
+  ghost field ex: Excl
+
+  // Not `auto` this time -- `token(p)` and `own(p.ex, Excl.excl)` are two
+  // different things as far as any proof is concerned, until something
+  // explicitly folds or unfolds between them.
+  pred token(p: Ref) {
+    own(p.ex, Excl.excl)
+  }
+
+  // Unlike step 6's version of this lemma, this proof isn't empty: nothing
+  // exposes what's *inside* `token` without `unfold`ing it first, since
+  // `token` is opaque, exactly like every other plain predicate since
+  // Part 3.
+  lemma token_unique(p: Ref)
+    requires token(p) && token(p)
+    ensures false
+  {
+    unfold token(p);
+    unfold token(p);
+  }
+
+  inv is_forkjoin(p: Ref) {
+    exists o: Option[R], b: Bool ::
+      own(p.value, o) &&
+      (o == Option.none ? true : (b ? token(p) : resource(o.Option.value)))
+  }
+
+  proc worker(p: Ref)
+    requires is_forkjoin(p)
+  {
+    val r := task();
+    unfold is_forkjoin(p);
+    p.value := Option.some(r);
+    fold is_forkjoin(p)[b := false];
+  }
+
+  proc fork() returns (p: Ref)
+    ensures is_forkjoin(p) && token(p)
+  {
+    p := new (value: Option.none, ex: Excl.excl);
+    // Step 6 doesn't need this: with `token` `auto`, `own(p.ex,
+    // Excl.excl)` *is* `token(p)` already, nothing to fold.
+    fold token(p);
+    fold is_forkjoin(p)[b := false];
+    spawn worker(p);
+  }
+
+  proc join(p: Ref) returns (r: R)
+    requires is_forkjoin(p) && token(p)
+    ensures resource(r)
+  {
+    var o: Option[R];
+    ghost var b0: Bool;
+    unfold is_forkjoin(p)[b0 := b];
+    o := p.value;
+    // The proof step step 6 no longer needs, spelled out: if `o` isn't
+    // `none` and `b0` is true, unfolding just handed us the invariant's
+    // *own* copy of `token(p)` -- on top of the one we already hold from
+    // `requires`, never spent. Two tokens at once is exactly
+    // `token_unique`'s precondition, and its conclusion (`false`) lets the
+    // rest of this branch prove anything, including the postcondition this
+    // scenario would otherwise be unable to establish. The call has to sit
+    // inside a `{! ... !}` ghost block because its condition (`b0`) is
+    // ghost, and an ordinary `if` in a `proc` can't branch on ghost state.
+    {!
+      if (o != Option.none && b0) {
+        token_unique(p);
+      }
+    !}
+    fold is_forkjoin(p)[b := true];
+
+    if (o == Option.none) {
+      r := join(p);
+      return r;
+    } else {
+      r := o.Option.value;
+      return r;
+    }
+  }
+}
+
+field count: Int
+
+module ClientInstance : Instance {
+  type R = Ref
+
+  pred resource(r: Ref) {
+    own(r.count, 0)
+  }
+
+  proc task() returns (r: Ref)
+    ensures resource(r)
+  {
+    r := new (count: 0);
+    fold resource(r);
+  }
+}
+
+module FJ = ForkJoin[ClientInstance]
+
+proc client()
+{
+  var p := FJ.fork();
+  var r := FJ.join(p);
+  unfold ClientInstance.resource(r);
+  val y := r.count;
+}

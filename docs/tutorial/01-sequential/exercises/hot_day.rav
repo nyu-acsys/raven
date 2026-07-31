@@ -1,0 +1,21 @@
+// Exercise 3: given a per-day hit count (as a pure Map[Int, Int], with `len`
+// the number of meaningful days), find the busiest day's count. Fill in the
+// loop invariant. Hint: a `forall`-shaped invariant with an explicit trigger
+// (like `{counts[j]}`) tends to be far easier for Raven to carry across loop
+// iterations than an `exists`-shaped one -- if you get stuck, try rephrasing
+// whatever you wrote as an upper bound instead of an existence claim.
+proc busiestDay(counts: Map[Int, Int], len: Int) returns (r: Int)
+  requires len >= 1
+  ensures forall j: Int :: {counts[j]} 0 <= j && j < len ==> counts[j] <= r
+{
+  r := counts[0];
+  var k := 1;
+  while (k < len)
+    invariant true // TODO: replace with a real invariant
+  {
+    if (counts[k] > r) {
+      r := counts[k];
+    }
+    k := k + 1;
+  }
+}

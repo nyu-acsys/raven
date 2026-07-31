@@ -1,0 +1,162 @@
+// Capstone, version 2 of 2: the same ticket lock, re-proved using *atomic
+// contracts* instead of a plain invariant for `acquire`/`release`. Compare
+// `wait_loop`/`acquire`/`release` here against ticket_lock_invariant.rav's
+// versions -- same algorithm, same underlying resources, different (and, for
+// a client, more ergonomic) way of stating what they guarantee. Taken
+// directly from Raven's test suite
+// (test/concurrent/lock/ticket-lock_atomics.rav) -- see this directory's
+// README.md for a guided walkthrough.
+interface LockResource : Library.Type {
+  rep type T
+
+  // Resource protected by a lock
+  pred resource(r: T)
+}
+
+module TicketLock[R: LockResource] {
+  import R.resource
+
+  field next: Int
+  field curr: Int
+
+  module IntSet = Library.DisjSet[Library.IntType]
+  module AuthDisjInts = Library.Auth[IntSet]
+
+  ghost field tickets: AuthDisjInts
+
+  module UnitType : Library.Type {
+    rep type T = ()
+  }
+
+  module ExclUnit = Library.Excl[UnitType]
+
+  ghost field exclusive: ExclUnit
+
+  auto pred locked(l: Ref) {
+    own(l.exclusive, ExclUnit.excl(()))
+  }
+
+  lemma lk_exclusive(l: Ref)
+    requires locked(l) && locked(l)
+    ensures false
+  {
+
+  }
+
+  pred is_lock(l: Ref; r: R) {
+    exists n: Int, c: Int, b: Bool ::
+      own(l.next, n, 1.0) && n >= 0
+      && own(l.curr, c, 1.0)
+      && (b ? 
+        own(l.tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
+        resource(r) && locked(l)
+      )
+      && own(l.tickets, 
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < n|}), 
+          IntSet.set({||})
+        )
+      )
+  }
+
+  proc create(r: R) returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r)
+  {
+    l := new (
+      next: 0, curr: -1, 
+      tickets: AuthDisjInts.auth_frag(
+        IntSet.set({||}), IntSet.set({||})
+      ),
+      exclusive: ExclUnit.excl(())
+    );
+
+    fold is_lock(l, r)[b := false];
+  }
+
+  proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
+    requires own(l.tickets, AuthDisjInts.frag(IntSet.set({|x|})))
+    atomic requires is_lock(l, r)
+    atomic ensures is_lock(l, r) && locked(l) && resource(r)
+  {
+    ghost val phi := bindAU();
+    ghost var b: Bool;
+    r := openAU(phi);
+    unfold is_lock(l)[b := b];
+    val c: Int := l.curr;    
+
+    if (x == c) {
+      fold is_lock(l, r)[b := true];
+      commitAU(phi, ());
+      return;
+    } else {
+      fold is_lock(l, r)[b := b];
+      abortAU(phi);  
+      r := openAU(phi);
+      wait_loop(l, x);
+      commitAU(phi, ());
+    }
+  }
+
+  proc acquire(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r)
+    atomic ensures is_lock(l, r) && locked(l) && resource(r)
+  {
+    ghost val phi := bindAU();
+    ghost var b : Bool;
+    r := openAU(phi);
+    unfold is_lock(l)[b := b];
+    val nxt: Int := l.next;
+    fold is_lock(l, r)[b := b];
+    abortAU(phi);
+
+    r := openAU(phi);
+    unfold is_lock(l)[b := b];
+    val res: Bool := cas(l.next, nxt, nxt+1);
+
+    if (res) {
+      fpu(l, tickets, 
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < nxt|}), 
+          IntSet.set({||})
+        ), 
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), 
+          IntSet.set({|nxt|})
+        )
+      );
+      fold is_lock(l, r)[b := b];
+      abortAU(phi);
+      r := openAU(phi);
+      wait_loop(l, nxt);
+      commitAU(phi, ());
+
+    } else {
+      fold is_lock(l, r)[b := b];
+      abortAU(phi);
+      r := openAU(phi);
+      acquire(l);
+      commitAU(phi, ());
+    }
+  }
+  
+  
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r) && locked(l) && resource(r)
+    atomic ensures is_lock(l, r)
+  {
+    ghost val phi := bindAU();  
+    r := openAU(phi);
+    unfold is_lock(l, r);
+    val c: Int := l.curr;
+    fold is_lock(l, r)[b := true];
+    abortAU(phi);
+      
+    val c1: Int := c + 1;
+    r := openAU(phi);
+    unfold is_lock(l, r);
+    l.curr := c1;
+    fold is_lock(l, r)[b := false];
+    commitAU(phi, ());
+  }
+}

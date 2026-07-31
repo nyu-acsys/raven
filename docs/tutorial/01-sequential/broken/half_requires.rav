@@ -1,0 +1,14 @@
+// DELIBERATELY BROKEN -- a `func` cannot have a `requires` clause, even
+// though `half` only really makes sense for even `n`. Rejected before any
+// proof obligation is generated:
+//
+//   [Type Error] half may not have a requires clause; func/pred/invariant
+//   contracts must be total
+//
+// See ./half_total.rav for the fix: guard the postcondition instead.
+func half(n: Int) returns (r: Int)
+  requires n % 2 == 0
+  ensures 2 * r == n
+{
+  n / 2
+}

@@ -1,0 +1,11 @@
+// Exercise 2: swap two counters' values. Fill in the body. (Hint: a heap
+// write's right-hand side can't itself be a fresh heap read -- read a field
+// into a local variable first, then write.)
+field count: Int
+
+proc swap(c1: Ref, c2: Ref, implicit ghost v1: Int, implicit ghost v2: Int)
+  requires own(c1.count, v1) && own(c2.count, v2)
+  ensures own(c1.count, v2) && own(c2.count, v1)
+{
+  // TODO
+}

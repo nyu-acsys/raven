@@ -1,0 +1,10 @@
+node_modules/
+.vitepress/dist/
+.vitepress/cache/
+
+# Mirrored by scripts/sync-rav.mjs (predev/prebuild) from the .rav files
+# already tracked under tutorial/**; regenerated, not source.
+tutorial/public/**/*.rav
+
+# The one real (non-generated) static asset.
+!tutorial/public/favicon.png

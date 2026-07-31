@@ -297,7 +297,7 @@ module DecreasesExt (Cont : ListApi) = struct
      many measure components a clause can have -- unlike a fixed-size pool of
      scratch locals declared once, uniformly, for every callable (which is exactly
      what [rewrite_callable_entry] replaces the need for; see [Config] in
-     lib/ext/README.md), a tuple type's arity is whatever a specific clause needs.
+     docs/ext/README.md), a tuple type's arity is whatever a specific clause needs.
      [Type.mk_prod] (and [Expr.mk_tuple]/[Expr.mk_tuple_lookup] below) already
      collapse the 1-component case to a bare component type, no tuple wrapper,
      so `decreases n` doesn't pay for tuple-ness it doesn't need. *)

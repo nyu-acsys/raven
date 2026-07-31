@@ -1,0 +1,118 @@
+// Exercise: finish the `Sum` functor, which combines two `Counter`s into one
+// whose value is their sum. `create` is done for you, as a worked example of
+// the fold-with-witnesses syntax you'll need for the rest: `valid`'s body
+// existentially quantifies over each sub-counter's own value (`va`, `vb`),
+// and `fold`/`unfold` take a witness list in square brackets --
+// `[va := ..., vb := ...]` -- to supply or capture those existentials.
+//
+// Fill in `increment`, `get`, and the `nonNegative` axiom's proof.
+// `increment` has to pick a side to advance -- either is a legitimate choice,
+// just be consistent between what you increment and what witness you fold
+// back in. Hint for `nonNegative`: think about what `A.nonNegative` and
+// `B.nonNegative` give back to you, and whether that's enough to refold
+// `Sum`'s own `valid`.
+interface Counter {
+  rep type T
+  pred valid(c: T, v: Int)
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+
+  axiom nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+}
+
+module PlainCounter : Counter {
+  rep type T = Ref
+  field count: Int
+
+  pred valid(c: T, v: Int) {
+    own(c.count, v) && v >= 0
+  }
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+  {
+    c := new (count: 0);
+    fold valid(c, 0);
+  }
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+  {
+    unfold valid(c, v);
+    var x := c.count;
+    c.count := x + 1;
+    fold valid(c, v + 1);
+  }
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+  {
+    unfold valid(c, v);
+    r := c.count;
+    fold valid(c, v);
+  }
+
+  lemma nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+  {
+    unfold valid(c, v);
+    fold valid(c, v);
+  }
+}
+
+module Sum[A: Counter, B: Counter] : Counter {
+  rep type T = data {
+    case pair(a: A, b: B)
+  }
+
+  pred valid(s: T, v: Int) {
+    exists va: Int, vb: Int :: A.valid(s.a, va) && B.valid(s.b, vb) && v == va + vb
+  }
+
+  proc create() returns (s: T)
+    ensures valid(s, 0)
+  {
+    var a := A.create();
+    var b := B.create();
+    s := pair(a, b);
+    fold valid(s, 0)[va := 0, vb := 0];
+  }
+
+  proc increment(s: T, ghost v: Int)
+    requires valid(s, v)
+    ensures valid(s, v + 1)
+  {
+    // TODO
+  }
+
+  proc get(s: T, ghost v: Int) returns (r: Int)
+    requires valid(s, v)
+    ensures valid(s, v) && r == v
+  {
+    // TODO
+    r := 0;
+  }
+
+  lemma nonNegative(s: T, ghost v: Int)
+    requires valid(s, v)
+    ensures valid(s, v) && v >= 0
+  {
+    // TODO
+  }
+}
+
+module SumOfTwoPlainCounters = Sum[PlainCounter, PlainCounter]

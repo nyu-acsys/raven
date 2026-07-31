@@ -5,14 +5,14 @@ open Util
 
 module ExtName (Cont : Ext) = struct
   (* Every hook of `Ext` defaults to Cont's own behavior; only define the ones you
-     actually override below. See lib/ext/README.md's Overview section. *)
+     actually override below. See docs/ext/README.md's Overview section. *)
   include Cont
 
   let lib_source = _
   (* let lib_source = Some ("extName_lib.rav", [%blob "extName_lib.rav"]) *)
 
   (* Declare whichever of these your extension actually needs -- delete the rest.
-     See lib/ext/README.md's Overview and "Statement-bodied extensions" sections for
+     See docs/ext/README.md's Overview and "Statement-bodied extensions" sections for
      which shape (flat `BasicStmtExt`, or self-contained `StmtExt`) fits your
      statement construct. *)
   type Type.type_ext +=
@@ -30,7 +30,7 @@ module ExtName (Cont : Ext) = struct
   type Stmt.contract_ext +=
     | _ of Stmt.spec list
 
-  (* --- AstDef (lib/ext/README.md #astdef) --- *)
+  (* --- AstDef (docs/ext/README.md #astdef) --- *)
 
   let type_ext_to_name type_ext =
     match type_ext with
@@ -96,7 +96,7 @@ module ExtName (Cont : Ext) = struct
     match contract_ext with
     | _ -> Cont.contract_ext_is_recognized contract_ext
 
-  (* --- Rewriter (lib/ext/README.md #rewriter) --- *)
+  (* --- Rewriter (docs/ext/README.md #rewriter) --- *)
   (* Only needed if a constructor above stores a type_expr (expr_ext_rewrite_types/
      basic_stmt_ext_rewrite_types) or a nested Stmt.t/expr (stmt_ext_rewrite), or for
      contract_ext_rewrite_exprs. *)
@@ -117,7 +117,7 @@ module ExtName (Cont : Ext) = struct
     match contract_ext with
     | _ -> Cont.contract_ext_rewrite_exprs ~f contract_ext
 
-  (* --- Typing (lib/ext/README.md #typing) --- *)
+  (* --- Typing (docs/ext/README.md #typing) --- *)
 
   let type_check_type_expr (type_ext : Type.type_ext) (type_args : type_expr list)
       (type_attr : Type.type_attr) (type_check_type_expr_functs : type_check_type_expr_functs) =
@@ -157,7 +157,7 @@ module ExtName (Cont : Ext) = struct
   let check_contract_ext_group_compatible call_decls =
     Cont.check_contract_ext_group_compatible call_decls
 
-  (* --- Rewrites (lib/ext/README.md #rewrites, #statement-bodied-extensions-stmtext-at-the-stmt_desc-level, #contracts) --- *)
+  (* --- Rewrites (docs/ext/README.md #rewrites, #statement-bodied-extensions-stmtext-at-the-stmt_desc-level, #contracts) --- *)
 
   let rewrite_type_ext (type_ext : Type.type_ext) (tp_list : type_expr list) (loc : location) =
     match type_ext, tp_list with

@@ -1,0 +1,95 @@
+// Exercise solution: a concurrent high-score/low-score tracker -- two fields,
+// each following exactly hit_counter_ghost.rav's recipe (read, check,
+// CAS-retry, fpu), but `low` tracks a running *minimum*.
+//
+// The trick: `low` is recorded in its ghost field as `-low`, not `low`.
+// MaxNat's frame-preserving update only allows a value to move *up* -- by
+// negating, "never decreases" (what MaxNat gives for free) becomes "never
+// increases", which is exactly what tracking a minimum needs. Same resource
+// algebra, same proof shape, applied to two fields with opposite monotonicity
+// by a change of sign.
+import Library.Auth
+import Library.MaxNat
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+field high: Int
+field low: Int
+ghost field seenHigh: AuthMaxNat
+ghost field seenLow: AuthMaxNat
+
+inv scoreInv(c: Ref) {
+  exists h: Int, l: Int ::
+    own(c.high, h, 1.0) && own(c.seenHigh, auth_frag(h, h))
+    && own(c.low, l, 1.0) && own(c.seenLow, auth_frag(-l, -l))
+}
+
+proc create() returns (c: Ref)
+  ensures scoreInv(c)
+{
+  c := new (
+    high: 0, seenHigh: auth_frag(0, 0),
+    low: 0, seenLow: auth_frag(0, 0)
+  );
+  fold scoreInv(c);
+}
+
+proc reportHigh(c: Ref, score: Int)
+  requires scoreInv(c)
+  ensures scoreInv(c)
+{
+  var h1: Int;
+  unfold scoreInv(c);
+  h1 := c.high;
+  fold scoreInv(c);
+
+  if (score <= h1) {
+    return;
+  }
+
+  var ok: Bool;
+  unfold scoreInv(c);
+  ok := cas(c.high, h1, score);
+  if (!ok) {
+    fold scoreInv(c);
+    reportHigh(c, score);
+  } else {
+    fpu(c.seenHigh, auth_frag(h1, h1), auth_frag(score, score));
+    fold scoreInv(c);
+  }
+}
+
+proc reportLow(c: Ref, score: Int)
+  requires scoreInv(c)
+  ensures scoreInv(c)
+{
+  var l1: Int;
+  unfold scoreInv(c);
+  l1 := c.low;
+  fold scoreInv(c);
+
+  if (score >= l1) {
+    return;
+  }
+
+  var ok: Bool;
+  unfold scoreInv(c);
+  ok := cas(c.low, l1, score);
+  if (!ok) {
+    fold scoreInv(c);
+    reportLow(c, score);
+  } else {
+    fpu(c.seenLow, auth_frag(-l1, -l1), auth_frag(-score, -score));
+    fold scoreInv(c);
+  }
+}
+
+proc peekLow(c: Ref) returns (v: Int)
+  requires scoreInv(c)
+  ensures scoreInv(c)
+{
+  unfold scoreInv(c);
+  v := c.low;
+  fold scoreInv(c);
+}

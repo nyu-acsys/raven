@@ -6,7 +6,7 @@ open ExtApi
 (** Implements `assert e with { proof }`, Raven's natural-deduction-style construct for
     proving a quantified (or plain) fact `e` via an auxiliary ghost proof block that is
     checked in isolation and then discarded, so its scratch work never pollutes the
-    surrounding SMT state -- see lib/ext/README.md and CLAUDE.md for the general
+    surrounding SMT state -- see docs/ext/README.md and CLAUDE.md for the general
     extension-API shape this follows.
 
     Soundness of the "prove once, discard the proof, keep only the conclusion" pattern

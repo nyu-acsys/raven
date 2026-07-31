@@ -24,6 +24,7 @@ Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Examples](#examples)
+- [Tutorial](#tutorial)
 - [Extension API](#extension-api)
 - [Development](#development)
 - [Raven Verifier Manual](#raven-verifier-manual)
@@ -127,9 +128,17 @@ Several examples of Raven programs can be found in the [test](test) folder. The 
 1. [bplustree](test/concurrent/templates/bplustree.rav)
 
 
+## Tutorial
+New to Raven? [docs/tutorial](docs/tutorial/index.md) is a from-scratch, hands-on introduction — sequential Raven, ownership and resources, the module system, ghost code and basic concurrency, then a set of advanced capstones (fork/join, atomic contracts, iterated separating conjunctions). Every code listing in it is a real, checked `.rav` file. It's built as a small [VitePress](https://vitepress.dev/) site; to browse it locally with syntax highlighting and working cross-links:
+```bash
+$ cd docs
+$ npm install
+$ npm run dev
+```
+
 ## Extension API
 Raven also comes with a modular extension API which is designed for front-end designers to be able to extend Raven's syntax directly, to get a custom IVL for their specific domain. They can implement Raven extensions to encode new front-end features, adding custom types, expressions, and commands to the IVL.
-We provide extensive documentation along with a tutorial for this API at [lib/ext/README.md](lib/ext/README.md). We implement multiple different extensions and extensively document their code to demonstrate possibilities, and add several useful features to the language. At present, Raven comes with one optional extension which can be selected via the command-line flag `--extension`:
+We provide extensive documentation along with a tutorial for this API at [docs/ext/README.md](docs/ext/README.md). We implement multiple different extensions and extensively document their code to demonstrate possibilities, and add several useful features to the language. At present, Raven comes with one optional extension which can be selected via the command-line flag `--extension`:
 - ErrorCredits Extension (`eris`): This extension is available to prove error bounds for probablistic programs. Inspired from [Eris](https://dl.acm.org/doi/10.1145/3674635), we use this extension to verify a [collision-free hashmap](test/ext/error-credits/cf_hashmap.rav), and a [fault memory allocator](test/ext/error-credits/ec_dynamic_vec.rav). For example:
 ```bash
 $ raven --extension eris test/ext/error-credits/ec_dynamic_vec.rav

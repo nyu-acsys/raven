@@ -1,0 +1,171 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Raven",
+	"patterns": [
+		{
+			"include": "#comments"
+		},
+		{
+			"include": "#keywords"
+		},
+		{
+			"include": "#strings"
+		},
+		{
+			"include": "#symbols"
+		},
+		{
+			"include": "#modifiers"
+		},
+		{
+			"include": "#specs"
+		},
+		{
+			"include": "#constants"
+		},
+		{
+			"include": "#operators"
+		},
+		{
+			"include": "#numerals"
+		},
+		{
+			"include": "#inbuilt"
+		},
+		{
+			"include": "#types"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [{
+				"name": "keyword.control.raven",
+				"match": "\\b(if|while|else|return|havoc|assert|assume|inhale|exhale|fold|unfold|case|data|exists|forall|new|with|spawn)\\b"
+			}]
+		},
+		"symbols": {
+			"patterns": [{
+				"name": "storage.type.raven",
+				"match": "\\b(axiom|module|interface|type|lemma|func|proc|pred|inv|field|var|val|import|include)\\b"
+			}]
+		},
+		"modifiers": {
+			"patterns": [{
+				"name": "storage.modifier.raven",
+				"match": "\\b(auto|ghost|implicit|rep)\\b"
+			},
+		  {
+				"name": "invalid.illegal",
+				"match": "\\b(free)\\b"
+			}]
+		},
+		"specs": {
+			"patterns": [{
+				"name": "keyword.other.raven",
+				"match": "\\b(requires|ensures|returns|atomic|invariant|decreases)\\b"
+			}]
+		},
+		"constants": {
+			"patterns": [{
+				"name": "constant.language.raven",
+				"match": "\\b(true|false|null)\\b"
+			}]
+		},
+		"inbuilt": {
+			"patterns": [{
+				"name": "support.function.raven",
+				"match": "\\b(cas|faa|xchg|own|bindAU|openAU|commitAU|abortAU)\\b"
+			}]
+		},
+		"operators": {
+			"patterns": [{
+				"match": "!|%|&|\\*|\\-\\-|\\-|\\+\\+|\\+|==|:=|!=|<=|>=|==>|<|>|!|&&|\\|\\||::|:\\|",
+				"name": "keyword.operator.raven"
+			}]
+		},
+		"numerals": {
+			"patterns": [{
+				"match": "\\b((0(x|X)[0-9a-fA-F]*)|(([0-9]+\\.?[0-9]*)|(\\.[0-9]+))((e|E)(\\+|-)?[0-9]+)?)([LlFfUuDd]|UL|ul)?\\b",
+				"name": "constant.numeric.raven"
+			}]
+		},
+		"types": {
+			"patterns": [{
+				"name": "entity.name.type.raven",
+				"match": "\\b([A-Z][a-zA-Z0-9_]*)\\b"
+			}]
+		},
+		"strings": {
+			"name": "string.quoted.double.raven",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"name": "constant.character.escape.raven",
+					"match": "\\\\."
+				}
+			]
+		},
+		"comments-simple": {
+			"patterns": [
+				{
+					"begin": "//",
+					"end": "$",
+					"name": "comment.line.double-slash.raven"
+				}
+			]
+		},
+		"comments": {
+			"patterns": [
+				{
+					"captures": {
+						"0": {
+							"name": "punctuation.definition.comment.raven"
+						}
+					},
+					"match": "/\\*\\*/",
+					"name": "comment.block.empty.raven"
+				},
+				{
+					"include": "#comments-inline"
+				}
+			]
+		},
+		"comments-inline": {
+			"patterns": [
+				{
+					"begin": "/\\*",
+					"captures": {
+						"0": {
+							"name": "punctuation.definition.comment.raven"
+						}
+					},
+					"end": "\\*/",
+					"name": "comment.block.raven"
+				},
+				{
+					"begin": "(^[ \\t]+)?(?=//)",
+					"beginCaptures": {
+						"1": {
+							"name": "punctuation.whitespace.comment.leading.raven"
+						}
+					},
+					"end": "(?!\\G)",
+					"patterns": [
+						{
+							"begin": "//",
+							"beginCaptures": {
+								"0": {
+									"name": "punctuation.definition.comment.raven"
+								}
+							},
+							"end": "$",
+							"name": "comment.line.double-slash.raven"
+						}
+					]
+				}
+			]
+		}
+	},
+	"scopeName": "source.raven"
+}

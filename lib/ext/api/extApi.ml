@@ -214,7 +214,7 @@ module type Ext = sig
       initializing ghost locals sized/typed however that specific callable requires.
       [DecreasesExt] uses it to snapshot a `decreases` measure's entry-time value,
       needed because the measure may itself be reassigned by the body before a
-      recursive call is reached (see lib/ext/README.md, "Rewrites"). This is also the
+      recursive call is reached (see docs/ext/README.md, "Rewrites"). This is also the
       general replacement for what a fixed-size, uniformly-added-to-every-callable
       pool of scratch locals would otherwise be used for: unlike such a pool, what
       gets introduced here can vary per callable (in count, in type, in name) and

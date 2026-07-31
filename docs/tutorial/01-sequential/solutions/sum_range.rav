@@ -1,0 +1,17 @@
+// Exercise 1 solution: sum of the first n positive integers, 1 + 2 + ... + n.
+// Avoids division by stating the spec as `2 * r == n * (n + 1)` instead of
+// `r == n * (n + 1) / 2`, since integer division tends to need more solver help.
+proc sumRange(n: Int) returns (r: Int)
+  requires n >= 0
+  ensures 2 * r == n * (n + 1)
+{
+  r := 0;
+  var i := 0;
+  while (i < n)
+    invariant 0 <= i && i <= n
+    invariant 2 * r == i * (i + 1)
+  {
+    i := i + 1;
+    r := r + i;
+  }
+}

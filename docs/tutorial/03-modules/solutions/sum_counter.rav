@@ -1,0 +1,142 @@
+// Exercise solution: a functor combining two `Counter`s into one whose value
+// is their sum. `Sum` never looks at `A`'s or `B`'s internals -- everything
+// it knows about them comes from the abstract `Counter` interface.
+//
+// Two things worth noticing here that the main chapter's PlainCounter and
+// OffsetCounter didn't need to teach:
+//
+// 1. `valid`'s body existentially quantifies over the two sub-counters' own
+//    values (`va`, `vb`). `fold`/`unfold` take a witness list in square
+//    brackets to supply or capture those existentials -- see `[va := ..., vb
+//    := ...]` below.
+// 2. The `nonNegative` axiom's `ensures` clause has to include `valid(c, v)`
+//    *itself*, not just `v >= 0` -- otherwise, calling `A.nonNegative`
+//    permanently consumes `A.valid(s.a, sa)` (its own contract never
+//    promised to give it back), and there'd be nothing left to fold back into
+//    `Sum`'s own `valid`. A lemma about a resource should hand the resource
+//    back unless it's deliberately meant to consume it. (This file's
+//    `Counter` interface already reflects that fix; if you're comparing
+//    against an older draft of the interface that only had `ensures v >= 0`,
+//    that's the bug this comment is describing.)
+interface Counter {
+  rep type T
+  pred valid(c: T, v: Int)
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+
+  axiom nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+}
+
+module PlainCounter : Counter {
+  rep type T = Ref
+  field count: Int
+
+  pred valid(c: T, v: Int) {
+    own(c.count, v) && v >= 0
+  }
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+  {
+    c := new (count: 0);
+    fold valid(c, 0);
+  }
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+  {
+    unfold valid(c, v);
+    var x := c.count;
+    c.count := x + 1;
+    fold valid(c, v + 1);
+  }
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+  {
+    unfold valid(c, v);
+    r := c.count;
+    fold valid(c, v);
+  }
+
+  lemma nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+  {
+    unfold valid(c, v);
+    fold valid(c, v);
+  }
+}
+
+module Sum[A: Counter, B: Counter] : Counter {
+  rep type T = data {
+    case pair(a: A, b: B)
+  }
+
+  pred valid(s: T, v: Int) {
+    exists va: Int, vb: Int :: A.valid(s.a, va) && B.valid(s.b, vb) && v == va + vb
+  }
+
+  proc create() returns (s: T)
+    ensures valid(s, 0)
+  {
+    var a := A.create();
+    var b := B.create();
+    s := pair(a, b);
+    fold valid(s, 0)[va := 0, vb := 0];
+  }
+
+  // Sum's `increment` has to pick a side; it always advances `A`. That's an
+  // arbitrary but perfectly legitimate choice -- the interface only gives you
+  // one `increment` per counter, and `Sum` is free to decide what that means.
+  proc increment(s: T, ghost v: Int)
+    requires valid(s, v)
+    ensures valid(s, v + 1)
+  {
+    ghost var sa: Int;
+    ghost var sb: Int;
+    unfold valid(s, v)[sa := va, sb := vb];
+    A.increment(s.a, sa);
+    fold valid(s, v + 1)[va := sa + 1, vb := sb];
+  }
+
+  proc get(s: T, ghost v: Int) returns (r: Int)
+    requires valid(s, v)
+    ensures valid(s, v) && r == v
+  {
+    ghost var sa: Int;
+    ghost var sb: Int;
+    unfold valid(s, v)[sa := va, sb := vb];
+    var ra := A.get(s.a, sa);
+    var rb := B.get(s.b, sb);
+    r := ra + rb;
+    fold valid(s, v)[va := sa, vb := sb];
+  }
+
+  lemma nonNegative(s: T, ghost v: Int)
+    requires valid(s, v)
+    ensures valid(s, v) && v >= 0
+  {
+    ghost var sa: Int;
+    ghost var sb: Int;
+    unfold valid(s, v)[sa := va, sb := vb];
+    A.nonNegative(s.a, sa);
+    B.nonNegative(s.b, sb);
+    fold valid(s, v)[va := sa, vb := sb];
+  }
+}
+
+module SumOfTwoPlainCounters = Sum[PlainCounter, PlainCounter]

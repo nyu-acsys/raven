@@ -160,7 +160,7 @@ end
 
 
 (* [ext_hooks] bundles every function an active language extension contributes to the
-   core pipeline (see lib/ext/README.md). It has to be defined mutually with [state]/[t]
+   core pipeline (see docs/ext/README.md). It has to be defined mutually with [state]/[t]
    because several of its fields return [_ t]. A value of this type is installed once,
    by [eval] below, and threaded through the rest of the pipeline as ordinary monadic
    state -- there is no global mutable reference standing in for "the active extension". *)
