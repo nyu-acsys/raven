@@ -1,3 +1,14 @@
+30 jul, 2026:
+- [ ] `import M.x` can be silently shadowed by a pre-existing (or even a
+    later) local declaration of the same name in the importing module, with
+    no warning or error -- e.g. `import M.x` plus `val x: Int = 1` anywhere
+    else in the same module just makes the import a no-op for `x`, regardless
+    of which comes first textually. Consider (a) a warning on this kind of
+    shadowing, or (b) restricting `import` to only occur at the top level of
+    a module, before any other declarations, to make the ordering
+    unambiguous. Repro in local/test.rav. Found while writing the tutorial's
+    module-system chapter.
+
 16 nov, 2024:
 - [x] fix ident sanitization bug identified by Lucas.
 - [x] move statistics counting to after type-checking for greater accuracy.
