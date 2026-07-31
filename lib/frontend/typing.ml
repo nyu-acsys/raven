@@ -119,11 +119,12 @@ module ProcessTypeExpr = struct
     let open Rewriter.Syntax in
     match tp_expr with
     | App (Var qual_ident, [], tp_attr) -> (
-        let+ fully_qualified_qual_ident, symbol =
+        let* fully_qualified_qual_ident, symbol =
           Rewriter.resolve_and_find qual_ident
         in
         match Rewriter.Symbol.orig_symbol symbol with
-        | TypeDef _tp_alias -> App (Var fully_qualified_qual_ident, [], tp_attr)
+        | TypeDef _tp_alias ->
+            Rewriter.return (App (Var fully_qualified_qual_ident, [], tp_attr))
         | ModDef m -> (
             match m.mod_decl.mod_decl_rep with
             | None ->
@@ -137,7 +138,36 @@ module ProcessTypeExpr = struct
                 let rep_fully_qualified_qual_ident =
                   QualIdent.append fully_qualified_qual_ident rep_ident
                 in
-                App (Var rep_fully_qualified_qual_ident, [], tp_attr))
+                (* `M` used bare, with no `[...]` at all, where `M` is really a
+                   functor: the rep type's own definition is only reachable
+                   from inside `M` (or one of its instances), so resolving it
+                   from here fails. Left as-is, that failure surfaces as
+                   "Unknown identifier M.T" pointed at T's declaration inside
+                   M's body -- confusing, and for a library functor, pointed
+                   into a file the user never opened. Diagnose it here
+                   instead, at the actual use site, when that's indeed what's
+                   going on (this can't fire for a legitimate self-reference
+                   from inside M's own body, since the rep type resolves fine
+                   from there). *)
+                let* rep_resolves =
+                  Rewriter.resolve_and_find_opt rep_fully_qualified_qual_ident
+                in
+                (match rep_resolves with
+                | Some _ ->
+                    Rewriter.return
+                      (App (Var rep_fully_qualified_qual_ident, [], tp_attr))
+                | None -> (
+                    let* generic_functor =
+                      ProgUtils.resolve_generic_functor qual_ident
+                    in
+                    match generic_functor with
+                    | Some (_, gm) ->
+                        arg_mismatch_error "Module" tp_attr.type_loc
+                          (Type.Var qual_ident)
+                          (List.length gm.mod_decl.mod_decl_formals)
+                    | None ->
+                        Rewriter.return
+                          (App (Var rep_fully_qualified_qual_ident, [], tp_attr)))))
         | ModInst _ -> unexpected_functor_error tp_attr.type_loc
         | _ -> Error.type_error tp_attr.type_loc "Expected type identifier")
     | App (Var qual_ident, (_ :: _ as tp_args), tp_attr) -> (

@@ -1,0 +1,11 @@
+// A generic functor used bare, with no `[...]` at all, in a type position.
+// Previously surfaced as a confusing "Unknown identifier M.T" pointed at M's
+// own rep-type definition (or, for a library functor, into the library's own
+// source file) instead of at this use site.
+module M[X: Library.Type] {
+  rep type T = data { case wrap(v: X) }
+}
+
+proc test() {
+  var o: M;
+}
