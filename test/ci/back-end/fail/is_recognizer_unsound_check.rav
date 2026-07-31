@@ -1,0 +1,13 @@
+// A real, false postcondition must still be rejected by verification -- confirms
+// `is`'s lowering actually distinguishes constructors rather than trivially
+// succeeding.
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+proc wrong(x: T1)
+  requires x is nil
+  ensures x is cons
+{
+}

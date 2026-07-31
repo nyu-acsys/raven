@@ -1,0 +1,15 @@
+// A `match` arm must bind exactly as many pattern variables as its constructor
+// has fields.
+type T1 = data {
+  case nil;
+  case one(a: Int);
+  case cons(elem: Int, tl: T1)
+}
+
+func g(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case one(a, b) => a
+    case cons(e, t) => e
+  }
+}

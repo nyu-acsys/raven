@@ -42,10 +42,17 @@ let rec find_exn (disam_tbl : t) name =
       | Some id -> id)
   | [] -> raise Stdlib.Not_found
 
+(* [~id:1] so the renamed binder never carries number 0. Every *source-level* ident is
+   number 0, and the first freshening of a name would otherwise return 0 too -- making
+   the "fresh" name byte-identical to the source name it is supposed to be distinct
+   from. That aliasing is observable: a binder named after a destructor field (say
+   `forall elem: Int`, or a `match` arm's `case cons(elem, tl)`) lands in the callable's
+   scope as plain `elem` and shadows the destructor, so a later `x.elem` fails to
+   resolve. Numbering from 1 keeps generated names in their own space. *)
 let add_var_decl (var_decl : AstDef.Type.var_decl) (disam_tbl : t) :
     AstDef.Type.var_decl * t =
   let new_name =
-    Ident.fresh var_decl.var_loc var_decl.var_name.ident_name
+    Ident.fresh var_decl.var_loc ~id:1 var_decl.var_name.ident_name
   in
   let disam_tbl =
     add disam_tbl var_decl.var_loc var_decl.var_name new_name

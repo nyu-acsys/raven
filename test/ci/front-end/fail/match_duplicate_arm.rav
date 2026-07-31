@@ -1,0 +1,13 @@
+// No constructor may be matched by two arms.
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+func g(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case nil => 1
+    case cons(e, t) => e
+  }
+}

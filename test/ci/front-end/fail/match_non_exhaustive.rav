@@ -1,0 +1,13 @@
+// Absent a wildcard arm, a `match` must name every constructor of the scrutinee's type.
+type T1 = data {
+  case nil;
+  case one(a: Int);
+  case cons(elem: Int, tl: T1)
+}
+
+func g(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case one(a) => a
+  }
+}

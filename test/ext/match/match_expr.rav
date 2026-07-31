@@ -1,0 +1,102 @@
+// `match` expressions over a user-declared `data` type and over the stdlib `List[T]`.
+// Covers the shapes that exercise pattern-variable binding: wildcard arms, `_` pattern
+// variables, nesting, and an arm variable shadowing an enclosing local.
+type T1 = data {
+  case nil;
+  case one(a: Int);
+  case cons(elem: Int, tl: T1)
+}
+
+func sel(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case one(a) => a
+    case cons(e, t) => e
+  }
+}
+
+// A trailing wildcard arm stands in for every constructor not named above it.
+func is_empty(x: T1) returns (r: Bool) {
+  match x {
+    case nil => true
+    case _ => false
+  }
+}
+
+// `_` in pattern position binds nothing, and may repeat within one arm.
+func rank(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case one(_) => 1
+    case cons(_, _) => 2
+  }
+}
+
+func sel_snd(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case one(a) => a
+    case cons(e, t) =>
+      match t {
+        case nil => e
+        case one(a) => e + a
+        case cons(e2, t2) => e + e2
+      }
+  }
+}
+
+// `e` here shadows the formal `e` for the duration of each arm that binds it.
+func shadowed(e: Int, x: T1) returns (r: Int) {
+  match x {
+    case nil => e
+    case one(e) => e
+    case cons(e, t) => e
+  }
+}
+
+proc test_nil(x: T1)
+  requires x is nil
+  ensures sel(x) == 0 && rank(x) == 0 && is_empty(x)
+  ensures sel_snd(x) == 0 && shadowed(7, x) == 7
+{
+}
+
+proc test_cons(e: Int, t: T1)
+  ensures sel(cons(e, t)) == e
+  ensures rank(cons(e, t)) == 2
+  ensures !is_empty(cons(e, t))
+  ensures shadowed(7, cons(e, t)) == e
+{
+}
+
+proc test_nested(e: Int, e2: Int, t: T1)
+  ensures sel_snd(cons(e, cons(e2, t))) == e + e2
+  ensures sel_snd(cons(e, nil)) == e
+{
+}
+
+// Arm variables named after the constructor's own fields -- the natural spelling --
+// don't shadow those destructors for the rest of the callable: `x.elem` below still
+// resolves. See test/ci/front-end/shadowed_destructor.rav.
+func sel_same_names(x: T1) returns (r: Int)
+  ensures x is cons ==> r == x.elem
+{
+  match x {
+    case nil => 0
+    case one(a) => a
+    case cons(elem, tl) => elem
+  }
+}
+
+proc test_same_names(e: Int, t: T1)
+  ensures sel_same_names(cons(e, t)) == e
+{
+}
+
+// `match` on the stdlib `List[T]`, whose `data` type is reached through its own
+// `TypeExt` representation (see MatchExt.as_data_type).
+proc test_list(xs: List[Int])
+  requires xs is cons
+{
+  assert (match xs { case nil => 0; case cons(h, t) => h }) == List.hd(xs);
+}

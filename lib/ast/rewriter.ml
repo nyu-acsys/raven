@@ -199,6 +199,13 @@ and type_check_expr_functs = {
   expand_type_expr : type_expr -> (type_expr, unit) t_ext;
 }
 
+(** Callback bundle Typing.ml hands to [ext_hooks.disambiguate_expr_ext], so an
+    extension can recurse into its own sub-expressions -- under whichever
+    [DisambiguationTbl.t] it chooses, which is the whole point of the hook. *)
+and disambiguate_expr_functs = {
+  disambiguate_expr : expr -> DisambiguationTbl.t -> expr t;
+}
+
 (** Callback bundle Typing.ml hands to [ext_hooks.type_check_basic_stmt]/[type_check_stmt_ext]. *)
 and type_check_stmt_functs = {
   get_assign_lhs :  is_init:bool ->
@@ -281,6 +288,27 @@ and ext_hooks = {
       module instantiation, where core code needs to rewrite every expression in a
       callable's contract uniformly without knowing what a given [contract_ext] means. *)
   contract_ext_rewrite_exprs : f:(expr -> expr t) -> Stmt.contract_ext -> Stmt.contract_ext t;
+
+  (** Called for every [Expr.ExprExt] node met by [Typing.ProcessCallable]'s
+      disambiguation pass, which alpha-renames a callable body's local variables to
+      fresh names and rejects unbound ones -- and which runs *before* any
+      type-checking, so [type_check_expr] is far too late to influence it. An
+      extension construct that binds variables of its own (e.g. a `match` arm's
+      pattern variables) must implement this to push a [DisambiguationTbl] scope and
+      recurse into the sub-expressions those variables scope over; returning the
+      renamed binders in its own tag, so the names it later sees in [type_check_expr]
+      are the same ones the body now refers to. The overwhelmingly common case is an
+      extension construct that binds nothing, for which [DefaultExt]'s structural
+      default -- recurse into every sub-expression under the unchanged table -- is
+      already right; unlike the other [DefaultExt] cases, that default is a real
+      implementation, not an "unrecognized construct" error. *)
+  disambiguate_expr_ext :
+    Expr.expr_ext ->
+    expr list ->
+    Expr.expr_attr ->
+    DisambiguationTbl.t ->
+    disambiguate_expr_functs ->
+    (Expr.expr_ext * expr list) t;
 
   type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr t;
   type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr t;
@@ -389,6 +417,8 @@ let default_ext_hooks : ext_hooks = {
     (fun ~f:_ ~c:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.stmt_ext_rewrite: no extension configured");
   contract_ext_rewrite_exprs =
     (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.contract_ext_rewrite_exprs: no extension configured");
+  disambiguate_expr_ext =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.disambiguate_expr_ext: no extension configured");
   type_check_type_expr =
     (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
   type_check_expr =

@@ -59,6 +59,17 @@ module DefaultExt = struct
     Error.error loc
       (Printf.sprintf "this %s belongs to the %s extension; re-run with --extension %s" construct ext_name ext_name)
 
+  (* Unlike everything else at the base of the chain, this is a real implementation
+     rather than an error: an extension construct that binds no variables of its own
+     needs exactly this structural walk, so reaching here is the norm, not a sign that
+     an earlier extension failed to do its job. Only binding constructs override it. *)
+  let disambiguate_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (_expr_attr: Expr.expr_attr)
+      (disam_tbl: ProgUtils.DisambiguationTbl.t) (functs: disambiguate_expr_functs) :
+      (Expr.expr_ext * expr list) Rewriter.t =
+    let open Rewriter.Syntax in
+    let+ expr_list = Rewriter.List.map expr_list ~f:(fun e -> functs.disambiguate_expr e disam_tbl) in
+    (expr_ext, expr_list)
+
   let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
     let open Rewriter.Syntax in
     let* ext_hooks = Rewriter.current_ext_hooks in

@@ -1,0 +1,12 @@
+// A `_` pattern variable binds nothing, so an arm body cannot refer to it.
+type T1 = data {
+  case nil;
+  case one(a: Int)
+}
+
+func g(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case one(_) => _
+  }
+}

@@ -1,0 +1,12 @@
+// A wildcard arm must come last -- arms after it could never be reached.
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+func g(x: T1) returns (r: Int) {
+  match x {
+    case _ => 0
+    case nil => 1
+  }
+}

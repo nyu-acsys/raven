@@ -90,6 +90,10 @@ let _ =
 
       (* SampleExt *)
       ("randEven", RANDEVEN);
+
+      (* MatchExt *)
+      ("is", IS);
+      ("match", MATCH);
     ])
 
 let operator_table = Hashtbl.create 64
@@ -127,4 +131,5 @@ let _ =
      "?", QMARK;
      ":|", COLONPIPE;
      "-*-", ERRORCRED;
+     "=>", DARROW;
      ]

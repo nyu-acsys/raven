@@ -26,14 +26,22 @@ module DecreasesExtInstance = DecreasesExt.DecreasesExt(AtomicExtInstance)
    to which resource-algebra extension is active. *)
 module AssertWithExtInstance = AssertWithExt.AssertWithExt(DecreasesExtInstance)
 
+(* MatchExt (ADT recognizer test / `match`) is folded in unconditionally too, for the
+   same reason as DecreasesExt/AssertWithExt above: ADT ergonomics is orthogonal to
+   which resource-algebra extension is active. It sits above ListExtInstance in the
+   chain (like every other link here) so that its own generic `TypeExt` resolution
+   (see MatchExt.as_data_type) can delegate to ListExt's `rewrite_type_ext` case to
+   resolve `List[T]` scrutinees, without depending on ListExt's internals directly. *)
+module MatchExtInstance = MatchExt.MatchExt(AssertWithExtInstance)
+
 (* Core Raven *)
-module RavenCore: ExtApi.Ext = AssertWithExtInstance
+module RavenCore: ExtApi.Ext = MatchExtInstance
 
 (* ProphecyExt *)
-module ProphecyExtInstance = ProphecyExt.ProphecyExt(AssertWithExtInstance)
+module ProphecyExtInstance = ProphecyExt.ProphecyExt(MatchExtInstance)
 
 (* ErrorCredits *)
-module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(AssertWithExtInstance)
+module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(MatchExtInstance)
 module SampleExtInstance = SampleExt.SampleExt(ErrorCreditsExtInstance)
 
 let module_map ext = match ext with
@@ -91,6 +99,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     basic_stmt_ext_rewrite_types = Ext.basic_stmt_ext_rewrite_types;
     stmt_ext_rewrite = Ext.stmt_ext_rewrite;
     contract_ext_rewrite_exprs = Ext.contract_ext_rewrite_exprs;
+    disambiguate_expr_ext = Ext.disambiguate_expr_ext;
     type_check_type_expr = Ext.type_check_type_expr;
     type_check_expr = Ext.type_check_expr;
     type_check_basic_stmt = Ext.type_check_basic_stmt;

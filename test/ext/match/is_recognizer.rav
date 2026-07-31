@@ -1,0 +1,55 @@
+// Constructor-recognizer test `xs is cons` on a user-declared `data` type and on
+// the stdlib `List[T]` type (backed, under the hood, by `Library.ListM[T]`'s own
+// `data` type -- see MatchExt.as_data_type).
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+proc test_user_data(x: T1)
+  requires x is cons
+  ensures x is cons
+{
+}
+
+proc test_user_data_neg(x: T1)
+  requires x is nil
+  ensures !(x is cons)
+{
+}
+
+proc test_list(xs: List[Int])
+  requires xs is cons
+  ensures xs is cons
+{
+}
+
+// `is` as a subexpression of a larger contract formula, rather than the whole of
+// one. Regression test: contract expressions are type-checked more than once on
+// some paths, so `is`'s type-checking has to stay idempotent -- resolving the
+// constructor a second time from the tag it wrote itself the first time round.
+func sel(x: T1) returns (v: Int)
+  ensures x is cons ==> v == x.elem
+  ensures x is nil ==> v == 0
+{
+  x == nil ? 0 : x.elem
+}
+
+proc test_nested_in_contract(x: T1)
+  requires x is nil
+  ensures sel(x) == 0
+{
+}
+
+// `is` binds like `==` -- tighter than `&&`/`||`/`==>`/`<==>` and than `?:` -- so
+// none of these need parenthesizing. This is the shape `is` mainly exists for (see
+// the validity conditions in test/comparison/), and it would be unusable if every
+// test needed its own parens.
+proc test_precedence(x: T1, y: T1)
+  requires x is cons && y is cons
+  ensures x is cons || x is nil
+  ensures x is cons ==> !(x is nil)
+  ensures (x is cons ? 1 : 0) == 1
+  ensures x.tl is cons || x.tl is nil
+{
+}

@@ -18,6 +18,11 @@ type type_check_expr_functs = Rewriter.type_check_expr_functs = {
   expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
 }
 
+(** Set of functions from Typing.ml available for disambiguating `Expr.expr_ext` *)
+type disambiguate_expr_functs = Rewriter.disambiguate_expr_functs = {
+  disambiguate_expr : expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
+}
+
 (** Set of functions from Typing.ml available for type checking `Stmt.stmt_ext`  *)
 type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
   get_assign_lhs :  is_init:bool ->
@@ -112,6 +117,30 @@ module type Ext = sig
 
 
   (* Typing *)
+
+  (** Called for every [Expr.ExprExt] node met by [Typing.ProcessCallable]'s
+      disambiguation pass, which alpha-renames a callable body's local variables to
+      fresh names and rejects unbound ones. That pass runs *before* any type-checking,
+      so an extension construct that binds variables of its own cannot make them
+      visible from [type_check_expr] -- by then the pass has already rejected the
+      body's references to them as unbound. Implement this to push a
+      [DisambiguationTbl] scope (via [ProgUtils.DisambiguationTbl.push]/[add]),
+      recurse into the sub-expressions those binders scope over using
+      [functs.disambiguate_expr], and return the freshly-renamed binders in your own
+      tag -- so the names reaching [type_check_expr] are the ones the body now refers
+      to. Constructs that bind nothing need not implement this at all: [DefaultExt]'s
+      structural default (recurse into every sub-expression under the unchanged table,
+      tag untouched) is already correct for them, and -- unlike the other [DefaultExt]
+      cases -- is a real implementation rather than an "unrecognized construct" error.
+      See [MatchExt]'s `match` arms for the binding case. *)
+  val disambiguate_expr_ext :
+    Expr.expr_ext ->
+    expr list ->
+    Expr.expr_attr ->
+    ProgUtils.DisambiguationTbl.t ->
+    disambiguate_expr_functs ->
+    (Expr.expr_ext * expr list) Rewriter.t
+
   val type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr Rewriter.t
 
   val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t

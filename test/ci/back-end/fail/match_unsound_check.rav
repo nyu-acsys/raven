@@ -1,0 +1,20 @@
+// A real, false postcondition must still be rejected by verification -- confirms
+// `match`'s lowering actually selects per-constructor rather than trivially
+// succeeding.
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+func sel(x: T1) returns (r: Int) {
+  match x {
+    case nil => 0
+    case cons(e, t) => e
+  }
+}
+
+proc wrong(x: T1)
+  requires x is cons
+  ensures sel(x) == 0
+{
+}

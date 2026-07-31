@@ -56,7 +56,7 @@ $ raven test/ext/prophecy/clairvoyant_coin.rav
 $ raven --extension eris test/ext/error-credits/ec_examples.rav
 ```
 
-There are also a Decreases extension and an AssertWith extension, both described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](../../lib/ext/ext.ml)) rather than being one more mutually-exclusive value the flag can take.
+There are also a Decreases extension, an AssertWith extension and a Match extension, all described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](../../lib/ext/ext.ml)) rather than being one more mutually-exclusive value the flag can take.
 
 ### Decreases Extension
 
@@ -95,6 +95,36 @@ proc example()
   }
 }
 ```
+
+### Match Extension
+
+We implement this extension (`lib/ext/matchExt/`) for working with `data` types: the constructor test `x is cons`, and `match` expressions. It is the reference implementation of an extension construct that *binds variables* -- see [Constructs that bind variables](#constructs-that-bind-variables-disambiguate_expr_ext) below for how the API it uses works in general.
+
+`x is cons` is a `Bool` saying whether `x` was built with the `cons` constructor. The constructor name is deliberately unqualified -- no `MyType.cons` prefix -- and is resolved against `x`'s own already-known type, exactly the way plain field access (`x.elem`) already resolves a destructor. It lowers to the reconstruct-and-compare idiom `x == cons(x.elem, x.tl)`, which Z3's native datatype theory reasons about directly, so it costs about what a native tester would.
+
+`match` selects per constructor, binding each arm's pattern variables to the corresponding fields:
+
+```
+type IntList = data {
+  case nil;
+  case cons(elem: Int, tl: IntList)
+}
+
+func sum_hd(xs: IntList) returns (r: Int) {
+  match xs {
+    case nil => 0
+    case cons(e, t) => e
+  }
+}
+```
+
+Arms are checked for exhaustiveness against the scrutinee's type: absent a wildcard arm, every constructor must be named exactly once. A wildcard arm (`case _ => ...`) stands in for the rest and must come last. A pattern variable may also be written `_`, which binds nothing and may repeat within an arm. This is a plain comparison against the symbol table's record of the type's constructors -- an ordinary type error, checked locally with no SMT call. A `match` lowers to a right-nested `Ite` chain guarded by the same recognizer condition `is` uses, with no guard needed on the final arm, since exhaustiveness already establishes it is the only one that can apply.
+
+Both forms also work on the stdlib `List[T]`, whose underlying `data` type is reached by resolving its extension-provided type representation one step (see `MatchExt.as_data_type`) -- generically, so any future extension type backed by a `data` type gets the same treatment.
+
+`is` binds at exactly the level `==`/`!=` do -- tighter than `&&`/`||`/`==>`, looser than arithmetic -- so it composes into a larger formula without parentheses (`a is cons && b is cons`). It is non-associative with `==`, so `a == b is c` is a syntax error rather than an arbitrary grouping. Reaching that level from an extension's parser fragment is what `rel_expr`/`eq_expr` being `%public` in core `parser.mly` is for; see [Constructs that bind variables](#constructs-that-bind-variables-disambiguate_expr_ext) for the other core hook this extension drove.
+
+Pattern variables may be named after the fields they bind (`case cons(elem, tl) => ...` for `cons(elem: Int, tl: T)`) without shadowing those destructors for the rest of the callable -- the natural spelling is the safe one.
 
 ### ErrorCredits Extension (`eris`)
 We implement this extension to add support for reasoning about Error-credits, and probablistic programs. This extension can be enabled with the:
@@ -424,6 +454,28 @@ It's called once per entry of a `call_decl_contract_ext`/`loop_contract_ext` lis
 
 [decreasesExt.ml](../../lib/ext/decreasesExt/decreasesExt.ml) case-matches on `Decreases specs`, and for each `spec` in the list, type-checks `spec.spec_form` against `Type.any` via `disambiguate_process_expr` (inferring its type rather than fixing it), then resolves that type's `WellFoundedOrder` instance (`is_wf_order_type`) and rejects the clause if it has none -- except for a self-recursive `data` type, where `is_wf_order_type` falls through to `as_data_type`/`auto_order_module_qual_ident` instead of failing, synthesizing a trusted `lt`-only module on the spot (see the extension overview above) and using its qual_ident as if it were a real instance's -- and installs a default error message into `spec.spec_error` (via `Stmt.mk_const_spec_error`) if one isn't already set -- this last part matters because of a wrinkle worth calling out for any extension whose clause can end up on a `rewrite_loops`-synthesized procedure: that procedure gets *re*-type-checked when it's introduced (`Rewriter.introduce_typecheck_symbol'`), so `type_check_contract_ext` will see the same clause a second time, by then already carrying whatever `rewrite_contract_ext_loop_transfer` (see [Contracts](#contracts) below) set on it -- overwriting `spec_error` unconditionally at that point would silently discard it.
 
+
+#### Constructs that bind variables (`disambiguate_expr_ext`)
+
+Everything above runs during type-checking. But a callable's body goes through one pass *before* any of it: `Typing.ProcessCallable`'s disambiguation pass, which alpha-renames every local variable to a fresh name (so that same-named variables in different scopes stay distinct) and rejects any identifier that isn't bound at that point. That pass walks the AST generically, which is fine for an extension construct whose sub-expressions are just ordinary expressions -- but *not* if your construct binds variables of its own that its sub-expressions refer to. Those references have no binder as far as the generic walk is concerned, so the body is rejected as unbound long before `type_check_expr` gets a chance to introduce them.
+
+`disambiguate_expr_ext` is the hook for that case:
+
+```ocaml
+  val disambiguate_expr_ext :
+    Expr.expr_ext ->
+    expr list ->
+    Expr.expr_attr ->
+    ProgUtils.DisambiguationTbl.t ->
+    disambiguate_expr_functs ->
+    (Expr.expr_ext * expr list) Rewriter.t
+```
+
+It is called for every `Expr.ExprExt` node the pass meets, and returns the rewritten tag together with its rewritten sub-expressions. `disambiguate_expr_functs` carries a single callback, `disambiguate_expr : expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t`, which recurses into a sub-expression under whichever table you hand it -- choosing that table per sub-expression is the entire point of the hook. Build the extended table with `ProgUtils.DisambiguationTbl.push` (opens a scope) and `ProgUtils.DisambiguationTbl.add` (maps a source name to a fresh `Ident.fresh` one), the same way `Typing`'s own `Binder` case does for a quantifier's bound variables.
+
+Two things to get right. First, return the *renamed* binders inside your tag: the sub-expressions now refer to the fresh names, so the names your `type_check_expr` later reads out of the tag must be those, not the ones the parser produced. Second, only the sub-expressions actually in scope of a binder should see the extended table -- a `match`'s scrutinee, for instance, is outside every arm.
+
+Unlike the other hooks, the base of the chain implements this one for real rather than raising: `DefaultExt`'s version recurses into every sub-expression under the unchanged table and leaves the tag alone. That is exactly right for a construct that binds nothing, which is nearly all of them -- so **only implement this hook if your construct binds variables**. [matchExt.ml](../../lib/ext/matchExt/matchExt.ml) is the reference implementation: each `match` arm pushes a scope, renames the arm's pattern variables into it (leaving `_` out, so it binds nothing and may repeat), and disambiguates that arm's body under it.
 
 ### Rewrites
 

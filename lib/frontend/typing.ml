@@ -1356,6 +1356,28 @@ module ProcessCallable = struct
       expr Rewriter.t =
     let open Rewriter.Syntax in
     match expr with
+    (* `e.f`'s second operand is a field/destructor *name*, not a variable reference:
+       [ProcessExpr]'s own [Read] case resolves it against the symbol table (and, for
+       `e.M.value`, against `e`'s type) rather than through the local scope. Left to the
+       generic [App] case below it would be disambiguated as if it were a variable, so a
+       local sharing the field's name would capture it -- `var elem: Int := 5;` would
+       rewrite the `elem` in a later `xs.elem` to that local's renamed ident, and the
+       read would fail to resolve. Only the receiver is disambiguated. *)
+    | App (Read, [ ref_expr; (App (Var _, [], _) as field_expr) ], expr_attr) ->
+        let+ ref_expr = disambiguate_expr ref_expr disam_tbl in
+        Expr.App (Read, [ ref_expr; field_expr ], expr_attr)
+    (* Extension constructs are handled by the active extension rather than by the
+       generic [App] case below, because -- unlike every core [App] -- an extension
+       construct may bind variables of its own that its sub-expressions refer to (a
+       `match` arm's pattern variables, say), which needs a pushed scope here. The
+       common non-binding case still gets the same structural walk, via DefaultExt. *)
+    | App (ExprExt expr_ext, expr_list, expr_attr) ->
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let+ expr_ext, expr_list =
+          ext_hooks.disambiguate_expr_ext expr_ext expr_list expr_attr disam_tbl
+            { disambiguate_expr }
+        in
+        Expr.App (ExprExt expr_ext, expr_list, expr_attr)
     | App (constr, expr_list, expr_attr) ->
         let* expr_list =
           Rewriter.List.map expr_list ~f:(fun expr ->
@@ -2387,10 +2409,13 @@ module ProcessCallable = struct
               (Set.inter (Expr.symbols spec.spec_form) return_qual_idents)
           with
           | Some qual_ident ->
+              (* Post-disambiguation, so print the plain source name rather than
+                 [QualIdent.pr]/[Ident.pr]'s disambiguated `name^N` form -- same as the
+                 sibling check on the callable's body below. *)
               Error.type_error (QualIdent.to_loc qual_ident)
                 (Printf.sprintf
-                   !"Return variable %{QualIdent} cannot be used in a requires clause; it is only in scope in ensures clauses"
-                   qual_ident)
+                   !"Return variable %{String} cannot be used in a requires clause; it is only in scope in ensures clauses"
+                   (Ident.name (QualIdent.to_ident qual_ident)))
           | None -> ())
     in
 

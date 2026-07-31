@@ -961,7 +961,7 @@ right_assoc_binary_op_expr:
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
 }
     
-rel_expr:
+%public rel_expr:
 | c = comp_seq {
   match c with
   | e, [] -> e
@@ -993,7 +993,12 @@ comp_seq:
 }
 ;
   
-eq_expr:
+(* This level and `rel_expr` above are %public so an extension's own parser fragment can
+   add a production at exactly this precedence level -- see matchExt_parser.mly's `is`,
+   which is a comparison and has to bind like one (tighter than `&&`/`==>`). Menhir's
+   --merge_into only lets a fragment reference a nonterminal that is declared %public
+   here; the levels of this ladder are otherwise invisible to fragment files. *)
+%public eq_expr:
 | e = rel_expr { e }
 | e1 = eq_expr; EQEQ; e2 = eq_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])

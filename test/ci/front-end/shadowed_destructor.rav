@@ -1,0 +1,43 @@
+// A bound variable, or a local, may share a name with a destructor field of a type
+// used in the same callable without shadowing it: `f` in `x.f` is a field name
+// resolved against `x`'s type, not a reference to whatever `f` is in scope.
+//
+// Regression test for two separate defects that combined to break this. Renamed
+// binders used to alias the source ident they were renamed away from (the first
+// freshening of a name yielded number 0, which is what source idents carry), so a
+// binder named `elem` landed in the callable's scope as plain `elem`; and the
+// disambiguation pass used to rewrite the field-name operand of `x.f` as if it were
+// an ordinary variable reference, so a local named `elem` captured it.
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+// A quantifier binder named after a destructor field.
+proc quantifier_binder(x: T1)
+  requires x is cons
+  ensures x.elem == x.elem
+{
+  assert forall elem: Int :: elem == elem;
+  assert forall tl: Int :: tl == tl;
+  assert x.elem == x.elem && x.tl == x.tl;
+}
+
+// An ordinary local named after a destructor field.
+proc local_var(x: T1)
+  requires x is cons
+{
+  var elem: Int := 5;
+  var tl: Int := 7;
+  assert elem == 5 && tl == 7;
+  assert x.elem == x.elem && x.tl == x.tl;
+}
+
+// A callable formal named after a destructor field.
+proc formal(x: T1, elem: Int)
+  requires x is cons
+  requires elem == 3
+  ensures x.elem == x.elem
+{
+  assert elem == 3;
+}

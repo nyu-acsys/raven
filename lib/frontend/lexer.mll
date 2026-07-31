@@ -120,7 +120,13 @@ let advance st (tok : Parser.token) =
   in
   let next_brace_kind =
     match tok with
-    | FUNC _ | DATA -> Some Group
+    (* [MATCH] for the same reason as [DATA]: a `match`'s arm list is a `case` list just
+       like a variant list, whose own separators the grammar already tolerates without
+       help from insertion. Classifying it matters because [next_brace_kind] is sticky --
+       inside a `proc`, the pending [Stmt_list] set by [PROC] would otherwise be claimed
+       by the *match's* brace rather than the body's, turning each arm-ending newline
+       into a semicolon and leaving a trailing one before the closing brace. *)
+    | FUNC _ | DATA | MATCH -> Some Group
     | MODULE _ -> Some Module_list
     | PROC | LEMMA | AXIOM -> Some Stmt_list
     | LBRACE -> None (* consumed; the next one is classified afresh *)
