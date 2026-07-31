@@ -33,14 +33,22 @@ const ravenGrammarPath = fileURLToPath(
 const ravenGrammar = JSON.parse(readFileSync(ravenGrammarPath, 'utf-8'))
 ravenGrammar.aliases = ['raven']
 
+// GitHub Pages serves this site from https://nyu-acsys.github.io/raven/ --
+// a subpath, not the domain root -- so every root-relative URL needs a
+// '/raven/' prefix there. Locally (`npm run dev`/`preview`), there's no
+// subpath, so base stays '/'. The deploy workflow (.github/workflows/
+// deploy-docs.yml) sets GITHUB_PAGES=true for the production build only.
+const base = process.env.GITHUB_PAGES ? '/raven/' : '/'
+
 export default defineConfig({
   srcDir: 'tutorial',
   title: 'The Raven Tutorial',
   description:
     'Concurrency reasoning, built in from lesson one -- an introduction to the Raven IVL.',
+  base,
 
   head: [
-    ['link', { rel: 'icon', type: 'image/png', href: '/favicon.png' }]
+    ['link', { rel: 'icon', type: 'image/png', href: `${base}favicon.png` }]
   ],
 
   markdown: {
