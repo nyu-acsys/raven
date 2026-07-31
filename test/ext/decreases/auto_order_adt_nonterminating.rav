@@ -10,6 +10,9 @@ module MyList {
   func bad(ls: T) returns (ret: Int)
     decreases ls
   {
-    ls == nil ? 0 : 1 + bad(cons(ls.hd, ls))
+    match ls {
+      case nil => 0
+      case cons(hd, tl) => 1 + bad(cons(hd, ls))
+    }
   }
 }

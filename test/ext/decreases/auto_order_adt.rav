@@ -10,7 +10,9 @@ module MyList {
   func len(ls: T) returns (ret: Int)
     decreases ls
   {
-    ls == nil ? 0 :
-      1 + len(ls.tl)
+    match ls {
+      case nil => 0
+      case cons(hd, tl) => 1 + len(tl)
+    }
   }
 }

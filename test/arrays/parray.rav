@@ -100,7 +100,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     pred resource(pa: T; s: S) {
       exists av: Desc, d: Int ::
         own(pa.desc, av) && own(pa.dist, d) &&
-        (av == base(av.elements) ? 
+        (av is base ? 
         A.arr(av.elements, s#1) && s#0 == A.length(av.elements) :
         (exists m1: Map[Int, E] :: parr(av.adata, s#0, m1) && 0 <= av.index < s#0 
           && s#1 == m1[av.index := av.value])
@@ -147,7 +147,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     unfold R.resource(pa)[ m1 := m1 ];
 
     val av := pa.desc;
-    if (av == base(av.elements)) {
+    if (av is base) {
       b := A.copy(av.elements);
     } else {
       b := to_array(av.adata);

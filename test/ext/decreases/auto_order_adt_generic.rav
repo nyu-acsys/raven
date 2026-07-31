@@ -12,7 +12,10 @@ module GenList[E: Library.Type] {
   func glen(ls: T) returns (ret: Int)
     decreases ls
   {
-    ls == gnil ? 0 : 1 + glen(ls.tl)
+    match ls {
+      case gnil => 0
+      case gcons(hd, tl) => 1 + glen(tl)
+    }
   }
 }
 

@@ -157,26 +157,29 @@ module Fraction : CancellativeResourceAlgebra {
 
     val id: T = frac(0.0)
 
-    func valid(n:T) returns (ret:Bool) { 
-        (n == frac(n.value) ? 0.0 <= n.value && n.value <= 1.0 : false)
+    func valid(n:T) returns (ret:Bool) {
+        match n {
+            case frac(value) => 0.0 <= value && value <= 1.0
+            case invalid => false
+        }
     }
 
     func comp(a:T, b:T) returns (ret:T) { 
         (a == id ? b : 
         (b == id ? a :
-        (a == frac(a.value) && b == frac(b.value) 
+        (a is frac && b is frac 
             && valid(a) && valid(b) && valid(frac(a.value + b.value)) ? frac(a.value + b.value) :
         invalid)))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        (a == frac(a.value) && b == frac(b.value) 
+        (a is frac && b is frac 
             && valid(a) && valid(b) && valid(frac(a.value - b.value))) ? 
             frac(a.value - b.value) : invalid
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        a == frac(a.value) && b == frac(b.value) && valid(a) && valid(b) && b.value <= a.value
+        a is frac && b is frac && valid(a) && valid(b) && b.value <= a.value
     }
 }
 
@@ -214,11 +217,15 @@ module OptionRA[M: ResourceAlgebra] : ResourceAlgebra {
     val id: T = none
 
     func valid(a: T) returns (res: Bool) {
-        (a == some(a.value) ? M.valid(a.value) : a != invalid)
+        match a {
+            case some(value) => M.valid(value)
+            case none => true
+            case invalid => false
+        }
     }
 
     func comp(a: T, b: T) returns (res: T) {
-        (a == some(a.value) && b == some(b.value) ? some(M.comp(a.value, b.value)) :
+        (a is some && b is some ? some(M.comp(a.value, b.value)) :
         (a == none ? b : 
         (b == none ? a : 
         invalid)))
@@ -226,14 +233,14 @@ module OptionRA[M: ResourceAlgebra] : ResourceAlgebra {
 
     func frame(a: T, b: T) returns (res: T) {
         (a == b ? none :
-        (a == some(a.value) && b == some(b.value) ? some(M.frame(a.value, b.value)) :
+        (a is some && b is some ? some(M.frame(a.value, b.value)) :
         (b == none ? a : 
         invalid)))
     }
 
     func fpuAllowed(a: T, b: T) returns (res: Bool) {
-        (a == some(a.value) && b == some(b.value) ? M.valid(b.value) && M.fpuAllowed(a.value, b.value) :
-        (a == some(a.value) && b == none ? true :
+        (a is some && b is some ? M.valid(b.value) && M.fpuAllowed(a.value, b.value) :
+        (a is some && b == none ? true :
         false))
     }
 }
@@ -264,7 +271,7 @@ module Excl[X: Type] : ResourceAlgebra {
     }
 
     func fpuAllowed(a: T, b: T) returns (res: Bool) {
-        (a == excl(a.value) ? b != invalid : false)
+        (a is excl ? b != invalid : false)
     }
 }
 
@@ -278,32 +285,31 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     val id: T = frag(M.id)
 
     func valid(n:T) returns (ret:Bool) {
-        (n == frag(n.f_proj1) ?
-            M.valid(n.f_proj1) :
-        (n == auth_frag(n.af_proj1, n.af_proj2) && 
-            M.valid(n.af_proj1) && M.valid(n.af_proj2) && M.valid(M.frame(n.af_proj1, n.af_proj2))
-        )
-        )
+        match n {
+            case frag(f) => M.valid(f)
+            case auth_frag(a, f) => M.valid(a) && M.valid(f) && M.valid(M.frame(a, f))
+            case top => false
+        }
     }
 
     func comp(a:T, b:T) returns (ret:T) {
-        (a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+        (a is frag && b is frag) ?
             (frag(M.comp(a.f_proj1, b.f_proj1))) :
-        ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
+        ((a is frag && b is auth_frag) ?
             auth_frag(b.af_proj1, M.comp(a.f_proj1, b.af_proj2)) :
-        ((a == auth_frag(a.af_proj1, a.af_proj2) && b == frag(b.f_proj1)) ? 
+        ((a is auth_frag && b is frag) ? 
             auth_frag(a.af_proj1, M.comp(b.f_proj1, a.af_proj2)) :
             top))
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        ((a == frag(a.f_proj1) && b == frag(b.f_proj1)) ?
+        ((a is frag && b is frag) ?
             (frag(M.frame(a.f_proj1, b.f_proj1))) :
-        ((a == frag(a.f_proj1) && b == auth_frag(b.af_proj1, b.af_proj2)) ?
+        ((a is frag && b is auth_frag) ?
             top :
-        ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == frag(b.f_proj1)) ? 
+        ((a is auth_frag && valid(a) && b is frag) ? 
             auth_frag(a.af_proj1, M.frame(a.af_proj2, b.f_proj1)) :
-        ((a == auth_frag(a.af_proj1, a.af_proj2) && valid(a) && b == auth_frag(b.af_proj1, b.af_proj2) ? 
+        ((a is auth_frag && valid(a) && b is auth_frag ? 
             (a.af_proj1 == b.af_proj1 ? frag(M.frame(a.af_proj2, b.af_proj2)) : top) :
             top
         )))))
@@ -312,8 +318,8 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
         a == b ? true :
         (
-            a == auth_frag(a.af_proj1, a.af_proj2) && 
-            b == auth_frag(b.af_proj1, b.af_proj2) && 
+            a is auth_frag && 
+            b is auth_frag && 
             valid(b) && 
             (forall c: M :: {M.comp(a.af_proj2, c)} {M.comp(b.af_proj2, c)} a.af_proj1 == M.comp(a.af_proj2, c) ==> b.af_proj1 == M.comp(b.af_proj2, c))
         )
@@ -335,7 +341,7 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     { 
         assert forall a: M, b: M :: {M.valid(M.frame(a,b))} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
         assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} 
-            ( a == auth_frag(a.af_proj1, a.af_proj2) && b == auth_frag(b.af_proj1, b.af_proj2) && c == frag(c.f_proj1)) ==>
+            ( a is auth_frag && b is auth_frag && c is frag) ==>
             (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c));
     }
         
@@ -359,12 +365,11 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     func valid(n:T) 
         returns (ret:Bool) 
     {
-        (n == frac_chunk(n.frac_proj1, n.frac_proj2) ?
-            (n.frac_proj2 > 0.0 && n.frac_proj2 <= 1.0) : 
-            (n == frac_null ? true : 
-                false
-            )
-        )
+        match n {
+            case frac_null => true
+            case frac_chunk(_, q) => q > 0.0 && q <= 1.0
+            case frac_top => false
+        }
     }
 
     func comp(a:T, b:T) returns (ret:T) {
@@ -382,7 +387,7 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     func frame(a:T, b:T) returns (ret:T) {
         b == frac_null ? a :
 
-        (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) && valid(a) && valid(b) ? 
+        (a is frac_chunk && b is frac_chunk && valid(a) && valid(b) ? 
             (a.frac_proj1 == b.frac_proj1 && a.frac_proj2 - b.frac_proj2 >= 0.0 ? 
                 (a.frac_proj2 == b.frac_proj2 ? frac_null : frac_chunk(a.frac_proj1, a.frac_proj2 - b.frac_proj2)) : 
                 frac_top
@@ -392,7 +397,7 @@ module Frac[X: Type] : CancellativeResourceAlgebra {
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        (a == frac_chunk(a.frac_proj1, a.frac_proj2) ?
+        (a is frac_chunk ?
             a.frac_proj2 == 1.0 && valid(b) :
         (a == frac_top ? true : false))
     }
@@ -410,15 +415,17 @@ module FracRA[M: ResourceAlgebra] : ResourceAlgebra {
     func valid(n:T) 
         returns (ret:Bool) 
     {
-        (n == frac_chunk(n.frac_proj1, n.frac_proj2) ? 
-            M.valid(n.frac_proj1) && (n.frac_proj2 > 0.0 && n.frac_proj2 <= 1.0) 
-        : (n == identity))
+        match n {
+            case identity => true
+            case frac_chunk(m, q) => M.valid(m) && q > 0.0 && q <= 1.0
+            case invalid => false
+        }
     }
 
     func comp(a:T, b:T) returns (ret:T) {
         (a == id ? b :
         (b == id ? a :
-        (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) 
+        (a is frac_chunk && b is frac_chunk 
             && valid(a) && valid(b) && M.valid(M.comp(a.frac_proj1, b.frac_proj1))
             && 0.0 < a.frac_proj2 + b.frac_proj2
             && a.frac_proj2 + b.frac_proj2 <= 1.0 ? frac_chunk(M.comp(a.frac_proj1, b.frac_proj1), a.frac_proj2 + b.frac_proj2) :
@@ -428,14 +435,14 @@ module FracRA[M: ResourceAlgebra] : ResourceAlgebra {
     func frame(a:T, b:T) returns (ret:T) {
         (b == id ? a :
         (a == b ? id :
-        (a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) 
+        (a is frac_chunk && b is frac_chunk 
             && valid(a) && valid(b) && 0.0 < a.frac_proj2 - b.frac_proj2
             && a.frac_proj2 - b.frac_proj2 < 1.0 ? frac_chunk(M.frame(a.frac_proj1, b.frac_proj1), a.frac_proj2 - b.frac_proj2) :
         invalid)))
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        a == frac_chunk(a.frac_proj1, a.frac_proj2) && b == frac_chunk(b.frac_proj1, b.frac_proj2) &&
+        a is frac_chunk && b is frac_chunk &&
             a.frac_proj2 == b.frac_proj2 && M.fpuAllowed(a.frac_proj1, b.frac_proj1) && valid(b)
     }
 }
@@ -480,13 +487,13 @@ module CountAgree[X: Type] : CancellativeResourceAlgebra {
     val id: T = count_null()
 
     func valid(n:T) returns (ret:Bool) {
-        n == count_null() || (n == count_cons(n.count, n.value) && n.count > 0)
+        n == count_null() || (n is count_cons && n.count > 0)
     }
 
     func comp(a: T, b: T) returns (ret:T) {
         a == count_null() ? b :
         (b == count_null() ? a :
-        (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
+        (a is count_cons && b is count_cons && valid(a) && valid(b) ? 
             (a.value == b.value ? count_cons(a.count + b.count, a.value) : count_top()) :
             count_top()
         )
@@ -496,7 +503,7 @@ module CountAgree[X: Type] : CancellativeResourceAlgebra {
     func frame(a: T, b: T) returns (ret:T) {
         b == count_null() ? a :
 
-        (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
+        (a is count_cons && b is count_cons && valid(a) && valid(b) ? 
             (a.value == b.value && a.count - b.count >= 0 ? 
                 (a.count == b.count ? count_null() : count_cons(a.count - b.count, a.value)) : 
                 count_top()
@@ -508,7 +515,7 @@ module CountAgree[X: Type] : CancellativeResourceAlgebra {
     func fpuAllowed(a: T, b: T) returns (ret:Bool) {
         a == b ? true : 
 
-        (a == count_cons(a.count, a.value) && b == count_cons(b.count, b.value) && valid(a) && valid(b) ? 
+        (a is count_cons && b is count_cons && valid(a) && valid(b) ? 
             (a.value == b.value) :
             false
         )
@@ -525,23 +532,23 @@ module SetRA[X: Type] : LatticeResourceAlgebra {
     val id: T = set_constr({||})
 
     func valid(n:T) returns (ret:Bool) {
-        n == set_constr(n.set_proj1)
+        n is set_constr
     }
 
     func comp(a:T, b:T) returns (ret:T) {
-        a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1) ? 
+        a is set_constr && b is set_constr ? 
             set_constr(a.set_proj1 ++ b.set_proj1) :
             set_top
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1) ?
+        a is set_constr && b is set_constr ?
             (b.set_proj1 subseteq a.set_proj1 ? a : set_top()) :
             set_top
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        a == set_constr(a.set_proj1) && b == set_constr(b.set_proj1)
+        a is set_constr && b is set_constr
         && a.set_proj1 subseteq b.set_proj1
     }
 
@@ -556,16 +563,16 @@ module DisjSet[X: Type] : CancellativeResourceAlgebra {
     val id: T = set({||})
 
     func valid(n:T) returns (ret:Bool) {
-        n == set(n.value)
+        n is set
     }
 
     func comp(a:T, b:T) returns (ret:T) {
-        a == set(a.value) && b == set(b.value) && a.value ** b.value == {||} ? 
+        a is set && b is set && a.value ** b.value == {||} ? 
           set(a.value ++ b.value) : top
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        a == set(a.value) && b == set(b.value) && b.value subseteq a.value ?
+        a is set && b is set && b.value subseteq a.value ?
           set(a.value -- b.value) : top
     }
 
@@ -586,33 +593,35 @@ module SumRA[M1: ResourceAlgebra, M2: ResourceAlgebra]: ResourceAlgebra {
   val id: T = identity
 
   func valid(n: T) returns (ret: Bool) {
-    n == identity ? true :
-    (n == sum_left(n.sum_projl) ? M1.valid(n.sum_projl) :
-    (n == sum_right(n.sum_projr) ? M2.valid(n.sum_projr) :
-    false))
+    match n {
+      case identity => true
+      case sum_left(l) => M1.valid(l)
+      case sum_right(r) => M2.valid(r)
+      case invalid => false
+    }
   }
 
   func comp(a: T, b: T) returns (ret: T) {
     a == identity ? b :
     (b == identity ? a :
-    (a == sum_left(a.sum_projl) && b == sum_left(b.sum_projl) ? sum_left(M1.comp(a.sum_projl, b.sum_projl)) :
-    (a == sum_right(a.sum_projr) && b == sum_right(b.sum_projr) ? sum_right(M2.comp(a.sum_projr, b.sum_projr)) :
+    (a is sum_left && b is sum_left ? sum_left(M1.comp(a.sum_projl, b.sum_projl)) :
+    (a is sum_right && b is sum_right ? sum_right(M2.comp(a.sum_projr, b.sum_projr)) :
     invalid)))
   }
 
     func frame(a: T, b: T) returns (ret: T) {
         b == identity ? a :
-        (a == sum_left(a.sum_projl) && b == sum_left(b.sum_projl) 
+        (a is sum_left && b is sum_left 
             && M1.valid(M1.frame(a.sum_projl, b.sum_projl)) ? sum_left(M1.frame(a.sum_projl, b.sum_projl)) :
-        (a == sum_right(a.sum_projr) && b == sum_right(b.sum_projr) 
+        (a is sum_right && b is sum_right 
             && M2.valid(M2.frame(a.sum_projr, b.sum_projr)) ? sum_right(M2.frame(a.sum_projr, b.sum_projr)) :
         (a == b ? identity :
         invalid)))
     }
 
     func fpuAllowed(a: T, b: T) returns (ret: Bool) {
-        a == sum_left(a.sum_projl) && b == sum_left(b.sum_projl) && valid(b) ? M1.fpuAllowed(a.sum_projl, b.sum_projl) :
-        (a == sum_right(a.sum_projr) && b == sum_right(b.sum_projr) && valid(b) ? M2.fpuAllowed(a.sum_projr, b.sum_projr) :
+        a is sum_left && b is sum_left && valid(b) ? M1.fpuAllowed(a.sum_projl, b.sum_projl) :
+        (a is sum_right && b is sum_right && valid(b) ? M2.fpuAllowed(a.sum_projr, b.sum_projr) :
         false)
     }
 }
@@ -625,7 +634,7 @@ module Prod[M1: ResourceAlgebra, M2: ResourceAlgebra]: ResourceAlgebra {
   val id: T = prod(M1.id, M2.id)
 
   func valid(n: T) returns (ret: Bool) {
-    n == prod(n.proj1, n.proj2) ? M1.valid(n.proj1) && M2.valid(n.proj2) : false
+    n is prod ? M1.valid(n.proj1) && M2.valid(n.proj2) : false
   }
 
   func comp(a: T, b: T) returns (ret: T) {
@@ -654,9 +663,9 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     func comp(a:T, b:T) returns (ret:T) {
         a == id ? b :
         (b == id ? a :
-            (a == au_uncommitted(a.au_uncommit_proj1) ? au_top :
-                (b == au_uncommitted(b.au_uncommit_proj1) ? au_top :
-                    (a == au_committed(a.au_commit_proj1, a.au_commit_proj2) && b == a ? a : au_top)
+            (a is au_uncommitted ? au_top :
+                (b is au_uncommitted ? au_top :
+                    (a is au_committed && b == a ? a : au_top)
                         // a == b ? a : au_top()
                 )
             )
@@ -666,7 +675,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
 
     func frame(a:T, b:T) returns (ret:T) {
         b == id ? a :
-        (a == au_uncommitted(a.au_uncommit_proj1) && b == au_uncommitted(b.au_uncommit_proj1) ? 
+        (a is au_uncommitted && b is au_uncommitted ? 
             (a.au_uncommit_proj1 == b.au_uncommit_proj1 ? id : au_top) :
             (a == b ? a : au_top)
         )
@@ -678,7 +687,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
 
 
     func fpuAllowed(a:T, b:T) returns (ret: Bool) {
-        (a == au_uncommitted(a.au_uncommit_proj1) && b == au_committed(b.au_commit_proj1, b.au_commit_proj2) ? 
+        (a is au_uncommitted && b is au_committed ? 
             a.au_uncommit_proj1 == b.au_commit_proj1 : 
             false
         )
@@ -690,7 +699,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
         assert forall a:T, b:T :: a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
 
         assert forall a:T, b:T :: a != au_null ==> b != au_null ==> comp(a, b) == comp(b, a) with {
-            if (a == au_committed(a.au_commit_proj1, a.au_commit_proj2)) {
+            if (a is au_committed) {
                 assert comp(a,b) == comp(b,a);
             }
         }
@@ -705,7 +714,7 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
         assert forall a:T, b:T :: {comp(frame(a, b), b)} a != au_null ==> b != au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a with {
             if (valid(frame(a,b)) && a != au_null && b != au_null) { 
               assert a != au_top && b != au_top;
-              if (a == au_uncommitted(a.au_uncommit_proj1)) {
+              if (a is au_uncommitted) {
                 assert frame(a,b) == au_null;
               } else {
                 assert frame(a,b) == b;

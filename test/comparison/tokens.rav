@@ -16,10 +16,10 @@ module TokenRA : Library.ResourceAlgebra {
         (b == id ?
             a :
         (valid(a) && valid(b) ?            
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
+        (a is tokens && b is tokens && ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
         valid(tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm)) ?
             tokens(a.authCount + b.authCount, a.authPerm + b.authPerm, a.fragCount + b.fragCount, a.fragPerm + b.fragPerm) :
-        (a == noToken(a.frag) && b == noToken(b.frag) && valid(noToken(a.frag + b.frag)) ?
+        (a is noToken && b is noToken && valid(noToken(a.frag + b.frag)) ?
             noToken(a.frag + b.frag) :
             top
         )
@@ -30,8 +30,8 @@ module TokenRA : Library.ResourceAlgebra {
     }
 
     func valid(a: T) returns (ret: Bool) {
-        (a == noToken(a.frag) && a.frag > 0.0 && a.frag <= 1.0)  || a == id ||
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) &&
+        (a is noToken && a.frag > 0.0 && a.frag <= 1.0)  || a == id ||
+        (a is tokens &&
             a.authCount >= 0 && 
             a.authPerm >= 0.0 && a.authPerm <= 1.0 &&
             a.fragCount >= 0 && 
@@ -52,12 +52,12 @@ module TokenRA : Library.ResourceAlgebra {
         b == id ?
             a :
         (
-            a == noToken(a.frag) && b == noToken(b.frag) && valid(a) && valid(b) && valid(noToken(a.frag - b.frag)) ?
+            a is noToken && b is noToken && valid(a) && valid(b) && valid(noToken(a.frag - b.frag)) ?
             noToken(a.frag - b.frag) :
         (a == b ? 
             id :
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && valid(a) && valid(b) &&
+        (a is tokens && 
+        b is tokens && valid(a) && valid(b) &&
         ((b.authCount == 0 && b.authPerm == 0.0) || (b.authCount == a.authCount && b.authPerm == a.authPerm)) && b.fragCount <= a.fragCount && b.fragPerm <= a.fragPerm ?
             tokens(a.authCount - b.authCount, a.authPerm - b.authPerm, a.fragCount - b.fragCount, a.fragPerm - b.fragPerm) :
             top
@@ -69,12 +69,12 @@ module TokenRA : Library.ResourceAlgebra {
         (valid(a) && valid(b) ?
         (a == noToken(1.0) ?
             (b == tokens(b.authCount, b.authPerm, b.authCount, b.fragPerm)) :
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) ?
+        (a is tokens && 
+        b is tokens ?
             (a.authCount - a.fragCount == b.authCount - b.fragCount  &&
             a.authPerm - a.fragPerm == b.authPerm - b.fragPerm)
             :
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
+        (a is tokens ?
             a.authCount == a.fragCount && a.authPerm == a.fragPerm :
             false)
         )) : 

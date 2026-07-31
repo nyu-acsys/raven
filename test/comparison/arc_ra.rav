@@ -15,8 +15,8 @@ module ArcRA : Library.ResourceAlgebra {
             a :
         (valid(a) && valid(b) ?            
         (
-            a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-            b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && 
+            a is tokens && 
+            b is tokens && 
             ((a.authCount == 0 && a.authPerm == 0.0) || (b.authCount == 0 && b.authPerm == 0.0)) && 
             valid(tokens(
                 a.authCount + b.authCount, 
@@ -42,7 +42,7 @@ module ArcRA : Library.ResourceAlgebra {
 
     func valid(a: T) returns (ret: Bool) {
         a == noToken || a == id ||
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) &&
+        (a is tokens &&
             a.authCount >= 0 && 
             a.authPerm >= 0.0 && a.authPerm <= 1.0 &&
             a.fragCount >= 0 && 
@@ -67,8 +67,8 @@ module ArcRA : Library.ResourceAlgebra {
             noToken :
         (a == b ? 
             id :
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) && valid(a) && valid(b) &&
+        (a is tokens && 
+        b is tokens && valid(a) && valid(b) &&
         ((b.authCount == 0 && b.authPerm == 0.0) || (b.authCount == a.authCount && b.authPerm == a.authPerm)) && b.fragCount <= a.fragCount && b.fragPerm <= a.fragPerm ?
             tokens(a.authCount - b.authCount, a.authPerm - b.authPerm, a.fragCount - b.fragCount, a.fragPerm - b.fragPerm) :
             top
@@ -80,12 +80,12 @@ module ArcRA : Library.ResourceAlgebra {
         (valid(a) && valid(b) ?
         (a == noToken ?
             false :
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) && 
-        b == tokens(b.authCount, b.authPerm, b.fragCount, b.fragPerm) ?
+        (a is tokens && 
+        b is tokens ?
             (a.authCount - a.fragCount == b.authCount - b.fragCount  &&
             a.authPerm - a.fragPerm == b.authPerm - b.fragPerm )
             :
-        (a == tokens(a.authCount, a.authPerm, a.fragCount, a.fragPerm) ?
+        (a is tokens ?
             a.authCount == a.fragCount && a.authPerm == a.fragPerm :
             false)
         )) : 

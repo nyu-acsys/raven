@@ -64,10 +64,11 @@ proc push(s: Ref, x: Int, implicit ghost xs: IntList)
 proc pop(s: Ref, implicit ghost xs: IntList)
   returns (result: IntOption)
   atomic requires is_stack(s, xs)
-  atomic ensures 
-    xs == nil() ? 
-      (is_stack(s, xs) && result == none()) : 
-      (is_stack(s, xs.tl) && result == some(xs.elem))
+  atomic ensures
+    match xs {
+      case nil => is_stack(s, xs) && result == none()
+      case cons(elem, tl) => is_stack(s, tl) && result == some(elem)
+    }
 {
   ghost var phi := bindAU();
   ghost var xs0: IntList := openAU(phi);

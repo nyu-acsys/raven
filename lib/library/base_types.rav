@@ -21,7 +21,7 @@ module Option[E: Type] : Type {
   }
 
   func is_some(x: T) returns (ret: Bool) {
-    x == some(x.value) ? true : false
+    x is some
   }
 }
 
@@ -35,15 +35,19 @@ module ListM[E: Type] : Type {
     ensures ret >= 0
     decreases ls
  {
-    ls == nil ? 0 :
-      1 + len(ls.tl)
+    match ls {
+      case nil => 0
+      case cons(hd, tl) => 1 + len(tl)
+    }
   }
 
   func is_in(ls: T, e: E) returns (ret: Bool) 
     decreases ls
   {
-    ls == nil ? false :
-      (e == ls.hd || is_in(ls.tl, e))
+    match ls {
+      case nil => false
+      case cons(hd, tl) => e == hd || is_in(tl, e)
+    }
   }
 }
 
