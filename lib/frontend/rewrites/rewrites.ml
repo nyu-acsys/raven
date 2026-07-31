@@ -11,7 +11,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
           Expr.to_loc spec.spec_form,
           match kind with
           | Assert -> "This assertion may be violated"
-          | _ -> "Possibly insufficient permissions to exhale this assertion" )
+          | _ -> "This assertion may not hold: insufficient permissions" )
       in
       let spec_error = spec.spec_error @ [Stmt.mk_const_spec_error error] in
       Rewriter.return
