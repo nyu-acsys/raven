@@ -3230,7 +3230,30 @@ module ProcessModule = struct
     in
     (* merge symbol definitions from parent interface with those from current module
      * so that the dependency order between symbols is preserved *)
-    let merge_defs parent_ident parent_mod_def mod_def =
+    let merge_defs ~parent_status parent_ident parent_mod_def mod_def =
+      (* A member with no definition of its own. Mirrors the cases the abstract-member
+         check below rejects in a non-interface module. *)
+      let symbol_is_abstract = function
+        | Module.TypeDef { type_def_expr = None; _ }
+        | ModInst { mod_inst_def = None; _ }
+        | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
+        | CallDef { call_def = ProcDef { proc_body = None } | FuncDef { func_body = None }; _ } ->
+            true
+        | _ -> false
+      in
+      (* The standard library is force-marked [MachineFree] so it isn't re-verified for
+         every program. That status describes the library, not the modules that implement
+         its interfaces: an abstract member inherited from it into a concrete module must
+         not arrive already free, or the module would owe neither a definition for it nor
+         (for an inherited axiom) a proof of it against its own definitions -- which is
+         how a module could claim to implement `ResourceAlgebra` while defining almost
+         none of it. A `free` the user actually wrote is [UserFree] and is left alone. *)
+      let un_free_inherited symbol =
+        match parent_status with
+        | MachineFree when (not m.mod_decl.mod_decl_is_interface) && symbol_is_abstract symbol ->
+            Module.set_symbol_status NotFree symbol
+        | _ -> symbol
+      in
       let formals =
         List.fold_left ~init:(Set.empty (module Ident))
           ~f:(fun acc -> function
@@ -3288,6 +3311,7 @@ module ProcessModule = struct
             then
               (* case: parent_symbol should be inherited now *)
               let _ = Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
+              let parent_symbol = un_free_inherited parent_symbol in
               let parent_symbol =
                 match parent_symbol with
                 | CallDef call when not @@ Callable.is_abstract call ->
@@ -3405,7 +3429,8 @@ module ProcessModule = struct
           Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
           interface_ident,
           Some interface.mod_decl.mod_decl_formals,
-          merge_defs qual_interface_ident interface.mod_def m.mod_def )
+          merge_defs ~parent_status:interface.mod_decl.mod_decl_status
+            qual_interface_ident interface.mod_def m.mod_def )
       | _ ->
           let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
           let interfaces =
@@ -3546,9 +3571,9 @@ module ProcessModule = struct
                   Error.type_error mod_decl.mod_decl_loc
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \
-                         %s %{Ident} %b is still abstract"
-                       mod_decl.mod_decl_name (Symbol.kind symbol) 
-                       (Symbol.to_name symbol) (Symbol.is_free symbol))
+                         %s %{Ident} is still abstract"
+                       mod_decl.mod_decl_name (Symbol.kind symbol)
+                       (Symbol.to_name symbol))
               | ModInst { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ } ->
                 let+ mod_inst_symbol =
                   Rewriter.find_and_reify mod_inst_func

@@ -202,7 +202,13 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
               Lexer.set_file_name lib_source_lexbuf lib_file_name
             in
             let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
-            let md = Ast.Module.set_free md in
+            (* [set_machine_free], not [set_free]: the standard library is trusted by the
+               compiler so it isn't re-verified for every program, which is exactly what
+               [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
+               The two must stay distinguishable: a member inherited from here into a
+               user module still owes a definition and a proof, whereas one inherited
+               from a user's own `free` declaration does not (see [Typing.merge_defs]). *)
+            let md = Ast.Module.set_machine_free md in
             merge_prog md lib_prog)
       in
       elaborate_cu ~ext_hooks config tbl lib_prog front_end_out_chan

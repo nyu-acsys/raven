@@ -78,8 +78,26 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
 
   func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
   {
-    i1 == i2 
-    // contextualExt(i1, i2) 
+    i1 == i2
+    // contextualExt(i1, i2)
+  }
+
+  // Discharges the inherited CancellativeResourceAlgebra law: framing an interface
+  // against itself yields the empty interface. `frame(i, i)` takes its second branch
+  // (`i.dom subseteq i.dom`), leaving domain `i.dom -- i.dom == {||}` and both flow
+  // maps pointwise `M.id` -- the inflow by construction, the outflow because every
+  // entry is `M.frame(x, x)` for the flow value at that node, which is `M.id` by
+  // `M.frameInv`.
+  lemma frameReflexive()
+    ensures forall i: T :: {frame(i, i)} valid(i) ==> frame(i, i) == id
+  {
+    M.frameInv();
+    assert forall i: T :: {frame(i, i)} valid(i) ==> frame(i, i) == id with {
+      if (valid(i)) {
+        assert forall n: Ref :: {frame(i, i).inf[n]} frame(i, i).inf[n] == M.id;
+        assert forall n: Ref :: {frame(i, i).out[n]} frame(i, i).out[n] == M.id;
+      }
+    }
   }
 
   // Folds definition of interface composition, avoiding M.frame

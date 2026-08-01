@@ -2820,12 +2820,16 @@ module Module = struct
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
+  (* These three carry a plain bool rather than the full [free_status], so they can only
+     record *whether* they are free, not which kind. Deriving it from [status] rather
+     than hardcoding [true] at least makes [set_symbol_status NotFree] able to clear the
+     flag, which is what lets an inherited abstract member be un-freed. *)
   let rec set_symbol_status status = function
     | ModDef md -> ModDef (set_status status md)
     | CallDef cdef -> CallDef (Callable.set_status status cdef)
-    | TypeDef td -> TypeDef { td with type_def_is_free = true }
-    | VarDef vd -> VarDef { vd with var_is_free = true }
-    | ModInst mi -> ModInst { mi with mod_inst_is_free = true }
+    | TypeDef td -> TypeDef { td with type_def_is_free = is_free status }
+    | VarDef vd -> VarDef { vd with var_is_free = is_free status }
+    | ModInst mi -> ModInst { mi with mod_inst_is_free = is_free status }
     | symbol -> symbol
   and set_status status md =
     let mod_decl = { md.mod_decl with mod_decl_status = status } in
