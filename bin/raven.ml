@@ -373,13 +373,37 @@ let strict =
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
-  let rec remap ((kind, loc, msg) as err) =
+  (* Follow a location back through the `include` directives that pulled its file in,
+     to a location in the file actually being checked. *)
+  let rec anchor_loc loc =
     match Hashtbl.find include_map (Loc.file_name loc) with
-    | Some loc1 -> remap (kind, loc1, "originates in included file")
-    | None -> err
+    | Some loc1 -> anchor_loc loc1
+    | None -> loc
+  in
+  (* An LSP diagnostic is reported against one document and is displayed at its range
+     *in that document*, so a primary error whose own location lies in an included file
+     has to be anchored at the `include` that brought it in -- otherwise the editor
+     would show it at those coordinates in the wrong file. The message keeps saying what
+     went wrong, and names where it really is.
+
+     [RelatedLoc] entries are exempt: LSP's `relatedInformation` carries a URI per entry,
+     so each one can point at its true file. Those are what make the offending line
+     reachable, and rewriting them (as this used to, replacing both the location and the
+     message with "originates in included file") is what made them useless. *)
+  let anchor ((kind, loc, msg) as err) =
+    match kind with
+    | Error.RelatedLoc -> err
+    | _ ->
+        let loc' = anchor_loc loc in
+        if Loc.(loc' = loc) then err
+        else
+          ( kind,
+            loc',
+            Printf.sprintf !"%{String} (in included file %{String}, line %{Int})" msg
+              (Loc.display_file_name loc) (Loc.start_line loc) )
   in
   if config.lsp_mode then begin
-    let errs = List.map errs ~f:remap in
+    let errs = List.map errs ~f:anchor in
     Stdlib.print_endline (Error.errors_to_lsp_string errs);
     Stdlib.exit 0
   end

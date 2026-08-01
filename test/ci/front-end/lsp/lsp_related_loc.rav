@@ -1,0 +1,12 @@
+// `comp` returns its first argument, so the axiom inherited from the included
+// interface cannot hold. The point of the test is not the failure itself but what
+// --lsp-mode reports about it: see lsp_related_loc.t.
+include "included/lsp_iface.rav"
+
+module Fst : MiniRA {
+  rep type T = Int
+
+  val id: T = 0
+
+  func comp(a: T, b: T) returns (r: T) { a }
+}
