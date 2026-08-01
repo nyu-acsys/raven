@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.1.0" src="https://img.shields.io/badge/version-1.1.0-green.svg"/>
+  <img alt="Version 1.2.0" src="https://img.shields.io/badge/version-1.2.0-green.svg"/>
   <a href="https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-blue.svg"/></a>
   <a href="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml"><img alt="Builds, tests &amp; co" src="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main"/></a>
 </p>
@@ -129,7 +129,7 @@ Several examples of Raven programs can be found in the [test](test) folder. The 
 
 
 ## Tutorial
-New to Raven? [docs/tutorial](docs/tutorial/index.md) is a from-scratch, hands-on introduction — sequential Raven, ownership and resources, the module system, ghost code and basic concurrency, then a set of advanced capstones (fork/join, atomic contracts, iterated separating conjunctions). Every code listing in it is a real, checked `.rav` file. It's built as a small [VitePress](https://vitepress.dev/) site; to browse it locally with syntax highlighting and working cross-links:
+New to Raven? [**The Raven Tutorial**](https://nyu-acsys.github.io/raven/) is a from-scratch, hands-on introduction — sequential Raven, ownership and resources, the module system, ghost code and basic concurrency, then a set of advanced capstones (fork/join, atomic contracts, iterated separating conjunctions). Every code listing in it is a real, checked `.rav` file. Its sources live in [docs/tutorial](docs/tutorial/); to browse it locally instead:
 ```bash
 $ cd docs
 $ npm install
