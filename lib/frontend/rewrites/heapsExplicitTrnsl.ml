@@ -743,7 +743,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
           Some
             (Expr.mk_var ~typ:fld_elem_type
                (ProgUtils.get_ra_id ra_qual_ident));
-        var_is_free = false;
+        var_is_free = NotFree;
       }
     in
 
@@ -1281,8 +1281,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         Rewriter.return
-          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = false },
-            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = false },
+          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = NotFree },
+            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = NotFree },
             Stmt.mk_assume_expr ~loc assume_expr1,
             Stmt.mk_assume_expr ~loc assume_expr2 ))
   in
@@ -1389,8 +1389,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         Rewriter.return
-          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = false },
-            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = false },
+          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = NotFree },
+            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = NotFree },
             Stmt.mk_assume_expr ~loc assume_expr1,
             Stmt.mk_assume_expr ~loc assume_expr2 ))
   in
@@ -1483,8 +1483,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         Rewriter.return
-          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = false },
-            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = false },
+          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = NotFree },
+            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = NotFree },
             Stmt.mk_assume_expr ~loc assume_expr1,
             Stmt.mk_assume_expr ~loc assume_expr2 ))
   in
@@ -1846,7 +1846,7 @@ module TrnslInhale = struct
             var_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name;
           }
         in
-        let symbol = Module.VarDef { var_decl; var_init = None; var_is_free = true } in
+        let symbol = Module.VarDef { var_decl; var_init = None; var_is_free = MachineFree } in
         let* _ = Rewriter.introduce_symbol symbol in
 
         Rewriter.return
@@ -1870,7 +1870,7 @@ module TrnslInhale = struct
             var_type;
           }
         in
-        let symbol = Module.VarDef { var_decl; var_init = None; var_is_free = true } in
+        let symbol = Module.VarDef { var_decl; var_init = None; var_is_free = MachineFree } in
         let* _ = Rewriter.introduce_symbol symbol in
 
         let tuple_expr =
@@ -3707,7 +3707,7 @@ module TrnslExhale = struct
                   }
                 in
 
-                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = None; var_is_free = true})
+                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = None; var_is_free = MachineFree})
 
                 in
                 
@@ -5178,7 +5178,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
                 in
 
                 let (nondet_var_def : Module.symbol) =
-                  VarDef { var_decl = nondet_var; var_init = None; var_is_free = false }
+                  VarDef { var_decl = nondet_var; var_init = None; var_is_free = NotFree }
                 in
 
                 let* _ = Rewriter.introduce_symbol nondet_var_def in

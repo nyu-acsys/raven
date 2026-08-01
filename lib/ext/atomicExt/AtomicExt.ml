@@ -298,7 +298,7 @@ module AtomicExt (Cont : ListApi) = struct
       (* add the new local variable *)
       let+ _ =
         Rewriter.introduce_symbol
-          (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = true })
+          (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = MachineFree })
       in
       let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
       (* ```rd_var := ref.field;``` *)

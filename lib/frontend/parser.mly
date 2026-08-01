@@ -615,9 +615,9 @@ local_var_def:
         | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())*)
         | _ -> None
       in
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = false })); stmt]
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = NotFree })); stmt]
   | None ->
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = false }))]
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree }))]
 }
 
     
@@ -630,7 +630,7 @@ var_def:
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = e; var_is_free = false }
+  Stmt.{ var_decl = decl; var_init = e; var_is_free = NotFree }
 }
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr {
   let decl =
@@ -640,7 +640,7 @@ var_def:
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = Some e; var_is_free = false }
+  Stmt.{ var_decl = decl; var_init = Some e; var_is_free = NotFree }
 }
 
 

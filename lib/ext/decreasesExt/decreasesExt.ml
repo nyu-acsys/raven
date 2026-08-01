@@ -623,7 +623,7 @@ module DecreasesExt (Cont : ListApi) = struct
            let snap_var_decl = Type.mk_var_decl ~ghost:true ~loc snap_ident snap_type in
            let+ () =
              Rewriter.introduce_symbol
-               (Module.VarDef { var_decl = snap_var_decl; var_init = None; var_is_free = false })
+               (Module.VarDef { var_decl = snap_var_decl; var_init = None; var_is_free = NotFree })
            in
            let tuple_expr = Expr.mk_tuple ~loc (List.map specs ~f:(fun s -> s.Stmt.spec_form)) in
            [ Stmt.mk_assign ~loc ~is_init:true [ QualIdent.from_ident snap_ident ] tuple_expr ])

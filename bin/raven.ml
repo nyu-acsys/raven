@@ -202,13 +202,13 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
               Lexer.set_file_name lib_source_lexbuf lib_file_name
             in
             let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
-            (* [set_machine_free], not [set_free]: the standard library is trusted by the
+            (* [set_unit_free], not [set_free]: the standard library is trusted by the
                compiler so it isn't re-verified for every program, which is exactly what
                [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
                The two must stay distinguishable: a member inherited from here into a
                user module still owes a definition and a proof, whereas one inherited
                from a user's own `free` declaration does not (see [Typing.merge_defs]). *)
-            let md = Ast.Module.set_machine_free md in
+            let md = Ast.Module.set_unit_free md in
             merge_prog md lib_prog)
       in
       elaborate_cu ~ext_hooks config tbl lib_prog front_end_out_chan
@@ -234,10 +234,13 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
           Stdio.In_channel.close inchan;
 
           let md =
-            if is_free then
-              let md = Ast.Module.set_free md in
-              md
-            else md
+            (* [is_free] here is set unconditionally for every `include`d file (see
+               [parse_cu]) -- there is no `free include` syntax -- so this is the
+               compiler's decision, not the user's, and uses [set_unit_free] for the
+               same reason the standard library above does. Marking it [UserFree]
+               instead used to let a module implementing an interface from an included
+               file skip both halves of the conformance check. *)
+            if is_free then Ast.Module.set_unit_free md else md
           in
 
           let parsed = Set.add parsed file_name in

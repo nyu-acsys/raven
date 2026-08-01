@@ -115,7 +115,7 @@ module AssertWithExt (Cont : ListApi) = struct
               let decl = { decl with Type.var_const } in
               Stmt.
                 { stmt_desc =
-                    Basic (VarDef { var_decl = decl; var_init = None; var_is_free = false });
+                    Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree });
                   stmt_loc = decl.var_loc
                 })
         in
@@ -136,7 +136,7 @@ module AssertWithExt (Cont : ListApi) = struct
         in
         let nondet_var_def =
           Stmt.
-            { stmt_desc = Basic (VarDef { var_decl = nondet_var; var_init = None; var_is_free = false });
+            { stmt_desc = Basic (VarDef { var_decl = nondet_var; var_init = None; var_is_free = NotFree });
               stmt_loc = loc
             }
         in

@@ -1759,7 +1759,7 @@ module ProcessCallable = struct
       in
       let* _ =
         Rewriter.introduce_symbol
-          (VarDef { var_decl; var_init = None; var_is_free = false })
+          (VarDef { var_decl; var_init = None; var_is_free = NotFree })
       in
       let var = QualIdent.from_ident var_decl.var_name in
       Rewriter.return @@ (Stmt.Havoc { havoc_var = var; havoc_is_init = true }, disam_tbl')
@@ -3241,16 +3241,22 @@ module ProcessModule = struct
             true
         | _ -> false
       in
-      (* The standard library is force-marked [MachineFree] so it isn't re-verified for
-         every program. That status describes the library, not the modules that implement
-         its interfaces: an abstract member inherited from it into a concrete module must
-         not arrive already free, or the module would owe neither a definition for it nor
-         (for an inherited axiom) a proof of it against its own definitions -- which is
-         how a module could claim to implement `ResourceAlgebra` while defining almost
-         none of it. A `free` the user actually wrote is [UserFree] and is left alone. *)
+      (* The standard library, and every included file, is force-marked [MachineFree] so
+         it isn't re-verified for each program. That status describes the file, not the
+         modules that implement its interfaces: an abstract member inherited from one
+         into a concrete module must not arrive already free, or the module would owe
+         neither a definition for it nor (for an inherited axiom) a proof of it against
+         its own definitions -- which is how a module could claim to implement
+         `ResourceAlgebra` while defining almost none of it.
+
+         A `free` the user actually wrote stays [UserFree] and is left alone, so an
+         interface may still declare a deliberately uninterpreted member that
+         implementors inherit without defining (`free func`, `free val`, `free auto
+         axiom`). *)
       let un_free_inherited symbol =
-        match parent_status with
-        | MachineFree when (not m.mod_decl.mod_decl_is_interface) && symbol_is_abstract symbol ->
+        match parent_status, Symbol.free_status symbol with
+        | MachineFree, (NotFree | MachineFree)
+          when (not m.mod_decl.mod_decl_is_interface) && symbol_is_abstract symbol ->
             Module.set_symbol_status NotFree symbol
         | _ -> symbol
       in

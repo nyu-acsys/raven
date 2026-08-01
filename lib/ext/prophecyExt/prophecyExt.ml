@@ -579,7 +579,7 @@ module ProphecyExt (Cont : ListApi) = struct
           VarDef { 
             var_decl = tl_var;
             var_init = None;
-            var_is_free = false;
+            var_is_free = NotFree;
           }
         ) in
 
@@ -637,7 +637,7 @@ module ProphecyExt (Cont : ListApi) = struct
         Stmt.{ 
           var_decl = Type.mk_var_decl ~ghost:true proph_read_var_ident ~loc proph_read_type ; 
           var_init = None;
-          var_is_free = false;
+          var_is_free = NotFree;
         }, proph_read_var_ident
       in
 

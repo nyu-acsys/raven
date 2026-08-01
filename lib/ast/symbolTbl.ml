@@ -574,7 +574,7 @@ let add_local_vars var_decls tbl =
   List.fold_left var_decls ~init:tbl ~f:(fun tbl var_decl ->
       let var_ident = var_decl.Type.var_name in
       let curr_entries = get_scope_entries curr_scope in
-      let var_def = Module.VarDef { var_decl; var_init = None; var_is_free = false } in
+      let var_def = Module.VarDef { var_decl; var_init = None; var_is_free = NotFree } in
       match Hashtbl.find curr_entries var_ident with
       | None -> add_symbol var_def tbl
       | Some (Symbol qual_ident) ->

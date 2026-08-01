@@ -1332,6 +1332,21 @@ end
 type expr = Expr.t
 
 
+(** Whether a callable's/module's/value's correctness is checked, admitted via the
+    user's own `free` keyword, or established free by the compiler (e.g. an interface
+    member inherited unchanged, or a whole included file). The latter two aren't
+    interchangeable: see [Rewriter.is_relaxed_lookup] for a case that must trust only
+    [MachineFree], and [Module.set_unit_free] / [Typing.merge_defs] for why a
+    force-freed file must not look like a user-written `free`.
+
+    Declared here, above [Stmt], because [Stmt.var_def] already needs it. *)
+type free_status =
+  | NotFree
+  | UserFree
+  | MachineFree
+
+let is_free = function NotFree -> false | UserFree | MachineFree -> true
+
 (** Statements *)
 
 module Stmt = struct
@@ -1347,7 +1362,12 @@ module Stmt = struct
   let spec_error_msg spec call_id loc =
     List.map ~f:(fun msg -> msg call_id loc) spec.spec_error
 
-  type var_def = { var_decl : var_decl; var_init : expr option; var_is_free: bool }
+  (* [var_is_free] carries the full [free_status] rather than a bool because the two
+     kinds of free must stay distinguishable here: `free val default: E` written by a
+     user is [UserFree] and means the value is deliberately left uninterpreted, whereas
+     a whole included file being force-freed is [MachineFree] and must not excuse an
+     implementing module from defining the value (see [Typing.merge_defs]). *)
+  type var_def = { var_decl : var_decl; var_init : expr option; var_is_free: free_status }
 
   type new_desc = {
     new_lhs : qual_ident;
@@ -2230,17 +2250,6 @@ module Stmt = struct
     stmt_au_preds_referenced s
 end
 
-(** Whether a callable's/module's correctness is checked, admitted via the user's own
-    `free` keyword, or established free by the compiler (e.g. an interface member
-    inherited unchanged). The latter two aren't interchangeable: see
-    [Rewriter.is_relaxed_lookup] for a case that must trust only [MachineFree]. *)
-type free_status =
-  | NotFree
-  | UserFree
-  | MachineFree
-
-let is_free = function NotFree -> false | UserFree | MachineFree -> true
-
 (** Callables *)
 
 module Callable = struct
@@ -2828,7 +2837,7 @@ module Module = struct
     | ModDef md -> ModDef (set_status status md)
     | CallDef cdef -> CallDef (Callable.set_status status cdef)
     | TypeDef td -> TypeDef { td with type_def_is_free = is_free status }
-    | VarDef vd -> VarDef { vd with var_is_free = is_free status }
+    | VarDef vd -> VarDef { vd with var_is_free = status }
     | ModInst mi -> ModInst { mi with mod_inst_is_free = is_free status }
     | symbol -> symbol
   and set_status status md =
@@ -2842,6 +2851,35 @@ module Module = struct
   let set_symbol_free = set_symbol_status UserFree
   let set_machine_free = set_status MachineFree
   let set_symbol_machine_free = set_symbol_status MachineFree
+
+  (** Force a whole compilation unit free because the compiler said so -- the standard
+      library, or an included file -- rather than because the user wrote `free`. Unlike
+      [set_machine_free] this only *raises* [NotFree] to [MachineFree]: a `free` the user
+      wrote inside the unit keeps its [UserFree] status, which matters because the two
+      are not interchangeable when a member is inherited into an implementing module
+      (see [Typing.merge_defs]). *)
+  let rec set_symbol_unit_free = function
+    | ModDef md -> ModDef (set_unit_free md)
+    | CallDef cdef ->
+        if is_free cdef.call_decl.call_decl_status then CallDef cdef
+        else CallDef (Callable.set_status MachineFree cdef)
+    | VarDef vd ->
+        if is_free vd.var_is_free then VarDef vd
+        else VarDef { vd with var_is_free = MachineFree }
+    | TypeDef td -> TypeDef { td with type_def_is_free = true }
+    | ModInst mi -> ModInst { mi with mod_inst_is_free = true }
+    | symbol -> symbol
+
+  and set_unit_free md =
+    let mod_decl_status =
+      if is_free md.mod_decl.mod_decl_status then md.mod_decl.mod_decl_status
+      else MachineFree
+    in
+    { mod_decl = { md.mod_decl with mod_decl_status };
+      mod_def =
+        List.map md.mod_def ~f:(function
+          | SymbolDef symbol -> SymbolDef (set_symbol_unit_free symbol)
+          | instr -> instr) }
 end
 
 (** Symbols (for convenience) *)
@@ -2897,9 +2935,23 @@ module Symbol = struct
     | TypeDef type_def -> type_def.type_def_is_free
     | ConstrDef cdef -> false
     | DestrDef cdef -> false
-    | VarDef var_def -> var_def.var_is_free
+    | VarDef var_def -> is_free var_def.var_is_free
     | FieldDef field_def -> false
     | CallDef call_def -> is_free call_def.call_decl.call_decl_status
+
+  (** Which *kind* of free a symbol is, where the representation records it. [TypeDef]
+      and [ModInst] still carry a plain bool, so a `free` written on one of those is
+      indistinguishable from a compiler-established one and is reported as
+      [MachineFree]; nothing in the language actually writes `free type`/`free module`,
+      and reporting them as machine-free is what keeps an abstract inherited type
+      subject to the conformance check. *)
+  let free_status = function
+    | ModDef mod_def -> mod_def.mod_decl.mod_decl_status
+    | CallDef call_def -> call_def.call_decl.call_decl_status
+    | VarDef var_def -> var_def.var_is_free
+    | ModInst mod_inst -> if mod_inst.mod_inst_is_free then MachineFree else NotFree
+    | TypeDef type_def -> if type_def.type_def_is_free then MachineFree else NotFree
+    | ConstrDef _ | DestrDef _ | FieldDef _ -> NotFree
 
   let set_free = Module.set_symbol_free
 

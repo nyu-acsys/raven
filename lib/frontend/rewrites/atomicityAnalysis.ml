@@ -636,7 +636,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                                  {
                                    var_decl = snap_var_decl;
                                    var_init = None;
-                                   var_is_free = false;
+                                   var_is_free = NotFree;
                                  })
                           in
                           let snap_expr =

@@ -1,0 +1,15 @@
+// An axiom from an interface reached through `include` is a proof obligation for the
+// implementing module, exactly as for an interface declared in the same file or one
+// from the standard library. `comp` returns its first argument, so `compCommute`
+// cannot hold. Regression test: `include` marks the included file free unconditionally
+// (there is no `free include` syntax), and that status used to be recorded as though
+// the user had written `free`, which suppressed this check.
+include "included/mini_ra.rav"
+
+module Fst : MiniRA {
+  rep type T = Int
+
+  val id: T = 0
+
+  func comp(a: T, b: T) returns (r: T) { a }
+}

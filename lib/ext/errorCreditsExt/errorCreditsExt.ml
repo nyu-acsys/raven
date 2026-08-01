@@ -267,7 +267,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
 
           (* add symbol to Raven symbolTbl *)
           let* _ = Rewriter.introduce_symbol 
-            (VarDef { var_decl = fn_arg_var_decl; var_init = None; var_is_free = false})
+            (VarDef { var_decl = fn_arg_var_decl; var_init = None; var_is_free = NotFree})
           in
 
           (* another log stmt. *)
