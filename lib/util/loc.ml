@@ -103,6 +103,63 @@ let to_string_simple loc =
 let registered_sources : (string * string) list ref = ref []
 let register_sources sources = registered_sources := sources
 
+(** Every embedded library source: the fixed core standard library plus whatever the
+    active extension registered. Each is named by its path relative to the repository
+    root (see [Library.sources]). *)
+let library_sources () = Library.sources @ !registered_sources
+
+let library_source_content (name : string) : string option =
+  List.find_map (library_sources ()) ~f:(fun (n, src) ->
+      if String.equal n name then Some src else None)
+
+(** Whether [name] denotes an embedded library source rather than a file on disk. *)
+let is_library_source name = Opt.is_some (library_source_content name)
+
+(* Ancestors of [dir], innermost first: "/a/b" -> ["/a/b"; "/a"; "/"] *)
+let rec ancestors dir =
+  let parent = Stdlib.Filename.dirname dir in
+  if String.equal parent dir then [ dir ] else dir :: ancestors parent
+
+let library_real_path_cache : (string, string option) Hashtbl.t = Hashtbl.create (module String)
+
+(** An on-disk file byte-identical to the embedded library source [name], if one can be
+    found -- i.e. this binary is running inside a checkout it was built from. [name] is
+    a repository-relative path, so a candidate root need only contain it.
+
+    Roots come from the executable's own location and from the working directory, tried
+    outermost first so that a source tree wins over dune's `_build` copy of it: both
+    match byte-for-byte, but only the former is worth opening in an editor.
+
+    Comparing content is what makes this safe. A checkout at a different revision, or a
+    library file edited since the binary was built, simply fails to match and is
+    rejected -- rather than being reported with line numbers that no longer line up
+    with what was actually verified. *)
+let library_real_path (name : string) : string option =
+  match Hashtbl.find library_real_path_cache name with
+  | Some cached -> cached
+  | None ->
+      let result =
+        match library_source_content name with
+        | None -> None
+        | Some embedded ->
+            let roots =
+              ancestors (Stdlib.Filename.dirname Stdlib.Sys.executable_name)
+              @ ancestors (Stdlib.Sys.getcwd ())
+              |> List.dedup_and_sort ~compare:(fun a b ->
+                     match Int.compare (String.length a) (String.length b) with
+                     | 0 -> String.compare a b
+                     | c -> c)
+            in
+            List.find_map roots ~f:(fun root ->
+                let candidate = Stdlib.Filename.concat root name in
+                if Stdlib.Sys.file_exists candidate then
+                  let content = Stdio.In_channel.read_all candidate in
+                  if String.equal content embedded then Some candidate else None
+                else None)
+      in
+      Hashtbl.set library_real_path_cache ~key:name ~data:result;
+      result
+
 let context loc =
   let rec in_channel_line ic (line_num : int) =
     let next_line =

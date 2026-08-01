@@ -47,7 +47,7 @@ module DecreasesExt (Cont : ListApi) = struct
      ones actually overridden below need a definition. *)
   include Cont
 
-  let lib_source = Some ("well_founded_order.rav", [%blob "well_founded_order.rav"])
+  let lib_source = Some ("lib/ext/decreasesExt/well_founded_order.rav", [%blob "well_founded_order.rav"])
 
   (** ExtApi/core has no notion of [WellFoundedOrder] -- this is entirely
       DecreasesExt's own vocabulary, resolved on demand here rather than

@@ -24,7 +24,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
   include Cont
 
   (* Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module. *)
-  let lib_source = Some ("errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
+  let lib_source = Some ("lib/ext/errorCreditsExt/errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
 
   (* Hard-coding ident constants from `errorCreditsLib.rav` *)
   module EC_Predefs = struct

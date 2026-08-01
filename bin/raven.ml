@@ -370,6 +370,18 @@ let strict =
              `decreases` clauses, and about explicit user use of `free`." in
   Arg.(value & flag & info [ "strict" ] ~doc)
 
+let dump_library =
+  let doc = "Write the embedded library sources (the standard library plus the active \
+             extension's) into DIR, reproducing their paths, and exit. The files are \
+             byte-identical to what this binary verifies against." in
+  Arg.(value & opt (some string) None & info [ "dump-library" ] ~docv:"DIR" ~doc)
+
+let print_library_source =
+  let doc = "Write the embedded library source named PATH (as reported in diagnostics, \
+             e.g. lib/library/resource_algebra.rav) to stdout, and exit. Lets an editor \
+             display a library location that has no file on disk." in
+  Arg.(value & opt (some string) None & info [ "print-library-source" ] ~docv:"PATH" ~doc)
+
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
@@ -415,7 +427,38 @@ let print_errors config errs =
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict =
+(** Serves the embedded library sources to whoever needs the text of a location that has
+    no file on disk: `--dump-library` writes them all out, `--print-library-source` emits
+    one. Both run after the extension is resolved, so the active extension's own library
+    is included, and both use exactly the bytes this binary verifies against. *)
+let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
+  let sources = Library.sources @ lib_sources in
+  let dumped =
+    Option.map dump_library ~f:(fun dir ->
+        List.iter sources ~f:(fun (name, content) ->
+            let target = Stdlib.Filename.concat dir name in
+            let rec mkdirs d =
+              if not (Stdlib.Sys.file_exists d) then begin
+                mkdirs (Stdlib.Filename.dirname d);
+                Unix.mkdir d 0o755
+              end
+            in
+            mkdirs (Stdlib.Filename.dirname target);
+            Stdio.Out_channel.write_all target ~data:content;
+            Logs.app (fun m -> m "%s" target)))
+  in
+  let printed =
+    Option.map print_library_source ~f:(fun name ->
+        match List.Assoc.find sources ~equal:String.equal name with
+        | Some content -> Stdlib.print_string content
+        | None ->
+            Logs.err (fun m ->
+                m "No library source named '%s'. Known sources: %s" name
+                  (String.concat ~sep:", " (List.map sources ~f:fst))))
+  in
+  Option.is_some dumped || Option.is_some printed
+
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict dump_library print_library_source =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   let config = {
     no_library;
@@ -436,6 +479,11 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode)
   in
   let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
+  if
+    serve_library_sources ~lib_sources:ChosenExt.lib_sources ~dump_library
+      ~print_library_source
+  then `Ok ()
+  else
   try `Ok (parse_and_check_all ~ext_hooks ~lib_sources:ChosenExt.lib_sources config input_files) with
   | Unix.Unix_error (err, _, prog) ->
     let msg =
@@ -460,6 +508,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

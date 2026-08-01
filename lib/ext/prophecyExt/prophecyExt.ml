@@ -27,7 +27,7 @@ module ProphecyExt (Cont : ListApi) = struct
   include Cont
 
   (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
-  let lib_source = Some ("prophecyLib.rav", [%blob "prophecyLib.rav"])
+  let lib_source = Some ("lib/ext/prophecyExt/prophecyLib.rav", [%blob "prophecyLib.rav"])
 
   (* Defining pre-fixed idents from `Prophecy` module defined in prophecyLib.rav. This module gets added to Raven's `Library`, and thus can be accessed as `Library.Prophecy`. We instantiate this module for each type used in the program.  *)
   module ProphPredefs = struct

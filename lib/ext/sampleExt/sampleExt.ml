@@ -9,7 +9,7 @@ module SampleExt (Cont : ListApi) = struct
      ones actually overridden below need a definition. *)
   include Cont
 
-  let lib_source = Some ("sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])
+  let lib_source = Some ("lib/ext/sampleExt/sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])
 
 
   type Stmt.stmt_ext +=
