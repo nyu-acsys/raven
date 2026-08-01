@@ -91,10 +91,6 @@ interface LatticeResourceAlgebra : ResourceAlgebra {
     auto axiom frameCompInv0()
         ensures forall a:T, b:T :: {valid(comp(a, b)),frame(comp(a, b), b)} valid(comp(a, b)) ==> frame(comp(a, b), b) == comp(a, b)
 
-    //TW: The following is implied by frameCompInv and frameCompInv0
-    //auto axiom frameCompInv2()
-    //    ensures forall a:T, b:T :: comp(a, b) == a && valid(a) ==> frame(a, b) == a
-
     auto axiom frame_comp_inv()
         ensures forall a:T, b:T, c:T :: {frame(a, comp(b,c)),frame(frame(a, b), c)} frame(a, comp(b,c)) == frame(frame(a, b), c)
 
