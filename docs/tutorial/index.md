@@ -1,6 +1,10 @@
+<script setup>
+import { withBase } from 'vitepress'
+</script>
+
 <table>
 <tr>
-<td width="200"><img width="200" src="/logo.png"/></td>
+<td width="200"><img width="200" :src="withBase('/logo.png')" alt="Raven"/></td>
 <td>
 
 # The Raven Tutorial

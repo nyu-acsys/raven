@@ -1,8 +1,9 @@
-// Mirrors every `.rav` file under `tutorial/` (except `tutorial/public/`
-// itself) into `tutorial/public/` at the same relative path, so that links
-// like `./hit_counter_pure.rav` in the tutorial's prose -- which point at
-// real source files, not other pages -- resolve to something VitePress
-// actually serves. Run automatically via the `predev`/`prebuild` npm
+// Mirrors every `.rav` file under `tutorial/` into `public/`, keeping its path
+// relative to the site root, so that links like `./hit_counter_pure.rav` in the
+// tutorial's prose -- which point at real source files, not other pages --
+// resolve to something VitePress actually serves. A page at /tutorial/01-sequential/
+// links to ./hit_counter_pure.rav, so the copy has to land at
+// public/tutorial/01-sequential/hit_counter_pure.rav. Run automatically via the `predev`/`prebuild` npm
 // scripts; safe to re-run any time.
 //
 // Wipes and rebuilds the mirror from scratch on every run (rather than only
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 
 const docsRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const tutorialRoot = join(docsRoot, 'tutorial')
-const publicRoot = join(tutorialRoot, 'public')
+const publicRoot = join(docsRoot, 'public')
 
 function removeStaleRav(dir) {
   for (const entry of readdirSync(dir)) {
@@ -36,7 +37,7 @@ function walk(dir) {
     if (stat.isDirectory()) {
       walk(full)
     } else if (entry.endsWith('.rav')) {
-      const rel = relative(tutorialRoot, full)
+      const rel = relative(docsRoot, full)
       const dest = join(publicRoot, rel)
       mkdirSync(dirname(dest), { recursive: true })
       copyFileSync(full, dest)
@@ -46,4 +47,4 @@ function walk(dir) {
 
 removeStaleRav(publicRoot)
 walk(tutorialRoot)
-console.log('sync-rav: mirrored .rav files into tutorial/public/')
+console.log('sync-rav: mirrored .rav files into public/')

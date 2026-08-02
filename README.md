@@ -10,7 +10,7 @@
 
 Raven is an intermediate verification language and SMT-based deductive verifier based on concurrent separation logic. It is intended as an intermediate layer for building program verification tools that target concurrent programs. Raven can also be used as a standalone educational tool.
 
-Raven's language design draws inspiration from projects like [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/) and [Viper](https://www.pm.inf.ethz.ch/research/viper.html) but treats concurrency as a first-class citizen. 
+Raven's language design draws inspiration from projects like [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/), [Why3](https://www.why3.org/), and [Viper](https://www.pm.inf.ethz.ch/research/viper.html) but treats concurrency as a first-class citizen. 
 Raven has a sizeable, and growing [collection](test/concurrent) of verified implementations of fine-grained concurrent data structures commonly found in the literature as well as real systems.
 
 Raven supports features like *shareable* invariants, user-definable resource algebras ("monoids"), and a higher-order module system that enables code and proof reuse. Its inlined style of development, interleaving code and proof, streamlines the process of co-developing a program alongside its proof of correctness. The Raven verifier then translates Raven programs to verification conditions expressed in first-order logic, which are then automatically dispatched using the SMT solver [Z3](https://github.com/Z3Prover/z3).
@@ -129,7 +129,7 @@ Several examples of Raven programs can be found in the [test](test) folder. The 
 
 
 ## Tutorial
-New to Raven? [**The Raven Tutorial**](https://nyu-acsys.github.io/raven/) is a from-scratch, hands-on introduction — sequential Raven, ownership and resources, the module system, ghost code and basic concurrency, then a set of advanced capstones (fork/join, atomic contracts, iterated separating conjunctions). Every code listing in it is a real, checked `.rav` file. Its sources live in [docs/tutorial](docs/tutorial/); to browse it locally instead:
+New to Raven? [**The Raven Tutorial**](https://nyu-acsys.github.io/raven/tutorial/) is a from-scratch, hands-on introduction — sequential Raven, ownership and resources, the module system, ghost code and basic concurrency, then a set of advanced capstones (fork/join, atomic contracts, iterated separating conjunctions). Every code listing in it is a real, checked `.rav` file. Its sources live in [docs/tutorial](docs/tutorial/); to browse it locally instead:
 ```bash
 $ cd docs
 $ npm install
