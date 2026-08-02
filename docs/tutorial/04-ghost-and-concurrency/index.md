@@ -118,15 +118,15 @@ between.
 The fix is a **ghost field**: `ghost field seen: AuthMaxNat` holds a value from a *resource
 algebra* (here, `Library.Auth[Library.MaxNat]`) rather than a program value, and exists purely
 for the proof — it has no run-time representation at all. A resource algebra isn't just a type;
-it comes with its own notion of *composition*, which is what `&&` between two `own` facts on the
-same field actually means, and that composition is specific to the kind of ghost value the field
-stores. For `Auth[MaxNat]`, composing an authoritative piece with a fragment isn't like ordinary
-conjunction at all — it's closer to "the fragment is a promise that the authoritative value is
-*at least* this much," a lower bound that composition can only ever make tighter, never looser.
-Pairing the real `count` field with a `seen` ghost field kept in lockstep is what gives the proof
-a way to hold onto that kind of promise — a piece of *stable knowledge about history* — even
-though `count` itself, as a plain field, remembers nothing beyond its current value. §6 makes
-this precise.
+it comes with its own notion of *composition*, which is what `&&` between two `own` facts on
+the same field actually means, and that composition is specific to the kind of ghost value the
+field stores. For `Auth[MaxNat]`, composing an authoritative piece `own(c.seen, auth(v))` with
+a fragment `own(c.seen, frag(w))` isn't like ordinary conjunction at all — it's closer to "the
+fragment `frag(w)` is a promise that the authoritative value `v` is *at least* `w`," a lower
+bound that composition can only ever make tighter, never looser.  Pairing the real `count`
+field with a `seen` ghost field kept in lockstep is what gives the proof a way to hold onto
+that kind of promise — a piece of *stable knowledge about history* — even though `count`
+itself, as a plain field, remembers nothing beyond its current value. §6 makes this precise.
 
 Raven ships a small library of these constructions under `Library` — `Frac` (fractional
 permissions, which you've actually been using since Part 2: every concrete field is secretly
@@ -138,14 +138,14 @@ gives the formal definition every such algebra has to satisfy.
 ## 6. Frame-preserving updates
 
 ```raven
-fpu(c.seen, auth_frag(v1, v1), auth_frag(next, next));
+fpu(c.seen, auth(v1), auth(next));
 ```
 
 `fpu` (frame-preserving update) replaces a ghost field's value according to its resource
 algebra's own update relation — here, `MaxNat`'s, which is defined to allow the move from `v1` to
 `next` (`v1 <= next`) and reject the reverse. The name is worth unpacking, because it's the whole
 reason this mechanism exists rather than a plain assignment: recall from §5 that a fragment
-`auth_frag(v1, v1)` composed with the authoritative piece encodes "the true value is at least
+`frag(v1)` composed with the authoritative piece encodes "the true value is at least
 `v1`." That composed-with relationship is the *frame* — literally, whatever a concurrent holder
 of some disjoint fragment is relying on. If `fpu` allowed the authoritative piece to move down
 to something smaller than a fragment already handed out, the composition that fragment's owner
