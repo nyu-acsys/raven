@@ -78,16 +78,19 @@ jobs:
 
       - run: opam exec -- dune build bin/raven.exe
 
-      - name: Strip binary
-        if: matrix.os != 'windows-latest'
-        run: strip _build/default/bin/raven.exe
-
-      - name: Stage binary (unix)
+      # Strip the staged copy rather than dune's own artifact: dune leaves everything
+      # under _build read-only, and `strip` needs to write its target (it rewrites via a
+      # temporary copy alongside it), so stripping in place fails with "unable to copy
+      # file ... Permission denied". The copy in dist/ is writable, and is what actually
+      # gets packaged.
+      - name: Stage and strip binary (unix)
         if: matrix.os != 'windows-latest'
         shell: bash
         run: |
           mkdir -p dist
           cp _build/default/bin/raven.exe dist/raven
+          chmod u+w dist/raven
+          strip dist/raven
 
       - name: Stage binary (windows)
         if: matrix.os == 'windows-latest'
