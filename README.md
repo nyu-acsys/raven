@@ -4,11 +4,14 @@
 
 <p align="center">
   <img alt="Version 1.2.0" src="https://img.shields.io/badge/version-1.2.0-green.svg"/>
+  <a href="https://nyu-acsys.github.io/raven/"><img alt="Project page" src="https://img.shields.io/badge/docs-nyu--acsys.github.io%2Fraven-blue.svg"/></a>
   <a href="https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-blue.svg"/></a>
   <a href="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml"><img alt="Builds, tests &amp; co" src="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main"/></a>
 </p>
 
 Raven is an intermediate verification language and SMT-based deductive verifier based on concurrent separation logic. It is intended as an intermediate layer for building program verification tools that target concurrent programs. Raven can also be used as a standalone educational tool.
+
+> **[nyu-acsys.github.io/raven](https://nyu-acsys.github.io/raven/)** — project page, with an introduction to the language and a [hands-on tutorial](https://nyu-acsys.github.io/raven/tutorial/). This file covers installing, running and developing Raven itself.
 
 Raven's language design draws inspiration from projects like [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/), [Why3](https://www.why3.org/), and [Viper](https://www.pm.inf.ethz.ch/research/viper.html) but treats concurrency as a first-class citizen. 
 Raven has a sizeable, and growing [collection](test/concurrent) of verified implementations of fine-grained concurrent data structures commonly found in the literature as well as real systems.
