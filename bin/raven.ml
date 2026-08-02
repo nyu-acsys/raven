@@ -453,7 +453,13 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   let printed =
     Option.map print_library_source ~f:(fun name ->
         match List.Assoc.find sources ~equal:String.equal name with
-        | Some content -> Stdlib.print_string content
+        | Some content ->
+            (* Binary mode: on Windows the default text mode would rewrite every '\n' on
+               the way out, so an editor displaying this would not be displaying the
+               bytes this binary actually verified -- the one property the flag exists to
+               guarantee. `.gitattributes` pins these files to LF for the same reason. *)
+            Stdlib.set_binary_mode_out Stdlib.stdout true;
+            Stdlib.print_string content
         | None ->
             Logs.err (fun m ->
                 m "No library source named '%s'. Known sources: %s" name
