@@ -120,6 +120,18 @@ let rec ancestors dir =
   let parent = Stdlib.Filename.dirname dir in
   if String.equal parent dir then [ dir ] else dir :: ancestors parent
 
+(** Join with '/', flattening any '\' the platform contributed. Library sources are named
+    by a '/'-separated path (see [Library.sources]), and Raven normalizes paths to '/'
+    elsewhere too (see [normalizeFilename] in bin/raven.ml), so joining with
+    [Filename.concat] would hand back a mix of both separators on Windows -- ugly in a
+    diagnostic, and awkward for a client that has to escape it into JSON. Windows accepts
+    '/' in paths, so the result is still openable there. *)
+let join_path dir name =
+  let to_slash = String.map ~f:(function '\\' -> '/' | c -> c) in
+  let dir = to_slash dir in
+  let dir = String.rstrip ~drop:(Char.equal '/') dir in
+  dir ^ "/" ^ to_slash name
+
 let library_real_path_cache : (string, string option) Hashtbl.t = Hashtbl.create (module String)
 
 (** An on-disk file byte-identical to the embedded library source [name], if one can be
@@ -151,7 +163,7 @@ let library_real_path (name : string) : string option =
                      | c -> c)
             in
             List.find_map roots ~f:(fun root ->
-                let candidate = Stdlib.Filename.concat root name in
+                let candidate = join_path root name in
                 if Stdlib.Sys.file_exists candidate then
                   let content = Stdio.In_channel.read_all candidate in
                   if String.equal content embedded then Some candidate else None

@@ -436,7 +436,10 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   let dumped =
     Option.map dump_library ~f:(fun dir ->
         List.iter sources ~f:(fun (name, content) ->
-            let target = Stdlib.Filename.concat dir name in
+            (* [Loc.join_path], not [Filename.concat]: keeps the reproduced tree
+               '/'-separated on every platform, matching the paths the sources are named
+               and reported by. *)
+            let target = Loc.join_path dir name in
             let rec mkdirs d =
               if not (Stdlib.Sys.file_exists d) then begin
                 mkdirs (Stdlib.Filename.dirname d);
