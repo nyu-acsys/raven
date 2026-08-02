@@ -1,0 +1,10 @@
+// 'is' rejects a constructor name that doesn't belong to the scrutinee's data type.
+type T1 = data {
+  case nil;
+  case cons(elem: Int, tl: T1)
+}
+
+proc bad_ctor(x: T1)
+  requires x is bogus
+{
+}

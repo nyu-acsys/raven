@@ -1,0 +1,3 @@
+// A type annotation is checked, not taken for granted: it must be consistent
+// both with the annotated expression itself and with the surrounding context.
+val x: Bool = (3 : Int)

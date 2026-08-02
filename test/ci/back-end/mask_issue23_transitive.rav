@@ -1,0 +1,37 @@
+// Regression test for GitHub issue #23: a callable that only ever
+// allocates a fresh invariant instance and hands it back via `ensures`
+// used to be rejected at call sites whose own spec doesn't mention the
+// invariant, because the old mask computation scanned specs textually and
+// never propagated mask requirements through ordinary calls at all.
+
+field f: Int
+
+inv p(x: Ref) {
+  own(x.f, 1)
+}
+
+proc create()
+  returns (x: Ref)
+  ensures p(x)
+{
+  x := new(f: 1);
+  fold p(x);
+}
+
+proc helper(x: Ref)
+  requires p(x)
+  ensures p(x)
+{
+  unfold p(x);
+  x.f := 1;
+  fold p(x);
+}
+
+// No `requires`/`ensures` here mentions `p` at all -- `caller`'s own mask
+// requirement is inferred purely transitively, through the calls to
+// `create()` and `helper()`.
+proc caller() {
+  var x: Ref;
+  x := create();
+  helper(x);
+}

@@ -1,0 +1,18 @@
+/* A decreases clause whose measure is Library.Ordinal.T rather than Int --
+   confirms the generalized resolution path (any type with a WellFoundedOrder
+   instance, not just Int) works end to end for a genuinely different,
+   recursively-defined domain. Ordinal.T wraps Library.OrdinalBase.T (see
+   well_founded_order.rav for why it's a wrapper, not a bare alias), so values
+   are built via Ordinal.wrap(...)/unwrap. */
+proc countdown(o: Library.Ordinal.T)
+  requires !(o.Library.Ordinal.unwrap == Library.OrdinalBase.zero) &&
+    o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff >= 0
+  decreases o
+{
+  if (!(o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff == 0)) {
+    countdown(Library.Ordinal.wrap(Library.OrdinalBase.cons(
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.exp,
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.coeff - 1,
+      o.Library.Ordinal.unwrap.Library.OrdinalBase.rest)));
+  }
+}

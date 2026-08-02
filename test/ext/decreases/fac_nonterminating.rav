@@ -1,0 +1,7 @@
+func fac(n: Int)
+  returns (res: Int)
+  ensures res >= 1
+  decreases n
+{
+  n > 0 ? n * fac(n+1) : 1
+}

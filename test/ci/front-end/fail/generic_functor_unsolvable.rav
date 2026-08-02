@@ -1,0 +1,12 @@
+module M[T: Library.Type] {
+  rep type S = data {
+    case nil
+    case c(value: T)
+  }
+
+  func mk_nil() returns (res: S) { nil }
+}
+
+proc p() {
+  var x := M.mk_nil();
+}

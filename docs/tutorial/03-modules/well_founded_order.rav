@@ -1,0 +1,52 @@
+// Rolling your own termination order: `Library.WellFoundedOrder` (used by
+// every `decreases` clause since Part 1 §5) is itself just an `interface`,
+// implemented by a `module`, exactly like `Counter` earlier in this file --
+// the same pattern, applied to the standard library instead of to your own
+// code.
+//
+// A well-founded order for a two-state "not done yet" / "done" flag,
+// collapsing towards `true`. Wrapped in a single-constructor `data` type
+// (not `rep type T = Bool` directly) for the same reason `Library.Ordinal`
+// wraps `Library.OrdinalBase.T`: a `rep type` alias to a type outside this
+// module resolves transparently to that other type's own identity once
+// elaborated, which would make a `decreases` clause of this type resolve to
+// bare `Bool` -- which has no `WellFoundedOrder` instance of its own --
+// rather than to this module.
+module BoolOrder : Library.WellFoundedOrder {
+  rep type T = data {
+    case wrap(unwrap: Bool)
+  }
+
+  func lt(x: T, y: T) returns (res: Bool) {
+    x.unwrap && !y.unwrap
+  }
+
+  // Every instance has to justify well-foundedness by mapping into
+  // `Library.OrdinalBase.T` -- ordinals in Cantor normal form, the one
+  // structure this whole mechanism ultimately trusts -- rather than by
+  // fiat. `true` (the terminal state) maps to `zero`, the smallest
+  // ordinal; `false` maps to anything strictly larger.
+  func embed(x: T) returns (res: Library.OrdinalBase.T) {
+    x.unwrap ?
+      Library.OrdinalBase.zero :
+      Library.OrdinalBase.cons(Library.OrdinalBase.zero, 1, Library.OrdinalBase.zero)
+  }
+
+  // The one proof obligation implementing this interface actually asks
+  // for: that `lt` agrees with the ordinal order after `embed`. Here it's
+  // immediate from both functions' definitions -- Raven's automation
+  // handles it with an empty body, the same way Part 3 §4's `nonNegative`
+  // needed nothing but an `unfold`/`fold` once the right fact was exposed.
+  lemma lt_embed_mono()
+    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> Library.OrdinalBase.lt(embed(x), embed(y))
+  {
+  }
+}
+
+proc countDown(done: BoolOrder.T)
+  decreases done
+{
+  if (!done.BoolOrder.unwrap) {
+    countDown(BoolOrder.wrap(true));
+  }
+}

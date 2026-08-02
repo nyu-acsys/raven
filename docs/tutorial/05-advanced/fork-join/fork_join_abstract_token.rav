@@ -1,0 +1,40 @@
+// Step 4 of this capstone's build-up: `token` and `token_unique` are left
+// entirely abstract here, exactly like `Counter`'s `valid` back in Part 3 --
+// nothing yet commits to *how* a token is realized, only to the one fact
+// about it (`token_unique`) that made the proof in ../index.md §4 go
+// through. `ForkJoin` itself is an `interface` rather than a `module` for
+// exactly this reason: a bare, bodyless `pred`/`lemma` can only appear
+// inside an interface, never at the top level of a module. Step 5
+// (../fork_join_explicit.rav) gives a concrete module that implements this
+// interface, backing `token` with a real resource algebra.
+interface Instance {
+  type R
+
+  pred resource(r: R)
+
+  proc task() returns (r: R)
+    ensures resource(r)
+}
+
+interface ForkJoin[I: Instance] {
+  import I._
+
+  // Abstract: some non-duplicable permission slip, realized however an
+  // implementation of this interface sees fit.
+  pred token(p: Ref)
+
+  // Abstract: the one fact about `token` this capstone's proof actually
+  // needs. An implementation has to supply this as a real lemma with a
+  // real proof body -- or, if it doesn't, Raven attempts to discharge it
+  // automatically and fails, exactly as in Part 3 §4's `nonNegative`.
+  lemma token_unique(p: Ref)
+    requires token(p) && token(p)
+    ensures false
+
+  proc fork() returns (p: Ref)
+    ensures token(p)
+
+  proc join(p: Ref) returns (r: R)
+    requires token(p)
+    ensures resource(r)
+}

@@ -1,0 +1,7 @@
+# *.rav files are embedded byte-for-byte at compile time via ppx_blob
+# (lib/library/library.ml and each extension's `lib_source`, e.g.
+# lib/ext/decreasesExt/well_founded_order.rav), bypassing any text-mode
+# line-ending translation a checked-out file would normally get on read.
+# Force LF on checkout regardless of the client's core.autocrlf, so the
+# embedded stdlib/extension sources always lex correctly.
+*.rav text eol=lf

@@ -1,0 +1,9 @@
+module M[T: Library.Type] {
+  rep type S = data {
+    case c(value: Set[T])
+  }
+}
+
+proc p() {
+  var x := M.c({||});
+}

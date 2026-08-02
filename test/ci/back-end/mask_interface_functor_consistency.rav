@@ -1,0 +1,44 @@
+// Regression test: since `call_decl_needs_mask` is derived purely from
+// `requires`, an interface's
+// abstract declaration and a functor's concrete instantiation of it are
+// guaranteed the same mask by construction whenever the mask-relevant
+// invariant is genuinely part of the interface's own `requires` clause --
+// no cross-checking machinery needed, since Raven already enforces exact
+// `requires`-clause matching between an interface member and its
+// implementation. (The residual case this does *not* cover -- a concrete
+// implementation whose *body* needs more than its own `requires` states --
+// is a separate, still-open gap; see sec 2.6's opening paragraph.)
+
+field c: Int
+
+inv p(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+interface I {
+  lemma op(x: Ref)
+    requires p(x)
+    ensures p(x)
+}
+
+module F[P: I] {
+  proc run(x: Ref)
+    requires p(x)
+    ensures p(x)
+  {
+    P.op(x);
+  }
+}
+
+module M : I {
+  lemma op(x: Ref)
+    requires p(x)
+    ensures p(x)
+  {
+    unfold p(x);
+    var v: Int := x.c;
+    fold p(x);
+  }
+}
+
+module FM = F[M]

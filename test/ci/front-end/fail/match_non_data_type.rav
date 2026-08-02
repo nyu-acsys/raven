@@ -1,0 +1,4 @@
+// A `match` scrutinee must have a `data` type.
+proc bad(x: Int) returns (r: Int) {
+  r := match x { case nil => 0 };
+}

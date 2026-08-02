@@ -1,0 +1,20 @@
+// This file is DELIBERATELY BROKEN -- it will not verify, on purpose.
+//
+// It claims to end up owning `c.count` *twice* from a single starting
+// ownership fact, which would mean 200% of a location whose fractions can
+// only ever add up to 100%. Expect:
+//
+//   [Verification Error] A postcondition may not hold at this return point
+//   [Related Location]   This own predicate may not hold
+//
+// `own` is a *resource*, not a fact you can freely restate: you can't get
+// more of it out of a procedure than you put in, no matter what you write in
+// the `ensures` clause -- Raven checks the arithmetic, it doesn't just take
+// your word for it.
+field count: Int
+
+proc badDup(c: Ref, implicit ghost v: Int)
+  requires own(c.count, v)
+  ensures own(c.count, v) && own(c.count, v)
+{
+}

@@ -1,0 +1,9 @@
+func bad_even(n: Int) returns (res: Bool)
+{
+  n > 0 ? bad_odd(n - 1) : true
+}
+
+func bad_odd(n: Int) returns (res: Bool)
+{
+  n > 0 ? bad_even(n - 1) : false
+}

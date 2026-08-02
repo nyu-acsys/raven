@@ -78,8 +78,14 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
 
   func fpuAllowed(i1: T, i2: T) returns (ret: Bool)
   {
-    i1 == i2 
-    // contextualExt(i1, i2) 
+    i1 == i2
+    // contextualExt(i1, i2)
+  }
+
+  lemma frameReflexive()
+    ensures forall i: T :: {frame(i, i)} valid(i) ==> frame(i, i) == id
+  {
+    M.frameInv()
   }
 
   // Folds definition of interface composition, avoiding M.frame
@@ -101,7 +107,7 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
                         (n in i2.dom ? M.frame(i2.inf[n], i1.out[n]) :
                           M.id) |},
                     {| n: Ref :: n !in i1.dom && n !in i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
-                    i1.dom ++ i2.dom);
+                    i1.dom ++ i2.dom)
   }
 
   lemma compUnfold(i1: T, i2: T)
@@ -124,18 +130,18 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     requires valid(comp(i1, comp(i2, i3)))
     ensures comp(i1, comp(i2, i3)) == comp(comp(i1, i2), i3)
   {
-    val i23: T := comp(i2, i3);
-    val i: T := comp(i1, i23);
+    val i23: T := comp(i2, i3)
+    val i: T := comp(i1, i23)
   
     val i12: T := int({| n: Ref :: n in i1.dom ++ i2.dom ? M.comp(i.inf[n], i3.out[n]) : M.id |},
                       {| n: Ref :: n !in i1.dom ++ i2.dom ? M.comp(i1.out[n], i2.out[n]) : M.id |},
                       i1.dom ++ i2.dom);
 
-    compFold(i1, i2, i12);
+    compFold(i1, i2, i12)
     
-    compValid();
+    compValid()
    
-    compFold(i12, i3, i);
+    compFold(i12, i3, i)
   }
 
   auto lemma compFrameInv()
@@ -143,13 +149,13 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   {}
 
   auto lemma compAssoc()
-        ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
   {
     assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
       if (valid(comp(i1, comp(i2, i3)))) {
-        compAssocValid(i1, i2, i3);
+        compAssocValid(i1, i2, i3)
       } else if (valid(comp(comp(i1, i2), i3))) {
-        compAssocValid(i3, i2, i1);
+        compAssocValid(i3, i2, i1)
       }
     }
   }
@@ -161,26 +167,26 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     ensures comp(j1, i2) != top
     ensures contextualExt(comp(i1, i2), comp(j1, i2))
   {
-    var i: T := comp(i1, i2);
+    var i: T := comp(i1, i2)
     var j: T := int(
       {| n: Ref :: n in i.dom ?
         (n in i1.dom ? M.comp(i.inf[n], M.frame(j1.inf[n], i1.inf[n]))
           : i.inf[n]) : j1.inf[n] |},
       {| n: Ref :: n !in j1.dom && n !in i2.dom ?
         M.comp(j1.out[n], i2.out[n]) : M.id |},
-      j1.dom ++ i2.dom);
+      j1.dom ++ i2.dom)
 
-    compUnfold(i1, i2);
+    compUnfold(i1, i2)
 
     assert forall n: Ref :: {j1.inf[n]} {i2.out[n]} n in j1.dom ==> j1.inf[n] == M.comp(j.inf[n], i2.out[n]) with {
       if (n in i1.dom) {
-        M.frameInv();
+        M.frameInv()
       } 
     }
 
-    compValid();
+    compValid()
     
-    compFold(j1, i2, j);
+    compFold(j1, i2, j)
   }
 
   lemma frame_inflow_unfold(i1: T, i2: T, n: Ref) 
@@ -188,6 +194,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     requires n in i2.dom
     ensures M.valid(M.frame(i2.inf[n], i1.inf[n]))
   { 
-    assert frame(i1, i2).out[n] == M.frame(i2.inf[n], i1.inf[n]);
+    assert frame(i1, i2).out[n] == M.frame(i2.inf[n], i1.inf[n])
   }
 }

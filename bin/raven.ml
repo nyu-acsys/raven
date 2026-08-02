@@ -12,6 +12,7 @@ type config = {
   smt_timeout: int;
   smt_diagnostics: bool;
   log_level: Logs.level option;
+  strict: bool;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -23,13 +24,23 @@ let stream_of_file file_name =
   let _ = Lexer.set_file_name lexbuf file_name in
   (inchan, lexbuf)
 
+(* `include` paths in .rav source are always written with forward slashes
+   (portable, editor-agnostic convention -- see e.g. test/concurrent/templates),
+   regardless of which OS raven runs on. Splitting only on Filename.dir_sep -- "\\"
+   on Windows -- would leave a "./"-prefixed include like "./ccm.rav" un-split, so it
+   normalizes to a different string than a same-file include written as "ccm.rav"
+   elsewhere; the two spellings then dedupe as different files and get declared
+   twice. Split on either separator so both spellings always normalize the same way,
+   and always rejoin with "/" so the result is one canonical, platform-independent
+   string throughout (used as-is both as a file path -- Windows accepts "/" same as
+   "\\" -- and in diagnostics, where dune's cram tests expect forward slashes). *)
 let normalizeFilename base_dir file_name =
   let fullname =
     if Stdlib.Filename.is_relative file_name then
       base_dir ^ Stdlib.Filename.dir_sep ^ file_name
     else file_name
   in
-  let sep = Str.regexp_string Stdlib.Filename.dir_sep in
+  let sep = Str.regexp "[/\\\\]" in
   let parts = Str.split_delim sep fullname in
   let remaining =
     List.fold_left
@@ -40,15 +51,20 @@ let normalizeFilename base_dir file_name =
         | x -> x :: acc)
       ~init:[] parts
   in
-  String.concat ~sep:Stdlib.Filename.dir_sep (List.rev remaining)
+  String.concat ~sep:"/" (List.rev remaining)
 
 (** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
 let parse_cu file_dir top_level_md_ident lexbuf =
   let incls, md =
-    try Parser.main Lexer.token lexbuf
+    try Parser.main (Lexer.make_token ()) lexbuf
     with Parser.Error ->
       let err_pos = lexbuf.lex_curr_p in
-      Error.syntax_error (Loc.make err_pos err_pos) "Parse error"
+      let tok = Lexing.lexeme lexbuf in
+      let msg =
+        if String.is_empty tok then "Unexpected end of file"
+        else Printf.sprintf "Unexpected token '%s'" tok
+      in
+      Error.syntax_error (Loc.make err_pos err_pos) msg
   in
   let incls = List.map incls ~f:(fun (incl, loc) ->
       let incl = normalizeFilename file_dir incl in
@@ -59,21 +75,49 @@ let parse_cu file_dir top_level_md_ident lexbuf =
   in
   (incls, Ast.Module.set_name md top_level_md_ident)
 
-let check_cu config tbl smt_env md front_end_out_chan =
+(** Under `--strict`, warns about every explicit `free` in [md] (recursing into nested
+    modules). Must run before [Ast.Module.set_free] force-marks a whole file free (e.g.
+    for stdlib/includes below) -- once applied, that override is indistinguishable from
+    a literal `free` written by the user. *)
+let rec warn_free_usage (md : Ast.Module.t) =
+  List.iter md.mod_def ~f:(function
+    | Ast.Module.SymbolDef symbol ->
+      if Ast.Symbol.is_free symbol then
+        Logs.warn (fun m -> m "%s%s"
+          (Loc.to_string (Ast.Symbol.to_loc symbol))
+          (Printf.sprintf
+             !"%s %{Ident} is declared `free`; its contract will be assumed for verification purposes, not checked"
+             (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol)));
+      (match symbol with
+       | Ast.Module.ModDef mod_def -> warn_free_usage mod_def
+       | _ -> ())
+    | Ast.Module.Import _ -> ())
+
+(** Type-checks and front-end-processes (rewrites) a single compilation unit. This is
+    kept separate from the actual backend/SMT checking ([backend_check_cu] below) so that
+    the full set of tuple sorts a program needs (see [Backend.TupleArities]) can be
+    computed from the fully elaborated symbol table -- of both the library and the main
+    program -- before any backend checking (and hence any tuple-sort declaration) begins.
+    Returns [None] in place of the processed module when there is nothing to backend-check
+    (`--typeonly`); the `--stats` short-circuit below exits the process directly, as
+    before. *)
+let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
+  let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
+  let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
-  let tbl, processed_md = Typing.process_module ~tbl md in
-  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks ~cli_config md in
+  Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
 
-  if config.typecheck_only then (smt_env, tbl) else
-  
-  if config.prog_stats 
-    && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library") 
-  then 
-    let _ = 
-      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr processed_md.mod_decl.mod_decl_name) 
+  if config.typecheck_only then (tbl, None) else
+
+  if config.prog_stats
+    && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library")
+  then
+    let _ =
+      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr processed_md.mod_decl.mod_decl_name)
     in
-    let prog_stats = Rewrites.compute_stats tbl processed_md in
+    let prog_stats = Rewrites.compute_stats ~ext_hooks tbl processed_md in
 
     Logs.app (fun m -> m
       "\nPROGRAM STATISTICS: \n%a"
@@ -82,7 +126,7 @@ let check_cu config tbl smt_env md front_end_out_chan =
     Stdlib.exit 0
   else begin
 
-  let tbl, processed_md = Rewrites.process_module ~tbl processed_md in
+  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks ~cli_config processed_md in
 
   (* Logs.debug (fun m ->
       m "SymbolTbl Symbols: \n%a\n"
@@ -93,20 +137,29 @@ let check_cu config tbl smt_env md front_end_out_chan =
            (Map.filter_keys tbl.tbl_symbols ~f:(fun k ->
                 Poly.(QualIdent.to_string k = "$Program.pr"))))); *)
 
-  Logs.debug (fun m -> m !"%a" Ast.Module.pr processed_md);
+  Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
 
   Stdlib.Format.fprintf
     (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
-    "%a\n" Ast.Module.pr processed_md;
+    "%a\n" printers.pr_module processed_md;
 
-  let smt_env = Backend.Checker.check_module processed_md tbl smt_env in
-  (smt_env, tbl)
+  (tbl, Some processed_md)
   end
+
+(** Runs backend/SMT checking for a single already-elaborated compilation unit. *)
+let backend_check_cu tbl smt_env processed_md =
+  Backend.Checker.check_module processed_md tbl smt_env
 
 
 (** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all config file_names =
+let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
+  (* Locations inside extension library sources (e.g. well_founded_order.rav) are
+     virtual -- there's no real file on disk for Loc.context to fall back to reading.
+     Register them so it can find the text the same way it already does for the core
+     standard library ([Library.sources]). *)
+  Loc.register_sources lib_sources;
+
   (* Start backend solver session *)
   
   (* Variable which controls whether the 
@@ -124,6 +177,7 @@ let parse_and_check_all config file_names =
   in
 
   let smt_env = Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout in
+  Stdlib.Fun.protect ~finally:(fun () -> Backend.Smt_solver.stop smt_env) @@ fun () ->
 
   let front_end_processed_output_log = "front_end_processed_output.log" in
   let front_end_out_chan =
@@ -135,12 +189,11 @@ let parse_and_check_all config file_names =
 
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
-  let smt_env, tbl =
-    if config.no_library then (smt_env, tbl)
+  let tbl, lib_processed_md =
+    if config.no_library then (tbl, None)
     else
       let lib_prog =
-        let (module Ext') = !Ext.ext in
-        List.fold_right (Library.sources @ Ext'.lib_sources) ~init:empty_prog
+        List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
         ~f:(fun (lib_file_name, lib_source) lib_prog ->
             let lib_source_lexbuf =
               Lexing.from_string lib_source
@@ -149,10 +202,16 @@ let parse_and_check_all config file_names =
               Lexer.set_file_name lib_source_lexbuf lib_file_name
             in
             let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
-            let md = Ast.Module.set_free md in
+            (* [set_unit_free], not [set_free]: the standard library is trusted by the
+               compiler so it isn't re-verified for every program, which is exactly what
+               [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
+               The two must stay distinguishable: a member inherited from here into a
+               user module still owes a definition and a proof, whereas one inherited
+               from a user's own `free` declaration does not (see [Typing.merge_defs]). *)
+            let md = Ast.Module.set_unit_free md in
             merge_prog md lib_prog)
       in
-      check_cu config tbl smt_env lib_prog front_end_out_chan
+      elaborate_cu ~ext_hooks config tbl lib_prog front_end_out_chan
   in
   
   (* Parse and check actual input program *)
@@ -166,17 +225,22 @@ let parse_and_check_all config file_names =
             try stream_of_file file_name
             with Sys_error _ ->
               let loc = Hashtbl.find include_map file_name |> Option.value ~default:Loc.dummy in
-              Error.error loc "File does not exist"
+              Error.error loc (Printf.sprintf "Cannot find file '%s' (referenced by an include)" file_name)
           in
           let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
+
+          if config.strict then warn_free_usage md;
 
           Stdio.In_channel.close inchan;
 
           let md =
-            if is_free then
-              let md = Ast.Module.set_free md in
-              md
-            else md
+            (* [is_free] here is set unconditionally for every `include`d file (see
+               [parse_cu]) -- there is no `free include` syntax -- so this is the
+               compiler's decision, not the user's, and uses [set_unit_free] for the
+               same reason the standard library above does. Marking it [UserFree]
+               instead used to let a module implementing an interface from an included
+               file skip both halves of the conformance check. *)
+            if is_free then Ast.Module.set_unit_free md else md
           in
 
           let parsed = Set.add parsed file_name in
@@ -203,9 +267,26 @@ let parse_and_check_all config file_names =
       empty_prog
   in
 
+  let tbl, prog_processed_md = elaborate_cu ~ext_hooks config tbl md front_end_out_chan in
+
   begin
-  let _, _tbl = check_cu config tbl smt_env md front_end_out_chan in
   (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
+  let processed_mds = List.filter_map [ lib_processed_md; prog_processed_md ] ~f:Fn.id in
+
+  (match processed_mds with
+   | [] -> (* `--typeonly`: nothing left to backend-check *) ()
+   | _ ->
+     (* Only now -- once both the library and the main program have been fully
+        elaborated -- do we know every tuple sort ([$tuple_n]) the program actually
+        needs (see Backend.TupleArities), so this is the earliest point at which we
+        can declare them. *)
+     let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
+     let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
+     let (_ : Backend.Smt_solver.smt_env) =
+       List.fold processed_mds ~init:smt_env ~f:(backend_check_cu tbl)
+     in
+     ());
+
   Logs.app (fun m -> m "Verification successful.")
   end
 
@@ -281,18 +362,60 @@ let smt_timeout =
 
 let extension_mode =
   let doc = "Extension mode: default, eris, or prophecy." in
-  Arg.(value & opt (enum Ext.ext_map) Ext.DefaultExt & info [ "extension" ] ~doc)
+  let supported_exts = List.map ~f:(fun (e, _) -> (e, e)) Ext.ext_map in
+  Arg.(value & opt (enum supported_exts) "default" & info [ "extension" ] ~doc)
+
+let strict =
+  let doc = "Warn about recursive lemmas/functions and loops in lemmas missing \
+             `decreases` clauses, and about explicit user use of `free`." in
+  Arg.(value & flag & info [ "strict" ] ~doc)
+
+let dump_library =
+  let doc = "Write the embedded library sources (the standard library plus the active \
+             extension's) into DIR, reproducing their paths, and exit. The files are \
+             byte-identical to what this binary verifies against." in
+  Arg.(value & opt (some string) None & info [ "dump-library" ] ~docv:"DIR" ~doc)
+
+let print_library_source =
+  let doc = "Write the embedded library source named PATH (as reported in diagnostics, \
+             e.g. lib/library/resource_algebra.rav) to stdout, and exit. Lets an editor \
+             display a library location that has no file on disk." in
+  Arg.(value & opt (some string) None & info [ "print-library-source" ] ~docv:"PATH" ~doc)
 
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
-  let rec remap ((kind, loc, msg) as err) =
+  (* Follow a location back through the `include` directives that pulled its file in,
+     to a location in the file actually being checked. *)
+  let rec anchor_loc loc =
     match Hashtbl.find include_map (Loc.file_name loc) with
-    | Some loc1 -> remap (kind, loc1, "originates in included file")
-    | None -> err
+    | Some loc1 -> anchor_loc loc1
+    | None -> loc
+  in
+  (* An LSP diagnostic is reported against one document and is displayed at its range
+     *in that document*, so a primary error whose own location lies in an included file
+     has to be anchored at the `include` that brought it in -- otherwise the editor
+     would show it at those coordinates in the wrong file. The message keeps saying what
+     went wrong, and names where it really is.
+
+     [RelatedLoc] entries are exempt: LSP's `relatedInformation` carries a URI per entry,
+     so each one can point at its true file. Those are what make the offending line
+     reachable, and rewriting them (as this used to, replacing both the location and the
+     message with "originates in included file") is what made them useless. *)
+  let anchor ((kind, loc, msg) as err) =
+    match kind with
+    | Error.RelatedLoc -> err
+    | _ ->
+        let loc' = anchor_loc loc in
+        if Loc.(loc' = loc) then err
+        else
+          ( kind,
+            loc',
+            Printf.sprintf !"%{String} (in included file %{String}, line %{Int})" msg
+              (Loc.display_file_name loc) (Loc.start_line loc) )
   in
   if config.lsp_mode then begin
-    let errs = List.map errs ~f:remap in
+    let errs = List.map errs ~f:anchor in
     Stdlib.print_endline (Error.errors_to_lsp_string errs);
     Stdlib.exit 0
   end
@@ -304,7 +427,47 @@ let print_errors config errs =
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode =
+(** Serves the embedded library sources to whoever needs the text of a location that has
+    no file on disk: `--dump-library` writes them all out, `--print-library-source` emits
+    one. Both run after the extension is resolved, so the active extension's own library
+    is included, and both use exactly the bytes this binary verifies against. *)
+let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
+  let sources = Library.sources @ lib_sources in
+  let dumped =
+    Option.map dump_library ~f:(fun dir ->
+        List.iter sources ~f:(fun (name, content) ->
+            (* [Loc.join_path], not [Filename.concat]: keeps the reproduced tree
+               '/'-separated on every platform, matching the paths the sources are named
+               and reported by. *)
+            let target = Loc.join_path dir name in
+            let rec mkdirs d =
+              if not (Stdlib.Sys.file_exists d) then begin
+                mkdirs (Stdlib.Filename.dirname d);
+                Unix.mkdir d 0o755
+              end
+            in
+            mkdirs (Stdlib.Filename.dirname target);
+            Stdio.Out_channel.write_all target ~data:content;
+            Logs.app (fun m -> m "%s" target)))
+  in
+  let printed =
+    Option.map print_library_source ~f:(fun name ->
+        match List.Assoc.find sources ~equal:String.equal name with
+        | Some content ->
+            (* Binary mode: on Windows the default text mode would rewrite every '\n' on
+               the way out, so an editor displaying this would not be displaying the
+               bytes this binary actually verified -- the one property the flag exists to
+               guarantee. `.gitattributes` pins these files to LF for the same reason. *)
+            Stdlib.set_binary_mode_out Stdlib.stdout true;
+            Stdlib.print_string content
+        | None ->
+            Logs.err (fun m ->
+                m "No library source named '%s'. Known sources: %s" name
+                  (String.concat ~sep:", " (List.map sources ~f:fst))))
+  in
+  Option.is_some dumped || Option.is_some printed
+
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict dump_library print_library_source =
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   let config = {
     no_library;
@@ -315,13 +478,29 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     smt_timeout;
     smt_diagnostics;
     log_level = Logs.level ();
+    strict;
   }
   in
-  let _ = 
-    (* [EXT] Overwriting which extensions are activated. *)
-    Ext.overwrite_ext(Ext.module_map extension_mode);
+  (* [EXT] Resolve which extension is activated for this run and build the hooks the
+     rest of the pipeline dispatches through -- see lib/ext/ext.ml and
+     Ast.Rewriter.ext_hooks. *)
+  let (module ChosenExt) =
+    Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode)
   in
-  try `Ok (parse_and_check_all config input_files) with
+  let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
+  if
+    serve_library_sources ~lib_sources:ChosenExt.lib_sources ~dump_library
+      ~print_library_source
+  then `Ok ()
+  else
+  try `Ok (parse_and_check_all ~ext_hooks ~lib_sources:ChosenExt.lib_sources config input_files) with
+  | Unix.Unix_error (err, _, prog) ->
+    let msg =
+      Printf.sprintf
+        "Could not start '%s' (%s). Raven requires Z3 (>= 4.13.0) to be installed and on your PATH."
+        prog (Unix.error_message err)
+    in
+    print_errors config [ (Generic, Loc.dummy, msg) ]
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
     let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
     let pos = match input_files with
@@ -338,6 +517,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

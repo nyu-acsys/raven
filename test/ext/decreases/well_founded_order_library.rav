@@ -1,0 +1,49 @@
+/* Direct checks of the WellFoundedOrder instances shipped in
+   lib/ext/decreasesExt/well_founded_order.rav (Ordinal, MultisetOrder, LexOrder) and
+   the OrdinalBase foundation they embed into, independently of any decreases
+   clause. MultisetOrder in particular is the motivating example for
+   generalizing decreases beyond Int: the Dershowitz-Manna multiset order has
+   order type omega^omega, which no fixed-arity lexicographic tuple of Int
+   can reach. Automatically verifying a fully general recursive "this shrinks
+   an arbitrary multiset" decreases clause needs an inductive helper lemma
+   this library doesn't yet ship, so this test instead checks embed/lt behave
+   correctly on concrete bags. */
+module Lex = Library.LexOrder[Library.IntOrder, Library.IntOrder]
+
+proc check_ordinal_base() {
+  var a: Library.OrdinalBase.T := Library.OrdinalBase.zero;
+  var b: Library.OrdinalBase.T := Library.OrdinalBase.cons(Library.OrdinalBase.zero, 3, Library.OrdinalBase.zero);
+  assert Library.OrdinalBase.lt(a, b);
+  assert !Library.OrdinalBase.lt(b, a);
+}
+
+proc check_ordinal() {
+  var a: Library.Ordinal.T := Library.Ordinal.wrap(Library.OrdinalBase.zero);
+  var b: Library.Ordinal.T :=
+    Library.Ordinal.wrap(Library.OrdinalBase.cons(Library.OrdinalBase.zero, 3, Library.OrdinalBase.zero));
+  assert Library.Ordinal.lt(a, b);
+  assert !Library.Ordinal.lt(b, a);
+  // embed is the trivial unwrap, so it must agree with OrdinalBase.lt directly
+  assert Library.OrdinalBase.lt(Library.Ordinal.embed(a), Library.Ordinal.embed(b));
+}
+
+proc check_multiset() {
+  var bag1: Library.MultisetOrder.T := Library.MultisetOrder.bag_nil;
+  var bag2: Library.MultisetOrder.T := Library.MultisetOrder.bag_cons(2, Library.MultisetOrder.bag_nil);
+  assert Library.MultisetOrder.lt(bag1, bag2);
+  assert !Library.MultisetOrder.lt(bag2, bag1);
+
+  // replacing one occurrence of 5 with two occurrences of 2 decreases,
+  // the pattern a fixed-arity Int measure can't express in general
+  var bag3: Library.MultisetOrder.T := Library.MultisetOrder.bag_cons(5, Library.MultisetOrder.bag_nil);
+  var bag4: Library.MultisetOrder.T :=
+    Library.MultisetOrder.bag_cons(2, Library.MultisetOrder.bag_cons(2, Library.MultisetOrder.bag_nil));
+  assert Library.MultisetOrder.lt(bag4, bag3);
+}
+
+proc check_lex() {
+  var x: (Int, Int) := (1, 2);
+  var y: (Int, Int) := (1, 3);
+  assert Lex.lt(x, y);
+  assert !Lex.lt(y, x);
+}

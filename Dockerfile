@@ -3,7 +3,7 @@ FROM ocaml/opam:alpine AS build
 
 # Install system dependencies (bash, m4, etc. required for many OCaml libs)
 USER root
-RUN apk add --no-cache bash m4 pkgconfig build-base gmp-dev
+RUN apk add --no-cache bash m4 pkgconfig build-base gmp-dev jq hyperfine
 
 # Switch back to the opam user to manage OCaml packages
 USER opam
@@ -30,20 +30,17 @@ FROM alpine:latest
 # 1. Install the C++ and Math libraries Z3 needs (found via ldd)
 RUN apk add --no-cache \
     bash gmp \
-    libstdc++ libgcc
+    libstdc++ libgcc z3 jq hyperfine findutils
 
 WORKDIR /app
-
-# 1. Copy the Z3 binary from the opam switch
-COPY --from=build /home/opam/.opam/5.4/bin/z3 /usr/local/bin/z3
 
 # Copy the compiled binary from the 'build' stage
 COPY --from=build /home/opam/app/_build/default/bin/raven.exe /usr/local/bin/raven
 
-
-
 # Copy repository of examples
 COPY --from=build /home/opam/app/test ./test
+COPY --from=build /home/opam/app/lib/ext ./lib/ext
+COPY --from=build /home/opam/app/scripts ./scripts
 
 # Set the command to run raven
 ENTRYPOINT ["raven"]

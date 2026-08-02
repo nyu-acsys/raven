@@ -159,22 +159,298 @@ module NewSymbolsTree = struct
 end
 
 
+(* [ext_hooks] bundles every function an active language extension contributes to the
+   core pipeline (see docs/ext/README.md). It has to be defined mutually with [state]/[t]
+   because several of its fields return [_ t]. A value of this type is installed once,
+   by [eval] below, and threaded through the rest of the pipeline as ordinary monadic
+   state -- there is no global mutable reference standing in for "the active extension". *)
 type 'a state = {
   state_table : SymbolTbl.t;
   state_update_table : bool;
   state_new_symbols_tree : NewSymbolsTree.t;
   state_ghost_scope : bool list;
+  (* Stack mirroring [state_ghost_scope]: true inside a [MachineFree] (not [UserFree])
+     scope. See [resolve_and_find_opt]'s fallback, the only consumer. *)
+  state_relaxed_lookup : bool list;
   state_user_data : 'a;
+  state_ext_hooks : ext_hooks;
+  state_cli_config : cli_config;
 }
 
-type ('a, 'b) t_ext = 'b state -> 'b state * 'a
-type 'a t = ('a, unit) t_ext
+(* CLI flags the pipeline needs deep inside rewrite/check passes (e.g. [--strict]).
+   Read-only for the whole run, so -- like [ext_hooks] -- it's just re-supplied to each
+   [eval] call rather than threaded back out. *)
+and cli_config = { cli_strict : bool }
+
+and ('a, 'b) t_ext = 'b state -> 'b state * 'a
+and 'a t = ('a, unit) t_ext
+
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_type_expr] so an extension
+    can recursively process sub-type-expressions using the core type-checker. *)
+and type_check_type_expr_functs = {
+  process_type_expr : type_expr -> type_expr t;
+}
+
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_expr]. *)
+and type_check_expr_functs = {
+  check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr t;
+  process_expr : expr -> type_expr -> expr t;
+  type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+  expand_type_expr : type_expr -> (type_expr, unit) t_ext;
+}
+
+(** Callback bundle Typing.ml hands to [ext_hooks.disambiguate_expr_ext], so an
+    extension can recurse into its own sub-expressions -- under whichever
+    [DisambiguationTbl.t] it chooses, which is the whole point of the hook. *)
+and disambiguate_expr_functs = {
+  disambiguate_expr : expr -> DisambiguationTbl.t -> expr t;
+}
+
+(** Callback bundle Typing.ml hands to [ext_hooks.type_check_basic_stmt]/[type_check_stmt_ext]. *)
+and type_check_stmt_functs = {
+  get_assign_lhs :  is_init:bool ->
+                    ?is_ghost_cmd:bool ->
+                    qual_ident ->
+                    unit state ->
+                    unit state * (qual_ident * var_decl);
+
+  expand_type_expr : type_expr -> (type_expr, unit) t_ext;
+
+  disambiguate_process_expr : expr -> type_expr -> DisambiguationTbl.t -> expr t;
+
+  type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
+
+  disam_tbl_add_var_decl : var_decl -> DisambiguationTbl.t -> var_decl * DisambiguationTbl.t;
+
+  process_symbol : Module.symbol -> Module.symbol t;
+
+  (** Recursively type-checks a nested statement (e.g. a proof block carried by a
+      top-level [Stmt.StmtExt] node) in its own fresh scope, the same way [Typing.ml]'s
+      [process_stmt] type-checks an ordinary callable body statement. Needed because
+      [type_check_stmt_ext] -- unlike the generic tree-walking hooks -- has no other way
+      to recurse: [Stmt.stmt_ext] is an opaque, extension-owned value, so only Typing.ml
+      itself can drive type-checking of whatever [Stmt.t] an extension embeds in it. *)
+  process_stmt : Callable.call_decl -> Stmt.t -> DisambiguationTbl.t -> (Stmt.t * DisambiguationTbl.t) t;
+}
+
+(** The complete set of extension callbacks: printing/query hooks for the [*_ext]
+    leaves of the AST (see AstDef's [make_printers]/[make_symbols]/etc.), the
+    type-rewriting hooks used deep inside generic traversal, and the type-checking /
+    rewriting entry points an extension implements (see [ExtApi.Ext] in
+    lib/ext/api/extApi.ml, which every concrete extension satisfies). Built once from
+    the CLI-selected extension by [lib/ext/ext.ml] and installed by [eval]. *)
+and ext_hooks = {
+  type_ext_to_name : Type.type_ext -> string;
+  expr_ext_to_string : Expr.expr_ext -> string;
+  pr_basic_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> expr list -> unit;
+  contract_ext_to_string : Stmt.contract_ext -> string;
+  basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
+  basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
+  basic_stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list;
+
+  (** The [stmt_desc]-level sibling of the [pr_basic_stmt_ext]/[basic_stmt_ext_*]
+      family above, for [Stmt.StmtExt] (a self-contained [stmt_ext] value, like
+      [contract_ext], used by extension statements that need a nested [Stmt.t] of
+      their own -- see [Stmt.basic_stmt_desc.BasicStmtExt]'s doc comment for why the
+      two extension points are split). *)
+  pr_stmt_ext : Stdlib.Format.formatter -> Stmt.stmt_ext -> unit;
+  stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
+  stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list;
+  stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list;
+
+  (** Best-effort "did you mean" lookup: given a [*_ext] tag the *active* extension
+      chain didn't recognize, checks whether some *other* known [--extension] choice
+      would have, and if so returns that flag's name. [None] means no known extension
+      anywhere recognizes the construct -- a genuine internal error, not a
+      wrong-flag situation. Independent of which chain is currently active (computed
+      once, up front, from every entry in [lib/ext/ext.ml]'s [ext_map]); used only to
+      turn the [DefaultExt] "no active extension recognizes this ..." fallback into an
+      actionable message. *)
+  suggest_extension_for_type_ext : Type.type_ext -> string option;
+  suggest_extension_for_expr_ext : Expr.expr_ext -> string option;
+  suggest_extension_for_stmt_ext : Stmt.stmt_ext -> string option;
+  suggest_extension_for_contract_ext : Stmt.contract_ext -> string option;
+
+  expr_ext_rewrite_types : f:(type_expr -> type_expr t) -> Expr.expr_ext -> Expr.expr_ext t;
+  basic_stmt_ext_rewrite_types : f:(type_expr -> type_expr t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
+
+  (** Generic substitution for the top-level [Stmt.StmtExt] extension point, applying
+      [f] to every expression and [c] to every nested [Stmt.t] a [stmt_ext] value
+      carries -- used uniformly by [Rewriter.Stmt.rewrite_expressions]/[rewrite_types]/
+      [rewrite_qual_idents] (via [f]) and by [Rewriter.Stmt.descend] (via [c] alone,
+      [f] the identity), so an extension recurses into its own embedded statements the
+      same way [Cond]/[Loop] do, without core code needing to know [stmt_ext]'s shape. *)
+  stmt_ext_rewrite : f:(expr -> expr t) -> c:(Stmt.t -> Stmt.t t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
+
+  (** Applies [f] to every expression a [contract_ext] value carries (e.g. each
+      measure's [spec_form] for [decreases]), for the same reason
+      [basic_stmt_ext_rewrite_types] exists: generic substitution during things like
+      module instantiation, where core code needs to rewrite every expression in a
+      callable's contract uniformly without knowing what a given [contract_ext] means. *)
+  contract_ext_rewrite_exprs : f:(expr -> expr t) -> Stmt.contract_ext -> Stmt.contract_ext t;
+
+  (** Called for every [Expr.ExprExt] node met by [Typing.ProcessCallable]'s
+      disambiguation pass, which alpha-renames a callable body's local variables to
+      fresh names and rejects unbound ones -- and which runs *before* any
+      type-checking, so [type_check_expr] is far too late to influence it. An
+      extension construct that binds variables of its own (e.g. a `match` arm's
+      pattern variables) must implement this to push a [DisambiguationTbl] scope and
+      recurse into the sub-expressions those variables scope over; returning the
+      renamed binders in its own tag, so the names it later sees in [type_check_expr]
+      are the same ones the body now refers to. The overwhelmingly common case is an
+      extension construct that binds nothing, for which [DefaultExt]'s structural
+      default -- recurse into every sub-expression under the unchanged table -- is
+      already right; unlike the other [DefaultExt] cases, that default is a real
+      implementation, not an "unrecognized construct" error. *)
+  disambiguate_expr_ext :
+    Expr.expr_ext ->
+    expr list ->
+    Expr.expr_attr ->
+    DisambiguationTbl.t ->
+    disambiguate_expr_functs ->
+    (Expr.expr_ext * expr list) t;
+
+  type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr t;
+  type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr t;
+  type_check_basic_stmt :
+    Callable.call_decl ->
+    Stmt.stmt_ext -> expr list ->
+    location ->
+    DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    (Stmt.basic_stmt_desc * DisambiguationTbl.t) t;
+
+  (** The [stmt_desc]-level sibling of [type_check_basic_stmt], for [Stmt.StmtExt].
+      Returns a whole [Stmt.stmt_desc] (typically another [StmtExt], left for
+      [rewrite_stmt_ext] to lower once type-checking -- e.g. a purity check on the
+      asserted fact -- has run) rather than a [basic_stmt_desc], since it isn't
+      constrained to stay "basic". *)
+  type_check_stmt_ext :
+    Callable.call_decl ->
+    Stmt.stmt_ext ->
+    location ->
+    DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    (Stmt.stmt_desc * DisambiguationTbl.t) t;
+
+  type_check_contract_ext :
+    Callable.call_decl ->
+    Stmt.contract_ext ->
+    location ->
+    DisambiguationTbl.t ->
+    type_check_stmt_functs ->
+    Stmt.contract_ext t;
+
+  (** Called once per module for every group of mutually-recursive callables (a
+      strongly-connected component of the call graph with more than one member), given
+      every member's [call_decl] -- see [ExtApi.Ext.check_contract_ext_group_compatible]
+      for why this can't just be folded into [type_check_contract_ext]. Default (no
+      active contract extension) is to do nothing. *)
+  check_contract_ext_group_compatible : Callable.call_decl list -> unit t;
+
+  rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
+  rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
+  rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
+
+  (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for [Stmt.StmtExt]. *)
+  rewrite_stmt_ext : Stmt.stmt_ext -> location -> Stmt.t t;
+
+  (** [caller_call_decl -> callee_call_decl -> in_same_scc -> call_args -> loc -> ...] --
+      see [ExtApi.Ext.rewrite_contract_ext_call]'s doc comment for the full contract;
+      [in_same_scc] says whether caller and callee lie in the same strongly-connected
+      component of the module's call graph (self-recursion included, as the
+      size-1-with-self-loop case), computed once per module by
+      [lib/frontend/rewrites/rewrites.ml]. *)
+  rewrite_contract_ext_call :
+    Callable.call_decl -> Callable.call_decl -> bool -> expr list -> location -> Stmt.t list t;
+
+  (** Called once for every [Proc]/[Lemma] callable, before any of its statements are
+      visited elsewhere. Returns statements to prepend at the very top of the
+      callable's body. General-purpose, not tied to [contract_ext]: any extension can
+      use it for whatever per-callable body setup it needs (e.g. introducing and
+      initializing ghost locals sized to that specific callable, as [DecreasesExt]
+      does for its `decreases` measure snapshot). Default (no extension using this
+      hook) is to prepend nothing. *)
+  rewrite_callable_entry : Callable.call_decl -> Stmt.t list t;
+
+  (** Called by [rewrite_loops] as it transfers a loop's [loop_contract_ext] entries
+      onto the synthesized tail-recursive procedure's [call_decl_contract_ext]. [subst]
+      is the same substitution [rewrite_loops] applies to [loop_contract] (loop-local
+      variables -> the synthesized procedure's fresh formals); an extension applies it
+      to whatever expressions its value carries, and may also swap in loop-specific
+      wording (e.g. via a payload that reuses [Stmt.spec]'s [spec_error], the same
+      mechanism [rewrite_stmt_error_msg]'s [Loop] case already uses for invariants) --
+      capturing the original location before calling [subst], not after, since
+      substituting a bare-identifier expression replaces the whole node. Pure: default
+      (no active contract extension, or a tag the extension doesn't recognize) is the
+      identity. *)
+  rewrite_contract_ext_loop_transfer : subst:(expr -> expr) -> Stmt.contract_ext -> Stmt.contract_ext;
+}
+
+let default_cli_config : cli_config = { cli_strict = false }
+
+(** What every [Rewriter.t] computation sees before any extension has been installed.
+    [eval] below always installs the real hooks for the CLI-selected extension; this
+    default only matters for entry points (e.g. the backend, which only ever runs on
+    already-rewritten, extension-free ASTs) that never exercise it. *)
+let default_ext_hooks : ext_hooks = {
+  type_ext_to_name = Type.default_type_ext_to_name;
+  expr_ext_to_string = Expr.default_expr_ext_to_string;
+  pr_basic_stmt_ext = Stmt.default_pr_basic_stmt_ext;
+  contract_ext_to_string = Stmt.default_contract_ext_to_string;
+  basic_stmt_ext_symbols = Stmt.default_basic_stmt_ext_symbols;
+  basic_stmt_ext_local_vars_modified = Stmt.default_basic_stmt_ext_local_vars_modified;
+  basic_stmt_ext_fields_accessed = Stmt.default_basic_stmt_ext_fields_accessed;
+  pr_stmt_ext = Stmt.default_pr_stmt_ext;
+  stmt_ext_symbols = Stmt.default_stmt_ext_symbols;
+  stmt_ext_local_vars_modified = Stmt.default_stmt_ext_local_vars_modified;
+  stmt_ext_fields_accessed = Stmt.default_stmt_ext_fields_accessed;
+  suggest_extension_for_type_ext = (fun _ -> None);
+  suggest_extension_for_expr_ext = (fun _ -> None);
+  suggest_extension_for_stmt_ext = (fun _ -> None);
+  suggest_extension_for_contract_ext = (fun _ -> None);
+  expr_ext_rewrite_types =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.expr_ext_rewrite_types: no extension configured");
+  basic_stmt_ext_rewrite_types =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.basic_stmt_ext_rewrite_types: no extension configured");
+  stmt_ext_rewrite =
+    (fun ~f:_ ~c:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.stmt_ext_rewrite: no extension configured");
+  contract_ext_rewrite_exprs =
+    (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.contract_ext_rewrite_exprs: no extension configured");
+  disambiguate_expr_ext =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.disambiguate_expr_ext: no extension configured");
+  type_check_type_expr =
+    (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
+  type_check_expr =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_expr: no extension configured");
+  type_check_basic_stmt =
+    (fun _ _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_basic_stmt: no extension configured");
+  type_check_stmt_ext =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_stmt_ext: no extension configured");
+  type_check_contract_ext =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_contract_ext: no extension configured");
+  check_contract_ext_group_compatible =
+    (fun _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.check_contract_ext_group_compatible: no extension configured");
+  rewrite_type_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_type_ext: no extension configured");
+  rewrite_expr_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_expr_ext: no extension configured");
+  rewrite_basic_stmt_ext =
+    (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_basic_stmt_ext: no extension configured");
+  rewrite_stmt_ext =
+    (fun _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_stmt_ext: no extension configured");
+  rewrite_contract_ext_call =
+    (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_contract_ext_call: no extension configured");
+  rewrite_callable_entry =
+    (fun _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.rewrite_callable_entry: no extension configured");
+  rewrite_contract_ext_loop_transfer = (fun ~subst:_ tag -> tag);
+}
 
 
 (* Using pointers to access certain functions from Typing in certain context while circumventing dependency cycles. *)
 
 (** This is meant to point to:
-      Typing.process_symbol 
+      Typing.process_symbol
     It is initialized at the end of Typing.ml.
 *)
 let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
@@ -182,36 +458,40 @@ let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref = ref (
 )
 
 (** This is meant to point to:
-      Typing.expand_type_expr 
+      Typing.expand_type_expr
     It is initialized at the end of Typing.ml.
 *)
 let expand_type_expr_ref : (
     type_expr -> (type_expr, unit) t_ext
-  ) ref 
-    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized") 
+  ) ref
+    = ref (fun _ -> Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized")
 
-(** The following are initialized in Ext.ml *)
-let expr_ext_rewrite_types_ref : (f:(type_expr -> type_expr t)
-  -> Expr.expr_ext -> Expr.expr_ext t) ref = ref (fun ~f _ ->
-    Error.internal_error Loc.dummy "Rewriter.expr_ext_rewrite_type_ref uninitialized"
-)
-
-let stmt_ext_rewrite_types_ref : (f: (type_expr -> type_expr t) 
-  -> Stmt.stmt_ext -> Stmt.stmt_ext t) ref = ref (fun ~f _ ->
-    Error.internal_error Loc.dummy "Rewriter.stmt_ext_rewrite_type_ref uninitialized"
-)
+(** This is meant to point to:
+      Typing.process_stmt
+    It is initialized at the end of Typing.ml. Exists so [type_check_stmt_functs] (built
+    while [Typing.process_basic_stmt] -- itself not mutually recursive with
+    [Typing.process_stmt] -- is still being defined) can hand an extension a way to
+    recursively type-check a nested [Stmt.t] (e.g. [AssertWithExt]'s proof block)
+    without a direct forward reference. *)
+let process_stmt_ref : (
+    Callable.call_decl -> Stmt.t -> DisambiguationTbl.t -> (Stmt.t * DisambiguationTbl.t) t
+  ) ref
+    = ref (fun _ _ _ -> Error.internal_error Loc.dummy "Rewriter.process_stmt_ref uninitialized")
 
 
 include State
 
-let eval ?(update = true) m tbl =
+let eval ?(update = true) ?(ext_hooks = default_ext_hooks) ?(cli_config = default_cli_config) m tbl =
   let sin =
     {
       state_table = tbl;
       state_update_table = update;
       state_new_symbols_tree = NewSymbolsTree.new_symbol_tree (QualIdent.to_ident tbl.tbl_root.scope_id);
       state_ghost_scope = [];
+      state_relaxed_lookup = [];
       state_user_data = ();
+      state_ext_hooks = ext_hooks;
+      state_cli_config = cli_config;
     }
   in
   let sout, res = m sin in
@@ -227,6 +507,93 @@ let eval_with_user_state ~init (f : 'a state -> 'a state * 'b) : 'b t =
 
 let init s _ = (s, ())
 let get_table s = (s, s.state_table)
+let current_ext_hooks s = (s, s.state_ext_hooks)
+let current_cli_config s = (s, s.state_cli_config)
+
+type printers = {
+  pr_type : Stdlib.Format.formatter -> type_expr -> unit;
+  pr_type_var_decl : Stdlib.Format.formatter -> var_decl -> unit;
+  pr_type_var_decl_list : Stdlib.Format.formatter -> var_decl list -> unit;
+  pr_expr : Stdlib.Format.formatter -> expr -> unit;
+  pr_expr_list : Stdlib.Format.formatter -> expr list -> unit;
+  pr_stmt : Stdlib.Format.formatter -> Stmt.t -> unit;
+  pr_stmt_basic : Stdlib.Format.formatter -> Stmt.basic_stmt_desc -> unit;
+  pr_stmt_spec_list : string -> Stdlib.Format.formatter -> Stmt.spec list -> unit;
+  pr_callable : Stdlib.Format.formatter -> Callable.t -> unit;
+  pr_module : Stdlib.Format.formatter -> Module.t -> unit;
+  pr_symbol : Stdlib.Format.formatter -> Module.symbol -> unit;
+  symbol_to_string : Module.symbol -> string;
+}
+
+(** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr],
+    etc.): built from the given extension hooks. Use this (rather than the bare
+    [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over
+    an AST that can still contain [*_ext] nodes, i.e. before [Rewrites.process_module]
+    has rewritten them away. Most callers want [current_printers] below, which reads
+    the hooks out of the active [Rewriter.t] state; this pure version exists for the
+    handful of call sites (e.g. [bin/raven.ml]) that only have an [ext_hooks] value,
+    not a running computation, in scope. *)
+let printers_of_ext_hooks (h : ext_hooks) : printers =
+  let (_, pr_type, pr_type_var_decl, pr_type_var_decl_list, _, _, _, _, _, _) =
+    Type.make_printers ~type_ext_to_name:h.type_ext_to_name
+  in
+  let (_, _, _, pr_expr, pr_expr_list, _, _, _, _, _, _, _) =
+    Expr.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string
+  in
+  let (_, pr_stmt_spec_list, pr_stmt_basic, pr_stmt, _, _, _) =
+    Stmt.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let (_, _, pr_callable) =
+    Callable.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let (pr_module, _, _, _) =
+    Module.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  let (pr_symbol, symbol_to_string) =
+    Symbol.make_printers ~type_ext_to_name:h.type_ext_to_name
+      ~expr_ext_to_string:h.expr_ext_to_string ~pr_basic_stmt_ext:h.pr_basic_stmt_ext ~pr_stmt_ext:h.pr_stmt_ext
+      ~contract_ext_to_string:h.contract_ext_to_string
+  in
+  { pr_type; pr_type_var_decl; pr_type_var_decl_list; pr_expr; pr_expr_list;
+    pr_stmt; pr_stmt_basic; pr_stmt_spec_list; pr_callable; pr_module; pr_symbol;
+    symbol_to_string }
+
+(** [current_printers] reads the active extension's hooks out of the [Rewriter.t]
+    state -- see [printers_of_ext_hooks] for the pure/no-state version. *)
+let current_printers (s : 'a state) : 'a state * printers =
+  (s, printers_of_ext_hooks s.state_ext_hooks)
+
+(* Captured before [Logs] is shadowed below, for the rest of this file to use when
+   logging something that doesn't need [printers] (plain values, no AST fragments). *)
+module Stdlib_logs = Logs
+
+(** Rewriter-aware counterparts of [Logs.debug]/[info]/[warn]/[err]/[app]: each takes
+    a closure that -- in addition to the usual message-construction function [m] --
+    also receives the [printers] for whichever extension is active in the current
+    state.
+
+    The printer lookup happens inside the closure handed to the underlying [Logs]
+    function, so -- exactly as with plain [Logs.debug] -- it is skipped entirely
+    when the corresponding log level isn't enabled. *)
+module Logs = struct
+  let lift (log : ('a, unit) Stdlib_logs.msgf -> unit)
+      (f : printers -> ('a, unit) Stdlib_logs.msgf) (s : 'st state) : 'st state * unit =
+    log (fun m -> f (printers_of_ext_hooks s.state_ext_hooks) m);
+    (s, ())
+
+  let debug f = lift Stdlib_logs.debug f
+  let info f = lift Stdlib_logs.info f
+  let warn f = lift Stdlib_logs.warn f
+  let err f = lift Stdlib_logs.err f
+  let app f = lift Stdlib_logs.app f
+end
 
 (** Warning: should only be used for debugging purposes *)
 let __get_state s = (s, s)
@@ -262,6 +629,16 @@ let is_ghost_scope s =
 let exit_ghost s = ({ s with state_ghost_scope = Base.List.tl_exn s.state_ghost_scope }, ())
 let enter_ghost b s = ({ s with state_ghost_scope = b :: s.state_ghost_scope }, ())
 
+let is_relaxed_lookup s =
+  (s, Base.List.hd s.state_relaxed_lookup |> Base.Option.value ~default:false)
+let exit_relaxed_lookup s = ({ s with state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup }, ())
+let enter_relaxed_lookup b s = ({ s with state_relaxed_lookup = b :: s.state_relaxed_lookup }, ())
+
+(** Looks [qual_ident] up directly in the flat table of all fully-qualified symbols
+    seen so far, bypassing [resolve]'s scope-relative guard/alias-chasing. Only valid
+    for qualidents that already resolved successfully once before. *)
+let find_absolute qual_ident s = (s, Base.Map.find s.state_table.tbl_symbols qual_ident)
+
 let exit_block s = exit_ghost s
 let enter_block block s =
   let is_ghost_scope = Base.List.hd_exn s.state_ghost_scope || block.Stmt.block_is_ghost in
@@ -274,15 +651,15 @@ let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTre
   let new_symbols, mod_def = Base.List.fold_map mdef.mod_def ~init:[] ~f:(fun accum instr ->
     match instr with
     | Import _ -> accum, instr
-    | SymbolDef ({ symbol_def = (ModDef mdef'); _ } as symbol)  -> begin
-      match (Map.find node.children (Symbol.to_name symbol.symbol_def)) with
+    | SymbolDef (ModDef mdef' as symbol)  -> begin
+      match (Map.find node.children (Symbol.to_name symbol)) with
       | None -> accum, (SymbolDef symbol)
       | Some child -> 
         let mdef' = module_add_descendants mdef' child in
-        accum, SymbolDef { symbol with symbol_def = ModDef mdef'; }
+        accum, SymbolDef (ModDef mdef')
       end
-    | SymbolDef ({ symbol_def = (CallDef call_def); _ } as symbol) -> begin
-      match (Map.find node.children (Symbol.to_name symbol.symbol_def)) with
+    | SymbolDef (CallDef call_def as symbol) -> begin
+      match (Map.find node.children (Symbol.to_name symbol)) with
       | None -> accum, (SymbolDef symbol)
       | Some (Node child) ->
         
@@ -301,14 +678,14 @@ let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTre
         in
           let call_def = { call_def with call_decl }
       in
-      new_mod_symbols @ accum, SymbolDef { symbol with symbol_def = CallDef call_def; }
+      new_mod_symbols @ accum, SymbolDef (CallDef call_def)
 
       end
     | _ -> accum, instr
   )
   in
 
-  let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef { symbol_def = def; is_admitted = false }) (node.symbols @ new_symbols) in
+  let new_instr = Base.List.rev_map ~f:(fun def -> SymbolDef def) (node.symbols @ new_symbols) in
 
   let mdef = { mdef with mod_def = new_instr @ mod_def} in 
 
@@ -332,10 +709,12 @@ let exit_module (mdef : Module.t) s =
   in
 
   let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
-  ( { s with 
-      state_table = SymbolTbl.exit tbl; 
-      state_new_symbols_tree; 
-      state_ghost_scope 
+  let state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup in
+  ( { s with
+      state_table = SymbolTbl.exit tbl;
+      state_new_symbols_tree;
+      state_ghost_scope;
+      state_relaxed_lookup;
     }, mdef )
 
 let exit_callable (call_def : Callable.t) s =
@@ -378,7 +757,8 @@ let exit_callable (call_def : Callable.t) s =
   in
 
   let state_ghost_scope = Base.List.tl_exn s.state_ghost_scope in
-  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols_tree; state_ghost_scope },
+  let state_relaxed_lookup = Base.List.tl_exn s.state_relaxed_lookup in
+  ( { s with state_table = SymbolTbl.exit tbl; state_new_symbols_tree; state_ghost_scope; state_relaxed_lookup },
     call_def )
 
 let enter symbol s =
@@ -387,9 +767,20 @@ let enter symbol s =
   (* Logs.debug (fun m -> m "Rewriter.enter: symbol = %a" Symbol.pr (symbol)); *)
   let is_ghost_scope =
     match symbol with
-    | Module.CallDef { call_decl = { call_decl_kind = (Lemma | Pred); _}; _ } -> true
-    | ModDef _ | CallDef _ -> false
+    | Module.CallDef { call_decl; _ } -> Callable.is_ghost_kind call_decl.call_decl_kind
+    | ModDef _ -> false
     | _ -> failwith "enter: expected module or callable symbol"
+  in
+  (* [MachineFree] only: a user-marked [UserFree] symbol's contract isn't pre-validated,
+     so it must not enable [resolve_and_find_opt]'s relaxed-lookup fallback. *)
+  let is_free_scope =
+    match symbol with
+    | Module.CallDef { call_decl = { call_decl_status = MachineFree; _ }; _ } -> true
+    | ModDef { mod_decl = { mod_decl_status = MachineFree; _ }; _ } -> true
+    | _ -> false
+  in
+  let relaxed_lookup =
+    is_free_scope || (Base.List.hd s.state_relaxed_lookup |> Base.Option.value ~default:false)
   in
   let symbol_ident = Symbol.to_name symbol in
   let _, scope_id = current_scope_id s in
@@ -398,6 +789,7 @@ let enter symbol s =
       s with
       state_table = SymbolTbl.enter_exn symbol_ident s.state_table;
       state_ghost_scope = is_ghost_scope :: s.state_ghost_scope;
+      state_relaxed_lookup = relaxed_lookup :: s.state_relaxed_lookup;
       state_new_symbols_tree;
     },
     () )
@@ -435,19 +827,19 @@ let introduce_typecheck_symbols ~loc
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     (symbols : Module.symbol list) (s : 'a state) : 'a state * qual_ident list =
 
-  Logs.debug (fun m -> m 
-    "Rewriter.introduce_typecheck_symbols: symbols = %a" 
-      (Util.Print.pr_list_comma (fun ppf symbol -> Stdlib.Format.fprintf ppf "%a -> %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol) Symbol.pr symbol)) (symbols)
-  );
-    
+  let s, () = Logs.debug (fun printers m -> m
+    "Rewriter.introduce_typecheck_symbols: symbols = %a"
+      (Util.Print.pr_list_comma (fun ppf symbol -> Stdlib.Format.fprintf ppf "%a -> %a" AstDef.Ident.pr (AstDef.Symbol.to_name symbol) printers.pr_symbol symbol)) (symbols)
+  ) s in
+
   let current_scope = s.state_table.tbl_curr.scope_id in
   let symbol__qual_idents = Base.List.map ~f:(fun symbol -> symbol, (QualIdent.append current_scope (Symbol.to_name symbol))) symbols in
 
-  Logs.debug (fun m -> m 
+  Stdlib_logs.debug (fun m -> m
     "
       Rewriter.introduce_typecheck_symbols: current_scope = %a \n \
       Rewriter.introduce_typecheck_symbols: qual_ident = %a \n \
-    " 
+    "
       QualIdent.pr current_scope
       (Util.Print.pr_list_comma QualIdent.pr) (snd (Base.List.unzip symbol__qual_idents))
   );
@@ -469,10 +861,10 @@ let introduce_typecheck_symbols ~loc
           s, (symbol, qual_ident)
         else (s, (symbol, qual_ident))
     | _ ->
-        Logs.debug (fun m -> m  
+        let s, () = Logs.debug (fun printers m -> m
             "Rewriter.introduce_typecheck_symbols: Starting to type-check: %a "
-            Symbol.pr symbol
-          );
+            printers.pr_symbol symbol
+          ) s in
 
         if s.state_table.tbl_curr.scope_is_local then
           let curr_scope_name = s.state_table.tbl_curr.scope_id.qual_base in
@@ -505,8 +897,8 @@ let introduce_typecheck_symbols ~loc
 
   let symbols, qual_idents = Base.List.unzip symbol__qual_idents in
 
-  Logs.debug (fun m ->
-      m "Rewriter.introduce_typecheck_symbol end: symbols = %a" (Print.pr_list_comma Symbol.pr) symbols);
+  let s, () = Logs.debug (fun printers m ->
+      m "Rewriter.introduce_typecheck_symbol end: symbols = %a" (Print.pr_list_comma printers.pr_symbol) symbols) s in
 
   ( { s with
       state_new_symbols_tree = NewSymbolsTree.scope_add_symbols current_scope symbols s.state_new_symbols_tree;
@@ -535,7 +927,7 @@ let introduce_typecheck_symbol_at_scope' ~loc
     state_table = SymbolTbl.goto_scope scope_qi s.state_table
   } in
 
-  Logs.debug (fun m -> m "introduce_typecheck_symbol_at_scope': scope_qi=%a; after goto, cuurent_scope: %a; symbol = %a " QualIdent.pr scope_qi QualIdent.pr s.state_table.tbl_curr.scope_id Ident.pr (Symbol.to_name symbol));
+  Stdlib_logs.debug (fun m -> m "introduce_typecheck_symbol_at_scope': scope_qi=%a; after goto, cuurent_scope: %a; symbol = %a " QualIdent.pr scope_qi QualIdent.pr s.state_table.tbl_curr.scope_id Ident.pr (Symbol.to_name symbol));
 
   let s, _ = declare_symbol symbol s in
   let s, symbol = !process_symbol_ref symbol s in
@@ -631,6 +1023,8 @@ module Type = struct
     let open Syntax in
     match tp_expr with
     | App (Var id, [], tp_attr) -> return (Type.App (Var (f id), [], tp_attr))
+    | App (AtomicToken qual_id, [], tp_attr) ->
+        return (Type.App (AtomicToken (f qual_id), [], tp_attr))
     | App (Data (qual_id, variant_decls_list), [], tp_attr) ->
         let qual_id = f qual_id in
         let* variant_decls_list =
@@ -666,7 +1060,8 @@ module Expr = struct
     | App (constr, expr_list, expr_attr) ->
         let* constr = match constr with
         | ExprExt expr_ext ->
-          let+ expr_ext = !expr_ext_rewrite_types_ref ~f expr_ext in
+          let* ext_hooks = current_ext_hooks in
+          let+ expr_ext = ext_hooks.expr_ext_rewrite_types ~f expr_ext in
 
           Expr.ExprExt expr_ext
         | _ ->
@@ -754,6 +1149,17 @@ module Stmt = struct
         in
 
         { stmt with stmt_desc = Cond cond_desc }
+    (* [StmtExt] isn't descended into here: unlike [rewrite_expressions_top]/
+       [rewrite_types] below (always run in the plain unit-state [Rewriter.t]),
+       [descend] is reused under arbitrary custom user-states via
+       [eval_with_user_state] (e.g. atomicityAnalysis.ml, heapsExplicitTrnsl.ml's
+       skolemization passes), so it can't call [ext_hooks.stmt_ext_rewrite] --
+       that hook is fixed at unit state, same as every other [ext_hooks] entry, which
+       would pin [descend]'s state type and break every other caller. Same
+       pre-existing, accepted limitation as [Stmt.default_stmt_ext_symbols] and
+       friends; a [StmtExt] node is expected to already be lowered (via
+       [rewrites_stmt_ext]) long before any pass that relies on [descend] to reach a
+       statement nested inside one runs. *)
     | _ -> return stmt
 
   let rewrite_expressions_top ~f ~c (stmt : Stmt.t) : (Stmt.t, 'a) t_ext =
@@ -839,19 +1245,26 @@ module Stmt = struct
               stmt with
               stmt_desc = Basic (Fpu { fpu_desc with fpu_old_val; fpu_new_val });
             }
-        | StmtExt (stmt_ext, stmt_args) ->
+        | BasicStmtExt (stmt_ext, stmt_args) ->
           let+ stmt_args =
             List.map stmt_args ~f:(fun expr -> f expr) in
           { stmt with
-            stmt_desc = Basic (StmtExt (stmt_ext, stmt_args))
+            stmt_desc = Basic (BasicStmtExt (stmt_ext, stmt_args))
           }
         (* TODO: add remaining *)
         | _ -> return stmt)
+    | StmtExt stmt_ext ->
+        let* ext_hooks = current_ext_hooks in
+        let+ stmt_ext = ext_hooks.stmt_ext_rewrite ~f ~c stmt_ext in
+        { stmt with stmt_desc = StmtExt stmt_ext }
     | Loop loop_desc ->
         let+ new_contract =
           List.map loop_desc.loop_contract ~f:(fun contract ->
               let+ new_spec_form = f contract.spec_form in
               { contract with spec_form = new_spec_form })
+        and+ new_contract_ext =
+          let* ext_hooks = current_ext_hooks in
+          List.map loop_desc.loop_contract_ext ~f:(ext_hooks.contract_ext_rewrite_exprs ~f)
         and+ new_prebody = c loop_desc.loop_prebody
         and+ new_test = f loop_desc.loop_test
         and+ new_postbody = c loop_desc.loop_postbody in
@@ -861,6 +1274,7 @@ module Stmt = struct
             Loop
               {
                 loop_contract = new_contract;
+                loop_contract_ext = new_contract_ext;
                 loop_prebody = new_prebody;
                 loop_test = new_test;
                 loop_postbody = new_postbody;
@@ -898,12 +1312,13 @@ module Stmt = struct
         let+ _ = add_locals [ var_decl ] in
         {
           stmt with
-          stmt_desc = Basic (VarDef { var_decl; var_init = new_init });
+          stmt_desc = Basic (VarDef { var_decl; var_init = new_init; var_is_free = var_def.var_is_free });
         }
-    | Stmt.Basic (StmtExt (stmt_ext, stmt_args)) ->
-      let* stmt_ext = !stmt_ext_rewrite_types_ref ~f stmt_ext in
+    | Stmt.Basic (BasicStmtExt (stmt_ext, stmt_args)) ->
+      let* ext_hooks = current_ext_hooks in
+      let* stmt_ext = ext_hooks.basic_stmt_ext_rewrite_types ~f stmt_ext in
 
-      let stmt = { stmt with stmt_desc = Basic (StmtExt (stmt_ext, stmt_args)) } in
+      let stmt = { stmt with stmt_desc = Basic (BasicStmtExt (stmt_ext, stmt_args)) } in
         rewrite_expressions_top ~f:(Expr.rewrite_types ~f) ~c:(rewrite_types ~f)
           stmt
     | _ ->
@@ -923,7 +1338,7 @@ module Stmt = struct
             and+ var_init =
               Option.map var_def.var_init ~f:(Expr.rewrite_qual_idents ~f)
             in
-            { stmt with stmt_desc = Basic (VarDef { var_decl; var_init }) }
+            { stmt with stmt_desc = Basic (VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }) }
         | Assign assign ->
             let+ assign_rhs = Expr.rewrite_qual_idents ~f assign.assign_rhs in
             let assign_lhs = Base.List.map assign.assign_lhs ~f in
@@ -1011,7 +1426,7 @@ module Stmt = struct
                   in
                   (f x, e_opt))
             in
-            { stmt with stmt_desc = Basic (New { new_lhs; new_args }) }
+            { stmt with stmt_desc = Basic (New { new_desc with new_lhs; new_args }) }
         | Fpu fpu_desc ->
             let fpu_field = f fpu_desc.fpu_field in
             let+ fpu_ref = Expr.rewrite_qual_idents ~f fpu_desc.fpu_ref
@@ -1050,6 +1465,10 @@ module Callable = struct
           { spec with spec_form = new_spec_form })
     in
     let call_decl = Callable.to_decl callable in
+    (* [call_decl_contract_ext] is left as-is here, same as [stmt_ext] in the proc body
+       below -- neither extension point is substituted during this generic rewrite
+       (used for e.g. module-instantiation substitution), a pre-existing gap this
+       doesn't attempt to close. *)
     let* _ = add_call_decl_locals call_decl
     and* new_preconds = rewrite_specs call_decl.call_decl_precond
     and* new_postconds = rewrite_specs call_decl.call_decl_postcond in
@@ -1133,14 +1552,37 @@ module Callable = struct
         callable
     in
 
-    let call_decl_masks =
-      Base.Option.map callable.call_decl.call_decl_mask
-        ~f:((Base.Set.map (module QualIdent)) ~f)
+    (* [f] (a QualIdent substitution, e.g. from module/functor instantiation)
+       isn't guaranteed injective on mask entries -- two formerly-distinct
+       entries could collapse into the same one, which would otherwise
+       persist as an un-deduped duplicate (see [Callable.mask_canon]); both
+       [call_decl_needs_mask] and [call_decl_grants_mask] need the same rewrite. *)
+    let rewrite_mask mask =
+      let+ mask =
+        List.map mask ~f:(fun (qi, args) ->
+            let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
+            (f qi, args))
+      in
+      Callable.mask_canon mask
+    in
+    let* call_decl_needs_mask =
+      match callable.call_decl.call_decl_needs_mask with
+      | None -> return None
+      | Some mask ->
+          let+ mask = rewrite_mask mask in
+          Some mask
+    in
+    let* call_decl_grants_mask =
+      match callable.call_decl.call_decl_grants_mask with
+      | None -> return None
+      | Some mask ->
+          let+ mask = rewrite_mask mask in
+          Some mask
     in
     let callable =
       {
         callable with
-        call_decl = { callable.call_decl with call_decl_mask = call_decl_masks };
+        call_decl = { callable.call_decl with call_decl_needs_mask; call_decl_grants_mask };
       }
     in
     return callable
@@ -1155,14 +1597,14 @@ module Module = struct
       List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
-            let* symbol_def = f symbol.symbol_def in
+            let* symbol_def = f symbol in
             let* _ = set_symbol symbol_def in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
             let* tbl = get_table in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
-            return (SymbolDef { symbol with symbol_def })
+            return (SymbolDef symbol_def)
         | import -> return import)
     in
     let mdef = { mdef with mod_def = symbols } in
@@ -1176,17 +1618,17 @@ module Module = struct
       List.map mdef.mod_def ~f:(function
         | SymbolDef symbol ->
             let* symbol_def =
-              match symbol.symbol_def with
+              match symbol with
               | ModDef mod_def ->
                   let* new_mod_def = rec_rewrite_symbols ~f mod_def in
                   return @@ ModDef new_mod_def
-              | _ -> return symbol.symbol_def
+              | _ -> return symbol
             in
 
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: old_symbol: %a" AstDef.Symbol.pr symbol); *)
             let+ symbol_def = f symbol_def and+ _ = set_symbol symbol_def in
             (* Logs.debug (fun m -> m "Rewriter.Module.rewrite_symbols: new_symbol: %a" AstDef.Symbol.pr symbol); *)
-            SymbolDef { symbol with symbol_def}
+            SymbolDef symbol_def
         | import -> return import)
     in
     let mdef = { mdef with mod_def = symbols } in
@@ -1253,7 +1695,7 @@ module Module = struct
           and+ var_init =
             Option.map var_def.var_init ~f:(Expr.rewrite_types ~f)
           in
-          VarDef { var_decl; var_init }
+          VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }
       | FieldDef field_def ->
           let+ field_type = f field_def.field_type in
           FieldDef { field_def with field_type }
@@ -1298,13 +1740,20 @@ module Module = struct
     let open Module in
     function
     | ModInst mod_inst ->
-        let mod_inst_def =
-          Base.Option.map mod_inst.mod_inst_def
+        let+ mod_inst_def =
+          Option.map mod_inst.mod_inst_def
             ~f:(fun (mod_inst_def_funct, mod_inst_def_args) ->
-              (f mod_inst_def_funct, Base.List.map ~f mod_inst_def_args))
+              let+ mod_inst_def_args =
+                List.map mod_inst_def_args ~f:(function
+                  | Module.ModArg qi -> return (Module.ModArg (f qi))
+                  | Module.TypeArg tp ->
+                      let+ tp = Type.rewrite_qual_idents ~f tp in
+                      Module.TypeArg tp)
+              in
+              (f mod_inst_def_funct, mod_inst_def_args))
         in
         let mod_inst_type = f mod_inst.mod_inst_type in
-        return @@ ModInst { mod_inst with mod_inst_type; mod_inst_def }
+        ModInst { mod_inst with mod_inst_type; mod_inst_def }
     | TypeDef type_def ->
         let+ type_def_expr =
           Option.map type_def.type_def_expr ~f:(Type.rewrite_qual_idents ~f)
@@ -1332,7 +1781,7 @@ module Module = struct
         and+ var_init =
           Option.map var_def.var_init ~f:(Expr.rewrite_qual_idents ~f)
         in
-        VarDef { var_decl; var_init }
+        VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }
     | FieldDef field_def ->
         let+ field_type = Type.rewrite_qual_idents ~f field_def.field_type in
         FieldDef { field_def with field_type }
@@ -1400,7 +1849,7 @@ module Symbol = struct
 
         (* Logs.debug (fun m -> m "Rewriter.Symbol.reify: Reified symbol = %a" AstDef.Symbol.pr symbol1); *)
         match symbol1 with
-        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.make_free call_def)
+        | CallDef call_def -> AstDef.Module.CallDef (AstDef.Callable.set_machine_free call_def)
         | _ -> symbol1
 
   let reify_type_def loc (name, symbol, subst) :
@@ -1457,15 +1906,32 @@ module Symbol = struct
       subst
 end
 
+let resolve_and_find_opt name: ((QualIdent.t * Symbol.t) option, 'a) t_ext =
+  let open Syntax in
+  let* tbl = get_table in
+
+  match SymbolTbl.resolve_and_find name tbl with
+  | Some (alias_qual_ident, qual_ident, symbol, subst) ->
+    return (Some (qual_ident, (alias_qual_ident, symbol, subst)))
+  | None ->
+    (* Last resort for a machine-free symbol's already-validated contract/body: a prior
+       qualident substitution (e.g. a functor formal rewritten to its argument) can
+       produce an absolute reference that no longer carries the instantiation context
+       that made it legal, so the scope-relative guard above rejects it here even
+       though it already resolved once. Only reached after that guard has failed, so
+       it can't change the outcome for anything that resolves normally. *)
+    let* relaxed = is_relaxed_lookup in
+    if not relaxed then return None
+    else
+      let+ symbol = find_absolute name in
+      Base.Option.map symbol ~f:(fun symbol -> (name, (name, symbol, (false, false, []))))
+
 let resolve_and_find name : (QualIdent.t * Symbol.t, 'a) t_ext =
   let open Syntax in
-  let+ tbl = get_table in
-  (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_curr: %a" QualIdent.pr (tbl.tbl_curr.scope_id)); *)
-  (* Logs.debug (fun m -> m "Rewriter.resolve_and_find: tbl_scope_children: %a" (Print.pr_list_comma Ident.pr) (Hashtbl.keys tbl.tbl_curr.scope_children)); *)
-  let alias_qual_ident, qual_ident, symbol, subst =
-    SymbolTbl.resolve_and_find_exn name tbl
-  in
-  (qual_ident, (alias_qual_ident, symbol, subst))
+  let+ resolved = resolve_and_find_opt name in
+  match resolved with
+  | Some resolved -> resolved
+  | None -> SymbolTbl.unknown_ident_error (QualIdent.to_loc name) name
 
 let resolve name : (QualIdent.t, 'a) t_ext =
   let open Syntax in
@@ -1474,15 +1940,6 @@ let resolve name : (QualIdent.t, 'a) t_ext =
       m "Rewriter.resolve: name = %a; qual_ident = %a" QualIdent.pr name
         QualIdent.pr qual_ident);*)
   qual_ident
-
-let resolve_and_find_opt name: ((QualIdent.t * Symbol.t) option, 'a) t_ext =
-  let open Syntax in
-  let+ tbl = get_table in
-
-  match SymbolTbl.resolve_and_find name tbl with
-  | None -> None
-  | Some (alias_qual_ident, qual_ident, symbol, subst) ->
-    Some (qual_ident, (alias_qual_ident, symbol, subst))
 
 let resolve_opt name : (QualIdent.t option, 'a) t_ext =
   let open Syntax in
@@ -1535,4 +1992,6 @@ let find_and_reify_module name : (AstDef.Module.t, 'a) t_ext =
 let is_local qual_ident s =
   let s, qual_ident = resolve qual_ident s in
   (s, Base.List.is_empty qual_ident.qual_path)
+
+
 

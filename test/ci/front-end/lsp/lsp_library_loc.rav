@@ -1,0 +1,16 @@
+// The axiom this violates lives in the standard library, which is embedded in the
+// verifier rather than being a file on disk. What matters here is what --lsp-mode
+// reports about that location: see lsp_library_loc.t.
+module Fst : Library.ResourceAlgebra {
+  rep type T = Int
+
+  val id: T = 0
+
+  func comp(a: T, b: T) returns (r: T) { a }
+
+  func frame(a: T, b: T) returns (r: T) { a }
+
+  func valid(a: T) returns (r: Bool) { true }
+
+  func fpuAllowed(a: T, b: T) returns (r: Bool) { false }
+}

@@ -1,0 +1,11 @@
+proc loop_bad(n: Int)
+  requires n >= 0
+{
+  var i: Int := n;
+  while (i > 0)
+    invariant i >= 0
+    decreases i
+  {
+    i := i + 1;
+  }
+}

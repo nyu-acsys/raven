@@ -1,0 +1,131 @@
+// Capstone, version 1 of 2: a ticket lock (the "bakery algorithm" -- waiting
+// threads are served in the order they arrived, like a numbered queue),
+// proved correct with a plain shared invariant, exactly as in Part 4. This
+// is Raven's own flagship example, taken directly from the test suite
+// (test/concurrent/lock/ticket-lock.rav) -- see ../../README.md and this
+// directory's README.md for a guided walkthrough.
+interface LockResource : Library.Type {
+  rep type T
+  
+  // Resource protected by a lock
+  pred resource(r: T)
+}
+
+interface Lock[R: LockResource] {
+
+  pred locked(l: Ref)
+
+  inv lock_inv(l: Ref; r: R)
+
+  proc create(r: R) returns (l: Ref)
+    requires R.resource(r)
+    ensures lock_inv(l, r)
+
+  proc acquire(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r)
+    ensures R.resource(r) && locked(l)
+
+  proc release(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r) && R.resource(r) && locked(l)
+    ensures true
+
+  axiom lk_exclusive(l: Ref)
+    requires locked(l) && locked(l)
+    ensures false
+}
+
+module TicketLock[R: LockResource] : Lock {
+  import R.resource
+  
+  field next: Int
+  field curr: Int
+
+  import Library.DisjSet
+  import Library.Auth
+  import Library.Excl
+  
+  ghost field tickets: Auth[DisjSet[Int]]
+
+  ghost field exclusive: Excl[()]
+
+  auto pred locked(l: Ref) {
+    own(l.exclusive, Excl.excl(()))
+  }
+
+  inv lock_inv(l: Ref; r: R) {
+    exists n: Int, c: Int, b: Bool ::
+      own(l.next, n, 1.0) && n >= 0
+      && own(l.curr, c, 1.0)
+      && own(l.tickets,
+        Auth.auth(
+          DisjSet.set({| i: Int :: 0 <= i && i < n |})
+         )
+      ) && (b ? 
+        own(l.tickets, Auth.frag(DisjSet.set({|c|}))) :
+        resource(r) && locked(l)
+      )
+  }
+
+  proc create(r: R) returns (l: Ref)
+    requires resource(r)
+    ensures lock_inv(l, r)
+  {
+    l := new (
+      next: 0, curr: -1,
+      tickets: Auth.auth(DisjSet.set({||} : Set[Int])),
+      exclusive: Excl.excl(())
+    )
+    fold lock_inv(l, r)[b := false]
+  }
+  
+  proc acquire(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r)
+    ensures resource(r) && locked(l)
+  {
+    ghost var lockAcq: Bool
+    unfold lock_inv(l, r)[lockAcq := b]
+    val nxt := faa(l.next, 1)
+    fpu(l.tickets,
+      Auth.auth_frag(
+        DisjSet.set({|i: Int :: 0 <= i && i < nxt|}),
+        DisjSet.set({||}: Set[Int])
+      ),
+      Auth.auth_frag(
+        DisjSet.set({|i: Int :: 0 <= i && i < nxt+1|}),
+        DisjSet.set({|nxt|})
+      )
+    );
+    fold lock_inv(l, r)[b := lockAcq]
+      
+    var crr: Int := -1
+    while (nxt != crr)
+      invariant lock_inv(l, r) && (
+        nxt == crr ? resource(r) && locked(l) :
+          own(l.tickets, Auth.frag(DisjSet.set({|nxt|})))
+      )
+    {
+      unfold lock_inv(l, r)[ lockAcq := b ]
+      crr := l.curr
+      fold lock_inv(l, r)[ b := nxt == crr || lockAcq]
+    }
+  }
+
+  proc release(l: Ref, implicit ghost r: R)
+    requires lock_inv(l, r) && resource(r) && locked(l)
+    ensures true
+  {
+    ghost var lockAcq: Bool
+    
+    unfold lock_inv(l, r)[ lockAcq := b ]
+  
+    val crr: Int := l.curr
+    fold lock_inv(l, r)[b := true]
+    
+    val c1: Int := crr+1
+    unfold lock_inv(l, r)
+
+    l.curr := c1
+    
+    fold lock_inv(l, r)[b := false]
+  }
+}

@@ -21,7 +21,7 @@ module Option[E: Type] : Type {
   }
 
   func is_some(x: T) returns (ret: Bool) {
-    x == some(x.value) ? true : false
+    x is some
   }
 }
 
@@ -31,23 +31,22 @@ module ListM[E: Type] : Type {
     case cons(hd: E, tl: T) 
   }
 
-  func len(ls:T) returns (ret: Int) {
-    ls == nil ? 0 :
-      1 + len(ls.tl)
+  func len(ls:T) returns (ret: Int) 
+    ensures ret >= 0
+    decreases ls
+ {
+    match ls {
+      case nil => 0
+      case cons(hd, tl) => 1 + len(tl)
+    }
   }
 
-  func is_in(ls: T, e: E) returns (ret: Bool) {
-    ls == nil ? false :
-      (e == ls.hd || is_in(ls.tl, e))
-  }
-
-  auto lemma len_non_neg(ls: T) 
-    ensures len(ls) >= 0
+  func is_in(ls: T, e: E) returns (ret: Bool) 
+    decreases ls
   {
-    if (ls == nil) {
-
-    } else {
-      len_non_neg(ls.tl);
+    match ls {
+      case nil => false
+      case cons(hd, tl) => e == hd || is_in(tl, e)
     }
   }
 }

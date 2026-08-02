@@ -1,0 +1,7 @@
+lemma sum_contract(n: Int)
+  requires n >= 0
+{
+  if (n > 0) {
+    sum_contract(n-1);
+  }
+}

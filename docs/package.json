@@ -1,0 +1,15 @@
+{
+  "name": "raven-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/sync-rav.mjs",
+    "dev": "VITE_EXTRA_EXTENSIONS=rav vitepress dev",
+    "prebuild": "node scripts/sync-rav.mjs",
+    "build": "VITE_EXTRA_EXTENSIONS=rav vitepress build",
+    "preview": "VITE_EXTRA_EXTENSIONS=rav vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

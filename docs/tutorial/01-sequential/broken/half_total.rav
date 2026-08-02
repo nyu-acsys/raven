@@ -1,0 +1,9 @@
+// The fix for ./half_requires.rav: `func`s must be total, so instead of a
+// `requires n % 2 == 0`, the constraint moves into a guard on the
+// postcondition. `half` is now defined (and proved to return *something*)
+// for every `Int` -- odd inputs just don't get an interesting guarantee.
+func half(n: Int) returns (r: Int)
+  ensures n % 2 == 0 ==> 2 * r == n
+{
+  n / 2
+}

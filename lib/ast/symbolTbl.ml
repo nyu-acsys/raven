@@ -16,7 +16,12 @@ type subst = bool * bool * QualIdent.subst
 let is_instance (b, _, _) = b
 let is_abstract (_, b, _) = b
 let qid_subst (_, _, ss) = ss
-let extend_subst s (b1, b2, ss) = (b1, b2, s :: ss)
+(* Appended, not prepended: [QualIdent.requalify_path] applies the rules of
+   [ss] in list order, left to right, threading each rule's output into the
+   next -- so for a substitution added on top of an already-resolved (e.g.
+   aliased/instantiated) symbol to correctly apply to whatever that existing
+   chain produces, it must come after it in the list, not before. *)
+let extend_subst s (b1, b2, ss) = (b1, b2, ss @ [ s ])
 
 type entry =
   | Symbol of QualIdent.t
@@ -413,7 +418,7 @@ let rec import import_instr (tbl : t) : t =
     | ModDef { mod_def; _ }, true ->
         List.iter mod_def ~f:(function
           | SymbolDef symbol ->
-              let symbol_name = Symbol.to_name symbol.symbol_def in
+              let symbol_name = Symbol.to_name symbol in
               let symbol_ident =
                 QualIdent.append unresolved_imported_ident symbol_name
               in
@@ -484,10 +489,18 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                     let formal_id =
                       QualIdent.append mod_inst_func formal.mod_inst_name
                     in
-                    let _, arg, _arg_symbol, _arg_subst =
-                      resolve_and_find_exn arg tbl
+                    let arg_qi =
+                      match arg with
+                      | Module.ModArg qi -> qi
+                      | Module.TypeArg tp ->
+                          Error.internal_error (Type.to_loc tp)
+                            "Type argument was not resolved to a module before \
+                             being declared"
                     in
-                    (formal_id, QualIdent.to_list arg))
+                    let _, arg_qi, _arg_symbol, _arg_subst =
+                      resolve_and_find_exn arg_qi tbl
+                    in
+                    (formal_id, QualIdent.to_list arg_qi))
               in
               match res with
               | Ok subst ->
@@ -561,7 +574,7 @@ let add_local_vars var_decls tbl =
   List.fold_left var_decls ~init:tbl ~f:(fun tbl var_decl ->
       let var_ident = var_decl.Type.var_name in
       let curr_entries = get_scope_entries curr_scope in
-      let var_def = Module.VarDef { var_decl; var_init = None } in
+      let var_def = Module.VarDef { var_decl; var_init = None; var_is_free = NotFree } in
       match Hashtbl.find curr_entries var_ident with
       | None -> add_symbol var_def tbl
       | Some (Symbol qual_ident) ->

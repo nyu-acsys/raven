@@ -1,0 +1,8 @@
+/* Regression test: the auto-generated induction lemma for a recursive function's contract
+   (Rewrites.rewrite_add_func_contract_lemmas) must actually catch a violated postcondition,
+   not just verify vacuously. sum(0) returns -1, violating "ensures res >= n". */
+func sum(n: Int) returns (res: Int)
+  ensures res >= n
+{
+  n <= 0 ? -1 : n + sum(n-1)
+}

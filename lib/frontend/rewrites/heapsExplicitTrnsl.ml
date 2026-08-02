@@ -203,24 +203,24 @@ let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal
     Set.to_list locals_set
   in
 
-  let+ local_var_decls =
+  let* local_var_decls =
     Rewriter.List.map locals ~f:(fun qual_ident ->
         let+ symbol = Rewriter.find_and_reify qual_ident in
         match symbol with
         | VarDef v -> v.var_decl
-        | _ -> Error.error loc "Expected a variable declaration")
+        | _ -> Error.internal_error loc "expected a variable declaration")
   in
 
-  Logs.debug (fun m -> 
-    m 
+  let* () = Rewriter.Logs.debug (fun printers m ->
+    m
       "heapsExplicitTrnsl.compute_env_local_var_decls: expr: %a;\n conds: %a;\n universal_quants: %a;\n \
       OUTPUT: local_var_decls: %a"
-    Expr.pr expr
-    Expr.pr_list conds
-    Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
-    Type.pr_var_decl_list local_var_decls
-  );
-  local_var_decls
+    printers.pr_expr expr
+    printers.pr_expr_list conds
+    printers.pr_type_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
+    printers.pr_type_var_decl_list local_var_decls
+  ) in
+  Rewriter.return local_var_decls
 
 let generate_inv_function ~loc (universal_quants : universal_quants)
     (conds : conditions) (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t
@@ -287,10 +287,12 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
         call_decl_locals = [];
         call_decl_precond = [ (* precond *) ];
         call_decl_postcond = [ (* postcond *) ];
-        call_decl_is_free = false;
+        call_decl_contract_ext = [];
+        call_decl_status = NotFree;
         call_decl_is_auto = false;
         call_decl_loc = loc;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
       }
     in
 
@@ -446,9 +448,18 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           call_decl_locals = [];
           call_decl_precond = preconds;
           call_decl_postcond = postconds;
-          call_decl_is_free = false;
+          call_decl_contract_ext = [];
+          call_decl_status = NotFree;
           call_decl_is_auto = true;
-          call_decl_mask = None;
+          (* Created in `rewrites_phase_3` (via TrnslInhale/TrnslExhale), after
+             `Masks.compute_masks`/atomicity analysis have already run, so
+             this never goes through the mask fixpoint and `call_decl_needs_mask`
+             would otherwise be stuck at `None` forever. Safe to seed it as
+             `Some []` directly: the body below is just an assert followed by
+             `assume false` (see `generate_injectivity_assertions`), with no
+             call or unfold/fold of any kind. *)
+          call_decl_needs_mask = Some [];
+          call_decl_grants_mask = Some [];
           call_decl_loc = loc;
         }
       in
@@ -502,7 +513,7 @@ let generate_skolem_function (universal_quants : universal_quants)
     skolem_id
   in
 
-  (Logs.debug (fun m -> m 
+  let* () = Rewriter.Logs.debug (fun printers m -> m
   "heapsExplicitTrnsl.generate_skolem_function INIT: \
     skolem_fn_ident: %a \n \
     universal_quants: %a \n \
@@ -512,14 +523,14 @@ let generate_skolem_function (universal_quants : universal_quants)
     optn_args: %a \n \
   "
     Ident.pr skolem_fn_ident
-    Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
-    Type.pr_var_decl var_decl
-    Expr.pr_list preconds
-    Expr.pr_list postconds
+    printers.pr_type_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
+    printers.pr_type_var_decl var_decl
+    printers.pr_expr_list preconds
+    printers.pr_expr_list postconds
     (Util.Print.pr_list_comma (fun ppf (vd, e) ->
-      Stdlib.Format.fprintf ppf "%a -> %a" Type.pr_var_decl vd Expr.pr e
+      Stdlib.Format.fprintf ppf "%a -> %a" printers.pr_type_var_decl vd printers.pr_expr e
     )) optn_args
-  ));
+  ) in
 
   let formal_var_decls =
     List.map univ_quants_list ~f:(fun (v, v_decl) ->
@@ -560,15 +571,24 @@ let generate_skolem_function (universal_quants : universal_quants)
       (Expr.from_var_decl ret_var_decl)
     in
 
-    List.map preconds ~f:(fun precond -> 
+    List.map preconds ~f:(fun precond ->
       Expr.alpha_renaming precond ret_var_renam_map),
-    List.map postconds ~f:(fun postcond -> 
+    List.map postconds ~f:(fun postcond ->
       Expr.alpha_renaming postcond ret_var_renam_map)
   in
 
-  let preconds, postconds =
-    List.map preconds ~f:(fun precond -> Stmt.mk_spec precond),
-    List.map postconds ~f:(fun postcond -> Stmt.mk_spec postcond)
+  (* Funcs can't carry a `requires` (their contracts must be total), so fold the
+     precondition into the antecedent of each postcondition instead. For a body-less
+     func this is not just equivalent but identical to what used to be assumed: see
+     the `FuncDef { func_body = None }` case in [Checker.check_callable], which turns
+     a separate precond/postcond pair into exactly `pre(args) ==> post(args, f(args))`. *)
+  (* [mk_chained_and], not [mk_and]: this feeds into a postcondition that gets
+     type-checked again below (via [generate_skolem_functions]'s call into
+     [Typing.process_symbol]), and the type-checker only accepts `&&` as binary. *)
+  let precond_conj = Expr.mk_chained_and preconds in
+  let postconds =
+    List.map postconds ~f:(fun postcond ->
+        Stmt.mk_spec (Expr.mk_impl precond_conj postcond))
   in
 
   let call_decl =
@@ -578,12 +598,14 @@ let generate_skolem_function (universal_quants : universal_quants)
       call_decl_formals = formal_var_decls;
       call_decl_returns = [ ret_var_decl ];
       call_decl_locals = [];
-      call_decl_precond = preconds;
+      call_decl_precond = [];
       call_decl_postcond = postconds;
+      call_decl_contract_ext = [];
       call_decl_loc = loc;
-      call_decl_is_free = false;
+      call_decl_status = NotFree;
       call_decl_is_auto = false;
-      call_decl_mask = Some (Set.empty (module QualIdent));
+      call_decl_needs_mask = Some [];
+      call_decl_grants_mask = Some [];
     }
   in
 
@@ -609,7 +631,7 @@ let generate_skolem_function (universal_quants : universal_quants)
       ret_expr_args_list
   in
 
-  (Logs.debug (fun m -> m 
+  let* () = Rewriter.Logs.debug (fun printers m -> m
   "heapsExplicitTrnsl.generate_skolem_function: \
     universal_quants: %a \n \
     var_decl: %a \n \
@@ -617,14 +639,14 @@ let generate_skolem_function (universal_quants : universal_quants)
     optn_args: %a \n \
     output_expr: %a
   "
-    Type.pr_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
-    Type.pr_var_decl var_decl
-    (Stmt.pr_spec_list "skolemPostConds") postconds
+    printers.pr_type_var_decl_list (List.map ~f:snd universal_quants.univ_vars)
+    printers.pr_type_var_decl var_decl
+    (printers.pr_stmt_spec_list "skolemPostConds") postconds
     (Util.Print.pr_list_comma (fun ppf (vd, e) ->
-      Stdlib.Format.fprintf ppf "%a -> %a" Type.pr_var_decl vd Expr.pr e
+      Stdlib.Format.fprintf ppf "%a -> %a" printers.pr_type_var_decl vd printers.pr_expr e
     )) optn_args
-    Expr.pr ret_expr
-  ));
+    printers.pr_expr ret_expr
+  ) in
 
   Rewriter.return (symbol, ret_expr)
 
@@ -692,7 +714,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
       mod_decl_rep = None;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
-      mod_decl_is_free = false;
+      mod_decl_status = NotFree;
       mod_decl_loc = loc;
     }
   in
@@ -706,6 +728,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         Module.type_def_name = type_ident;
         type_def_expr = Some fld_elem_type;
         type_def_rep = true;
+        type_def_is_free = false;
         type_def_loc = loc;
       }
     in
@@ -720,6 +743,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
           Some
             (Expr.mk_var ~typ:fld_elem_type
                (ProgUtils.get_ra_id ra_qual_ident));
+        var_is_free = NotFree;
       }
     in
 
@@ -739,10 +763,12 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_locals = [];
         call_decl_precond = [];
         call_decl_postcond = [];
-        call_decl_is_free = true;
+        call_decl_contract_ext = [];
+        call_decl_status = MachineFree;
         call_decl_is_auto = false;
         call_decl_loc = loc;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
       }
     in
 
@@ -839,10 +865,12 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_locals = [];
         call_decl_precond = [];
         call_decl_postcond = [];
-        call_decl_is_free = true;
+        call_decl_contract_ext = [];
+        call_decl_status = MachineFree;
         call_decl_is_auto = false;
         call_decl_loc = loc;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
       }
     in
 
@@ -888,9 +916,11 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_locals = [];
         call_decl_precond = [];
         call_decl_postcond = [];
-        call_decl_is_free = true;
+        call_decl_contract_ext = [];
+        call_decl_status = MachineFree;
         call_decl_is_auto = false;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
         call_decl_loc = loc;
       }
     in
@@ -937,9 +967,11 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_locals = [];
         call_decl_precond = [];
         call_decl_postcond = [];
-        call_decl_is_free = true;
+        call_decl_contract_ext = [];
+        call_decl_status = MachineFree;
         call_decl_is_auto = false;
-        call_decl_mask = Some (Set.empty (module QualIdent));
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
         call_decl_loc = loc;
       }
     in
@@ -974,13 +1006,13 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
 
     Rewriter.return
       [
-        Module.SymbolDef { symbol_def = (Module.TypeDef type_def); is_admitted = false; };
-        SymbolDef { symbol_def = (Module.VarDef var_def); is_admitted = false; };
-        SymbolDef { symbol_def = (Module.CallDef heap_valid_fn); is_admitted = false; };
-        SymbolDef { symbol_def = (Module.CallDef heap_valid_inhale_fn); is_admitted = false; };
-        SymbolDef { symbol_def = (Module.CallDef heap_add_chunk_fn); is_admitted = false; };
-        SymbolDef { symbol_def = (Module.CallDef heap_sub_chunk_fn); is_admitted = false; };
-        SymbolDef { symbol_def = (Module.CallDef heapchunk_compare_fn); is_admitted = false; };
+        Module.SymbolDef (Module.TypeDef type_def);
+        SymbolDef (Module.VarDef var_def);
+        SymbolDef (Module.CallDef heap_valid_fn);
+        SymbolDef (Module.CallDef heap_valid_inhale_fn);
+        SymbolDef (Module.CallDef heap_add_chunk_fn);
+        SymbolDef (Module.CallDef heap_sub_chunk_fn);
+        SymbolDef (Module.CallDef heapchunk_compare_fn);
       ]
   in
 
@@ -991,8 +1023,9 @@ let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t
   let open Rewriter.Syntax in
   match symbol with
   | FieldDef f ->
+      let* printers = Rewriter.current_printers in
       let* utils_module =
-        let is_field_def_real_heap = ProgUtils.is_field_def_real_heap f in
+        let is_field_def_real_heap = ProgUtils.is_field_def_real_heap ~printers f in
         let ra_qual_ident = ProgUtils.field_get_ra_qual_iden f in
         let mod_ident =
           ProgUtils.field_utils_module_ident f.field_name
@@ -1042,8 +1075,9 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
               ProgUtils.pred_to_ra_mod_ident ~loc
                 c.call_decl.call_decl_name;
             mod_inst_type;
-            mod_inst_def = Some (mod_inst_def_ra, [ pred_ret_type_module ]);
+            mod_inst_def = Some (mod_inst_def_ra, [ Module.ModArg pred_ret_type_module ]);
             mod_inst_is_interface = false;
+            mod_inst_is_free = false;
             mod_inst_loc = loc;
           }
       in
@@ -1052,10 +1086,9 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
         Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
           instantiated_pred_heap_ra
       in
-
-      Logs.debug (fun m ->
-          m "Generated pred heap RA module: %a" Module.pr_symbol
-            instantiated_pred_heap_ra);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Generated pred heap RA module: %a" printers.pr_symbol
+            instantiated_pred_heap_ra) in
 
       let in_arg_typ =
         Type.mk_prod c.call_decl.call_decl_loc
@@ -1118,8 +1151,10 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
               mod_inst_def =
                 Some
                   ( Predefs.lib_atomic_token_ra_mod_qual_ident,
-                    [ proc_conrete_args_type_module; proc_ret_type_module ] );
+                    [ Module.ModArg proc_conrete_args_type_module;
+                      Module.ModArg proc_ret_type_module ] );
               mod_inst_is_interface = false;
+              mod_inst_is_free = false;
               mod_inst_loc = loc;
             }
         in
@@ -1128,10 +1163,9 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
             instantiated_au_proc_heap_ra
         in
-
-        Logs.debug (fun m ->
-            m "Generated au heap RA module: %a" Module.pr_symbol
-              instantiated_au_proc_heap_ra);
+        let* () = Rewriter.Logs.debug (fun printers m ->
+            m "Generated au heap RA module: %a" printers.pr_symbol
+              instantiated_au_proc_heap_ra) in
 
         let in_arg_typ = Type.atomic_token (QualIdent.from_ident c.call_decl.call_decl_name) in
 
@@ -1164,7 +1198,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
               match f.field_type with
               | App (Fld, [ tp_expr ], _) -> tp_expr
               | _ -> Error.type_error f.field_loc "Expected field identifier.")
-          | _ -> Error.error Loc.dummy "Expected a field_def"
+          | _ -> Error.internal_error Loc.dummy "expected a field_def"
         in
 
         (* Done so that Ident is aware of this name being used; prevents the same name from being generated again during SSA transform *)
@@ -1247,8 +1281,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         Rewriter.return
-          ( { Stmt.var_decl = heap_var_decl; var_init = None },
-            { Stmt.var_decl = heap_var_decl2; var_init = None },
+          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = NotFree },
+            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = NotFree },
             Stmt.mk_assume_expr ~loc assume_expr1,
             Stmt.mk_assume_expr ~loc assume_expr2 ))
   in
@@ -1355,8 +1389,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         Rewriter.return
-          ( { Stmt.var_decl = heap_var_decl; var_init = None },
-            { Stmt.var_decl = heap_var_decl2; var_init = None },
+          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = NotFree },
+            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = NotFree },
             Stmt.mk_assume_expr ~loc assume_expr1,
             Stmt.mk_assume_expr ~loc assume_expr2 ))
   in
@@ -1449,8 +1483,8 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
         in
 
         Rewriter.return
-          ( { Stmt.var_decl = heap_var_decl; var_init = None },
-            { Stmt.var_decl = heap_var_decl2; var_init = None },
+          ( { Stmt.var_decl = heap_var_decl; var_init = None; var_is_free = NotFree },
+            { Stmt.var_decl = heap_var_decl2; var_init = None; var_is_free = NotFree },
             Stmt.mk_assume_expr ~loc assume_expr1,
             Stmt.mk_assume_expr ~loc assume_expr2 ))
   in
@@ -1481,7 +1515,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
         let* symbol = Rewriter.find_and_reify fpu_desc.fpu_field in
         match symbol with
         | FieldDef f -> Rewriter.return f
-        | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+        | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
       in
 
       let field_expr =
@@ -1505,7 +1539,7 @@ let rec rewrite_fpu (stmt : Stmt.t) : Stmt.t Rewriter.t =
               in
               match symbol with
               | VarDef v -> Rewriter.return v.var_decl
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
             in
 
             Rewriter.return
@@ -1560,7 +1594,7 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with
   | Basic (Bind bind_desc) ->
     let open Rewriter.Syntax in
-    let+ bind_lhs =
+    let* bind_lhs =
       Rewriter.List.map bind_desc.bind_lhs ~f:(fun qual_ident ->
           let* qual_ident, symbol =
             Rewriter.resolve_and_find qual_ident
@@ -1568,16 +1602,16 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let+ symbol = Rewriter.Symbol.reify symbol in
           match symbol with
           | VarDef { var_decl; _ } ->
-            Expr.mk_var ~typ:var_decl.var_type qual_ident 
+            Expr.mk_var ~typ:var_decl.var_type qual_ident
           | _ -> assert false
         )
     in
 
-    Logs.debug (fun m -> m 
+    let* () = Rewriter.Logs.debug (fun printers m -> m
       "HeapExplicitTrnsl.rewrite_binds: bind_lhs = %a; bind_rhs = %a"
-        Expr.pr_list bind_lhs
-        Expr.pr bind_desc.bind_rhs.spec_form
-    );
+        printers.pr_expr_list bind_lhs
+        printers.pr_expr bind_desc.bind_rhs.spec_form
+    ) in
 
     let exis_vars =
         List.map bind_lhs ~f:(fun e ->
@@ -1626,12 +1660,12 @@ let rec rewrite_binds (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let new_stmt =
         Stmt.mk_block_stmt ~loc:stmt.stmt_loc [ assert_stmt; assume_stmt ]
       in
-      new_stmt
+      Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_binds
 
 type expr_match = { var_decl : var_decl; expr : expr option }
 
-let match_up_expr (expr1 : expr) (expr2 : expr) (vars : var_decl list) :
+let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr) (vars : var_decl list) :
     (var_decl * expr) ident_map option =
   (* expr1 is the expr with vars; expr2 is the one to be matched against. So expr1 is allowed to have more existentials than expr2. For first implementation, expr2 is not allowed to have any existentials for now *)
 
@@ -1645,7 +1679,7 @@ let match_up_expr (expr1 : expr) (expr2 : expr) (vars : var_decl list) :
   *)
   Logs.debug (fun m ->
       m "Rewrites.HeapsExplicitTrnsl.match_up_expr: expr1: %a; expr2: %a"
-        Expr.pr expr1 Expr.pr expr2);
+        printers.pr_expr expr1 printers.pr_expr expr2);
 
   let rec match_up_expr (expr1 : expr) (expr2 : expr)
       (var_map : expr_match ident_map) : expr_match ident_map option =
@@ -1684,8 +1718,8 @@ let match_up_expr (expr1 : expr) (expr2 : expr) (vars : var_decl list) :
               match Map.find var_map vd1.var_name with
               | Some _ -> var_map
               | None ->
-                  Error.error (Expr.to_loc expr1)
-                    "Unexpected existential quantifier in expr1; expected all \
+                  Error.internal_error (Expr.to_loc expr1)
+                    "unexpected existential quantifier in expr1; expected all \
                      existentials to be declared in var_map")
         in
 
@@ -1743,8 +1777,8 @@ let match_up_expr (expr1 : expr) (expr2 : expr) (vars : var_decl list) :
              match expr with
              | Some e -> (var_decl, e)
              | None ->
-                 Error.error (Expr.to_loc expr1)
-                   "Expected all variables to be matched up"))
+                 Error.internal_error (Expr.to_loc expr1)
+                   "expected all variables to be matched up"))
   | None -> None
 
 module ParseAssertionLang = struct
@@ -1812,7 +1846,7 @@ module TrnslInhale = struct
             var_name = Ident.fresh var_decl.var_loc var_decl.var_name.ident_name;
           }
         in
-        let symbol = Module.VarDef { var_decl; var_init = None } in
+        let symbol = Module.VarDef { var_decl; var_init = None; var_is_free = MachineFree } in
         let* _ = Rewriter.introduce_symbol symbol in
 
         Rewriter.return
@@ -1836,7 +1870,7 @@ module TrnslInhale = struct
             var_type;
           }
         in
-        let symbol = Module.VarDef { var_decl; var_init = None } in
+        let symbol = Module.VarDef { var_decl; var_init = None; var_is_free = MachineFree } in
         let* _ = Rewriter.introduce_symbol symbol in
 
         let tuple_expr =
@@ -1883,12 +1917,12 @@ module TrnslInhale = struct
 
         let* e = skolemize_inhale_expr universal_quants subst e in
 
-        Logs.debug (fun m ->
+        let* () = Rewriter.Logs.debug (fun printers m ->
             m
               "Rewrites.HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: \
                found existentials:  e: %a"
-              Expr.pr e
-        );
+              printers.pr_expr e
+        ) in
         Rewriter.return e
     | _ ->
         let* expr =
@@ -1899,11 +1933,11 @@ module TrnslInhale = struct
         let expr = Expr.alpha_renaming expr subst in
 
         (* This will cause the renaming to be done at each step of descend, but renaming should be idempotent, so that should be okay *)
-        Logs.debug (fun m ->
+        let* () = Rewriter.Logs.debug (fun printers m ->
             m
               "Rewrites.HeapsExplicitTrnsl.TrnslInhale.skolemize_inhale_expr: \
                e: %a"
-              Expr.pr expr);
+              printers.pr_expr expr) in
         Rewriter.return expr
 
   let rec rewriter_skolemize_inhale_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
@@ -1963,11 +1997,12 @@ module TrnslInhale = struct
         match prev_expr with
         | None -> Rewriter.return stmt
         | Some prev_expr -> (
+            let* printers = Rewriter.current_printers in
             Logs.debug (fun m ->
                 m
                   "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
                    bind_desc: %a; prev_expr: %a"
-                  Stmt.pr stmt Expr.pr prev_expr);
+                  printers.pr_stmt stmt printers.pr_expr prev_expr);
 
             let* bind_lhs_var_decls =
               Rewriter.List.map bind_desc.bind_lhs ~f:(fun qual_ident ->
@@ -1976,7 +2011,7 @@ module TrnslInhale = struct
             in
 
             match
-              match_up_expr bind_desc.bind_rhs.spec_form prev_expr bind_lhs_var_decls
+              match_up_expr ~printers bind_desc.bind_rhs.spec_form prev_expr bind_lhs_var_decls
             with
             | None ->
                 Logs.debug (fun m ->
@@ -1989,7 +2024,7 @@ module TrnslInhale = struct
                     m
                       "Rewrites.HeapsExplicitTrnsl.TrnslInhale.rewriter_eliminate_binds_for_inhale: \
                        var_map: %a"
-                      (Util.Print.pr_map ~key:Ident.pr ~value:Type.pr_var_decl)
+                      (Util.Print.pr_map ~key:Ident.pr ~value:printers.pr_type_var_decl)
                       (Map.map ~f:Stdlib.fst var_map));
                 let assign_stmts =
                   List.map bind_lhs_var_decls ~f:(fun var_decl ->
@@ -2441,7 +2476,7 @@ module TrnslInhale = struct
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_committed_constr)
                   [ Expr.mk_tuple call_args; ret_val ]
-            | _ -> Error.error loc "Internal error"
+            | _ -> Error.internal_error loc "expected an atomic-update predicate expression (AUPred or AUPredCommit)"
           in
 
           Stmt.mk_assume_expr ~loc
@@ -2752,9 +2787,8 @@ module TrnslInhale = struct
                         | Invariant ->
                             [ Expr.mk_tuple actual_arg_out_exprs_subst ]
                         | _ ->
-                            Error.error loc
-                              "Internal error: Expected a predicate or \
-                               invariant"
+                            Error.internal_error loc
+                              "expected a predicate or invariant"
                       in
 
                       Expr.mk_app ~loc ~typ:heap_elem_type
@@ -2856,7 +2890,7 @@ module TrnslInhale = struct
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
                   Rewriter.return stmt
-              | _ -> Error.error loc "Expected a predicate definition")
+              | _ -> Error.internal_error loc "expected a predicate definition")
           | _ ->
             (* Logs.debug (fun m -> m "TrnslInhale.trnsl_inhale_a0: unknown inhale expr"); *)
             unsupported_expr_error expr)
@@ -2931,15 +2965,15 @@ module TrnslInhale = struct
           | AUPred _, [args_tuple] -> Expr.unfold_tuple args_tuple
           | AUPredCommit _, [args_tuple; ret_tuple] -> 
             (Expr.unfold_tuple args_tuple) @ [ret_tuple]
-          | _ -> 
+          | _ ->
             (* Logs.debug(fun m -> m "TrnslInhale.trnsl_assume_a0: could not compute args"); *)
             unsupported_expr_error expr
         in
-        Logs.debug (fun m ->
+        let* () = Rewriter.Logs.debug (fun printers m ->
             m
               "Rewrites.HeapsExplicitTrnsl.Trnslassume.trnsl_assume_a0: expr: \
                %a"
-              Expr.pr expr);
+              printers.pr_expr expr) in
         let loc = Expr.to_loc expr in
         let* heap_elem_type_qual_iden =
           ProgUtils.get_au_utils_rep_type call_qual_ident
@@ -2983,7 +3017,7 @@ module TrnslInhale = struct
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_committed_constr)
                   [ Expr.mk_tuple call_args; ret_val ]
-            | _ -> Error.error loc "Internal error"
+            | _ -> Error.internal_error loc "expected an atomic-update predicate expression (AUPred or AUPredCommit)"
           in
 
           Stmt.mk_assume_expr ~loc
@@ -3150,13 +3184,14 @@ module TrnslExhale = struct
     | Basic (Spec (Exhale, spec)) -> (
         let* prev_expr = Rewriter.current_user_state in
         let* () = Rewriter.set_user_state None in
+        let* printers = Rewriter.current_printers in
 
         Logs.debug (fun m ->
             m
               "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales: \
                prev_expr: %a; exhale_expr: %a"
-              (Util.Print.pr_option Expr.pr)
-              prev_expr Expr.pr spec.spec_form);
+              (Util.Print.pr_option printers.pr_expr)
+              prev_expr printers.pr_expr spec.spec_form);
 
         let exhale_expr = spec.spec_form in
         match prev_expr with
@@ -3166,10 +3201,10 @@ module TrnslExhale = struct
                 m
                   "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales: \
                    prev_expr: %a; exhale_expr: %a"
-                  Expr.pr prev_expr Expr.pr exhale_expr);
+                  printers.pr_expr prev_expr printers.pr_expr exhale_expr);
             let existential_vars = find_existentials exhale_expr in
 
-            match match_up_expr spec.spec_form prev_expr existential_vars with
+            match match_up_expr ~printers spec.spec_form prev_expr existential_vars with
             | None -> Rewriter.return stmt
             | Some var_map ->
                 let subst_map =
@@ -3189,6 +3224,7 @@ module TrnslExhale = struct
         let* prev_expr = Rewriter.current_user_state in
 
         let* () = Rewriter.set_user_state (Some spec.spec_form) in
+        let* printers = Rewriter.current_printers in
 
         let assert_expr = spec.spec_form in
         match prev_expr with
@@ -3198,10 +3234,10 @@ module TrnslExhale = struct
                 m
                   "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
                    (assert): prev_expr: %a; assert_expr: %a"
-                  Expr.pr prev_expr Expr.pr assert_expr);
+                  printers.pr_expr prev_expr printers.pr_expr assert_expr);
             let existential_vars = find_existentials assert_expr in
 
-            match match_up_expr spec.spec_form prev_expr existential_vars with
+            match match_up_expr ~printers spec.spec_form prev_expr existential_vars with
             | None ->
                 Logs.debug (fun m ->
                     m
@@ -3222,7 +3258,7 @@ module TrnslExhale = struct
                     m
                       "Rewrites.HeapsExplicitTrnsl.TrnslExhale.rewriter_user_annot_elim_exists_from_exhales \
                        (assert): spec_form: %a"
-                      Expr.pr spec_form);
+                      printers.pr_expr spec_form);
 
                 let spec = { spec with spec_form } in
 
@@ -3331,19 +3367,19 @@ module TrnslExhale = struct
         | _ -> expr
       in
 
-      Logs.debug (fun m -> m 
+      let* () = Rewriter.Logs.debug (fun printers m -> m
       "WitnessComputation.elim_a1: Pre expr = %a"
-        Expr.pr expr
-      );
+        printers.pr_expr expr
+      ) in
 
       let expr = normalize_expr expr in
 
       match expr with
       | Binder (Exists, var_decls, trgs, e, expr_attr) ->
-        Logs.debug (fun m -> m 
+        let* () = Rewriter.Logs.debug (fun printers m -> m
             "WitnessComputation.elim_a1: expr = %a"
-              Expr.pr expr
-          );
+              printers.pr_expr expr
+          ) in
 
           let loc =  expr_attr.expr_loc in
           let var_decls_skolem_idents = 
@@ -3353,7 +3389,7 @@ module TrnslExhale = struct
             )
           in
 
-          let* (witnesses : (conditions * expr option) list ident_map) =
+          let* (raw_witnesses : (conditions * expr option) list ident_map) =
             let init_map =
               List.fold var_decls
                 ~init:(Map.empty (module Ident))
@@ -3364,13 +3400,13 @@ module TrnslExhale = struct
             elim_a0 univ_vars var_decls (univ_conds, []) e init_map
           in
 
-          (* Sanitizing witnesses: 
+          (* Sanitizing witnesses:
           * a. getting rid of expr option; and
           * b. filtering empty lists [] from map *)
           let witnesses : (conditions * expr) list ident_map =
-              let witnesses : (conditions * expr) list ident_map = 
-                Map.map witnesses ~f:(fun cnd_expr_optn_list ->
-                  List.filter_map cnd_expr_optn_list ~f:(fun (cnd, expr_optn) -> 
+              let witnesses : (conditions * expr) list ident_map =
+                Map.map raw_witnesses ~f:(fun cnd_expr_optn_list ->
+                  List.filter_map cnd_expr_optn_list ~f:(fun (cnd, expr_optn) ->
                     match expr_optn with
                     | None -> None
                     | Some e -> Some (cnd, e)
@@ -3378,11 +3414,11 @@ module TrnslExhale = struct
                 )
               in
 
-              let witnesses : (conditions * expr) list ident_map = 
+              let witnesses : (conditions * expr) list ident_map =
                 Map.filter witnesses ~f:(fun cnd_expr_list ->
                   not @@ List.is_empty cnd_expr_list
                 )
-              in 
+              in
 
             witnesses
           in
@@ -3462,14 +3498,14 @@ module TrnslExhale = struct
                 match symbol with
                 | VarDef v -> v.var_decl
                 | _ ->
-                    Error.error (Ident.to_loc iden)
-                      "Expected a variable declaration")
+                    Error.internal_error (Ident.to_loc iden)
+                      "expected a variable declaration")
           in
 
-          Logs.debug (fun m -> m 
-          "TrnslExhale.WitnessComputation.elim_a1: env_local_var_decls: %a" 
-            Type.pr_var_decl_list env_local_var_decls
-          );
+          let* () = Rewriter.Logs.debug (fun printers m -> m
+          "TrnslExhale.WitnessComputation.elim_a1: env_local_var_decls: %a"
+            printers.pr_type_var_decl_list env_local_var_decls
+          ) in
 
           let env_local_var_decls_exprs = List.map env_local_var_decls ~f:(fun vd ->
             (vd, Expr.from_var_decl vd)  
@@ -3529,7 +3565,7 @@ module TrnslExhale = struct
             )
           in
 
-          Logs.debug (fun m ->
+          let* () = Rewriter.Logs.debug (fun printers m ->
               m
                 "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: \
                  witness_map: %a"
@@ -3537,20 +3573,35 @@ module TrnslExhale = struct
                      Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i
                        (Fmt.Dump.list (fun ppf (c, e) ->
                             Stdlib.Format.fprintf ppf "%a -> %a"
-                              (Util.Print.pr_list_comma Expr.pr)
-                              c Expr.pr e))
+                              (Util.Print.pr_list_comma printers.pr_expr)
+                              c printers.pr_expr e))
                        e))
                 (Map.to_alist witnesses)
-          );
+          ) in
+
+          let e_local_vars = Expr.local_vars e in
 
           let* skolem_fn_records =
             Rewriter.List.map var_decls_skolem_idents ~f:(fun (var_decl, skolem_ident) ->
                 let* preconds, postconds, optn_args =
                   match Map.find witness_args_conds_exprs_map var_decl.var_name with
                   | None | Some [] ->
-                    Logs.warn (fun m -> m "%s%s" 
-                      (Loc.to_string (Expr.to_loc expr)) 
-                      ("No witnesses could be computed for: " ^ Ident.to_string var_decl.var_name));
+                    (* Only warn if the variable actually occurs somewhere in the
+                       exhaled/asserted expression. If it doesn't occur at all -- e.g.
+                       it dropped out entirely once other existentials in the same
+                       quantifier were instantiated by an explicit `fold`/`unfold`
+                       binding -- then leaving it unconstrained is provably inert:
+                       there's nothing left for its value to influence. If it does
+                       occur (even only in a pure guard the search doesn't look
+                       inside), its value can still affect what gets exhaled or what
+                       later code can prove, so the warning stays. *)
+                    if Set.mem e_local_vars var_decl.var_name then
+                      Logs.warn (fun m -> m "%s%s"
+                        (Loc.to_string (Expr.to_loc expr))
+                        (Printf.sprintf
+                           "No witness could be computed for %s -- it will be treated as an arbitrary unconstrained value, which may cause later assertions about it to fail."
+                           (Ident.name var_decl.var_name)));
+
                     Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
                       let witness_arg_exprs = 
@@ -3576,16 +3627,15 @@ module TrnslExhale = struct
                       let preconds = ( List.concat @@
                          List.mapi witness_arg_exprs  ~f:(fun index_outer (optn_arg1, conds1, e1)
                         ->
-                          List.foldi witness_arg_exprs ~init:[] ~f:(fun index_inner accum (optn_arg2, conds2, e2) ->
+                          List.rev (List.foldi witness_arg_exprs ~init:[] ~f:(fun index_inner accum (optn_arg2, conds2, e2) ->
                             if index_outer >= index_inner then accum else
-                              accum @ [ 
-                                Expr.mk_impl
-                                  (Expr.mk_chained_and (univ_conds @ conds1 @ conds2))
-                                  (Expr.mk_eq 
-                                    (Expr.from_var_decl optn_arg1) (Expr.from_var_decl optn_arg2)
-                                  )
-                              ]
-                          )
+                              Expr.mk_impl
+                                (Expr.mk_chained_and (univ_conds @ conds1 @ conds2))
+                                (Expr.mk_eq
+                                  (Expr.from_var_decl optn_arg1) (Expr.from_var_decl optn_arg2)
+                                )
+                              :: accum
+                          ))
                         )
                       )
 
@@ -3657,7 +3707,7 @@ module TrnslExhale = struct
                   }
                 in
 
-                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = None})
+                let skolem_placeholder_var_def = (Module.VarDef { var_decl = temp_skolem_var_decl; var_init = None; var_is_free = MachineFree})
 
                 in
                 
@@ -3720,14 +3770,14 @@ module TrnslExhale = struct
               )
           in
 
-          Logs.debug (fun m ->
+          let* () = Rewriter.Logs.debug (fun printers m ->
             m
               "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a1: \
                renaming_map: %a"
               (Fmt.Dump.list (fun ppf (qi, e) ->
                    Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr qi
-                    Expr.pr e))
-              (Map.to_alist renaming_map));
+                    printers.pr_expr e))
+              (Map.to_alist renaming_map)) in
 
           let renaming_map_sanitized =
             (* Need to sanitize renaming_map if an existentially quantified expression occurs in a computed witness.
@@ -3823,13 +3873,13 @@ module TrnslExhale = struct
             core_witness_comp relevant_vars concrete_expr val_expr false
           in
 
-          Logs.debug (fun m ->
+          let* () = Rewriter.Logs.debug (fun printers m ->
               m
                 "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: \
                  witnesses: %a"
                 (Fmt.Dump.list (fun ppf (i, e) ->
-                     Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i Expr.pr e))
-                (Map.to_alist witnesses));
+                     Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i printers.pr_expr e))
+                (Map.to_alist witnesses)) in
 
           let witness_map =
             List.fold relevant_vars ~init:witness_map
@@ -3890,11 +3940,11 @@ module TrnslExhale = struct
                   (Expr.to_type pred_heap_val)
               in
 
-              Logs.debug (fun m ->
+              let* () = Rewriter.Logs.debug (fun printers m ->
                   m
                     "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: \
                      pred_heap_expanded_type: %a"
-                    Type.pr pred_heap_expanded_type);
+                    printers.pr_type pred_heap_expanded_type) in
 
               let pred_heap_val_expanded_typ =
                 Expr.set_type pred_heap_val pred_heap_expanded_type
@@ -3945,7 +3995,7 @@ module TrnslExhale = struct
                     Rewriter.return witness_map)
               in
 
-              Logs.debug (fun m ->
+              let* () = Rewriter.Logs.debug (fun printers m ->
                   m
                     "Rewrites.HeapsExplicitTrnsl.WitnessComputation.elim_a0: \
                      witness_map: %a"
@@ -3953,10 +4003,10 @@ module TrnslExhale = struct
                          Stdlib.Format.fprintf ppf "%a -> %a" Ident.pr i
                            (Fmt.Dump.list (fun ppf (c, e) ->
                                 Stdlib.Format.fprintf ppf "%a -> %a"
-                                  (Util.Print.pr_list_comma Expr.pr)
-                                  c (Fmt.Dump.option Expr.pr) e))
+                                  (Util.Print.pr_list_comma printers.pr_expr)
+                                  c (Fmt.Dump.option printers.pr_expr) e))
                            e))
-                    (Map.to_alist witness_map));
+                    (Map.to_alist witness_map)) in
 
               Rewriter.return witness_map
           | _ -> Rewriter.return witness_map)
@@ -3965,13 +4015,13 @@ module TrnslExhale = struct
     and core_witness_comp (exists : var_decl list) (concrete_expr : expr)
         (given_expr : expr) (exact : bool) : expr ident_map Rewriter.t =
       let open Rewriter.Syntax in
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m
             "Rewrites.HeapsExplicitTrnsl.WitnessComputation.core_witness_comp: \
              exists: %a, concrete_expr: %a, given_expr: %a, exact: %b"
             (Fmt.Dump.list Ident.pr)
             (List.map exists ~f:(fun v -> v.var_name))
-            Expr.pr concrete_expr Expr.pr given_expr exact);
+            printers.pr_expr concrete_expr printers.pr_expr given_expr exact) in
 
       match exact with
       | false ->
@@ -4115,8 +4165,8 @@ module TrnslExhale = struct
                       | DestrDef destr ->
                           Rewriter.return destr.destr_return_type
                       | _ ->
-                          Error.error (Expr.to_loc given_expr)
-                            "Expected a destructor definition"
+                          Error.internal_error (Expr.to_loc given_expr)
+                            "expected a destructor definition"
                     in
 
                     (destr, destr_ret_type))
@@ -4161,14 +4211,14 @@ module TrnslExhale = struct
           WitnessComputation.find_witnesses_elim_exists exhale_expr
         in
 
-        Logs.debug (fun m -> m 
+        let* () = Rewriter.Logs.debug (fun printers m -> m
           "WitnessComputation.rewriter_find_witness_elim_exists_from_exhale: \n \
               init exhale_expr: %a \n \
               elim exhale_expr: %a
           "
-            Expr.pr exhale_expr
-            Expr.pr elim_expr
-        );
+            printers.pr_expr exhale_expr
+            printers.pr_expr elim_expr
+        ) in
 
         let spec = { spec with spec_form = elim_expr } in
         let exhale_stmt = { stmt with stmt_desc = Basic (Spec (Exhale, spec)) } in 
@@ -4635,7 +4685,7 @@ module TrnslExhale = struct
                 Expr.mk_app ~loc ~typ:heap_elem_type
                   (Expr.DataConstr au_ra_committed_constr)
                   [ Expr.mk_tuple call_args; ret_val ]
-            | _ -> Error.error loc "Internal error"
+            | _ -> Error.internal_error loc "expected an atomic-update predicate expression (AUPred or AUPredCommit)"
           in
 
           Stmt.mk_assume_expr ~loc
@@ -4957,9 +5007,8 @@ module TrnslExhale = struct
                         | Invariant ->
                             [ Expr.mk_tuple actual_arg_out_exprs_subst ]
                         | _ ->
-                            Error.error loc
-                              "Internal error: Expected a predicate or \
-                               invariant"
+                            Error.internal_error loc
+                              "expected a predicate or invariant"
                       in
 
                       Expr.mk_app ~loc ~typ:heap_elem_type
@@ -5068,7 +5117,7 @@ module TrnslExhale = struct
                   let stmt = Stmt.mk_block_stmt ~loc stmts_list in
 
                   Rewriter.return stmt
-              | _ -> Error.error loc "Expected a predicate definition")
+              | _ -> Error.internal_error loc "expected a predicate definition")
           | _ ->
             (* Logs.debug(fun m -> m "TrnslInhale.trnsl_exhale_a0: unknown expr"); *)
             unsupported_expr_error expr)
@@ -5079,7 +5128,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   match s.stmt_desc with
   | Stmt.Basic basic_stmt -> begin
       match basic_stmt with
-      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ | StmtExt _ ->
+      | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _ | Fpu _ | Call _ | BasicStmtExt _ ->
         Rewriter.return s
       | Spec (spec_kind, spec) -> (
           match spec_kind with
@@ -5129,7 +5178,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
                 in
 
                 let (nondet_var_def : Module.symbol) =
-                  VarDef { var_decl = nondet_var; var_init = None }
+                  VarDef { var_decl = nondet_var; var_init = None; var_is_free = NotFree }
                 in
 
                 let* _ = Rewriter.introduce_symbol nondet_var_def in

@@ -1,10 +1,10 @@
 interface MyType {
-  rep type T;
+  rep type T
 
 }
 
 module MyIntMod : Library.Type {
-  rep type T = Int;
+  rep type T = Int
 
 }
 
@@ -12,7 +12,7 @@ module MyIntMod : Library.Type {
 module M {
 
 
-  field f: Int;
+  field f: Int
 
   proc p1(x: Ref, v: Int) 
     requires own(x.f, v, 1.0)

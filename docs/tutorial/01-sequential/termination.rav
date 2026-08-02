@@ -1,0 +1,16 @@
+// Ackermann's function: the textbook example motivating *lexicographic*
+// termination measures. `decreases m, n` treats the pair (m, n) the way a
+// dictionary orders words -- m has to weakly decrease, and n strictly
+// decrease, on any given step, OR m has to strictly decrease outright
+// (letting n do anything at all, including grow). No single-Int measure
+// works here: the last case's inner call, `ackermann(m, n - 1)`, leaves m
+// completely unchanged while only n goes down; the *outer* call around it,
+// `ackermann(m - 1, ...)`, is the one that needs m to drop -- and it does,
+// regardless of what the inner call's result turns out to be.
+func ackermann(m: Int, n: Int) returns (r: Int)
+  decreases m, n
+{
+  m <= 0 ?
+    n + 1 :
+    (n <= 0 ? ackermann(m - 1, 1) : ackermann(m - 1, ackermann(m, n - 1)))
+}

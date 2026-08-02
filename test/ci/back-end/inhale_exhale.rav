@@ -1,8 +1,8 @@
 module IntType : Library.Type {
-  rep type T = Int;
+  rep type T = Int
 }
 
-module FracInt = Library.Frac[IntType];
+module FracInt = Library.Frac[IntType]
 
 field f: FracInt
 field g: Int

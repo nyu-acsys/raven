@@ -1,0 +1,51 @@
+// Part 4, first half: what changes once more than one thread can touch the
+// counter. No ghost state yet -- just `spawn`, `faa`, and a shared invariant.
+// (Ghost fields and resource algebras are §hit_counter_ghost.rav, the second
+// half of this part.)
+
+field count: Int
+
+// A *shared invariant*: a global fact about `c.count` that must hold after
+// every atomic step, no matter which thread just took it. Unlike a `pred`
+// (Part 3's `valid`), an invariant is not something you fold/unfold once per
+// procedure and hand around explicitly -- it's ambient and freely duplicable,
+// because every thread that knows about `c` is allowed to open it, for
+// exactly one atomic step at a time, whenever it needs to.
+inv evenCount(c: Ref) {
+  exists v: Int :: own(c.count, v) && v % 2 == 0
+}
+
+// `faa` (fetch-and-add) is one of Raven's atomic heap primitives -- the
+// increment-by-2 happens as a single indivisible step, which is exactly why
+// it's legal to perform it while the invariant is unfolded.
+proc bumpTwice(c: Ref)
+  requires evenCount(c)
+{
+  unfold evenCount(c);
+  val _x := faa(c.count, 2);
+  fold evenCount(c);
+}
+
+proc create() returns (c: Ref)
+  ensures evenCount(c)
+{
+  c := new (count: 0);
+  fold evenCount(c);
+}
+
+// Two threads bump the counter concurrently, in some unknown interleaving --
+// yet the invariant lets us conclude `count` is still even when we look,
+// without knowing anything about how the two `spawn`ed calls actually
+// interleaved with each other or with this thread's own read.
+proc client() returns (c: Ref)
+  ensures evenCount(c)
+{
+  c := create();
+  spawn bumpTwice(c);
+  spawn bumpTwice(c);
+
+  unfold evenCount(c);
+  val x := c.count;
+  assert x % 2 == 0;
+  fold evenCount(c);
+}

@@ -1,0 +1,54 @@
+field f: Int
+
+interface M {
+
+  inv test(x: Ref) {
+    own(x.f, 1)
+  }
+
+  inv i(x: Ref)
+
+  proc helper(x: Ref)
+    requires i(x)
+    atomic requires own(x.f, 1)
+    atomic ensures false
+
+  proc bar(x: Ref)
+    atomic requires true
+    requires i(x) && test(x)
+  {
+    ghost var phi := bindAU
+    openAU(phi)
+    unfold test(x)
+    helper(x)
+    fold test(x)
+    commitAU(phi, ())
+  }
+}
+
+// N gives i a concrete body that nests test -- another invariant M itself
+// declares. Since bar (above) is inherited unchanged and verified only once,
+// against M's abstract i, this must be rejected here rather than silently
+// accepted: instantiating N would otherwise let helper reopen test while bar
+// still holds it open, without bar ever being re-checked against that fact.
+module N : M {
+  inv i(x: Ref) {
+    test(x)
+  }
+
+  proc helper(x: Ref)
+    requires i(x)
+    atomic requires own(x.f, 1)
+    atomic ensures false
+  {
+    ghost val phi := bindAU;
+    openAU(phi)
+    unfold i(x)
+    unfold test(x)
+    x.f := 1
+    assert false
+    fold test(x)
+    fold i(x)
+    commitAU(phi, ())
+  }
+}

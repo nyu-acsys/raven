@@ -4,10 +4,10 @@ module KeysetRA[K: Library.Type] : Library.CancellativeResourceAlgebra {
         case topKS
     }
 
-    val id: T = prodKS({||}, {||});
+    val id: T = prodKS({||}, {||})
 
     func valid(n:T) returns (ret:Bool) {
-        n == prodKS(n.keyset, n.contents) && n.contents subseteq n.keyset
+        n is prodKS && n.contents subseteq n.keyset
     }
 
 

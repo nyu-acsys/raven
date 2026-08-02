@@ -1,3 +1,14 @@
+30 jul, 2026:
+- [ ] `import M.x` can be silently shadowed by a pre-existing (or even a
+    later) local declaration of the same name in the importing module, with
+    no warning or error -- e.g. `import M.x` plus `val x: Int = 1` anywhere
+    else in the same module just makes the import a no-op for `x`, regardless
+    of which comes first textually. Consider (a) a warning on this kind of
+    shadowing, or (b) restricting `import` to only occur at the top level of
+    a module, before any other declarations, to make the ordering
+    unambiguous. Repro in local/test.rav. Found while writing the tutorial's
+    module-system chapter.
+
 16 nov, 2024:
 - [x] fix ident sanitization bug identified by Lucas.
 - [x] move statistics counting to after type-checking for greater accuracy.
@@ -19,20 +30,19 @@
     + fix missing triggers in all `Expr.mk_binder` calls
 
 - [x] add forks
-- toy around with preds as macros
+- [x] toy around with preds as macros
 
 
 
 Type-checking:
-  - Ensure that return variables are not allowed in pre-conditions
+  - [x] Ensure that return variables are not allowed in pre-conditions
   - Check that openAU, commitAU having right number of arguments
   - Check that assertion expressions having the right format -- conditionals in ternary expr being pure, etc
-  - Ensure that return variables of functions are not used in the function body
+  - [x] Ensure that return variables of functions are not used in the function body
   - Ensure that predicates don't have implicit ghost args
   - Ensure that left-hand side of bindAU is well-typed (number of vars matches number of implicit args; types match, etc.) 
 
 - Implement mask computation to check interface <-> module compatibility
-- Improve expression matching algorithm
 - Revamp witness computation code
 
 - [x] Fix `return proc()` stmts
@@ -40,7 +50,7 @@ Type-checking:
     (Thomas did implement a fix for this, but needs review)
 
 - Parse field reads/writes/cas/fpu separately
-- Allow types to be used as modules implementing Library.Type
+- [x] Allow types to be used as modules implementing Library.Type
 
 
 

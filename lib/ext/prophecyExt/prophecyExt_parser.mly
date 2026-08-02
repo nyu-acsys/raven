@@ -22,17 +22,17 @@ open Ext.ProphecyExtInstance
 | PROPH DOT NEW LBRACKET t=type_expr RBRACKET {
   function
   | [proph_id; proph_val], _ ->
-    Stmt.(Basic (StmtExt ((NewProph (false, t)), [proph_id; proph_val]))), None
+    Stmt.(Basic (BasicStmtExt ((NewProph (false, t)), [proph_id; proph_val]))), None
   | _, _ ->
-    Error.syntax_error (Type.to_loc t) "[EXT] ProphecyExt: Expected prophecy id variable and prophecy value variable on left-hand side of NewProph"
+    Error.syntax_error (Type.to_loc t) "Expected a prophecy id variable and a prophecy value variable on the left-hand side of Proph.new(...)"
 }
 | PROPH DOT NEW1 LBRACKET t=type_expr RBRACKET {
   function
   | [proph_id; proph_val], _ ->
-    Stmt.(Basic (StmtExt ((NewProph (true, t)), [proph_id; proph_val]))), None
+    Stmt.(Basic (BasicStmtExt ((NewProph (true, t)), [proph_id; proph_val]))), None
   | _, _ ->
-    Error.syntax_error (Type.to_loc t) "[EXT] ProphecyExt: Expected prophecy id variable and prophecy value variable on left-hand side of NewProph"
+    Error.syntax_error (Type.to_loc t) "Expected a prophecy id variable and a prophecy value variable on the left-hand side of Proph.new(...)"
 }
 
 %public stmt_ext:
-| PROPH DOT RESOLVE; LPAREN; e1=expr; COMMA; e2=expr; RPAREN SEMICOLON { [Stmt.Basic (StmtExt (ResolveProph, [e1; e2]))]}
+| PROPH DOT RESOLVE; LPAREN; e1=expr; COMMA; e2=expr; RPAREN SEMICOLON { [Stmt.Basic (BasicStmtExt (ResolveProph, [e1; e2]))]}

@@ -1,0 +1,153 @@
+// Part 3's running example: hide the counter's heap representation behind an
+// interface, and give it two different, mutually oblivious implementations.
+
+interface Counter {
+  // The representation type: whatever a concrete Counter module chooses `T`
+  // to be (here, always `Ref`, but the interface doesn't require that),
+  // clients write `c: Counter` and it's expanded to `c: Counter.T` for them.
+  rep type T
+
+  // `valid(c, v)` is the abstraction: "c is a well-formed counter whose
+  // current value is v." Left abstract here -- each implementation below
+  // defines it however its own heap representation demands, and clients of
+  // `Counter` never see past this predicate to the fields underneath.
+  pred valid(c: T, v: Int)
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+
+  // An axiom: a property every implementation must establish, stated without
+  // a proof here. Notice this one *cannot* be discharged automatically, even
+  // though it looks obvious -- `valid` is an opaque, foldable predicate as
+  // far as the SMT solver is concerned, so nothing about its insides (like
+  // "the underlying field is never negative") is visible without an explicit
+  // `unfold`. Both implementations below have to supply that proof by hand,
+  // as a `lemma` with the same name and contract.
+  axiom nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+}
+
+// Implementation 1: the direct representation from Part 2.
+module PlainCounter : Counter {
+  rep type T = Ref
+  field count: Int
+
+  pred valid(c: T, v: Int) {
+    own(c.count, v) && v >= 0
+  }
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+  {
+    c := new (count: 0);
+    fold valid(c, 0);
+  }
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+  {
+    unfold valid(c, v);
+    var x := c.count;
+    c.count := x + 1;
+    fold valid(c, v + 1);
+  }
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+  {
+    unfold valid(c, v);
+    r := c.count;
+    fold valid(c, v);
+  }
+
+  lemma nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+  {
+    unfold valid(c, v);
+    fold valid(c, v);
+  }
+}
+
+// Implementation 2: a completely different heap representation -- the field
+// stores the count plus a fixed offset -- that a client of `Counter` can
+// never distinguish from `PlainCounter` by calling only `create`/`increment`/
+// `get`. This is what "abstract predicates as a specification boundary"
+// buys you: `valid` is the only thing a client's proof can depend on, so two
+// implementations with unrelated internals both satisfy it.
+module OffsetCounter : Counter {
+  rep type T = Ref
+  field raw: Int
+  val offset: Int := 1000
+
+  pred valid(c: T, v: Int) {
+    own(c.raw, v + offset) && v >= 0
+  }
+
+  proc create() returns (c: T)
+    ensures valid(c, 0)
+  {
+    c := new (raw: offset);
+    fold valid(c, 0);
+  }
+
+  proc increment(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+  {
+    unfold valid(c, v);
+    var x := c.raw;
+    c.raw := x + 1;
+    fold valid(c, v + 1);
+  }
+
+  proc get(c: T, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+  {
+    unfold valid(c, v);
+    var x := c.raw;
+    r := x - offset;
+    fold valid(c, v);
+  }
+
+  lemma nonNegative(c: T, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && v >= 0
+  {
+    unfold valid(c, v);
+    fold valid(c, v);
+  }
+}
+
+// A client of `Counter` doesn't know or care which implementation it got.
+// `UseCounter` is a functor: it takes any module `C` satisfying `Counter` and
+// produces a module that works against it, uniformly. `import C.valid`
+// brings `valid` into unqualified scope, so the `assert` below can write
+// `valid(c, 1)` instead of spelling out `C.valid(c, 1)`.
+module UseCounter[C: Counter] {
+  import C.valid
+
+  proc demo()
+  {
+    var c := C.create();
+    C.increment(c, 0);
+    var r := C.get(c, 1);
+    assert r == 1;
+    assert valid(c, 1);
+  }
+}
+
+module UsePlain = UseCounter[PlainCounter]
+module UseOffset = UseCounter[OffsetCounter]

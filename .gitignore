@@ -1,8 +1,11 @@
 _build/
 *~
+/*.rav
 .directory
 .vscode
 .DS_Store
 log*.smt2
 front_end_processed_output.log
 benchmarks.csv
+CLAUDE.md
+local/

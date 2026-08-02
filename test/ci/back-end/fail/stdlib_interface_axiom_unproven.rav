@@ -1,0 +1,19 @@
+// An axiom inherited from a standard-library interface is a proof obligation for the
+// implementing module, exactly as it already was for a user-declared interface: this
+// module defines every member, but `comp` returns its first argument, so the inherited
+// `compCommute` cannot hold. Regression test for the same free-status leak as
+// stdlib_interface_missing_members.rav -- inherited axioms arrived already free, so
+// none of them were ever checked against a module's own definitions.
+module Fst : Library.ResourceAlgebra {
+  rep type T = Int
+
+  val id: T = 0
+
+  func comp(a: T, b: T) returns (r: T) { a }
+
+  func frame(a: T, b: T) returns (r: T) { a }
+
+  func valid(a: T) returns (r: Bool) { true }
+
+  func fpuAllowed(a: T, b: T) returns (r: Bool) { false }
+}

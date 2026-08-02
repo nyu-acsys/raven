@@ -1,0 +1,9 @@
+interface MiniRA {
+  rep type T
+
+  val id: T
+  func comp(a: T, b: T) returns (r: T)
+
+  auto axiom compCommute()
+    ensures forall a: T, b: T :: {comp(a, b)} {comp(b, a)} comp(a, b) == comp(b, a)
+}

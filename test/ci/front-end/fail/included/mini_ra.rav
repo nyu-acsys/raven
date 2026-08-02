@@ -1,0 +1,12 @@
+// Interface pulled in from a separate file by `include`. Included files are
+// force-marked free by the compiler so they aren't re-verified per program; that must
+// not exempt a module in the *including* file from implementing this properly.
+interface MiniRA {
+  rep type T
+
+  val id: T
+  func comp(a: T, b: T) returns (r: T)
+
+  auto axiom compCommute()
+    ensures forall a: T, b: T :: {comp(a, b)} {comp(b, a)} comp(a, b) == comp(b, a)
+}

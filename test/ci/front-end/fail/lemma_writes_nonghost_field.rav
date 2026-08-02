@@ -1,0 +1,8 @@
+field count: Int
+
+lemma badLemma(c: Ref)
+    requires own(c.count, 5)
+    ensures own(c.count, 6)
+{
+    c.count := 6;
+}

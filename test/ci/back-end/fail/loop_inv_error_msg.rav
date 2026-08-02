@@ -1,0 +1,17 @@
+// Regression test: a loop invariant that may not be maintained must be reported
+// exactly once. A while loop is desugared into a recursive procedure whose
+// precondition is the invariant, so the invariant is exhaled at the recursive
+// (tail) call. A bug in the call-precondition exhale duplicated the invariant's
+// error closure, printing "This loop invariant may not be maintained" twice.
+
+proc loop_bad(n: Int)
+  requires n >= 0
+{
+  var i: Int := n;
+  while (i > 0)
+    invariant i >= 1
+  {
+    // After decrementing, i may become 0, so the invariant is not maintained.
+    i := i - 1;
+  }
+}

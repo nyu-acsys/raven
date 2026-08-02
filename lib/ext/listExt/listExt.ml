@@ -13,9 +13,12 @@ This extension introduces:
 *)
 
 module ListExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
+  include Cont
+
   (* Config *)
   let lib_source = None
-  let local_vars = []
 
   (* Defining pre-fixed idents for List functions  *)
   module ListPredefs = struct
@@ -66,7 +69,7 @@ module ListExt (Cont : Ext) = struct
       let elem_type = 
         match (Expr.to_type ls_expr) with
         | Type.App (TypeExt ListConstr, [elem_tp], _) -> elem_tp
-        | _ -> Error.type_error loc "[EXT] ListExt: List.hd called on a mistyped argument"
+        | _ -> Error.type_error loc "List.hd(...) called on an argument that isn't a List"
       in
       Expr.mk_app ~loc ~typ:(elem_type) 
         (ExprExt (ListExpr ListPredefs.hd_destr_ident))
@@ -120,25 +123,27 @@ module ListExt (Cont : Ext) = struct
     | ListExpr c -> "List." ^ Ident.to_string c 
     | _ -> Cont.expr_ext_to_string expr_ext
 
-  (* No statement extension, so directly defer to `Cont`. *)
-  let pr_stmt_ext ppf ext expr_list = 
-    match ext, expr_list with
-    | _ -> Cont.pr_stmt_ext ppf ext expr_list
+  (* No statement extension, so every basic_stmt_ext_*/stmt_ext_* hook is left at
+     Cont's default (via `include Cont` above). *)
 
-  let stmt_ext_symbols stmt_ext =
-    match stmt_ext with
-    | _ -> Cont.stmt_ext_symbols stmt_ext
+  let type_ext_is_recognized type_ext =
+    match type_ext with
+    | ListConstr -> true
+    | _ -> Cont.type_ext_is_recognized type_ext
 
-  (* We can even define functions directly equal. *)
-  let stmt_ext_local_vars_modified = Cont.stmt_ext_local_vars_modified
-  
-  let stmt_ext_fields_accessed = Cont.stmt_ext_fields_accessed
+  let expr_ext_is_recognized expr_ext =
+    match expr_ext with
+    | ListExpr _ -> true
+    | _ -> Cont.expr_ext_is_recognized expr_ext
+
+  (* stmt_ext_is_recognized/contract_ext_is_recognized: no constructors of either kind
+     here, so Cont's default (via `include Cont`) is exactly right. *)
 
 
   (* Rewriter *)
-  (* These functions are meant to be used if a `expr_ext` or `stmt_ext` constructor stores a `type_expr`, for example `ProphecyExt`. In most extensions, these are deferred to `Cont`. *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite are only
+     needed if an expr_ext or stmt_ext constructor stores a `type_expr`/nested `Stmt.t`
+     -- not the case here, so Cont's default is used. *)
 
 
   (* Typing *)
@@ -175,22 +180,22 @@ module ListExt (Cont : Ext) = struct
       (* If incorrect number of arguments are given, throw a type_error.
         lib/util/error.ml provides error-handling. `Error.type_error` takes a _loc_ argument. This _loc_ refers to a location in the source text stream. This is used to locate errors for the user. Most Raven objects carry location data with them in one form or another.
       *)
-      Error.type_error type_attr.type_loc "[ListExt] List type called with incorrect number of arguments"
+      Error.type_error type_attr.type_loc "List[...] type expects exactly one type argument (the element type)"
 
       (* Otherwise defer to `Cont`. *)
     | _ -> Cont.type_check_type_expr type_ext type_args type_attr type_check_type_expr_functs
 
   (* Type-checking of expressions. This takes an additional `expected_typ` argument which carries typing information from the surrounding. This is often `Type.any`, the most general typing annotation. *)
-  let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) = 
+  let type_check_expr (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr : Expr.expr_attr) (expected_typ: type_expr) (type_check_expr_functs: type_check_expr_functs) =
     let open Rewriter.Syntax in
-    
+
     match expr_ext, expr_list with
     | ListExpr c, exprs -> begin
       (* Our first debugging statement! Debugging statements appear when one runs `raven` with the `-v -v` flag. Be careful though, Raven spits out a _lot_ of debug statements.
-      
-      Usually debug statements print current location as well as values of some relevant variables. Each (most!) type in Raven have a corresponding printer function, which is used to print `ident` and `expr list`. 
+
+      Usually debug statements print current location as well as values of some relevant variables. Each (most!) type in Raven have a corresponding printer function, which is used to print `ident` and `expr list`.
       *)
-      Logs.debug (fun m -> m "[EXT] ListExt.type_check_expr: List.%a; args= %a; expected_is_ghost=%b" Ident.pr c (Util.Print.pr_list_comma Expr.pr) expr_list (Type.is_ghost expected_typ));
+      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.type_check_expr: List.%a; args= %a; expected_is_ghost=%b" Ident.pr c (Util.Print.pr_list_comma printers.pr_expr) expr_list (Type.is_ghost expected_typ)) in
 
       (* Propagating "ghost" attribute to sub-expressions. *)
       let expr_list = List.map expr_list ~f:(fun expr ->
@@ -255,7 +260,7 @@ module ListExt (Cont : Ext) = struct
 
       | ident, _ when Ident.(c = cons_ident)  ->
         (* if it is a `List.cons` expression with a different number of arguments, raise a type_error. *)
-        Error.type_error expr_attr.expr_loc "Incorrect number of arguments for List Cons expression"
+        Error.type_error expr_attr.expr_loc "List.cons(...) takes exactly two arguments (the head and the tail)"
 
       | ident, [] when Ident.(ident = nil_ident) ->
         (* `List.nil` *)
@@ -277,11 +282,12 @@ module ListExt (Cont : Ext) = struct
         (App (ExprExt (ListExpr nil_ident), [], expr_attr)) list_type list_type list_type
 
       | ident, _ when Ident.(ident = nil_ident) ->
-        Error.type_error expr_attr.expr_loc "Incorrect number of arguments for List.nil expression"
+        Error.type_error expr_attr.expr_loc "List.nil takes no arguments"
 
       | ident, [] ->
         (* the assumption is that all `List` library arguments will take the list as the first arguement. Thus, if no arguments, that's an error. *)
-        Error.internal_error expr_attr.expr_loc ("[EXT] ListExt.type_check_expr: Unknown list function called: " ^ (Ident.to_string ident))
+        Error.type_error expr_attr.expr_loc
+          (Printf.sprintf !"'%{Ident}' is not a List function (expected one of: cons, nil, hd, tl, len, is_in)" ident)
 
       | ident, ls_expr :: args ->
         (* assume first expr is the list expression *)
@@ -294,14 +300,15 @@ module ListExt (Cont : Ext) = struct
         let does_elem_exist = List.find lib_list_module.mod_def ~f:(fun mem -> 
           match mem with 
           | Import _ -> false 
-          | SymbolDef symbol -> Ident.(Symbol.to_name symbol.symbol_def = ident) 
+          | SymbolDef symbol -> Ident.(Symbol.to_name symbol = ident) 
         ) in
       
         match does_elem_exist with
         (* callable does not exist inside Library.ListM *)
         | None | Some Import _->
           (* Generate an error if function not found *)
-          Error.internal_error expr_attr.expr_loc ("[EXT] ListExt: Unknown list function called: " ^ (Ident.to_string ident))
+          Error.type_error expr_attr.expr_loc
+            (Printf.sprintf !"'%{Ident}' is not a List function (expected one of: cons, nil, hd, tl, len, is_in)" ident)
 
         (* found callable inside Library.ListM *)
         | Some SymbolDef symbol ->
@@ -335,7 +342,7 @@ module ListExt (Cont : Ext) = struct
             | [] -> type_check_expr_functs.check_and_set (Expr.App (ExprExt (ListExpr ident), [ls_expr], expr_attr)) expected_typ expected_typ expected_typ
             | _ -> 
               (* type-error *)
-              Error.type_error expr_attr.expr_loc "[EXT] ListExt: List.len called with incorrect number of arguments"
+              Error.type_error expr_attr.expr_loc "List.len(...) takes exactly one argument"
           else if Ident.(ident = is_in_ident) then
             (* `List.is_in()` *)
             let expected_typ = Type.bool |> Type.set_ghost is_ghost in
@@ -347,133 +354,65 @@ module ListExt (Cont : Ext) = struct
               else 
                 (* else, type error *)
                 type_check_expr_functs.type_mismatch_error (Expr.to_loc elem_arg) elem_type (Expr.to_type elem_arg)
-            | _ -> Error.type_error expr_attr.expr_loc "[EXT] ListExt: List.is_in called with incorrect number of arguments"
+            | _ -> Error.type_error expr_attr.expr_loc "List.is_in(...) takes exactly two arguments"
           else if Ident.(ident = hd_destr_ident) then
             (* `List.hd` *)
             match args with
             | [] -> 
               type_check_expr_functs.check_and_set (Expr.App (ExprExt (ListExpr ident), [ls_expr], expr_attr)) elem_type elem_type elem_type
 
-            | _ -> Error.type_error expr_attr.expr_loc "[EXT] ListExt: List.hd called with incorrect number of arguments"
+            | _ -> Error.type_error expr_attr.expr_loc "List.hd(...) takes exactly one argument"
           else if Ident.(ident = tl_destr_ident) then
             (* `List.tl` *)
             match args with 
             | [] ->
               type_check_expr_functs.check_and_set (Expr.App (ExprExt (ListExpr ident), [ls_expr], expr_attr)) list_type list_type list_type
-            | _ -> Error.type_error expr_attr.expr_loc "[EXT] List.tl called with incorrect number of arguments"
+            | _ -> Error.type_error expr_attr.expr_loc "List.tl(...) takes exactly one argument"
           else
-            Error.internal_error expr_attr.expr_loc ("[EXT] ListExt.type_check_expr: Unknown list function called: " ^ (Ident.to_string ident))
+            Error.internal_error expr_attr.expr_loc
+              (Printf.sprintf "List function '%s' is defined in the standard library but not handled by the List extension (internal inconsistency, not a problem with your program)" (Ident.to_string ident))
       end
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
-  let type_check_stmt = Cont.type_check_stmt
+  (* type_check_basic_stmt/type_check_stmt_ext/type_check_contract_ext/
+     check_contract_ext_group_compatible/contract_ext_to_string: nothing to override,
+     Cont's default is used. *)
 
   (* Rewrites *)
   let rewrite_type_ext (type_ext: Type.type_ext) (tp_list: type_expr list) (loc: location) =
     let open Rewriter.Syntax in
     match type_ext, tp_list with
-    | ListConstr, [elem_typ] -> 
-      (* This is where the magic happens. We rewrite the new constructors into existing Raven expressions.
-      
-      What happens is that for the given elem_typ, we instantiate the `Library.ListM` module with it, and replace any `ListConstr` type_expr with the name of this module.
-
-      We make sure this module is canonical and uniquely generated, so that all reference to the same type get rewritten into the same type_expr.
-      *)
-      
-      (* This has to do with Raven's higher-order module system. We're computing where to insert the list module and what to call it. *)
-      let* list_module_insert_scope, list_module_reference_scope =
-        (* In case of elem_typ being in an instantiated module, like so:
-          `module M = N[P]; type T' = List[M.T]` 
-        we need to insert the elem_typ Type Module in the original interface `N`, and refer to it using `M` *)
-      
-        let largest_prefix = ProgUtils.largest_common_prefix_qi (Type.symbols elem_typ) in
-        let+ result = Rewriter.resolve_and_find_opt largest_prefix in
-        match result with
-        | None -> 
-          Error.internal_error Loc.dummy "[EXT] ListExt: rewrite_type_ext: largest_prefix scope not found"
-        | Some (qi, (name, symbol, _)) ->
-          name, qi
-      in
-
-      (* always good to print some state from time to time! *)
-      Logs.debug (fun m -> m "[EXT] ListExt.rewriter_type_ext: Elem_typ=%a; list_module_insert_scope=%a; list_module_reference_scope=%a" Type.pr elem_typ QualIdent.pr list_module_insert_scope QualIdent.pr list_module_reference_scope);
-
-      (* we first introduce a Type module implementing the `Library.Type` interface. This is essentially wrapping the type_expr into a module to use as a higher order module argument.  *)
-      let* type_module_qi = 
-        let type_module_canonical_qi = 
-          (* add a consisten prefix to these Type modules. This functionality is taken from  *)
-          let mod_name_string = ProgUtils.tp_mod_ident_prefix ^ Type.to_string elem_typ in
-          let type_module_ident = Ident.make loc (ProgUtils.serialize mod_name_string) 0 in
-          QualIdent.append list_module_reference_scope type_module_ident
-        in
-
-        (* check if it already exists *)
-        let* resolve_result = 
-          Rewriter.resolve_opt type_module_canonical_qi in
-        
-        match resolve_result with
-        | Some _ ->
-          (* if so, then we're done, we can return *)
-          Rewriter.return type_module_canonical_qi
-        | None ->
-          (* else, we introduce the type module. Fortunately, this functionality is implemented in `ProgUtils`. It takes an optional `scope` argument indicating the scope of where to introduce the type_module. *)
-          let+ _ = 
-            ProgUtils.intros_type_module ~loc ~scope:list_module_insert_scope ~f:!(Rewriter.process_symbol_ref) elem_typ in
-          type_module_canonical_qi
-      in 
-
-      Logs.debug (fun m -> m "[EXT] ListExt.rewriter_type_ext: type_module_qi=%a" QualIdent.pr type_module_qi);
-
-      (* creating ident for list_module *)
-      let list_module_ident = 
+    | ListConstr, [elem_typ] ->
+      (* Instantiate `Library.ListM` with [elem_typ] and replace `ListConstr` with the
+         name of that instantiation -- the `List[T]`-specific case of
+         `ProgUtils.instantiate_type_functor`. *)
+      let* lib_list_module = Rewriter.find_and_reify_module Predefs.lib_list_mod_qual_ident in
+      (* Keep the `ListExtMod$$`-prefixed naming other extensions rely on structurally
+         (see [ListFns.list_tp_to_elem_typ]). *)
+      let canonical_mod_ident =
         let mod_name_string = ListPredefs.list_mod_ident_prefix ^ Type.to_string elem_typ in
         Ident.make loc (ProgUtils.serialize mod_name_string) 0
       in
-
-      (* preparing the Module Instantiation symbol definition *)
-      let list_module_inst = Module.ModInst {
-            mod_inst_name = list_module_ident;
-            mod_inst_type = Predefs.lib_list_mod_qual_ident;
-            mod_inst_def = Some (Predefs.lib_list_mod_qual_ident, [type_module_qi]);
-            mod_inst_is_interface = false;
-            mod_inst_loc = loc;
-      } in
-
-      let* list_module_inst_qi = 
-        let module_qi = QualIdent.append list_module_reference_scope list_module_ident in
-
-        (* next we check for the List module. *)
-        let* resolve_result = Rewriter.resolve_opt module_qi in
-        match resolve_result with
-          | Some _ -> 
-            (* if it exists, no need to do anything *)
-            Rewriter.return module_qi
-          | None ->
-            let+ _ = 
-              (* else we introduce this symbol using `Rewriter.introduce_typecheck_symbol_at_scope'`. This function allows one to introduce a new Raven symbol at an arbitrary scope. It also makes sure to type-check the symbol before adding.
-              
-              It is recommended to use either `Rewrite.introduce_typecheck_symbol'` if adding a symbol to the current scope, or this function to introduce new symbols to the AST.
-              *)
-            Rewriter.introduce_typecheck_symbol_at_scope' ~loc list_module_inst list_module_insert_scope in
-            module_qi
+      let+ list_module_inst_qi =
+        ProgUtils.instantiate_type_functor ~loc ~f:!(Rewriter.process_symbol_ref)
+          ~functor_qual_ident:Predefs.lib_list_mod_qual_ident
+          ~functor_mod_decl:lib_list_module.mod_decl ~canonical_mod_ident [ elem_typ ]
       in
 
-      Logs.debug (fun m -> m "[EXT] ListExt.rewriter_type_ext: list_module_inst_qi=%a" QualIdent.pr list_module_inst_qi);
-
       (* Make a var type pointing to the newly introduced list module's rep type. *)
-      Rewriter.return (Type.mk_var ~loc (QualIdent.append list_module_inst_qi Predefs.lib_type_rep_type_ident))
+      Type.mk_var ~loc (QualIdent.append list_module_inst_qi Predefs.lib_type_rep_type_ident)
 
     | ListConstr, _ ->
-      Error.type_error loc "[EXT] ListExt: List type used with unexpected number of arguments"
+      Error.type_error loc "List[...] type expects exactly one type argument (the element type)"
 
     | _ -> Cont.rewrite_type_ext type_ext tp_list loc
 
   (** this function describes how to rewrite the newly introduced expressions into native Raven constructs. The expression being rewritten here is:
     Expr.App (ExprExt expr_ext, expr_list, expr_attr)
   *)
-  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr: Expr.expr_attr) = 
-    (* let open Rewriter.Syntax in *)
+  let rewrite_expr_ext (expr_ext: Expr.expr_ext) (expr_list: expr list) (expr_attr: Expr.expr_attr) =
+    let open Rewriter.Syntax in
     let loc = expr_attr.expr_loc in
 
     match expr_ext, expr_list with
@@ -485,11 +424,11 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed1; expected List Module name type"
-      end 
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
+      end
       in
 
-      Logs.debug (fun m -> m "[EXT] ListExt.rewrite_expr_ext: expr_typ = %a" Type.pr expr_attr.expr_type);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ListExt.rewrite_expr_ext: expr_typ = %a" printers.pr_type expr_attr.expr_type) in
 
       (* Generating the qual_ident for the `cons` constructor, by appending "cons" to the List module name. *)
       let constr_qid = QualIdent.append module_name Predefs.lib_list_cons_ident in
@@ -506,8 +445,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _tp ->
-        Error.internal_error loc ("[EXT] ListExt.rewrite_expr_ext crashed2; expected List Module name type; got " ^ (Type.to_string _tp))
-      end 
+        Error.internal_error loc ("expected the receiver of this List operation to have a List module type; found " ^ (Type.to_string _tp))
+      end
       in
 
       (* Generating the qual_ident *)
@@ -522,8 +461,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed3; expected List Module name type"
-      end 
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
+      end
       in
 
       let constr_qid = QualIdent.append module_name Predefs.lib_list_head_destr_ident in
@@ -537,8 +476,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed4; expected List Module name type"
-      end 
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
+      end
       in
 
       let constr_qid = QualIdent.append module_name Predefs.lib_list_tail_destr_ident in
@@ -546,6 +485,7 @@ module ListExt (Cont : Ext) = struct
       Expr.mk_app ~loc ~typ:expr_attr.expr_type (DataDestr constr_qid) [ls_arg] |> Rewriter.return
 
     | ListExpr ident, ls_arg :: args ->
+      let* printers = Rewriter.current_printers in
       Logs.debug (fun m -> m "[EXT] ListExt.rewrite_expr_ext: %a" Ident.pr ident);
 
       (* otherwise, assume it must be a callable. *)
@@ -553,8 +493,8 @@ module ListExt (Cont : Ext) = struct
       | Type.App (Var tp_qid, [], _) ->
         QualIdent.pop tp_qid
       | _ ->
-        Logs.debug (fun m -> m "expr_type: %a" Type.pr expr_attr.expr_type);
-        Error.internal_error loc "[EXT] ListExt.rewrite_expr_ext crashed; expected List Module name type"
+        Logs.debug (fun m -> m "expr_type: %a" printers.pr_type expr_attr.expr_type);
+        Error.internal_error loc "expected the receiver of this List operation to have a List module type"
       end
       in
 
@@ -565,15 +505,17 @@ module ListExt (Cont : Ext) = struct
     
     
     | ListExpr ident, [] ->
-      Error.type_error loc "[EXT] ListExt.rewrite_expr_ext: Unknown ident." 
+      Error.internal_error loc
+        (Printf.sprintf !"unrecognized zero-argument List expression %{Ident} reached the rewrite phase" ident)
 
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
-  let rewrite_stmt_ext = Cont.rewrite_stmt_ext
+  (* rewrite_basic_stmt_ext/rewrite_stmt_ext/contract_ext_rewrite_exprs/
+     rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: nothing to override, Cont's default is used. *)
 
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

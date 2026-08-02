@@ -3,25 +3,22 @@ interface Queue {
 
     // definitions
 
-    module Option_Int = Library.Option[Library.IntType]
-    import Option_Int._
-
     field head: Ref
     field next: Ref
-    field value: Option_Int
+    field value: Library.Option[Int]
 
     // predicate p holds for all values stored in the queue
-    pred p(v: Option_Int)
+    pred p(v: Library.Option[Int])
 
     lemma p_none()
-        ensures p(none)
+        ensures p(Library.Option.none)
     
-    lemma p_dup(v: Option_Int)
+    lemma p_dup(v: Library.Option[Int])
         requires p(v)
         ensures p(v) && p(v)
 
     pred node(n: Ref) {
-        exists v: Option_Int, nx: Ref :: 
+        exists v: Library.Option[Int], nx: Ref :: 
             own(n.next, nx) && own(n.value, v) && p(v) && is_queue(nx)
     }
 
@@ -45,7 +42,7 @@ interface Queue {
     }
 
     proc dequeue(q: Ref)
-        returns (v: Option_Int)
+        returns (v: Library.Option[Int])
         requires queue(q)
         ensures queue(q) && p(v)
     {
@@ -55,9 +52,9 @@ interface Queue {
 
         if (hd == null) {
             p_none();
-            return none;
+            return Library.Option.none;
         }
-        
+
         unfold is_queue(hd);
         unfold node(hd);
         var nx: Ref := hd.next;
@@ -66,7 +63,7 @@ interface Queue {
 
         if (nx == null) {
             p_none();
-            return none;
+            return Library.Option.none;
         } else {
             unfold queue(q);
             var b: Bool := cas(q.head, hd, nx);
@@ -127,11 +124,11 @@ interface Queue {
     }
 
     proc enqueue(q: Ref, v: Int)
-        requires queue(q) && p(some(v))
+        requires queue(q) && p(Library.Option.some(v))
         ensures queue(q)
     {
         var n: Ref;
-        n := new(next: null, value: some(v));
+        n := new(next: null, value: Library.Option.some(v));
 
         fold is_queue(null);
         fold node(n);

@@ -1,0 +1,9 @@
+// Return variables only come into scope once a callable has returned, so it makes no
+// sense to reference them in a `requires` clause -- only in `ensures` clauses.
+
+proc test() returns (r: Int)
+  requires r > 0
+  ensures r >= 0
+{
+  r := 1;
+}

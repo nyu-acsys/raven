@@ -1,0 +1,14 @@
+// A formal constrained by an interface with no rep type at all is out of scope for
+// implicit instantiation -- this must fail with the ordinary "unknown identifier" error.
+
+interface K {
+  func foo() returns (res: Int)
+}
+
+module P[X: K] {
+  func id(n: Int) returns (res: Int) { n }
+}
+
+proc p() {
+  var x := P.id(3);
+}

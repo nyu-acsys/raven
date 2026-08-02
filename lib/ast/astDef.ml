@@ -242,10 +242,10 @@ type 'a qual_ident_hashtbl = 'a QualIdentHashtbl.t
 module Type = struct
   module T = struct
     type type_ext = ..
-    
-    let type_ext_to_name : (type_ext -> string) ref = ref (fun type_ext -> "[TypeExt]")
-    
-    let compare_type_ext (c1: type_ext) (c2: type_ext) = 
+
+    let default_type_ext_to_name : type_ext -> string = fun _ -> "[TypeExt]"
+
+    let compare_type_ext (c1: type_ext) (c2: type_ext) =
       Stdlib.compare (Stdlib.Obj.tag (Stdlib.Obj.repr c1)) (Stdlib.Obj.tag (Stdlib.Obj.repr c2))
 
     let equal_type_ext (c1 : type_ext) (c2 : type_ext) : bool =
@@ -333,7 +333,7 @@ module Type = struct
   let atomic_token_type_string = "AtomicToken"
   let prod_type_string = "Unit"
 
-  let to_name = function
+  let make_to_name ~type_ext_to_name = function
     | Int -> int_type_string
     | Real -> real_type_string
     | Num -> num_type_string
@@ -348,58 +348,72 @@ module Type = struct
     | Var id -> QualIdent.to_string id
     | AtomicToken id -> Printf.sprintf !"%s<%{QualIdent}>" atomic_token_type_string id
     | Prod -> prod_type_string
-    | TypeExt type_ext -> !type_ext_to_name type_ext
+    | TypeExt type_ext -> type_ext_to_name type_ext
 
-  let rec pr_constr ppf t =
-    match t with
-    | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
-    | Map | Fld | Prod | TypeExt _ ->
-        Stdlib.Format.fprintf ppf "%s" (to_name t)
-    | Data (id, decls) ->
-      Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
-        QualIdent.pr id
-        pr_variant_decl_list decls
+  let to_name t = make_to_name ~type_ext_to_name:default_type_ext_to_name t
 
-  and pr ppf t =
-    match t with
-    | App (t1, [], attr) -> Stdlib.Format.fprintf ppf "%a" pr_constr t1
-    | App (Map, [t1; App (Bool, _, _)], _) ->
-      Stdlib.Format.fprintf ppf "Set[%a]" pr t1
-    | App (Prod, ts, _) ->
-      Stdlib.Format.fprintf ppf "(@[%a@])" (Print.pr_list_comma pr) ts
-    | App (t1, ts, _) ->
-        Stdlib.Format.fprintf ppf "%a[%a]" pr_constr t1
-          (Print.pr_list_comma pr) ts
+  (** Builds the mutually-recursive printer family, parameterized by how to render
+      [TypeExt] leaves. [make_printers ~type_ext_to_name:default_type_ext_to_name] below
+      is what every caller gets by default; an extension-aware set is built the same way
+      from the extension's own [type_ext_to_name]. *)
+  let make_printers ~type_ext_to_name =
+    let to_name = make_to_name ~type_ext_to_name in
+    let rec pr_constr ppf t =
+      match t with
+      | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
+      | Map | Fld | Prod | TypeExt _ ->
+          Stdlib.Format.fprintf ppf "%s" (to_name t)
+      | Data (id, decls) ->
+        Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
+          QualIdent.pr id
+          pr_variant_decl_list decls
 
-  and pr_var_decl ppf decl =
-    let open Stdlib.Format in
-    fprintf ppf "%s%s @[<2>%a:@ %a@]"
-      (if decl.var_ghost then "ghost " else "")
-      (if decl.var_const then "val" else "var")
-      Ident.pr decl.var_name pr decl.var_type
+    and pr ppf t =
+      match t with
+      | App (t1, [], attr) -> Stdlib.Format.fprintf ppf "%a" pr_constr t1
+      | App (Map, [t1; App (Bool, _, _)], _) ->
+        Stdlib.Format.fprintf ppf "Set[%a]" pr t1
+      | App (Prod, ts, _) ->
+        Stdlib.Format.fprintf ppf "(@[%a@])" (Print.pr_list_comma pr) ts
+      | App (t1, ts, _) ->
+          Stdlib.Format.fprintf ppf "%a[%a]" pr_constr t1
+            (Print.pr_list_comma pr) ts
 
-  and pr_var_decl_list ppf = Print.pr_list_nl pr_var_decl ppf
+    and pr_var_decl ppf decl =
+      let open Stdlib.Format in
+      fprintf ppf "%s%s @[<2>%a:@ %a@]"
+        (if decl.var_ghost then "ghost " else "")
+        (if decl.var_const then "val" else "var")
+        Ident.pr decl.var_name pr decl.var_type
 
-  and pr_variant_decl ppf decl =
-    let open Stdlib.Format in
-    fprintf ppf "case %a(@[%a@])" Ident.pr decl.variant_name pr_arg_list
-      decl.variant_args
+    and pr_var_decl_list ppf = Print.pr_list_nl pr_var_decl ppf
 
-  and pr_variant_decl_list ppf variant_decl_list = 
-    Print.pr_list_nl pr_variant_decl ppf variant_decl_list
-    (* Stdlib.Format.fprintf ppf "" *)
+    and pr_variant_decl ppf decl =
+      let open Stdlib.Format in
+      fprintf ppf "case %a(@[%a@])" Ident.pr decl.variant_name pr_arg_list
+        decl.variant_args
+
+    and pr_variant_decl_list ppf variant_decl_list =
+      Print.pr_list_nl pr_variant_decl ppf variant_decl_list
+      (* Stdlib.Format.fprintf ppf "" *)
 
 
-  and pr_ident ppf (id, t) =
-    Stdlib.Format.fprintf ppf "%a: %a" Ident.pr id pr t
+    and pr_ident ppf (id, t) =
+      Stdlib.Format.fprintf ppf "%a: %a" Ident.pr id pr t
 
-  and pr_arg_list ppf =
-    Print.pr_list_comma
-      (fun ppf decl -> pr_ident ppf (decl.var_name, decl.var_type))
-      ppf
+    and pr_arg_list ppf =
+      Print.pr_list_comma
+        (fun ppf decl -> pr_ident ppf (decl.var_name, decl.var_type))
+        ppf
+    in
+    let pr_list ppf ts = Print.pr_list_comma pr ppf ts in
+    let to_string t = Print.string_of_format pr t in
+    ( pr_constr, pr, pr_var_decl, pr_var_decl_list, pr_variant_decl,
+      pr_variant_decl_list, pr_ident, pr_arg_list, pr_list, to_string )
 
-  let pr_list ppf ts = Print.pr_list_comma pr ppf ts
-  let to_string t = Print.string_of_format pr t
+  let (pr_constr, pr, pr_var_decl, pr_var_decl_list, pr_variant_decl,
+       pr_variant_decl_list, pr_ident, pr_arg_list, pr_list, to_string) =
+    make_printers ~type_ext_to_name:default_type_ext_to_name
 
   (** Constructors *)
 
@@ -515,6 +529,14 @@ module Type = struct
     equal tp real || equal tp int
 
   let is_any tp_expr = equal tp_expr any
+
+  (** True iff [Bot] occurs anywhere in [tp_expr], e.g. `Set(Bot)` -- the type an
+      empty collection literal (`{||}`) is given absent any expected type to pin
+      down its element type. Such a type carries no real information and should
+      never be treated as a successfully inferred type argument. *)
+  let rec contains_bot = function
+    | App (Bot, _, _) -> true
+    | App (_, ts, _) -> List.exists ts ~f:contains_bot
 
   let is_set tp_expr = match tp_expr with
     | App (Map, [_; App(Bool, _, _)], _) -> true
@@ -643,7 +665,15 @@ module Expr = struct
 
   type binder = Forall | Exists | Compr [@@deriving compare]
 
-  type expr_attr = { expr_loc : location [@compare.ignore]; expr_type : type_expr }
+  type expr_attr = {
+    expr_loc : location [@compare.ignore];
+    expr_type : type_expr;
+    (* User-written type annotation `(e: T)`, if any -- set by the parser,
+       consumed (and cleared) by the type-checker, which must verify it
+       against [e]'s own type and the surrounding expected type rather than
+       taking it for granted. *)
+    expr_type_annot : type_expr option [@compare.ignore];
+  }
 
   and t =
     (* Application expressions *)
@@ -651,15 +681,23 @@ module Expr = struct
     (* Variable binder expressions *)
     | Binder of binder * var_decl list * (t list) list * t * (expr_attr [@compare.ignore]) [@@deriving compare]
 
-  let mk_attr loc t = { expr_loc = loc; expr_type = t }
+  let mk_attr loc t = { expr_loc = loc; expr_type = t; expr_type_annot = None }
   let attr_of = function App (_, _, attr) | Binder (_, _, _, _, attr) -> attr
   let to_loc t = t |> attr_of |> fun attr -> attr.expr_loc
   let to_type t = t |> attr_of |> fun attr -> attr.expr_type
+  let to_type_annot t = t |> attr_of |> fun attr -> attr.expr_type_annot
 
-  let set_type t tp = 
+  let set_type t tp =
     let attr = attr_of t in
     let attr = { attr with expr_type = tp } in
-    match t with 
+    match t with
+    | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
+    | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
+
+  let set_type_annot t tp_annot =
+    let attr = attr_of t in
+    let attr = { attr with expr_type_annot = tp_annot } in
+    match t with
     | App (constr, expr_list, _expr_attr) -> App (constr, expr_list, attr)
     | Binder (b, v_l, trigs, expr, _expr_attr) -> Binder (b, v_l, trigs, expr, attr)
 
@@ -686,8 +724,9 @@ module Expr = struct
 
   (** Pretty printing expressions *)
 
-  let expr_ext_to_string : (expr_ext -> string) ref = ref (fun expr_ext -> "[ExprExt]")
-  let constr_to_string = function
+  let default_expr_ext_to_string : expr_ext -> string = fun _ -> "[ExprExt]"
+
+  let make_constr_to_string ~expr_ext_to_string = function
     (* function symbols *)
     | Bool b -> Printf.sprintf "%b" b
     | Int i -> Int64.to_string i
@@ -731,9 +770,9 @@ module Expr = struct
     | Own -> "own"
     | AUPred id -> ("au<" ^ QualIdent.to_string id ^ ">")
     | AUPredCommit id -> ("auCommit<" ^ QualIdent.to_string id ^ ">")
-    | ExprExt expr_ext -> !expr_ext_to_string expr_ext
-    
-  let pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
+    | ExprExt expr_ext -> expr_ext_to_string expr_ext
+
+  let constr_to_string c = make_constr_to_string ~expr_ext_to_string:default_expr_ext_to_string c
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
@@ -760,95 +799,118 @@ module Expr = struct
     | Forall -> "forall"
     | Compr -> "%compr%"
 
-  (* The first pr is a more verbose print which prints types of each expression. This is useful for debugging. The second pr is the normal pr which is prettier. *)
-  let rec pr_verbose ppf e =
-    let open Stdlib.Format in
-    match e with
-    | App (And, [], a) -> pr ppf (App (Bool false, [], a))
-    | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
-    | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
-    | App (Inter, [], _) -> fprintf ppf "Univ"
-    | App (c, [], _) -> fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
-    | App (DataConstr id, es, _) | App (Var id, (( _ :: _ ) as es), _) ->
-        fprintf ppf "(%a(%a) \027[35m :%a \027[0m)" QualIdent.pr id pr_list es Type.pr (to_type e)
-    | App (Read, [ e1; e2 ], _) ->
-        fprintf ppf "((%a).(%a) \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
-    | App (MapLookUp, [e1; e2], _) ->
-        fprintf ppf "(%a[%a@] \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
-    | App (MapUpdate, [ e1; e2; e3 ], _) ->
-        fprintf ppf "(%a[%a@ :=@ %a] \027[35m :%a \027[0m)" pr e1 pr e2 pr e3 Type.pr (to_type e)
-    | App
-        ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
-           | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
-          [ e1; e2 ],
-          _ ) ->
-        let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
-        let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
-        fprintf ppf "@[<2>(%a %a@ %a \027[35m :%a \027[0m)@]" pr_e1 e1 pr_constr c pr_e2 e2 Type.pr (to_type e)
-    | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
-    | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
-    | App (c, es, _) -> fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr (to_type e)
-    | Binder (b, vs, trgs, e1, _) ->
-        fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, trgs, e1, to_type e) Type.pr (to_type e)
+  (** Builds the mutually-recursive printer family, parameterized by how to render
+      [TypeExt]/[ExprExt] leaves. [make_printers] applied to the default stubs (below)
+      is what every caller gets by default; an extension-aware set is built the same
+      way from the extension's own hooks. *)
+  let make_printers ~type_ext_to_name ~expr_ext_to_string =
+    let constr_to_string = make_constr_to_string ~expr_ext_to_string in
+    let (_, type_pr, _, _, _, _, type_pr_ident, _, _, _) =
+      Type.make_printers ~type_ext_to_name
+    in
+    let module Type = struct
+      include Type
+      let pr = type_pr
+      let pr_ident = type_pr_ident
+    end in
+    let rec pr_constr ppf c = Stdlib.Format.fprintf ppf "%s" (constr_to_string c)
+
+    (* The first pr is a more verbose print which prints types of each expression. This is useful for debugging. The second pr is the normal pr which is prettier. *)
+    and pr_verbose ppf e =
+      let open Stdlib.Format in
+      match e with
+      | App (And, [], a) -> pr ppf (App (Bool false, [], a))
+      | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
+      | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
+      | App (Inter, [], _) -> fprintf ppf "Univ"
+      | App (c, [], _) -> fprintf ppf "(%a \027[35m :%a \027[0m)" pr_constr c Type.pr (to_type e)
+      | App (DataConstr id, es, _) | App (Var id, (( _ :: _ ) as es), _) ->
+          fprintf ppf "(%a(%a) \027[35m :%a \027[0m)" QualIdent.pr id pr_list es Type.pr (to_type e)
+      | App (Read, [ e1; e2 ], _) ->
+          fprintf ppf "((%a).(%a) \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
+      | App (MapLookUp, [e1; e2], _) ->
+          fprintf ppf "(%a[%a@] \027[35m :%a \027[0m)" pr e1 pr e2 Type.pr (to_type e)
+      | App (MapUpdate, [ e1; e2; e3 ], _) ->
+          fprintf ppf "(%a[%a@ :=@ %a] \027[35m :%a \027[0m)" pr e1 pr e2 pr e3 Type.pr (to_type e)
+      | App
+          ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
+             | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
+            [ e1; e2 ],
+            _ ) ->
+          let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
+          let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
+          fprintf ppf "@[<2>(%a %a@ %a \027[35m :%a \027[0m)@]" pr_e1 e1 pr_constr c pr_e2 e2 Type.pr (to_type e)
+      | App (Setenum, es, _) -> fprintf ppf "({|@[%a@]|} \027[35m :%a \027[0m)" pr_list es Type.pr (to_type e)
+      | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list es
+      | App (c, es, _) -> fprintf ppf "(%a(@[%a@]) \027[35m :%a \027[0m)" pr_constr c pr_list es Type.pr (to_type e)
+      | Binder (b, vs, trgs, e1, _) ->
+          fprintf ppf "@[(%a \027[35m :%a \027[0m)@]" pr_binder (b, vs, trgs, e1, to_type e) Type.pr (to_type e)
 
 
-  and pr_compact ppf e =
-    let open Stdlib.Format in
-    match e with
-    | App (And, [], a) -> pr ppf (App (Bool false, [], a))
-    | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
-    | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
-    | App (Inter, [], _) -> fprintf ppf "Univ"
-    | App (c, [], _) -> fprintf ppf "%a" pr_constr c
-    | App (DataConstr id, es, _) | App (Var id, ((_ :: _) as es), _) ->
-      fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
-    | App
-        ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
-           | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
-          [ e1; e2 ],
-          _ ) ->
-        let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
-        let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
-        fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
-    | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
-    | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
-    | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
-    | Binder (b, vs, trgs, e1, _) ->
-        fprintf ppf "%a" pr_binder (b, vs, trgs, e1, to_type e)
+    and pr_compact ppf e =
+      let open Stdlib.Format in
+      match e with
+      | App (And, [], a) -> pr ppf (App (Bool false, [], a))
+      | App (Or, [], a) -> pr ppf (App (Bool true, [], a))
+      | App ((Union | Setenum), [], a) -> pr ppf (App (Empty, [], a))
+      | App (Inter, [], _) -> fprintf ppf "Univ"
+      | App (c, [], _) -> fprintf ppf "%a" pr_constr c
+      | App (DataConstr id, es, _) | App (Var id, ((_ :: _) as es), _) ->
+        fprintf ppf "%a(%a)" QualIdent.pr id pr_list_compact es
+      | App
+          ( (( Minus | Plus | Mult | Div | Mod | Diff | Inter | Union | Eq
+             | Subseteq | Leq | Geq | Lt | Gt | Elem | And | Or | Impl ) as c),
+            [ e1; e2 ],
+            _ ) ->
+          let pr_e1 = if constr_to_prio c < to_prio e1 then pr_paran else pr in
+          let pr_e2 = if constr_to_prio c <= to_prio e2 then pr_paran else pr in
+          fprintf ppf "%a %a %a" pr_e1 e1 pr_constr c pr_e2 e2
+      | App (Setenum, es, _) -> fprintf ppf "{|%a|}" pr_list_compact es
+      | App (Tuple, es, _) -> fprintf ppf "(@[<1>%a@])" pr_list_compact es
+      | App (c, es, _) -> fprintf ppf "%a(%a)" pr_constr c pr_list_compact es
+      | Binder (b, vs, trgs, e1, _) ->
+          fprintf ppf "%a" pr_binder (b, vs, trgs, e1, to_type e)
 
-  and pr ppf e = pr_compact ppf e
-  (* and pr ppf e = pr_verbose ppf e *)
+    and pr ppf e = pr_compact ppf e
+    (* and pr ppf e = pr_verbose ppf e *)
 
-  and pr_list ppf = Print.pr_list_comma pr ppf
+    and pr_list ppf = Print.pr_list_comma pr ppf
 
-  and pr_list_compact ppf = Print.pr_list_comma pr_compact ppf
-  and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
+    and pr_list_compact ppf = Print.pr_list_comma pr_compact ppf
+    and pr_paran ppf = Stdlib.Format.fprintf ppf "(%a)" pr
 
-  and pr_binder ppf = function
-    | ((Forall | Exists) as b), vs, trgs, e, _ ->
-      Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a %a" (binder_to_string b)
-      pr_var_decl_list vs pr_trgs trgs pr e
-    | Compr, vs, trgs, e, _ ->
-        Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs
-          pr e
+    and pr_binder ppf = function
+      | ((Forall | Exists) as b), vs, trgs, e, _ ->
+        Stdlib.Format.fprintf ppf "%s@ %a@ ::@ %a %a" (binder_to_string b)
+        pr_var_decl_list vs pr_trgs trgs pr e
+      | Compr, vs, trgs, e, _ ->
+          Stdlib.Format.fprintf ppf "{|@ @[%a@ ::@ %a@]@ |}" pr_var_decl_list vs
+            pr e
 
-  and pr_trgs ppf trgs = 
-    match trgs with
-    | [] -> ()
-    | trg :: trgs -> 
-      Stdlib.Format.fprintf ppf "{ @[%a@] } %a" (Print.pr_list_comma pr) trg pr_trgs trgs
+    and pr_trgs ppf trgs =
+      match trgs with
+      | [] -> ()
+      | trg :: trgs ->
+        Stdlib.Format.fprintf ppf "{ @[%a@] } %a" (Print.pr_list_comma pr) trg pr_trgs trgs
 
-  and pr_var_decl ppf vdecl =
-    let open Type in
-    Stdlib.Format.fprintf ppf "%s%s%a"
-      (if vdecl.var_implicit then "implicit " else "")
-      (if vdecl.var_ghost then "ghost " else "")
-      Type.pr_ident
-      (vdecl.var_name, vdecl.var_type)
+    and pr_var_decl ppf vdecl =
+      let open Type in
+      Stdlib.Format.fprintf ppf "%s%s%a"
+        (if vdecl.var_implicit then "implicit " else "")
+        (if vdecl.var_ghost then "ghost " else "")
+        Type.pr_ident
+        (vdecl.var_name, vdecl.var_type)
 
-  and pr_var_decl_list ppf = Print.pr_list_comma pr_var_decl ppf
+    and pr_var_decl_list ppf = Print.pr_list_comma pr_var_decl ppf
+    in
+    let to_string e = Print.string_of_format pr e in
+    ( pr_constr, pr_verbose, pr_compact, pr, pr_list, pr_list_compact,
+      pr_paran, pr_binder, pr_trgs, pr_var_decl, pr_var_decl_list, to_string )
 
-  let to_string e = Print.string_of_format pr e
+  let ( pr_constr, pr_verbose, pr_compact, pr, pr_list, pr_list_compact,
+        pr_paran, pr_binder, pr_trgs, pr_var_decl, pr_var_decl_list, to_string ) =
+    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+      ~expr_ext_to_string:default_expr_ext_to_string
 
   (** Constructors *)
   
@@ -1270,6 +1332,21 @@ end
 type expr = Expr.t
 
 
+(** Whether a callable's/module's/value's correctness is checked, admitted via the
+    user's own `free` keyword, or established free by the compiler (e.g. an interface
+    member inherited unchanged, or a whole included file). The latter two aren't
+    interchangeable: see [Rewriter.is_relaxed_lookup] for a case that must trust only
+    [MachineFree], and [Module.set_unit_free] / [Typing.merge_defs] for why a
+    force-freed file must not look like a user-written `free`.
+
+    Declared here, above [Stmt], because [Stmt.var_def] already needs it. *)
+type free_status =
+  | NotFree
+  | UserFree
+  | MachineFree
+
+let is_free = function NotFree -> false | UserFree | MachineFree -> true
+
 (** Statements *)
 
 module Stmt = struct
@@ -1285,11 +1362,17 @@ module Stmt = struct
   let spec_error_msg spec call_id loc =
     List.map ~f:(fun msg -> msg call_id loc) spec.spec_error
 
-  type var_def = { var_decl : var_decl; var_init : expr option }
+  (* [var_is_free] carries the full [free_status] rather than a bool because the two
+     kinds of free must stay distinguishable here: `free val default: E` written by a
+     user is [UserFree] and means the value is deliberately left uninterpreted, whereas
+     a whole included file being force-freed is [MachineFree] and must not excuse an
+     implementing module from defining the value (see [Typing.merge_defs]). *)
+  type var_def = { var_decl : var_decl; var_init : expr option; var_is_free: free_status }
 
   type new_desc = {
     new_lhs : qual_ident;
     new_args : (qual_ident * expr option) list;
+    new_is_init : bool;
   }
 
   type assign_desc = { assign_lhs : qual_ident list; assign_rhs : expr; assign_is_init : bool }
@@ -1418,6 +1501,13 @@ module Stmt = struct
   }
   
   type stmt_ext = ..
+
+  (** Extension point for contract-level clauses (e.g. [decreases]) that attach to a
+      callable's or loop's contract rather than to a single statement. Carried as
+      [(tag * expr list)], the same shape as [StmtExt], so core code (alpha-renaming,
+      symbol collection) can walk the payload without knowing what the tag means. *)
+  type contract_ext = ..
+
   type basic_stmt_desc =
     | VarDef of var_def
     | Spec of spec_kind * spec (* x *)
@@ -1432,12 +1522,19 @@ module Stmt = struct
     | Use of use_desc
     | AUAction of auaction_desc
     | Fpu of fpu_desc
-    | StmtExt of (stmt_ext * expr list) 
+    | BasicStmtExt of (stmt_ext * expr list)
+        (** Extension point for statements that don't need to carry nested statements of
+            their own -- [basic_stmt_desc] has no case that does, by design. An
+            extension whose custom statement needs a nested block (e.g. a proof
+            obligation) must use the top-level [StmtExt] case of [stmt_desc] instead,
+            which carries a self-contained [stmt_ext] value (like [contract_ext]) rather
+            than being forced into this generic [(tag * expr list)] shape. *)
 
   type t = { stmt_desc : stmt_desc; stmt_loc : location }
 
   and loop_desc = {
     loop_contract : spec list;  (** the loop invariant *)
+    loop_contract_ext : contract_ext list;  (** extension-defined loop contract clauses, e.g. [decreases]; each extension defines its own constructor(s) of [contract_ext], carrying whatever payload it needs (e.g. [Decreases of spec list], reusing [spec] for its error-message/location handling) *)
     loop_prebody : t;
         (** the statement executed before testing the loop condition *)
     loop_test : expr;  (** the loop condition *)
@@ -1452,139 +1549,182 @@ module Stmt = struct
     | Basic of basic_stmt_desc
     | Loop of loop_desc
     | Cond of cond_desc
+    | StmtExt of stmt_ext
+        (** Self-contained extension point for whole custom statement forms that need
+            nested statements of their own (e.g. `assert e with { ... }`'s proof block).
+            Each extension's own constructor of [stmt_ext] carries whatever payload it
+            needs directly -- the same design as [contract_ext]. *)
 
   (** Pretty printing statements *)
 
-  let pr_var_def ppf vdef =
-    let open Stdlib.Format in
-    fprintf ppf "%s%s @[<2>%a@ :@ %a%a@]"
-      (if Type.is_ghost_var vdef.var_decl then "ghost " else "")
-      (if Type.is_const_var vdef.var_decl then "val" else "var")
-      Ident.pr vdef.var_decl.var_name Type.pr vdef.var_decl.var_type
-      (fun ppf -> function
-        | Some e -> fprintf ppf "@ =@ %a" Expr.pr e
-        | None -> ())
-      vdef.var_init
+  let default_pr_basic_stmt_ext : Formatter.t -> stmt_ext -> expr list -> unit =
+    fun ppf _ _ -> Stdlib.Format.fprintf ppf "@[ext]"
 
-  let rec pr_spec_list stype ppf =
-    let open Stdlib.Format in
-    function
-    | [] -> ()
-    | [ sf ] ->
-        fprintf ppf "%a%s%s %a"
-          (fun ppf cmnt -> match sf.spec_comment with
-          | Some c -> fprintf ppf "@\n /* %s */ @\n" c
-          | None -> ()) sf.spec_comment
-          (if sf.spec_atomic then "atomic " else "")
-          stype Expr.pr sf.spec_form
-    | sf :: sfs ->
-        fprintf ppf "@<0>%s%s %a@\n%a"
-          (if sf.spec_atomic then "atomic " else "")
-          stype Expr.pr sf.spec_form (pr_spec_list stype) sfs
+  let default_pr_stmt_ext : Formatter.t -> stmt_ext -> unit =
+    fun ppf _ -> Stdlib.Format.fprintf ppf "@[ext]"
 
-  let pr_stmt_ext : (Formatter.t -> stmt_ext -> expr list -> unit) ref = ref (
-    fun ppf _ _ -> Stdlib.Format.fprintf ppf "@[ext]")
+  let default_contract_ext_to_string : contract_ext -> string = fun _ -> "[ext]"
 
-  let pr_basic_stmt ppf =
-    let open Stdlib.Format in
-    function
-    | VarDef vdef -> pr_var_def ppf vdef
-    | Assign astm -> (
-        match astm.assign_lhs with
-        | [] -> Expr.pr ppf astm.assign_rhs
-        | vs ->
-            fprintf ppf "@[<2>%a@ :=@ %a@]" QualIdent.pr_list vs Expr.pr
-              astm.assign_rhs)
-    | Bind bstm -> (
-      match bstm.bind_lhs with
-      | [] -> Expr.pr ppf bstm.bind_rhs.spec_form
-      | es ->
-          fprintf ppf "@[<2>%a@ :|@ %a@]" QualIdent.pr_list es Expr.pr
-          bstm.bind_rhs.spec_form)
-    | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
-    | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
-    | Havoc hvc -> fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var (if hvc.havoc_is_init then " (init)" else "")
-    | New nstm -> 
-        fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
-          (Print.pr_list_comma (fun ppf -> function
-            | (f, Some e) -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
-            | (f, None) -> QualIdent.pr ppf f))
-          nstm.new_args
+  (** Builds the mutually-recursive statement printer family, parameterized by how to
+      render [TypeExt]/[ExprExt]/[StmtExt]/[contract_ext] leaves. *)
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let (_, type_pr, _, _, _, _, _, _, _, _) = Type.make_printers ~type_ext_to_name in
+    let module Type = struct
+      include Type
+      let pr = type_pr
+    end in
+    let (_, _, _, expr_pr, expr_pr_list, _, _, _, _, _, _, _) =
+      Expr.make_printers ~type_ext_to_name ~expr_ext_to_string
+    in
+    let module Expr = struct
+      include Expr
+      let pr = expr_pr
+      let pr_list = expr_pr_list
+    end in
+    let rec pr_var_def ppf vdef =
+      let open Stdlib.Format in
+      fprintf ppf "%s%s @[<2>%a@ :@ %a%a@]"
+        (if Type.is_ghost_var vdef.var_decl then "ghost " else "")
+        (if Type.is_const_var vdef.var_decl then "val" else "var")
+        Ident.pr vdef.var_decl.var_name Type.pr vdef.var_decl.var_type
+        (fun ppf -> function
+          | Some e -> fprintf ppf "@ =@ %a" Expr.pr e
+          | None -> ())
+        vdef.var_init
 
-    | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
-    | Use use_desc ->
-      fprintf ppf "@[<2>%s %a(@[%a@])[%a]  @]"
-        (use_kind_to_string use_desc.use_kind)
-        QualIdent.pr use_desc.use_name
+    and pr_spec_list stype ppf =
+      let open Stdlib.Format in
+      function
+      | [] -> ()
+      | [ sf ] ->
+          fprintf ppf "%a%s%s %a"
+            (fun ppf cmnt -> match sf.spec_comment with
+            | Some c -> fprintf ppf "@\n /* %s */ @\n" c
+            | None -> ()) sf.spec_comment
+            (if sf.spec_atomic then "atomic " else "")
+            stype Expr.pr sf.spec_form
+      | sf :: sfs ->
+          fprintf ppf "@<0>%s%s %a@\n%a"
+            (if sf.spec_atomic then "atomic " else "")
+            stype Expr.pr sf.spec_form (pr_spec_list stype) sfs
 
-        Expr.pr_list use_desc.use_args
+    and pr_basic_stmt ppf =
+      let open Stdlib.Format in
+      function
+      | VarDef vdef -> pr_var_def ppf vdef
+      | Assign astm -> (
+          match astm.assign_lhs with
+          | [] -> Expr.pr ppf astm.assign_rhs
+          | vs ->
+              fprintf ppf "@[<2>%a@ :=@ %a@]" QualIdent.pr_list vs Expr.pr
+                astm.assign_rhs)
+      | Bind bstm -> (
+        match bstm.bind_lhs with
+        | [] -> Expr.pr ppf bstm.bind_rhs.spec_form
+        | es ->
+            fprintf ppf "@[<2>%a@ :|@ %a@]" QualIdent.pr_list es Expr.pr
+            bstm.bind_rhs.spec_form)
+      | FieldRead fr -> fprintf ppf "@[<2>%a@ :=@ %a.%a@]" QualIdent.pr fr.field_read_lhs Expr.pr fr.field_read_ref QualIdent.pr fr.field_read_field
+      | FieldWrite fw -> fprintf ppf "@[<2>%a.%a@ :=@ %a@]" Expr.pr fw.field_write_ref QualIdent.pr fw.field_write_field Expr.pr fw.field_write_val
+      | Havoc hvc -> fprintf ppf "@[<2>havoc@ %a%s@]" QualIdent.pr hvc.havoc_var (if hvc.havoc_is_init then " (init)" else "")
+      | New nstm ->
+          fprintf ppf "@[<2>%a@ :=@ new@ %a@]" QualIdent.pr nstm.new_lhs
+            (Print.pr_list_comma (fun ppf -> function
+              | (f, Some e) -> fprintf ppf "%a:@ %a" QualIdent.pr f Expr.pr e
+              | (f, None) -> QualIdent.pr ppf f))
+            nstm.new_args
 
-        (Util.Print.pr_list_comma (fun ppf (i,e) -> 
-          Stdlib.Format.fprintf ppf "%a := %a"
-          Ident.pr i
-          Expr.pr e
-        ))  use_desc.use_witnesses_or_binds
+      | Spec (spec_kind, sf) -> pr_spec_list (spec_kind_to_string spec_kind) ppf [ sf ]
+      | Use use_desc ->
+        fprintf ppf "@[<2>%s %a(@[%a@])[%a]  @]"
+          (use_kind_to_string use_desc.use_kind)
+          QualIdent.pr use_desc.use_name
+
+          Expr.pr_list use_desc.use_args
+
+          (Util.Print.pr_list_comma (fun ppf (i,e) ->
+            Stdlib.Format.fprintf ppf "%a := %a"
+            Ident.pr i
+            Expr.pr e
+          ))  use_desc.use_witnesses_or_binds
 
 
-    | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
-    | Call cstm -> (
-        match cstm.call_lhs with
-        | [] ->
-            fprintf ppf "@[%s%a(@[%a@])@]" (if cstm.call_is_spawn then "spawn " else "") QualIdent.pr cstm.call_name
-              Expr.pr_list cstm.call_args
-        | _ ->
-            fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" QualIdent.pr_list
-              cstm.call_lhs QualIdent.pr cstm.call_name Expr.pr_list
-              cstm.call_args)
-    | AUAction { auaction_kind = BindAU token} ->
-      fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
-    | AUAction { auaction_kind = OpenAU open_au_desc} ->
-      fprintf ppf "@[<2>%a := %s(%a, (%a))@]" Expr.pr_list open_au_desc.lhs (auaction_kind_to_string (OpenAU open_au_desc)) Expr.pr open_au_desc.token Expr.pr_list open_au_desc.proc_args
-    | AUAction { auaction_kind = CommitAU commit_au_desc as au_action} ->
-      fprintf ppf "@[<2>%s(%a, (%a), (%a) )@]" (auaction_kind_to_string au_action) Expr.pr commit_au_desc.token Expr.pr_list commit_au_desc.proc_args Expr.pr_list commit_au_desc.proc_rets
-    | AUAction { auaction_kind = AbortAU abort_au_desc as au_action} ->
-      fprintf ppf "@[<2>%s(%a, (%a))@]" (auaction_kind_to_string au_action) Expr.pr abort_au_desc.token Expr.pr_list abort_au_desc.proc_args
-    | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
-    | StmtExt (stmt_ext, exprs) -> !pr_stmt_ext ppf stmt_ext exprs
+      | Return e -> fprintf ppf "@[<2>return@ %a@]" Expr.pr e
+      | Call cstm -> (
+          match cstm.call_lhs with
+          | [] ->
+              fprintf ppf "@[%s%a(@[%a@])@]" (if cstm.call_is_spawn then "spawn " else "") QualIdent.pr cstm.call_name
+                Expr.pr_list cstm.call_args
+          | _ ->
+              fprintf ppf "@[<2>%a@ :=@ @[%a(@[%a@])@]@]" QualIdent.pr_list
+                cstm.call_lhs QualIdent.pr cstm.call_name Expr.pr_list
+                cstm.call_args)
+      | AUAction { auaction_kind = BindAU token} ->
+        fprintf ppf "@[<2>%a := %s()@]" QualIdent.pr token (auaction_kind_to_string (BindAU token))
+      | AUAction { auaction_kind = OpenAU open_au_desc} ->
+        fprintf ppf "@[<2>%a := %s(%a, (%a))@]" Expr.pr_list open_au_desc.lhs (auaction_kind_to_string (OpenAU open_au_desc)) Expr.pr open_au_desc.token Expr.pr_list open_au_desc.proc_args
+      | AUAction { auaction_kind = CommitAU commit_au_desc as au_action} ->
+        fprintf ppf "@[<2>%s(%a, (%a), (%a) )@]" (auaction_kind_to_string au_action) Expr.pr commit_au_desc.token Expr.pr_list commit_au_desc.proc_args Expr.pr_list commit_au_desc.proc_rets
+      | AUAction { auaction_kind = AbortAU abort_au_desc as au_action} ->
+        fprintf ppf "@[<2>%s(%a, (%a))@]" (auaction_kind_to_string au_action) Expr.pr abort_au_desc.token Expr.pr_list abort_au_desc.proc_args
+      | Fpu fpu_desc -> fprintf ppf "@[<2>fpu %a.%a : %a ~> %a@]" Expr.pr fpu_desc.fpu_ref QualIdent.pr fpu_desc.fpu_field (Util.Print.pr_option Expr.pr) fpu_desc.fpu_old_val Expr.pr fpu_desc.fpu_new_val
+      | BasicStmtExt (stmt_ext, exprs) -> pr_basic_stmt_ext ppf stmt_ext exprs
 
-  let rec pr ppf stmt =
-    let open Stdlib.Format in
-    match stmt.stmt_desc with
-    | Loop ldesc ->
-        fprintf ppf "%awhile (%a)@ @,@[<2>@ @ %a@]@\n%a"
-          (fun ppf -> function
-            | { stmt_desc = Block { block_body = []; _ }; _ } -> ()
-            | s -> pr ppf s)
-          ldesc.loop_prebody Expr.pr ldesc.loop_test (pr_spec_list "invariant")
-          ldesc.loop_contract pr ldesc.loop_postbody
-    | Cond cdesc -> (
-        match cdesc.cond_test, cdesc.cond_else.stmt_desc with
-        | Some test, Block { block_body = []; _ } ->
-            fprintf ppf "if (@[%a@]) %a" Expr.pr test pr
-              cdesc.cond_then
-        | Some test, _ ->
-            fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr test pr
-              cdesc.cond_then pr cdesc.cond_else
-        | None, _ ->
-          fprintf ppf "choose %a@ or@ %a"
-            pr cdesc.cond_then pr cdesc.cond_else          
-      )
-    | Block { block_body = stmts; block_is_ghost = false } -> 
-        begin match stmts with
-          | [] -> fprintf ppf "{ }"
-          | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts
-        end
-    | Block { block_body = stmts; block_is_ghost = true } ->
-        begin match stmts with
-          | [] -> fprintf ppf "{! !}"
-          | _ -> fprintf ppf "{!@\n  @[%a@]@\n!}" pr_block stmts
-        end
-    | Basic bs -> pr_basic_stmt ppf bs
+    and pr ppf stmt =
+      let open Stdlib.Format in
+      match stmt.stmt_desc with
+      | Loop ldesc ->
+          let pr_loop_contract_ext ppf = function
+            | [] -> ()
+            | exts ->
+              fprintf ppf "@\n%a"
+                (Print.pr_list_sep "@\n" (fun ppf ce ->
+                     fprintf ppf "%s" (contract_ext_to_string ce)))
+                exts
+          in
+          fprintf ppf "%awhile (%a)@ @,@[<2>@ @ %a%a@]@\n%a"
+            (fun ppf -> function
+              | { stmt_desc = Block { block_body = []; _ }; _ } -> ()
+              | s -> pr ppf s)
+            ldesc.loop_prebody Expr.pr ldesc.loop_test (pr_spec_list "invariant")
+            ldesc.loop_contract pr_loop_contract_ext ldesc.loop_contract_ext pr ldesc.loop_postbody
+      | Cond cdesc -> (
+          match cdesc.cond_test, cdesc.cond_else.stmt_desc with
+          | Some test, Block { block_body = []; _ } ->
+              fprintf ppf "if (@[%a@]) %a" Expr.pr test pr
+                cdesc.cond_then
+          | Some test, _ ->
+              fprintf ppf "if (@[%a@]) %a@ else@ %a" Expr.pr test pr
+                cdesc.cond_then pr cdesc.cond_else
+          | None, _ ->
+            fprintf ppf "choose %a@ or@ %a"
+              pr cdesc.cond_then pr cdesc.cond_else
+        )
+      | Block { block_body = stmts; block_is_ghost = false } ->
+          begin match stmts with
+            | [] -> fprintf ppf "{ }"
+            | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts
+          end
+      | Block { block_body = stmts; block_is_ghost = true } ->
+          begin match stmts with
+            | [] -> fprintf ppf "{! !}"
+            | _ -> fprintf ppf "{!@\n  @[%a@]@\n!}" pr_block stmts
+          end
+      | Basic bs -> pr_basic_stmt ppf bs
+      | StmtExt stmt_ext -> pr_stmt_ext ppf stmt_ext
 
-  and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts
+    and pr_block ppf stmts = Print.pr_list_nl pr ppf stmts
+    in
+    let to_string s = Print.string_of_format pr s in
+    let print chan s = Print.print_of_format pr s chan in
+    (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print)
 
-  let to_string s = Print.string_of_format pr s
-  let print chan s = Print.print_of_format pr s chan
+  let (pr_var_def, pr_spec_list, pr_basic_stmt, pr, pr_block, to_string, print) =
+    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+      ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:default_pr_basic_stmt_ext
+      ~pr_stmt_ext:default_pr_stmt_ext
+      ~contract_ext_to_string:default_contract_ext_to_string
 
   (** Constructors *)
 
@@ -1701,10 +1841,12 @@ module Stmt = struct
   let to_loc s = s.stmt_loc
 
 
-  let stmt_ext_symbols : (stmt_ext -> QualIdentSet.t) ref = ref (fun _ -> Set.empty (module QualIdent))
+  let default_basic_stmt_ext_symbols : stmt_ext -> QualIdentSet.t = fun _ -> Set.empty (module QualIdent)
+  let default_stmt_ext_symbols : stmt_ext -> QualIdentSet.t = fun _ -> Set.empty (module QualIdent)
+
   (** Extends [accessed] with the set of all symbols occuring free in [s] *)
-  (** Assumes that all var_decl stmts are abstracted away during type-checking. *)  
-  let symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
+  (** Assumes that all var_decl stmts are abstracted away during type-checking. *)
+  let make_symbols ~basic_stmt_ext_symbols ~stmt_ext_symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
     let rec symbols (accesses: QualIdentSet.t) (s: t) =
       let scan_expr_list accesses exprs =
         List.fold exprs
@@ -1729,7 +1871,10 @@ module Stmt = struct
                 Option.map e_opt ~f:(Expr.symbols ~acc:accesses) |>
                 Option.value ~default:accesses) ~init:accesses
           in
-          Set.add accesses new_desc.new_lhs
+          if not new_desc.new_is_init then
+            Set.add accesses new_desc.new_lhs
+          else
+            accesses
 
         | Assign assign_desc ->
             let accesses =
@@ -1765,6 +1910,12 @@ module Stmt = struct
             accesses
 
         | Call call_desc ->
+          (* The callee itself is a symbol this statement depends on -- without this,
+             a Proc/Lemma's call graph edges (unlike a Func's, captured via ordinary
+             expression application in Expr.symbols) would be entirely invisible to
+             anything walking Callable.symbols, e.g. CallGraph.build's
+             strongly-connected-component analysis (see lib/ast/callGraph.ml). *)
+          let accesses = Set.add accesses call_desc.call_name in
           let accesses = scan_expr_list accesses call_desc.call_args in
           let accesses =
             if not call_desc.call_is_init then
@@ -1798,9 +1949,9 @@ module Stmt = struct
           | None -> scan_expr_list accesses [fpu_desc.fpu_ref; fpu_desc.fpu_new_val]
           | Some e -> scan_expr_list accesses [fpu_desc.fpu_ref; e; fpu_desc.fpu_new_val])
         
-        | StmtExt (stmt_ext, expr_list) -> 
+        | BasicStmtExt (stmt_ext, expr_list) ->
           let accesses = scan_expr_list accesses expr_list in
-          Set.union accesses (!stmt_ext_symbols stmt_ext)
+          Set.union accesses (basic_stmt_ext_symbols stmt_ext)
         end
 
       | Loop l ->
@@ -1812,8 +1963,15 @@ module Stmt = struct
         let accesses = Option.fold ~f:(fun accesses test -> Expr.symbols ~acc:accesses test) ~init:accesses c.cond_test in
         let accesses_then = symbols accesses c.cond_then in
         symbols accesses_then c.cond_else
+
+      | StmtExt stmt_ext ->
+        Set.union accesses (stmt_ext_symbols stmt_ext)
     in
     symbols accessed s
+
+  let symbols ?accessed s =
+    make_symbols ~basic_stmt_ext_symbols:default_basic_stmt_ext_symbols
+      ~stmt_ext_symbols:default_stmt_ext_symbols ?accessed s
 
   let local_vars_accessed (s: t) : IdentSet.t =
     let sign = symbols s in
@@ -1823,9 +1981,10 @@ module Stmt = struct
         else Set.add locals (QualIdent.unqualify id))
       ~init:(Set.empty (module Ident))
 
-  let stmt_ext_local_vars_modified : (stmt_ext -> expr list -> ident list) ref = ref (fun _ _ -> [])
+  let default_basic_stmt_ext_local_vars_modified : stmt_ext -> expr list -> ident list = fun _ _ -> []
+  let default_stmt_ext_local_vars_modified : stmt_ext -> ident list = fun _ -> []
 
-  let stmt_local_vars_modified (s: t) : ident list =
+  let make_stmt_local_vars_modified ~basic_stmt_ext_local_vars_modified ~stmt_ext_local_vars_modified (s: t) : ident list =
     let rec stmt_locals_modified (s: t): (ident list) =
       (* Returns all local variables modified in s.
         Assumes that all var_decl stmts are abstracted away during type-checking.   
@@ -1844,7 +2003,7 @@ module Stmt = struct
           []
 
         | New new_desc ->
-          if List.is_empty new_desc.new_lhs.qual_path then
+          if not new_desc.new_is_init && List.is_empty new_desc.new_lhs.qual_path then
               [new_desc.new_lhs.qual_base]
           else
             []
@@ -1914,7 +2073,7 @@ module Stmt = struct
             | _ -> [])
 
         (* TODO: Implement an API call for vars_modified *)
-        | StmtExt (stmt_ext, expr_list) -> !stmt_ext_local_vars_modified stmt_ext expr_list
+        | BasicStmtExt (stmt_ext, expr_list) -> basic_stmt_ext_local_vars_modified stmt_ext expr_list
         end
 
       | Loop l ->
@@ -1927,13 +2086,19 @@ module Stmt = struct
         let modified_else = stmt_locals_modified c.cond_else in
         modified_then @ modified_else
 
+      | StmtExt stmt_ext -> stmt_ext_local_vars_modified stmt_ext
+
     in
 
     let modifieds = stmt_locals_modified s in
     let modifieds = List.dedup_and_sort modifieds ~compare:Ident.compare in
     modifieds
 
-  let stmt_local_vars_initialized (s: t) : ident list = 
+  let stmt_local_vars_modified s =
+    make_stmt_local_vars_modified ~basic_stmt_ext_local_vars_modified:default_basic_stmt_ext_local_vars_modified
+      ~stmt_ext_local_vars_modified:default_stmt_ext_local_vars_modified s
+
+  let stmt_local_vars_initialized (s: t) : ident list =
     let rec stmt_locals_init (s: t): ident list =
       match s.stmt_desc with
         | Block b ->
@@ -1965,15 +2130,18 @@ module Stmt = struct
           let modified_else = stmt_locals_init c.cond_else in
           modified_then @ modified_else
 
+        | StmtExt _ -> []
+
     in
 
     let vars_init = stmt_locals_init s in
     let vars_init = List.dedup_and_sort vars_init ~compare:Ident.compare in
     vars_init
 
-  let stmt_ext_fields_accessed : (stmt_ext -> expr list -> qual_ident list) ref = ref (fun _ _ -> [])
+  let default_basic_stmt_ext_fields_accessed : stmt_ext -> expr list -> qual_ident list = fun _ _ -> []
+  let default_stmt_ext_fields_accessed : stmt_ext -> qual_ident list = fun _ -> []
 
-  let stmt_fields_accessed (s: t) : qual_ident list =
+  let make_stmt_fields_accessed ~basic_stmt_ext_fields_accessed ~stmt_ext_fields_accessed (s: t) : qual_ident list =
     let rec stmt_fields_accessed (s: t): (qual_ident list) =
       (* Returns all field heaps accessed in s. *)
 
@@ -2023,7 +2191,7 @@ module Stmt = struct
           [fpu_desc.fpu_field]
         
         (* TODO: Implement an API for fields_accessed *)
-        | StmtExt (stmt_ext, expr_list) -> !stmt_ext_fields_accessed stmt_ext expr_list
+        | BasicStmtExt (stmt_ext, expr_list) -> basic_stmt_ext_fields_accessed stmt_ext expr_list
         end
 
       | Loop l ->
@@ -2036,13 +2204,19 @@ module Stmt = struct
         let heaps_accessed_else = stmt_fields_accessed c.cond_else in
         heaps_accessed_then @ heaps_accessed_else
 
+      | StmtExt stmt_ext -> stmt_ext_fields_accessed stmt_ext
+
     in
 
     let heaps_accessed = stmt_fields_accessed s in
     let heaps_accessed = List.dedup_and_sort heaps_accessed ~compare:QualIdent.compare in
     heaps_accessed
 
-  let stmt_au_preds_referenced (s: t) : QualIdentSet.t = 
+  let stmt_fields_accessed s =
+    make_stmt_fields_accessed ~basic_stmt_ext_fields_accessed:default_basic_stmt_ext_fields_accessed
+      ~stmt_ext_fields_accessed:default_stmt_ext_fields_accessed s
+
+  let stmt_au_preds_referenced (s: t) : QualIdentSet.t =
     let rec stmt_au_preds_referenced (s: t): QualIdentSet.t =
       (* Returns all AU predicates referenced in s. *)
 
@@ -2069,6 +2243,8 @@ module Stmt = struct
         let au_preds_referenced_else = stmt_au_preds_referenced c.cond_else in
         Set.union au_preds_referenced_then au_preds_referenced_else
 
+      | StmtExt _ -> Set.empty (module QualIdent)
+
     in
 
     stmt_au_preds_referenced s
@@ -2077,11 +2253,105 @@ end
 (** Callables *)
 
 module Callable = struct
-  type call_kind = 
+  type call_kind =
     | Proc | Lemma (* proc *)
     | Func | Pred | Invariant (* func *)
   [@@deriving compare]
-    
+
+  (** Whether a callable of this kind is, by itself, a ghost scope -- i.e. every local
+      variable declared in its body is ghost regardless of an explicit `ghost` keyword
+      (see [Rewriter.enter]'s [is_ghost_scope], the sole place this rule was previously
+      duplicated inline, matching the pre-existing call-site rule in [Typing.ml]'s
+      [process_expr]). [Func]/[Pred]/[Invariant] have no [Stmt.t] body at all
+      ([call_def] is [FuncDef], not [ProcDef]), so this only has observable effect for
+      [Proc]/[Lemma]. *)
+  let is_ghost_kind = function
+    | Lemma | Pred | Invariant -> true
+    | Proc | Func -> false
+
+  (** A mask entry [(inv_name, arg_prefix)] identifies an invariant declaration
+      together with a (possibly empty) prefix of its own formal-argument list,
+      taken positionally: [] means "the whole declaration, any instance";
+      a full-length list means one exact instance; anything in between denotes
+      the upward closure of everything chained under it. Declaration identity
+      alone (the QualIdent) already gives cross-declaration apartness for
+      free, so no separate namespace-token type is needed here. *)
+  type mask_entry = QualIdent.t * expr list
+
+  (* [expr] (a plain alias to [Expr.t], not itself annotated) doesn't resolve
+     through ppx_compare, so this is spelled out via [Expr.compare]/
+     [QualIdent.compare] directly rather than [@@deriving compare]. *)
+  let compare_mask_entry ((qi1, args1) : mask_entry) ((qi2, args2) : mask_entry) : int =
+    let c = QualIdent.compare qi1 qi2 in
+    if c <> 0 then c else List.compare Expr.compare args1 args2
+
+  (* A mask entry that's a syntactic prefix of another entry for the same
+     declaration denotes the *same* underlying access right, described at
+     two different granularities -- not two independent rights (a shorter
+     prefix is the upward closure of everything a longer one would have
+     needed, per [mask_entry]'s own doc comment). This is [Antichain.Make]'s
+     [Ord.meet] for [mask_entry]: [None] for two entries naming different
+     declarations, or two same-declaration entries that are provably (or
+     just not provably) neither a prefix of the other (purely syntactic,
+     [Expr.alpha_equal] position by position -- no SMT, matching how the
+     rest of this mask machinery avoids the solver where it can; an
+     under-approximated meet here is always safe, just narrower); otherwise
+     [Some] the longer (more specific) of the two, since its region is
+     already a subset of the shorter, coarser one's. This single function
+     is what gives both [mask_canon] (keeping only the maximal entries --
+     e.g. dropping a redundant, specific `(i, [x])` once a coarser `(i,
+     [])` for the same [i] is also present, so the right can't be spent
+     twice under two different descriptions) and [mask_inter] (correctly
+     computing that `{(i, [])}` met with `{(i, [x])}` is `{(i, [x])}` --
+     the largest thing guaranteed by *both* sides -- rather than the empty
+     set a plain element-wise intersection would give, since neither side
+     literally contains the other's exact entry) their correct, consistent
+     behavior for free, from the single underlying partial order. *)
+  let mask_entry_meet ((qi1, args1) : mask_entry) ((qi2, args2) : mask_entry) :
+      mask_entry option =
+    if not (QualIdent.equal qi1 qi2) then None
+    else
+      let is_prefix ~(shorter : expr list) ~(longer : expr list) : bool =
+        List.length shorter <= List.length longer
+        &&
+        match
+          List.for_all2 shorter (List.take longer (List.length shorter))
+            ~f:Expr.alpha_equal
+        with
+        | Ok b -> b
+        | Unequal_lengths -> false
+      in
+      if is_prefix ~shorter:args1 ~longer:args2 then Some (qi2, args2)
+      else if is_prefix ~shorter:args2 ~longer:args1 then Some (qi1, args1)
+      else None
+
+  (* [mask_entry] embeds [expr], which has no [sexp_of_t] (see
+     [Antichain]'s own doc comment for why), so [Base.Set]/[Comparator.Make]
+     isn't available here -- [Antichain.Make] only needs [compare] and
+     [meet]. *)
+  module MaskSet = Antichain.Make (struct
+    type t = mask_entry
+
+    let compare = compare_mask_entry
+    let meet = mask_entry_meet
+  end)
+
+  (** A callable's required mask: a set of [mask_entry]. Transparently a
+      plain list (matching [call_decl_precond]/[call_decl_postcond] in the
+      same record), so ordinary [List] operations on a [mask] value still
+      work; use [mask_union]/[mask_equal] (below) rather than raw list
+      concatenation/equality to keep it in canonical (sorted, deduplicated,
+      maximal-elements-only, see [mask_entry_meet]) form -- see [Antichain]
+      for why that matters (the mask fixpoint's convergence check relies on
+      it). *)
+  type mask = MaskSet.t
+
+  let mask_canon = MaskSet.canon
+  let mask_equal = MaskSet.equal
+  let mask_union = MaskSet.union
+  let mask_union_list = MaskSet.union_list
+  let mask_inter = MaskSet.inter
+
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
     call_decl_name : ident;  (** name of associated declaration *)
@@ -2090,9 +2360,11 @@ module Callable = struct
     call_decl_locals : var_decl list;  (** all local variables, excluding formal parameters and return parameters *)
     call_decl_precond : Stmt.spec list;  (** precondition *)
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
-    call_decl_is_free : bool; (** Indicates whether the correctness of this callable comes for free or needs to be checked *)
+    call_decl_contract_ext : Stmt.contract_ext list;  (** extension-defined contract clauses, e.g. [decreases]; see [Stmt.loop_desc.loop_contract_ext] *)
+    call_decl_status : free_status; (** Whether this callable's correctness is checked, admitted, or established free by the compiler -- see [free_status] *)
     call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
-    call_decl_mask : QualIdentSet.t option; (** Invariant mask for the callable *)
+    call_decl_needs_mask : mask option; (** Invariant mask required from this callable's caller -- computed purely from [call_decl_precond] (see [masks.ml]); also the starting mask for checking this callable's own body. *)
+    call_decl_grants_mask : mask option; (** Invariant mask entries a caller is guaranteed to gain by calling this callable, regardless of what it supplies -- computed purely from [call_decl_postcond]. Used only by other callables' checking passes at their own call sites into this one. *)
     call_decl_loc : location;  (** source location of declaration *)
   }
 
@@ -2102,73 +2374,128 @@ module Callable = struct
 
   type t = { call_decl : call_decl; call_def : call_def }
 
-  let pr_call_decl_specs ppf call_decl =
-    let open Stdlib.Format in
-    let pr_specs stype ppf = function
-      | [] -> ()
-      | specs -> fprintf ppf "@\n%a" (Stmt.pr_spec_list stype) specs
+  (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
+      [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
+      [Stmt.make_printers], which this composes). *)
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let (_, _, _, expr_pr, _, _, _, _, _, expr_pr_var_decl, expr_pr_var_decl_list, _) =
+      Expr.make_printers ~type_ext_to_name ~expr_ext_to_string
     in
-    fprintf ppf "%a%a" (pr_specs "requires") call_decl.call_decl_precond
-      (pr_specs "ensures") call_decl.call_decl_postcond
+    let module Expr = struct
+      include Expr
+      let pr = expr_pr
+      let pr_var_decl = expr_pr_var_decl
+      let pr_var_decl_list = expr_pr_var_decl_list
+    end in
+    let (_, stmt_pr_spec_list, _, stmt_pr, _, _, _) =
+      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+    in
+    let module Stmt = struct
+      include Stmt
+      let pr = stmt_pr
+      let pr_spec_list = stmt_pr_spec_list
+    end in
+    let pr_call_decl_specs ppf call_decl =
+      let open Stdlib.Format in
+      let pr_specs stype ppf = function
+        | [] -> ()
+        | specs -> fprintf ppf "@\n%a" (Stmt.pr_spec_list stype) specs
+      in
+      let pr_contract_ext ppf = function
+        | [] -> ()
+        | exts ->
+          fprintf ppf "@\n%a"
+            (Print.pr_list_sep "@\n" (fun ppf ce ->
+                 fprintf ppf "%s" (contract_ext_to_string ce)))
+            exts
+      in
+      fprintf ppf "%a%a%a" (pr_specs "requires") call_decl.call_decl_precond
+        (pr_specs "ensures") call_decl.call_decl_postcond
+        pr_contract_ext call_decl.call_decl_contract_ext
+    in
+    let pr_call_decl has_body ppf call_decl =
+      let open Stdlib.Format in
+      let auto_modifier = match call_decl.call_decl_is_auto with
+        | true -> "auto "
+        | false -> ""
+      in
+      let free_modifier = match call_decl.call_decl_status with
+        | NotFree -> ""
+        | UserFree | MachineFree -> "free "
+      in
+      let kind =
+        match call_decl.call_decl_kind with
+        | Pred -> "pred"
+        | Func -> "func"
+        | Proc -> "proc"
+        | Lemma -> if has_body then "lemma" else "axiom"
+        | Invariant -> "inv"
+      in
+      let pr_returns ppf = function
+        | [] -> ()
+        | rs ->
+            fprintf ppf "returns (@[<0>%a@])" Expr.pr_var_decl_list rs
+      in
+      let pr_call_locals ppf = function
+        (* | [] -> () *)
+        | ls ->
+            fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
+      in
+      let pr_mask_entries ppf mask =
+        let pr_entry ppf (qi, args) =
+          match args with
+          | [] -> fprintf ppf "%a" QualIdent.pr qi
+          | _ -> fprintf ppf "%a(%a)" QualIdent.pr qi (Print.pr_list_comma Expr.pr) args
+        in
+        fprintf ppf "(@[<0>%a@])" (Print.pr_list_comma pr_entry) mask
+      in
+      let pr_call_needs_mask ppf = function
+        | None ->
+          fprintf ppf "@\n/* mask: <none> */"
+        | Some mask -> fprintf ppf "@\n/* needs mask: %a */" pr_mask_entries mask
+      in
+      let pr_call_grants_mask ppf = function
+        | None -> ()
+        | Some mask -> fprintf ppf "@\n/* grants mask: %a */" pr_mask_entries mask
+      in
+      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a@]"
+        (free_modifier ^ auto_modifier ^ kind)
+        Ident.pr call_decl.call_decl_name
+        (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
+        pr_returns call_decl.call_decl_returns
+        pr_call_decl_specs call_decl
+        pr_call_locals call_decl.call_decl_locals
+        pr_call_needs_mask call_decl.call_decl_needs_mask
+        pr_call_grants_mask call_decl.call_decl_grants_mask
+    in
+    let pr ppf def =
+      let open Stdlib.Format in
+      let pr_proc_body pr_body' ppf = function
+        | Some e ->
+            fprintf ppf "@\n@[<1> %a@]" pr_body' e
+            (* Todo: make this work properly by removing the extra space.  *)
+        | None -> fprintf ppf "@\n"
+      in
+      let pr_fn_body pr_body' ppf = function
+        | Some e -> fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body' e
+        | None -> fprintf ppf "@\n"
+      in
+      match def with
+      | { call_decl; call_def = FuncDef fdef} ->
+          fprintf ppf "%a%a" (pr_call_decl (Option.is_some fdef.func_body)) call_decl  (pr_fn_body Expr.pr)
+            fdef.func_body
+      | { call_decl; call_def = ProcDef pdef} ->
+          fprintf ppf "%a%a" (pr_call_decl (Option.is_some pdef.proc_body)) call_decl (pr_proc_body Stmt.pr)
+            pdef.proc_body
+    in
+    (pr_call_decl_specs, pr_call_decl, pr)
 
-  let pr_call_decl has_body ppf call_decl =
-    let open Stdlib.Format in
-    let auto_modifier = match call_decl.call_decl_is_auto with
-      | true -> "auto "
-      | false -> ""
-    in
-    let kind =
-      match call_decl.call_decl_kind with
-      | Pred -> "pred"
-      | Func -> "func"
-      | Proc -> "proc"
-      | Lemma -> if has_body then "lemma" else "axiom"
-      | Invariant -> "inv"
-    in
-    let pr_returns ppf = function
-      | [] -> ()
-      | rs ->
-          fprintf ppf "returns (@[<0>%a@])" Expr.pr_var_decl_list rs
-    in
-    let pr_call_locals ppf = function
-      (* | [] -> () *)
-      | ls ->
-          fprintf ppf "@\n/*locals (@[<0>%a@])*/" Expr.pr_var_decl_list ls
-    in
-    let pr_call_mask ppf = function
-      | None -> 
-        fprintf ppf "@\n/* mask: <none> */" 
-      | Some mask ->
-          fprintf ppf "@\n/* mask: (@[<0>%a@]) */" (Print.pr_list_comma QualIdent.pr) (Set.elements mask)
-    in
-    fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a@]" 
-      (auto_modifier ^ kind) 
-      Ident.pr call_decl.call_decl_name 
-      (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
-      pr_returns call_decl.call_decl_returns 
-      pr_call_decl_specs call_decl
-      pr_call_locals call_decl.call_decl_locals
-      pr_call_mask call_decl.call_decl_mask
-
-  let pr ppf def =
-    let open Stdlib.Format in
-    let pr_proc_body pr_body' ppf = function
-      | Some e ->
-          fprintf ppf "@\n@[<1> %a@]" pr_body' e
-          (* Todo: make this work properly by removing the extra space.  *)
-      | None -> fprintf ppf "@\n"
-    in
-    let pr_fn_body pr_body' ppf = function
-      | Some e -> fprintf ppf "@\n{@[<1>@\n%a@]@\n}" pr_body' e
-      | None -> fprintf ppf "@\n"
-    in
-    match def with
-    | { call_decl; call_def = FuncDef fdef} ->
-        fprintf ppf "%a%a" (pr_call_decl (Option.is_some fdef.func_body)) call_decl  (pr_fn_body Expr.pr)
-          fdef.func_body
-    | { call_decl; call_def = ProcDef pdef} ->
-        fprintf ppf "%a%a" (pr_call_decl (Option.is_some pdef.proc_body)) call_decl (pr_proc_body Stmt.pr)
-          pdef.proc_body
+  let (pr_call_decl_specs, pr_call_decl, pr) =
+    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+      ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
+      ~pr_stmt_ext:Stmt.default_pr_stmt_ext
+      ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
   (** Auxiliary functions *)
 
@@ -2212,6 +2539,10 @@ module Callable = struct
       | ProcDef { proc_body = Some s; _ } -> Stmt.symbols s
       | _ -> Set.empty (module QualIdent)
     in
+    (* Symbols referenced only inside a [call_decl_contract_ext] entry (e.g. a helper
+       function called from a `decreases` measure) are not accounted for here -- same
+       pre-existing limitation as [stmt_ext], whose contribution [Stmt.symbols] also
+       always treats as empty (see [default_stmt_ext_symbols]). *)
     let symbols_w_locals_and_spec =
       List.fold ~f:(fun syms spec -> Expr.symbols ~acc:syms spec.spec_form)
         ~init:symbols_w_locals
@@ -2230,14 +2561,18 @@ module Callable = struct
       ~init:symbols_w_locals_and_spec
       (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns @ callable.call_decl.call_decl_locals)
 
-  (** Change the given symbol to one whose correctness is assumed *)
-  let make_free callable =
-    if is_abstract callable then callable else
-      let call_def = match callable.call_def with
+  (** Change the given symbol to one whose correctness is assumed, with the given [free_status] *)
+  let set_status status callable =
+    let call_def =
+      if is_abstract callable then callable.call_def else
+        match callable.call_def with
         | ProcDef proc_def -> ProcDef { proc_body = None }
         | call_def -> call_def
-      in
-      { call_def; call_decl = { (to_decl callable) with call_decl_is_free = true } }
+    in
+    { call_def; call_decl = { (to_decl callable) with call_decl_status = status } }
+
+  let set_free callable = set_status UserFree callable
+  let set_machine_free callable = set_status MachineFree callable
 
   let is_atomic c =
     List.exists (c.call_decl_precond @ c.call_decl_postcond) ~f:(fun spec -> spec.spec_atomic)
@@ -2252,6 +2587,7 @@ module Module = struct
     type_def_expr : type_expr option;
     type_def_rep : bool;
     type_def_loc : location;
+    type_def_is_free : bool;
   }
 
   type constr_def = {
@@ -2268,11 +2604,20 @@ module Module = struct
     destr_return_type : type_expr;
   }
 
+  (** An argument to a functor application `F[args]`. [ModArg] names an
+      existing module; [TypeArg] is a bare type (e.g. `Int`), auto-wrapped
+      at type-checking time into a fresh module implementing the
+      corresponding formal's rep-typed interface. *)
+  type module_inst_arg =
+    | ModArg of QualIdent.t
+    | TypeArg of type_expr
+
   type module_inst = {
     mod_inst_name : ident;
     mod_inst_type : QualIdent.t;
-    mod_inst_def : (QualIdent.t * QualIdent.t list) option;
+    mod_inst_def : (QualIdent.t * module_inst_arg list) option;
     mod_inst_is_interface : bool;
+    mod_inst_is_free : bool;
     mod_inst_loc : location;
   }
 
@@ -2291,7 +2636,7 @@ module Module = struct
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
     mod_decl_is_interface : bool;
-    mod_decl_is_free : bool;
+    mod_decl_status : free_status; (** See [call_decl_status]/[free_status] *)
     mod_decl_loc : location;
   }
 
@@ -2311,10 +2656,8 @@ module Module = struct
     | VarDef of Stmt.var_def
     | CallDef of Callable.t
 
-  and symbol_descr = { symbol_def: symbol; is_admitted: bool; }
-
   and module_instr =
-    | SymbolDef of symbol_descr
+    | SymbolDef of symbol
     | Import of import_directive
 
   and t = {
@@ -2322,76 +2665,118 @@ module Module = struct
     mod_def : module_instr list;
   }
 
-  let rec pr ppf md =
-    let open Stdlib.Format in
-    let mod_vs =
-      List.map md.mod_decl.mod_decl_formals ~f:(fun v ->
-          (v.mod_inst_name, v.mod_inst_type))
+  (** Builds the printer family, parameterized by how to render [TypeExt]/[ExprExt]/
+      [StmtExt] leaves (see [Type.make_printers]/[Expr.make_printers]/
+      [Stmt.make_printers]/[Callable.make_printers], which this composes). *)
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let (_, type_pr, _, _, _, _, _, _, type_pr_list, _) =
+      Type.make_printers ~type_ext_to_name
     in
-    fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
-      (if md.mod_decl.mod_decl_is_interface then "interface" else "module")
-      Ident.pr md.mod_decl.mod_decl_name
-      (* formal parameters *)
-        (fun ppf -> function
-          | [] -> ()
-          | vs -> fprintf ppf "[@[%a@]]" (Print.pr_list_comma (fun ppf (v, t) -> fprintf ppf "%a: %a" Ident.pr v QualIdent.pr t)) vs)
-        mod_vs
-      (* return types *)
-        (fun ppf -> function
-          | [] -> ()
-          | vs -> fprintf ppf "@ : %a" QualIdent.pr_list vs)
-      (Option.to_list md.mod_decl.mod_decl_returns) (* body *) pr_instr_list md.mod_def
-
-  and pr_instr ppf =
-    let open Stdlib.Format in
-    function
-    | SymbolDef symbol -> pr_symbol ppf symbol.symbol_def
-    | Import { import_name = qid; import_all = all; _ } ->
-      fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
-
-  and pr_instr_list ppf ms = Print.pr_list_sep "@\n@\n" pr_instr ppf ms
-
-  and pr_symbol ppf =
-    let open Stdlib.Format in
-    function
-    | ModDef md -> pr ppf md
-    | ModInst ma ->
-        fprintf ppf "@[<2>module@ %a : %a%a@]" Ident.pr ma.mod_inst_name
-          QualIdent.pr ma.mod_inst_type
-          (fun ppf -> function
-            | None -> ()
-            | Some (t, ts) -> fprintf ppf " =@ %a[%a]" QualIdent.pr t QualIdent.pr_list ts)
-          ma.mod_inst_def
-    | TypeDef ta ->
-        fprintf ppf "@[%stype %a%a@]"
-          (if ta.type_def_rep then "rep " else "")
-          Ident.pr ta.type_def_name
-          (fun ppf -> function
-            | None -> ()
-            | Some t -> fprintf ppf " = %a" Type.pr t)
-          ta.type_def_expr
-    | ConstrDef cdef ->
-      fprintf ppf "@[/* constr %a(%a): %a */@]"
-        Ident.pr cdef.constr_name
-        Type.pr_list (List.map cdef.constr_args ~f:(fun var_decl -> var_decl.var_type))
-        Type.pr cdef.constr_return_type
-    | DestrDef def ->
-      fprintf ppf "@[/* destr %a(%a): %a */@]"
-        Ident.pr def.destr_name
-        Type.pr def.destr_arg
-        Type.pr def.destr_return_type
-    | FieldDef field_def ->
-      let field_type = match field_def.field_type with
-        | App (Fld, [typ], _) -> typ
-        | typ -> typ
+    let module Type = struct
+      include Type
+      let pr = type_pr
+      let pr_list = type_pr_list
+    end in
+    let (stmt_pr_var_def, _, _, _, _, _, _) =
+      Stmt.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+    in
+    let module Stmt = struct
+      include Stmt
+      let pr_var_def = stmt_pr_var_def
+    end in
+    let (_, _, callable_pr) =
+      Callable.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+    in
+    let module Callable = struct
+      include Callable
+      let pr = callable_pr
+    end in
+    let rec pr ppf md =
+      let open Stdlib.Format in
+      let mod_vs =
+        List.map md.mod_decl.mod_decl_formals ~f:(fun v ->
+            (v.mod_inst_name, v.mod_inst_type))
       in
-      fprintf ppf "@[%sfield %a: %a@]"
-        (if field_def.field_is_ghost then "ghost " else "")
-        Ident.pr field_def.field_name Type.pr
-        field_type
-    | VarDef vdef -> Stmt.pr_var_def ppf vdef
-    | CallDef cdef -> Callable.pr ppf cdef
-                     
+      fprintf ppf "@[<2>%s@ %a%a%a@]@\n{@[<1>@\n%a@]@\n}"
+        (if md.mod_decl.mod_decl_is_interface then "interface" else "module")
+        Ident.pr md.mod_decl.mod_decl_name
+        (* formal parameters *)
+          (fun ppf -> function
+            | [] -> ()
+            | vs -> fprintf ppf "[@[%a@]]" (Print.pr_list_comma (fun ppf (v, t) -> fprintf ppf "%a: %a" Ident.pr v QualIdent.pr t)) vs)
+          mod_vs
+        (* return types *)
+          (fun ppf -> function
+            | [] -> ()
+            | vs -> fprintf ppf "@ : %a" QualIdent.pr_list vs)
+        (Option.to_list md.mod_decl.mod_decl_returns) (* body *) pr_instr_list md.mod_def
+
+    and pr_instr ppf =
+      let open Stdlib.Format in
+      function
+      | SymbolDef symbol -> pr_symbol ppf symbol
+      | Import { import_name = qid; import_all = all; _ } ->
+        fprintf ppf "@[<2>import@ %a%s@]" QualIdent.pr qid (if all then "._" else "")
+
+    and pr_instr_list ppf ms = Print.pr_list_sep "@\n@\n" pr_instr ppf ms
+
+    and pr_symbol ppf =
+      let open Stdlib.Format in
+      function
+      | ModDef md -> pr ppf md
+      | ModInst ma ->
+          let pr_mod_inst_arg ppf = function
+            | ModArg qi -> QualIdent.pr ppf qi
+            | TypeArg tp -> Type.pr ppf tp
+          in
+          fprintf ppf "@[<2>%smodule@ %a : %a%a@]"
+            (if ma.mod_inst_is_free then "free " else "")
+            Ident.pr ma.mod_inst_name
+            QualIdent.pr ma.mod_inst_type
+            (fun ppf -> function
+              | None -> ()
+              | Some (t, ts) -> fprintf ppf " =@ %a[%a]" QualIdent.pr t (Print.pr_list_comma pr_mod_inst_arg) ts)
+            ma.mod_inst_def
+      | TypeDef ta ->
+          fprintf ppf "@[%s%stype %a%a@]"
+            (if ta.type_def_is_free then "free " else "")
+            (if ta.type_def_rep then "rep " else "")
+            Ident.pr ta.type_def_name
+            (fun ppf -> function
+              | None -> ()
+              | Some t -> fprintf ppf " = %a" Type.pr t)
+            ta.type_def_expr
+      | ConstrDef cdef ->
+        fprintf ppf "@[/* constr %a(%a): %a */@]"
+          Ident.pr cdef.constr_name
+          Type.pr_list (List.map cdef.constr_args ~f:(fun var_decl -> var_decl.var_type))
+          Type.pr cdef.constr_return_type
+      | DestrDef def ->
+        fprintf ppf "@[/* destr %a(%a): %a */@]"
+          Ident.pr def.destr_name
+          Type.pr def.destr_arg
+          Type.pr def.destr_return_type
+      | FieldDef field_def ->
+        let field_type = match field_def.field_type with
+          | App (Fld, [typ], _) -> typ
+          | typ -> typ
+        in
+        fprintf ppf "@[%sfield %a: %a@]"
+          (if field_def.field_is_ghost then "ghost " else "")
+          Ident.pr field_def.field_name Type.pr
+          field_type
+      | VarDef vdef -> Stmt.pr_var_def ppf vdef
+      | CallDef cdef -> Callable.pr ppf cdef
+    in
+    (pr, pr_instr, pr_instr_list, pr_symbol)
+
+  let (pr, pr_instr, pr_instr_list, pr_symbol) =
+    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+      ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
+      ~pr_stmt_ext:Stmt.default_pr_stmt_ext
+      ~contract_ext_to_string:Stmt.default_contract_ext_to_string
+
   let to_string m = Print.string_of_format pr m
   let print chan m = Print.print_of_format pr m chan
   (*let print_verbose chan m = Print.print_of_format pr_verbose m chan*)
@@ -2409,7 +2794,7 @@ module Module = struct
       mod_decl_loc = Loc.dummy;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
-      mod_decl_is_free = false;
+      mod_decl_status = NotFree;
     }
 
 
@@ -2419,7 +2804,7 @@ module Module = struct
       
   let rec find_mod (mod_defs: t list) (name: Ident.t) =
     match mod_defs with
-    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module %s not found in list " (Ident.to_string name)
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Module '%s' not found" (Ident.to_string name)
     | mod_def :: mod_defs ->
       if Ident.equal mod_def.mod_decl.mod_decl_name name then
         mod_def
@@ -2429,12 +2814,12 @@ module Module = struct
   let find_callable (call_defs: Callable.t list) (name: ident) =
     let res = List.find call_defs ~f:(fun call_def -> Ident.equal (Callable.to_decl call_def).call_decl_name name) in
     match res with
-    | None -> Error.error Loc.dummy @@ Printf.sprintf "Callable %s not found in list " (Ident.to_string name)
+    | None -> Error.error Loc.dummy @@ Printf.sprintf "Callable '%s' not found" (Ident.to_string name)
     | Some call_def -> call_def
 
   let rec find_var (var_defs: Stmt.var_def list) (name: Ident.t) = 
     match var_defs with
-    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Variable %s not found in list " (Ident.to_string name)
+    | [] -> Error.error Loc.dummy @@ Printf.sprintf "Variable '%s' not found" (Ident.to_string name)
     | var_def :: var_defs ->
       if Ident.equal (var_def.var_decl.var_name) name then
         var_def
@@ -2444,13 +2829,57 @@ module Module = struct
   let set_name md name =
     { md with mod_decl = { md.mod_decl with mod_decl_name = name } }
 
-  let rec set_free md =
-    let mod_decl = { md.mod_decl with mod_decl_is_free = true } in
-    { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr -> 
+  (* These three carry a plain bool rather than the full [free_status], so they can only
+     record *whether* they are free, not which kind. Deriving it from [status] rather
+     than hardcoding [true] at least makes [set_symbol_status NotFree] able to clear the
+     flag, which is what lets an inherited abstract member be un-freed. *)
+  let rec set_symbol_status status = function
+    | ModDef md -> ModDef (set_status status md)
+    | CallDef cdef -> CallDef (Callable.set_status status cdef)
+    | TypeDef td -> TypeDef { td with type_def_is_free = is_free status }
+    | VarDef vd -> VarDef { vd with var_is_free = status }
+    | ModInst mi -> ModInst { mi with mod_inst_is_free = is_free status }
+    | symbol -> symbol
+  and set_status status md =
+    let mod_decl = { md.mod_decl with mod_decl_status = status } in
+    { mod_decl; mod_def = List.map md.mod_def ~f:(fun instr ->
         match instr with
-        | SymbolDef ({ symbol_def = ModDef md; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (ModDef (set_free md)) }
-        | SymbolDef ({ symbol_def = CallDef cdef; _ } as symbol_descr) -> SymbolDef { symbol_descr with symbol_def = (CallDef (Callable.make_free cdef)) }
+        | SymbolDef symbol -> SymbolDef (set_symbol_status status symbol)
         | _ -> instr) }
+
+  let set_free = set_status UserFree
+  let set_symbol_free = set_symbol_status UserFree
+  let set_machine_free = set_status MachineFree
+  let set_symbol_machine_free = set_symbol_status MachineFree
+
+  (** Force a whole compilation unit free because the compiler said so -- the standard
+      library, or an included file -- rather than because the user wrote `free`. Unlike
+      [set_machine_free] this only *raises* [NotFree] to [MachineFree]: a `free` the user
+      wrote inside the unit keeps its [UserFree] status, which matters because the two
+      are not interchangeable when a member is inherited into an implementing module
+      (see [Typing.merge_defs]). *)
+  let rec set_symbol_unit_free = function
+    | ModDef md -> ModDef (set_unit_free md)
+    | CallDef cdef ->
+        if is_free cdef.call_decl.call_decl_status then CallDef cdef
+        else CallDef (Callable.set_status MachineFree cdef)
+    | VarDef vd ->
+        if is_free vd.var_is_free then VarDef vd
+        else VarDef { vd with var_is_free = MachineFree }
+    | TypeDef td -> TypeDef { td with type_def_is_free = true }
+    | ModInst mi -> ModInst { mi with mod_inst_is_free = true }
+    | symbol -> symbol
+
+  and set_unit_free md =
+    let mod_decl_status =
+      if is_free md.mod_decl.mod_decl_status then md.mod_decl.mod_decl_status
+      else MachineFree
+    in
+    { mod_decl = { md.mod_decl with mod_decl_status };
+      mod_def =
+        List.map md.mod_def ~f:(function
+          | SymbolDef symbol -> SymbolDef (set_symbol_unit_free symbol)
+          | instr -> instr) }
 end
 
 (** Symbols (for convenience) *)
@@ -2493,16 +2922,52 @@ module Symbol = struct
       match call_def.call_decl.call_decl_kind with
       | Lemma ->
         (match call_def.call_def with
-        | ProcDef {proc_body = None } -> "axiom"
+        | ProcDef { proc_body = None } -> "axiom"
         | _ -> "lemma")
       | Proc -> "procedure"
       | Func -> "function"
       | Pred -> "predicate"
       | Invariant -> "invariant"
 
-  let pr = pr_symbol
+  let is_free = function
+    | ModDef mod_def -> is_free mod_def.mod_decl.mod_decl_status
+    | ModInst mod_inst -> mod_inst.mod_inst_is_free
+    | TypeDef type_def -> type_def.type_def_is_free
+    | ConstrDef cdef -> false
+    | DestrDef cdef -> false
+    | VarDef var_def -> is_free var_def.var_is_free
+    | FieldDef field_def -> false
+    | CallDef call_def -> is_free call_def.call_decl.call_decl_status
 
-  let to_string m = Print.string_of_format pr m
+  (** Which *kind* of free a symbol is, where the representation records it. [TypeDef]
+      and [ModInst] still carry a plain bool, so a `free` written on one of those is
+      indistinguishable from a compiler-established one and is reported as
+      [MachineFree]; nothing in the language actually writes `free type`/`free module`,
+      and reporting them as machine-free is what keeps an abstract inherited type
+      subject to the conformance check. *)
+  let free_status = function
+    | ModDef mod_def -> mod_def.mod_decl.mod_decl_status
+    | CallDef call_def -> call_def.call_decl.call_decl_status
+    | VarDef var_def -> var_def.var_is_free
+    | ModInst mod_inst -> if mod_inst.mod_inst_is_free then MachineFree else NotFree
+    | TypeDef type_def -> if type_def.type_def_is_free then MachineFree else NotFree
+    | ConstrDef _ | DestrDef _ | FieldDef _ -> NotFree
+
+  let set_free = Module.set_symbol_free
+
+  let make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string =
+    let (_, _, _, pr_symbol) =
+      Module.make_printers ~type_ext_to_name ~expr_ext_to_string ~pr_basic_stmt_ext ~pr_stmt_ext ~contract_ext_to_string
+    in
+    let to_string m = Print.string_of_format pr_symbol m in
+    (pr_symbol, to_string)
+
+  let (pr, to_string) =
+    make_printers ~type_ext_to_name:Type.default_type_ext_to_name
+      ~expr_ext_to_string:Expr.default_expr_ext_to_string
+      ~pr_basic_stmt_ext:Stmt.default_pr_basic_stmt_ext
+      ~pr_stmt_ext:Stmt.default_pr_stmt_ext
+      ~contract_ext_to_string:Stmt.default_contract_ext_to_string
 
 end
 
@@ -2616,7 +3081,10 @@ let merge_prog (prog1: Module.t) (prog2: Module.t) =
       mod_decl_rep = prog2.mod_decl.mod_decl_rep;
       mod_decl_is_ra = prog1.mod_decl.mod_decl_is_ra || prog2.mod_decl.mod_decl_is_ra;
       mod_decl_is_interface = prog1.mod_decl.mod_decl_is_interface || prog2.mod_decl.mod_decl_is_interface;
-      mod_decl_is_free = prog1.mod_decl.mod_decl_is_free && prog2.mod_decl.mod_decl_is_free;
+      mod_decl_status =
+        (match prog1.mod_decl.mod_decl_status, prog2.mod_decl.mod_decl_status with
+         | NotFree, _ | _, NotFree -> NotFree
+         | _, status2 -> status2);
       mod_decl_loc = prog2.mod_decl.mod_decl_loc;
     }
   

@@ -3,7 +3,7 @@ module M {
     case unit();
     case twonit(head: Ref)
   }
-  field f: T;
+  field f: T
 }
 
 proc p() returns (ret: Ref) requires true ensures true {

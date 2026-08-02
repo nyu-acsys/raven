@@ -1,0 +1,17 @@
+proc count_even(n: Int)
+  requires n >= 0
+  decreases n
+{
+  if (n > 0) {
+    count_odd(n - 1);
+  }
+}
+
+proc count_odd(n: Int)
+  requires n >= 0
+  decreases n
+{
+  if (n > 0) {
+    count_even(n - 1);
+  }
+}

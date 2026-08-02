@@ -1,0 +1,37 @@
+// Regression test: a callable that only receives an invariant via
+// `requires` and passes it back unchanged via `ensures`, without ever
+// itself `fold`ing anything, is still credited for it in its own grants
+// set -- `call_decl_grants_mask` is computed straight from `ensures` text
+// (plus whatever a body-simulation separately finds), with no attempt to
+// subtract out what merely passed through unconsumed. That's deliberately
+// redundant, not unsound: the credit `pass_through` hands back is exactly
+// the same credit its own caller already held, so re-granting it is a
+// no-op in the ordinary case (this file), and in the case where it
+// *would* actually matter -- a caller using it to alias something already
+// open elsewhere -- the call-site/unfold reentrancy guard catches
+// that independently, at the point the credit is acted on rather than at
+// the point it's granted. `pass_through`'s own `call_decl_needs_mask` is
+// separately, correctly conservative -- non-empty, taken directly from
+// `requires` -- rather than `()`, even though its body never touches the
+// mask at all.
+
+field c: Int
+
+inv p(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+proc pass_through(x: Ref)
+  requires p(x)
+  ensures p(x)
+{
+}
+
+// An ordinary caller supplies `p(x)` itself, exactly matching
+// `pass_through`'s conservative requirement.
+proc caller(x: Ref)
+  requires p(x)
+  ensures p(x)
+{
+  pass_through(x);
+}

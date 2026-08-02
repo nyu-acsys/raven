@@ -1,0 +1,18 @@
+// A self-recursive `data` type used directly as a `decreases` measure, with no
+// hand-written WellFoundedOrder instance: DecreasesExt auto-generates a trusted
+// structural order for it (see decreasesExt.ml, is_wf_order_type/as_data_type).
+module MyList {
+  rep type T = data {
+    case nil
+    case cons(hd: Int, tl: T)
+  }
+
+  func len(ls: T) returns (ret: Int)
+    decreases ls
+  {
+    match ls {
+      case nil => 0
+      case cons(hd, tl) => 1 + len(tl)
+    }
+  }
+}

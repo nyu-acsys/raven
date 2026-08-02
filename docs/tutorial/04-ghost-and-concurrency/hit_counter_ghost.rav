@@ -1,0 +1,77 @@
+// Part 4, second half: proving something *more* than "the invariant holds" --
+// specifically, that a CAS-based counter's underlying field never goes
+// backward, even under concurrent retries. That extra fact needs ghost state:
+// a `ghost field`, holding a value from a *resource algebra* rather than a
+// program value, and `fpu` (frame-preserving update) to advance it in step
+// with the real field.
+
+import Library.Auth
+import Library.MaxNat
+
+field count: Int
+
+// `Auth[MaxNat]` pairs an authoritative view of a monotonically-increasing
+// natural number with fragments that can be handed out and later checked
+// against it. We only use the authoritative side here; MaxNat is brought in
+// specifically because its frame-preserving-update relation only allows
+// moving a value *up*, never down -- that's the one fact this whole file
+// leans on.
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+ghost field seen: AuthMaxNat
+
+inv countInv(c: Ref) {
+  exists v: Int :: own(c.seen, auth_frag(v, v)) && own(c.count, v, 1.0)
+}
+
+proc bump(c: Ref)
+  requires countInv(c)
+  ensures countInv(c)
+{
+  var v1: Int;
+  unfold countInv(c);
+  v1 := c.count;
+  fold countInv(c);
+
+  var next: Int := v1 + 1;
+  var ok: Bool;
+
+  ghost var v2: Int;
+  unfold countInv(c);
+  v2 :| own(c.count, v2, 1.0);
+  // `v1 <= v2` here isn't obvious from nothing -- it's exactly the fact the
+  // `seen` ghost field is for. See ./broken/no_ghost_state.rav: delete the
+  // ghost field and its `fpu` and this exact `assert` starts failing, even
+  // though `count` itself is still read/CAS'd/protected identically.
+  assert v1 <= v2;
+  ok := cas(c.count, v1, next);
+
+  if (!ok) {
+    fold countInv(c);
+    bump(c); // retry
+  } else {
+    // The frame-preserving update: MaxNat's update relation only allows
+    // moving from `v1` up to `next` (never down), so this step is exactly
+    // where "the counter never goes backward" gets recorded as a proof
+    // obligation, not just asserted by fiat.
+    fpu(c.seen, auth_frag(v1, v1), auth_frag(next, next));
+    fold countInv(c);
+  }
+}
+
+proc peek(c: Ref) returns (v: Int)
+  requires countInv(c)
+  ensures countInv(c)
+{
+  unfold countInv(c);
+  v := c.count;
+  fold countInv(c);
+}
+
+proc create() returns (c: Ref)
+  ensures countInv(c)
+{
+  c := new (count: 0, seen: auth_frag(0, 0));
+  fold countInv(c);
+}

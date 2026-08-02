@@ -1,0 +1,10 @@
+// Isolates the type-position part of implicit functor instantiation (`M[Int]`) from
+// implicit-call inference -- no uninstantiated call into `M` is exercised here.
+
+module M[T: Library.Type] {
+  rep type S = data {
+    case c(value: T)
+  }
+}
+
+type Alias = M[Int]

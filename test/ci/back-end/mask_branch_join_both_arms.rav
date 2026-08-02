@@ -1,0 +1,17 @@
+// Counterpart to fail/mask_branch_join.rav: mask credit established on
+// *every* reachable arm of a conditional does survive to the join -- the
+// forward-credit dataflow's intersection isn't so conservative that it
+// throws away credit both branches actually produced.
+
+inv q(x: Ref) { true }
+
+proc p(cond: Bool) {
+  var x: Ref;
+  if (cond) {
+    fold q(x);
+  } else {
+    fold q(x);
+  }
+  unfold q(x);
+  fold q(x);
+}

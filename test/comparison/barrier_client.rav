@@ -37,7 +37,7 @@ module BarrierClient[N: NumThreads] {
         ))
     }
 
-    field ctr: Int;
+    field ctr: Int
 
     inv counter_inv(l: Ref) {
         exists n1: Int, n2: Int, b: Bool ::

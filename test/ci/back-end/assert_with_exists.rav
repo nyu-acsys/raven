@@ -1,0 +1,26 @@
+// `assert (exists x :: e1(x)) with { ... }` is proven by having the proof block compute
+// a concrete witness (via assignment to the existential's bound variable) and
+// establishing e1 for it -- existential introduction, unlike `forall`-introduction,
+// needs no generalization step, so the bound variable stays mutable in the proof.
+proc witnessed()
+{
+  assert exists x: Int :: x > 10 with {
+    x := 20;
+  }
+}
+
+// Plain, unquantified goals still work too: the proof is checked in isolation and
+// discarded, so its scratch work (here, none) never pollutes the surrounding SMT
+// state, and only `assume e` survives.
+proc plain()
+{
+  assert 1 + 1 == 2 with {
+  }
+}
+
+// A `forall`-headed goal is generalized from a single, truly arbitrary instance.
+proc universal()
+{
+  assert forall x: Int :: x * x >= 0 with {
+  }
+}

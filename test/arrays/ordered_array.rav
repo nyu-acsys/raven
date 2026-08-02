@@ -1,6 +1,6 @@
 include "array.rav"
 
-interface OrderedArray[E: Library.OrderedType] : Array {
+interface OrderedArray[E: Library.OrderedType] : ArrayI {
   // module E: Library.OrderedType
   import E.lt
 

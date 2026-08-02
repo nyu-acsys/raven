@@ -1,0 +1,100 @@
+// Part 1's running example: a hit counter, treated for now as a plain immutable
+// Int value with no heap involved at all. Every proc/func below is pure sequential
+// Raven -- Part 2 promotes this same counter to a heap-allocated object.
+
+// A pure function: no side effects, terminates, usable inside specifications.
+// `next` is the counter's single step.
+func next(c: Int) returns (r: Int)
+  ensures r == c + 1
+{
+  c + 1
+}
+
+// The same operation as a procedure. `proc`s may have side effects (there are
+// none here yet -- that starts in Part 2) and cannot appear inside specifications,
+// only `func`s can. Notice the contract is identical; only the body's shape differs
+// (a statement block ending in an assignment to the return variable, vs. a single
+// expression).
+proc bump(c: Int) returns (r: Int)
+  requires c >= 0
+  ensures r == c + 1
+{
+  r := c + 1;
+}
+
+// Recursion: apply `next` n times. This is the kind of pure, terminating function
+// that's safe to use inside a `requires`/`ensures` clause elsewhere.
+func afterHits(c: Int, n: Int) returns (r: Int)
+  ensures n >= 0 ==> r == c + n
+  decreases n
+{
+  n <= 0 ? c : afterHits(next(c), n - 1)
+}
+
+// The iterative version of the same spec, via a `while` loop. Loop invariants are
+// the one place in this file where the proof burden is on you, not on Raven's
+// automation alone: weaken the invariant below (e.g. drop `i <= n`) and re-verify
+// to see what breaks. `0 <= i <= n` is a chained comparison, shorthand for
+// `0 <= i && i <= n`.
+proc bumpN(c: Int, n: Int) returns (r: Int)
+  requires c >= 0 && n >= 0
+  ensures r == c + n
+{
+  r := c;
+  var i := 0;
+  while (i < n)
+    invariant 0 <= i <= n
+    invariant r == c + i
+  {
+    r := r + 1;
+    i := i + 1;
+  }
+}
+
+// A saturating variant: hits stop being counted once a cap is reached, rather
+// than overflowing -- this is the "saturating implementation" mentioned in this
+// part's opening roadmap, ahead of Part 3 giving `Counter` a second
+// implementation built around exactly this idea. `ok` (unary) and `capped`
+// (nullary) are two cases of the same sum type; the `()` after a nullary
+// case name is optional at construction sites, and omitted below, matching
+// this tutorial's preference.
+type Outcome = data {
+  case ok(value: Int);
+  case capped
+}
+
+func boundedNext(c: Int, cap: Int) returns (r: Outcome)
+  ensures c >= cap ==> r == capped
+  ensures c < cap ==> r == ok(c + 1)
+{
+  c >= cap ? capped : ok(c + 1)
+}
+
+// Taking an `Outcome` apart again: `match` picks the case and names its
+// arguments in one step, and `is` tests which case a value was built with --
+// useful in a contract, where there's no `match` arm to stand in for it.
+func settle(r: Outcome, fallback: Int) returns (v: Int)
+  ensures r is ok ==> v == r.value
+  ensures r is capped ==> v == fallback
+{
+  match r {
+    case ok(n) => n
+    case capped => fallback
+  }
+}
+
+// A tiny use of Set[Int] and a quantified specification: track which visitor IDs
+// have been seen so far as a set, and specify `recordVisitor` purely in terms of
+// set membership. `forall`/`exists` here range over plain (non-resource) values --
+// Part 5 revisits quantifiers in the resource-owning setting.
+func sawVisitor(seen: Set[Int], id: Int) returns (r: Bool)
+  ensures r == (id in seen)
+{
+  id in seen
+}
+
+func recordVisitor(seen: Set[Int], id: Int) returns (r: Set[Int])
+  ensures forall x: Int :: (x in r) == (x in seen || x == id)
+{
+  seen ++ {|id|}
+}

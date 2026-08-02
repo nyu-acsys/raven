@@ -1,0 +1,88 @@
+// Exercise: a concurrent high-score/low-score tracker. `reportHigh` (tracking
+// a running maximum) is done for you, following hit_counter_ghost.rav's
+// recipe exactly. `reportLow` (tracking a running *minimum*) is filled in
+// except for one line -- the `fpu` call that keeps the ghost bookkeeping in
+// sync with the real field. Without it, the final `fold` will fail, because
+// `seenLow` no longer matches what `low` actually holds.
+//
+// Hint: look at how `scoreInv` records `low` in its ghost field -- as `-l`,
+// not `l`. MaxNat's frame-preserving update only allows values to move up;
+// negating turns "never decreases" into "never increases", which is what a
+// running minimum needs. Your `fpu` call should move `seenLow` from
+// `auth_frag(-l1, -l1)` to `auth_frag(-score, -score)`.
+import Library.Auth
+import Library.MaxNat
+
+module AuthMaxNat = Auth[MaxNat]
+import AuthMaxNat._
+
+field high: Int
+field low: Int
+ghost field seenHigh: AuthMaxNat
+ghost field seenLow: AuthMaxNat
+
+inv scoreInv(c: Ref) {
+  exists h: Int, l: Int ::
+    own(c.high, h, 1.0) && own(c.seenHigh, auth_frag(h, h))
+    && own(c.low, l, 1.0) && own(c.seenLow, auth_frag(-l, -l))
+}
+
+proc create() returns (c: Ref)
+  ensures scoreInv(c)
+{
+  c := new (
+    high: 0, seenHigh: auth_frag(0, 0),
+    low: 0, seenLow: auth_frag(0, 0)
+  );
+  fold scoreInv(c);
+}
+
+proc reportHigh(c: Ref, score: Int)
+  requires scoreInv(c)
+  ensures scoreInv(c)
+{
+  var h1: Int;
+  unfold scoreInv(c);
+  h1 := c.high;
+  fold scoreInv(c);
+
+  if (score <= h1) {
+    return;
+  }
+
+  var ok: Bool;
+  unfold scoreInv(c);
+  ok := cas(c.high, h1, score);
+  if (!ok) {
+    fold scoreInv(c);
+    reportHigh(c, score);
+  } else {
+    fpu(c.seenHigh, auth_frag(h1, h1), auth_frag(score, score));
+    fold scoreInv(c);
+  }
+}
+
+proc reportLow(c: Ref, score: Int)
+  requires scoreInv(c)
+  ensures scoreInv(c)
+{
+  var l1: Int;
+  unfold scoreInv(c);
+  l1 := c.low;
+  fold scoreInv(c);
+
+  if (score >= l1) {
+    return;
+  }
+
+  var ok: Bool;
+  unfold scoreInv(c);
+  ok := cas(c.low, l1, score);
+  if (!ok) {
+    fold scoreInv(c);
+    reportLow(c, score);
+  } else {
+    // TODO: bring `seenLow` back in sync with the new `low` via `fpu`.
+    fold scoreInv(c);
+  }
+}

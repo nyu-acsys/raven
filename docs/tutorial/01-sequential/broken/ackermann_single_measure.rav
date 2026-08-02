@@ -1,0 +1,10 @@
+// DELIBERATELY BROKEN -- ../termination.rav with a single-Int `decreases m`
+// instead of the lexicographic `decreases m, n`. Fails on the recursive
+// call whose own m doesn't change at all (`ackermann(m, n - 1)`).
+func ackermann(m: Int, n: Int) returns (r: Int)
+  decreases m
+{
+  m <= 0 ?
+    n + 1 :
+    (n <= 0 ? ackermann(m - 1, 1) : ackermann(m - 1, ackermann(m, n - 1)))
+}

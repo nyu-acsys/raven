@@ -1,0 +1,5 @@
+func f(b: Bool) returns (res: Int)
+  decreases b
+{
+  1
+}

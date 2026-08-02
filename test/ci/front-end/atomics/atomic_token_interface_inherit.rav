@@ -1,0 +1,39 @@
+// Regression test: a module implementing an interface used to fail to
+// typecheck ("Unknown identifier <Interface>.<callable>") whenever it
+// inherited an atomic proc with a body (i.e. one using `bindAU`) unchanged
+// from the interface. Root cause: `bindAU`'s ghost token variable is typed
+// `AtomicToken<Interface.callable>` at the point the interface member is
+// first typechecked; when the module's interface-inheritance machinery
+// substitutes the interface's qualified names for the module's own, the
+// substitution walk (Rewriter.Type.rewrite_qual_idents) had no case for the
+// `AtomicToken` type constructor, so the token's type kept pointing at the
+// interface's (now out-of-scope) qualified name instead of the module's.
+
+interface M {
+  proc helper(x: Ref)
+    atomic requires true
+    atomic ensures true
+
+  // `bar` is inherited into `N` below unchanged (never redeclared there) --
+  // this is what used to trigger the bug, regardless of whether `helper`
+  // is later given a concrete body.
+  proc bar(x: Ref)
+    atomic requires true
+    atomic ensures true
+  {
+    ghost val phi := bindAU();
+    openAU(phi);
+    commitAU(phi, ());
+  }
+}
+
+module N : M {
+  proc helper(x: Ref)
+    atomic requires true
+    atomic ensures true
+  {
+    ghost val phi := bindAU();
+    openAU(phi);
+    commitAU(phi, ());
+  }
+}

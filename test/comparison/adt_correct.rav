@@ -68,10 +68,10 @@ module Test[L: ListM] {
   }
 
   proc pattern_match_exhaustiveness(xs: T) {
-    assert !is_nil(xs) 
-        && !(is_cons(xs) && is_nil(tail_cons(xs)))
-        && !(is_cons(xs) && is_cons(tail_cons(xs)))
-    ==> false;
+    assert !is_nil(xs) &&
+        !(is_cons(xs) && is_nil(tail_cons(xs))) &&
+        !(is_cons(xs) && is_cons(tail_cons(xs))) ==>
+    false;
 
     // assert !is_nil(xs)
     //     && !(is_cons(xs) && is_nil(tail_cons(xs)))

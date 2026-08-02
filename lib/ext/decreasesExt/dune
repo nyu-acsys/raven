@@ -1,0 +1,13 @@
+(library
+ (name decreasesExt)
+ (libraries base util ast extApi)
+ (preprocessor_deps
+  (file well_founded_order.rav))
+ (preprocess
+  (pps ppx_blob ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
+
+(cram
+ (deps
+  %{project_root}/bin/raven.exe
+  %{project_root}/lib/library/base_types.rav
+  well_founded_order.rav))

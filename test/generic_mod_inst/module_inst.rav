@@ -1,0 +1,11 @@
+// A bare type passed to a module instantiation statement (as opposed to a type
+// position) must also be auto-wrapped into a fresh module implementing the
+// formal's rep-typed interface.
+
+module M[N: Library.Type] {
+  rep type T = N.T
+}
+
+module MInt = M[Int]
+
+val x: MInt.T = 3

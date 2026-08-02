@@ -1,0 +1,33 @@
+// DELIBERATELY BROKEN -- `IBadShelf` gives `loc` no injectivity axiom (compare
+// ../shelf_of_counters.rav's `IShelf`, which has `all_diff`). Trying to state
+// an ISC over it at all fails immediately:
+//
+//   [Verification Error] Could not prove the injectivity of the index
+//   expression for this iterated separating conjunction
+//
+// This is the one side condition every ISC carries silently: the map from
+// the bound variable to a location must be injective, or two different
+// values of `j` could describe the *same* `own` fact twice over -- which
+// would mean claiming to independently own a resource you actually only
+// have one copy of, the family-sized version of Part 2's `badDup`. Raven
+// checks this as a genuine proof obligation, not a syntactic pattern match --
+// which is exactly why supplying an axiom that provides an explicit inverse
+// (`first`/`second`, as in `shelf_of_counters.rav`) is enough to satisfy it.
+interface IBadShelf {
+  rep type T
+  func loc(s: T, i: Int) returns (r: Ref)
+  func size(s: T) returns (n: Int)
+  // No injectivity axiom this time.
+}
+
+module BadShelf[S: IBadShelf] {
+  field count: Int
+
+  proc bump(s: S, i: Int, ghost counts: Map[Int, Int])
+    requires 0 <= i && i < S.size(s)
+    requires forall j: Int :: {S.loc(s, j)} 0 <= j && j < S.size(s) ==> own(S.loc(s, j).count, counts[j], 1.0)
+  {
+    var cell := S.loc(s, i);
+    val _x := faa(cell.count, 1);
+  }
+}

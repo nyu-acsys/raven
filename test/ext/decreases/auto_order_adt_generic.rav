@@ -1,0 +1,27 @@
+// The auto-generated order also works for a self-recursive `data` type
+// parameterized over a type argument (the type parameter itself never
+// participates in the generated order -- only the self-recursive field does),
+// including through an explicit functor instantiation and from a separate
+// scope.
+module GenList[E: Library.Type] {
+  rep type T = data {
+    case gnil
+    case gcons(hd: E, tl: T)
+  }
+
+  func glen(ls: T) returns (ret: Int)
+    decreases ls
+  {
+    match ls {
+      case gnil => 0
+      case gcons(hd, tl) => 1 + glen(tl)
+    }
+  }
+}
+
+module IntGenList = GenList[Library.IntType]
+
+proc use_it(l: IntGenList.T)
+{
+  var n: Int := IntGenList.glen(l);
+}

@@ -116,11 +116,15 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
                  | Some e ->
                    Error.verification_error stmt.stmt_loc (Stmt.spec_error_msg e curr_callable) *)
               )
-          | _ -> Error.verification_error stmt.stmt_loc "Unexpected spec kind")
+          | _ ->
+              Error.internal_error stmt.stmt_loc
+                (Printf.sprintf "Internal error: statement %s reached the backend with an unexpected spec kind (this indicates a bug in the verifier, not a problem with your proof)" (Stmt.to_string stmt)))
       | _ ->
-          Error.verification_error stmt.stmt_loc
-            ("Unexpected basic stmt: " ^ Stmt.to_string stmt))
-  | _ -> Error.verification_error stmt.stmt_loc "Unexpected stmt"
+          Error.internal_error stmt.stmt_loc
+            (Printf.sprintf "Internal error: statement %s reached the backend in an unexpected form (this indicates a bug in the verifier, not a problem with your proof)" (Stmt.to_string stmt)))
+  | _ ->
+      Error.internal_error stmt.stmt_loc
+        (Printf.sprintf "Internal error: statement %s reached the backend in an unexpected form (this indicates a bug in the verifier, not a problem with your proof)" (Stmt.to_string stmt))
 
 let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
     unit t =
@@ -246,86 +250,13 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
                expr)
         in
 
-        let ret_tuple =
-          Expr.mk_tuple
-            (List.map call_decl.call_decl_returns ~f:(fun arg ->
-                 Expr.from_var_decl arg))
-        in
-
-        let alpha_renaming_map =
-          let fn_call_expr =
-            Expr.mk_app ~typ:(Expr.to_type ret_tuple) (Var fully_qual_name)
-              (List.map call_decl.call_decl_formals ~f:(fun arg ->
-                   Expr.from_var_decl arg))
-          in
-
-          if List.length call_decl.call_decl_returns = 1 then
-            Map.singleton
-              (module QualIdent)
-              (QualIdent.from_ident
-                 (List.hd_exn call_decl.call_decl_returns).var_name)
-              fn_call_expr
-          else
-            List.foldi call_decl.call_decl_returns
-              ~init:(Map.empty (module QualIdent))
-              ~f:(fun i acc arg ->
-                Map.set acc
-                  ~key:(QualIdent.from_ident arg.var_name)
-                  ~data:(
-                    if Int.(List.length call_decl.call_decl_returns = 1) then fn_call_expr else
-                      Expr.mk_tuple_lookup fn_call_expr i
-                  )
-              )
-        in
-
-        let check_contract_expr =
-          Expr.mk_binder Forall
-            (call_decl.call_decl_formals @ call_decl.call_decl_returns)
-            (Expr.mk_impl
-               (Expr.mk_and
-                  (Expr.mk_eq ret_tuple
-                     (Expr.mk_app ~typ:(Expr.to_type ret_tuple)
-                        (Var fully_qual_name)
-                        (List.map call_decl.call_decl_formals ~f:(fun arg ->
-                             Expr.from_var_decl arg)))
-                  :: List.map call_decl.call_decl_precond ~f:(fun pre ->
-                         pre.spec_form)))
-               (Expr.mk_and
-                  (List.map call_decl.call_decl_postcond ~f:(fun post ->
-                       post.spec_form))))
-        in
-
-        let post_cond_expr =
-          Expr.mk_binder Forall call_decl.call_decl_formals
-            (Expr.mk_impl
-               (Expr.mk_and
-                  (List.map call_decl.call_decl_precond ~f:(fun pre ->
-                       Expr.alpha_renaming pre.spec_form alpha_renaming_map)))
-               (Expr.mk_and
-                  (List.map call_decl.call_decl_postcond ~f:(fun post ->
-                       Expr.alpha_renaming post.spec_form alpha_renaming_map))))
-        in
-
-        let* _ = assume_expr spec_expr in
-
-        let* b =
-          if callable.call_decl.call_decl_is_free
-          then State.return true
-          else check_valid check_contract_expr
-        in
-
-        match b with
-        | true -> (
-            match call_decl.call_decl_postcond with
-            | [] -> State.return ()
-            | _ -> assume_expr post_cond_expr)
-        | false ->
-            Error.verification_error call_decl.call_decl_loc
-              (Printf.sprintf "Contract is not valid"))
+        (* The func's contract is checked and assumed by its companion auto lemma
+           (see [Rewrites.rewrite_add_func_contract_lemmas]), not here. *)
+        assume_expr spec_expr)
   | ProcDef proc_def -> (
       let* _ =
         match proc_def.proc_body with
-        | Some stmt when not callable.call_decl.call_decl_is_free ->
+        | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
             let* _ = push in
             let* _ =
               write_comment
@@ -350,7 +281,7 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
 
             State.return ()
         | _ ->
-          Logs.debug (fun m -> m "Skipping %b" callable.call_decl.call_decl_is_free);
+          Logs.debug (fun m -> m "Skipping %b" (is_free callable.call_decl.call_decl_status));
           State.return ()
       in
 

@@ -16,8 +16,11 @@ At present this adds the following atomic primitives:
 The difference between `cas` and `cmpxchg` is that `cas` only returns a bool indicating whether the swap succeeded, whereas `cmpxchg` returns the initial value at the location in addition to whether the swap succeeded or not.
 *)
 module AtomicExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
+  include Cont
+
   let lib_source = None
-  let local_vars = []
 
   type atomic_inbuilt_kind =
     | Cas 
@@ -36,23 +39,18 @@ module AtomicExt (Cont : ListApi) = struct
     | AtomicInbuiltInit of atomic_inbuilt_kind
     | AtomicInbuiltNonInit of atomic_inbuilt_kind
 
-  module ListFns = Cont.ListFns
+  (* ListFns, type_ext_to_name, expr_ext_to_string: no override needed, Cont's
+     (via `include Cont` above, which already covers `ListFns` since Cont : ListApi). *)
 
   (* AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
-
-  let expr_ext_to_string = Cont.expr_ext_to_string
-  
-  let pr_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list =
     let open Stdlib.Format in
     match ext, expr_list with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a.%a, %a)@]" Expr.pr lhs_expr (atomic_inbuilt_string ais) Expr.pr ref_expr Expr.pr field_expr Expr.pr_list args
-    | _ -> Cont.pr_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
 
-  let stmt_ext_symbols = Cont.stmt_ext_symbols
-  
-  let stmt_ext_local_vars_modified stmt_ext exprs =
+  let basic_stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
       (* Only the `lhs_expr` is modified; if it is local, it is returned.  *)
@@ -60,26 +58,32 @@ module AtomicExt (Cont : ListApi) = struct
             [QualIdent.to_ident (Expr.to_qual_ident lhs_expr)]
           else
             []
-    | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_local_vars_modified stmt_ext exprs
 
   (* These commands pretty explicitly access the `field_expr` field. *)
-  let stmt_ext_fields_accessed stmt_ext exprs = 
+  let basic_stmt_ext_fields_accessed stmt_ext exprs = 
     match stmt_ext, exprs with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
         [(Expr.to_qual_ident field_expr)]
 
-    | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
+
+  (* No expr_ext/type_ext/top-level stmt_ext/contract_ext constructors here, so
+     pr_stmt_ext/stmt_ext_*/type_ext_is_recognized/expr_ext_is_recognized/
+     contract_ext_is_recognized all use Cont's default. *)
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with
+    | AtomicInbuiltInit _ | AtomicInbuiltNonInit _ -> true
+    | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
 
   (* Rewriter *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+  (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: nothing here
+     stores a type_expr or a nested Stmt.t, so Cont's default is used. *)
 
 
   (* Typing *)
-  let type_check_type_expr = Cont.type_check_type_expr
-  
-  let type_check_expr = Cont.type_check_expr 
 
   (** Here we define a custom logic to decide whether a type is "word-sized" (ie operable in an atomic hardware step), or not.  
   
@@ -89,7 +93,7 @@ module AtomicExt (Cont : ListApi) = struct
   *)
   let is_type_word_sized (typ: type_expr) : bool Rewriter.t =
     let open Rewriter.Syntax in
-    Logs.debug (fun m -> m "[EXT] AtomicExt: is_type_word_sized: input=%a" Type.pr typ);
+    let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] AtomicExt: is_type_word_sized: input=%a" printers.pr_type typ) in
     let* typ = !Rewriter.expand_type_expr_ref typ in
 
     match typ with
@@ -125,9 +129,12 @@ module AtomicExt (Cont : ListApi) = struct
       end
       
     | _ -> Rewriter.return false
-  
+
+  (* type_check_stmt_ext/type_check_contract_ext/check_contract_ext_group_compatible/
+     contract_ext_to_string: nothing to override, Cont's default is used. *)
+
   (* type-check each statement *)
-  let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
+  let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
       (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t = 
@@ -147,7 +154,7 @@ module AtomicExt (Cont : ListApi) = struct
         in
         (* use `get_assign_lhs` to get the var_decl for `lhs_expr`. *)
         let* atomic_inbuilt_lhs, var_decl = type_check_stmt_functs.get_assign_lhs (Expr.to_qual_ident lhs_expr) ~is_init:is_init in
-            Logs.debug (fun m -> m "[EXT] AtomicExt.type_check_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" Expr.pr lhs_expr QualIdent.pr atomic_inbuilt_lhs);
+            let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] AtomicExt.type_check_basic_stmt lhs_expr: %a; atomic_inbuilt_lhs: %a" printers.pr_expr lhs_expr QualIdent.pr atomic_inbuilt_lhs) in
 
         (* Use `Rewriter.resolve_and_find` to find the field. This can very well be replaced by the more compact `Rewriter.find_and_reify_field`; that would be equivalent. *)
         let* atomic_inbuilt_field, symbol =
@@ -253,22 +260,23 @@ module AtomicExt (Cont : ListApi) = struct
             atomic_inbuilt_ref :: args)
 
         in
-        Logs.debug (fun m -> m "AtomicExt.type_check_stmt FINISHES");
-        (Stmt.StmtExt ais_desc, disam_tbl)
+        Logs.debug (fun m -> m "AtomicExt.type_check_basic_stmt FINISHES");
+        (Stmt.BasicStmtExt ais_desc, disam_tbl)
 
       (* Type error *)
       | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), _ ->
         Error.type_error stmt_loc "Wrong number of arguments for atomic commands"
 
-      | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+      | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
 
 
   (* Rewrites *)
-  (* Rewriting these atomic commands in equivalent simpler Raven commands. *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-  let rewrite_expr_ext = Cont.rewrite_expr_ext
+  (* Rewriting these atomic commands in equivalent simpler Raven commands.
+     rewrite_type_ext/rewrite_expr_ext/rewrite_stmt_ext/contract_ext_rewrite_exprs/
+     rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: nothing to override, Cont's default is used. *)
 
-  let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
+  let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     match stmt_ext, expr_list with
     | (AtomicInbuiltInit ais | AtomicInbuiltNonInit ais), (lhs_expr :: field_expr :: ref_expr :: args) ->
@@ -281,7 +289,7 @@ module AtomicExt (Cont : ListApi) = struct
         | Faa, [faa_val] -> Type.int
         | Xchg, [xchg_new_val] -> Expr.to_type xchg_new_val
         | CmpXchg, [cmpxchg_old_val; cmpxchg_new_val] -> Expr.to_type cmpxchg_old_val
-        | _ -> Error.type_error loc "Incorrect number of arguments in Atomic extension"
+        | _ -> Error.internal_error loc "unexpected argument count for atomic command at rewrite time (already validated during type-checking)"
       in
       let new_var_decl =
         Type.mk_var_decl ~loc:loc ~ghost:true new_var_name
@@ -290,7 +298,7 @@ module AtomicExt (Cont : ListApi) = struct
       (* add the new local variable *)
       let+ _ =
         Rewriter.introduce_symbol
-          (Module.VarDef { var_decl = new_var_decl; var_init = None })
+          (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = MachineFree })
       in
       let new_var_qualident = QualIdent.from_ident new_var_decl.var_name in
       (* ```rd_var := ref.field;``` *)
@@ -392,11 +400,10 @@ module AtomicExt (Cont : ListApi) = struct
       in
       new_stmts
 
-    | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+    | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
 
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

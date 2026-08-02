@@ -25,7 +25,7 @@ open Ast
 %token HAVOC NEW RETURN OWN AU AUCOMMIT
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
-%token PROC AXIOM LEMMA ADMITTED
+%token PROC AXIOM LEMMA FREE
 %token CASE DATA ATOMICTOKEN FIELD
 %token ATOMIC GHOST IMPLICIT REP AUTO WITH
 %token <bool> VAR
@@ -71,20 +71,23 @@ module_def:
       ModDef { impl with mod_decl = { decl with mod_decl_is_interface = is_interface } }
   | ModInst ma ->
       if decl.mod_decl_formals <> [] then
-        Error.syntax_error (Loc.make $startpos(def) $startpos(def)) ("Expected {")
+        Error.syntax_error (Loc.make $startpos(def) $startpos(def))
+          "A module with parameters cannot be defined with '=' (module instantiation syntax); give it a body in '{ ... }' instead"
       else
         let mod_inst_type =
           match decl.mod_decl_returns, ma.mod_inst_def with
-        | Some mod_inst_type, _ 
+        | Some mod_inst_type, _
         | None, Some (mod_inst_type, _) -> mod_inst_type
         | None, None ->
             Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
-              ("Expected specification of interface implemented by this module")
+              (Printf.sprintf !"Module %{Ident} has no body and no interface: write 'module %{Ident} : I' naming the interface it stands for"
+                 decl.mod_decl_name decl.mod_decl_name)
         in
         ModInst { ma with
                   mod_inst_type;
                   mod_inst_name = decl.mod_decl_name;
                   mod_inst_is_interface = is_interface;
+                  mod_inst_is_free = false;
                   mod_inst_loc = decl.mod_decl_loc }
   | symbol -> symbol
 }
@@ -118,6 +121,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = Some (mod_name, args);
                      mod_inst_is_interface = false;
+                     mod_inst_is_free = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -126,31 +130,38 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = None;
                      mod_inst_is_interface = false;
+                     mod_inst_is_free = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
 
 mod_inst_args:
-| LBRACKET ids = separated_list(COMMA, mod_ident) RBRACKET { ids }
+| LBRACKET tps = separated_list(COMMA, type_expr) RBRACKET {
+  List.map (function
+    | Type.App (Type.Var qi, [], _) -> Module.ModArg qi
+    | tp -> Module.TypeArg tp) tps
+}
 | { [] }
     
 member_def_list_opt:
-| m = member_def; ms = member_def_list_opt { m :: ms }
-| m = member_def; SEMICOLON; ms = member_def_list_opt { m :: ms }
+| m = member_def_maybe_free; ms = member_def_list_opt { m :: ms }
 | (* empty *) { [] }
 
-member_def:
-| is_admitted = admitted; def = field_def { Module.SymbolDef { symbol_def = (Module.FieldDef def); is_admitted } }
-| is_admitted = admitted; def = module_def { Module.SymbolDef { symbol_def = def; is_admitted } }
-/*| def = interface_def { Module.SymbolDef def }*/
-| is_admitted = admitted; def = type_def { Module.SymbolDef { symbol_def = Module.TypeDef def; is_admitted } }
-| is_admitted = admitted; def = var_def { Module.SymbolDef { symbol_def = Module.VarDef def; is_admitted } }
-| is_admitted = admitted; def = proc_def 
-| is_admitted = admitted; def = func_def {Module.SymbolDef { symbol_def = Module.CallDef def; is_admitted } }
+member_def_maybe_free:
+| is_free = free symbol = member_def {
+  Module.SymbolDef (if is_free then Symbol.set_free symbol else symbol) }
 | imp = import_dir { Module.Import imp }
+
+member_def:
+| def = field_def { Module.FieldDef def }
+| def = module_def { def }
+| def = type_def { Module.TypeDef def }
+| def = var_def { Module.VarDef def }
+| def = proc_def 
+| def = func_def { Module.CallDef def }
   
-admitted:
-| ADMITTED { true }
+free:
+| FREE { true }
 | { false }
 
 field_def:
@@ -258,6 +269,7 @@ module_param:
              mod_inst_type = t;
              mod_inst_def = None;
              mod_inst_is_interface = false;
+             mod_inst_is_free = false;
              mod_inst_loc = Loc.make $startpos $endpos;
            }
   in
@@ -283,6 +295,7 @@ type_decl:
     Module.{ type_def_name = id;
              type_def_expr = None;
              type_def_rep = m;
+             type_def_is_free = false;
              type_def_loc = Loc.make $startpos $endpos }
   in
   ta
@@ -310,7 +323,7 @@ func_decl:
 
 callable_decl:
   id = IDENT; LPAREN; formals = var_decls_with_modifiers; RPAREN; returns = return_params; cs = contracts {
-  let precond, postcond = cs in
+  let precond, postcond, contract_ext = cs in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
@@ -319,9 +332,11 @@ callable_decl:
                call_decl_locals = [];
                call_decl_precond = precond;
                call_decl_postcond = postcond;
-               call_decl_is_free = false;
+               call_decl_contract_ext = contract_ext;
+               call_decl_status = NotFree;
                call_decl_is_auto = false;
-               call_decl_mask = None;
+               call_decl_needs_mask = None;
+               call_decl_grants_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl
@@ -329,7 +344,7 @@ callable_decl:
 
 callable_decl_out_vars:
   id = IDENT; LPAREN; formals = var_decls_with_modifiers; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
-  let precond, postcond = cs in
+  let precond, postcond, contract_ext = cs in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
@@ -338,9 +353,11 @@ callable_decl_out_vars:
                call_decl_locals = [];
                call_decl_precond = precond;
                call_decl_postcond = postcond;
-               call_decl_is_free = false;
+               call_decl_contract_ext = contract_ext;
+               call_decl_status = NotFree;
                call_decl_is_auto = false;
-               call_decl_mask = None;
+               call_decl_needs_mask = None;
+               call_decl_grants_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
              }
   in decl
@@ -370,8 +387,11 @@ var_decl_with_modifiers:
 ;
 
 contracts:
-| c = contract; cs = contracts { (fst c @ fst cs, snd c @ snd cs) }
-| /* empty */ { [], [] }
+| c = contract; cs = contracts {
+  let (pre1, post1, ext1) = c and (pre2, post2, ext2) = cs in
+  (pre1 @ pre2, post1 @ post2, ext1 @ ext2)
+}
+| /* empty */ { [], [], [] }
 ;
 
 contract:
@@ -383,7 +403,7 @@ contract:
            spec_error = [];
          }
   in
-  ([spec], [])
+  ([spec], [], [])
 }
 | m = contract_mods; ENSURES; e = expr {
   let spec =
@@ -393,7 +413,10 @@ contract:
            spec_error = [];
          }
   in
-  ([], [spec])
+  ([], [spec], [])
+}
+| ce = contract_ext {
+  ([], [], [ce])
 }
 ;
 
@@ -540,54 +563,16 @@ with_clause:
     in
     [Basic (Spec (sk, spec))]
 }
-| WITH b = block; {
-  let open Stmt in
-  function
-    | Assert -> fun e ->
-        let vs, e1 = match e with
-        | Expr.Binder (Expr.Forall, vs, _, e1, _) ->
-            vs, e1
-        | _ -> [], e
-        in
-        let loc : location = Expr.to_loc e in
-        let nondet_var =
-          Type.{ var_name = Ident.fresh loc "$nondet";
-                 var_loc = loc; 
-                 var_type = Type.bool |> Type.set_ghost true;
-                 var_const = true;
-                 var_ghost = true;
-                 var_implicit = false; }
-        in
-
-        let nondet_var_def = VarDef {var_decl = nondet_var; var_init = None} in
-
-        let checks =
-          let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) e1 in
-          let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
-          List.map (fun decl -> { stmt_desc = Basic (VarDef { var_decl = decl; var_init = None }); stmt_loc = decl.var_loc } ) vs @
-          [{ stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) }; assert_stmt; assume_false]
-        in
-        let assume_e = Stmt.mk_assume_expr ~loc e in
-        let cond_stmt =
-          Cond {
-            cond_test = Some (Expr.from_var_decl nondet_var);
-            cond_then = assume_e;
-            cond_else = (Stmt.mk_block_stmt ~loc checks);
-            cond_if_assumes_false = false;
-        }
-        in
-        [mk_block ~ghost:true [{ stmt_desc = Basic nondet_var_def; stmt_loc = loc }; { stmt_desc = cond_stmt; stmt_loc = loc}]]
-    | _ -> Error.syntax_error (Loc.make $startpos $startpos) "A 'with' clause is only allowed in assert statements"
-}
   
 %public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
-  function 
-    | [Expr.App(Expr.Var x, _, _)], _ ->
+  function
+    | [Expr.App(Expr.Var x, _, _)], assign_is_init ->
         let new_descr = Stmt.{
           new_lhs = x;
           new_args = List.map (fun (f, e_opt) -> (Expr.to_qual_ident f, e_opt)) fes;
-        }  
+          new_is_init = assign_is_init;
+        }
         in
         Stmt.(Basic (New new_descr)), Some (Expr.mk_null ())
     | es, _ -> Error.syntax_error (es |> List.hd |> Expr.to_loc) ("Result of allocation must be assigned to a single variable")
@@ -630,9 +615,9 @@ local_var_def:
         | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())*)
         | _ -> None
       in
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init })); stmt]
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = NotFree })); stmt]
   | None ->
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None }))]
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree }))]
 }
 
     
@@ -645,7 +630,7 @@ var_def:
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = e }
+  Stmt.{ var_decl = decl; var_init = e; var_is_free = NotFree }
 }
 | g = ghost_modifier; v = VAR; decl = bound_var_opt_type; COLONEQ; e = expr {
   let decl =
@@ -655,7 +640,7 @@ var_def:
            var_const = v;
          }
   in
-  Stmt.{ var_decl = decl; var_init = Some e }
+  Stmt.{ var_decl = decl; var_init = Some e; var_is_free = NotFree }
 }
 
 
@@ -672,7 +657,7 @@ var_modifier:
 ; 
 
   
-block:
+%public block:
 | LBRACE; stmts = list(stmt); RBRACE { Stmt.mk_block (List.flatten stmts) }
 ;
 
@@ -737,8 +722,10 @@ if_then_else_stmt_no_short_if:
   
 while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; cs = loop_contract_list; s = block {
+  let loop_contract, loop_contract_ext = cs in
   let loop =
-    Stmt.{ loop_contract = cs;
+    Stmt.{ loop_contract;
+           loop_contract_ext;
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = { stmt_desc = s; stmt_loc = Loc.make $startpos(s) $endpos(s) };
@@ -749,6 +736,7 @@ while_stmt:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt {
   let loop =
     Stmt.{ loop_contract = [];
+           loop_contract_ext = [];
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = Stmt.mk_block_stmt ~loc:(Loc.make $startpos(s) $endpos(s)) s;
@@ -762,18 +750,28 @@ while_stmt_no_short_if:
 | WHILE; LPAREN; e = expr; RPAREN; s = stmt_no_short_if {
   let loop =
     Stmt.{ loop_contract = [];
+           loop_contract_ext = [];
            loop_prebody = mk_skip ~loc:(Loc.make $startpos $startpos);
            loop_test = e;
            loop_postbody = s;
          }
   in
   [Stmt.Loop loop]
-} 
+}
 ;
 
 loop_contract_list:
-| loop_contract loop_contract_list { $1 :: $2 }
-| loop_contract { [$1] }
+| c = loop_contract; cs = loop_contract_list {
+  let (inv, ext) = cs in
+  match c with
+  | `Invariant spec -> (spec :: inv, ext)
+  | `Ext ce -> (inv, ce :: ext)
+}
+| c = loop_contract {
+  match c with
+  | `Invariant spec -> ([spec], [])
+  | `Ext ce -> ([], [ce])
+}
 ;
 
 loop_contract:
@@ -784,7 +782,7 @@ loop_contract:
     loc,
     if caller = proc_name then
       "This loop invariant may not hold on loop entry"
-    else 
+    else
       "This loop invariant may not be maintained by the loop"
   in*)
   let spec =
@@ -794,8 +792,9 @@ loop_contract:
            spec_error = [];
          }
   in
-  spec
+  `Invariant spec
 }
+| ce = contract_ext { `Ext ce }
 ;
 
 (** Expressions *)
@@ -804,6 +803,9 @@ primary:
 | c = CONSTVAL { Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) c []) }
 | LPAREN; es = separated_list(COMMA, expr); RPAREN {
   Expr.mk_tuple ~loc:(Loc.make $startpos $endpos) es
+}
+| LPAREN; e = expr; COLON; t = type_expr; RPAREN {
+  Expr.set_type_annot e (Some t)
 }
 | e = compr_expr { e }
 | e = dot_expr { e }
@@ -852,7 +854,13 @@ call_expr:
 }
   
 call:
-| LPAREN; es = separated_list(COMMA, expr); RPAREN { es }
+| LPAREN; es = separated_list(COMMA, call_arg); RPAREN { es }
+
+(* A call argument, optionally annotated with a type (`f(e: T)`) without needing
+   the extra parens the standalone `(e: T)` form (see `primary`) would require. *)
+call_arg:
+| e = expr { e }
+| e = expr; COLON; t = type_expr { Expr.set_type_annot e (Some t) }
   
 call_opt:
 | es = call { 
@@ -953,7 +961,7 @@ right_assoc_binary_op_expr:
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
 }
     
-rel_expr:
+%public rel_expr:
 | c = comp_seq {
   match c with
   | e, [] -> e
@@ -985,7 +993,12 @@ comp_seq:
 }
 ;
   
-eq_expr:
+(* This level and `rel_expr` above are %public so an extension's own parser fragment can
+   add a production at exactly this precedence level -- see matchExt_parser.mly's `is`,
+   which is a comparison and has to bind like one (tighter than `&&`/`==>`). Menhir's
+   --merge_into only lets a fragment reference a nonterminal that is declared %public
+   here; the levels of this ladder are otherwise invisible to fragment files. *)
+%public eq_expr:
 | e = rel_expr { e }
 | e1 = eq_expr; EQEQ; e2 = eq_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])

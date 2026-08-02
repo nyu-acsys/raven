@@ -1,7 +1,7 @@
 interface ShareablePredicate {
-    pred p();
+    pred p()
 
-    pred p_chunk(x: Ref, f: Real);
+    pred p_chunk(x: Ref, f: Real)
 
     proc allocate(x: Ref)
         requires p()

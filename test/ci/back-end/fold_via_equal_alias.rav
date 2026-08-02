@@ -1,0 +1,18 @@
+field f: Int
+
+inv test(x: Ref) {
+  own(x.f, 1)
+}
+
+// Closing an invariant via a different, but provably-equal, expression than
+// the one used to open it is legal: identity is now checked semantically
+// (the closing arguments must equal the snapshot taken at `unfold`-time),
+// not merely up to syntactic `alpha_equal`.
+proc p(x: Ref)
+  requires test(x)
+{
+  var y: Ref;
+  unfold test(x);
+  y := x;
+  fold test(y);
+}

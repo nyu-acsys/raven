@@ -1,0 +1,45 @@
+// Regression test for the hierarchical-namespace mask redesign: opening two
+// distinct instances of the *same* declared invariant at once. Previously
+// impossible unconditionally -- `unfold counterInv(a); unfold
+// counterInv(b);` failed even when `a != b` was provable, since the mask
+// was keyed only by declaration name.
+//
+// `touch_two`'s own mask requirement (`(counterInv, [a])`,
+// `(counterInv, [b])`) is recovered purely by inference -- both `unfold`s
+// use `touch_two`'s own formals directly, so no explicit mask annotation is
+// needed (that syntax doesn't exist yet in any case).
+
+field c: Int
+
+inv counterInv(x: Ref) {
+  exists v: Int :: own(x.c, v, 1.0)
+}
+
+// Only one non-ghost heap operation while anything is open, respecting the
+// existing "at most one atomic step under an open invariant" rule -- that
+// rule is unrelated to and unaffected by this redesign, but still applies.
+proc touch_two(a: Ref, b: Ref)
+  requires a != b
+  requires counterInv(a)
+  requires counterInv(b)
+  ensures counterInv(a)
+  ensures counterInv(b)
+{
+  unfold counterInv(a);
+  unfold counterInv(b);
+
+  a.c := 42;
+
+  fold counterInv(b);
+  fold counterInv(a);
+}
+
+proc demo() {
+  var x: Ref;
+  var y: Ref;
+  x := new(c: 0);
+  y := new(c: 1);
+  fold counterInv(x);
+  fold counterInv(y);
+  touch_two(x, y);
+}

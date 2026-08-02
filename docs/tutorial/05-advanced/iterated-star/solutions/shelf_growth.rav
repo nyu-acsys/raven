@@ -1,0 +1,42 @@
+// Checked solution. See ../exercises/shelf_growth.rav for the exercise
+// itself, and the parent README's "Debugging Corner" for why this file
+// deliberately does *not* reuse shelf_of_counters.rav's `Map[Int, Ref]`
+// addressing for the growing part.
+field count: Int
+field next: Ref
+
+// A shelf built by prepending one cell at a time, instead of indexing into
+// an unbounded family all at once. `shelfList(hd, n)` owns exactly the `n`
+// cells reachable from `hd` by following `next` -- disjointness between the
+// head and the rest falls out of ordinary separating conjunction (the
+// `&&` inside the `exists`), the same way it does for a Treiber stack. No
+// injectivity side condition, no addressing function, because there's no
+// iterated separating conjunction here at all.
+pred shelfList(hd: Ref; n: Int) {
+  hd == null ?
+    n == 0 :
+    (n > 0 && (exists tl: Ref :: own(hd.count, 0) && own(hd.next, tl) && shelfList(tl, n - 1)))
+}
+
+proc mkEmpty() returns (hd: Ref)
+  ensures shelfList(hd, 0)
+{
+  hd := null;
+  fold shelfList(hd, 0);
+}
+
+// Growing by one cell costs exactly one `fold` -- the `n - 1` cells already
+// behind `hd` are handed straight through as the witness for `shelfList`'s
+// own recursive occurrence, completely untouched. Contrast this with
+// shelf_of_counters.rav's `bump`: there, touching *any* one of an unbounded
+// family costs the same single unfold/fold, because the ISC's addressing is
+// flat. Here, it's the opposite trade-off -- growing is O(1) and touches
+// nothing else, but reaching cell `i` to bump it means unfolding `i` links
+// deep and folding all of them back up again on the way out.
+proc grow(hd: Ref, n: Int) returns (hd2: Ref)
+  requires shelfList(hd, n) && n >= 0
+  ensures shelfList(hd2, n + 1)
+{
+  hd2 := new (count: 0, next: hd);
+  fold shelfList(hd2, n + 1)[tl := hd];
+}

@@ -1,0 +1,5 @@
+// 'is' rejects a scrutinee whose type isn't a `data` type at all.
+proc bad_type(x: Int)
+  requires x is cons
+{
+}

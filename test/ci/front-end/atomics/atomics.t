@@ -14,7 +14,7 @@ Atomic Commands Test
   [Error] File "./test4.rav", line 14, columns 2-17:
   14 |   unfold p2(1+1);
          ^^^^^^^^^^^^^^^
-  Verification Error: Cannot open invariant p2. Invariant already opened or not in mask.
+  Verification Error: Invariant p2 is not in the current mask.
   [1]
 
   $ dune exec -- raven --shh ./fail/fail1.rav

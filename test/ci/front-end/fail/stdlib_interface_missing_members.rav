@@ -1,0 +1,12 @@
+// A module claiming to implement an interface from the standard library must still
+// define every member of it. Regression test: the standard library is force-marked
+// free so it isn't re-verified for each program, and that status used to be inherited
+// by the abstract members a user module picked up from it -- which suppressed the
+// abstract-member check entirely, so this module was accepted despite defining none
+// of `id`, `frame`, `valid` or `fpuAllowed`. The same module against a user-declared
+// interface was correctly rejected all along.
+module M : Library.ResourceAlgebra {
+  rep type T = Int
+
+  func comp(x: T, y: T) returns (res: T) { x }
+}

@@ -9,6 +9,17 @@ module SpinLock[R: LockResource] : Lock {
     own(l.bit, b, 1.0)
   }
 
+  // Discharges the inherited Lock law: an unlocked lock's resource cannot also be held
+  // separately. `is_lock(l, r, false)` already carries `resource(r)`, so holding a
+  // second one contradicts the resource's own exclusivity. TicketLock proves this
+  // automatically from its own representation; SpinLock's needs the appeal spelled out.
+  lemma exclusive(l: Ref, r: R)
+    requires is_lock(l, r, false) && resource(r)
+    ensures false
+  {
+    R.exclusive(r);
+  }
+
   proc create(r: R)
     returns (l: Ref)
     requires resource(r)

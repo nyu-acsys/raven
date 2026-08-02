@@ -1,0 +1,7 @@
+// The proof block's chosen witness must actually satisfy the existential's body.
+proc bad_witness()
+{
+  assert exists x: Int :: x > 10 with {
+    x := 5;
+  }
+}

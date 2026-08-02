@@ -35,7 +35,7 @@ interface CCM : Type {
     ensures forall a:T :: {frame(a,a)} frame(a, a) == id
   {
     assert forall a:T :: {frame(a,a)} frame(a, a) == id with {
-      assert frame(a, a) == frame(comp(a, id), a);  
+      assert frame(a, a) == frame(comp(a, id), a)
     }
   }
 

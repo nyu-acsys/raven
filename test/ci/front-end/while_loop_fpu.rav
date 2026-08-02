@@ -1,10 +1,10 @@
-module Fink = Library.Frac[Library.IntType];
-ghost field plink: Fink;
+module Fink = Library.Frac[Library.IntType]
+ghost field plink: Fink
 
-module T { 
-  ghost field blink: Library.Fraction;
-  val frac_val1: Library.Fraction := Library.Fraction.frac(1.0);
-  val frac_val2: Library.Fraction := Library.Fraction.frac(0.5);
+module T {
+  ghost field blink: Library.Fraction
+  val frac_val1: Library.Fraction := Library.Fraction.frac(1.0)
+  val frac_val2: Library.Fraction := Library.Fraction.frac(0.5)
 }
 
 proc unghosting(b: Bool, x: Ref) 

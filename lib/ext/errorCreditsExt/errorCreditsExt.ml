@@ -19,8 +19,12 @@ This extension introduces:
 
 
 module ErrorCreditsExt (Cont : ListApi) = struct
+  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
+     ones actually overridden below need a definition. *)
+  include Cont
+
   (* Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module. *)
-  let lib_source = Some ("errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
+  let lib_source = Some ("lib/ext/errorCreditsExt/errorCreditsLib.rav", [%blob "errorCreditsLib.rav"])
 
   (* Hard-coding ident constants from `errorCreditsLib.rav` *)
   module EC_Predefs = struct
@@ -36,7 +40,6 @@ module ErrorCreditsExt (Cont : ListApi) = struct
   end
 
   (* Not defining any local variables. *)
-  let local_vars = []
 
   (* Expression for ErrorCredits *)
   type Expr.expr_ext +=
@@ -66,18 +69,15 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     (* Command for EC.contra() *)
     | EC_Contra
 
-  (* Forwarding List module API  *)
-  module ListFns = Cont.ListFns
-
   (* AstDef *)
-  let type_ext_to_name = Cont.type_ext_to_name
+  (* type_ext_to_name: no type_ext constructors here, so Cont's default is used. *)
 
   let expr_ext_to_string expr_ext =
     match expr_ext with 
     | ErrorCreds -> "EC.error"
     | _ -> Cont.expr_ext_to_string expr_ext
 
-  let pr_stmt_ext ppf ext expr_list = 
+  let pr_basic_stmt_ext ppf ext expr_list = 
     let open Stdlib.Format in
     match ext, expr_list with
     | EC_Rand _, [lhs_expr; n_expr] ->
@@ -90,15 +90,15 @@ module ErrorCreditsExt (Cont : ListApi) = struct
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s: !in%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr "ECList" Expr.pr ls_expr
     | EC_Contra, [] -> 
       fprintf ppf "@[<2>[EXT]EC_Contra@]"
-    | _ -> Cont.pr_stmt_ext ppf ext expr_list
+    | _ -> Cont.pr_basic_stmt_ext ppf ext expr_list
 
   (* Expected to be mostly empty. *)
-  let stmt_ext_symbols stmt_ext =
+  let basic_stmt_ext_symbols stmt_ext =
     match stmt_ext with
     | EC_Rand _ | EC_RandVal _ | EC_RandFn _ | EC_RandList _ | EC_Contra -> Set.empty (module QualIdent)
-    | _ -> Cont.stmt_ext_symbols stmt_ext
+    | _ -> Cont.basic_stmt_ext_symbols stmt_ext
 
-  let stmt_ext_local_vars_modified stmt_ext exprs =
+  let basic_stmt_ext_local_vars_modified stmt_ext exprs =
     match stmt_ext, exprs with
     | EC_Rand _, [lhs_expr; n_expr] ->
       let lhs_qi = Expr.to_qual_ident lhs_expr in
@@ -114,28 +114,43 @@ module ErrorCreditsExt (Cont : ListApi) = struct
       let lhs_qi = Expr.to_qual_ident lhs_expr in
       if QualIdent.is_local lhs_qi then [QualIdent.to_ident lhs_qi] else []
     | EC_Contra, [] -> []
-    | _ -> Cont.stmt_ext_local_vars_modified stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_local_vars_modified stmt_ext exprs
   
-  let stmt_ext_fields_accessed stmt_ext exprs = 
+  let basic_stmt_ext_fields_accessed stmt_ext exprs = 
     match stmt_ext, exprs with
     (* Normal EC.rand() does not access any resources. *)
     | EC_Rand _, _ -> []
     (* All other function calls interact with the error_field. *)
-    | (EC_RandFn _ | EC_RandList _ | EC_RandVal _ | EC_Contra), _ -> 
+    | (EC_RandFn _ | EC_RandList _ | EC_RandVal _ | EC_Contra), _ ->
       [EC_Predefs.error_field_qi]
-    | _ -> Cont.stmt_ext_fields_accessed stmt_ext exprs
+    | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
+
+  (* pr_stmt_ext/stmt_ext_*: no top-level StmtExt constructors here, so Cont's default
+     is used. type_ext_is_recognized: no type_ext constructors here either. *)
+
+  let expr_ext_is_recognized expr_ext =
+    match expr_ext with
+    | ErrorCreds -> true
+    | _ -> Cont.expr_ext_is_recognized expr_ext
+
+  let stmt_ext_is_recognized stmt_ext =
+    match stmt_ext with
+    | EC_Rand _ | EC_RandVal _ | EC_RandFn _ | EC_RandList _ | EC_Contra -> true
+    | _ -> Cont.stmt_ext_is_recognized stmt_ext
+
+  (* contract_ext_is_recognized: no contract_ext constructors here, so Cont's default
+     is used. *)
 
 
   (* Rewriter *)
-  (* Almost always skipped. Only used with the extension constructor contains a `type_expr`; see Prophecy extension. *)
-  let expr_ext_rewrite_types = Cont.expr_ext_rewrite_types
-  let stmt_ext_rewrite_types = Cont.stmt_ext_rewrite_types
+  (* Almost always skipped. Only used with the extension constructor contains a `type_expr`; see Prophecy extension.
+     expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: nothing here
+     stores a type_expr or a nested Stmt.t, so Cont's default is used. *)
 
 
   (* Typing *)
 
-  (* No new types. *)
-  let type_check_type_expr = Cont.type_check_type_expr
+  (* No new types. type_check_type_expr: Cont's default is used. *)
 
   (* Type-checking for ErrorCreds expressions. The underlying expression in the AST that we are type-checking is:
       Expr.App ((ExprExt expr_ext), expr_list, expr_attr)
@@ -156,28 +171,32 @@ module ErrorCreditsExt (Cont : ListApi) = struct
       (App (ExprExt ErrorCreds, [expr_arg], expr_attr)) Type.perm Type.perm Type.perm
 
     | ErrorCreds, _ ->
-      Error.type_error expr_attr.expr_loc "Incorrect number of arguments for ErrorCredits expression"
+      Error.type_error expr_attr.expr_loc "'-*-(...)' takes exactly one argument"
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
 
   (* Type-checking statements. The underlying stmt in the AST is represented as:
       Stmt.{ 
-        stmt_desc = Basic (StmtExt (stmt_ext, expr_list)); 
+        stmt_desc = Basic (BasicStmtExt (stmt_ext, expr_list)); 
         stmt_loc = stmt_loc; 
       }
 
     `disam_tbl` is a data structure used to disambiguate local variables occuring in different subscopes by assigning a unique `ident_num` to each local variable. There is no need to understand how this works or to manipulate this manually. Some functions require and return this argument, which indicates how this must be used. However, care must be made to update and return this correctly.
 
     This function returns a `Stmt.basic_stmt_desc`. This is an object like:
-      (StmtExt (stmt_ext, expr_list))
+      (BasicStmtExt (stmt_ext, expr_list))
     In addition, a `disam_tbl` must be returned.
     `type_check_stmt_functs` is a set of functions from `typing.ml` that are useful for type-checking statements.
   *)
-  let type_check_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
+  (* type_check_contract_ext/check_contract_ext_group_compatible/
+     contract_ext_to_string: no contract_ext constructors here, so Cont's default is
+     used. *)
+
+  let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list: expr list) (stmt_loc: Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : ExtApi.type_check_stmt_functs)
   :
-      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t = 
+      (Stmt.basic_stmt_desc * ProgUtils.DisambiguationTbl.t) Rewriter.t =
     let open Rewriter.Syntax in
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     match stmt_ext, expr_list with
@@ -197,10 +216,10 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         let* n_expr = type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl in
 
         (* That's it. Rebuild the Stmt.basic_stmt_desc; make sure to use the updated and type-checked arguments and not stale copies. *)
-        Rewriter.return (Stmt.StmtExt (EC_Rand is_init, [Expr.from_var_decl var_decl; n_expr]), disam_tbl)
+        Rewriter.return (Stmt.BasicStmtExt (EC_Rand is_init, [Expr.from_var_decl var_decl; n_expr]), disam_tbl)
 
     | EC_Rand is_init, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_Rand()"
+      Error.type_error stmt_loc "'EC.rand(...)' called with incorrect number of arguments"
     
     (* ```lhs_expr := EC.rand(n_expr; ECVal: != errorVal);``` *)
     | EC_RandVal is_init, [lhs_expr; n_expr; errorVal] -> 
@@ -216,10 +235,10 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         let* errorVal = type_check_stmt_functs.disambiguate_process_expr errorVal (Type.int |> Type.set_ghost true) disam_tbl in
 
         (* Reconstruct type-check `Stmt.basic_stmt_desc` *)
-        Rewriter.return (Stmt.StmtExt (EC_RandVal is_init, [Expr.from_var_decl var_decl; n_expr; errorVal]), disam_tbl)
+        Rewriter.return (Stmt.BasicStmtExt (EC_RandVal is_init, [Expr.from_var_decl var_decl; n_expr; errorVal]), disam_tbl)
       
     | EC_RandVal _, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_RandVal()"
+      Error.type_error stmt_loc "'EC.rand(...; ECVal: != ...)' called with incorrect number of arguments"
 
     (* ```lhs_expr := EC.rand(n_expr; ECFn; ec_expr, errFn_arg ==> errFn_def)``` *)
     | EC_RandFn is_init, [lhs_expr; n_expr; ec_expr; errFn_arg; errFn_def] ->
@@ -248,11 +267,11 @@ module ErrorCreditsExt (Cont : ListApi) = struct
 
           (* add symbol to Raven symbolTbl *)
           let* _ = Rewriter.introduce_symbol 
-            (VarDef { var_decl = fn_arg_var_decl; var_init = None})
+            (VarDef { var_decl = fn_arg_var_decl; var_init = None; var_is_free = NotFree})
           in
 
           (* another log stmt. *)
-          Logs.debug (fun m -> m "ErrorCreditsExt.type_check_stmt: fn_arg_var_decl = %a; errFn_def= %a;\nDisamTbl:%a" Type.pr_var_decl fn_arg_var_decl Expr.pr errFn_def ProgUtils.DisambiguationTbl.pr disam_tbl);
+          let* () = Rewriter.Logs.debug (fun printers m -> m "ErrorCreditsExt.type_check_basic_stmt: fn_arg_var_decl = %a; errFn_def= %a;\nDisamTbl:%a" printers.pr_type_var_decl fn_arg_var_decl printers.pr_expr errFn_def ProgUtils.DisambiguationTbl.pr disam_tbl) in
 
           (* After adding new variable to symbolTbl, we are finally ready to type-check the function definition expresion, `errFn_def` *)
           let* errFn_def = type_check_stmt_functs.disambiguate_process_expr errFn_def Type.real disam_tbl in
@@ -261,10 +280,10 @@ module ErrorCreditsExt (Cont : ListApi) = struct
           let disam_tbl = ProgUtils.DisambiguationTbl.pop disam_tbl in
 
           (* Construct the final `Stmt.basic_stmt_desc` *)
-          Rewriter.return (Stmt.StmtExt (EC_RandFn is_init, [Expr.from_var_decl var_decl; n_expr; ec_expr; (Expr.from_var_decl fn_arg_var_decl); errFn_def ]), disam_tbl)
+          Rewriter.return (Stmt.BasicStmtExt (EC_RandFn is_init, [Expr.from_var_decl var_decl; n_expr; ec_expr; (Expr.from_var_decl fn_arg_var_decl); errFn_def ]), disam_tbl)
 
     | EC_RandFn _, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_RandFn()"
+      Error.type_error stmt_loc "'EC.rand(...; ECFn: ...)' called with incorrect number of arguments"
 
     (* ```lhs_expr := EC.rand(n_expr; ECList: !in ls_expr)``` *)
     | EC_RandList is_init, [lhs_expr; n_expr; ls_expr] ->
@@ -319,23 +338,26 @@ module ErrorCreditsExt (Cont : ListApi) = struct
           Error.type_error (Expr.to_loc ls_expr) ("Expected a integer list type for ECList; found: " ^ (Type.to_string _typ))
         in
         
-        Rewriter.return (Stmt.StmtExt (EC_RandList is_init, [Expr.from_var_decl var_decl; n_expr; ls_expr]), disam_tbl)
+        Rewriter.return (Stmt.BasicStmtExt (EC_RandList is_init, [Expr.from_var_decl var_decl; n_expr; ls_expr]), disam_tbl)
     | EC_RandList _, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_RandList()"
+      Error.type_error stmt_loc "'EC.rand(...; ECList: !in ...)' called with incorrect number of arguments"
 
     | EC_Contra, [] ->
-      Rewriter.return ( Stmt.StmtExt (EC_Contra, []), disam_tbl)
+      Rewriter.return ( Stmt.BasicStmtExt (EC_Contra, []), disam_tbl)
 
     | EC_Contra, _ ->
-      Error.type_error stmt_loc "Incorrect number of arguments for EC_Contra()"
+      Error.type_error stmt_loc "'EC.contra()' called with incorrect number of arguments"
 
-    | _ -> Cont.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+    | _ -> Cont.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl type_check_stmt_functs
+
+  (* type_check_stmt_ext: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* Rewrites *)
-  let rewrite_type_ext = Cont.rewrite_type_ext
-  
-  (* Rewrite expressions. We rewrite the resource 
+  (* rewrite_type_ext: no type_ext constructors here, so Cont's default is used. *)
+
+  (* Rewrite expressions. We rewrite the resource
       `EC.error(ec)` to ~~>
       
       `own(Library.ErrorCreds.error_loc, Library.ErrorCreds.error_cred, Library.Fraction.frac(ec))` *)
@@ -372,8 +394,12 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 
 
+  (* contract_ext_rewrite_exprs/rewrite_contract_ext_call/rewrite_callable_entry/
+     rewrite_contract_ext_loop_transfer: no contract_ext constructors here, so Cont's
+     default is used. *)
+
   (* Rewriting Statements *)
-  let rewrite_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
+  let rewrite_basic_stmt_ext (stmt_ext: Stmt.stmt_ext) (expr_list: expr list) loc: Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
 
     (* Pre-looking up a bunch of different variables used in multiple cases *)
@@ -517,9 +543,16 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         call_decl_locals = [];
         call_decl_precond = [];
         call_decl_postcond = [];
-        call_decl_is_free = false;
+        call_decl_contract_ext = [];
+        call_decl_status = NotFree;
         call_decl_is_auto = false;
-        call_decl_mask = None;
+        (* Safe to seed directly rather than leave as `None` pending the mask
+           fixpoint: `masks.ml`'s `fixpoint_compute_masks` treats every `Func`
+           (this is one, per `call_decl_kind` above) as `[]` unconditionally,
+           regardless of body content -- funcs are pure expressions and can
+           never unfold an invariant. *)
+        call_decl_needs_mask = Some [];
+        call_decl_grants_mask = Some [];
         call_decl_loc = loc;
       } in
 
@@ -551,9 +584,9 @@ module ErrorCreditsExt (Cont : ListApi) = struct
 
       in
 
-      Logs.debug (fun m ->
-        m "ErrorCreditsExt.rewrite_stmt_ext: Pre-typecheck sum_func_symbol:\n %a"
-          Symbol.pr sum_func_symbol);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+        m "ErrorCreditsExt.rewrite_basic_stmt_ext: Pre-typecheck sum_func_symbol:\n %a"
+          printers.pr_symbol sum_func_symbol) in
 
       (* Add the function symbol to the symbolTbl *)
       let* _ =
@@ -645,8 +678,8 @@ module ErrorCreditsExt (Cont : ListApi) = struct
           ])
       in
 
-      Logs.debug (fun m ->
-        m "ErrorCreditsExt.rewrite_stmt_ext: Done rewriting EC_RandFn; output: %a" Stmt.pr (Stmt.mk_block_stmt ~loc [check_valid_stmt1; check_valid_stmt2; exhale_stmt; havoc_stmt; inhale_stmt1; inhale_stmt2]));
+      let* () = Rewriter.Logs.debug (fun printers m ->
+        m "ErrorCreditsExt.rewrite_basic_stmt_ext: Done rewriting EC_RandFn; output: %a" printers.pr_stmt (Stmt.mk_block_stmt ~loc [check_valid_stmt1; check_valid_stmt2; exhale_stmt; havoc_stmt; inhale_stmt1; inhale_stmt2])) in
 
       Rewriter.return (Stmt.mk_block_stmt ~loc [check_valid_stmt1; check_valid_stmt2; exhale_stmt; havoc_stmt; inhale_stmt1; inhale_stmt2])
 
@@ -728,11 +761,13 @@ module ErrorCreditsExt (Cont : ListApi) = struct
 
       Rewriter.return (Stmt.mk_block_stmt ~loc [exhale_stmt; inhale_stmt])
     
-    | _ -> Cont.rewrite_stmt_ext stmt_ext expr_list loc
+    | _ -> Cont.rewrite_basic_stmt_ext stmt_ext expr_list loc
+
+  (* rewrite_stmt_ext: no top-level StmtExt constructor here, so Cont's default is
+     used. *)
 
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
   let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
-  let ext_local_vars = local_vars @ Cont.ext_local_vars
 end

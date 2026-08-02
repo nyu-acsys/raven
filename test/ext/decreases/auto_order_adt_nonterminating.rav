@@ -1,0 +1,18 @@
+// Same auto-generated structural order as auto_order_adt.rav, but the recursive
+// call's argument isn't actually a self-recursive field of the caller's own
+// value, so the auto-generated `lt` can't show progress -- correctly rejected.
+module MyList {
+  rep type T = data {
+    case nil
+    case cons(hd: Int, tl: T)
+  }
+
+  func bad(ls: T) returns (ret: Int)
+    decreases ls
+  {
+    match ls {
+      case nil => 0
+      case cons(hd, tl) => 1 + bad(cons(hd, ls))
+    }
+  }
+}

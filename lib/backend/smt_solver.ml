@@ -37,6 +37,8 @@ module SmtSession = struct
       close out_read;
       close in_write;*)
     let in_chan, out_chan = Unix.open_process_args "z3" [| "smt2"; "-in" |] in
+    (* Strip \r\n line endings from Z3's output on Windows; no-op elsewhere. *)
+    Stdlib.set_binary_mode_in in_chan false;
 
     let solver_state =
       {
@@ -110,9 +112,9 @@ module SmtSession = struct
         let in_chan = in_channel_of_descr in_descr in
         let result = In_channel.input_line in_chan in
         match result with
-        | None -> Error.fail ~lbl:Internal Loc.dummy "Read from SMT Solver returned nothing"
+        | None -> Error.fail ~lbl:Internal Loc.dummy "Lost communication with the Z3 process while checking this proof obligation -- Z3 may have crashed or been killed; re-run with --verbosity=debug to inspect log.smt2"
         | Some str -> str)
-    | None -> Error.fail ~lbl:Internal Loc.dummy  "Read from SMT Solver returned nothing"
+    | None -> Error.fail ~lbl:Internal Loc.dummy "Lost communication with the Z3 process while checking this proof obligation -- Z3 may have crashed or been killed; re-run with --verbosity=debug to inspect log.smt2"
   (* state.response_count <- state.response_count + 1; *)
   (* if state.response_count > session.response_count
      then begin
@@ -131,7 +133,7 @@ module SmtSession = struct
     | "sat" -> true
     | "unsat" -> false
     | "unknown" -> false
-    | str -> Error.fail ~lbl:Internal Loc.dummy ("Unexpected solver output: " ^ str)
+    | str -> Error.fail ~lbl:Internal Loc.dummy (Printf.sprintf "Z3 returned unexpected output while checking this proof obligation: %s (re-run with --verbosity=debug to inspect log.smt2)" str)
 
   let is_unsat session =
     Int.incr num_of_sat_queries;
@@ -140,7 +142,7 @@ module SmtSession = struct
     | "unsat" -> true
     | "sat" -> false
     | "unknown" -> false
-    | str -> Error.fail ~lbl:Internal Loc.dummy ("Unexpected solver output: " ^ str)
+    | str -> Error.fail ~lbl:Internal Loc.dummy (Printf.sprintf "Z3 returned unexpected output while checking this proof obligation: %s (re-run with --verbosity=debug to inspect log.smt2)" str)
 
   let push session =
     write session (mk_push 1);
@@ -324,10 +326,6 @@ let init ?(logging = true) diagnostics timeout : smt_env =
     ]
   in
 
-  let list_of_cmds =
-    list_of_cmds @ Base.List.init 11 ~f:(fun i -> declare_tuple_sort i)
-  in
-
   let smt_env =
     { session;
       path_conditions = [];
@@ -342,6 +340,30 @@ let init ?(logging = true) diagnostics timeout : smt_env =
   write_comment session "End of Preamble";
   write_comment session "";
   write_comment session "";
+
+  smt_env
+
+(** Tells the Z3 subprocess to exit and waits for it to do so. Callers must run this
+    on every path out of a session, including error paths: nothing currently reaps the
+    Z3 child otherwise, which on Windows can leave a lingering process holding a handle
+    into the working directory, blocking cleanup of anything using it as a cwd (e.g. a
+    dune sandbox directory). *)
+let stop (smt_env : smt_env) = SmtSession.stop_solver smt_env.session
+
+(** Declares exactly the generic tuple sorts ([$tuple_n]) the program being checked
+    actually needs, rather than an arbitrary fixed range. [arities] is computed from the
+    fully elaborated program (see [Backend.TupleArities]) once parsing and front-end
+    processing have completed, which is why this is a separate step from [init]: at the
+    point [init] runs (before any parsing), the input isn't known yet. *)
+let declare_tuple_sorts (smt_env : smt_env) (arities : int list) : smt_env =
+  let open SmtSession in
+  (match arities with
+  | [] -> ()
+  | _ ->
+      write_comment smt_env.session "Tuple sorts used by this program";
+      Base.List.iter arities ~f:(fun arity ->
+          write smt_env.session (declare_tuple_sort arity));
+      write_comment smt_env.session "");
 
   smt_env
 

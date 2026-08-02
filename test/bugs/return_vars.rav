@@ -1,0 +1,11 @@
+// Return variables should only be visible in `ensures` clauses. Referencing
+// a return variable in a `requires` clause makes no sense, since the return
+// variable does not have a value yet when the precondition is checked. This
+// should be rejected, but currently type-checks without error.
+
+proc test() returns (r: Int)
+  requires r > 0
+  ensures r >= 0
+{
+  r := 1;
+}

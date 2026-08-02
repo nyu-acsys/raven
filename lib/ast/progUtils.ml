@@ -1,62 +1,18 @@
 open Base
 open AstDef
 open Util
+
+(* Captured before [open Rewriter] below, which brings [Rewriter.Logs] into scope
+   unqualified and would otherwise shadow the real logging library here. *)
+module Stdlib_logs = Logs
+
 open Rewriter
 
 
-(* DisambiguationTbl is used in disambiguating local idents in Typing.ProcessCallable. *)
-module DisambiguationTbl = struct
-  type t = ident ident_map list
-
-  let push (disam_tbl : t) : t = Map.empty (module Ident) :: disam_tbl
-
-  let pop (disam_tbl : t) : t =
-    match disam_tbl with
-    | _ :: disam_tbl -> disam_tbl
-    | [] -> raise (Invalid_argument "Empty DisambiguationTbl")
-
-  let add (disam_tbl : t) loc name new_name : t =
-    match disam_tbl with
-    | hd :: tl -> (
-        match Map.add hd ~key:name ~data:new_name with
-        | `Ok hd -> hd :: tl
-        | `Duplicate -> Error.redeclaration_error loc (Ident.to_string name))
-    | [] -> raise (Invalid_argument "Empty DisambiguationTbl")
-
-  let rec find (disam_tbl : t) name =
-    match disam_tbl with
-    | [] -> None
-    | map :: ts -> (
-        match Map.find map name with
-        | None -> find ts name
-        | Some id -> Some id)
-
-  let rec find_exn (disam_tbl : t) name =
-    match disam_tbl with
-    | map :: ts -> (
-        match Map.find map name with
-        | None -> find_exn ts name
-        | Some id -> id)
-    | [] -> raise Stdlib.Not_found
-
-  let add_var_decl (var_decl : AstDef.Type.var_decl) (disam_tbl : t) :
-      AstDef.Type.var_decl * t =
-    let new_name =
-      Ident.fresh var_decl.var_loc var_decl.var_name.ident_name
-    in
-    let disam_tbl =
-      add disam_tbl var_decl.var_loc var_decl.var_name new_name
-    in
-    let var_decl = { var_decl with var_name = new_name } in
-
-    (var_decl, disam_tbl)
-
-  let pr ppf disam_tbl =
-    let open Stdlib.Format in
-    fprintf ppf "%a"
-      (Fmt.Dump.list (Fmt.Dump.list (Fmt.Dump.pair Ident.pr Ident.pr)))
-      (Base.List.map disam_tbl ~f:Base.Map.to_alist)
-end
+(* DisambiguationTbl is used in disambiguating local idents in Typing.ProcessCallable.
+   Its definition lives in disambiguationTbl.ml, below Rewriter -- see the comment
+   there for why. This re-export keeps ProgUtils.DisambiguationTbl working as before. *)
+module DisambiguationTbl = DisambiguationTbl
 
 let serialize (s : string) : string =
   let s =
@@ -85,9 +41,9 @@ let frac_field_to_frac_mod_qual_ident ~loc field_name_qi field_tp =
 
   QualIdent.append frac_mod_path frac_mod_ident
 
-let is_field_def_real_heap (fld : AstDef.Module.field_def) : bool =
-  Logs.debug (fun m ->
-      m "ProgUtils.is_field_def_real_heap: fld.field_type: %a" AstDef.Type.pr
+let is_field_def_real_heap ~(printers : Rewriter.printers) (fld : AstDef.Module.field_def) : bool =
+  Stdlib_logs.debug (fun m ->
+      m "ProgUtils.is_field_def_real_heap: fld.field_type: %a" printers.pr_type
         fld.field_type);
 
   match fld.field_type with
@@ -231,24 +187,23 @@ let intros_type_module ~(loc : location) ?scope
       mod_decl_rep = Some Predefs.lib_type_rep_type_ident;
       mod_decl_is_ra = false;
       mod_decl_is_interface = false;
-      mod_decl_is_free = true;
+      mod_decl_status = MachineFree;
       mod_decl_loc = loc;
     }
   in
 
   let (mod_def : AstDef.Module.module_instr list) =
     [
-      SymbolDef {
-        symbol_def = TypeDef
+      SymbolDef (
+        TypeDef
           {
             type_def_name = Predefs.lib_type_rep_type_ident;
             type_def_expr = Some tp;
             type_def_rep = true;
             type_def_loc = loc;
-          };
-          
-        is_admitted = false;
-      }
+            type_def_is_free = false;
+          }
+      )
     ]
   in
 
@@ -259,15 +214,15 @@ let intros_type_module ~(loc : location) ?scope
         symbol);*)
 
   match scope with
-  | None -> 
+  | None ->
     let+ typ_module_qi = introduce_typecheck_symbol ~loc ~f symbol in
-    Logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
+    Stdlib_logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
     typ_module_qi
-  | Some scope_qi -> 
-    Logs.debug (fun m -> m "ProgUtils.intros_type_module: scope_qual_iden = %a; symbol = %a" QualIdent.pr scope_qi Ident.pr (AstDef.Symbol.to_name symbol));
+  | Some scope_qi ->
+    Stdlib_logs.debug (fun m -> m "ProgUtils.intros_type_module: scope_qual_iden = %a; symbol = %a" QualIdent.pr scope_qi Ident.pr (AstDef.Symbol.to_name symbol));
     let+ typ_module_qi = introduce_typecheck_symbol_at_scope' ~loc symbol scope_qi in
 
-    Logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
+    Stdlib_logs.debug (fun m -> m "ProgUtils.intros_type_module: qi = %a" QualIdent.pr typ_module_qi);
     typ_module_qi
 
 let is_ra_type (tp : AstDef.type_expr) : bool t =
@@ -301,14 +256,14 @@ let field_get_ra_qual_iden (field : AstDef.Module.field_def) =
     match field.field_type with
     | App (Fld, [ tp_expr ], _) -> tp_expr
     | _ ->
-        Error.error field.field_loc
-          "ProgUtils.field_get_ra_module: Expected field definition"
+        Error.internal_error field.field_loc
+          "expected a field definition"
   in
   match field_type with
   | App (Var qual_iden, [], _) -> QualIdent.pop qual_iden
   | _ ->
-      Error.error field.field_loc
-        "ProgUtils.field_get_ra_module: Expected field type to be a type identifier"
+      Error.internal_error field.field_loc
+        "expected the field type to be a type identifier"
 
 let pred_get_ra_qual_iden pred_qual_iden =
   let open Syntax in
@@ -520,14 +475,14 @@ let get_field_utils_id field_name : expr t =
     match field with
     | AstDef.Module.FieldDef { field_type; _ } -> field_type
     | _ ->
-        Error.error loc
-          "ProgUtils.get_field_utils_id: Expected field definition"
+        Error.internal_error loc
+          "expected a field definition"
   in
 
   let field_elem_type =
     match field_type with
     | App (Fld, [ tp ], _) -> tp
-    | _ -> Error.error loc "ProgUtils.get_field_utils_id: Expected field type"
+    | _ -> Error.internal_error loc "expected a field type"
   in
 
   let id_qual_ident =
@@ -587,11 +542,11 @@ let pred_ra_constr_qual_ident loc pred_name =
           QualIdent.append pred_ra_qual_iden
             AstDef.Predefs.lib_agree_constr_ident
       | _ ->
-          Error.error loc
-            "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition")
+          Error.internal_error loc
+            "expected a predicate definition")
   | _ ->
-      Error.error loc
-        "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
+      Error.internal_error loc
+        "expected a predicate definition"
 
 let au_ra_uncommitted_constr_qual_ident loc call_name =
   let open Syntax in
@@ -628,11 +583,11 @@ let pred_ra_val_destr_qual_ident loc pred_name =
           QualIdent.append pred_ra_qual_iden
             AstDef.Predefs.lib_agree_destr1_ident
       | _ ->
-          Error.error loc
-            "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition")
+          Error.internal_error loc
+            "expected a predicate definition")
   | _ ->
-      Error.error loc
-        "ProgUtils.pred_ra_constr_qual_ident: Expected pred definition"
+      Error.internal_error loc
+        "expected a predicate definition"
 
 let pred_in_types pred_name =
   let open Syntax in
@@ -646,9 +601,9 @@ let pred_in_types pred_name =
       Base.List.map c.call_decl.call_decl_formals ~f:(fun var_decl ->
           var_decl.var_type)
   | _ ->
-      Error.error
+      Error.internal_error
         (AstDef.QualIdent.to_loc pred_name)
-        "ProgUtils.pred_in_types: Expected pred definition"
+        "expected a predicate definition"
 
 let pred_out_types pred_name =
   let open Syntax in
@@ -662,9 +617,9 @@ let pred_out_types pred_name =
       Base.List.map c.call_decl.call_decl_returns ~f:(fun var_decl ->
           var_decl.var_type)
   | _ ->
-      Error.error
+      Error.internal_error
         (AstDef.QualIdent.to_loc pred_name)
-        "ProgUtils.pred_in_types: Expected pred definition"
+        "expected a predicate definition"
 
 let pred_heap_type pred_name =
   let open Syntax in
@@ -698,8 +653,8 @@ let rec is_expr_pure (expr : expr) : (bool, 'a) t_ext =
               | FieldDef _ -> return false
               | VarDef _ | ConstrDef _ | DestrDef _ -> return true
               | _ ->
-                  Error.error (AstDef.Expr.to_loc expr)
-                    "ProgUtils.is_expr_pure: Expected a function or a variable")
+                  Error.internal_error (AstDef.Expr.to_loc expr)
+                    "expected a function or a variable")
         | _ -> return true
       in
 
@@ -720,9 +675,9 @@ let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
         match constr_def.constr_return_type with
         | App (Var qi, _, _) -> qi
         | _ ->
-            Error.error
+            Error.internal_error
               (AstDef.QualIdent.to_loc qual_ident)
-              "ProgUtils.get_data_destrs_from_constr: Expected a variable"
+              "expected a variable"
       in
 
       let* symbol = find_and_reify tp_name in
@@ -737,28 +692,26 @@ let get_data_destrs_from_constr (qual_ident : qual_ident) : qual_ident list t =
 
               match variant_decl with
               | None ->
-                  Error.error
+                  Error.internal_error
                     (AstDef.QualIdent.to_loc qual_ident)
-                    "ProgUtils.get_data_destrs_from_constr: Expected a variant \
-                     declaration"
+                    "expected a variant declaration"
               | Some variant_decl ->
                   return
                     (Base.List.map variant_decl.variant_args ~f:(fun var_decl ->
                          QualIdent.append (QualIdent.pop qual_ident)
                            var_decl.var_name)))
           | _ ->
-              Error.error
+              Error.internal_error
                 (AstDef.QualIdent.to_loc qual_ident)
-                "ProgUtils.get_data_destrs_from_constr: Expected a data type")
+                "expected a data type")
       | _ ->
-          Error.error
+          Error.internal_error
             (AstDef.QualIdent.to_loc qual_ident)
-            "ProgUtils.get_data_destrs_from_constr: Expected a type definition")
+            "expected a type definition")
   | _ ->
-      Error.error
+      Error.internal_error
         (AstDef.QualIdent.to_loc qual_ident)
-        "ProgUtils.get_data_destrs_from_constr: Expected a constructor \
-         definition"
+        "expected a constructor definition"
 
 let rec expr_preds_mentioned (expr : AstDef.Expr.t) :
     (QualIdent.t list, 'a) t_ext =
@@ -778,7 +731,7 @@ let rec expr_preds_mentioned (expr : AstDef.Expr.t) :
   | App (_, expr_list, _) ->
       List.fold_right expr_list ~init:[] ~f:(fun expr acc ->
           let+ expr_predicates = expr_preds_mentioned expr in
-          acc @ expr_predicates)
+          expr_predicates @ acc)
   | Binder (_, _, _, expr, _) -> expr_preds_mentioned expr
 
 let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =
@@ -808,6 +761,7 @@ let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =
         | Spec (_, sp) -> expr_preds_mentioned sp.spec_form
         | Use u -> return [ u.use_name ]
         | _ -> return [])
+    | StmtExt _ -> return []
   in
 
   let* preds_list = stmt_preds_mentioned s in
@@ -816,6 +770,101 @@ let stmt_preds_mentioned (s : AstDef.Stmt.t) : (QualIdent.t list, 'a) t_ext =
   in
 
   return preds_list
+
+(** If [interface_qi] resolves to a module/interface with a rep type, return its
+    qualified name together with the rep type identifier; else [None]. *)
+let resolve_rep_ident (interface_qi : qual_ident) : (qual_ident * ident) option t =
+  let open Rewriter.Syntax in
+  let+ resolved = Rewriter.resolve_and_find_opt interface_qi in
+  match resolved with
+  | Some (qi, symbol) -> (
+      match Rewriter.Symbol.orig_symbol symbol with
+      | AstDef.Module.ModDef m -> (
+          match m.mod_decl.mod_decl_rep with
+          | Some rep_ident -> Some (qi, rep_ident)
+          | None -> None)
+      | _ -> None)
+  | None -> None
+
+(** True iff every formal of [mod_decl] is constrained by a rep-typed
+    module/interface, making the functor eligible for implicit instantiation. *)
+let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
+  let open Rewriter.Syntax in
+  if Base.List.is_empty mod_decl.mod_decl_formals then Rewriter.return false
+  else
+    Rewriter.List.for_all mod_decl.mod_decl_formals ~f:(fun formal ->
+        let+ rep = resolve_rep_ident formal.mod_inst_type in
+        Base.Option.is_some rep)
+
+(** Resolve [qi] and, if it names an uninstantiated generic functor (see
+    [is_generic_functor]), return its fully qualified name together with its module
+    definition; [None] otherwise -- including when [qi] fails to resolve, doesn't name
+    a module, or names an instantiation of such a functor rather than the functor
+    itself. *)
+let resolve_generic_functor (qi : qual_ident) :
+    (qual_ident * AstDef.Module.t) option t =
+  let open Rewriter.Syntax in
+  let* resolved = Rewriter.resolve_and_find_opt qi in
+  match resolved with
+  | None -> Rewriter.return None
+  | Some (fully_qual_ident, symbol) -> (
+      match Rewriter.Symbol.orig_symbol symbol with
+      | AstDef.Module.ModDef m when not (Rewriter.Symbol.is_instance symbol) ->
+          let+ is_generic = is_generic_functor m.mod_decl in
+          if is_generic then Some (fully_qual_ident, m) else None
+      | _ -> Rewriter.return None)
+
+let inst_mod_ident_prefix = "GenInst$$"
+
+(** Deterministic name for the module wrapping [tp] as an implementation of
+    [interface_qual_ident]. Folds in the interface identity so the same type wrapped
+    for two different interfaces doesn't collide/dedup. *)
+let rep_module_name_string ~(interface_qual_ident : qual_ident) (tp : AstDef.type_expr) :
+    string =
+  tp_mod_ident_prefix ^ QualIdent.to_string interface_qual_ident ^ "$$"
+  ^ AstDef.Type.to_string tp
+
+(** Like [intros_type_module], generalized to an arbitrary rep-typed interface: wraps
+    [tp] in a fresh module implementing [interface_qual_ident] with rep type [tp]. Kept
+    separate so [intros_type_module]'s existing [Library.Type]-only callers are
+    unaffected. *)
+let intros_rep_module ~(loc : location) ?scope
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    ~(interface_qual_ident : qual_ident) ~(rep_ident : ident) (tp : AstDef.type_expr) :
+    qual_ident t =
+  let mod_decl =
+    let mod_name =
+      Ident.fresh loc (serialize (rep_module_name_string ~interface_qual_ident tp))
+    in
+    {
+      AstDef.Module.mod_decl_name = mod_name;
+      mod_decl_formals = [];
+      mod_decl_returns = Some interface_qual_ident;
+      mod_decl_interfaces = Set.empty (module QualIdent);
+      mod_decl_rep = Some rep_ident;
+      mod_decl_is_ra = false;
+      mod_decl_is_interface = false;
+      mod_decl_status = MachineFree;
+      mod_decl_loc = loc;
+    }
+  in
+  let (mod_def : AstDef.Module.module_instr list) =
+    [
+      SymbolDef
+        (TypeDef
+           {
+             type_def_name = rep_ident;
+             type_def_expr = Some tp;
+             type_def_rep = true;
+             type_def_loc = loc;
+             type_def_is_free = false;
+           });
+    ]
+  in
+  let symbol = AstDef.Module.ModDef { mod_decl; mod_def } in
+  match scope with
+  | None -> introduce_typecheck_symbol ~loc ~f symbol
+  | Some scope_qi -> introduce_typecheck_symbol_at_scope' ~loc symbol scope_qi
 
 let largest_common_prefix_qi symbols =
     begin match Set.count ~f:(fun _ -> true) symbols with
@@ -842,3 +891,170 @@ let largest_common_prefix_qi symbols =
 
           largest_common_prefix_qi
         end
+
+(** Compute (insertion_scope, reference_scope) for the modules synthesized when
+    instantiating a functor with [tps]: where to introduce them, and how to reference
+    them from here. The two differ when [tps] are reached through an abstract
+    parameter. *)
+let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
+    (qual_ident * qual_ident) t =
+  let open Rewriter.Syntax in
+  let symbols =
+    Base.List.fold tps
+      ~init:(Set.empty (module QualIdent))
+      ~f:(fun acc tp -> Set.union acc (AstDef.Type.symbols tp))
+  in
+  let largest_prefix = largest_common_prefix_qi symbols in
+  (* [qi] may sit behind several nested abstract parameters (e.g. [ForkJoin.R.Result]),
+     so keep popping and re-resolving until we land on a concrete scope. *)
+  let rec find_concrete_scope (qi : qual_ident) : (qual_ident * qual_ident) t =
+    let* result = Rewriter.resolve_and_find_opt qi in
+    match result with
+    | None ->
+        Error.internal_error Loc.dummy
+          "could not find a concrete scope for these type arguments"
+    | Some (qi, (name, symbol, _)) ->
+        let resolves_through_abstract_param =
+          match symbol with
+          | AstDef.Module.ModDef md ->
+              md.mod_decl.mod_decl_is_interface && not (QualIdent.equal name qi)
+          | _ -> false
+        in
+        if resolves_through_abstract_param then find_concrete_scope (QualIdent.pop qi)
+        else Rewriter.return (name, qi)
+  in
+  find_concrete_scope largest_prefix
+
+(** If [tp] is exactly `<M>.<rep_ident>` for some already-resolved module [M] that
+    is fully instantiated and genuinely implements [interface_qual_ident] (not just
+    a bare rep type), return [M]'s qualified name. Used by [get_or_intros_rep_module]
+    to reuse an existing, fully-implemented module instead of synthesizing a
+    rep-type-only stub for it -- synthesizing one would be unsound whenever
+    [interface_qual_ident] requires more than a rep type (e.g. a resource algebra's
+    [valid]/[comp]/etc.), since the stub is [MachineFree] and leaves every member
+    beyond the rep type completely unconstrained. *)
+let existing_module_for_rep_type ~(interface_qual_ident : qual_ident)
+    ~(rep_ident : ident) (tp : AstDef.type_expr) : qual_ident option t =
+  let open Rewriter.Syntax in
+  match tp with
+  | App (Var qi, [], _)
+    when Ident.equal (QualIdent.unqualify qi) rep_ident
+         && not (Base.List.is_empty (QualIdent.path qi)) -> (
+      let mod_qi = QualIdent.pop qi in
+      let* resolved = Rewriter.resolve_and_find_opt mod_qi in
+      match resolved with
+      | None -> return None
+      | Some (mod_qi, mod_symbol) ->
+          let interfaces, mod_is_instance =
+            Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance _subst -> function
+              | AstDef.Module.ModDef mod_def ->
+                  ( mod_def.mod_decl.mod_decl_interfaces,
+                    Base.List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance )
+              | _ -> (Set.empty (module QualIdent), true))
+          in
+          if
+            mod_is_instance
+            && (QualIdent.equal mod_qi interface_qual_ident
+               || Set.mem interfaces interface_qual_ident)
+          then return (Some mod_qi)
+          else return None)
+  | _ -> return None
+
+(** Get the module wrapping [tp] as an implementation of [interface_qual_ident]
+    (with rep type [rep_ident]): reuses an existing module already implementing
+    [interface_qual_ident] if [tp] happens to be exactly its rep type (see
+    [existing_module_for_rep_type]), else an existing wrapper at the deterministic
+    name (see [rep_module_name_string]) already in scope, else creates one via
+    [intros_rep_module]. [insert_scope]/[reference_scope] are as computed by
+    [find_insertion_scope_for_types]. *)
+let get_or_intros_rep_module ~(loc : location)
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    ~(insert_scope : qual_ident) ~(reference_scope : qual_ident)
+    ~(interface_qual_ident : qual_ident) ~(rep_ident : ident)
+    (tp : AstDef.type_expr) : qual_ident t =
+  let open Rewriter.Syntax in
+  let* existing = existing_module_for_rep_type ~interface_qual_ident ~rep_ident tp in
+  match existing with
+  | Some mod_qi -> return mod_qi
+  | None ->
+      let canonical_qi =
+        QualIdent.append reference_scope
+          (Ident.make loc (serialize (rep_module_name_string ~interface_qual_ident tp)) 0)
+      in
+      let* resolve_result = Rewriter.resolve_opt canonical_qi in
+      match resolve_result with
+      | Some _ -> return canonical_qi
+      | None ->
+          intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident ~rep_ident tp
+
+(** Get or create (and typecheck) the instantiation
+    [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
+    what [ListExt.rewrite_type_ext] does for `List[T]`. Every formal of
+    [functor_mod_decl] must be constrained by a rep-typed module/interface (see
+    [is_generic_functor]). Each argument type is wrapped via [intros_rep_module]
+    (deduplicated), the instantiation is named deterministically and introduced via
+    [Rewriter.introduce_typecheck_symbol_at_scope']. Returns its qualified name.
+
+    [canonical_mod_ident], if given, overrides the derived name -- used by [ListExt] to
+    keep its pre-existing `ListExtMod$$`-prefixed naming. *)
+let instantiate_type_functor ~(loc : location)
+    ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
+    ~(functor_qual_ident : qual_ident)
+    ~(functor_mod_decl : AstDef.Module.module_decl)
+    ?(canonical_mod_ident : ident option)
+    (arg_types : AstDef.type_expr list) : qual_ident t =
+  let open Rewriter.Syntax in
+  if
+    Base.List.length arg_types <> Base.List.length functor_mod_decl.mod_decl_formals
+  then
+    Error.internal_error loc
+      "wrong number of type arguments for this functor instantiation"
+  else
+    let* insert_scope, reference_scope = find_insertion_scope_for_types arg_types in
+    let* arg_module_qis =
+      Rewriter.List.map2_exn functor_mod_decl.mod_decl_formals arg_types
+        ~f:(fun formal tp ->
+          let* rep = resolve_rep_ident formal.mod_inst_type in
+          match rep with
+          | None ->
+              Error.internal_error loc
+                (Printf.sprintf
+                   !"formal %{Ident}'s constraint %{QualIdent} has no rep type"
+                   formal.mod_inst_name formal.mod_inst_type)
+          | Some (interface_qual_ident, rep_ident) ->
+              get_or_intros_rep_module ~loc ~f ~insert_scope ~reference_scope
+                ~interface_qual_ident ~rep_ident tp)
+    in
+    let inst_mod_ident =
+      match canonical_mod_ident with
+      | Some ident -> ident
+      | None ->
+          let mod_name_string =
+            inst_mod_ident_prefix
+            ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
+            ^ "$$"
+            ^ String.concat ~sep:","
+                (Base.List.map arg_types ~f:AstDef.Type.to_string)
+          in
+          Ident.make loc (serialize mod_name_string) 0
+    in
+    let inst_qi = QualIdent.append reference_scope inst_mod_ident in
+    let* resolve_result = Rewriter.resolve_opt inst_qi in
+    match resolve_result with
+    | Some _ -> return inst_qi
+    | None ->
+        let functor_inst =
+          AstDef.Module.ModInst
+            {
+              mod_inst_name = inst_mod_ident;
+              mod_inst_type = functor_qual_ident;
+              mod_inst_def = Some (functor_qual_ident, Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi));
+              mod_inst_is_interface = false;
+              mod_inst_is_free = false;
+              mod_inst_loc = loc;
+            }
+        in
+        let+ _ =
+          Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope
+        in
+        inst_qi

@@ -1,0 +1,18 @@
+// Implicit instantiation isn't restricted to `Library.Type` -- any rep-typed
+// module/interface can be auto-wrapped around a bare type argument the same way.
+
+interface K {
+  rep type T
+}
+
+module P[X: K] {
+  func id(x: X.T) returns (res: X.T) { x }
+}
+
+module IntK: K {
+  rep type T = Int
+}
+
+proc p() {
+  var x := P.id(3);
+}

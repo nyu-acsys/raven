@@ -12,20 +12,106 @@ let type_mismatch_error loc exp_ty fnd_ty =
         \  %{Type}"
        exp_ty fnd_ty)
 
-let arguments_to_string d =
-  if d = 1 then "one argument" else Printf.sprintf "%d arguments" d
+(** Best-effort diagnostic for the common case behind a confusing "expected X but
+    found Y" where X and Y turn out to be two different names for the same
+    underlying module: their canonical declaration site
+    ([SymbolTbl.resolve_and_find]'s first, alias-independent component) and
+    instantiation-argument substitution agree, even though the identifiers used to
+    reach them differ. Purely read-only -- never changes what type-checks, only
+    what the error, if any, explains. *)
+let explain_module_identity_mismatch (tbl : SymbolTbl.t) (exp_ty : type_expr)
+    (fnd_ty : type_expr) : string option =
+  match (exp_ty, fnd_ty) with
+  | App (Var exp_qi, [], _), App (Var fnd_qi, [], _)
+    when QualIdent.(exp_qi <> fnd_qi) -> (
+      match
+        ( SymbolTbl.resolve_and_find exp_qi tbl,
+          SymbolTbl.resolve_and_find fnd_qi tbl )
+      with
+      | ( Some (exp_alias, _, _, (_, _, exp_subst)),
+          Some (fnd_alias, _, _, (_, _, fnd_subst)) )
+        when QualIdent.(exp_alias = fnd_alias) -> (
+          (* [exp_alias]/[fnd_alias] name the physical declaration site both types
+             trace back to (e.g. a rep type's own qualified name). Its owning
+             module tells us whether any *real* type arguments could be
+             involved: if it has no formals, every difference between
+             [exp_subst] and [fnd_subst] is a structural rename picked up while
+             chasing through aliases, not a semantic one, and the two types are
+             genuinely the same. If it does have formals, we only know that for
+             sure when both sides bind every formal to the same argument. *)
+          let owning_module = QualIdent.pop exp_alias in
+          match Map.find tbl.tbl_symbols owning_module with
+          | Some (Module.ModDef { mod_decl = { mod_decl_formals = []; _ }; _ }) ->
+              Some
+                (Printf.sprintf
+                   !"%{QualIdent} and %{QualIdent} are two different names for \
+                     the same module (%{QualIdent}). Raven does not currently \
+                     recognize their members as the same type -- use one name \
+                     consistently wherever this type must match"
+                   exp_qi fnd_qi owning_module)
+          | Some (Module.ModDef { mod_decl = { mod_decl_formals; _ }; _ })
+            when not (List.is_empty mod_decl_formals) ->
+              let binding subst (formal : Module.module_inst) =
+                let key = QualIdent.append owning_module formal.mod_inst_name in
+                List.Assoc.find subst key ~equal:QualIdent.equal
+              in
+              let same_args =
+                List.for_all mod_decl_formals ~f:(fun formal ->
+                    match (binding exp_subst formal, binding fnd_subst formal) with
+                    | Some a, Some b -> List.equal Ident.equal a b
+                    | None, None -> true
+                    | _ -> false)
+              in
+              if same_args then
+                Some
+                  (Printf.sprintf
+                     !"%{QualIdent} and %{QualIdent} come from two separate \
+                       instantiations of %{QualIdent} with the same arguments. \
+                       Module instantiation is generative: each instantiation \
+                       site produces its own distinct type, even when the \
+                       arguments are identical. Bind a single instantiation \
+                       explicitly and reuse it from both places, e.g. `module \
+                       Shared = %{QualIdent}[...]`"
+                     exp_qi fnd_qi owning_module owning_module)
+              else None
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+(** Like [type_mismatch_error], but first tries
+    [explain_module_identity_mismatch] and appends its explanation, if any. *)
+let type_mismatch_error_diagnosed tbl loc exp_ty fnd_ty =
+  match explain_module_identity_mismatch tbl exp_ty fnd_ty with
+  | None -> type_mismatch_error loc exp_ty fnd_ty
+  | Some explanation ->
+      Error.type_error loc
+        (Printf.sprintf
+           !"Expected an expression of type\n\
+            \  %{Type}\n\
+             but found an expression of type\n\
+            \  %{Type}.\n\n\
+             %s"
+           exp_ty fnd_ty explanation)
+
+let number_to_string kind d =
+  if d = 1 then Printf.sprintf "one %s" kind else Printf.sprintf "%d %ss" d kind
 
 let tuple_arg_mismatch_error loc expected =
   Error.type_error loc
-    (Printf.sprintf "Expected tuple with %d components" expected)
+    (Printf.sprintf "Expected tuple with %s" (number_to_string "component" expected))
 
-let module_arg_mismatch_error loc typ_constr expected =
+let arg_mismatch_error kind loc typ_constr expected =
   Error.type_error loc
-    (Printf.sprintf "Module %s expects %s" (Type.to_name typ_constr)
-       (arguments_to_string expected))
+    (Printf.sprintf "%s %s expects %s" kind (Type.to_name typ_constr)
+       (number_to_string "argument" expected))
+
+let param_mismatch_error kind loc id expected =
+  Error.type_error loc
+    (Printf.sprintf "%s %s expects %s" kind id (number_to_string "parameter" expected))
 
 let unexpected_functor_error loc =
-  Error.type_error loc "A functor cannot be instantiated in this context"
+  Error.type_error loc
+    "A functor can only be instantiated as the definition of a module (e.g. 'module M = F[...]'), not used as a type or value here"
 
 module ProcessTypeExpr = struct
   let rec process_type_expr (tp_expr : type_expr) : type_expr Rewriter.t =
@@ -33,11 +119,12 @@ module ProcessTypeExpr = struct
     let open Rewriter.Syntax in
     match tp_expr with
     | App (Var qual_ident, [], tp_attr) -> (
-        let+ fully_qualified_qual_ident, symbol =
+        let* fully_qualified_qual_ident, symbol =
           Rewriter.resolve_and_find qual_ident
         in
         match Rewriter.Symbol.orig_symbol symbol with
-        | TypeDef _tp_alias -> App (Var fully_qualified_qual_ident, [], tp_attr)
+        | TypeDef _tp_alias ->
+            Rewriter.return (App (Var fully_qualified_qual_ident, [], tp_attr))
         | ModDef m -> (
             match m.mod_decl.mod_decl_rep with
             | None ->
@@ -51,22 +138,85 @@ module ProcessTypeExpr = struct
                 let rep_fully_qualified_qual_ident =
                   QualIdent.append fully_qualified_qual_ident rep_ident
                 in
-                App (Var rep_fully_qualified_qual_ident, [], tp_attr))
+                (* `M` used bare, with no `[...]` at all, where `M` is really a
+                   functor: the rep type's own definition is only reachable
+                   from inside `M` (or one of its instances), so resolving it
+                   from here fails. Left as-is, that failure surfaces as
+                   "Unknown identifier M.T" pointed at T's declaration inside
+                   M's body -- confusing, and for a library functor, pointed
+                   into a file the user never opened. Diagnose it here
+                   instead, at the actual use site, when that's indeed what's
+                   going on (this can't fire for a legitimate self-reference
+                   from inside M's own body, since the rep type resolves fine
+                   from there). *)
+                let* rep_resolves =
+                  Rewriter.resolve_and_find_opt rep_fully_qualified_qual_ident
+                in
+                (match rep_resolves with
+                | Some _ ->
+                    Rewriter.return
+                      (App (Var rep_fully_qualified_qual_ident, [], tp_attr))
+                | None -> (
+                    let* generic_functor =
+                      ProgUtils.resolve_generic_functor qual_ident
+                    in
+                    match generic_functor with
+                    | Some (_, gm) ->
+                        arg_mismatch_error "Module" tp_attr.type_loc
+                          (Type.Var qual_ident)
+                          (List.length gm.mod_decl.mod_decl_formals)
+                    | None ->
+                        Rewriter.return
+                          (App (Var rep_fully_qualified_qual_ident, [], tp_attr)))))
         | ModInst _ -> unexpected_functor_error tp_attr.type_loc
         | _ -> Error.type_error tp_attr.type_loc "Expected type identifier")
-    | App (Var _, _, tp_attr) -> unexpected_functor_error tp_attr.type_loc
+    | App (Var qual_ident, (_ :: _ as tp_args), tp_attr) -> (
+        (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, implicitly
+           instantiate it (see `ProgUtils.instantiate_type_functor`) and resolve to the
+           instantiation's rep type. Anything else is still rejected, as before. *)
+        let* generic_functor = ProgUtils.resolve_generic_functor qual_ident in
+        match generic_functor with
+        | None -> unexpected_functor_error tp_attr.type_loc
+        | Some (fully_qualified_qual_ident, m) ->
+            if
+              not
+                (Int.equal (List.length tp_args) (List.length m.mod_decl.mod_decl_formals))
+            then
+              arg_mismatch_error "Module" tp_attr.type_loc (Type.Var qual_ident)
+                (List.length m.mod_decl.mod_decl_formals)
+            else
+              let* tp_args = Rewriter.List.map tp_args ~f:process_type_expr in
+              let* inst_qual_ident =
+                ProgUtils.instantiate_type_functor ~loc:tp_attr.type_loc
+                  ~f:!(Rewriter.process_symbol_ref)
+                  ~functor_qual_ident:fully_qualified_qual_ident
+                  ~functor_mod_decl:m.mod_decl tp_args
+              in
+              (match m.mod_decl.mod_decl_rep with
+              | None ->
+                  Error.type_error tp_attr.type_loc
+                    ("Module "
+                    ^ QualIdent.to_string qual_ident
+                    ^ " does not have a rep type. It cannot be used in a context \
+                       expecting a type")
+              | Some rep_ident ->
+                  Rewriter.return
+                    (App
+                       ( Var (QualIdent.append inst_qual_ident rep_ident),
+                         [],
+                         tp_attr ))))
     | App ((Fld as constr), tp_list, tp_attr) -> (
         match tp_list with
         | [ tp_arg ] ->
             let+ tp_arg' = process_type_expr tp_arg in
             App (constr, [ tp_arg' ], tp_attr)
-        | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) constr 1)
+        | _ -> arg_mismatch_error "Constructor" (Type.to_loc tp_expr) constr 1)
     | App (Map, tp_list, tp_attr) -> (
         match tp_list with
         | [ tp1; tp2 ] ->
             let+ tp1 = process_type_expr tp1 and+ tp2 = process_type_expr tp2 in
             App (Map, [ tp1; tp2 ], tp_attr)
-        | _ -> module_arg_mismatch_error (Type.to_loc tp_expr) Map 2)
+        | _ -> arg_mismatch_error "Type" (Type.to_loc tp_expr) Map 2)
     | App (Data _, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
         Error.internal_error (Type.to_loc tp_expr)
@@ -78,8 +228,8 @@ module ProcessTypeExpr = struct
       let+ qid = Rewriter.resolve qid in
       App (AtomicToken qid, [], tp_attr)
     | App (TypeExt type_ext, tp_args, tp_attr) ->
-      let (module Ext) = !Ext.ext in
-      Ext.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
@@ -109,7 +259,12 @@ module ProcessTypeExpr = struct
             | Some tp_expr1 ->
               let+ exp_typ = expand_type_expr tp_expr1 in
               exp_typ |> Type.set_ghost_to tp_expr)
-        | Var qual_iden, _ -> unexpected_functor_error tp_attr.type_loc
+        | Var _, (_ :: _) ->
+            (* `M[T1,...,Tn]` can reach here un-normalized via a self-referential
+               lookup (e.g. a recursive call reading back its own declared type).
+               Route through process_type_expr first, then keep expanding. *)
+            let* tp_expr = process_type_expr tp_expr in
+            expand_type_expr tp_expr
         | AtomicToken callable_qid, [] ->
           let+ callable_qid = Rewriter.resolve callable_qid in
           Type.App (AtomicToken callable_qid, [], tp_attr) |> Type.set_ghost_to tp_expr
@@ -140,11 +295,14 @@ module ProcessExpr = struct
         Error.fail_with
           (List.map msgs ~f:(fun (lbl, _loc, msg) -> (lbl, Expr.to_loc expr, msg)))
     and+ given_typ_ub = ProcessTypeExpr.expand_type_expr given_typ_ub
-    and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ in
+    and+ expected_typ = ProcessTypeExpr.expand_type_expr expected_typ
+    and+ printers = Rewriter.current_printers
+    and+ tbl = Rewriter.get_table in
     let _ =
       if not @@ expected_ghost && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb) then
-        let _ = Logs.debug (fun m -> m !"Failed with %{Expr}" expr) in
-        Error.type_error (Expr.to_loc expr) "Cannot use ghost state in non-ghost context"
+        let _ = Logs.debug (fun m -> m "Failed with %a" printers.pr_expr expr) in
+        Error.type_error (Expr.to_loc expr)
+          "This expression reads ghost state, so it can only be used inside a ghost block, spec, or ghost-typed field"
     in
     let typ = Type.meet given_typ_ub expected_typ |> Type.set_ghost expected_ghost in
     if Type.subtype_of given_typ_lb typ then Expr.set_type expr typ
@@ -154,19 +312,36 @@ module ProcessExpr = struct
     given_typ_lb: %a
     given_typ_ub: %a
     expected_typ: %a"
-            Expr.pr expr
-            Type.pr given_typ_lb
-            Type.pr given_typ_ub
-            Type.pr expected_typ 
+            printers.pr_expr expr
+            printers.pr_type given_typ_lb
+            printers.pr_type given_typ_ub
+            printers.pr_type expected_typ
         );
-      type_mismatch_error (Expr.to_loc expr) expected_typ given_typ_ub
+      type_mismatch_error_diagnosed tbl (Expr.to_loc expr) expected_typ given_typ_ub
     end
 
-  (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ] *)
-  let rec process_expr (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
+  (** Infer and check type of [expr] subject to typing environment [tbl] and expected type [expected_typ].
+      [allow_proc_call] permits [expr] itself to be a call to a procedure or lemma (as opposed to a
+      function/predicate/invariant). This is only ever true for the top-level right-hand side of an
+      assignment statement of the form [x1, ..., xn := p(e1, ..., em)] -- procedure/lemma calls are
+      statements, not pure expressions, and cannot be embedded anywhere else (e.g. as an argument
+      to another call, inside a return statement, or combined with other operators). *)
+  let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
     =
-    Logs.debug (fun m -> m !"process_expr: %{Expr}; expected: %{Type} is ghost: %b" expr expected_typ (Type.is_ghost expected_typ));
     let open Rewriter.Syntax in
+    let* () = Rewriter.Logs.debug (fun printers m -> m "process_expr: %a; expected: %a is ghost: %b" printers.pr_expr expr printers.pr_type expected_typ (Type.is_ghost expected_typ)) in
+    match Expr.to_type_annot expr with
+    | Some annot_typ ->
+        (* `(e: T)`: check `e` against the user's annotation `T` (which disambiguates
+           an otherwise-underdetermined `e`, e.g. `({||}: Set[Int])`), then check that
+           the resulting type is still consistent with the surrounding context
+           [expected_typ] -- the annotation is never taken for granted. *)
+        let* annot_typ = ProcessTypeExpr.process_type_expr annot_typ in
+        let annot_typ = annot_typ |> Type.set_ghost_to expected_typ in
+        let* e = process_expr ~allow_proc_call (Expr.set_type_annot expr None) annot_typ in
+        let actual_typ = Expr.to_type e in
+        check_and_set e actual_typ actual_typ expected_typ
+    | None -> (
     match expr with
     | App (constr, expr_list, expr_attr) -> (
         match (constr, expr_list) with
@@ -190,7 +365,11 @@ module ProcessExpr = struct
         (* Variables, fields, and call expressions *)
         | Var qual_ident, args_list ->
           (let* qual_ident, symbol =
-              Rewriter.resolve_and_find qual_ident
+              (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
+                 its type argument(s) from the call and rewrite to the instantiation. *)
+              resolve_or_implicit qual_ident ~on_miss:(fun () ->
+                  try_resolve_implicit_instantiation ~loc:(Expr.to_loc expr) ~qual_ident
+                    ~arg_exprs:args_list ~expected_typ)
             in
             (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
             let* symbol = Rewriter.Symbol.reify symbol in
@@ -201,7 +380,16 @@ module ProcessExpr = struct
                   expected_typ
             | CallDef callable ->
                 let callable_decl = Callable.to_decl callable in
-                let* is_ghost_scope = Rewriter.is_ghost_scope in 
+                let* _ =
+                  match callable_decl.call_decl_kind with
+                  | (Proc | Lemma) when not allow_proc_call ->
+                      Error.type_error (Expr.to_loc expr)
+                        (Printf.sprintf !"%s %{Ident} can only be called as the right-hand side of an assignment statement, e.g. `x := %{Ident}(...)`. Assign its result to a variable first if you need to use it in an expression"
+                          (match callable_decl.call_decl_kind with Proc -> "Procedure" | _ -> "Lemma")
+                          callable_decl.call_decl_name callable_decl.call_decl_name)
+                  | _ -> Rewriter.return ()
+                in
+                let* is_ghost_scope = Rewriter.is_ghost_scope in
                 let is_ghost_scope =
                   is_ghost_scope ||
                   match callable_decl.call_decl_kind with
@@ -314,7 +502,9 @@ module ProcessExpr = struct
                   let idx = Expr.to_int expr2 in
                   begin match typ1 with
                     | App (Prod, ts, _) when idx < List.length ts && idx >= 0 -> typ1
-                    | App (Prod, _, _) -> Error.type_error (Expr.to_loc expr2) "Index out of bounds"
+                    | App (Prod, ts, _) ->
+                      Error.type_error (Expr.to_loc expr2)
+                        (Printf.sprintf !"Tuple index %d is out of bounds; %{Type} has %d component(s)" idx typ1 (List.length ts))
                     | App _ ->
                       Error.type_error (Expr.to_loc expr1) (Printf.sprintf !"Expected product type, but found %{Type}" typ1)
                   end
@@ -497,7 +687,7 @@ module ProcessExpr = struct
               | [e] ->
                 if is_ra_type
                 then Error.type_error (Expr.to_loc e)
-                    "Unexpected argument supplied to predicate 'own' with RA-valued field"
+                    "'own(...)' for a field whose value is a resource algebra (RA) element does not take an extra fraction argument"
                 else
                 let+ e = process_expr e (Type.real |> Type.set_ghost_to expected_typ) in
                 [e]
@@ -626,7 +816,14 @@ module ProcessExpr = struct
         (* Read expressions *)
         | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
           let* qual_ident, symbol =
-              Rewriter.resolve_and_find field_ident
+              (* `expr1.M.value` where `M` is an uninstantiated functor: infer from
+                 `expr1`'s peeked type, see try_resolve_implicit_instantiation_destr. *)
+              resolve_or_implicit field_ident ~on_miss:(fun () ->
+                  let* peeked_expr1 =
+                    process_expr expr1 (Type.any |> Type.set_ghost_to expected_typ)
+                  in
+                  try_resolve_implicit_instantiation_destr ~field_ident
+                    ~arg_typ:(Expr.to_type peeked_expr1))
             in
             let* symbol = Rewriter.Symbol.reify symbol in
             match symbol with
@@ -683,7 +880,8 @@ module ProcessExpr = struct
             check_and_set expr given_typ given_typ expected_typ
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
         | ExprExt expr_ext, expr_list ->
-          let (module Ext) = !Ext.ext in Ext.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
+          let* ext_hooks = Rewriter.current_ext_hooks in
+          ext_hooks.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -736,7 +934,7 @@ module ProcessExpr = struct
             let expr =
               Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr)
             in
-            check_and_set expr expr_typ expr_typ expected_typ)
+            check_and_set expr expr_typ expr_typ expected_typ))
 
 (* end of process_expr *)
 
@@ -756,8 +954,8 @@ module ProcessExpr = struct
       | _ -> false
     in
 
-    Logs.debug (fun m -> m "Typing.process_callable_args: args_list=%a" (Util.Print.pr_list_comma Expr.pr) args_list);
-    
+    let* () = Rewriter.Logs.debug (fun printers m -> m "Typing.process_callable_args: args_list=%a" (Util.Print.pr_list_comma printers.pr_expr) args_list) in
+
     (* Check if too few arguments given. *)
     let _ =
       List.drop callable_formals (List.length args_list)
@@ -798,8 +996,8 @@ module ProcessExpr = struct
       | _ -> false
     in
 
-    Logs.debug(fun m -> m "Typing.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr callable_decl.call_decl_name Expr.pr_list returns_list);
-    
+    let* () = Rewriter.Logs.debug (fun printers m -> m "Typing.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr callable_decl.call_decl_name printers.pr_expr_list returns_list) in
+
     (* Check if too few returns given. *)
     let _ =
       let num_found = List.length returns_list in
@@ -820,7 +1018,7 @@ module ProcessExpr = struct
             || is_ghost_call || is_ghost_scope
           in
           let tp_expr = var_decl.Type.var_type |> Type.set_ghost is_ghost in
-          Logs.debug (fun m -> m !"%{Ident} %{Type} %b" var_decl.var_name tp_expr is_ghost); 
+          let* () = Rewriter.Logs.debug (fun printers m -> m "%a %a %b" Ident.pr var_decl.var_name printers.pr_type tp_expr is_ghost) in
           let+ expr = process_expr expr tp_expr in
           expr
           )
@@ -831,6 +1029,299 @@ module ProcessExpr = struct
         Error.type_error loc
         @@ Printf.sprintf "Too many values returned for %s"
             (Ident.to_string callable_decl.call_decl_name)
+
+  (** Try plain resolution of [qual_ident]; on failure, invoke [on_miss] (one of
+      [try_resolve_implicit_instantiation] / [try_resolve_implicit_instantiation_destr])
+      and, if it rewrites to a new qual_ident, resolve that instead. [None] if neither
+      applies. *)
+  and resolve_or_implicit_opt (qual_ident : qual_ident)
+      ~(on_miss : unit -> qual_ident option Rewriter.t) :
+      (qual_ident * Rewriter.Symbol.t) option Rewriter.t =
+    let open Rewriter.Syntax in
+    let* resolved = Rewriter.resolve_and_find_opt qual_ident in
+    match resolved with
+    | Some _ -> Rewriter.return resolved
+    | None -> (
+        let* rewritten = on_miss () in
+        match rewritten with
+        | Some rewritten_qual_ident -> Rewriter.resolve_and_find_opt rewritten_qual_ident
+        | None -> Rewriter.return None)
+
+  (** [resolve_or_implicit_opt], but raising the ordinary "unknown identifier" error
+      instead of returning [None] when [on_miss] doesn't apply either. *)
+  and resolve_or_implicit (qual_ident : qual_ident)
+      ~(on_miss : unit -> qual_ident option Rewriter.t) :
+      (qual_ident * Rewriter.Symbol.t) Rewriter.t =
+    let open Rewriter.Syntax in
+    let* resolved = resolve_or_implicit_opt qual_ident ~on_miss in
+    match resolved with
+    | Some resolved -> Rewriter.return resolved
+    | None -> Rewriter.resolve_and_find qual_ident
+
+  (** Resolve [qi] as `<functor>.<member>`: split off the prefix, resolve it, and check
+      it names a functor eligible for implicit instantiation (see
+      [ProgUtils.is_generic_functor]). [None] if [qi] is unqualified, its prefix
+      doesn't resolve, or isn't such a functor. Shared by
+      [try_resolve_implicit_instantiation] and
+      [try_resolve_implicit_instantiation_destr]. *)
+  and resolve_generic_functor_prefix (qi : qual_ident) :
+      (qual_ident * Module.t * ident) option Rewriter.t =
+    let open Rewriter.Syntax in
+    if List.is_empty (QualIdent.path qi) then Rewriter.return None
+    else
+      let functor_qi_written = QualIdent.pop qi in
+      let member_ident = QualIdent.unqualify qi in
+      let+ functor_resolved = ProgUtils.resolve_generic_functor functor_qi_written in
+      Option.map functor_resolved ~f:(fun (functor_qual_ident, m) ->
+          (functor_qual_ident, m, member_ident))
+
+  (** Check whether [qi] is (an alias for) an instantiation of the functor resolved as
+      [functor_qual_ident]: an instantiation's alias resolves back to
+      [functor_qual_ident] itself, via [Rewriter.Symbol.orig_qid]. *)
+  and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
+      bool Rewriter.t =
+    let open Rewriter.Syntax in
+    let+ resolved = Rewriter.resolve_and_find_opt qi in
+    match resolved with
+    | Some (_, symbol) -> QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident
+    | None -> false
+
+  (** Check whether [typ] (normalized via [ProcessTypeExpr.process_type_expr], in case
+      it's a raw, self-referentially-read-back type) names an existing instantiation
+      of functor [m]; return that instantiation's qualified name on success. *)
+  and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Module.t)
+      (typ : type_expr) : qual_ident option Rewriter.t =
+    let open Rewriter.Syntax in
+    match m.mod_decl.mod_decl_rep with
+    | None -> Rewriter.return None
+    | Some rep_ident -> (
+        let* typ = ProcessTypeExpr.process_type_expr typ in
+        match typ with
+        | App (Var qi, [], _)
+          when Ident.equal (QualIdent.unqualify qi) rep_ident
+               && not (List.is_empty (QualIdent.path qi)) -> (
+            let inst_qi = QualIdent.pop qi in
+            let* is_inst = resolves_to_instantiation_of ~functor_qual_ident inst_qi in
+            Rewriter.return (if is_inst then Some inst_qi else None))
+        | _ -> Rewriter.return None)
+
+  (** Unify [pairs] against each other, threading (and extending) the partial solution
+      [u] from [m]'s formals to the concrete types they've been solved to so far. Each
+      pair `(t1, t2)` is `t1`, a type written inside [m]'s own un-instantiated body
+      (e.g. a parameter's declared type), against `t2`, the corresponding concrete type
+      from the call site (e.g. an argument's inferred type). Deliberately a structural
+      approximation, not a full algorithm (no union-find, no occurs check) -- see
+      [unify_one] below for the three cases it distinguishes. *)
+  and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident) (m : Module.t)
+      (u : (ident * type_expr) list) (pairs : (type_expr * type_expr) list) :
+      (ident * type_expr) list Rewriter.t =
+    let open Rewriter.Syntax in
+    (* [formal_reps]: each of [m]'s formals' rep-qualident within [m] (the "unification
+       variables" `t1` can bind); [m_rep_qi]: [m]'s own rep-qualident. *)
+    let* formal_reps =
+      Rewriter.List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+          let+ rep = ProgUtils.resolve_rep_ident formal.mod_inst_type in
+          Base.Option.map rep ~f:(fun (_, rep_ident) ->
+              ( QualIdent.append
+                  (QualIdent.append functor_qual_ident formal.mod_inst_name)
+                  rep_ident,
+                formal.mod_inst_name,
+                rep_ident )))
+    in
+    let formal_reps = List.filter_opt formal_reps in
+    let m_rep_qi =
+      Base.Option.map m.mod_decl.mod_decl_rep ~f:(QualIdent.append functor_qual_ident)
+    in
+    (* Canonicalize via [expand_type_expr] before storing/comparing: two bindings for
+       the same formal can be the same type reached through different alias chains
+       (e.g. `Int` vs. `GenInst$$M$$Int.T.T`), which would otherwise look like a
+       conflict. *)
+    let combine u formal_ident t2 =
+      let* t2 = ProcessTypeExpr.expand_type_expr (t2 |> Type.set_ghost false) in
+      match List.Assoc.find u formal_ident ~equal:Ident.equal with
+      | Some prior when not (Type.equal prior t2) ->
+          Error.type_error loc
+            (Printf.sprintf
+               !"Cannot infer a single type for parameter %{Ident} of %{QualIdent}: \
+                 found both %{Type} and %{Type}"
+               formal_ident functor_qual_ident prior t2)
+      | Some _ -> Rewriter.return u
+      | None -> Rewriter.return (List.Assoc.add u formal_ident t2 ~equal:Ident.equal)
+    in
+    let same_head c1 c2 =
+      Type.equal
+        (Type.App (c1, [], Type.dummy_attr) |> Type.set_ghost false)
+        (Type.App (c2, [], Type.dummy_attr) |> Type.set_ghost false)
+    in
+    let rec go u = function
+      | [] -> Rewriter.return u
+      | (t1, t2) :: pairs ->
+          let* u = unify_one u t1 t2 in
+          go u pairs
+    and unify_one u t1 t2 =
+      (* Normalize only [t2]: [t1] names [m]'s own formals/rep, which are by design
+         unreachable via ordinary resolution from outside [m] -- it's only ever
+         pattern-matched against [formal_reps]/[m_rep_qi] below, never resolved. *)
+      let* t2 = ProcessTypeExpr.process_type_expr t2 in
+      if Type.is_any (t1 |> Type.set_ghost false) || Type.is_any (t2 |> Type.set_ghost false)
+      then Rewriter.return u
+      else
+        (* Three cases: `t1` is a formal's rep (bind/check it against `t2`); `t1` is
+           [m]'s own rep and `t2` is an existing instantiation (read off all formals at
+           once); or both sides recurse structurally on matching head/arity. *)
+        match
+          List.find formal_reps ~f:(fun (rep_qi, _, _) ->
+              match t1 with
+              | App (Var qi, [], _) -> QualIdent.equal rep_qi qi
+              | _ -> false)
+        with
+        | Some (_, formal_ident, _) -> combine u formal_ident t2
+        | None -> (
+            match t1 with
+            | App (Var qi, [], _)
+              when (match m_rep_qi with Some r -> QualIdent.equal qi r | None -> false)
+              -> (
+                match t2 with
+                | App (Var qi2, [], _) -> (
+                    let inst_qi = QualIdent.pop qi2 in
+                    let* is_inst = resolves_to_instantiation_of ~functor_qual_ident inst_qi in
+                    if not is_inst then Rewriter.return u
+                    else
+                      Rewriter.List.fold_left formal_reps ~init:u
+                        ~f:(fun u (_, formal_ident, rep_ident) ->
+                          combine u formal_ident
+                            (Type.mk_var
+                               (QualIdent.append
+                                  (QualIdent.append inst_qi formal_ident)
+                                  rep_ident))))
+                | _ -> Rewriter.return u)
+            | App (c1, args1, _) -> (
+                match t2 with
+                | App (c2, args2, _)
+                  when Int.equal (List.length args1) (List.length args2) && same_head c1 c2
+                  -> go u (List.zip_exn args1 args2)
+                | _ ->
+                    Error.type_error loc
+                      (Printf.sprintf !"Cannot unify type %{Type} with type %{Type}" t1 t2)))
+    in
+    go u pairs
+
+  (** Try to resolve [qual_ident] (e.g. `M.foo`, already failed plain resolution) as a
+      call into a member of an uninstantiated generic functor, implicitly instantiating
+      it. [None] if [qual_ident] isn't `<functor>.<member>`-shaped, or the functor/member
+      doesn't exist; once both exist, either succeeds or raises (the real problem is
+      inference, not a typo). Solves [m]'s formals via [unify_type_list], unifying each
+      argument's peeked type against its formal's declared type, plus the member's own
+      return type against [expected_typ]. *)
+  and try_resolve_implicit_instantiation ~(loc : location) ~(qual_ident : qual_ident)
+      ~(arg_exprs : expr list) ~(expected_typ : type_expr) : qual_ident option Rewriter.t
+      =
+    let open Rewriter.Syntax in
+    let* prefix = resolve_generic_functor_prefix qual_ident in
+    match prefix with
+    | None -> Rewriter.return None
+    | Some (functor_qual_ident, m, member_ident) -> (
+        (* The member can be an ordinary callable or a data constructor -- both are
+           addressable as `<module>.<member>(...)` and solved identically below. *)
+        let member_info =
+          List.find_map m.mod_def ~f:(function
+            | SymbolDef (CallDef call_def)
+              when Ident.equal (Callable.to_decl call_def).call_decl_name member_ident
+              ->
+                let call_decl = Callable.to_decl call_def in
+                let return_type =
+                  match call_decl.call_decl_returns with
+                  | [ r ] -> Some r.Type.var_type
+                  | _ -> None
+                in
+                Some (call_decl.call_decl_formals, return_type)
+            | SymbolDef (ConstrDef constr_def)
+              when Ident.equal constr_def.constr_name member_ident ->
+                Some (constr_def.constr_args, Some constr_def.constr_return_type)
+            | _ -> None)
+        in
+        match member_info with
+        | None -> Rewriter.return None
+        | Some (member_formals, return_type_opt) ->
+            if List.length member_formals <> List.length arg_exprs then
+              arg_mismatch_error "Callable" loc (Type.Var qual_ident)
+                (List.length member_formals)
+            else
+              (* Peek each argument's type; the processed expr itself is discarded and
+                 reprocessed once the instantiation is resolved. *)
+              let* arg_pairs =
+                Rewriter.List.map2_exn member_formals arg_exprs
+                  ~f:(fun formal_var_decl arg_expr ->
+                    let+ arg_expr =
+                      process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ)
+                    in
+                    let arg_typ = Expr.to_type arg_expr in
+                    (* An underdetermined literal (e.g. `{||}`) peeked with no expected
+                       type gives `Bot` for its missing type information -- that's not a
+                       real type argument to solve the instantiation with, so reject it
+                       here instead of letting it flow into a bogus instantiation. *)
+                    if Type.contains_bot arg_typ then
+                      Error.type_error (Expr.to_loc arg_expr)
+                        (Printf.sprintf
+                           !"Cannot infer a type argument for %{QualIdent} from this \
+                             argument: the type of `%{Expr}` cannot be uniquely \
+                             determined here. Give it an explicit type annotation, or \
+                             write an explicit instantiation, e.g. `module M_X = \
+                             %{QualIdent}[...]`"
+                           functor_qual_ident arg_expr functor_qual_ident)
+                    else (formal_var_decl.Type.var_type, arg_typ))
+              in
+              let pairs =
+                match return_type_opt with
+                | Some return_type -> (return_type, expected_typ) :: arg_pairs
+                | None -> arg_pairs
+              in
+              let* bindings = unify_type_list ~loc ~functor_qual_ident m [] pairs in
+              (match
+                 List.find m.mod_decl.mod_decl_formals ~f:(fun formal ->
+                     not
+                       (List.Assoc.mem bindings formal.mod_inst_name ~equal:Ident.equal))
+               with
+              | Some formal ->
+                  Error.type_error loc
+                    (Printf.sprintf
+                       !"Cannot infer a type argument for parameter %{Ident} of \
+                         %{QualIdent}; write an explicit instantiation, e.g. `module \
+                         M_X = %{QualIdent}[...]`"
+                       formal.mod_inst_name functor_qual_ident functor_qual_ident)
+              | None ->
+                  let arg_types =
+                    List.map m.mod_decl.mod_decl_formals ~f:(fun formal ->
+                        List.Assoc.find_exn bindings formal.mod_inst_name
+                          ~equal:Ident.equal)
+                  in
+                  let+ inst_qual_ident =
+                    ProgUtils.instantiate_type_functor ~loc ~f:!(Rewriter.process_symbol_ref)
+                      ~functor_qual_ident ~functor_mod_decl:m.mod_decl arg_types
+                  in
+                  Some (QualIdent.append inst_qual_ident member_ident)))
+
+  (** The `Read`-expression (`expr1.M.value`) counterpart of
+      [try_resolve_implicit_instantiation]. A destructor has no arguments to infer a
+      type from, only [arg_typ] ([expr1]'s peeked type) -- so this only succeeds when
+      [arg_typ] already names an existing instantiation of `M`, rewriting to that
+      instantiation's destructor. *)
+  and try_resolve_implicit_instantiation_destr ~(field_ident : qual_ident)
+      ~(arg_typ : type_expr) : qual_ident option Rewriter.t =
+    let open Rewriter.Syntax in
+    let* prefix = resolve_generic_functor_prefix field_ident in
+    match prefix with
+    | None -> Rewriter.return None
+    | Some (functor_qual_ident, m, member_ident) ->
+        let has_member =
+          List.exists m.mod_def ~f:(function
+            | SymbolDef (DestrDef destr_def) -> Ident.equal destr_def.destr_name member_ident
+            | _ -> false)
+        in
+        if not has_member then Rewriter.return None
+        else
+          let+ inst_qi_opt = resolve_existing_instantiation ~functor_qual_ident m arg_typ in
+          Option.map inst_qi_opt ~f:(fun inst_qi -> QualIdent.append inst_qi member_ident)
 end
 
 
@@ -865,6 +1356,28 @@ module ProcessCallable = struct
       expr Rewriter.t =
     let open Rewriter.Syntax in
     match expr with
+    (* `e.f`'s second operand is a field/destructor *name*, not a variable reference:
+       [ProcessExpr]'s own [Read] case resolves it against the symbol table (and, for
+       `e.M.value`, against `e`'s type) rather than through the local scope. Left to the
+       generic [App] case below it would be disambiguated as if it were a variable, so a
+       local sharing the field's name would capture it -- `var elem: Int := 5;` would
+       rewrite the `elem` in a later `xs.elem` to that local's renamed ident, and the
+       read would fail to resolve. Only the receiver is disambiguated. *)
+    | App (Read, [ ref_expr; (App (Var _, [], _) as field_expr) ], expr_attr) ->
+        let+ ref_expr = disambiguate_expr ref_expr disam_tbl in
+        Expr.App (Read, [ ref_expr; field_expr ], expr_attr)
+    (* Extension constructs are handled by the active extension rather than by the
+       generic [App] case below, because -- unlike every core [App] -- an extension
+       construct may bind variables of its own that its sub-expressions refer to (a
+       `match` arm's pattern variables, say), which needs a pushed scope here. The
+       common non-binding case still gets the same structural walk, via DefaultExt. *)
+    | App (ExprExt expr_ext, expr_list, expr_attr) ->
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let+ expr_ext, expr_list =
+          ext_hooks.disambiguate_expr_ext expr_ext expr_list expr_attr disam_tbl
+            { disambiguate_expr }
+        in
+        Expr.App (ExprExt expr_ext, expr_list, expr_attr)
     | App (constr, expr_list, expr_attr) ->
         let* expr_list =
           Rewriter.List.map expr_list ~f:(fun expr ->
@@ -895,10 +1408,10 @@ module ProcessCallable = struct
               in
               (disam_tbl, var_decl'))
         in
-        Logs.debug (fun m -> m
+        let* () = Rewriter.Logs.debug (fun printers m -> m
           "typing.ProcessCallable.disambiguate_expr: expr = %a"
-            Expr.pr expr
-        );
+            printers.pr_expr expr
+        ) in
         let* disambiguated_expr = disambiguate_expr expr disam_tbl in
         let* trgs =
           Rewriter.List.map trgs ~f:(fun trg ->
@@ -910,18 +1423,19 @@ module ProcessCallable = struct
           Expr.(
             Binder (binder, var_decl_list, trgs, disambiguated_expr, expr_attr))
 
-  let disambiguate_process_expr (expr : expr) (expected_typ : type_expr)
+  let disambiguate_process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr)
       (disam_tbl : DisambiguationTbl.t) : expr Rewriter.t =
     let open Rewriter.Syntax in
     let* expr = disambiguate_expr expr disam_tbl in
+    let* printers = Rewriter.current_printers in
 
-    let+ processed_expr = 
-      ProcessExpr.process_expr expr expected_typ
-    in 
-    
-    Logs.debug (fun m -> m 
+    let+ processed_expr =
+      ProcessExpr.process_expr ~allow_proc_call expr expected_typ
+    in
+
+    Logs.debug (fun m -> m
       "Typing.ProcessCallable.disambiguate_process_expr: processed_expr = %a"
-      Expr.pr processed_expr
+      printers.pr_expr processed_expr
     );
     
     processed_expr
@@ -977,7 +1491,7 @@ module ProcessCallable = struct
             begin match symbol with
               | FieldDef field_decl when not field_decl.field_is_ghost ->
                 Error.type_error (QualIdent.to_loc qual_ident)
-                  "Frame-preserving updates are only allowed on ghost fields"
+                  "Frame-preserving updates ('fpu') can only be applied to ghost fields whose value is a resource algebra (RA) element"
               | FieldDef { field_type = App (Fld, [ given_type ], _); _ }  ->
                 Some (field_qual_ident, given_type)
               | _ -> None
@@ -1143,7 +1657,7 @@ module ProcessCallable = struct
         let* proc =
           Rewriter.find_and_reify_callable proc_qual_ident |+> fun c -> c.call_decl
         in
-        Logs.debug (fun m -> m "Typing.process_au_action_stmt: commitAU: returns = [ %a ]" Expr.pr_list returns);
+        let* () = Rewriter.Logs.debug (fun printers m -> m "Typing.process_au_action_stmt: commitAU: returns = [ %a ]" printers.pr_expr_list returns) in
         let+ returns = ProcessExpr.process_callable_returns loc ~is_ghost_scope:true ~is_call:false proc returns in
         ( Stmt.AUAction
             {
@@ -1162,7 +1676,8 @@ module ProcessCallable = struct
           Rewriter.return
             ( Stmt.AUAction { auaction_kind = AbortAU { token; proc_args } },
               disam_tbl )
-      else Error.type_error loc "Unknown AU action"
+      else Error.type_error loc
+        (Printf.sprintf !"'%{QualIdent}' is not a recognized atomic-update (AU) action (expected one of bindAU, openAU, commitAU, abortAU, ...)" qual_ident)
     | _ ->
       Error.type_error loc
         (Printf.sprintf !"%{QualIdent} expects at least one argument" qual_ident)
@@ -1203,9 +1718,20 @@ module ProcessCallable = struct
           if Ident.(Predefs.bindAU_ident = QualIdent.unqualify qual_ident) then
             Type.mk_atomic_token (QualIdent.to_loc qual_ident) curr_callable
           else Type.meet var_decl.var_type Type.any
-        | Some (App (Read, [ _; field_expr ], _)) ->
+        | Some (App (Read, [ expr1; field_expr ], _)) ->
           let field_qual_ident = Expr.to_qual_ident field_expr in
-          let+ symbol = Rewriter.find_and_reify field_qual_ident in
+          let* _, symbol =
+            (* `expr1.M.value` where `M` is an uninstantiated functor, see
+               ProcessExpr.try_resolve_implicit_instantiation_destr. *)
+            ProcessExpr.resolve_or_implicit field_qual_ident ~on_miss:(fun () ->
+                let* peeked_expr1 =
+                  disambiguate_process_expr expr1 (Type.any |> Type.set_ghost var_ghost)
+                    disam_tbl
+                in
+                ProcessExpr.try_resolve_implicit_instantiation_destr
+                  ~field_ident:field_qual_ident ~arg_typ:(Expr.to_type peeked_expr1))
+          in
+          let+ symbol = Rewriter.Symbol.reify symbol in
           begin match symbol with
             | FieldDef { field_type = App (Fld, [typ], _); _ } -> typ
             | DestrDef destr_def -> destr_def.destr_return_type
@@ -1213,7 +1739,7 @@ module ProcessCallable = struct
           end
         | Some expr ->
           let+ expr =
-            disambiguate_process_expr expr (var_decl.var_type |> Type.set_ghost var_ghost) disam_tbl
+            disambiguate_process_expr expr (var_decl.var_type |> Type.set_ghost var_ghost) disam_tbl ~allow_proc_call:true
           in
           Expr.to_type expr
       in
@@ -1233,7 +1759,7 @@ module ProcessCallable = struct
       in
       let* _ =
         Rewriter.introduce_symbol
-          (VarDef { var_decl; var_init = None })
+          (VarDef { var_decl; var_init = None; var_is_free = NotFree })
       in
       let var = QualIdent.from_ident var_decl.var_name in
       Rewriter.return @@ (Stmt.Havoc { havoc_var = var; havoc_is_init = true }, disam_tbl')
@@ -1254,16 +1780,25 @@ module ProcessCallable = struct
         | App (Read, [ ref_expr; read_expr ], _) ->
           let read_expr_qi = Expr.to_qual_ident read_expr in
 
-
-          let* read_expr_qi, read_symbol = Rewriter.resolve_and_find read_expr_qi in
+          let* read_expr_qi, read_symbol =
+            (* `ref_expr.M.value` where `M` is an uninstantiated functor, see
+               ProcessExpr.try_resolve_implicit_instantiation_destr. *)
+            ProcessExpr.resolve_or_implicit read_expr_qi ~on_miss:(fun () ->
+                let* peeked_ref_expr =
+                  disambiguate_process_expr ref_expr (Type.any |> Type.set_ghost is_ghost_scope)
+                    disam_tbl
+                in
+                ProcessExpr.try_resolve_implicit_instantiation_destr
+                  ~field_ident:read_expr_qi ~arg_typ:(Expr.to_type peeked_ref_expr))
+          in
           let* read_symbol = Rewriter.Symbol.reify read_symbol in
 
           begin match read_symbol with
           | FieldDef f ->
 
-            Logs.debug (fun m ->
-                m "process_stmt: read_assign_rhs: %a" Expr.pr
-                  assign_desc.assign_rhs);
+            let* () = Rewriter.Logs.debug (fun printers m ->
+                m "process_stmt: read_assign_rhs: %a" printers.pr_expr
+                  assign_desc.assign_rhs) in
             let field_qual_ident = read_expr_qi in
             let field_read_lhs =
               match assign_desc.assign_lhs with
@@ -1290,15 +1825,16 @@ module ProcessCallable = struct
             process_basic_stmt call_decl (Stmt.Assign { assign_desc with assign_rhs}) stmt_loc disam_tbl
 
           | _ ->
-            Error.type_error stmt_loc "Expected DestrDef of field read expression, found"
+            Error.type_error stmt_loc
+              (Printf.sprintf "Expected a data destructor on the right-hand side of this field read, but found %s" (Symbol.kind read_symbol))
           end
         (* AU action *)
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
           process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
         | _ -> 
-          Logs.debug (fun m ->
-              m "process_stmt: assign_desc: %a" Stmt.pr_basic_stmt
-                (Assign assign_desc));
+          let* () = Rewriter.Logs.debug (fun printers m ->
+              m "process_stmt: assign_desc: %a" printers.pr_stmt_basic
+                (Assign assign_desc)) in
                   
           let* assign_rhs_callable_opt =
             match assign_desc.assign_rhs with
@@ -1306,11 +1842,28 @@ module ProcessCallable = struct
               let* qual_ident =
                 disambiguate_ident qual_ident disam_tbl
               in
-              let* qual_ident, symbol =
-                Rewriter.resolve_and_find qual_ident
+              (* Peek at whether the RHS is a procedure/lemma call, without raising if
+                 it doesn't resolve as-is -- `M.foo` may still resolve via implicit
+                 functor instantiation. Falls through to the ordinary expression path
+                 (and its error) otherwise. *)
+              let* resolved =
+                ProcessExpr.resolve_or_implicit_opt qual_ident ~on_miss:(fun () ->
+                    (* `args` needs disambiguating here since try_resolve_implicit_instantiation's
+                       argument peek doesn't disambiguate local identifiers itself. *)
+                    let* args =
+                      Rewriter.List.map args ~f:(fun e -> disambiguate_expr e disam_tbl)
+                    in
+                    ProcessExpr.try_resolve_implicit_instantiation ~loc:stmt_loc
+                      ~qual_ident ~arg_exprs:args
+                      ~expected_typ:(Type.any |> Type.set_ghost is_ghost_scope))
               in
-              let+ symbol = Rewriter.Symbol.reify symbol in
-              match symbol with CallDef call_def -> Some (symbol, qual_ident, args) | _ -> None)
+              match resolved with
+              | None -> Rewriter.return None
+              | Some (qual_ident, symbol) ->
+                  let+ symbol = Rewriter.Symbol.reify symbol in
+                  (match symbol with
+                  | CallDef call_def -> Some (symbol, qual_ident, args)
+                  | _ -> None))
             | _ -> Rewriter.return None
           in
                   
@@ -1349,9 +1902,9 @@ module ProcessCallable = struct
               disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl
             in
             
-            Logs.debug (fun m ->
-                m "process_stmt: disam_assign_rhs: %a" Expr.pr
-                  assign_rhs);
+            let* () = Rewriter.Logs.debug (fun printers m ->
+                m "process_stmt: disam_assign_rhs: %a" printers.pr_expr
+                  assign_rhs) in
             
             let assign_desc =
               Stmt.{ assign_desc with assign_lhs; assign_rhs }
@@ -1379,12 +1932,18 @@ module ProcessCallable = struct
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       let field_type = match symbol with
-        | FieldDef { field_type = App (Fld, [ field_type ], _); _ }  ->
-          field_type
+        | FieldDef { field_type = App (Fld, [ field_type ], _); field_is_ghost; _ }  ->
+          if is_ghost_scope && not field_is_ghost then
+            Error.type_error (QualIdent.to_loc fw_desc.field_write_field)
+              (Printf.sprintf !"Cannot assign to non-ghost field %{QualIdent} in ghost context" fw_desc.field_write_field)
+          else field_type
         | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
       in
       let* is_field_an_ra = ProgUtils.is_ra_type field_type in
-      let _ = if is_field_an_ra then Error.type_error stmt_loc "Cannot assign RA-valued field. Did you mean to use fpu?" in
+      let _ = if is_field_an_ra then
+          Error.type_error stmt_loc
+            (Printf.sprintf !"Cannot assign directly to field %{QualIdent}, whose value is a resource algebra (RA) element; use a frame-preserving update ('fpu') instead" fw_desc.field_write_field)
+      in
       let* field_write_ref =
         disambiguate_process_expr fw_desc.field_write_ref Type.ref
           disam_tbl
@@ -1520,7 +2079,7 @@ module ProcessCallable = struct
       ( Stmt.Use { use_desc with use_name; use_args; use_witnesses_or_binds },
         disam_tbl )
     | New new_desc ->
-      let* new_qual_ident, var_decl = get_assign_lhs new_desc.new_lhs ~is_init:false in
+      let* new_qual_ident, var_decl = get_assign_lhs new_desc.new_lhs ~is_init:new_desc.new_is_init in
       let* var_type_expanded =
         ProcessTypeExpr.expand_type_expr var_decl.var_type
       in
@@ -1543,7 +2102,7 @@ module ProcessCallable = struct
           Rewriter.List.map new_desc.new_args ~f:process_field_init
         in
         
-        let new_desc = Stmt.{ new_lhs = new_qual_ident; new_args } in
+        let new_desc = Stmt.{ new_desc with new_lhs = new_qual_ident; new_args } in
         
         (Stmt.New new_desc, disam_tbl)
       else
@@ -1584,9 +2143,9 @@ module ProcessCallable = struct
           Expr.App
             ( Var call_desc.call_name,
               call_desc.call_args,
-              { Expr.expr_loc = stmt_loc; expr_type = Type.any } )
+              Expr.mk_attr stmt_loc Type.any )
           |> fun expr ->
-          disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl
+          disambiguate_process_expr expr (Type.any |> Type.set_ghost is_ghost) disam_tbl ~allow_proc_call:true
         in
         let+ _ = Rewriter.exit_ghost in
 
@@ -1644,24 +2203,25 @@ module ProcessCallable = struct
         fpu_new_val;
         },
       disam_tbl )
-    | StmtExt (stmt_ext, expr_list)  -> 
-      let (module Ext) = !Ext.ext in
-        Ext.type_check_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl 
+    | BasicStmtExt (stmt_ext, expr_list)  ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+        ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
           {
             ExtApi.get_assign_lhs = get_assign_lhs;
             expand_type_expr = ProcessTypeExpr.expand_type_expr;
             disambiguate_process_expr;
             type_mismatch_error;
             disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-            process_symbol_ref = Rewriter.process_symbol_ref;
-          }  
+            process_symbol = !Rewriter.process_symbol_ref;
+            process_stmt = !Rewriter.process_stmt_ref;
+          }
 
   let process_stmt ?(new_scope = true) call_decl
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
     (Stmt.t * DisambiguationTbl.t) Rewriter.t =
     let rec process_stmt ?(new_scope = true) stmt disam_tbl =
-      Logs.debug (fun m -> m "process_stmt: %a" Stmt.pr stmt);
       let open Rewriter.Syntax in
+      let* () = Rewriter.Logs.debug (fun printers m -> m "process_stmt: %a" printers.pr_stmt stmt) in
       let* is_ghost_scope = Rewriter.is_ghost_scope in
       let+ stmt_desc, disam_tbl =
         match stmt.Stmt.stmt_desc with
@@ -1695,6 +2255,28 @@ module ProcessCallable = struct
                 ~f:(process_stmt_spec disam_tbl)
             in
 
+            let* loop_contract_ext =
+              let* ext_hooks = Rewriter.current_ext_hooks in
+              Rewriter.List.map loop_desc.loop_contract_ext
+                ~f:(fun contract_ext ->
+                    ext_hooks.type_check_contract_ext call_decl contract_ext (Stmt.to_loc stmt) disam_tbl
+                      {
+                        ExtApi.get_assign_lhs =
+                          (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                             Error.internal_error (QualIdent.to_loc qi)
+                               "assignments are not permitted in a contract clause");
+                        expand_type_expr = ProcessTypeExpr.expand_type_expr;
+                        disambiguate_process_expr;
+                        type_mismatch_error;
+                        disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                        process_symbol = !Rewriter.process_symbol_ref;
+                        process_stmt =
+                          (fun _call_decl stmt _disam_tbl ->
+                             Error.internal_error (Stmt.to_loc stmt)
+                               "statements are not permitted in a contract clause");
+                      })
+            in
+
             let disam_tbl = DisambiguationTbl.push disam_tbl in
             let* loop_prebody, disam_tbl =
               process_stmt loop_desc.loop_prebody disam_tbl
@@ -1713,7 +2295,7 @@ module ProcessCallable = struct
 
             (* Actually think about what variables need to be collected in `locals`. What if same variable is declared in multiple scopes in a callable, do all of them go in the `call_decl.call_decl_locals`? TW: I would say yes, unless you already have that information in the SymbolTable and always lookup locals through that. *)
             let (loop_desc : Stmt.loop_desc) =
-              { loop_contract; loop_prebody; loop_test; loop_postbody }
+              { loop_contract; loop_contract_ext; loop_prebody; loop_test; loop_postbody }
             in
 
             (Stmt.Loop loop_desc, disam_tbl)
@@ -1742,6 +2324,21 @@ module ProcessCallable = struct
             in
 
             (Stmt.Cond cond_desc, disam_tbl)
+        | StmtExt stmt_ext ->
+            let* ext_hooks = Rewriter.current_ext_hooks in
+            ext_hooks.type_check_stmt_ext call_decl stmt_ext (Stmt.to_loc stmt) disam_tbl
+              {
+                ExtApi.get_assign_lhs =
+                  (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                     Error.internal_error (QualIdent.to_loc qi)
+                       "assignments are not permitted directly in a top-level statement extension");
+                expand_type_expr = ProcessTypeExpr.expand_type_expr;
+                disambiguate_process_expr;
+                type_mismatch_error;
+                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                process_symbol = !Rewriter.process_symbol_ref;
+                process_stmt = (fun _call_decl stmt disam_tbl -> process_stmt stmt disam_tbl);
+              }
       in
 
       (Stmt.{ stmt_desc; stmt_loc = stmt.stmt_loc }, disam_tbl)
@@ -1751,9 +2348,9 @@ module ProcessCallable = struct
 
   let process_callable (callable : Callable.t) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
-    Logs.debug (fun m ->
-        m "Typing.process_callable: Start Processing callable: %a" Callable.pr
-          callable);
+    let* () = Rewriter.Logs.debug (fun printers m ->
+        m "Typing.process_callable: Start Processing callable: %a" printers.pr_callable
+          callable) in
     let* _ = Rewriter.enter_callable callable in
     let disam_tbl = DisambiguationTbl.push [] in
     let call_decl = Callable.to_decl callable in
@@ -1777,18 +2374,7 @@ module ProcessCallable = struct
       process_decls call_decl.call_decl_locals disam_tbl
     in
 
-    let call_decl_locals = match call_decl.call_decl_kind with
-      | Proc | Lemma -> 
-        let (module Ext) = !Ext.ext in
-        (* Adding Extension local variables *)
-        Logs.debug (fun m -> m "Adding EXT locals on: %a" Ident.pr call_decl.call_decl_name);
-        Ext.ext_local_vars @ call_decl_locals
-      | Func | Pred | Invariant -> 
-        let (module Ext) = !Ext.ext in
-        Ext.ext_local_vars @ 
-        call_decl_locals 
-    in
-    (* let call_decl_locals = Ext.ext_local_vars @ call_decl_locals in *)
+    let* ext_hooks = Rewriter.current_ext_hooks in
 
     Logs.debug (fun m -> m "adding formals");
     let* _ = Rewriter.add_locals call_decl_formals in
@@ -1808,7 +2394,70 @@ module ProcessCallable = struct
       Rewriter.List.map call_decl.call_decl_postcond
         ~f:(process_stmt_spec disam_tbl)
     in
-    
+
+    let () =
+      (* Return variables are only meaningful once the callable has returned, so they
+         must not occur in a `requires` clause -- only in `ensures` clauses. *)
+      let return_qual_idents =
+        List.map call_decl_returns ~f:(fun var_decl ->
+            QualIdent.from_ident var_decl.var_name)
+        |> Set.of_list (module QualIdent)
+      in
+      List.iter call_decl_precond ~f:(fun spec ->
+          match
+            Set.choose
+              (Set.inter (Expr.symbols spec.spec_form) return_qual_idents)
+          with
+          | Some qual_ident ->
+              (* Post-disambiguation, so print the plain source name rather than
+                 [QualIdent.pr]/[Ident.pr]'s disambiguated `name^N` form -- same as the
+                 sibling check on the callable's body below. *)
+              Error.type_error (QualIdent.to_loc qual_ident)
+                (Printf.sprintf
+                   !"Return variable %{String} cannot be used in a requires clause; it is only in scope in ensures clauses"
+                   (Ident.name (QualIdent.to_ident qual_ident)))
+          | None -> ())
+    in
+
+    let () =
+      (* Func/pred/invariant contracts are meant to be total -- the verifier never
+         checks expressions for well-definedness, so a `requires` clause on one of
+         these would be silently unenforced at any call site nested inside another
+         expression. A domain restriction belongs in a guarded `ensures` instead. *)
+      match call_decl.call_decl_kind, call_decl_precond with
+      | (Func | Pred | Invariant), _ :: _ ->
+          Error.type_error call_decl.call_decl_loc
+            (Printf.sprintf
+               !"%{Ident} may not have a requires clause; func/pred/invariant contracts must be total"
+               call_decl.call_decl_name)
+      | _ -> ()
+    in
+
+    let call_decl_for_ext =
+      { call_decl with call_decl_formals; call_decl_returns; call_decl_locals }
+    in
+    let* call_decl_contract_ext =
+      Rewriter.List.map call_decl.call_decl_contract_ext
+        ~f:(fun contract_ext ->
+            ext_hooks.type_check_contract_ext call_decl_for_ext contract_ext
+              call_decl.call_decl_loc disam_tbl
+              {
+                ExtApi.get_assign_lhs =
+                  (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                     Error.internal_error (QualIdent.to_loc qi)
+                       "assignments are not permitted in a contract clause");
+                expand_type_expr = ProcessTypeExpr.expand_type_expr;
+                disambiguate_process_expr;
+                type_mismatch_error;
+                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                process_symbol = !Rewriter.process_symbol_ref;
+                process_stmt =
+                  (fun _call_decl stmt _disam_tbl ->
+                     Error.internal_error (Stmt.to_loc stmt)
+                       "statements are not permitted in a contract clause");
+              })
+    in
+
     Logs.debug (fun m -> m "done processing pre/post cond");
     let call_decl =
       {
@@ -1818,6 +2467,7 @@ module ProcessCallable = struct
         call_decl_locals;
         call_decl_precond;
         call_decl_postcond;
+        call_decl_contract_ext;
       }
     in
     let* callable =
@@ -1827,7 +2477,45 @@ module ProcessCallable = struct
           let+ func_body =
             Rewriter.Option.map func_def.func_body ~f:(fun expr ->
                 let expected_return_type = Callable.return_type call_decl in
-                disambiguate_process_expr expr expected_return_type disam_tbl)
+                let* expr =
+                  disambiguate_process_expr expr expected_return_type disam_tbl
+                in
+                let () =
+                  (* A func's body is the single expression that defines its return
+                     value, so referencing the return variable inside it is circular
+                     (and, since nothing detects it as a recursive call, an
+                     undetected non-terminating definition) -- unlike `ensures`,
+                     where the return variable denotes the already-computed result.
+                     Pred/Invariant don't have this problem: the parameters after
+                     `;` in their signature aren't a computed return value at all,
+                     just ordinary parameters that are meant to be used in the body
+                     (e.g. `pred counter(x: Ref; v: Int) { own(x, v) }`) -- see the
+                     `Pred | Invariant -> ...` case in [Checker.check_callable],
+                     which never builds a defining axiom for them in the first
+                     place. *)
+                  match call_decl.call_decl_kind with
+                  | Pred | Invariant | Proc | Lemma -> ()
+                  | Func ->
+                    let return_qual_idents =
+                      List.map call_decl_returns ~f:(fun var_decl ->
+                          QualIdent.from_ident var_decl.var_name)
+                      |> Set.of_list (module QualIdent)
+                    in
+                    (match
+                       Set.choose (Set.inter (Expr.symbols expr) return_qual_idents)
+                     with
+                    | Some qual_ident ->
+                        (* Post-disambiguation, so print the plain source name
+                           rather than [QualIdent.pr]/[Ident.pr]'s disambiguated
+                           `name^N` form. *)
+                        Error.type_error (QualIdent.to_loc qual_ident)
+                          (Printf.sprintf
+                             !"Return variable %{String} cannot be used in the body of %{String}; it is only in scope in ensures clauses"
+                             (Ident.name (QualIdent.to_ident qual_ident))
+                             (Ident.name call_decl.call_decl_name))
+                    | None -> ())
+                in
+                Rewriter.return expr)
           in
 
           let func_def =
@@ -2000,7 +2688,8 @@ module ProcessModule = struct
           @@ Printf.sprintf "Type annotation missing for variable %s"
             (Ident.to_string var_decl.var_name)
     in
-    let (var : Stmt.var_def) = { var_decl = { var_decl with var_type }; var_init } in
+    let var_is_free = var.var_is_free in
+    let (var : Stmt.var_def) = { var_decl = { var_decl with var_type }; var_init; var_is_free } in
     Module.(VarDef var)
 
   let check_implements_symbol interface_ident (symbol : Symbol.t)
@@ -2025,7 +2714,7 @@ module ProcessModule = struct
                      already defined in interface %{QualIdent}"
                    ident interface_ident)
           | Some _tp, Some _orig_tp ->
-              Logs.debug (fun m -> m !"orig: %{Type}" _orig_tp);
+              let* () = Rewriter.Logs.debug (fun printers m -> m "orig: %a" printers.pr_type _orig_tp) in
               Error.type_error loc
                 (Printf.sprintf
                    !"Type %{Ident} was already defined in interface \
@@ -2291,7 +2980,7 @@ module ProcessModule = struct
           | _ -> Rewriter.return ())
     | ModDef mod_def, ModDef _orig_mod_def ->
       (* If LHS is free, then we are checking an inherited module against itself, which is OK. *)
-      if mod_def.mod_decl.mod_decl_is_free then Rewriter.return () else
+      if is_free mod_def.mod_decl.mod_decl_status then Rewriter.return () else
       (* Otherwise, RHS is being redefined, which is not OK. *)
         Error.type_error loc
           (Printf.sprintf
@@ -2306,20 +2995,32 @@ module ProcessModule = struct
              (Symbol.kind orig_symbol) ident interface_ident
              (Symbol.kind symbol))
 
+  (** Check that module `mod_ident` (M) implements interface `int_ident` (I) *)
   let check_module_type mod_ident int_ident =
     let open Rewriter.Syntax in
+    (* Get qualified idents and symbols of M and I *)
     let+ qual_mod_ident, mod_symbol =
       Rewriter.resolve_and_find mod_ident
-    and+ qual_int_ident, _int_symbol =
+    and+ qual_int_ident, int_symbol =
       Rewriter.resolve_and_find int_ident
     in
-    let interfaces =
-      Rewriter.Symbol.extract mod_symbol ~f:(fun _ _subst -> function
+    (* Extract all interfaces implemented by M and check whether it is fully instantiated *)
+    let interfaces, mod_is_instance =
+      Rewriter.Symbol.extract mod_symbol ~f:(fun is_instance subst -> function
         | Ast.Module.ModDef mod_def ->
             (*Set.map (module QualIdent) mod_def.mod_decl.mod_decl_interfaces ~f:subst*)
-            mod_def.mod_decl.mod_decl_interfaces
-        | _ -> Set.empty (module QualIdent))
+          mod_def.mod_decl.mod_decl_interfaces,
+          List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance
+        | _ -> Set.empty (module QualIdent), true)
     in
+    (* Check whether I is fully instantiated *)
+    let int_is_instance =
+      Rewriter.Symbol.extract int_symbol ~f:(fun is_instance _subst -> function
+        | Ast.Module.ModDef mod_def ->
+            List.is_empty mod_def.mod_decl.mod_decl_formals || is_instance
+        | _ -> true)
+    in
+    (* Check if I is one of M's interfaces *)
     if
       not
         (QualIdent.(qual_mod_ident = qual_int_ident)
@@ -2331,6 +3032,18 @@ module ProcessModule = struct
            !"%s %{QualIdent} does not implement interface %{QualIdent}"
            (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
            mod_ident int_ident)
+    else if
+      (* Make sure that I is the type of M itself rather than the expected type
+         of the module obtained by instantiating *)
+      int_is_instance && not mod_is_instance
+    then
+      Error.type_error
+        (QualIdent.to_loc mod_ident)
+        (Printf.sprintf
+           !"%s %{QualIdent} first needs to be instantiated to obtain a module with interface %{QualIdent}"
+           (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
+           mod_ident int_ident)
+      
 
   let rec process_module (m : Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -2356,12 +3069,12 @@ module ProcessModule = struct
     let process_instr = function
       | Module.SymbolDef symbol ->
           let* symbol_def =
-            match symbol.symbol_def with
+            match symbol with
             | TypeDef type_def -> process_type_def type_def
             | VarDef var_def -> process_var var_def
             | FieldDef field_def -> process_field field_def
             | ConstrDef _ | DestrDef _ ->
-                Rewriter.return symbol.symbol_def
+                Rewriter.return symbol
                 (* These should not occur directly in a module definition *)
             | CallDef call_def -> ProcessCallable.process_callable call_def
             | ModDef mod_def ->
@@ -2370,55 +3083,118 @@ module ProcessModule = struct
                 let+ mod_def = Rewriter.exit_module mod_def in
                 Module.ModDef mod_def
             | ModInst mod_inst ->
+                (* A functor application `module M : I = F[args]` *)
+                (* Get symbol of I *)
                 let* mod_inst_type =
                   Rewriter.resolve mod_inst.mod_inst_type
                 in
-                let symbol = Module.ModInst { mod_inst with mod_inst_type } in
-                let* to_check =
-                  Rewriter.Option.map mod_inst.mod_inst_def
-                    ~f:(fun (mod_inst_func, mod_inst_args) ->
-                      let* _ = Rewriter.declare_symbol symbol in
-                      let+ qual_functor_ident, functor_symbol =
+                (* Resolve the functor `F` and pair up its formals with `args`,
+                   wrapping any bare-type argument (e.g. `M[Int]`) into a
+                   synthesized module implementing the formal's rep-typed
+                   interface (see `ProgUtils.intros_rep_module`). This must
+                   happen *before* `declare_symbol` below, since
+                   `SymbolTbl.add_symbol` resolves every argument to an
+                   already-existing module to build the instance's
+                   substitution. *)
+                let* mod_inst_def, to_check =
+                  match mod_inst.mod_inst_def with
+                  | None -> Rewriter.return (None, [])
+                  | Some (mod_inst_func, mod_inst_args) ->
+                      (* Get qualified name of F and its symbol *)
+                      let* qual_functor_ident, functor_symbol =
                         Rewriter.resolve_and_find
                           mod_inst_func
                       in
+                      (* Get formal parameters of F *)
                       let formals =
                         Rewriter.Symbol.extract functor_symbol ~f:(fun is_instance subst ->
                           function
                           | Ast.Module.ModDef mod_def when not is_instance ->
-                              Logs.info (fun m -> m !"%{QualIdent}" mod_inst_func);
                               List.map mod_def.mod_decl.mod_decl_formals
-                                ~f:(fun mod_inst ->
-                                  subst mod_inst.mod_inst_type)
+                                ~f:(fun formal -> (formal, subst formal.mod_inst_type))
                           | _ -> [])
                       in
-                      let args_and_formals =
+                      (* Pair up `args` and formals *)
+                      let* args_and_formals =
                         match List.zip mod_inst_args formals with
-                        | Ok res -> res
+                        | Ok res -> Rewriter.return res
                         | Unequal_lengths ->
-                            Error.type_error (*mod_inst.mod_inst_loc*) (QualIdent.to_loc mod_inst_func)
-                              (Printf.sprintf
-                                 !"Module %{QualIdent} expects %d arguments"
-                                 mod_inst_func (List.length formals))
+                            arg_mismatch_error "Module" (QualIdent.to_loc mod_inst_func) (Type.Var mod_inst_func)
+                              (List.length formals)
                       in
-                      (qual_functor_ident, mod_inst.mod_inst_type) :: args_and_formals)
+                      let+ resolved_args =
+                        Rewriter.List.map args_and_formals
+                          ~f:(fun (arg, (formal, formal_iface)) ->
+                            match arg with
+                            | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
+                            | Module.TypeArg tp -> (
+                                let* rep = ProgUtils.resolve_rep_ident formal_iface in
+                                match rep with
+                                | None ->
+                                    Error.type_error (Type.to_loc tp)
+                                      (Printf.sprintf
+                                         !"Cannot pass a type as argument for parameter \
+                                           %{Ident}: interface %{QualIdent} does not \
+                                           declare a rep type"
+                                         formal.mod_inst_name formal_iface)
+                                | Some (interface_qual_ident, rep_ident) ->
+                                    let* insert_scope, reference_scope =
+                                      ProgUtils.find_insertion_scope_for_types [ tp ]
+                                    in
+                                    let+ qi =
+                                      ProgUtils.get_or_intros_rep_module
+                                        ~loc:(Type.to_loc tp)
+                                        ~f:!(Rewriter.process_symbol_ref)
+                                        ~insert_scope ~reference_scope
+                                        ~interface_qual_ident ~rep_ident tp
+                                    in
+                                    (qi, formal_iface)))
+                      in
+                      ( Some
+                          ( qual_functor_ident,
+                            List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi) ),
+                        (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
                 in
-                let to_check = Option.value to_check ~default:[] in
+                let symbol = Module.ModInst { mod_inst with mod_inst_type; mod_inst_def } in
+                (* Only instantiations (`mod_inst_def = Some _`) are declared here;
+                   abstract module parameters (`mod_inst_def = None`) are already
+                   declared by the pre-declare pass above. *)
+                let* _ =
+                  match mod_inst.mod_inst_def with
+                  | None -> Rewriter.return ()
+                  | Some _ -> Rewriter.declare_symbol symbol
+                in
+                (* Check that `args` satisfy module types of formals *)
                 let+ _ =
                   Rewriter.List.iter to_check ~f:(fun (m, i) ->
                       check_module_type m i)
                 in
                 symbol
           in
-          Logs.debug (fun mm ->
+          let* () = Rewriter.Logs.debug (fun printers mm ->
               mm
-                !"Processing module %{Ident}: symbol: %a"
-                (Symbol.to_name (ModDef m))
-                Module.pr_symbol symbol_def);
+                "Processing module %a: symbol: %a"
+                Ident.pr (Symbol.to_name (ModDef m))
+                printers.pr_symbol symbol_def) in
           let+ _ = Rewriter.set_symbol symbol_def in
-          Module.SymbolDef { symbol with symbol_def }
+          Module.SymbolDef symbol_def
       | Import import ->
         (* Handled by symbol table *)
+            let* () =
+              if not import.import_all then Rewriter.return ()
+              else
+                let* generic_functor = ProgUtils.resolve_generic_functor import.import_name in
+                match generic_functor with
+                | None -> Rewriter.return ()
+                | Some _ ->
+                    let import_name_str = QualIdent.to_string import.import_name in
+                    Error.type_error import.import_loc
+                      (Printf.sprintf
+                         "Cannot import all members of `%s` because it is a generic functor \
+                          that has not been instantiated; write `import %s[...]._` after an \
+                          explicit instantiation"
+                         import_name_str import_name_str)
+            in
             let* _ = Rewriter.import import in
             Rewriter.return (Module.Import import)
     in
@@ -2426,14 +3202,14 @@ module ProcessModule = struct
     (* Add formal parameters to module definitions *)
     let mod_def_formals =
       List.map m.mod_decl.mod_decl_formals ~f:(fun mod_def_formal ->
-          Module.SymbolDef { symbol_def = (ModInst mod_def_formal); is_admitted = false})
+          Module.SymbolDef (ModInst mod_def_formal))
     in
     let mod_def = mod_def_formals @ m.mod_def in
     let get_defined_symbols mod_def =
       List.fold mod_def
         ~init:(Set.empty (module Ident))
         ~f:(fun ids -> function
-          | Module.SymbolDef symbol -> Set.add ids (Symbol.to_name symbol.symbol_def)
+          | Module.SymbolDef symbol -> Set.add ids (Symbol.to_name symbol)
           | _ -> ids)
     in
     let defined_symbols = get_defined_symbols mod_def in
@@ -2454,29 +3230,65 @@ module ProcessModule = struct
     in
     (* merge symbol definitions from parent interface with those from current module
      * so that the dependency order between symbols is preserved *)
-    let merge_defs parent_ident parent_mod_def mod_def =
+    let merge_defs ~parent_status parent_ident parent_mod_def mod_def =
+      (* A member with no definition of its own. Mirrors the cases the abstract-member
+         check below rejects in a non-interface module. *)
+      let symbol_is_abstract = function
+        | Module.TypeDef { type_def_expr = None; _ }
+        | ModInst { mod_inst_def = None; _ }
+        | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
+        | CallDef { call_def = ProcDef { proc_body = None } | FuncDef { func_body = None }; _ } ->
+            true
+        | _ -> false
+      in
+      (* The standard library, and every included file, is force-marked [MachineFree] so
+         it isn't re-verified for each program. That status describes the file, not the
+         modules that implement its interfaces: an abstract member inherited from one
+         into a concrete module must not arrive already free, or the module would owe
+         neither a definition for it nor (for an inherited axiom) a proof of it against
+         its own definitions -- which is how a module could claim to implement
+         `ResourceAlgebra` while defining almost none of it.
+
+         A `free` the user actually wrote stays [UserFree] and is left alone, so an
+         interface may still declare a deliberately uninterpreted member that
+         implementors inherit without defining (`free func`, `free val`, `free auto
+         axiom`). *)
+      let un_free_inherited symbol =
+        match parent_status, Symbol.free_status symbol with
+        | MachineFree, (NotFree | MachineFree)
+          when (not m.mod_decl.mod_decl_is_interface) && symbol_is_abstract symbol ->
+            Module.set_symbol_status NotFree symbol
+        | _ -> symbol
+      in
+      let formals =
+        List.fold_left ~init:(Set.empty (module Ident))
+          ~f:(fun acc -> function
+              | SymbolDef (ModInst mod_inst) ->  Set.add acc mod_inst.mod_inst_name
+              | _ -> acc)
+          mod_def_formals
+      in
       (*let _parent_defined_symbols = get_defined_symbols parent_mod_def in*)
       let rec merge_defs (merged, to_check, seen) = function
         | [], mod_def -> (List.rev_append merged mod_def, to_check)
         | Module.Import _ :: parent_mod_def, mod_def ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
-        | Module.SymbolDef { symbol_def = (ConstrDef _ | DestrDef _); _ }  :: parent_mod_def, mod_def
-        | parent_mod_def, Module.SymbolDef { symbol_def = (ConstrDef _ | DestrDef _); _ } :: mod_def
+        | Module.SymbolDef (ConstrDef _ | DestrDef _)  :: parent_mod_def, mod_def
+        | parent_mod_def, Module.SymbolDef (ConstrDef _ | DestrDef _) :: mod_def
           ->
             merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
         | Module.SymbolDef parent_symbol :: parent_mod_def, mod_def -> (
-            let parent_symbol_ident = Symbol.to_name parent_symbol.symbol_def in
+            let parent_symbol_ident = Symbol.to_name parent_symbol in
             let annotate_error_msg = function
               | Module.CallDef ({ call_decl; _ } as call) as symbol ->
                 let annotate_spec spec =
                   let error =
                     ( Error.RelatedLoc,
-                      Symbol.to_loc parent_symbol.symbol_def,
+                      Symbol.to_loc parent_symbol,
                       (Printf.sprintf
                          !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
                          (Symbol.kind symbol |> String.capitalize)
                          parent_symbol_ident
-                         (Symbol.kind parent_symbol.symbol_def)
+                         (Symbol.kind parent_symbol)
                          parent_ident parent_symbol_ident))
                   in
                   { spec with Stmt.spec_error = Stmt.mk_const_spec_error error :: spec.Stmt.spec_error }
@@ -2492,16 +3304,25 @@ module ProcessModule = struct
                 Module.CallDef { call with call_decl }
               | symbol -> symbol
             in
-            if not (Set.mem defined_symbols parent_symbol_ident)
+            if Set.mem formals parent_symbol_ident then
+              (* case: parent_symbol is being abstracted over *)
+              merge_defs
+                ( merged,
+                  Map.add_exn to_check ~key:parent_symbol_ident
+                    ~data:parent_symbol,
+                  seen )
+                (parent_mod_def, mod_def)
+            else if not (Set.mem defined_symbols parent_symbol_ident)
                && (Set.is_empty seen || List.is_empty mod_def)
             then
               (* case: parent_symbol should be inherited now *)
-              let _ = Logs.info (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
-              let parent_symbol_def =
-                match parent_symbol.symbol_def with
+              let _ = Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident) in
+              let parent_symbol = un_free_inherited parent_symbol in
+              let parent_symbol =
+                match parent_symbol with
                 | CallDef call when not @@ Callable.is_abstract call ->
-                  Logs.info (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
-                  Module.CallDef (Callable.make_free call)
+                  Logs.debug (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
+                  Module.CallDef (Callable.set_machine_free call)
                 | CallDef
                     ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
                   when Callable.is_abstract call
@@ -2520,24 +3341,22 @@ module ProcessModule = struct
                     }
                   in
                   let call =
-                    if m.mod_decl.mod_decl_is_free
-                    then Callable.make_free call
+                    if is_free m.mod_decl.mod_decl_status
+                    then Callable.set_machine_free call
                     else call
                   in
                   annotate_error_msg (CallDef call)
-                | ModDef mod_def -> ModDef (Module.set_free mod_def)
-                | _ -> annotate_error_msg parent_symbol.symbol_def
+                | ModDef mod_def -> ModDef (Module.set_machine_free mod_def)
+                | _ -> annotate_error_msg parent_symbol
               in
 
-              let parent_symbol = { parent_symbol with symbol_def = parent_symbol_def } in
-              
               merge_defs
                 (Module.SymbolDef parent_symbol :: merged, to_check, seen)
                 (parent_mod_def, mod_def)
             else
               match mod_def with
               | Module.SymbolDef symbol :: mod_def ->
-                  let symbol_ident = Symbol.to_name symbol.symbol_def in
+                  let symbol_ident = Symbol.to_name symbol in
                   if Set.mem seen symbol_ident then
                     (* case: symbol provides definition of another symbol that has already been seen earlier *)
                     merge_defs
@@ -2548,7 +3367,7 @@ module ProcessModule = struct
                     merge_defs
                       ( Module.SymbolDef symbol :: merged,
                         Map.add_exn to_check ~key:symbol_ident
-                          ~data:parent_symbol.symbol_def,
+                          ~data:parent_symbol,
                         seen )
                       (parent_mod_def, mod_def)
                   else if Set.mem defined_symbols parent_symbol_ident then
@@ -2556,7 +3375,7 @@ module ProcessModule = struct
                     merge_defs
                       ( merged,
                         Map.add_exn to_check ~key:parent_symbol_ident
-                          ~data:parent_symbol.symbol_def,
+                          ~data:parent_symbol,
                         Set.add seen parent_symbol_ident )
                       (parent_mod_def, Module.SymbolDef symbol :: mod_def)
                   else
@@ -2580,6 +3399,7 @@ module ProcessModule = struct
     let* ( mod_decl_returns,
            mod_decl_interfaces,
            interface_ident,
+           interface_formals,
            (merged_symbols, symbols_to_check) ) =
       let+ interface_opt =
         Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
@@ -2598,40 +3418,42 @@ module ProcessModule = struct
                 interface_symbol
             in
 
-            let+ interface_symbol = Rewriter.Symbol.reify interface_symbol in
-            Logs.debug (fun mm ->
+            let* interface_symbol = Rewriter.Symbol.reify interface_symbol in
+            let* () = Rewriter.Logs.debug (fun printers mm ->
                 mm
                   !"Typing.process_module: %{Ident}: checking return type \
-                    %{Symbol}: reified; \n\
+                    %a: reified; \n\
                    \ qual_interface_ident: %{QualIdent} \n\
                    \ mid: %{QualIdent}"
                   (Symbol.to_name (ModDef m))
-                  interface_symbol qual_interface_ident mid);
-            (qual_interface_ident, mid, interface_symbol))
+                  printers.pr_symbol interface_symbol qual_interface_ident mid) in
+            Rewriter.return (qual_interface_ident, mid, interface_symbol))
       in
       match interface_opt with
       | Some (qual_interface_ident, interface_ident, ModDef interface) ->
-          ( Some qual_interface_ident,
-            Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
-            interface_ident,
-            merge_defs qual_interface_ident interface.mod_def m.mod_def )
+        ( Some qual_interface_ident,
+          Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
+          interface_ident,
+          Some interface.mod_decl.mod_decl_formals,
+          merge_defs ~parent_status:interface.mod_decl.mod_decl_status
+            qual_interface_ident interface.mod_def m.mod_def )
       | _ ->
           let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
           let interfaces =
             if is_root then m.mod_decl.mod_decl_interfaces
             else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
           in
-          (None, interfaces, mod_ident, (m.mod_def, Map.empty (module Ident)))
+          (None, interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident)))
     in
 
     (*let inherited_symbols = List.rev inherited_symbols in*)
     let mod_def = mod_def_formals @ merged_symbols in
     let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
-    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol.symbol_def)) | _ -> ()) mod_def in
+    let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol)) | _ -> ()) mod_def in
     (* Find rep type and add it to module declaration *)
     let mod_decl_rep =
       List.fold_left mod_def ~init:None ~f:(fun rep_type -> function
-        | SymbolDef { symbol_def = (TypeDef type_def); _} when type_def.type_def_rep ->
+        | SymbolDef (TypeDef type_def) when type_def.type_def_rep ->
             Option.map_or_else
               ~m:(fun _ ->
                 Error.syntax_error type_def.type_def_loc
@@ -2686,51 +3508,78 @@ module ProcessModule = struct
       }
     in
 
+    (* Make sure that the module preserves the parameters of its interface *)
+    let _ =
+      let interface_formals = Option.value interface_formals ~default:[] in
+      match interface_formals with
+      | [] -> ()
+      | _ ->
+        let res =
+          List.iter2 mod_decl.mod_decl_formals interface_formals
+            ~f:(fun param oparam ->
+              if
+                Ident.(param.mod_inst_name <> oparam.mod_inst_name)
+                || QualIdent.(param.mod_inst_type <> oparam.mod_inst_type)
+              then
+                Error.type_error param.mod_inst_loc
+                  (Printf.sprintf
+                     !"Parameter %{Ident} of %s %{Ident} does not match declaration of \
+                       parameter %{Ident} of interface %{QualIdent}"
+                     param.mod_inst_name (Symbol.kind (ModDef m)) mod_decl.mod_decl_name
+                     oparam.mod_inst_name interface_ident))
+        in
+        match res with
+        | Ok list -> list
+        | Unequal_lengths ->
+          param_mismatch_error "Interface" (Ident.to_loc mod_decl.mod_decl_name)
+            (QualIdent.to_string interface_ident) (List.length interface_formals)
+    in
+    
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
-        | Module.SymbolDef {symbol_def = ModInst { mod_inst_def = Some _; _ }; _} | Module.Import _ -> Rewriter.return ()
-        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol.symbol_def)
+        | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ -> Rewriter.return ()
+        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol)
     in
 
     (* Check and rewrite all symbols *)
     let* mod_def = Rewriter.List.map merged_symbols ~f:process_instr in
 
-    (* Check symbols against interface *)
+    (* Check symbols against what is specified in the interface *)
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
         | SymbolDef symbol ->
-            let ident = Symbol.to_name symbol.symbol_def in
+            let ident = Symbol.to_name symbol in
             Map.find symbols_to_check ident
             |> Rewriter.Option.iter ~f:(fun orig_symbol ->
-                check_implements_symbol interface_ident symbol.symbol_def orig_symbol)
+                check_implements_symbol interface_ident symbol orig_symbol)
         | _ -> Rewriter.return ())
     in
 
     (* Check whether modules are indeed modules *)
-    let+ _ =
+    let* _ =
       if not mod_decl.mod_decl_is_interface then
         Rewriter.List.iter mod_def ~f:(function
           | Import _ -> Rewriter.return ()
-          | SymbolDef ({ is_admitted = false; _} as symbol) -> (
-              match symbol.symbol_def with
+          | SymbolDef symbol when not (Symbol.is_free symbol) -> (
+              match symbol with
               | TypeDef { type_def_expr = None; _ }
               | ModInst { mod_inst_def = None; _ }
-              | VarDef { var_decl = { var_const = true; _ }; var_init = None }
-              | CallDef { call_def = ProcDef { proc_body = None }; call_decl = { call_decl_is_free = false; _ } }
-              | CallDef { call_def = FuncDef { func_body = None }; call_decl = { call_decl_is_free = false; _ } } ->
+              | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
+              | CallDef { call_def = (ProcDef { proc_body = None } | FuncDef { func_body = None });
+                          call_decl = { call_decl_status = NotFree; _ } } ->
                 if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
-                  Error.type_error (Symbol.to_loc symbol.symbol_def)
+                  Error.type_error (Symbol.to_loc symbol)
                     (Printf.sprintf
                        !"The %s %{Ident} cannot be abstract here. An abstract member can only be declared in an interface"
-                       (Symbol.kind symbol.symbol_def)
-                       (Symbol.to_name symbol.symbol_def))
+                       (Symbol.kind symbol)
+                       (Symbol.to_name symbol))
                 else 
                   Error.type_error mod_decl.mod_decl_loc
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \
                          %s %{Ident} is still abstract"
-                       mod_decl.mod_decl_name (Symbol.kind symbol.symbol_def)
-                       (Symbol.to_name symbol.symbol_def))
+                       mod_decl.mod_decl_name (Symbol.kind symbol)
+                       (Symbol.to_name symbol))
               | ModInst { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ } ->
                 let+ mod_inst_symbol =
                   Rewriter.find_and_reify mod_inst_func
@@ -2738,13 +3587,13 @@ module ProcessModule = struct
                 (match mod_inst_symbol with
                 | Module.ModDef mdef ->              
                   if mdef.mod_decl.mod_decl_is_interface then
-                  Error.type_error (Symbol.to_loc symbol.symbol_def)
+                  Error.type_error (Symbol.to_loc symbol)
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface"
-                       (Symbol.to_name symbol.symbol_def))
+                       (Symbol.to_name symbol))
                 | _ -> ())
               | _ -> Rewriter.return ())
-              
+
           | _ -> Rewriter.return ())
       else Rewriter.return ()
     in
@@ -2752,16 +3601,16 @@ module ProcessModule = struct
       Logs.debug (fun mm ->
           mm !"Done with processing module %{Ident}" (Symbol.to_name (ModDef m)))
     in
-    Logs.debug (fun mm ->
-          mm !"%{Symbol}" (ModDef (Module.{ mod_decl; mod_def })));
-    Module.{ mod_decl; mod_def }
+    let* () = Rewriter.Logs.debug (fun printers mm ->
+          mm "%a" printers.pr_symbol (ModDef (Module.{ mod_decl; mod_def }))) in
+    Rewriter.return (Module.{ mod_decl; mod_def })
 end
 
-let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
+let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
   let tbl, m =
-    Rewriter.eval
+    Rewriter.eval ?ext_hooks ?cli_config
       (fun st ->
         let st, _ = Rewriter.enter_module m st in
         let st, m = ProcessModule.process_module m st in
@@ -2798,3 +3647,5 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
 let _ =
   Rewriter.process_symbol_ref := process_symbol;
   Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;
+  Rewriter.process_stmt_ref :=
+    (fun call_decl stmt disam_tbl -> ProcessCallable.process_stmt call_decl stmt disam_tbl);

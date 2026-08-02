@@ -17,8 +17,8 @@ open Ext.AtomicExtInstance
         in begin
         match atomic_inbuilt_is_init with
         | true -> 
-            Stmt.(Basic (StmtExt (AtomicInbuiltInit Cas, args))), Some (Expr.mk_bool true)
-        | false -> Stmt.(Basic (StmtExt (AtomicInbuiltNonInit Cas, args))), Some (Expr.mk_bool true)
+            Stmt.(Basic (BasicStmtExt (AtomicInbuiltInit Cas, args))), Some (Expr.mk_bool true)
+        | false -> Stmt.(Basic (BasicStmtExt (AtomicInbuiltNonInit Cas, args))), Some (Expr.mk_bool true)
         end
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of cas"
     | [], _ -> assert false
@@ -31,9 +31,9 @@ open Ext.AtomicExtInstance
         in begin
         match atomic_inbuilt_is_init with
         | true -> 
-            Stmt.(Basic (StmtExt (AtomicInbuiltInit Faa, args))), Some (Expr.mk_int 0)
+            Stmt.(Basic (BasicStmtExt (AtomicInbuiltInit Faa, args))), Some (Expr.mk_int 0)
         | false -> 
-            Stmt.(Basic (StmtExt (AtomicInbuiltNonInit Faa, args))), Some (Expr.mk_int 0)
+            Stmt.(Basic (BasicStmtExt (AtomicInbuiltNonInit Faa, args))), Some (Expr.mk_int 0)
         end
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
     | [], _ -> assert false
@@ -46,9 +46,9 @@ open Ext.AtomicExtInstance
         in begin
         match atomic_inbuilt_is_init with
         | true ->
-            Stmt.(Basic (StmtExt (AtomicInbuiltInit Xchg, args))), Some (xchg_new_val)
+            Stmt.(Basic (BasicStmtExt (AtomicInbuiltInit Xchg, args))), Some (xchg_new_val)
         | false ->
-            Stmt.(Basic (StmtExt (AtomicInbuiltNonInit Xchg, args))), Some (xchg_new_val)
+            Stmt.(Basic (BasicStmtExt (AtomicInbuiltNonInit Xchg, args))), Some (xchg_new_val)
         end
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of faa"
     | [], _ -> assert false
@@ -61,8 +61,8 @@ open Ext.AtomicExtInstance
         in begin
         match atomic_inbuilt_is_init with
         | true -> 
-            Stmt.(Basic (StmtExt (AtomicInbuiltInit CmpXchg, args))), Some (Expr.mk_tuple [cmpxchg_old_val; Expr.mk_bool true])
-        | false -> Stmt.(Basic (StmtExt (AtomicInbuiltNonInit CmpXchg, args))), Some (Expr.mk_tuple [cmpxchg_old_val; Expr.mk_bool true])
+            Stmt.(Basic (BasicStmtExt (AtomicInbuiltInit CmpXchg, args))), Some (Expr.mk_tuple [cmpxchg_old_val; Expr.mk_bool true])
+        | false -> Stmt.(Basic (BasicStmtExt (AtomicInbuiltNonInit CmpXchg, args))), Some (Expr.mk_tuple [cmpxchg_old_val; Expr.mk_bool true])
         end
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected single variable of type (FldType, Bool) on left-hand side of cmpxchg"
     | [], _ -> assert false

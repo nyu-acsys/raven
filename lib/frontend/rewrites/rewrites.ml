@@ -11,7 +11,7 @@ let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
           Expr.to_loc spec.spec_form,
           match kind with
           | Assert -> "This assertion may be violated"
-          | _ -> "Possibly insufficient permissions to exhale this assertion" )
+          | _ -> "This assertion may not hold: insufficient permissions" )
       in
       let spec_error = spec.spec_error @ [Stmt.mk_const_spec_error error] in
       Rewriter.return
@@ -113,7 +113,7 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
       let* _ =
         Rewriter.List.map new_dropped_args ~f:(fun var ->
             Rewriter.introduce_symbol
-              (Module.VarDef { var_decl = var; var_init = None }))
+              (Module.VarDef { var_decl = var; var_init = None; var_is_free = NotFree }))
       in
       
       let new_renaming_map =
@@ -242,9 +242,11 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           call_decl_locals = [];
           call_decl_precond = [];
           call_decl_postcond = [ postcond ];
-          call_decl_is_free = true;
+          call_decl_contract_ext = [];
+          call_decl_status = MachineFree;
           call_decl_is_auto = false;
-          call_decl_mask = None;
+          call_decl_needs_mask = None;
+          call_decl_grants_mask = None;
           call_decl_loc = Expr.to_loc expr;
         }
       in
@@ -258,8 +260,8 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           Callable.{ call_decl; call_def = FuncDef { func_body = None } }
       in
 
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_compr_expr: compr_fn: %a" Symbol.pr compr_fn_def);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_compr_expr: compr_fn: %a" printers.pr_symbol compr_fn_def) in
 
       let new_expr =
         Expr.mk_app ~typ:ret_typ ~loc:(Expr.to_loc expr)
@@ -275,8 +277,8 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
   | App (Diff, [ expr1; expr2 ], _expr_attr) ->
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_set_diff_expr: expr: %a" Expr.pr expr);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_set_diff_expr: expr: %a" printers.pr_expr expr) in
 
       let* expr1 = rewrite_set_diff_expr expr1 in
       let* expr2 = rewrite_set_diff_expr expr2 in
@@ -409,9 +411,11 @@ let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
           call_decl_locals = [];
           call_decl_precond = [];
           call_decl_postcond = [ postcond ];
-          call_decl_is_free = true;
+          call_decl_contract_ext = [];
+          call_decl_status = MachineFree;
           call_decl_is_auto = false;
-          call_decl_mask = None;
+          call_decl_needs_mask = None;
+          call_decl_grants_mask = None;
           call_decl_loc = Expr.to_loc expr;
         }
       in
@@ -484,6 +488,15 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
     }
   ```
 *)
+
+(** `--strict` diagnostics never fire inside the standard library (core or
+    extension-supplied): it's not the user's code to annotate, and its declarations
+    don't even have a real path on disk to print a source excerpt from ([Loc.context]
+    only special-cases the core [Library.sources] strings, not extension [lib_sources]
+    files like `well_founded_order.rav`). *)
+let is_library_qual_ident (qid : QualIdent.t) : bool =
+  String.(Ident.name (QualIdent.first_ident qid) = Ident.name Predefs.lib_ident)
+
 let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
@@ -492,7 +505,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* loop_postbody = rewrite_loops loop.loop_postbody in
       let loop = { loop with loop_prebody; loop_postbody } in
       let loc = Stmt.to_loc stmt in
-      Logs.debug (fun m -> m "Rewrites.rewrite_loops: loop: %a" Stmt.pr stmt);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_loops: loop: %a" printers.pr_stmt stmt) in
 
       let* ( loop_arg_var_decls,
              loop_arg_renaming_map,
@@ -519,8 +532,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
               match symbol with
               | VarDef v -> v.var_decl
               | _ ->
-                  Error.error stmt.stmt_loc
-                    ("Expected a variable (1); found " ^ Symbol.to_string symbol
+                  Error.internal_error stmt.stmt_loc
+                    ("expected a variable; found " ^ Symbol.to_string symbol
                    ^ " for var: " ^ Ident.to_string var))
         in
 
@@ -581,7 +594,13 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls =
         (* Local variables modified from loop body become ret vals for loop procedure *)
-        let curr_loop_rets = Stmt.stmt_local_vars_modified loop.loop_postbody in
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let curr_loop_rets =
+          Stmt.make_stmt_local_vars_modified
+            ~basic_stmt_ext_local_vars_modified:ext_hooks.basic_stmt_ext_local_vars_modified
+            ~stmt_ext_local_vars_modified:ext_hooks.stmt_ext_local_vars_modified
+            loop.loop_postbody
+        in
         let* curr_loop_ret_var_decls =
           Rewriter.List.map curr_loop_rets ~f:(fun var ->
             let+ var_def = Rewriter.find_and_reify_var (QualIdent.from_ident var) in
@@ -620,9 +639,16 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls)
       in
 
-      let* loop_proc_name =
-        let+ proc_name = Rewriter.current_scope_id in
-        Ident.fresh stmt.stmt_loc (proc_name.qual_base.ident_name ^ "_loop")
+      (* A loop's synthesized recursive callable inherits [Lemma] from its enclosing
+         callable (instead of always being a [Proc]) so that a loop inside a lemma is
+         just another self-recursive [Lemma] as far as everything downstream is
+         concerned (decreases-group analysis, ghost/non-ghost call checking, etc.) --
+         no separate loop-specific handling needed anywhere else. *)
+      let* loop_proc_name, enclosing_call_decl_kind =
+        let* proc_name = Rewriter.current_scope_id in
+        let+ enclosing = Rewriter.find_and_reify_callable proc_name in
+        ( Ident.fresh stmt.stmt_loc (proc_name.qual_base.ident_name ^ "_loop"),
+          enclosing.Callable.call_decl.call_decl_kind )
       in
 
       (* Create new map which replaces loop_arg vars with loop_ret vars, for post conditions *)
@@ -630,6 +656,8 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         Map.fold loop_ret_renaming_map ~init:loop_arg_renaming_map
           ~f:(fun ~key ~data map -> Map.set map ~key ~data)
       in
+
+      let* ext_hooks = Rewriter.current_ext_hooks in
 
       let new_proc_decl =
         let loop_precond =
@@ -661,17 +689,36 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
             ]
         in
 
+        (* Transfer the loop's own decreases (or other contract-extension) clauses onto
+           the synthesized recursive procedure the same way loop_contract is transferred
+           above: once here, the generic recursive-call instrumentation pass picks up
+           [call_decl_contract_ext] uniformly, so loop termination checking needs no
+           separate code path -- see WISHLIST.md, "decreases clauses", Phase 1.
+           [rewrite_contract_ext_loop_transfer] applies the same substitution used for
+           [loop_contract] above and lets an extension swap in loop-specific wording
+           (e.g. via a payload built on [Stmt.spec], whose [spec_error] the extension
+           can override) -- without this code needing to know what any [contract_ext]
+           value means. *)
+        let loop_contract_ext =
+          List.map loop.loop_contract_ext
+            ~f:(ext_hooks.rewrite_contract_ext_loop_transfer
+                  ~subst:(fun e -> Expr.alpha_renaming e loop_arg_renaming_map))
+        in
+
         {
-          Callable.call_decl_kind = Proc;
+          Callable.call_decl_kind =
+            (match enclosing_call_decl_kind with Lemma -> Lemma | _ -> Proc);
           call_decl_name = loop_proc_name;
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
           call_decl_locals = loop_local_var_decls;
           call_decl_precond = loop_precond;
           call_decl_postcond = loop_postcond;
-          call_decl_is_free = false;
+          call_decl_contract_ext = loop_contract_ext;
+          call_decl_status = NotFree;
           call_decl_is_auto = false;
-          call_decl_mask = None;
+          call_decl_needs_mask = None;
+          call_decl_grants_mask = None;
           call_decl_loc = stmt.stmt_loc;
         }
       in
@@ -745,9 +792,9 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         Module.CallDef call_def
       in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m "Rewrites.rewrite_loops: Pre-typecheck loop_proc_symbol:\n %a"
-            Symbol.pr loop_proc_symbol);
+            printers.pr_symbol loop_proc_symbol) in
 
       let* _ =
         Rewriter.introduce_typecheck_symbol ~loc:stmt.stmt_loc
@@ -781,7 +828,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           ) (Stmt.mk_skip ~loc)
       in
 
-      Logs.debug (fun m -> m "Loop new_stmt:\n %a" Stmt.pr new_stmt);
+      let* () = Rewriter.Logs.debug (fun printers m -> m "Loop new_stmt:\n %a" printers.pr_stmt new_stmt) in
       Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_loops
 
@@ -921,13 +968,170 @@ let rec rewrite_ret_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       Rewriter.return new_stmt
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_ret_stmts
 
+(** Runs once per [Proc]/[Lemma] callable, before [rewrite_contract_ext_calls]
+    below visits any of its statements: delegates to [ext_hooks.rewrite_callable_entry]
+    to (possibly) prepend statements at the top of the body -- e.g. ghost locals
+    snapshotting a decreases measure's entry-time value, needed because the
+    callable's own formals may be reassigned by the body before a recursive call is
+    reached. General-purpose, not tied to [contract_ext] at all (see
+    [ExtApi.Ext.rewrite_callable_entry]'s doc comment), so this runs unconditionally
+    for every [Proc]/[Lemma] rather than gating on [call_decl_contract_ext]; it's up
+    to each extension's own implementation to decide whether it has anything to do
+    for a given callable, and the default is to prepend nothing. *)
+let rewrite_callable_entries (callable : Callable.t) : Callable.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match callable.call_decl.call_decl_kind, callable.call_def with
+  | (Proc | Lemma), ProcDef { proc_body = Some body } ->
+    let* ext_hooks = Rewriter.current_ext_hooks in
+    let+ prepend_stmts = ext_hooks.rewrite_callable_entry callable.call_decl in
+    (match prepend_stmts with
+     | [] -> callable
+     | _ ->
+       let new_body =
+         Stmt.mk_block_stmt ~loc:callable.call_decl.call_decl_loc (prepend_stmts @ [ body ])
+       in
+       { callable with call_def = ProcDef { proc_body = Some new_body } })
+  | _ -> Rewriter.return callable
+
+(** The module's call graph, decomposed into strongly-connected components, computed
+    once per module (see [build_scc_map]) right after [rewrite_loops] so synthesized
+    tail-recursive loop-procs are graph vertices too. [sccs] is every component (in
+    [CallGraph.Graph.topsort] order); [scc_id_of] maps each vertex to its component's
+    index into [sccs], for a cheap "are these two in the same recursive group" check
+    ([same_scc] below). A self-recursive callable with no other mutual dependencies is
+    exactly a singleton component with a self-loop -- [CallGraph.Graph.topsort]
+    doesn't merge it with anything else, so this subsumes Phase 1's plain
+    self-recursion check as the size-1 case, with no special-casing needed. *)
+type scc_map = {
+  sccs : QualIdent.t list list;
+  scc_id_of : int qual_ident_map;
+  self_loops : QualIdentSet.t;  (** vertices with an edge to themselves *)
+}
+
+let build_scc_map (tbl : SymbolTbl.t) (m : Module.t) : scc_map =
+  let g = CallGraph.build tbl m in
+  let sccs = CallGraph.Graph.topsort g in
+  let scc_id_of =
+    List.concat_mapi sccs ~f:(fun i members -> List.map members ~f:(fun v -> (v, i)))
+    |> Map.of_alist_exn (module QualIdent)
+  in
+  let self_loops =
+    Set.filter (CallGraph.Graph.vertices g) ~f:(fun v -> Set.mem (CallGraph.Graph.succs g v) v)
+  in
+  { sccs; scc_id_of; self_loops }
+
+let same_scc (sm : scc_map) (a : QualIdent.t) (b : QualIdent.t) : bool =
+  match Map.find sm.scc_id_of a, Map.find sm.scc_id_of b with
+  | Some ia, Some ib -> Int.equal ia ib
+  | _ -> false
+
+(** Runs once per module, after [build_scc_map] and before any per-callable pass below,
+    for every strongly-connected component that's actually recursive -- a self-loop
+    singleton, or any >1-member (mutually-recursive) group -- delegating to
+    [ext_hooks.check_contract_ext_group_compatible] with the resolved [call_decl]s.
+    Core doesn't know what "compatible" means for any given [contract_ext]; it only
+    knows this component is recursive, which is exactly the shape a whole-group check
+    (as opposed to [type_check_contract_ext]'s single-callable view) needs --
+    [DecreasesExt] uses it both for its cross-member mixed-coverage/arity/instance
+    checks (which no-op harmlessly when there's only one resolved member, so a
+    self-loop singleton costs it nothing extra to handle) and, under `--strict`, for
+    its missing-`decreases` diagnostic (self- or mutually-recursive alike -- see
+    [rewrite_loops], which gives a loop's synthesized tail-recursive callable the same
+    kind as whatever callable the loop came from, so a loop is just another
+    self-recursive vertex here, no separate handling needed). A component can contain
+    non-callable vertices too (e.g. two mutually-recursive `data` type definitions --
+    [CallGraph.build] graphs every top-level symbol, not just callables), and members
+    rooted in the standard library (core or extension-supplied) are dropped before
+    resolution -- diagnosing library internals isn't this hook's job, and library
+    declarations don't have a real path on disk for [Loc.context] to print an excerpt
+    from. Each lookup uses [SymbolTbl.goto] against the plain (non-monadic) [tbl]
+    snapshot the SCC map was built from, then a throwaway, non-state-updating
+    [Rewriter.eval] -- exactly how [Dependencies.analyze]'s [inst_dependencies]
+    (lib/backend/dependencies.ml) already resolves arbitrary graph-vertex idents found
+    outside the scope that's "current" in the ambient traversal, since [Rewriter.find]
+    resolves names relative to whatever scope is current, not as absolute paths. *)
+let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) : unit Rewriter.t =
+  let open Rewriter.Syntax in
+  let resolve_call_decls members =
+    List.filter_map members ~f:(fun qid ->
+        if is_library_qual_ident qid then None
+        else
+          let tbl1 = SymbolTbl.goto qid tbl in
+          let _, symbol = Rewriter.eval ~update:false (Rewriter.find_and_reify qid) tbl1 in
+          match symbol with
+          | Module.CallDef call_def -> Some call_def.Callable.call_decl
+          | _ -> None)
+  in
+  Rewriter.List.iter sm.sccs ~f:(fun members ->
+      let is_recursive =
+        match members with
+        | [] -> false
+        | [ qid ] -> Set.mem sm.self_loops qid
+        | _ -> true
+      in
+      if not is_recursive then Rewriter.return ()
+      else
+        match resolve_call_decls members with
+        | [] -> Rewriter.return ()
+        | call_decls ->
+          let* ext_hooks = Rewriter.current_ext_hooks in
+          ext_hooks.check_contract_ext_group_compatible call_decls)
+
+(** For every call in a [Proc]/[Lemma] body whose *callee* has a non-empty
+    [call_decl_contract_ext], delegates to [ext_hooks.rewrite_contract_ext_call] to
+    (possibly) insert statements (e.g. a decreases progress-check assert) immediately
+    before the call. Core code here doesn't know what [call_decl_contract_ext] means --
+    it only knows that any non-empty payload means some extension may want to
+    instrument this call site; the per-call [call_decl_contract_ext <> []] check keeps
+    this a no-op (beyond one symbol lookup) for the overwhelming majority of calls,
+    whose callee has no contract-extension clauses at all.
+
+    Note this is *not* restricted to self-recursive calls: any call to any callable
+    carrying a contract-extension clause is offered to the hook, caller and callee
+    identity included, along with whether they lie in the same strongly-connected
+    component of [sm] (self- or mutually-recursive alike), so an extension can filter
+    down to whatever notion of "recursive"/"relevant" it needs (e.g. [DecreasesExt]
+    only acts when that's [true]) without core needing to know what that notion is.
+    This also means a future contract extension whose calls don't need to be
+    recursive at all -- e.g. something that must hold at *every* call to a given
+    callable -- doesn't need a different pass.
+
+    Since [rewrite_loops] (which runs immediately before this pass -- see
+    [rewrites_phase_1]) has already turned every loop into a self-recursive tail proc
+    and transferred its [loop_contract_ext] onto that proc's [call_decl_contract_ext],
+    loop termination checking falls out of this same pass with no separate code path. *)
+let rec rewrite_contract_ext_calls (sm : scc_map) (stmt : Stmt.t) : Stmt.t Rewriter.t =
+  let open Rewriter.Syntax in
+  match stmt.stmt_desc with
+  | Basic (Call call_desc) ->
+    let loc = Stmt.to_loc stmt in
+    let* callee_qual_ident = Rewriter.resolve call_desc.call_name in
+    let* callee_callable = Rewriter.find_and_reify_callable callee_qual_ident in
+    let callee_call_decl = callee_callable.call_decl in
+    if List.is_empty callee_call_decl.call_decl_contract_ext then
+      Rewriter.return stmt
+    else
+      let* caller_qual_ident = Rewriter.current_scope_id in
+      let* caller_callable = Rewriter.find_and_reify_callable caller_qual_ident in
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      let same_scc_here = same_scc sm caller_qual_ident callee_qual_ident in
+      let+ extra_stmts =
+        ext_hooks.rewrite_contract_ext_call caller_callable.call_decl callee_call_decl
+          same_scc_here call_desc.call_args loc
+      in
+      (match extra_stmts with
+       | [] -> stmt
+       | _ -> Stmt.mk_block_stmt ~loc (extra_stmts @ [ stmt ]))
+  | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_contract_ext_calls sm)
+
 let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (New new_desc) ->
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_new_stmts: new_desc: %a" Stmt.pr stmt);
-      
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_new_stmts: new_desc: %a" printers.pr_stmt stmt) in
+
+
       let assume_non_null_stmt = Stmt.mk_assume_expr ~loc:stmt.stmt_loc 
           ~cmnt:"AssumeNonNull Stmt; from new stmt"
         (Expr.mk_not (
@@ -983,7 +1187,7 @@ let rec rewrite_new_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               in
               match field_symbol with
               | FieldDef f -> Rewriter.return f.field_type
-              | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
             in
 
             let inhale_expr =
@@ -1025,8 +1229,8 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             let spec =
               match c.call_def with
               | ProcDef p ->
-                  Error.error stmt.stmt_loc
-                    "Expected a func_def inside a fold/unfold stmt"
+                  Error.internal_error stmt.stmt_loc
+                    "expected a func_def inside a fold/unfold stmt"
               | FuncDef { func_body = None } ->
                   Error.error stmt.stmt_loc (*(QualIdent.to_loc use_desc.use_name)*)
                     ("Cannot (un)fold abstract predicate " ^ (use_desc.use_name |> QualIdent.unqualify |> Ident.to_string)) (* TW: this should already be checked during typing *)
@@ -1034,7 +1238,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             in
 
             (c.call_decl, Expr.set_loc spec (Stmt.to_loc stmt))
-        | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
       in
 
       begin match pred_decl.call_decl_kind, pred_decl.call_decl_is_auto with
@@ -1070,7 +1274,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* _ =
         Rewriter.List.map new_dropped_args ~f:(fun var ->
             Rewriter.introduce_symbol
-              (Module.VarDef { var_decl = var; var_init = None }))
+              (Module.VarDef { var_decl = var; var_init = None; var_is_free = NotFree }))
       in
       
       let new_renaming_map =
@@ -1124,7 +1328,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
               begin match bd_var_symbol with
               | VarDef v -> v.var_decl
-              | _ -> Error.error stmt.stmt_loc "Expected a var_def"
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def"
               end
             in
 
@@ -1259,7 +1463,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           if call_desc.call_is_spawn
           then ({c.call_decl with call_decl_postcond = []; call_decl_returns= []}, c.call_def)
           else (c.call_decl, c.call_def)
-        | _ -> Error.error stmt.stmt_loc "Expected a call_def"
+        | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
       in
 
       let _, dropped_returns =
@@ -1278,7 +1482,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             in
             let+ _ =
               Rewriter.introduce_symbol
-                (Module.VarDef { var_decl = new_var_decl; var_init = None })
+                (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
             in
             new_var_decl)
       in
@@ -1290,8 +1494,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             match symbol with
             | VarDef v -> Rewriter.return v.var_decl
             | _ ->
-                Error.error stmt.stmt_loc
-                  ("Expected a variable (3); found " ^ Symbol.to_string symbol))
+                Error.internal_error stmt.stmt_loc
+                  ("expected a variable; found " ^ Symbol.to_string symbol))
       in
       let lhs_list = lhs_list @ fresh_dropped_returns in
 
@@ -1303,7 +1507,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
             let new_var_decl = { lhs with var_name = new_var_name } in
             let* _ =
               Rewriter.introduce_symbol
-                (Module.VarDef { var_decl = new_var_decl; var_init = None })
+                (Module.VarDef { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
             in
 
             Rewriter.return (Expr.from_var_decl new_var_decl))
@@ -1347,17 +1551,17 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           (renaming_map, fresh_dropped_args)
       in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m "Rewrites.rewrite_call_stmts: new_renaming_map: %a"
-            (Util.Print.pr_map ~key:QualIdent.pr ~value:Expr.pr)
-            new_renaming_map);
+            (Util.Print.pr_map ~key:QualIdent.pr ~value:printers.pr_expr)
+            new_renaming_map) in
 
       match call_def with
       | ProcDef _ ->
           let* _ =
             Rewriter.List.map new_dropped_args ~f:(fun var ->
                 Rewriter.introduce_symbol
-                  (Module.VarDef { var_decl = var; var_init = None }))
+                  (Module.VarDef { var_decl = var; var_init = None; var_is_free = NotFree }))
           in
 
           (* let build_exhale_spec (spec: Stmt.spec) =
@@ -1410,7 +1614,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
-                  ~spec_error:(spec_error @ spec.spec_error)
+                  ~spec_error:spec.spec_error
                   (Expr.alpha_renaming spec.spec_form new_renaming_map))
           in
 
@@ -1446,13 +1650,9 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
           Rewriter.return new_stmt
       | FuncDef _ ->
-          let exhale_stmts =
-            List.map call_decl.call_decl_precond ~f:(fun spec ->
-                Stmt.mk_exhale_spec
-                  ~cmnt:("Call: " ^ Stmt.to_string stmt)
-                  ~loc:stmt.stmt_loc spec)
-          in
-
+          (* No exhale here: func/pred/invariant contracts can't carry a `requires`
+             (see [Typing.check_no_requires_on_pure_callables]), so there is nothing to
+             check at this call site. *)
           let ret_typ =
             Type.mk_prod stmt.stmt_loc
               (List.map call_decl.call_decl_returns ~f:(fun var_decl ->
@@ -1474,8 +1674,8 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           let new_stmt =
             Stmt.mk_block_stmt ~loc:stmt.stmt_loc
               (match lhs_list with
-              | [] -> exhale_stmts @ [ new_assign_stmt ]
-              | _ -> exhale_stmts @ [ new_assign_stmt; reassign_lhs_stmt ])
+              | [] -> [ new_assign_stmt ]
+              | _ -> [ new_assign_stmt; reassign_lhs_stmt ])
           in
 
           Rewriter.return new_stmt)
@@ -1582,7 +1782,7 @@ let rec rewrite_add_pred_implicit_args (expr : Expr.t) : Expr.t Rewriter.t =
         Poly.(callable.call_decl.call_decl_kind = Callable.Pred ||
         callable.call_decl.call_decl_kind = Callable.Invariant) ->
       let* callable = Rewriter.find_and_reify_callable qual_iden in
-        Logs.debug (fun m -> m "Rewrites.rewrite_add_pred_implicit_args called on: %a; callable = %a" Expr.pr expr Callable.pr callable);
+        let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_add_pred_implicit_args called on: %a; callable = %a" printers.pr_expr expr printers.pr_callable callable) in
         if List.length (callable.call_decl.call_decl_formals @ callable.call_decl.call_decl_returns) = List.length args then
           Rewriter.return expr
         else 
@@ -1628,7 +1828,7 @@ let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
 
             let* _ =
               Rewriter.introduce_symbol
-                (Module.VarDef { var_decl = atomic_token_var; var_init = None })
+                (Module.VarDef { var_decl = atomic_token_var; var_init = None; var_is_free = NotFree })
             in
 
             Rewriter.return c)
@@ -1644,12 +1844,12 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
   | FieldDef f ->
       let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 
-      Logs.debug (fun m -> m
+      let* () = Rewriter.Logs.debug (fun printers m -> m
           "Rewrites.rewrite_frac_field_types:
           is_field_an_ra: %a -> %b"
-            Type.pr f.field_type
+            printers.pr_type f.field_type
             is_field_an_ra
-      );
+      ) in
             
       if is_field_an_ra then Rewriter.return symbol
       else
@@ -1675,8 +1875,9 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
                   f.field_name field_type;
               mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
               mod_inst_def =
-                Some (Predefs.lib_frac_mod_qual_ident, [ tp_module ]);
+                Some (Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ]);
               mod_inst_is_interface = false;
+              mod_inst_is_free = false;
               mod_inst_loc = f.field_loc;
             }
         in
@@ -1714,13 +1915,13 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
      Essentially, makes a uniform 3-arg representation of all own expressions, frac-type as well as RA type.
   *)
   let open Rewriter.Syntax in
-  Logs.debug (fun m ->
-      m "Rewrites.rewrite_own_expr_4_arg: run on expr: %a" Expr.pr expr);
+  let* () = Rewriter.Logs.debug (fun printers m ->
+      m "Rewrites.rewrite_own_expr_4_arg: run on expr: %a" printers.pr_expr expr) in
 
   match expr with
   | App (Own, [ expr1; expr2; expr3; expr4 ], expr_attr) ->
-      Logs.debug (fun m ->
-          m "Rewrites.rewrite_own_expr_4_arg: found expr: %a" Expr.pr expr);
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_own_expr_4_arg: found expr: %a" printers.pr_expr expr) in
 
       (* let field_type = match Expr.to_type expr2 with
            | App (Fld, [tp_expr], _) -> tp_expr
@@ -1728,30 +1929,30 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
          in *)
       let field_type = Expr.to_type expr2 in
 
-      Logs.debug (fun m -> m
-        "Rewrites.rewrite_own_expr_4_arg: field_type1: %a" 
-          Type.pr field_type
-      );
+      let* () = Rewriter.Logs.debug (fun printers m -> m
+        "Rewrites.rewrite_own_expr_4_arg: field_type1: %a"
+          printers.pr_type field_type
+      ) in
 
       let* field_type = Typing.ProcessTypeExpr.expand_type_expr field_type in
-      let field_name = QualIdent.unqualify (Expr.to_qual_ident expr2) in 
+      let field_name = QualIdent.unqualify (Expr.to_qual_ident expr2) in
 
-      Logs.debug (fun m -> m
-        "Rewrites.rewrite_own_expr_4_arg: field_type2: %a" 
-          Type.pr field_type
-      );
+      let* () = Rewriter.Logs.debug (fun printers m -> m
+        "Rewrites.rewrite_own_expr_4_arg: field_type2: %a"
+          printers.pr_type field_type
+      ) in
 
       let+ expr3 =
         let expr3_1 = expr3 in
         let expr3_2 = expr4 in
 
-        Logs.debug (fun m ->
+        let* () = Rewriter.Logs.debug (fun printers m ->
             m
               "Rewrites.rewrite_own_expr_4_arg: intros_type_module started: \
                tp_module: %a;\n ... & frac_mod_ident: %a"
-              Type.pr field_type QualIdent.pr (QualIdent.from_ident
+              printers.pr_type field_type QualIdent.pr (QualIdent.from_ident
               (ProgUtils.frac_field_to_frac_mod_ident
-                 ~loc:(Expr.to_loc expr) field_name field_type)));
+                 ~loc:(Expr.to_loc expr) field_name field_type))) in
 
         let* frac_mod_name =
           let frac_mod_name = 
@@ -1783,12 +1984,12 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
             [ expr3_1; expr3_2 ]
         in
 
-        Logs.debug (fun m -> m
-          "Rewrites.rewrite_own_expr_4_arg: 
+        let* () = Rewriter.Logs.debug (fun printers m -> m
+          "Rewrites.rewrite_own_expr_4_arg:
             expr3: %a"
 
-            Expr.pr expr3 
-        );
+            printers.pr_expr expr3
+        ) in
 
         Rewriter.return expr3
       in
@@ -1822,7 +2023,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
                       | _ ->
                           Error.type_error (Expr.to_loc expr)
                             "Expected field identifier.")
-                  | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+                  | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
                 in
 
                 let* field_elem_typ_expanded =
@@ -1873,7 +2074,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
               match f.field_type with
               | App (Fld, [ tp_expr ], _) -> tp_expr
               | _ -> Error.type_error loc "Expected field identifier.")
-          | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+          | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
         in
 
         let* field_elem_typ_expanded =
@@ -1888,7 +2089,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
             match field_symbol with
             | FieldDef f -> f.field_type
-            | _ -> Error.error stmt.stmt_loc "Expected a field_def"
+            | _ -> Error.internal_error stmt.stmt_loc "expected a field_def"
           in
 
           let frac_mod_name =
@@ -1932,7 +2133,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
 let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
     Callable.t Rewriter.t =
   let open Rewriter.Syntax in
-  if c.call_decl.call_decl_is_free then Rewriter.return c else
+  if is_free c.call_decl.call_decl_status then Rewriter.return c else
   match c.call_decl.call_decl_kind with
   | Pred | Invariant -> (
       match (c.call_decl.call_decl_returns, c.call_def) with
@@ -2034,9 +2235,18 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_locals = [];
               call_decl_precond = [];
               call_decl_postcond = postconds;
-              call_decl_is_free = false;
+              call_decl_contract_ext = [];
+              call_decl_status = NotFree;
               call_decl_is_auto = false;
-              call_decl_mask = None;
+              (* This callable is created in `rewrites_phase_3`, after
+                 `Masks.compute_masks`/atomicity analysis have already run, so
+                 it never goes through the mask fixpoint and `call_decl_needs_mask`
+                 would otherwise be stuck at `None` forever. Safe to seed it
+                 as `Some []` directly: the body below is just two `inhale`s
+                 -- structurally impossible to unfold an invariant, so it can
+                 never have a real mask requirement. *)
+              call_decl_needs_mask = Some [];
+              call_decl_grants_mask = Some [];
               call_decl_loc = c.call_decl.call_decl_loc;
             }
           in
@@ -2069,6 +2279,223 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
   | _ -> Rewriter.return c
 
 
+(** For every [func] with a body and a non-empty [ensures] clause, synthesizes a companion
+    "auto lemma" that proves the func satisfies its own postcondition, and whose body structurally
+    mirrors the func's body expression: wherever the body branches on a condition (the [?:]
+    ternary), the lemma's body has a matching if/else statement; and wherever the body calls
+    another func that itself has such a companion lemma (including calling itself, or a
+    mutually-recursive sibling func), the lemma's body invokes that other func's companion lemma
+    at the same (guarded) position with the same arguments. Being an auto lemma, once its body is
+    verified (which, since it is an ordinary recursive/mutually-recursive lemma call, is checked via
+    the standard call-rule -- providing the induction hypothesis needed for the recursive case) its
+    postcondition becomes globally available, which is exactly the fact the func's own (otherwise
+    unprovable for recursive funcs) contract needs. The original func is left untouched; the
+    verification of its contract in the back-end relies solely on this generated lemma (see
+    [rewrite_callable_pre_post_conds] / [Callable.call_decl_status] handling for that func). *)
+let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let* _ = Rewriter.enter_module m in
+
+  let* mod_def =
+    Rewriter.List.map m.mod_def ~f:(function
+      | Module.SymbolDef (ModDef mod_def) ->
+          let+ mod_def = rewrite_add_func_contract_lemmas sm mod_def in
+          Module.SymbolDef (Module.ModDef mod_def)
+      | instr -> Rewriter.return instr)
+  in
+  let m = { m with mod_def } in
+
+  (* A func needs this pass's scaffolding either to prove its own postcondition (the
+     pass's original purpose) or -- even with no postcondition at all -- to give a
+     contract extension (e.g. `decreases`) a lemma body to instrument, since a func's
+     own body is a pure expression with no call site of its own. Without the second
+     disjunct, a func with e.g. a `decreases` clause but no `ensures` clause would
+     never get a companion lemma, so its self-recursive calls would never be walked by
+     [gen_stmts] below, silently skipping the contract-extension check entirely. *)
+  let eligible =
+    List.filter_map m.mod_def ~f:(function
+      | Module.SymbolDef
+          (CallDef
+            ({ call_decl; call_def = FuncDef { func_body = Some body } } : Callable.t))
+        when Poly.(call_decl.call_decl_kind = Func)
+             && (not (List.is_empty call_decl.call_decl_postcond)
+                 || not (List.is_empty call_decl.call_decl_contract_ext))
+             && not (is_free call_decl.call_decl_status) ->
+          Some (call_decl, body)
+      | _ -> None)
+  in
+
+  match eligible with
+  | [] -> Rewriter.exit_module m
+  | _ ->
+      let contract_lemma_ident (func_name : Ident.t) : Ident.t =
+        Ident.make Loc.dummy ("$" ^ Ident.to_string func_name ^ "_contract") 0
+      in
+
+      let* module_qual_ident = Rewriter.current_module_name in
+
+      let* eligible_tbl =
+        Rewriter.List.fold_left eligible
+          ~init:(Map.empty (module QualIdent))
+          ~f:(fun acc (call_decl, _) ->
+              let+ func_qual_ident =
+                Rewriter.resolve (QualIdent.from_ident call_decl.call_decl_name)
+              in
+              Map.set acc ~key:func_qual_ident ~data:call_decl)
+      in
+
+      (* [current_call_decl] is the func whose companion lemma body is being generated
+         (i.e. the "caller"); [callee_decl] is whichever eligible func the call
+         resolves to (itself, for self-recursion, or a sibling func also eligible for
+         this pass). Delegating to [ext_hooks.rewrite_contract_ext_call] here is how a
+         `decreases` clause on a func gets its progress check inserted, piggybacking on
+         this auto-lemma mechanism exactly as func bodies have no call-site of their
+         own to instrument directly (see WISHLIST.md, "decreases clauses", Phase 1) --
+         note this is called for *every* eligible-func call, not just self-recursive
+         ones (mirroring [rewrite_contract_ext_calls] above); it's up to the hook
+         itself to decide whether caller and callee identity matter to it. *)
+      let gen_stmts (current_call_decl : Callable.call_decl) (e : expr) : Stmt.t list Rewriter.t =
+        let* current_qual_ident =
+          Rewriter.resolve (QualIdent.from_ident current_call_decl.call_decl_name)
+        in
+        let rec go (acc : Stmt.t list) (e : expr) : Stmt.t list Rewriter.t =
+          match e with
+          | App (Ite, [ cond; e1; e2 ], _) ->
+              let* acc = go acc cond in
+              let* then_stmts = go [] e1 in
+              let+ else_stmts = go [] e2 in
+              Stmt.mk_cond ~loc:(Expr.to_loc e) (Some cond)
+                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e1) (List.rev then_stmts))
+                (Stmt.mk_block_stmt ~loc:(Expr.to_loc e2) (List.rev else_stmts))
+              :: acc
+          | App (Var callee, args, _) -> (
+              let* acc = Rewriter.List.fold_left args ~init:acc ~f:go in
+              match Map.find eligible_tbl callee with
+              | None -> Rewriter.return acc
+              | Some callee_decl ->
+                  let lemma_qual_ident =
+                    QualIdent.append module_qual_ident
+                      (contract_lemma_ident callee_decl.call_decl_name)
+                  in
+                  let lemma_call =
+                    Stmt.mk_call ~loc:(Expr.to_loc e) ~lhs:[] lemma_qual_ident
+                      args ~is_spawn:false
+                  in
+                  let* ext_hooks = Rewriter.current_ext_hooks in
+                  let same_scc_here = same_scc sm current_qual_ident callee in
+                  let+ progress_checks =
+                    ext_hooks.rewrite_contract_ext_call current_call_decl
+                      callee_decl same_scc_here args (Expr.to_loc e)
+                  in
+                  lemma_call :: (List.fold progress_checks ~init:acc ~f:(fun acc s -> s :: acc)))
+          | App (_, args, _) -> Rewriter.List.fold_left args ~init:acc ~f:go
+          | Binder _ -> Rewriter.return acc
+        in
+        let+ stmts = go [] e in
+        List.rev stmts
+      in
+
+      let* lemma_symbols =
+        Rewriter.List.map eligible ~f:(fun (call_decl, body) ->
+            let lemma_ident = contract_lemma_ident call_decl.call_decl_name in
+
+            let fn_call_expr =
+              Expr.mk_app ~loc:call_decl.call_decl_loc
+                ~typ:(Callable.return_type call_decl)
+                (Var (QualIdent.from_ident call_decl.call_decl_name))
+                (List.map call_decl.call_decl_formals ~f:Expr.from_var_decl)
+            in
+
+            let ret_subst_map =
+              match call_decl.call_decl_returns with
+              | [ r ] ->
+                  Map.singleton
+                    (module QualIdent)
+                    (QualIdent.from_ident r.var_name)
+                    fn_call_expr
+              | rs ->
+                  List.foldi rs
+                    ~init:(Map.empty (module QualIdent))
+                    ~f:(fun i acc r ->
+                        Map.set acc
+                          ~key:(QualIdent.from_ident r.var_name)
+                          ~data:(Expr.mk_tuple_lookup fn_call_expr i))
+            in
+
+            (* Encode the func's own requires clauses as the antecedent of a single implication,
+               rather than as actual requires clauses on the lemma: this way, the lemma is
+               unconditionally callable (no precondition to discharge at each call site,
+               including the recursive ones), and the induction hypothesis obtained from a
+               recursive/mutually-recursive call is itself the implication `pre(args) ==>
+               post(args, callee(args))`. *)
+            let pre_conj =
+              Expr.mk_and
+                (List.map call_decl.call_decl_precond ~f:(fun pre -> pre.spec_form))
+            in
+            let post_conj =
+              Expr.mk_and
+                (List.map call_decl.call_decl_postcond ~f:(fun post ->
+                     Expr.alpha_renaming post.spec_form ret_subst_map))
+            in
+            let postcond_error _ loc =
+              ( Error.Verification, loc,
+                "The postcondition of " ^ Ident.to_string call_decl.call_decl_name
+                ^ " may not hold" )
+            in
+            let lemma_postconds =
+              [ Stmt.mk_spec ~spec_error:[ postcond_error ]
+                  (Expr.mk_impl pre_conj post_conj) ]
+            in
+
+            let lemma_call_decl =
+              Callable.
+                {
+                  call_decl_kind = Lemma;
+                  call_decl_name = lemma_ident;
+                  call_decl_formals = call_decl.call_decl_formals;
+                  call_decl_returns = [];
+                  call_decl_locals = [];
+                  call_decl_precond = [];
+                  call_decl_postcond = lemma_postconds;
+                  call_decl_contract_ext = [];
+                  call_decl_status = NotFree;
+                  call_decl_is_auto = true;
+                  (* Created in `rewrites_phase_3`, after
+                     `Masks.compute_masks`/atomicity analysis have already
+                     run, so this never goes through the mask fixpoint and
+                     `call_decl_needs_mask` would otherwise be stuck at `None`
+                     forever. Safe to seed it as `Some []` directly: this
+                     lemma's body only ever mirrors a `func`'s (pure
+                     expression) body and calls other such auto-lemmas (see
+                     the doc comment above), so, transitively, it can never
+                     unfold an invariant or need a real mask requirement. *)
+                  call_decl_needs_mask = Some [];
+                  call_decl_grants_mask = Some [];
+                  call_decl_loc = call_decl.call_decl_loc;
+                }
+            in
+
+            let+ lemma_body_stmts = gen_stmts call_decl body in
+            let lemma_body =
+              Stmt.mk_block_stmt ~loc:call_decl.call_decl_loc lemma_body_stmts
+            in
+
+            Module.CallDef
+              Callable.
+                {
+                  call_decl = lemma_call_decl;
+                  call_def = ProcDef { proc_body = Some lemma_body };
+                })
+      in
+
+      let* _ =
+        Rewriter.introduce_typecheck_symbols ~loc:m.mod_decl.mod_decl_loc
+          ~f:Typing.process_symbol lemma_symbols
+      in
+
+      Rewriter.exit_module m
+
+
 let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m ->
@@ -2079,7 +2506,12 @@ let rewrite_introduce_heaps (c : Callable.t) : Callable.t Rewriter.t =
   | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
       let* preds_list = ProgUtils.stmt_preds_mentioned body in
-      let fields_list = Stmt.stmt_fields_accessed body in
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      let fields_list =
+        Stmt.make_stmt_fields_accessed
+          ~basic_stmt_ext_fields_accessed:ext_hooks.basic_stmt_ext_fields_accessed
+          ~stmt_ext_fields_accessed:ext_hooks.stmt_ext_fields_accessed body
+      in
       let au_preds_list = Set.to_list (Stmt.stmt_au_preds_referenced body) in
 
       Logs.debug (fun m ->
@@ -2130,11 +2562,11 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                   let local_var = QualIdent.to_ident qual_ident in
 
-                    Logs.debug (fun m ->
+                    let* () = Rewriter.Logs.debug (fun printers m ->
                         m
                           "Rewrites.rewrite_ssa_stmts: Assigning to local \
                           variable %a; for stmt %a"
-                          Ident.pr local_var Stmt.pr s);
+                          Ident.pr local_var printers.pr_stmt s) in
                     let old_var_decl = Map.find_exn var_map local_var in
                     let new_var_decl =
                       Type.
@@ -2148,7 +2580,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                     let* _ =
                       Rewriter.introduce_symbol
-                        (VarDef { var_decl = new_var_decl; var_init = None })
+                        (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
                     in
 
                     let var_map =
@@ -2191,7 +2623,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
               let* _ =
                 Rewriter.introduce_symbol
-                  (VarDef { var_decl = new_var_decl; var_init = None })
+                  (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
               in
 
               let var_map = Map.set var_map ~key:local_var ~data:new_var_decl in
@@ -2221,7 +2653,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
                   let* _ =
                     Rewriter.introduce_symbol
-                      (VarDef { var_decl = new_var_decl; var_init = None })
+                      (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
                   in
 
                   let var_map =
@@ -2248,8 +2680,8 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
           Rewriter.return
             Stmt.{ s with stmt_desc = Basic (Bind { bind_lhs; bind_rhs }) }
       | _ ->
-          Logs.debug (fun m ->
-              m "Rewrites.rewrite_ssa_stmts: Skipping statement %a" Stmt.pr s);
+          let* () = Rewriter.Logs.debug (fun printers m ->
+              m "Rewrites.rewrite_ssa_stmts: Skipping statement %a" printers.pr_stmt s) in
           assert false)
   | Block block_stmt ->
       let+ block_body =
@@ -2304,7 +2736,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
 
             let+ _ =
               Rewriter.introduce_symbol
-                (VarDef { var_decl = new_var_decl; var_init = None })
+                (VarDef { var_decl = new_var_decl; var_init = None; var_is_free = NotFree })
             in
 
             Map.set map ~key:var ~data:new_var_decl)
@@ -2381,6 +2813,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
                 };
           }
   | Loop loop_stmt -> assert false
+  | StmtExt _ -> assert false
 
 let rewrite_ssa_transform (c : Callable.t) :
     (Callable.t, var_decl ident_map) Rewriter.t_ext =
@@ -2388,8 +2821,8 @@ let rewrite_ssa_transform (c : Callable.t) :
   match c.call_def with
   | FuncDef _ | ProcDef { proc_body = None } -> Rewriter.return c
   | ProcDef { proc_body = Some body } ->
-      Logs.debug (fun m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma Type.pr_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
-         @ c.call_decl.call_decl_locals) );
+      let* () = Rewriter.Logs.debug (fun printers m -> m "rewrite_ssa_transform: init_map: %a" (Util.Print.pr_list_comma printers.pr_type_var_decl) (c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
+         @ c.call_decl.call_decl_locals) ) in
 
       let init_map =
         List.fold
@@ -2402,9 +2835,9 @@ let rewrite_ssa_transform (c : Callable.t) :
 
       let* _ = Rewriter.set_user_state init_map in
 
-      Logs.debug (fun m ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
           m "Rewrites.rewrite_ssa_transform: Starting rewrites on callable %a"
-            Callable.pr c);
+            printers.pr_callable c) in
 
       let+ body = rewrite_ssa_stmts body in
 
@@ -2412,9 +2845,9 @@ let rewrite_ssa_transform (c : Callable.t) :
 
 let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
-  Logs.debug (fun m ->
+  let* () = Rewriter.Logs.debug (fun printers m ->
       m "Rewrites.rewrite_assign_stmts: Starting rewrites on statement %a"
-        Stmt.pr s);
+        printers.pr_stmt s) in
 
   match s.stmt_desc with
   | Basic (Assign assign_stmt) ->
@@ -2457,7 +2890,7 @@ let print_intermediate_state m log_file_name: unit =
 
 
 
-let rec rewrites_phase_1 (m : Module.t) : Module.t Rewriter.t =
+let rec rewrites_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m -> m "Rewrites.all_rewrites: Starting rewrites");
 
@@ -2484,11 +2917,33 @@ let rec rewrites_phase_1 (m : Module.t) : Module.t Rewriter.t =
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
 
   Logs.debug (fun m1 ->
+      m1 "Rewrites.all_rewrites: Computing call-graph SCCs on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  (* Computed here, right after [rewrite_loops], so synthesized tail-recursive
+     loop-procs are already graph vertices; threaded explicitly (not via
+     [Rewriter]'s monadic state) all the way to [rewrites_phase_3], since that runs
+     as a separate [Rewriter.eval] call in [process_module] and monadic state does
+     not survive across those. *)
+  let* tbl_after_loops = Rewriter.get_table in
+  let scc_map = build_scc_map tbl_after_loops m in
+  let* () = check_contract_ext_group_compatibility tbl_after_loops scc_map in
+
+  Logs.debug (fun m1 ->
+      m1 "Rewrites.all_rewrites: Starting rewrite_callable_entries on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_callables ~f:rewrite_callable_entries m in
+
+  Logs.debug (fun m1 ->
+      m1 "Rewrites.all_rewrites: Starting rewrite_contract_ext_calls on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = Rewriter.Module.rewrite_stmts ~f:(rewrite_contract_ext_calls scc_map) m in
+
+  Logs.debug (fun m1 ->
       m1 "Rewrites.all_rewrites: Starting rewrite_inline_preds_expr on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_expressions ~f:(rewrite_inline_preds_expr (Set.empty (module QualIdent))) m in
 
-  Rewriter.return m
+  Rewriter.return (m, scc_map)
 
 let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -2511,8 +2966,14 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
+let rec rewrites_phase_3 (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
+
+  Logs.debug (fun m1 ->
+      m1
+        "Rewrites.all_rewrites: Starting rewrite_add_func_contract_lemmas on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m = rewrite_add_func_contract_lemmas sm m in
 
   Logs.debug (fun m1 ->
       m1
@@ -2696,10 +3157,10 @@ let rec rewrites_phase_3 (m : Module.t) : Module.t Rewriter.t =
       Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_types ~f:rewrite_expand_types m in
 
-  Logs.debug (fun m1 ->
+  let* () = Rewriter.Logs.debug (fun printers m1 ->
       m1
         "Rewrites.all_rewrites: Starting rewrite_ssa_transform on module %a: %a"
-        Ident.pr m.mod_decl.mod_decl_name Module.pr m);
+        Ident.pr m.mod_decl.mod_decl_name printers.pr_module m) in
   let* m =
     Rewriter.eval_with_user_state
       ~init:(Map.empty (module Ident))
@@ -2726,8 +3187,8 @@ let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
     let* type_expr = Rewriter.Type.descend type_expr ~f:rewrite_type_ext in
     match type_expr with
     | App (TypeExt type_ext, args, type_attr) ->
-      let (module Ext) = !Ext.ext in
-      Ext.rewrite_type_ext type_ext args (Type.to_loc type_expr)
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_type_ext type_ext args (Type.to_loc type_expr)
     | _ -> Rewriter.return type_expr
 
   in
@@ -2741,9 +3202,9 @@ let rewrites_expr_ext (m: Module.t) : Module.t Rewriter.t =
   let rec rewrite_expr_ext  (expr : expr) : expr Rewriter.t =
     let* expr = Rewriter.Expr.descend expr ~f:rewrite_expr_ext in
     match expr with
-    | App (ExprExt expr_ext, args, expr_attr) -> 
-      let (module Ext) = !Ext.ext in
-      Ext.rewrite_expr_ext expr_ext args expr_attr
+    | App (ExprExt expr_ext, args, expr_attr) ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_expr_ext expr_ext args expr_attr
     | _ -> Rewriter.Expr.descend expr ~f:rewrite_expr_ext
   in
 
@@ -2764,9 +3225,12 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
   let open Rewriter.Syntax in
   let rec rewrite_stmt_ext  (stmt : Stmt.t) : Stmt.t Rewriter.t =
     match stmt.stmt_desc with
-    | Basic (StmtExt (stmt_ext, args)) -> 
-      let (module Ext) = !Ext.ext in
-      Ext.rewrite_stmt_ext stmt_ext args (Stmt.to_loc stmt)
+    | Basic (BasicStmtExt (stmt_ext, args)) ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_basic_stmt_ext stmt_ext args (Stmt.to_loc stmt)
+    | StmtExt stmt_ext ->
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      ext_hooks.rewrite_stmt_ext stmt_ext (Stmt.to_loc stmt)
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_stmt_ext
 
   in
@@ -2775,27 +3239,29 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-let process_module ?(tbl = SymbolTbl.create ()) (m : Module.t) =
+let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
-  let tbl, m = Rewriter.eval (rewrites_phase_1 m) tbl in
+  let tbl, (m, scc_map) = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_1 m) tbl in
 
-  let tbl, m = Rewriter.eval (Masks.compute_masks m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (Masks.compute_masks m) tbl in
 
-  let tbl, m = Rewriter.eval (rewrites_phase_2 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (Masks.check_no_interface_reach_back m) tbl in
 
-  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
-  
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_2 m) tbl in
+
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
+
   (* Logs.debug (fun m -> m "Rewrites.process_module: whoop-di-doo, here we go again"); *)
 
-  let tbl, m = Rewriter.eval (rewrites_type_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_expr_ext m) tbl in
-  let tbl, m = Rewriter.eval (rewrites_stmt_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_type_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
 
-  let tbl, m = Rewriter.eval (rewrites_phase_3 m) tbl in
+  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_3 scc_map m) tbl in
 
   (tbl, m)
 
@@ -2863,7 +3329,7 @@ Specification Count: %d"
       match instr with
       | Import _ -> Rewriter.return ps
       | SymbolDef s -> 
-        let+ symbolStats = computeSymbolStats s.symbol_def in
+        let+ symbolStats = computeSymbolStats s in
         merge_prog_stats ps symbolStats
     ) in 
     let+ _ = Rewriter.exit_module md in
@@ -2872,8 +3338,8 @@ Specification Count: %d"
 
   and computeSymbolStats s : prog_stats Rewriter.t =
     match s with
-    | ModDef md -> 
-      if md.mod_decl.mod_decl_is_free then
+    | ModDef md ->
+      if is_free md.mod_decl.mod_decl_status then
         Rewriter.return init_prog_stats
       else
         computeStats md
@@ -2895,7 +3361,7 @@ Specification Count: %d"
   and computeCallableStats c : prog_stats Rewriter.t =
     let open Rewriter.Syntax in 
 
-    if c.call_decl.call_decl_is_free then
+    if is_free c.call_decl.call_decl_status then
       Rewriter.return init_prog_stats
     else
 
@@ -2972,13 +3438,16 @@ Specification Count: %d"
         ; 
       } in
 
-      merge_prog_stats cond_stats 
+      merge_prog_stats cond_stats
         (merge_prog_stats cond_if_stats cond_else_stats)
+
+    | StmtExt _ -> Rewriter.return init_prog_stats
 
   and computeBasicStmtStats b proc_decl : prog_stats Rewriter.t =
     let open Rewriter.Syntax in
+    let* printers = Rewriter.current_printers in
 
-    (* Logs.debug (fun m -> m 
+    (* Logs.debug (fun m ->m 
       "ProgStats: basic_stmt: %a"
       Stmt.pr_basic_stmt b
     ); *)
@@ -3011,7 +3480,7 @@ Specification Count: %d"
       if is_ghost 
         then { init_prog_stats with proof_remaining_instr = 1; }
       else
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
 
     | New new_desc ->
@@ -3023,12 +3492,12 @@ Specification Count: %d"
       in
 
       if is_ghost && is_concrete then
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; proof_remaining_instr = 1; }
       else if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
     
     | FieldRead field_read_desc ->
@@ -3038,7 +3507,7 @@ Specification Count: %d"
       if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else 
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
     
     | FieldWrite field_write_desc ->
@@ -3048,7 +3517,7 @@ Specification Count: %d"
       if is_ghost then
         { init_prog_stats with proof_remaining_instr = 1; }
       else 
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
     
     | Call call_desc ->
@@ -3057,13 +3526,13 @@ Specification Count: %d"
       begin match callable.call_decl.call_decl_kind with
       | Lemma -> { init_prog_stats with proof_remaining_instr = 1; }
       | Proc -> 
-        let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+        let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
         { init_prog_stats with prog_instr = 1; }
       | _ -> { init_prog_stats with proof_remaining_instr = 1; }
       end
     
     | Return _ -> 
-      let _ = Logs.debug (fun m -> m "prog_instr: %a" Stmt.pr_basic_stmt b) in
+      let _ = Logs.debug (fun m -> m "prog_instr: %a" printers.pr_stmt_basic b) in
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 
     | Spec _ | Bind _ | Fpu _ -> 
@@ -3084,13 +3553,13 @@ Specification Count: %d"
     | AUAction _ ->
       Rewriter.return { init_prog_stats with proof_au_instr = 1; }
 
-    | StmtExt (stmt_ext, args) -> 
+    | BasicStmtExt (stmt_ext, args) ->
       Rewriter.return { init_prog_stats with prog_instr = 1; }
 end
 
-let compute_stats tbl m =
+let compute_stats ?ext_hooks tbl m =
   assert (SymbolTbl.curr_is_root tbl);
 
-  let tbl, prog_stats = Rewriter.eval (ProgStats.computeStats m) tbl in
+  let tbl, prog_stats = Rewriter.eval ?ext_hooks (ProgStats.computeStats m) tbl in
 
   prog_stats

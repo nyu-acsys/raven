@@ -7,7 +7,7 @@ type R = data {
   case rCase1(z: Int, w: T)
 }
 
-field tData: T;
+field tData: T
 
 proc tagY(x: Int, y: T)
   returns (r: Ref)
