@@ -19,7 +19,7 @@ proc bump(c: Int) returns (r: Int)
   requires c >= 0
   ensures r == c + 1
 {
-  r := c + 1;
+  r := c + 1
 }
 
 // Recursion: apply `next` n times. This is the kind of pure, terminating function
@@ -46,8 +46,8 @@ proc bumpN(c: Int, n: Int) returns (r: Int)
     invariant 0 <= i <= n
     invariant r == c + i
   {
-    r := r + 1;
-    i := i + 1;
+    r := r + 1
+    i := i + 1
   }
 }
 
@@ -59,7 +59,7 @@ proc bumpN(c: Int, n: Int) returns (r: Int)
 // case name is optional at construction sites, and omitted below, matching
 // this tutorial's preference.
 type Outcome = data {
-  case ok(value: Int);
+  case ok(value: Int)
   case capped
 }
 

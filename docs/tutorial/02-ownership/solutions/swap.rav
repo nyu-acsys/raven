@@ -7,8 +7,8 @@ proc swap(c1: Ref, c2: Ref, implicit ghost v1: Int, implicit ghost v2: Int)
   requires own(c1.count, v1) && own(c2.count, v2)
   ensures own(c1.count, v2) && own(c2.count, v1)
 {
-  var t1 := c1.count;
-  var t2 := c2.count;
-  c1.count := t2;
-  c2.count := t1;
+  val t1 := c1.count
+  val t2 := c2.count
+  c1.count := t2
+  c2.count := t1
 }

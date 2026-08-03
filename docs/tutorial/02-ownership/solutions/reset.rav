@@ -5,5 +5,5 @@ proc reset(c: Ref, implicit ghost v: Int)
   requires own(c.count, v)
   ensures own(c.count, 0)
 {
-  c.count := 0;
+  c.count := 0
 }

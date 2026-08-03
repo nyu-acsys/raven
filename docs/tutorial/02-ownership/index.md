@@ -13,20 +13,20 @@ field count: Int
 proc create() returns (c: Ref)
   ensures own(c.count, 0)
 {
-  c := new (count: 0);
+  c := new (count: 0)
 }
 ```
 
-`field count: Int` declares that heap objects can have a `count` field. `Ref` is Raven's type
-for heap references — but note it's *opaque*: you cannot read or write through a `Ref` just
-because you're holding one. `new (count: 0)` allocates a fresh object with its `count` field
-initialized to `0`, and, in the very same step, hands the caller ownership of exactly that field
-back as `own(c.count, 0)` — nothing else. If your program declares other fields besides
-`count`, this particular object still comes with no usable access to them: only the fields you
-actually mention in a `new` statement's initializer come with ownership attached, whether or
-not other fields exist elsewhere in the program. Try deleting the `ensures` clause above and
-re-verifying `increment` below — it'll fail immediately, because without it, `create`'s caller
-has a `Ref` but no permission to do anything with it.
+The declaration `field count: Int` states that heap objects can have a `count` field. `Ref` is
+Raven's type for heap references — but note that it's *opaque*: you cannot read or write through
+a `Ref` just because you're holding one. The statement `new (count: 0)` allocates a fresh object
+with its `count` field initialized to `0`. Moreover, in the very same step, hands the caller
+ownership of exactly that field back as the *resource* `own(c.count, 0)` — nothing else. If your
+program declares other fields besides `count`, this particular object still comes with no usable
+access to them: only the fields you actually mention in a `new` statement's initializer come
+with ownership attached, whether or not other fields exist elsewhere in the program. Try
+deleting the `ensures` clause above and re-verifying `increment` below — it'll fail immediately,
+because without it, `create`'s caller has a `Ref` but no permission to do anything with it.
 
 One practical gotcha you'll hit immediately if you write heap-touching code by hand: **a single
 statement can only perform one heap access.** `c1.count := c2.count;` doesn't type-check — read
@@ -36,8 +36,9 @@ basic statement is only allowed to take one step that's observable to other thre
 `c2.count` and writing `c1.count` is two such steps, and if they were combined into one
 statement, another thread could interleave between them — writing to `c2.count` after it's been
 read but before that value lands in `c1.count`, silently invalidating whatever the write thought
-it was copying. (Part 2's exercises give you a first-hand look at the syntax; Part 4 is where the
-concurrency reasoning behind the restriction becomes concrete.)
+it was copying. (Part 2's exercises give you a first-hand look at the syntax; Part 4 is where
+the concurrency reasoning behind the restriction becomes concrete.) In particular, this means
+that you cannot use a field read like `c2.count` nested within a larger expression or statement.
 
 ## 2. `own` is a resource, not a fact
 
@@ -46,17 +47,18 @@ proc increment(c: Ref, implicit ghost v: Int)
   requires own(c.count, v)
   ensures own(c.count, v + 1)
 {
-  var x := c.count;
-  c.count := x + 1;
+  var x := c.count
+  c.count := x + 1
 }
 ```
 
-`v` is `implicit ghost`: it exists purely to state the contract — it has no run-time effect —
-and the caller never supplies it explicitly; Raven infers it from whatever `own(c.count, ...)`
-fact is already in scope at the call site. The important idea here is that `own(c.count, v)` is
-not merely the claim "`c.count` currently equals `v`" (that would just be a fact, freely
-duplicable, like `2 + 2 == 4`). It's *ownership* of that fact: something you can spend, and once
-spent, no longer have. Try this, in a scratch file:
+The formal parameter `v` is declared as `implicit ghost`. Here `ghost` means that the parameter
+exists purely to state the contract — it has no run-time effect. The modifier `implicit` means
+that the caller does not need to supply an actual argument to `v` explicitly; Raven infers it
+from whatever `own(c.count, ...)` fact is already in scope at the call site. The important idea
+here is that `own(c.count, v)` is not merely the claim "`c.count` currently equals `v`" (that
+would just be a fact, freely duplicable, like `2 + 2 == 4`). It's *ownership* of that fact:
+something you can spend, and once spent, no longer have. Try this, in a scratch file:
 
 ```raven
 proc badDup(c: Ref, implicit ghost v: Int)
@@ -69,19 +71,19 @@ proc badDup(c: Ref, implicit ghost v: Int)
 This is [`broken/double_ownership.rav`](./broken/double_ownership.rav) — it's supposed to fail,
 and it does, with `[Verification Error] A postcondition may not hold at this return point` and a
 related location on the second `own(c.count, v)`. You cannot manufacture ownership out of
-nothing just by writing it in an `ensures` clause; Raven checks that the resource you're
-claiming to produce is actually backed by what you had. Internally, this is because `own`
-facts about the same field compose via addition of their *permission fraction* — see §4 — and
-two full (100%) claims on the same cell add up to 200%, which is simply invalid.
+nothing just by writing it in an `ensures` clause. Raven checks that the resource you're
+claiming to produce is actually backed by what you had. Internally, this is because `own` facts
+about the same field compose via addition of their *permission fraction* — see §4 — and two full
+(100%) claims on the same cell add up to 200%, which is simply invalid.
 
 ## 3. Separating conjunction
 
-`&&` inside a `requires`/`ensures` is not the boolean `&&` you're used to — it's separation
-logic's *separating conjunction*. `own(c1.count, v1) && own(c2.count, v2)` doesn't just claim
-both facts are true; it claims the *resources* backing
-them can be split into two disjoint pieces, one for each conjunct. This is what licenses
-Raven's *frame rule*: whatever a procedure doesn't mention in its contract, it provably cannot
-have touched.
+The operator `&&` that we used inside the `ensures` clause of `badDuP` is not the boolean `&&`
+you're used to — it's separation logic's *separating conjunction*. The assertion `own(c1.count,
+v1) && own(c2.count, v2)` doesn't just claim both facts are true; it claims the *resources*
+backing them can be split into two pieces that hold independently for each conjunct. This is
+what licenses Raven's *frame rule*: whatever a procedure doesn't mention in its contract, it
+provably cannot have touched or falsified. Consider the following procedure:
 
 ```raven
 proc distinctIncrement(c1: Ref, c2: Ref, implicit ghost v1: Int, implicit ghost v2: Int)
@@ -89,22 +91,22 @@ proc distinctIncrement(c1: Ref, c2: Ref, implicit ghost v1: Int, implicit ghost 
   ensures own(c1.count, v1 + 1) && own(c2.count, v2)
 {
   assert c1 != c2; // provable from the requires clause alone, before this line
-  var before := c2.count;
-  increment(c1);
-  var after := c2.count;
-  assert before == after;
+  var before := c2.count
+  increment(c1)
+  var after := c2.count
+  assert before == after
 }
 ```
 
-`own(c2.count, v2)` is never mentioned again after the `requires` clause, yet it reappears
-untouched in the `ensures`. That's not just true of the contract in the abstract — the second
-`assert` makes it observable: `increment(c1)`'s own contract only ever asks for (and hands back)
-`c1.count`, so `c2.count` is guaranteed unchanged across the call, and reading it before and
-after really does give the same value. Nothing here tells Raven this explicitly; it derives it
-automatically, because `c2`'s resource was never handed to `increment` in the first place. This
-is the "frame problem" that plain Hoare logic struggles with: without a *resource-aware*
-connective, you'd need to manually restate, for every call, everything the callee definitely
-didn't change. Separating conjunction gets that for free.
+The predicate `own(c2.count, v2)` is never mentioned again after the `requires` clause, yet it
+reappears untouched in the `ensures` clause. That's not just true of the contract in the
+abstract — the second `assert` makes it observable: `increment(c1)`'s own contract only ever
+asks for (and hands back) `c1.count`, so `c2.count` is guaranteed unchanged across the call, and
+reading it before and after really does give the same value. Nothing here tells Raven this
+explicitly; it derives it automatically, because `c2`'s resource was never handed to `increment`
+in the first place. This is the "frame problem" that plain Hoare logic struggles with: without a
+*resource-aware* connective, you'd need to manually restate, for every call, everything the
+callee definitely didn't change. Separating conjunction gets that for free.
 
 ## 4. Fractional permissions
 
@@ -113,44 +115,45 @@ proc readHalf(c: Ref, implicit ghost v: Int) returns (r: Int)
   requires own(c.count, v, 0.5)
   ensures own(c.count, v, 0.5) && r == v
 {
-  r := c.count;
+  r := c.count
 }
 
 proc readTwice(c: Ref, implicit ghost v: Int) returns (a: Int, b: Int)
   requires own(c.count, v, 1.0)
   ensures own(c.count, v, 1.0) && a == v && b == v
 {
-  a := readHalf(c);
-  b := readHalf(c);
+  a := readHalf(c)
+  b := readHalf(c)
 }
 ```
 
-`own(e.f, v, q)` takes an explicit third argument, a fraction `q` in `(0, 1]`; omitting it (as
-every earlier example did) defaults to `1.0`, full ownership, which grants both read and write
-access. Anything less than `1.0` — like `readHalf`'s `0.5` — grants read-only access, since the
-remaining fraction might be held (and, by the same logic, might be being read) by someone else.
-`readTwice` calls `readHalf` twice in a row from a single full permission, splitting off `0.5`
-for each call — but not both at once. The first `readHalf` call takes `0.5`, returns, and hands
-its `0.5` straight back, which recombines with the `0.5` `readTwice` still held throughout into
-the full `1.0` again; only then does the second call split off its own `0.5`. `readTwice`'s own
-share of `c.count` never actually drops below `0.5`, at any point in its execution — and that's
-the part worth pausing on, not just the splitting: because *something* is always held, no other
-call (here, neither `readHalf` invocation, but the same reasoning covers any concurrent thread
-once Part 4 arrives) could have written to `c.count` in between, which is exactly what lets
-Raven conclude both `readHalf` calls read back the same, still-unchanged `v` — `a == v && b ==
-v`, not just `a == b`. None of this is Raven-specific magic: it's just that `(v, 0.5)` composed
-with `(v, 0.5)` equals `(v, 1.0)` in the fractional-permission algebra, and Raven's automatic
-framing is doing ordinary algebra with that fact, the same way it matched up disjoint resources
-in §3.
+The predicate `own(e.f, v, q)` takes an explicit third argument, a fraction `q` in `(0.0, 1.0]`;
+omitting it (as every earlier example did) defaults to `1.0`, full ownership, which grants both
+read and write access to `e.f`. Anything less than `1.0` — like `readHalf`'s `0.5` — grants
+read-only access, since the remaining fraction might be held (and, by the same logic, might be
+being read) by someone else. Procedure `readTwice` calls `readHalf` twice in a row from a single
+full permission to `c.count`, splitting off `0.5` for each call — but not both at once. The
+first `readHalf` call takes `0.5`, returns, and hands its `0.5` straight back to
+`readTwice`. The returned fraction recombines with the `0.5` `readTwice` still held throughout
+into the full `1.0` again; only then does the second call split off its own `0.5`. `readTwice`'s
+own share of `c.count` never actually drops below `0.5`, at any point in its execution — and
+that's the part worth pausing on, not just the splitting: because *something* is always held, no
+other call (here, neither `readHalf` invocation, but the same reasoning covers any concurrent
+thread accessing `c.count`) could have written to `c.count` in between, which is exactly what
+lets Raven conclude both `readHalf` calls read back the same, still-unchanged `v` — `a == v && b
+== v`. None of this is Raven-specific magic: it's just that `(v, 0.5)` composed with `(v, 0.5)`
+equals `(v, 1.0)` in the fractional-permission algebra, and Raven's automatic framing is doing
+ordinary algebra with that fact, the same way it matched up disjoint resources in §3.
 
 ## 5. Procedure contracts, revisited
 
 Put together, §§2–4 mean a procedure contract genuinely describes a **resource transfer** at a
-call, not just a logical fact. `requires` is what the callee consumes from the caller;
-`ensures` is what it hands back; anything the caller holds outside that exact resource is
-guaranteed, by construction, to survive the call unchanged. This is different enough from plain
-Hoare logic that it's worth restating directly: **you are not just proving properties of values
-anymore, you are also accounting for who currently has permission to see and change them.**
+call, not just a logical fact. The `requires` clause is what the callee consumes from the
+caller. The `ensures` clause is what it hands back. Anything the caller holds outside that exact
+resource is guaranteed, by construction, to survive the call unchanged. This is different enough
+from plain Hoare logic that it's worth restating directly: **you are not just proving properties
+of values anymore, you are also accounting for who currently has permission to see and change
+them.**
 
 ## 6. Anti-aliasing, for free
 
@@ -159,9 +162,9 @@ c2`. It's *derivable*, automatically, from `own(c1.count, v1) && own(c2.count, v
 `c1` and `c2` were the same location, the caller would need to simultaneously hold two full
 (100%) permissions on it, which — exactly as in §2's `badDup` — is an inconsistent amount of
 ownership to hold at once. So the only states satisfying the precondition in the first place are
-ones where `c1 != c2` already. Compare this to a language without ownership tracking, where
-"are these two references aliased?" has to be settled by a side-condition you write and prove by
-hand, every time; here, it falls out of the resource accounting you were doing anyway.
+ones where `c1 != c2` holds already. Compare this to a language without ownership tracking,
+where "are these two references aliased?" has to be settled by a side-condition you write and
+prove by hand, every time. Here, it falls out of the resource accounting you were doing anyway.
 
 ## Why this matters for concurrency
 
@@ -174,7 +177,7 @@ caller" is written here.
 
 ## Debugging Corner
 
-Two shapes an ownership failure takes, worth telling apart:
+Two shapes an ownership failure takes are worth telling apart:
 
 - A **direct heap access** without enough permission (a bare `c.count` or `c.count := ...`
   where the ambient `own` fact's fraction, or its existence at all, doesn't cover it) surfaces

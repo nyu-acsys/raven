@@ -9,7 +9,7 @@ field count: Int
 proc create() returns (c: Ref)
   ensures own(c.count, 0)
 {
-  c := new (count: 0);
+  c := new (count: 0)
 }
 
 // `v` is `implicit ghost`: it exists purely to state the contract (it never
@@ -19,8 +19,8 @@ proc increment(c: Ref, implicit ghost v: Int)
   requires own(c.count, v)
   ensures own(c.count, v + 1)
 {
-  var x := c.count;
-  c.count := x + 1;
+  var x := c.count
+  c.count := x + 1
 }
 
 // Fractional permissions: a full (1.0, the default) permission can be split
@@ -31,15 +31,15 @@ proc readHalf(c: Ref, implicit ghost v: Int) returns (r: Int)
   requires own(c.count, v, 0.5)
   ensures own(c.count, v, 0.5) && r == v
 {
-  r := c.count;
+  r := c.count
 }
 
 proc readTwice(c: Ref, implicit ghost v: Int) returns (a: Int, b: Int)
   requires own(c.count, v, 1.0)
   ensures own(c.count, v, 1.0) && a == v && b == v
 {
-  a := readHalf(c);
-  b := readHalf(c);
+  a := readHalf(c)
+  b := readHalf(c)
 }
 
 // The frame rule, and anti-aliasing, in one example. The `assert c1 != c2`
@@ -56,9 +56,9 @@ proc distinctIncrement(c1: Ref, c2: Ref, implicit ghost v1: Int, implicit ghost 
   requires own(c1.count, v1) && own(c2.count, v2)
   ensures own(c1.count, v1 + 1) && own(c2.count, v2)
 {
-  assert c1 != c2; // provable from the requires clause alone, before this line
-  var before := c2.count;
-  increment(c1);
-  var after := c2.count;
-  assert before == after;
+  assert c1 != c2 // provable from the requires clause alone, before this line
+  var before := c2.count
+  increment(c1)
+  var after := c2.count
+  assert before == after
 }
