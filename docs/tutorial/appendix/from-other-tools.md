@@ -16,7 +16,7 @@ plain type, which is what everything from Part 4 onward is built on.
 | `acc(x.f, perc)` | `own(x.f, v, q)` | Same fractional-permission model. |
 | (no direct equivalent) | `own(x.g, a)`, `g` a ghost field | `a` here is an element of whatever user-definable resource algebra `g`'s declared type names (Part 4) — a fact about proof-only state with its own composition rule, not just a permission on an ordinary value. Viper has no ghost fields and no notion of a resource algebra at all; this is the other half of what Raven adds on top of Viper's own field/heap model. |
 | `predicate`, `fold`/`unfold` | `pred`, `fold`/`unfold` | Directly analogous. |
-| (no direct equivalent) | `inv` | Viper has no built-in shared-invariant concept — front-ends targeting Viper that need concurrency encode it themselves on top. This is Raven's central addition. |
+| (no direct equivalent) | `inv` | Viper has no built-in shared-invariant concept — front-ends targeting Viper that need concurrency encode it themselves on top. This is one of Raven's central additions. |
 | macros | `auto pred` | Automatically inlined, no fold/unfold. |
 | `inhale`/`exhale` | `inhale`/`exhale` | Same ghost statements, same role — Raven's own compilation pipeline reduces everything else down to exactly these two, the same way Viper's does. |
 | `domain` | ADTs (`data`), or the module system | A Viper `domain` is closest to a restricted `interface`: a rep type plus axioms characterizing it, but no functors, no implementations, no functor composition. For a simple algebraic sum type, Raven's `data` is the direct match; for anything with more structure (a domain used to axiomatize a whole data structure), Raven's module system is the more general — and more capable — analogue. |
@@ -25,7 +25,7 @@ plain type, which is what everything from Part 4 onward is built on.
 | `decreases e1, ..., en` | `decreases e1, ..., en` | Same contract syntax, same lexicographic-tuple concept — but Viper has no equivalent of Raven's user-definable `WellFoundedOrder` instances (Part 3). |
 | no built-in concurrency | invariants, ghost fields/RAs, atomic contracts, prophecy variables | The actual gap Raven is designed to fill; see the Part 4/5 story in this tutorial, and Appendix D for prophecies specifically. |
 
-One deeper design difference, worth knowing about even though it rarely surfaces day to day:
+There is one other deeper design difference worth knowing about:
 Viper is built on *implicit dynamic frames*, a close cousin of separation logic where
 expressions — in both programs and specifications — can be heap-dependent. Raven instead keeps
 expressions pure everywhere; a heap read is always a statement (`val x := e.f;`), never buried
@@ -51,7 +51,7 @@ real part of why Raven's pure-expression design is a better fit for concurrency 
 
 ## From Iris
 
-If you know Iris, you already know the *ideas* behind Parts 2–5 — ownership, invariants,
+If you know Iris, you already know the *ideas* behind Parts 2–5 — ownership, shared invariants,
 resource algebras (Iris's *cameras*, restricted here to Iris's simpler, non-step-indexed
 unital-RA fragment), atomic triples. What Raven adds is automation: everything you'd build by
 hand in the Iris Proof Mode inside Rocq is instead compiled down to a first-order SMT query and

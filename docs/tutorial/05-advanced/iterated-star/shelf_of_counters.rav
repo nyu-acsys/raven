@@ -53,24 +53,24 @@ module Shelf[S: IShelf] {
     requires shelfInv(s) && 0 <= i && i < S.size(s)
     ensures shelfInv(s)
   {
-    S.all_diff();
-    var cell := S.loc(s, i);
-    ghost var counts: Map[Int, Int];
-    unfold shelfInv(s)[counts := counts];
-    val _x := faa(cell.count, 1);
-    fold shelfInv(s)[counts := counts[i := counts[i] + 1]];
+    S.all_diff()
+    val cell := S.loc(s, i)
+    ghost var counts: Map[Int, Int]
+    unfold shelfInv(s)[counts := counts]
+    val _x := faa(cell.count, 1)
+    fold shelfInv(s)[counts := counts[i := counts[i] + 1]]
   }
 
   proc peek(s: S, i: Int) returns (v: Int)
     requires shelfInv(s) && 0 <= i && i < S.size(s)
     ensures shelfInv(s)
   {
-    S.all_diff();
-    var cell := S.loc(s, i);
-    ghost var counts: Map[Int, Int];
-    unfold shelfInv(s)[counts := counts];
-    v := cell.count;
-    fold shelfInv(s)[counts := counts];
+    S.all_diff()
+    val cell := S.loc(s, i)
+    ghost var counts: Map[Int, Int]
+    unfold shelfInv(s)[counts := counts]
+    v := cell.count
+    fold shelfInv(s)[counts := counts]
   }
 }
 
@@ -87,8 +87,8 @@ module ShelfClient[S: IShelf] {
     requires shelfInv(s) && 0 <= i && i < S.size(s) && 0 <= j && j < S.size(s)
     ensures shelfInv(s)
   {
-    spawn bump(s, i);
-    spawn bump(s, j);
-    var v := peek(s, i);
+    spawn bump(s, i)
+    spawn bump(s, j)
+    var v := peek(s, i)
   }
 }
