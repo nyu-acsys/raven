@@ -17,7 +17,7 @@ structure as `Instance`/`ForkJoin` there. What's new in this section is what hap
 exclusion (rather than a one-shot handoff) needs a *retry loop*, and the more ergonomic way —
 atomic contracts — of stating what that loop guarantees.
 
-Two files, same algorithm, same underlying resources:
+We'll look at two files that implement the same algorithm with the same underlying resources:
 
 - [`ticket_lock_invariant.rav`](./ticket_lock_invariant.rav) proves `acquire`/`release` correct
   with a plain shared invariant, exactly Part 4's toolkit.
@@ -54,9 +54,9 @@ proc acquire(l: Ref, implicit ghost r: R)
 An **atomic triple** — `atomic requires P` / `atomic ensures Q` — says: "this call, however many
 physical steps it actually takes, has *one* atomic step (its *linearization point*) at which the
 abstract state visibly moves from something satisfying `P` to something satisfying `Q`; every
-other step is invisible to the outside." That's a strictly stronger, and strictly more useful,
-promise than an ordinary Hoare contract: a client can now treat `acquire` as a single step in its
-own reasoning, the same way it would treat a primitive `cas`.
+other step is invisible to the outside". That's a strictly stronger, and strictly more useful,
+promise than an ordinary Hoare contract: from a logical perspective, a client can now treat
+`acquire` as a single step in its own reasoning, the same way it would treat a primitive `cas`.
 
 ## The mechanics: `bindAU`/`openAU`/`abortAU`/`commitAU`
 
@@ -68,22 +68,22 @@ proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
   atomic requires is_lock(l, r)
   atomic ensures is_lock(l, r) && locked(l) && resource(r)
 {
-  ghost val phi := bindAU();
-  ghost var b: Bool;
-  r := openAU(phi);
-  unfold is_lock(l)[b := b];
-  val c: Int := l.curr;
+  ghost val phi := bindAU()
+  ghost var b: Bool
+  r := openAU(phi)
+  unfold is_lock(l)[b := b]
+  val c: Int := l.curr
 
   if (x == c) {
-    fold is_lock(l, r)[b := true];
-    commitAU(phi, ());
-    return;
+    fold is_lock(l, r)[b := true]
+    commitAU(phi, ())
+    return
   } else {
-    fold is_lock(l, r)[b := b];
-    abortAU(phi);
-    r := openAU(phi);
-    wait_loop(l, x);
-    commitAU(phi, ());
+    fold is_lock(l, r)[b := b]
+    abortAU(phi)
+    r := openAU(phi)
+    wait_loop(l, x)
+    commitAU(phi, ())
   }
 }
 ```

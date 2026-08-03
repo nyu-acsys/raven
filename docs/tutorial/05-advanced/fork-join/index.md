@@ -218,7 +218,6 @@ instantiated and used, the same way `UsePlain = UseCounter[PlainCounter]` did ba
 
 ## What's next
 
-[5b](../atomic-contracts/) revisits this same existentials-plus-boolean-flag invariant shape —
-`is_forkjoin`'s `o`/`b` here, `lock_inv`'s `n`/`c`/`b` there — for repeated mutual exclusion
-instead of a one-shot handoff, and introduces atomic contracts as a more ergonomic way to state
-what an invariant-based proof already proves by hand.
+[5b](../atomic-contracts/) revisits this same existentials-plus-boolean-flag invariant shape for
+repeated mutual exclusion instead of a one-shot handoff, and introduces atomic contracts as a
+more ergonomic way to state what an invariant-based proof already proves by hand.
