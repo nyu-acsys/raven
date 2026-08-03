@@ -24,6 +24,9 @@ Raven's basic types are `Int`, `Bool`, `Real`, `Ref` (heap references — Part 2
 `Set[T]`, and `Map[K, V]`. There's no separate `Unit` type — the unit value and its type are
 both written `()`, the empty tuple; it's a special case of tuples, not its own category.
 
+The type `Real` represents actual *real numbers* and is meant to be used only in specifications:
+it has "infinite" precision and is not to be confused with floating point numbers.
+
 `Set` and `Map` are already *generic* types (`Set[T]` for any `T`). Part 3's module system is
 what lets you define your own generic-*seeming* types the same way, by parameterizing a module
 over another module standing in for the element type. `Set`/`Map` aren't special-cased language
