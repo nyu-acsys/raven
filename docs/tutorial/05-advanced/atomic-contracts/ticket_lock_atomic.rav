@@ -69,9 +69,9 @@ module TicketLock[R: LockResource] {
         IntSet.set({||}), IntSet.set({||})
       ),
       exclusive: ExclUnit.excl(())
-    );
+    )
 
-    fold is_lock(l, r)[b := false];
+    fold is_lock(l, r)[b := false]
   }
 
   proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
@@ -79,22 +79,22 @@ module TicketLock[R: LockResource] {
     atomic requires is_lock(l, r)
     atomic ensures is_lock(l, r) && locked(l) && resource(r)
   {
-    ghost val phi := bindAU();
-    ghost var b: Bool;
-    r := openAU(phi);
-    unfold is_lock(l)[b := b];
-    val c: Int := l.curr;    
+    ghost val phi := bindAU()
+    ghost var b: Bool
+    r := openAU(phi)
+    unfold is_lock(l)[b := b]
+    val c: Int := l.curr
 
     if (x == c) {
-      fold is_lock(l, r)[b := true];
-      commitAU(phi, ());
-      return;
+      fold is_lock(l, r)[b := true]
+      commitAU(phi, ())
+      return
     } else {
-      fold is_lock(l, r)[b := b];
-      abortAU(phi);  
-      r := openAU(phi);
-      wait_loop(l, x);
-      commitAU(phi, ());
+      fold is_lock(l, r)[b := b]
+      abortAU(phi)
+      r := openAU(phi)
+      wait_loop(l, x)
+      commitAU(phi, ())
     }
   }
 
@@ -102,17 +102,17 @@ module TicketLock[R: LockResource] {
     atomic requires is_lock(l, r)
     atomic ensures is_lock(l, r) && locked(l) && resource(r)
   {
-    ghost val phi := bindAU();
-    ghost var b : Bool;
-    r := openAU(phi);
-    unfold is_lock(l)[b := b];
-    val nxt: Int := l.next;
-    fold is_lock(l, r)[b := b];
-    abortAU(phi);
+    ghost val phi := bindAU()
+    ghost var b : Bool
+    r := openAU(phi)
+    unfold is_lock(l)[b := b]
+    val nxt: Int := l.next
+    fold is_lock(l, r)[b := b]
+    abortAU(phi)
 
-    r := openAU(phi);
-    unfold is_lock(l)[b := b];
-    val res: Bool := cas(l.next, nxt, nxt+1);
+    r := openAU(phi)
+    unfold is_lock(l)[b := b]
+    val res: Bool := cas(l.next, nxt, nxt+1)
 
     if (res) {
       fpu(l, tickets, 
@@ -124,19 +124,19 @@ module TicketLock[R: LockResource] {
           IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}), 
           IntSet.set({|nxt|})
         )
-      );
-      fold is_lock(l, r)[b := b];
-      abortAU(phi);
-      r := openAU(phi);
-      wait_loop(l, nxt);
-      commitAU(phi, ());
+      )
+      fold is_lock(l, r)[b := b]
+      abortAU(phi)
+      r := openAU(phi)
+      wait_loop(l, nxt)
+      commitAU(phi, ())
 
     } else {
-      fold is_lock(l, r)[b := b];
-      abortAU(phi);
-      r := openAU(phi);
-      acquire(l);
-      commitAU(phi, ());
+      fold is_lock(l, r)[b := b]
+      abortAU(phi)
+      r := openAU(phi)
+      acquire(l)
+      commitAU(phi, ())
     }
   }
   
@@ -145,18 +145,18 @@ module TicketLock[R: LockResource] {
     atomic requires is_lock(l, r) && locked(l) && resource(r)
     atomic ensures is_lock(l, r)
   {
-    ghost val phi := bindAU();  
-    r := openAU(phi);
-    unfold is_lock(l, r);
-    val c: Int := l.curr;
-    fold is_lock(l, r)[b := true];
-    abortAU(phi);
+    ghost val phi := bindAU()
+    r := openAU(phi)
+    unfold is_lock(l, r)
+    val c: Int := l.curr
+    fold is_lock(l, r)[b := true]
+    abortAU(phi)
       
-    val c1: Int := c + 1;
-    r := openAU(phi);
-    unfold is_lock(l, r);
-    l.curr := c1;
-    fold is_lock(l, r)[b := false];
-    commitAU(phi, ());
+    val c1: Int := c + 1
+    r := openAU(phi)
+    unfold is_lock(l, r)
+    l.curr := c1
+    fold is_lock(l, r)[b := false]
+    commitAU(phi, ())
   }
 }

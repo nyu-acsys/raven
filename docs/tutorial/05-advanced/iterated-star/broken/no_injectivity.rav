@@ -27,7 +27,7 @@ module BadShelf[S: IBadShelf] {
     requires 0 <= i && i < S.size(s)
     requires forall j: Int :: {S.loc(s, j)} 0 <= j && j < S.size(s) ==> own(S.loc(s, j).count, counts[j], 1.0)
   {
-    var cell := S.loc(s, i);
-    val _x := faa(cell.count, 1);
+    val cell := S.loc(s, i)
+    val _x := faa(cell.count, 1)
   }
 }

@@ -101,10 +101,10 @@ module ForkJoin[I: Instance] {
   proc worker(p: Ref)
     requires is_forkjoin(p)
   {
-    val r := task();
-    unfold is_forkjoin(p);
-    p.value := Option.some(r);
-    fold is_forkjoin(p)[b := false];
+    val r := task()
+    unfold is_forkjoin(p)
+    p.value := Option.some(r)
+    fold is_forkjoin(p)[b := false]
   }
 
   // `fork` allocates the shared state, spawns the worker, and returns both a
@@ -113,9 +113,9 @@ module ForkJoin[I: Instance] {
   proc fork() returns (p: Ref)
     ensures is_forkjoin(p) && token(p)
   {
-    p := new (value: Option.none, ex: Excl.excl);
-    fold is_forkjoin(p)[b := false];
-    spawn worker(p);
+    p := new (value: Option.none, ex: Excl.excl)
+    fold is_forkjoin(p)[b := false]
+    spawn worker(p)
   }
 
   // `join` trades the token for the posted resource -- if the worker hasn't
@@ -127,18 +127,17 @@ module ForkJoin[I: Instance] {
     requires is_forkjoin(p) && token(p)
     ensures resource(r)
   {
-    var o: Option[R];
-    ghost var b0: Bool;
-    unfold is_forkjoin(p)[b0 := b];
-    o := p.value;
-    fold is_forkjoin(p)[b := true];
+    ghost var b0: Bool
+    unfold is_forkjoin(p)[b0 := b]
+    val o := p.value
+    fold is_forkjoin(p)[b := true]
 
     if (o == Option.none) {
-      r := join(p);
-      return r;
+      r := join(p)
+      return r
     } else {
-      r := o.Option.value;
-      return r;
+      r := o.Option.value
+      return r
     }
   }
 }
@@ -159,8 +158,8 @@ module ClientInstance : Instance {
   proc task() returns (r: Ref)
     ensures resource(r)
   {
-    r := new (count: 0);
-    fold resource(r);
+    r := new (count: 0)
+    fold resource(r)
   }
 }
 
@@ -168,9 +167,9 @@ module FJ = ForkJoin[ClientInstance]
 
 proc client()
 {
-  var p := FJ.fork();
+  var p := FJ.fork()
   // ... do other work while the worker runs concurrently ...
-  var r := FJ.join(p);
-  unfold ClientInstance.resource(r);
-  val y := r.count;
+  var r := FJ.join(p)
+  unfold ClientInstance.resource(r)
+  val y := r.count
 }

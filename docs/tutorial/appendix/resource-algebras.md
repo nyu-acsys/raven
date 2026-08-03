@@ -28,7 +28,7 @@ satisfying:
 compute what remains of a field's value after part of it is given up — e.g. by calling a `proc`
 that requires it in its precondition. `fpuAllowed` (written
 `fpuAllowed` in the tool, matching `Library.ResourceAlgebra`'s member name) is the relation
-`fpu` checks before letting an update through.
+`fpu` checks before letting an update on a ghost field through.
 
 Every field in a Raven program, concrete or ghost, holds an element of some resource algebra.
 An ordinary `field f: T` is fixed to `Library.Frac[T]`, the fractional-permission algebra Part 2
@@ -88,12 +88,12 @@ module DisjSet[X: Type] : CancellativeResourceAlgebra {
   func valid(n: T) returns (ret: Bool) { n == set(n.value) }
 
   func comp(a: T, b: T) returns (ret: T) {
-      a == set(a.value) && b == set(b.value) && a.value ** b.value == {||} ?
+      a is set && b is set && a.value ** b.value == {||} ?
         set(a.value ++ b.value) : top
   }
 
   func frame(a: T, b: T) returns (ret: T) {
-      a == set(a.value) && b == set(b.value) && b.value subseteq a.value ?
+      a is set && b is set && b.value subseteq a.value ?
         set(a.value -- b.value) : top
   }
 

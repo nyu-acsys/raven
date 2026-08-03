@@ -15,17 +15,18 @@ import { withBase } from 'vitepress'
 </tr>
 </table>
 
-> This tutorial has been created with the help of generative AI. The materials have been
+> This tutorial has been created with the help of generative AI. It has been
 > carefully reviewed by the tool authors for accuracy and correctness.
 
 This tutorial teaches Raven — an intermediate verification language (IVL) and SMT-based
 deductive verifier for concurrent separation logic — through the VS Code extension ("Raven
-Verifier", searchable from within VS Code's Extensions panel; see [Part 0](./00-getting-started/)
-for install steps), the way most people actually use the tool. One example, a hit counter, grows
-across Parts 1 through 4: a plain value, then a heap-allocated object, then an interface with
-more than one implementation, then a concurrent, ghost-state-backed data structure. Part 5 then
-closes the tutorial with three full case studies — fork/join, a ticket lock, and an array of
-independently-lockable counters — that put everything from Parts 1–4 to work at once.
+Verifier", searchable from within VS Code's Extensions panel;
+see [Part 0](./00-getting-started/) for install steps), the way most people actually use the
+tool. One example, a hit counter, grows across Parts 1 through 4: a plain value, then a
+heap-allocated object, then an interface with more than one implementation, then a concurrent
+data structure whose proof requires ghost-state reasoning. Part 5 then closes the tutorial with
+three full case studies — fork/join, a ticket lock, and an array of independently-lockable
+counters — that put everything from Parts 1–4 to work at once.
 
 Every code listing in this tutorial is a real `.rav` file, checked against the actual `raven`
 binary — open any of them yourself and run it. `broken/` subdirectories contain examples that are

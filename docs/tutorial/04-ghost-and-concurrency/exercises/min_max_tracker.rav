@@ -33,32 +33,31 @@ proc create() returns (c: Ref)
   c := new (
     high: 0, seenHigh: auth_frag(0, 0),
     low: 0, seenLow: auth_frag(0, 0)
-  );
-  fold scoreInv(c);
+  )
+  fold scoreInv(c)
 }
 
 proc reportHigh(c: Ref, score: Int)
   requires scoreInv(c)
   ensures scoreInv(c)
 {
-  var h1: Int;
-  unfold scoreInv(c);
-  h1 := c.high;
-  fold scoreInv(c);
+  var h1: Int
+  unfold scoreInv(c)
+  h1 := c.high
+  fold scoreInv(c)
 
   if (score <= h1) {
-    return;
+    return
   }
 
-  var ok: Bool;
-  unfold scoreInv(c);
-  ok := cas(c.high, h1, score);
+  unfold scoreInv(c)
+  val ok := cas(c.high, h1, score)
   if (!ok) {
-    fold scoreInv(c);
-    reportHigh(c, score);
+    fold scoreInv(c)
+    reportHigh(c, score)
   } else {
-    fpu(c.seenHigh, auth_frag(h1, h1), auth_frag(score, score));
-    fold scoreInv(c);
+    fpu(c.seenHigh, auth_frag(h1, h1), auth_frag(score, score))
+    fold scoreInv(c)
   }
 }
 
@@ -66,23 +65,21 @@ proc reportLow(c: Ref, score: Int)
   requires scoreInv(c)
   ensures scoreInv(c)
 {
-  var l1: Int;
-  unfold scoreInv(c);
-  l1 := c.low;
-  fold scoreInv(c);
+  unfold scoreInv(c)
+  val l1 := c.low
+  fold scoreInv(c)
 
   if (score >= l1) {
-    return;
+    return
   }
 
-  var ok: Bool;
-  unfold scoreInv(c);
-  ok := cas(c.low, l1, score);
+  unfold scoreInv(c)
+  val ok := cas(c.low, l1, score)
   if (!ok) {
-    fold scoreInv(c);
-    reportLow(c, score);
+    fold scoreInv(c)
+    reportLow(c, score)
   } else {
     // TODO: bring `seenLow` back in sync with the new `low` via `fpu`.
-    fold scoreInv(c);
+    fold scoreInv(c)
   }
 }

@@ -29,34 +29,34 @@ proc bump(c: Ref)
   requires countInv(c)
   ensures countInv(c)
 {
-  var v1: Int;
-  unfold countInv(c);
-  v1 := c.count;
-  fold countInv(c);
+  var v1: Int
+  unfold countInv(c)
+  v1 := c.count
+  fold countInv(c)
 
-  var next: Int := v1 + 1;
-  var ok: Bool;
+  val next: Int := v1 + 1
+  var ok: Bool
 
-  ghost var v2: Int;
-  unfold countInv(c);
-  v2 :| own(c.count, v2, 1.0);
+  ghost var v2: Int
+  unfold countInv(c)
+  v2 :| own(c.count, v2, 1.0)
   // `v1 <= v2` here isn't obvious from nothing -- it's exactly the fact the
   // `seen` ghost field is for. See ./broken/no_ghost_state.rav: delete the
   // ghost field and its `fpu` and this exact `assert` starts failing, even
   // though `count` itself is still read/CAS'd/protected identically.
-  assert v1 <= v2;
-  ok := cas(c.count, v1, next);
+  assert v1 <= v2
+  ok := cas(c.count, v1, next)
 
   if (!ok) {
-    fold countInv(c);
+    fold countInv(c)
     bump(c); // retry
   } else {
     // The frame-preserving update: MaxNat's update relation only allows
     // moving from `v1` up to `next` (never down), so this step is exactly
     // where "the counter never goes backward" gets recorded as a proof
     // obligation, not just asserted by fiat.
-    fpu(c.seen, auth_frag(v1, v1), auth_frag(next, next));
-    fold countInv(c);
+    fpu(c.seen, auth_frag(v1, v1), auth_frag(next, next))
+    fold countInv(c)
   }
 }
 
@@ -64,14 +64,14 @@ proc peek(c: Ref) returns (v: Int)
   requires countInv(c)
   ensures countInv(c)
 {
-  unfold countInv(c);
-  v := c.count;
-  fold countInv(c);
+  unfold countInv(c)
+  v := c.count
+  fold countInv(c)
 }
 
 proc create() returns (c: Ref)
   ensures countInv(c)
 {
-  c := new (count: 0, seen: auth_frag(0, 0));
-  fold countInv(c);
+  c := new (count: 0, seen: auth_frag(0, 0))
+  fold countInv(c)
 }

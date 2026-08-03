@@ -48,35 +48,35 @@ module PlainCounter : Counter {
   proc create() returns (c: T)
     ensures valid(c, 0)
   {
-    c := new (count: 0);
-    fold valid(c, 0);
+    c := new (count: 0)
+    fold valid(c, 0)
   }
 
   proc increment(c: T, ghost v: Int)
     requires valid(c, v)
     ensures valid(c, v + 1)
   {
-    unfold valid(c, v);
-    var x := c.count;
-    c.count := x + 1;
-    fold valid(c, v + 1);
+    unfold valid(c, v)
+    var x := c.count
+    c.count := x + 1
+    fold valid(c, v + 1)
   }
 
   proc get(c: T, ghost v: Int) returns (r: Int)
     requires valid(c, v)
     ensures valid(c, v) && r == v
   {
-    unfold valid(c, v);
-    r := c.count;
-    fold valid(c, v);
+    unfold valid(c, v)
+    r := c.count
+    fold valid(c, v)
   }
 
   lemma nonNegative(c: T, ghost v: Int)
     requires valid(c, v)
     ensures valid(c, v) && v >= 0
   {
-    unfold valid(c, v);
-    fold valid(c, v);
+    unfold valid(c, v)
+    fold valid(c, v)
   }
 }
 
@@ -98,36 +98,36 @@ module OffsetCounter : Counter {
   proc create() returns (c: T)
     ensures valid(c, 0)
   {
-    c := new (raw: offset);
-    fold valid(c, 0);
+    c := new (raw: offset)
+    fold valid(c, 0)
   }
 
   proc increment(c: T, ghost v: Int)
     requires valid(c, v)
     ensures valid(c, v + 1)
   {
-    unfold valid(c, v);
-    var x := c.raw;
-    c.raw := x + 1;
-    fold valid(c, v + 1);
+    unfold valid(c, v)
+    var x := c.raw
+    c.raw := x + 1
+    fold valid(c, v + 1)
   }
 
   proc get(c: T, ghost v: Int) returns (r: Int)
     requires valid(c, v)
     ensures valid(c, v) && r == v
   {
-    unfold valid(c, v);
-    var x := c.raw;
-    r := x - offset;
-    fold valid(c, v);
+    unfold valid(c, v)
+    var x := c.raw
+    r := x - offset
+    fold valid(c, v)
   }
 
   lemma nonNegative(c: T, ghost v: Int)
     requires valid(c, v)
     ensures valid(c, v) && v >= 0
   {
-    unfold valid(c, v);
-    fold valid(c, v);
+    unfold valid(c, v)
+    fold valid(c, v)
   }
 }
 
@@ -141,11 +141,11 @@ module UseCounter[C: Counter] {
 
   proc demo()
   {
-    var c := C.create();
-    C.increment(c, 0);
-    var r := C.get(c, 1);
-    assert r == 1;
-    assert valid(c, 1);
+    var c := C.create()
+    C.increment(c, 0)
+    var r := C.get(c, 1)
+    assert r == 1
+    assert valid(c, 1)
   }
 }
 

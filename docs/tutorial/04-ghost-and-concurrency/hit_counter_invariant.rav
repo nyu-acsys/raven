@@ -21,16 +21,16 @@ inv evenCount(c: Ref) {
 proc bumpTwice(c: Ref)
   requires evenCount(c)
 {
-  unfold evenCount(c);
-  val _x := faa(c.count, 2);
-  fold evenCount(c);
+  unfold evenCount(c)
+  val _x := faa(c.count, 2)
+  fold evenCount(c)
 }
 
 proc create() returns (c: Ref)
   ensures evenCount(c)
 {
-  c := new (count: 0);
-  fold evenCount(c);
+  c := new (count: 0)
+  fold evenCount(c)
 }
 
 // Two threads bump the counter concurrently, in some unknown interleaving --
@@ -40,12 +40,12 @@ proc create() returns (c: Ref)
 proc client() returns (c: Ref)
   ensures evenCount(c)
 {
-  c := create();
-  spawn bumpTwice(c);
-  spawn bumpTwice(c);
+  c := create()
+  spawn bumpTwice(c)
+  spawn bumpTwice(c)
 
-  unfold evenCount(c);
-  val x := c.count;
-  assert x % 2 == 0;
-  fold evenCount(c);
+  unfold evenCount(c)
+  val x := c.count
+  assert x % 2 == 0
+  fold evenCount(c)
 }

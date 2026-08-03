@@ -573,7 +573,7 @@ module DisjSet[X: Type] : CancellativeResourceAlgebra {
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        false
+        a is set && b is set && b.value subseteq a.value
     }
 
 }

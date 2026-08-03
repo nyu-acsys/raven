@@ -25,14 +25,14 @@ Create a new file called `scratch.rav` anywhere, and type:
 proc double(x: Int) returns (r: Int)
   ensures r == 2 * x
 {
-  r := x + x;
+  r := x + x
 }
 ```
 
 As soon as you save (or after you stop typing for a moment), the extension runs Raven on the
 file in the background. Look at the bottom-left status bar: you should see a spinner
 labeled "Raven: Verifying" briefly, then a green checkmark, **"Verification Successful."**
-That checkmark is the whole point of this tool — it means Z3 proved, for *every* possible
+That checkmark is the whole point of this tool — it means Raven proved, for *every* possible
 value of `x`, that `double` returns `2 * x`. Not tested for a few sample inputs: proved, for
 all of them.
 
@@ -49,7 +49,7 @@ Now change the postcondition to something false:
 proc double(x: Int) returns (r: Int)
   ensures r == 3 * x
 {
-  r := x + x;
+  r := x + x
 }
 ```
 
@@ -61,7 +61,7 @@ underline appear under `r == 3 * x`. Hover over it (or open the Problems panel,
 [Verification Error] A postcondition may not hold at this return point
 ```
 
-This is worth sitting with for a second, because it's the shape of *every* failure you'll see
+This is worth internalizing because it's the shape of *every* failure you'll see
 for the rest of this tutorial: a location (here, the closing `}`, i.e. the return point) and a
 plain-English description of which proof obligation didn't go through. Red is not scary here —
 it's Raven doing exactly its job, telling you precisely what it couldn't prove and where.
@@ -75,7 +75,7 @@ Not all squiggles mean the same thing. Try this instead:
 ```raven
 proc oops(x: Int) returns (r: Bool)
 {
-  r := x;
+  r := x
 }
 ```
 
@@ -101,15 +101,15 @@ them:
    }
    ```
 
-   Open the Problems panel and look at the entry — alongside the main message ("A
-   postcondition may not hold at this return point", pointing at the closing `}`) there's a
-   **related information** entry pointing back at the `ensures false` clause itself, saying
-   "This assertion may not hold." VS Code lets you jump directly to it. The first message
-   tells you *what kind* of obligation failed and *where in your control flow*; the related
-   location tells you *which specific piece* of a (possibly much larger) specification is the
-   actual culprit. Get in the habit of reading both, not just the first line — once contracts
-   grow to several `&&`-joined conjuncts (starting in [Part 2](../02-ownership/)), the related
-   location is usually the only thing that tells you which conjunct is the problem.
+   Open the Problems panel and look at the entry — alongside the main message ("A postcondition
+   may not hold at this return point", pointing at the closing `}`) there's a **related
+   location** entry pointing back at the `ensures false` clause itself, saying "This assertion
+   may not hold." VS Code lets you jump directly to it. The first message tells you *what kind*
+   of obligation failed and *where in your control flow*; the related location tells you *which
+   specific piece* of a (possibly much larger) specification is the actual culprit. Get in the
+   habit of reading both, not just the first line — once contracts grow to several `&&`-joined
+   conjuncts, the related location is usually the only thing that tells you which conjunct is
+   the problem.
 
 2. **What Raven does *not* tell you.** It never explains *why* something is false, only *that*
    it couldn't prove it — there's no counterexample trace, no "x was 5 when this failed." As
