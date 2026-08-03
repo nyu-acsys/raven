@@ -23,6 +23,9 @@ interface ForkJoin[I: Instance] {
   // implementation of this interface sees fit.
   pred token(p: Ref)
 
+  // The shared invariant.
+  inv is_forkjoin(p: Ref)
+
   // Abstract: the one fact about `token` this capstone's proof actually
   // needs. An implementation has to supply this as a real lemma with a
   // real proof body -- or, if it doesn't, Raven attempts to discharge it
@@ -32,9 +35,9 @@ interface ForkJoin[I: Instance] {
     ensures false
 
   proc fork() returns (p: Ref)
-    ensures token(p)
+    ensures is_forkjoin(p) && token(p)
 
   proc join(p: Ref) returns (r: R)
-    requires token(p)
+    requires is_forkjoin(p) && token(p)
     ensures resource(r)
 }

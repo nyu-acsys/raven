@@ -94,7 +94,7 @@ module TicketLock[R: LockResource] : Lock {
         DisjSet.set({|i: Int :: 0 <= i && i < nxt+1|}),
         DisjSet.set({|nxt|})
       )
-    );
+    )
     fold lock_inv(l, r)[b := lockAcq]
       
     var crr: Int := -1

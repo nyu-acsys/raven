@@ -4,21 +4,19 @@ This part restricts itself to the *sequential* fragment of Raven: values, pure a
 computation, control flow, recursion, and data types. No heap, no ownership, no threads yet —
 those start in [Part 2](../02-ownership/). If you've used an *auto-active* verification tool
 before (one where you write specifications up front and the tool checks them automatically,
-without further interaction — Dafny and Viper are two well-known examples), most of this will
-feel familiar; that's deliberate. Where this part *does* diverge from that familiar ground, it's
-flagged explicitly, because those divergences are the seeds Part 2 onward will grow.
+without further interaction), most of this will feel familiar; that's deliberate. Where this
+part *does* diverge from that familiar ground, it's flagged explicitly, because those
+divergences are the seeds Part 2 onward will grow.
 
 Here's the map, so later forward references land somewhere: across Parts 1–4, a single running
 example — a hit counter — grows from a plain value (this part), to a heap-allocated object (Part
 2), to an interface with more than one implementation (Part 3, including a *saturating* variant
 that stops counting at a cap instead of overflowing), to something safely touched by multiple
 threads at once (Part 4). Nothing below depends on that future context to make sense on its own
-terms, but a couple of examples plant a seed for it, and it's easier to spot which ones if you
-know the seed is coming.
+terms, but a couple of examples plant a seed for it.
 
 All code below is in [`hit_counter_pure.rav`](./hit_counter_pure.rav) — open it side by side
-with this text. Every listing here verifies as-is; if you change something and it stops
-verifying, that's the point of a live editor, not a bug in the tutorial.
+with this text. Every listing here should verify as-is.
 
 ## 1. Values and types
 
@@ -26,14 +24,16 @@ Raven's basic types are `Int`, `Bool`, `Real`, `Ref` (heap references — Part 2
 `Set[T]`, and `Map[K, V]`. There's no separate `Unit` type — the unit value and its type are
 both written `()`, the empty tuple; it's a special case of tuples, not its own category.
 
-`Set` and `Map` are already *generic* types (`Set[T]` for any `T`), and — a forward pointer,
-skip this if it doesn't land yet — Part 3's module system is what lets you define your own
-generic-*seeming* types the same way, by parameterizing a module over another module standing in
-for the element type. `Set`/`Map` aren't special-cased language magic; they just got there
-first.
+The type `Real` represents actual *real numbers* and is meant to be used only in specifications:
+it has "infinite" precision and is not to be confused with floating point numbers.
 
-`Set` and `Map` are *values*, not containers you mutate in place — `recordVisitor` below builds
-a new set rather than modifying `seen`:
+`Set` and `Map` are already *generic* types (`Set[T]` for any `T`). Part 3's module system is
+what lets you define your own generic-*seeming* types the same way, by parameterizing a module
+over another module standing in for the element type. `Set`/`Map` aren't special-cased language
+magic; they just got there first.
+
+All members of Raven types, including `Set` and `Map` are *values*, not containers you mutate in
+place — `recordVisitor` below builds a new set rather than modifying `seen`:
 
 ```raven
 func recordVisitor(seen: Set[Int], id: Int) returns (r: Set[Int])
@@ -60,35 +60,34 @@ proc bump(c: Int) returns (r: Int)
   requires c >= 0
   ensures r == c + 1
 {
-  r := c + 1;
+  r := c + 1
 }
 ```
 
-Same contract, two different callable kinds. A `func` defines a mathematical function over
-values — its body is a single expression, not a statement block. Crucially, **a `func` must
-actually terminate on every input**: the entire point of a `func` is to denote a value, and the
-tool's soundness depends on that value genuinely existing. In practice, though, Raven doesn't
-*check* this by default — a recursive `func`'s termination is silently *assumed* unless you give
-it a `decreases` clause, which is what actually gets it checked instead (§4 below covers this
-properly; the short version is that it's good practice to add `decreases` to every recursive
-`func` you write, rather than leaning on the default assumption). A `proc`, by contrast,
-genuinely doesn't need to terminate at all, for a completely different reason: nothing later in
-a proof is relying on a `proc` to denote a value the way a `func` does, so a `proc` that loops or
-recurses forever on some input just means the proof establishes nothing about that input — not
-that anything is unsound.
+Obersve that `next` and `bump` have the same contract, but they are two different callable
+kinds. A `func` defines a mathematical function over values. Its body is a single expression,
+not a statement block. Crucially, **a `func` must actually terminate on every input**: the
+entire point of a `func` is to denote a value, and the tool's soundness depends on that value
+genuinely existing. However, Raven doesn't *check* this by default. A recursive `func`'s
+termination is silently *assumed* unless you give it a `decreases` clause, which is what
+actually gets it checked instead (§4 below covers this properly; the short version is that it's
+good practice to add `decreases` to every recursive `func` you write, rather than leaning on the
+default assumption). A `proc`, by contrast, genuinely doesn't need to terminate at all: nothing
+later in a proof is relying on a `proc` to denote a value the way a `func` does, so a `proc`
+that loops or recurses forever on some input just means the proof establishes nothing about that
+input — not that anything is unsound. That said, you can add a `decreases` clauses to a `proc`
+contract if you want to prove that it terminates.
 
-That last point is really the whole reason for the split: `func`, not `proc`, is the kind of
-callable you can use **both inside and outside a specification** (a `requires`/`ensures`/
-`invariant`) — predicates and invariants (Part 2 onward) can *also* appear inside specs, but only
-there, never in ordinary code; a `proc` is the reverse, code-only, never inside a spec. Keep an
-eye on this three-way split; it resurfaces as the *concrete*-vs-*ghost* statement distinction
-once Part 4 introduces ghost code.
+This difference is really the whole reason for the split between the two callable kinds. You can
+use `func` **both inside and outside a specification** (a `requires`/`ensures`/ `invariant`). A
+`proc` is the reverse. It can only be used in code, never inside a spec. Predicates and shared
+invariants (Part 2 onward) can *also* appear inside specs, but only there, never in ordinary
+code. Keep an eye on this three-way split; it resurfaces as the *concrete*-vs-*ghost* statement
+distinction once Part 4 introduces ghost code.
 
 One asymmetry worth internalizing now: **`func`s cannot have a `requires` clause** — their
-contracts must be total, defined for every input of the argument types, since a `func` might get
-called from inside someone else's specification where there's no natural place to first
-discharge a precondition. `proc`s don't have this restriction. Try it — it's
-[`broken/half_requires.rav`](./broken/half_requires.rav):
+contracts must be total, defined for every input of the argument types. A `proc` doesn't have
+this restriction. Try it — it's [`broken/half_requires.rav`](./broken/half_requires.rav):
 
 ```raven
 func half(n: Int) returns (r: Int)
@@ -101,8 +100,8 @@ func half(n: Int) returns (r: Int)
 
 This is rejected outright, before any proof obligation is even generated: `[Type Error] half may
 not have a requires clause; func/pred/invariant contracts must be total.` If a pure operation is
-naturally partial — `half` only really makes sense for even `n` — state that constraint as a
-guarded fact in the postcondition instead of a precondition
+naturally partial — `half` only really makes sense for even `n`. To overcome this restriction,
+state that constraint as a guarded fact in the postcondition instead of a precondition
 ([`broken/half_total.rav`](./broken/half_total.rav)):
 
 ```raven
@@ -122,11 +121,12 @@ guard against to begin with.
 
 ## 3. Contracts on pure code
 
-`requires`/`ensures` here are exactly the Hoare triples you already know: a precondition that
-must hold at the call, a postcondition guaranteed on return. No heap is involved yet, so a
-verification condition (VC) at this point really is just "does this boolean formula follow from
-that one" — nothing more exotic. Try changing `next`'s postcondition to `r == c + 2` and
-re-verify to watch a VC fail on purely arithmetic grounds, no ownership involved at all.
+The `requires`/`ensures` clauses we have seen so far are exactly the pre- and post-conditions of
+Hoare triples of classical Hoare logic. A precondition must hold at the call, a
+postcondition is guaranteed on return. No heap is involved yet, so a verification condition (VC) at
+this point really is just "does this boolean formula follow from that one" — nothing more
+exotic. Try changing `next`'s postcondition to `r == c + 2` and re-verify to watch a VC fail on
+purely arithmetic grounds.
 
 ## 4. Control flow: recursion and loops
 
@@ -142,14 +142,14 @@ proc bumpN(c: Int, n: Int) returns (r: Int)
   requires c >= 0 && n >= 0
   ensures r == c + n
 {
-  r := c;
-  var i := 0;
+  r := c
+  var i := 0
   while (i < n)
     invariant 0 <= i <= n
     invariant r == c + i
   {
-    r := r + 1;
-    i := i + 1;
+    r := r + 1
+    i := i + 1
   }
 }
 ```
@@ -158,10 +158,10 @@ proc bumpN(c: Int, n: Int) returns (r: Int)
 <= n`, which is how every other example in this tutorial spells it out; both are fine, use
 whichever reads better to you.)
 
-`bumpN` is also this file's first use of `var`, which declares a genuinely *mutable* local —
-`i := i + 1;` a few lines down is only legal because `i` was declared with `var`. Raven has a
+`bumpN` is also this file's first use of `var`, which declares a genuinely *mutable* local. The assignment
+`i := i + 1` a few lines down is only legal because `i` was declared with `var`. Raven has a
 second local-declaration form, `val`, for a binding you intend to set once and never touch
-again; you'll see it starting in Part 2, in patterns like `val x := c.count;` for a one-time
+again; you'll see it starting in Part 2, in patterns like `val x := c.count` for a one-time
 heap read. The difference isn't just documentation — Raven checks it: reassigning a `val` is a
 `[Type Error] Cannot assign to value x`, not a warning. Prefer `val` when nothing later needs to
 change the binding; it's a small signal, to a reader and to the tool alike, that this value is
@@ -182,9 +182,10 @@ implies the postcondition. Try deleting `invariant r == c + i` and re-verifying 
 
 ## 5. A more interesting termination measure
 
-`decreases n`, above, is a single `Int` counting down to 0 — the common case, but not the only
-shape a termination argument takes. [`termination.rav`](./termination.rav) has Ackermann's
-function, the textbook example for why:
+The termination measure `n` in the clauses `decreases n`, above, is a single `Int` counting down
+to 0. This is a common case, but not the only shape a termination argument can
+take. [`termination.rav`](./termination.rav) has Ackermann's function, the textbook example for
+why:
 
 ```raven
 func ackermann(m: Int, n: Int) returns (r: Int)
@@ -196,7 +197,7 @@ func ackermann(m: Int, n: Int) returns (r: Int)
 }
 ```
 
-`decreases m, n` is a **lexicographic** measure — Raven treats the pair the way a dictionary
+`decreases m, n` is a **lexicographic** measure. Raven treats the pair the way a dictionary
 orders words: a recursive call is fine if `m` strictly decreases (whatever happens to `n`), or
 if `m` stays exactly the same and `n` strictly decreases. No *single* `Int` can play this role
 here: the innermost call, `ackermann(m, n - 1)`, leaves `m` completely untouched — only `n` goes
@@ -210,7 +211,7 @@ other component decreased instead."
 
 A comma-separated `decreases` clause works for any number of components, compared
 lexicographically left to right, and each component's own type just needs *some* well-founded
-order Raven already knows about — `Int` (bounded below by 0, exactly as `decreases n` already
+order Raven already knows about, e.g. `Int` (bounded below by 0, exactly as `decreases n` already
 relies on), or one you define yourself. Part 3 comes back to that second option, once the module
 system needed to express it is in view.
 
@@ -218,7 +219,7 @@ system needed to express it is in view.
 
 ```raven
 type Outcome = data {
-  case ok(value: Int);
+  case ok(value: Int)
   case capped
 }
 
@@ -230,19 +231,20 @@ func boundedNext(c: Int, cap: Int) returns (r: Outcome)
 }
 ```
 
-`data` declares a sum type: `Outcome` is either `ok(value)` or `capped`. A nullary case like
-`capped` can optionally take a trailing `()` at construction sites (`capped()`) — this tutorial
-just omits it, since it's not doing anything a unary case's real argument does. This isn't an
-idle example: it's the "saturating implementation" from this part's opening roadmap, a little
-ahead of schedule. Part 3 gives `Counter` a second implementation, built around exactly this
-idea, that stops counting at a cap instead of overflowing — `Outcome` (or a type just like it) is
-what its `create`/`increment` operations will return there.
+The keyword `data` declares an *algebraic data type* (ADT, or sum type): `Outcome` is either
+`ok(value)` or `capped`. A nullary case like `capped` can optionally take a trailing `()` at
+construction sites (`capped()`). This isn't an idle example: it's the "saturating
+implementation" from this part's opening roadmap, a little ahead of schedule. Part 3 gives
+`Counter` a second implementation, built around exactly this idea, that stops counting at a cap
+instead of overflowing. `Outcome` (or a type just like it) is what its `create`/`increment`
+operations will return there.
 
-So far `Outcome` values only ever get *built*. Two constructs take one apart again.
+So far `Outcome` values only ever get *built*. Two constructs take such ADT values apart again.
 
-The smaller one is `is`: `r is ok` is a `Bool` saying which case `r` was built with. It pairs
-with plain field access — `r.value` reads the argument of an `ok`, which is only meaningful when
-`r` really *is* an `ok`, so the two usually travel together:
+First, we have the infix operator `is`: `r is ok` is a `Bool` saying which constructor `r` was
+built with. It pairs with destructors: `r.value` reads the argument of a value built with
+constructor `ok`, which is only meaningful when `r` really *is* an `ok` value, so the two
+usually travel together:
 
 ```raven
 ensures r is ok ==> v == r.value
@@ -251,13 +253,15 @@ ensures r is ok ==> v == r.value
 `is` binds exactly like `==`, so it sits inside a larger formula without needing parentheses:
 `r is ok && v > 0` and `r is ok ==> ...` both group the way you'd expect.
 
-For a case with no arguments the two are interchangeable — `r is capped` and the `r == capped`
-that `boundedNext` above already used say exactly the same thing. `is` earns its keep on cases
-that *do* carry arguments, where the equality you'd otherwise write has to reconstruct the value
-field by field: `r == ok(r.value)`.
+Technically, the `is` predicate is syntactic sugar: `r is ok` is equivalent to the equality `r
+== ok(r.value)`.  For a case with no arguments the two are interchangeable — `r is capped` and
+the `r == capped` that `boundedNext` above already used say exactly the same thing. The operator
+`is` earns its keep on cases where the constructor *does* carry arguments and the equality you'd
+otherwise write has to reconstruct the value field by field.
 
-Writing a whole case analysis that way gets tedious, though, and inside a function body you'd
-reach for `match` instead — it picks the case *and* names its arguments in one step:
+Writing a whole case analysis using the `is` operator and destructores gets tedious, though, and
+inside a function body you'd reach for *pattern matching* instead. The `match` construct picks
+the case *and* names its arguments in one step:
 
 ```raven
 func settle(r: Outcome, fallback: Int) returns (v: Int)
@@ -271,7 +275,7 @@ func settle(r: Outcome, fallback: Int) returns (v: Int)
 }
 ```
 
-Each arm names a case and binds one variable per argument — `n` above is the `Int` inside an
+Each arm of `match` names a case and binds one variable per argument — `n` above is the `Int` inside an
 `ok`, in scope only for that arm's body. A nullary case binds nothing and takes no parentheses,
 hence the bare `case capped =>`. A `match` is an ordinary expression, so every arm has to produce
 the same type, here the `Int` this `func` returns.
@@ -281,43 +285,43 @@ catch-all `case _ =>` arm covering whatever's left. Forgetting one is a type err
 silent gap that only shows up later as a failed proof. You can also write `_` in place of an
 argument name when you don't need it (`case ok(_) => 0`).
 
-That leaves `is` for the places a `match` arm can't reach — a contract, as above, or one branch
-of a larger condition.
+That leaves `is` for the places an exhaustive `match` is not needed.
 
 Naming an arm's pattern variable after the field it binds is fine, and often clearest —
 `case ok(value) => ...` does not stop a later `r.value` from resolving. The `f` in `r.f` is a
-field name looked up in `r`'s own type, not a reference to whatever `f` happens to mean nearby,
+destructor name looked up in `r`'s own type, not a reference to whatever `f` happens to mean nearby,
 so it never collides with a variable of the same name.
 
 ## 7. Quantifiers, briefly
 
-`recordVisitor` above already used a `forall`. Two things worth knowing now, in more depth once
-Part 5 revisits quantifiers in the resource-owning setting:
+The function `recordVisitor` above already used a `forall` quantifier. Two things worth knowing
+now, in more depth once Part 5 revisits quantifiers in the resource-owning setting:
 
-- **The direction you're using a quantifier in matters more than which one you picked.**
-  *Proving* a `forall` (e.g. in an `ensures` clause) is generally robust; *assuming* one (e.g. in
-  a `requires` clause, or a loop invariant you're relying on rather than establishing) is
-  generally not, especially carried across many loop iterations. For `exists` it's the mirror
-  image: *assuming* one is robust, *proving* one can be finicky. So if you're stating "some
-  property holds of at least one element" as something you need to *prove*, see if it can
-  instead be phrased as an upper/lower bound (a `forall`) — [Exercise 3](#exercises) below is
-  built around exactly this choice. None of this is a hard rule, just a strong enough default to
-  reach for first; used without any thought, quantifiers of either shape can degrade solver
-  performance or cause outright timeouts, a topic Part 5 comes back to.
+- **The direction you're using a quantifier in matters.** *Proving* a `forall` (e.g. in an
+  `ensures` clause) is generally robust; *assuming* one (e.g. in a `requires` clause) is
+  generally not. (Loop invariants act both as `ensures` and `requires` clauses at the same
+  time.) For `exists` it's the mirror image: *assuming* one is robust, *proving* one can be
+  finicky. So if you're stating "some property holds of at least one element" as something you
+  need to *prove*, see if it can instead be phrased as an upper/lower bound (a `forall`)
+  — [Exercise 3](#exercises) below is built around exactly this choice. None of this is a hard
+  rule, just a strong enough default to reach for first; used without any thought, quantifiers
+  of either shape can degrade verifier performance or cause outright timeouts, a topic Part 5
+  comes back to.
 - **Triggers.** The curly braces in a quantifier, right after the bound variables, are a hint
-  telling Z3 *which* terms should cause it to re-instantiate the quantifier (a technique called
-  E-matching) — full syntax, from [Exercise 3](#exercises)'s solution:
+  telling the underlying SMT solver *which* terms should cause it to re-instantiate the
+  quantifier (a technique called E-matching) — full syntax, from [Exercise 3](#exercises)'s
+  solution:
 
   ```raven
   ensures forall j: Int :: {counts[j]} 0 <= j && j < len ==> counts[j] <= r
   ```
 
   `j` is the bound variable, `{counts[j]}` is the trigger, and `0 <= j && j < len ==> counts[j]
-  <= r` is the body — Z3 will consider instantiating this `forall` at a specific value of `j`
-  whenever the term `counts[j]` (for that same value) shows up elsewhere in the proof. You'll see
-  this show up wherever a `forall` ranges over something indexed, like a `Map`. You don't need to
-  fully understand triggers yet — just recognize the curly-brace syntax and know it's there to
-  help the solver, not to change what the formula means.
+  <= r` is the body. The SMT solver will consider instantiating this `forall` at a specific
+  value of `j` whenever the term `counts[j]` (for that same value) shows up elsewhere in the
+  proof. You'll see this show up wherever a `forall` ranges over something indexed, like a
+  `Map`. You don't need to fully understand triggers yet — just recognize the curly-brace syntax
+  and know it's there to help the SMT solver, not to change what the formula means.
 
 ## Why this matters for concurrency
 
@@ -353,7 +357,8 @@ answer — no shame in looking, this isn't a test.
 1. **[`sum_range.rav`](./exercises/sum_range.rav)** — sum of `1 + 2 + ... + n`.
 2. **[`gcd.rav`](./exercises/gcd.rav)** — gcd via repeated subtraction.
 3. **[`hot_day.rav`](./exercises/hot_day.rav)** — the busiest day in a per-day hit log,
-   deliberately designed to reward the `forall`-over-`exists` preference from §7 above.
+   deliberately designed to reward the `forall`-over-`exists` preference from §7 above when
+   proving rather than assuming a quantified fact.
 
 ## What's next
 

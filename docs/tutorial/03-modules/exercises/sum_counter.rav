@@ -42,35 +42,35 @@ module PlainCounter : Counter {
   proc create() returns (c: T)
     ensures valid(c, 0)
   {
-    c := new (count: 0);
-    fold valid(c, 0);
+    c := new (count: 0)
+    fold valid(c, 0)
   }
 
   proc increment(c: T, ghost v: Int)
     requires valid(c, v)
     ensures valid(c, v + 1)
   {
-    unfold valid(c, v);
-    var x := c.count;
-    c.count := x + 1;
-    fold valid(c, v + 1);
+    unfold valid(c, v)
+    var x := c.count
+    c.count := x + 1
+    fold valid(c, v + 1)
   }
 
   proc get(c: T, ghost v: Int) returns (r: Int)
     requires valid(c, v)
     ensures valid(c, v) && r == v
   {
-    unfold valid(c, v);
-    r := c.count;
-    fold valid(c, v);
+    unfold valid(c, v)
+    r := c.count
+    fold valid(c, v)
   }
 
   lemma nonNegative(c: T, ghost v: Int)
     requires valid(c, v)
     ensures valid(c, v) && v >= 0
   {
-    unfold valid(c, v);
-    fold valid(c, v);
+    unfold valid(c, v)
+    fold valid(c, v)
   }
 }
 
@@ -86,10 +86,10 @@ module Sum[A: Counter, B: Counter] : Counter {
   proc create() returns (s: T)
     ensures valid(s, 0)
   {
-    var a := A.create();
-    var b := B.create();
-    s := pair(a, b);
-    fold valid(s, 0)[va := 0, vb := 0];
+    var a := A.create()
+    var b := B.create()
+    s := pair(a, b)
+    fold valid(s, 0)[va := 0, vb := 0]
   }
 
   proc increment(s: T, ghost v: Int)

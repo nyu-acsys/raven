@@ -22,7 +22,7 @@ proc mkEmpty() returns (hd: Ref)
   ensures shelfList(hd, 0)
 {
   hd := null;
-  fold shelfList(hd, 0);
+  fold shelfList(hd, 0)
 }
 
 // Growing by one cell costs exactly one `fold` -- the `n - 1` cells already
@@ -37,6 +37,6 @@ proc grow(hd: Ref, n: Int) returns (hd2: Ref)
   requires shelfList(hd, n) && n >= 0
   ensures shelfList(hd2, n + 1)
 {
-  hd2 := new (count: 0, next: hd);
-  fold shelfList(hd2, n + 1)[tl := hd];
+  hd2 := new (count: 0, next: hd)
+  fold shelfList(hd2, n + 1)[tl := hd]
 }

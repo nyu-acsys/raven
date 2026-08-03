@@ -1,15 +1,16 @@
 # 5a. Capstone: Fork/Join
 
 *Assumes: Parts 1–4, in full. Unlike 5b/5c, this capstone doesn't lean on any single new
-mechanism — it's Parts 1–4's own toolkit (ownership, invariants, ghost fields and resource
-algebras, the module system), applied once, start to finish, on a data structure you haven't
-seen yet. If any of that still feels shaky, this is worth doing before 5b/5c, not after.*
+mechanism — it's Parts 1–4's own toolkit (ownership, shared invariants, ghost fields and resource
+algebras, the module system), applied once, start to finish, on a data structure you haven't seen
+yet. If any of that still feels shaky, this is worth doing before 5b/5c, not after.*
 
 Fork/join protects a different shape of synchronization than anything in Part 4: not "many
-threads repeatedly touch shared state safely" (the counter), but "one thread computes a result
-exactly once, and another thread collects it exactly once." Rather than presenting the finished
-proof, this capstone builds it the way you'd actually arrive at it — including the first,
-reasonable-looking attempt that doesn't work, and exactly why it doesn't.
+threads repeatedly touch shared state safely" (the counter), but "one thread computes a result of
+some task exactly once, and another thread collects that result exactly once". Rather than
+presenting the finished proof, this capstone builds it the way you'd actually arrive at it —
+including a first, reasonable-looking attempt that doesn't work, and a detailed explanation
+exactly why it doesn't.
 
 ## 1. The shape of the problem
 
@@ -31,16 +32,20 @@ module ForkJoin[I: Instance] {
 }
 ```
 
-`Instance` abstracts over whatever `task` computes and whatever resource it hands back.
-`fork()` is meant to start a worker thread running `task` in the background and return
-immediately with a handle; `join(p)` is meant to wait for that worker to finish and hand back
-its `resource`. Nothing about `token`, which the finished version of this file uses, is visible
-yet — it hasn't been motivated yet, so it isn't here yet.
+The interface `Instance` abstracts over whatever `task` computes and whatever resource it hands
+back. Procedure `fork()` is meant to start a worker thread running `task` in the background and
+return immediately with a handle `p`; Procedure `join(p)` is meant to wait for that worker to
+finish and hand back its `resource`.
 
 ## 2. A plan for transferring ownership
 
+The implementation of `ForkJoin` declares `field value: Option[R]` so that the worker thread can
+send the result value of the task to the *joining* thread. The field is initialized to
+`Option.none` and the worker thread updates it to `Option.some(r)` to signal that the result `r`
+of `task()` is ready.
+
 The real question is how `resource(r)` — produced by the worker thread, deep inside `fork`'s
-call to `spawn` — ends up back in the *joining* thread's hands. The natural answer is a shared
+call to `spawn` — ends up back in the joining thread's hands. The natural answer is a shared
 invariant, tracking whether the worker has posted its result yet:
 
 ```raven
@@ -51,20 +56,20 @@ inv is_forkjoin(p: Ref) {
 }
 ```
 
-`o` is `none` until the worker posts; `b` is meant to distinguish "posted, but not yet claimed"
-(`b == true`, the invariant just sits on the resource) from "already claimed" (`b == false`, the
-invariant holds nothing, on the assumption that whoever claimed it took it for good). `worker`
-posts by setting `o` and folding with `b := false`; `join` reads `o`, and — if it's not `none` —
-means to fold with `b := true` and walk away with `resource(o.Option.value)`. This is
-[`broken/no_token.rav`](./broken/no_token.rav); read it end to end once, since it's the version
-of this data structure most people would write first.
+The value `o` is `none` until the worker posts; `b` is meant to distinguish "posted, but not yet
+claimed" (`b == true`, the invariant just sits on the resource) from "already claimed" (`b ==
+false`, the invariant holds nothing, on the assumption that whoever claimed it took it for
+good). Procedure `worker` posts by setting `o` and folding with `b := false`. Conversely, `join` reads `o`,
+and if it's not `none`, means to fold with `b := true` and walk away with
+`resource(o.Option.value)`. This is [`broken/no_token.rav`](./broken/no_token.rav); read it end
+to end once, since it's the version of this data structure one may write first.
 
 ## 3. Why it fails
 
 It doesn't verify. `join`'s `else` branch — the one that's supposed to return the claimed
 resource — fails with `[Verification Error] A postcondition may not hold at this return point`,
 related to `ensures resource(r)`. The invariant, as written, has no way to distinguish "I am the
-thread that gets to claim this" from "some other thread already claimed it, or is about to."
+thread that gets to claim `resource(r)`" from "some other thread already claimed it, or is about to."
 Nothing stops two different threads from both reading `o != Option.none`, both folding the
 invariant back with `b := true`, and both believing they're entitled to `resource(o.Option.value)`
 — even though only one of them can actually have it. (Simplifying the invariant's `b ? true :
@@ -78,7 +83,7 @@ could call `join` again — which is exactly the intended use here.) The invaria
 
 ## 4. The idea: a token
 
-What's missing is a way to prove "I am the only thread that could possibly be here." Suppose
+What's missing is a way to prove "I am the only thread that could possibly be here". Suppose
 there were a predicate `token(p)` — a non-duplicable permission slip — and a fact about it:
 
 ```raven
@@ -87,9 +92,10 @@ lemma token_unique(p: Ref)
   ensures false
 ```
 
-i.e., no state can ever satisfy holding two of them at once. Give `fork`'s caller the one and
-only `token(p)` that will ever exist for this `p`, alongside `is_forkjoin(p)`, and put a *second*
-copy inside the invariant itself whenever `b == true` (posted, unclaimed):
+That is, no state can ever satisfy holding more than one `token(p)` at once. Then we can give
+`fork`'s caller the one and only `token(p)` that will ever exist for this `p`, alongside
+`is_forkjoin(p)`, and put a *second* copy inside the invariant itself whenever `b == true`
+(posted, unclaimed):
 
 ```raven
 inv is_forkjoin(p: Ref) {
@@ -97,16 +103,23 @@ inv is_forkjoin(p: Ref) {
     own(p.value, o) &&
     (o == Option.none ? true : (b ? token(p) : resource(o.Option.value)))
 }
+
+proc fork() returns (p: Ref)
+  ensures is_forkjon(p) && token(p)
+
+proc join(p: Ref) returns (r: R)
+  requires  is_forkjon(p) && token(p)
+  ensures resource(r)
 ```
 
-Now the proof in `join` goes through — *assuming* `token_unique` is actually true. Right after
-`unfold is_forkjoin(p)[b0 := b]`, if `o != Option.none` and `b0` turns out to be true, unfolding
-just handed over the invariant's own `token(p)` — on top of the one already held from `join`'s
-own `requires`, never spent. That's `token(p) && token(p)`, so `token_unique` yields `false`,
-and `false` proves anything, including the postcondition this scenario would otherwise be unable
-to establish. Symbolically: `o.value != none && b0` combined with `token_unique` gives
-`o.value != none ==> !b0` — exactly the fact needed to know the `else` branch really does have
-`resource(...)` sitting in the invariant, not another thread's token.
+Now the proof in `join` goes through, *assuming* `token_unique` is actually true. Right after
+`unfold is_forkjoin(p)[b0 := b]`, if `o != Option.none` and `b0` turns out to be true, we obtain
+one `token(p)` from the invariant on top of the one already held from `join`'s own `requires`,
+never spent. That's `token(p) && token(p)`, so `token_unique` yields `false`, and `false` proves
+anything, including the postcondition this scenario would otherwise be unable to
+establish. Symbolically: `o.value != none && b0` combined with `token_unique` gives `o.value !=
+none ==> !b0` — exactly the fact needed to know the `else` branch really does have
+`resource(r)` sitting in the invariant, not another thread's token.
 
 This idea is a complete, checkable file on its own, without committing to *how* `token` and
 `token_unique` are realized yet: [`fork_join_abstract_token.rav`](./fork_join_abstract_token.rav).
@@ -120,8 +133,9 @@ like `Counter`'s `valid` back in Part 3, never at the top level of a module.
 composition rule makes two `token`s contradictory. This is also the general mechanism worth
 naming here: any proof can define its own proof-specific resource algebra to use as a ghost
 field's type, simply by implementing the `Library.ResourceAlgebra` interface — Appendix A gives
-the full formal picture, once you want it. `Excl` is exactly that — a token that can never be
-duplicated, because composing two non-`id` elements always produces the invalid `top`:
+the full formal picture, once you want it. `Excl` provides exactly what is needed in this proof:
+a token that can never be duplicated, because composing two non-`id` elements always produces the
+invalid `top`:
 
 ```raven
 module Excl : Library.ResourceAlgebra {
@@ -145,8 +159,8 @@ lemma token_unique(p: Ref)
   requires token(p) && token(p)
   ensures false
 {
-  unfold token(p);
-  unfold token(p);
+  unfold token(p)
+  unfold token(p)
 }
 ```
 
@@ -158,15 +172,15 @@ plain predicate — meaning every place that touches it needs an explicit `fold`
 ## 6. More automation with `auto` predicates
 
 Look at what step 5's version actually has to do, purely as bookkeeping, because `token` is
-opaque. `fork` needs an explicit `fold token(p);` before it can even claim `ensures token(p)`,
-since nothing about `own(p.ex, Excl.excl)` is visible through `token` without one. And `join`
-needs an explicit call to `token_unique`, right where §4 said the proof needs it — after
+opaque. Procedure `fork` needs an explicit `fold token(p);` before it can even claim `ensures
+token(p)`, since nothing about `own(p.ex, Excl.excl)` is visible through `token` without one. And
+`join` needs an explicit call to `token_unique`, right where §4 said the proof needs it — after
 unfolding `is_forkjoin(p)`, when `o` isn't `none` and `b0` turns out to be true:
 
 ```raven
 {!
   if (o != Option.none && b0) {
-    token_unique(p);
+    token_unique(p)
   }
 !}
 ```
@@ -175,7 +189,7 @@ unfolding `is_forkjoin(p)`, when `o` isn't `none` and `b0` turns out to be true:
 an ordinary `if` in a `proc` can't branch on ghost state — the same `{! !}` syntax you'll see
 again in Appendix A if you go looking for more resource-algebra examples.) Every one of these
 steps is mechanical, driven entirely by `Excl`'s own composition rule, never by any actual
-case-by-case reasoning on your part — exactly the kind of bookkeeping `auto` predicates exist to
+case-by-case reasoning on your part. This is exactly the kind of bookkeeping `auto` predicates exist to
 eliminate. Mark `token` `auto`:
 
 ```raven
@@ -185,7 +199,7 @@ auto pred token(p: Ref) {
 ```
 
 and `token(p)` becomes, as far as any proof is concerned, simply another way of writing
-`own(p.ex, Excl.excl)` — no `fold`/`unfold` ever needed to move between them. Three
+`own(p.ex, Excl.excl)` — no `fold`/`unfold` ever needed to move between them. This has three
 consequences, all visible in [`fork_join.rav`](./fork_join.rav), the final version:
 `token_unique`'s proof shrinks to an empty body (`token(p) && token(p)` already expands to two
 copies of the same `Excl` ownership, contradictory on its own), `fork`'s explicit `fold
@@ -204,7 +218,6 @@ instantiated and used, the same way `UsePlain = UseCounter[PlainCounter]` did ba
 
 ## What's next
 
-[5b](../atomic-contracts/) revisits this same existentials-plus-boolean-flag invariant shape —
-`is_forkjoin`'s `o`/`b` here, `lock_inv`'s `n`/`c`/`b` there — for repeated mutual exclusion
-instead of a one-shot handoff, and introduces atomic contracts as a more ergonomic way to state
-what an invariant-based proof already proves by hand.
+[5b](../atomic-contracts/) revisits this same existentials-plus-boolean-flag invariant shape for
+repeated mutual exclusion instead of a one-shot handoff, and introduces atomic contracts as a
+more ergonomic way to state what an invariant-based proof already proves by hand.

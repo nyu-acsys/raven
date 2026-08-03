@@ -23,16 +23,16 @@ proc peek(c: Ref) returns (r: Int)
   requires sized(c)
   ensures sized(c) && r >= 0
 {
-  unfold sized(c);
-  r := c.count;
-  fold sized(c);
+  unfold sized(c)
+  r := c.count
+  fold sized(c)
 }
 
 proc create() returns (c: Ref)
   ensures sized(c)
 {
-  c := new (count: 0);
-  fold sized(c);
+  c := new (count: 0)
+  fold sized(c)
 }
 
 // --- Implicit ghost parameters, for procs and lemmas ------------------------
@@ -53,10 +53,10 @@ lemma nonNegCount(c: Ref, implicit ghost n: Int)
 
 proc demoImplicitGhostParam()
 {
-  var c := create();
-  unfold sized(c);
-  nonNegCount(c);
-  fold sized(c);
+  var c := create()
+  unfold sized(c)
+  nonNegCount(c)
+  fold sized(c)
 }
 
 // --- Triggers: more than one term, more than one set ------------------------
@@ -82,9 +82,9 @@ module DemoBounds[B: Bounds] {
 
   proc demoMultiTermTrigger()
   {
-    val a := low(1);
-    val b := high(2);
-    assert a <= b;
+    val a := low(1)
+    val b := high(2)
+    assert a <= b
   }
 }
 
@@ -110,13 +110,13 @@ lemma sumFormula(n: Int)
   decreases n
 {
   if (n > 0) {
-    sumFormula(n - 1);
+    sumFormula(n - 1)
   }
 }
 
 proc demoAssertWith()
 {
   assert forall n: Int :: n >= 0 ==> sumUpTo(n) * 2 == n * (n + 1) with {
-    sumFormula(n);
+    sumFormula(n)
   }
 }
