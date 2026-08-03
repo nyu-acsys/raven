@@ -15,7 +15,7 @@ import { withBase } from 'vitepress'
 </tr>
 </table>
 
-> This tutorial has been created with the help of generative AI. The materials have been
+> This tutorial has been created with the help of generative AI. It has been
 > carefully reviewed by the tool authors for accuracy and correctness.
 
 This tutorial teaches Raven — an intermediate verification language (IVL) and SMT-based

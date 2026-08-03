@@ -61,8 +61,8 @@ module ForkJoin[I: Instance] {
     requires token(p) && token(p)
     ensures false
   {
-    unfold token(p);
-    unfold token(p);
+    unfold token(p)
+    unfold token(p)
   }
 
   inv is_forkjoin(p: Ref) {
@@ -74,31 +74,30 @@ module ForkJoin[I: Instance] {
   proc worker(p: Ref)
     requires is_forkjoin(p)
   {
-    val r := task();
-    unfold is_forkjoin(p);
-    p.value := Option.some(r);
-    fold is_forkjoin(p)[b := false];
+    val r := task()
+    unfold is_forkjoin(p)
+    p.value := Option.some(r)
+    fold is_forkjoin(p)[b := false]
   }
 
   proc fork() returns (p: Ref)
     ensures is_forkjoin(p) && token(p)
   {
-    p := new (value: Option.none, ex: Excl.excl);
+    p := new (value: Option.none, ex: Excl.excl)
     // Step 6 doesn't need this: with `token` `auto`, `own(p.ex,
     // Excl.excl)` *is* `token(p)` already, nothing to fold.
-    fold token(p);
-    fold is_forkjoin(p)[b := false];
-    spawn worker(p);
+    fold token(p)
+    fold is_forkjoin(p)[b := false]
+    spawn worker(p)
   }
 
   proc join(p: Ref) returns (r: R)
     requires is_forkjoin(p) && token(p)
     ensures resource(r)
   {
-    var o: Option[R];
-    ghost var b0: Bool;
-    unfold is_forkjoin(p)[b0 := b];
-    o := p.value;
+    ghost var b0: Bool
+    unfold is_forkjoin(p)[b0 := b]
+    val o := p.value
     // The proof step step 6 no longer needs, spelled out: if `o` isn't
     // `none` and `b0` is true, unfolding just handed us the invariant's
     // *own* copy of `token(p)` -- on top of the one we already hold from
@@ -110,17 +109,17 @@ module ForkJoin[I: Instance] {
     // ghost, and an ordinary `if` in a `proc` can't branch on ghost state.
     {!
       if (o != Option.none && b0) {
-        token_unique(p);
+        token_unique(p)
       }
     !}
-    fold is_forkjoin(p)[b := true];
+    fold is_forkjoin(p)[b := true]
 
     if (o == Option.none) {
-      r := join(p);
-      return r;
+      r := join(p)
+      return r
     } else {
-      r := o.Option.value;
-      return r;
+      r := o.Option.value
+      return r
     }
   }
 }
@@ -137,8 +136,8 @@ module ClientInstance : Instance {
   proc task() returns (r: Ref)
     ensures resource(r)
   {
-    r := new (count: 0);
-    fold resource(r);
+    r := new (count: 0)
+    fold resource(r)
   }
 }
 
@@ -146,8 +145,8 @@ module FJ = ForkJoin[ClientInstance]
 
 proc client()
 {
-  var p := FJ.fork();
-  var r := FJ.join(p);
-  unfold ClientInstance.resource(r);
-  val y := r.count;
+  var p := FJ.fork()
+  var r := FJ.join(p)
+  unfold ClientInstance.resource(r)
+  val y := r.count
 }
