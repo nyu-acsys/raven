@@ -159,7 +159,8 @@ let emit st (tok : Parser.token) = advance st tok, tok, None
    where the '?' branch (say, a bare identifier) looks like a complete statement in its own
    right. [peek] lexes that one lookahead token; since doing so unavoidably consumes it from the
    buffer, it is threaded back out as a third, optional "replay this token next" component, which
-   [make_token] returns verbatim on its following call instead of touching the lexbuf again. *)
+   the ['\n'] rule pairs with the lookahead's own source positions and [make_token] then returns
+   verbatim on its following call instead of touching the lexbuf again. *)
 let on_newline st ~peek =
   match st.scopes with
   | Stmt_list :: _ when st.last_token_can_end_stmt ->
@@ -185,9 +186,26 @@ let float = digits '.' digits
 rule token_lex st = parse
   [' ' '\t'] { token_lex st lexbuf }
 | '\n' {
+    (* Where an inserted semicolon belongs: the line break itself, i.e. just past
+       the last token on the line being ended. *)
+    let nl_pos = lexbuf.lex_start_p in
     Lexing.new_line lexbuf;
     match on_newline st ~peek:(fun st -> token_lex st lexbuf) with
-    | Some (st', tok, pending) -> st', tok, pending
+    | Some (st', tok, None) -> st', tok, None
+    | Some (st', tok, Some (pending_st, pending_tok)) ->
+        (* Deciding to insert consumed the lookahead token, leaving the lexbuf's
+           positions describing *it* -- so menhir would give the inserted
+           SEMICOLON, and hence the statement it terminates, an end position on
+           the next line, past the token that starts the next statement. Report
+           the semicolon at the line break instead, and stash the lookahead's own
+           positions to be restored when it is replayed. That restore also puts
+           [lex_curr_p] back the way [Lexing.engine] left it, before the next
+           token is scanned from it. *)
+        let pending_start_p = lexbuf.lex_start_p in
+        let pending_curr_p = lexbuf.lex_curr_p in
+        lexbuf.lex_start_p <- nl_pos;
+        lexbuf.lex_curr_p <- nl_pos;
+        st', tok, Some (pending_st, pending_tok, pending_start_p, pending_curr_p)
     | None -> token_lex st lexbuf
   }
 | "//" [^ '\n']* { token_lex st lexbuf }
@@ -247,12 +265,18 @@ and comments level st = parse
    The one token of state carried between calls beyond [lex_state] itself is a possible buffered
    token: [on_newline] occasionally has to look one token ahead to decide whether to insert a
    semicolon, which unavoidably consumes that lookahead token from the buffer; when that happens
-   it is stashed here and replayed on the following call instead of lexing afresh. *)
+   it is stashed here, along with its own source positions, and replayed on the following call
+   instead of lexing afresh. Restoring those positions is what keeps the inserted semicolon's
+   own position (the line break -- see the ['\n'] rule) from displacing the lookahead's. *)
 let make_token () =
   let state = ref (initial_state, None) in
   fun lexbuf ->
     match !state with
-    | _, Some (st', tok) -> state := (st', None); tok
+    | _, Some (st', tok, start_p, curr_p) ->
+        state := (st', None);
+        lexbuf.lex_start_p <- start_p;
+        lexbuf.lex_curr_p <- curr_p;
+        tok
     | st, None ->
         let st', tok, pending = token_lex st lexbuf in
         state := (st', pending);
