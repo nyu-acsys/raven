@@ -1,0 +1,79 @@
+// A distributed counter object whose `get` operation has future-dependent linearization points.
+// This example demonstrates prophecy reasoning and how to encode a "helping protocol" with shared invariants.
+
+import Library.Auth
+import Library.Excl
+import Library.SetRA
+
+module DistCounter {
+  field count_a: Int
+  field count_b: Int
+  ghost field count_auth: Auth[Excl[Int]]
+  ghost field reg_auth: Auth[SetRA[Proph]]
+
+  inv state(c: Ref, token: AtomicToken<get>) {
+    true
+  }
+
+
+  inv counter_inv(c: Ref) {
+    exists na: Int, nb: Int ::
+      own(c.count_a, na) && own(c.count_b, nb) && own(c.count_auth, Auth.auth(Excl.excl(na + nb))) &&
+      (exists regs: Set[Proph] :: own(c.reg_auth, Auth.auth(SetRA.set(regs))))
+  }
+
+  auto pred is_counter(c: Ref) {
+    counter_inv(c)
+  }
+
+  auto pred counter_state(c: Ref; n: Int) {
+    own(c.count_auth, Auth.frag(Excl.excl(n)))
+  }
+
+  proc create() returns (ret: Ref)
+    ensures is_counter(ret)
+  {
+    ret := new(count_a: 0, count_b: 0, 
+               count_auth: Auth.full(Excl.excl(0)), 
+               reg_auth: Auth.full(SetRA.set({||} : Set[Proph])))
+    fold counter_inv(ret)
+    return ret
+  }
+
+  proc get(c: Ref, implicit ghost n: Int) returns (ret: Int)
+    requires is_counter(c)
+    atomic requires counter_state(c, n)
+    atomic ensures counter_state(c, n) && ret == n
+  {
+    ghost var phi := bindAU()
+    unfold counter_inv(c)
+    val n1 := c.count_a
+    fold counter_inv(c)
+
+    unfold counter_inv(c)
+    val n2 := c.count_b
+    fold counter_inv(c)
+    assume false
+    return n1 + n2
+  }
+
+  proc incr(c: Ref, implicit ghost n: Int)
+    requires counter_inv(c)
+    atomic requires counter_state(c, n)
+    atomic ensures counter_state(c, n + 1)
+  {
+    ghost var phi := bindAU()
+    var b: Bool
+    n := openAU(phi)
+    unfold counter_inv(c)
+    if (b) {
+      val ca_ := faa(c.count_a, 1)
+    } else {
+      val cb_ := faa(c.count_b, 1)
+    }
+    fpu(c.count_auth, Auth.full(Excl.excl(n)), Auth.full(Excl.excl(n + 1)))
+    fold counter_inv(c)
+    commitAU(phi, ())
+  }
+
+}

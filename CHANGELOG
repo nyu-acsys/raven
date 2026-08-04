@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `Library.SetRA`'s data type now names its constructor and destructor `set`/`value` and its top case `top`, matching `Library.DisjSet`, instead of `set_constr`/`set_proj1`/`set_top`.
 - The atomicity analysis's `Unclosed AU token or invariant` error -- raised when a body ends with an invariant still unfolded or an atomic update still open -- now names what was left open, `Missing fold for unfolded invariant i(x)` or `Missing commitAU or abortAU for open atomic update phi`, and is reported at the body's closing brace, where the omission is actually detected, rather than spanning the whole body. The `unfold`/`openAU` that opened it is given as a Related Location, as is anything else left open, so a body with several omissions names them all in one run.
 - Identifiers in user-facing messages that quote an expression now print as written in the source, without the numbers the disambiguation pass gives a callable's locals: `Atomic token phi is already open` rather than `Atomic token phi^1 is already open`, and likewise for the messages above and the type-argument-inference, inhale/exhale and atomic-primitive ones. Internal errors are unchanged -- there, telling two same-named variables apart is the point.
 

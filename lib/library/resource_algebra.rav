@@ -525,31 +525,31 @@ module CountAgree[X: Type] : CancellativeResourceAlgebra {
 
 module SetRA[X: Type] : LatticeResourceAlgebra {
     rep type T = data {
-        case set_constr(set_proj1: Set[X]);
-        case set_top
+        case set(value: Set[X]);
+        case top
     }
 
-    val id: T = set_constr({||})
+    val id: T = set({||})
 
     func valid(n:T) returns (ret:Bool) {
-        n is set_constr
+        n is set
     }
 
     func comp(a:T, b:T) returns (ret:T) {
-        a is set_constr && b is set_constr ? 
-            set_constr(a.set_proj1 ++ b.set_proj1) :
-            set_top
+        a is set && b is set ?
+            set(a.value ++ b.value) :
+            top
     }
 
     func frame(a:T, b:T) returns (ret:T) {
-        a is set_constr && b is set_constr ?
-            (b.set_proj1 subseteq a.set_proj1 ? a : set_top()) :
-            set_top
+        a is set && b is set ?
+            (b.value subseteq a.value ? a : top()) :
+            top
     }
 
     func fpuAllowed(a:T, b:T) returns (ret:Bool) {
-        a is set_constr && b is set_constr
-        && a.set_proj1 subseteq b.set_proj1
+        a is set && b is set
+        && a.value subseteq b.value
     }
 
 }
