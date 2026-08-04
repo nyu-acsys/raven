@@ -172,6 +172,9 @@ let on_newline st ~peek =
 
 }
 
+(* A carriage return is only ever recognized as part of a line terminator, so a
+   stray one remains the lexical error it always was. *)
+let newline = '\r'? '\n'
 let operator_char = ['+''-''*''%''.'':'',''?''>''<''=''&''|''!']
 let operator = '/' | ';' | operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
@@ -185,9 +188,11 @@ let float = digits '.' digits
 
 rule token_lex st = parse
   [' ' '\t'] { token_lex st lexbuf }
-| '\n' {
+| newline {
     (* Where an inserted semicolon belongs: the line break itself, i.e. just past
-       the last token on the line being ended. *)
+       the last token on the line being ended -- the carriage return of a CRLF
+       pair, where there is one, being part of that break rather than of the
+       line's text. *)
     let nl_pos = lexbuf.lex_start_p in
     Lexing.new_line lexbuf;
     match on_newline st ~peek:(fun st -> token_lex st lexbuf) with
@@ -208,7 +213,7 @@ rule token_lex st = parse
         st', tok, Some (pending_st, pending_tok, pending_start_p, pending_curr_p)
     | None -> token_lex st lexbuf
   }
-| "//" [^ '\n']* { token_lex st lexbuf }
+| "//" [^ '\n' '\r']* { token_lex st lexbuf }
 | "/*" { comments 0 st lexbuf }
 | "{|" { emit st LBRACEPIPE }
 | "|}" { emit st RBRACEPIPE }
@@ -253,7 +258,7 @@ and comments level st = parse
          else comments (level - 1) st lexbuf
        }
 | "/*" { comments (level + 1) st lexbuf }
-| '\n' { Lexing.new_line lexbuf; comments level st lexbuf }
+| newline { Lexing.new_line lexbuf; comments level st lexbuf }
 | _ { comments level st lexbuf }
 | eof { st, EOF, None }
 

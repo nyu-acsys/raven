@@ -2,6 +2,8 @@
 # (lib/library/library.ml and each extension's `lib_source`, e.g.
 # lib/ext/decreasesExt/well_founded_order.rav), bypassing any text-mode
 # line-ending translation a checked-out file would normally get on read.
-# Force LF on checkout regardless of the client's core.autocrlf, so the
-# embedded stdlib/extension sources always lex correctly.
+# Force LF on checkout regardless of the client's core.autocrlf, so those
+# embedded bytes -- and the `--dump-library` output that reproduces them --
+# are identical whatever platform the binary was built on. The lexer accepts
+# either line ending, so this is about reproducibility, not about parsing.
 *.rav text eol=lf
