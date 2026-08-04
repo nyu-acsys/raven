@@ -1264,11 +1264,13 @@ module ProcessExpr = struct
                       Error.type_error (Expr.to_loc arg_expr)
                         (Printf.sprintf
                            !"Cannot infer a type argument for %{QualIdent} from this \
-                             argument: the type of `%{Expr}` cannot be uniquely \
+                             argument: the type of `%{String}` cannot be uniquely \
                              determined here. Give it an explicit type annotation, or \
                              write an explicit instantiation, e.g. `module M_X = \
                              %{QualIdent}[...]`"
-                           functor_qual_ident arg_expr functor_qual_ident)
+                           functor_qual_ident
+                           (Expr.to_source_string arg_expr)
+                           functor_qual_ident)
                     else (formal_var_decl.Type.var_type, arg_typ))
               in
               let pairs =

@@ -63,7 +63,7 @@ type existential_quants = existential_quant_record IdentMap.t
 
 let unsupported_expr_error (expr : Expr.t) : 'a =
   Error.error (Expr.to_loc expr)
-    ("Unsupported expression under inhale/exhale: " ^ Expr.to_string expr)
+    ("Unsupported expression under inhale/exhale: " ^ Expr.to_source_string expr)
 
 let field_heap_name (field_name : qual_ident) =
   let field_name_str = QualIdent.to_string field_name in

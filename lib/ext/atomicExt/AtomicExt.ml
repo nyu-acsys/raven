@@ -187,7 +187,7 @@ module AtomicExt (Cont : ListApi) = struct
           | _ ->
               Error.type_error (Expr.to_loc field_expr)
               ("Expected field identifier, but found "
-               ^ Expr.to_string field_expr)
+               ^ Expr.to_source_string field_expr)
         in
         (* type-checking `ref_expr` *)
         let* atomic_inbuilt_ref = type_check_stmt_functs.disambiguate_process_expr ref_expr Type.ref disam_tbl in

@@ -1055,7 +1055,7 @@ module Expr = struct
     | App (Var qual_ident, _, _) -> qual_ident
     | _ ->
       Error.error (to_loc expr)
-        (Printf.sprintf "Expected Var expression instead of %s" (to_string expr))
+        (Printf.sprintf "Expected Var expression instead of %s" (to_source_string expr))
 
   let to_ident expr =
     expr |> to_qual_ident |> QualIdent.to_ident

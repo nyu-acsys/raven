@@ -367,7 +367,10 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
   if
     List.exists atomicity_state.au_opened ~f:(fun au ->
         Expr.alpha_equal au.token token)
-  then Error.error loc (Printf.sprintf !"Atomic token %{Expr} is already open" token)
+  then
+    Error.error loc
+      (Printf.sprintf !"Atomic token %{String} is already open"
+         (Expr.to_source_string token))
   else
     {
       atomicity_state with
@@ -381,7 +384,10 @@ let close_au ~loc token atomicity_state : atomicity_check =
     not
       (List.exists atomicity_state.au_opened ~f:(fun au ->
            Expr.alpha_equal au.token token))
-  then Error.error loc (Printf.sprintf !"Atomic token %{Expr} is not open (nothing to close)" token)
+  then
+    Error.error loc
+      (Printf.sprintf !"Atomic token %{String} is not open (nothing to close)"
+         (Expr.to_source_string token))
   else
     let au_opened =
       List.filter atomicity_state.au_opened ~f:(fun au ->
