@@ -126,8 +126,43 @@ jobs:
           done
           ls -la release
 
+      # What this release is, in a form a client can read without downloading a binary
+      # first. The VS Code extension fetches it to decide whether it can drive this
+      # build (`lsp_protocol`) and whether the z3 it ships with is new enough
+      # (`min_z3`) -- both before spending the download. It comes out of the binary
+      # rather than being written out here, so there is one source of truth.
+      - name: Generate release manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Artifact upload does not preserve the executable bit.
+          chmod +x artifacts/raven-linux-x64/raven
+          artifacts/raven-linux-x64/raven --manifest > release/manifest.json
+          cat release/manifest.json
+          # A tag that disagrees with the version compiled into the binary would leave
+          # clients resolving a release whose contents announce themselves as something
+          # else. Cheaper to catch here than after publishing.
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            manifest_version=$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' release/manifest.json)
+            if [ "v${manifest_version}" != "${{ github.ref_name }}" ]; then
+              echo "Tag ${{ github.ref_name }} does not match the version in the binary (${manifest_version})." >&2
+              echo "Update Config.version in lib/config/config.ml, or retag." >&2
+              exit 1
+            fi
+          fi
+
+      # Lets a client verify what it downloaded. Covers the archives only: the manifest
+      # and this file are fetched over the same HTTPS connection from the same release,
+      # so checksumming them here would prove nothing.
+      - name: Checksum release archives
+        working-directory: release
+        run: sha256sum *.tar.gz | tee SHA256SUMS
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*.tar.gz
+          files: |
+            release/*.tar.gz
+            release/manifest.json
+            release/SHA256SUMS
           fail_on_unmatched_files: true
