@@ -2,7 +2,7 @@
   [Error] File "./missing_commit_au.rav", line 24, columns 0-1:
   24 | }
        ^
-  Error: Missing fold for unfolded invariant aux(x).
+  Verification Error: Missing fold for unfolded invariant aux(x).
   [Error] File "./missing_commit_au.rav", line 23, columns 2-16:
   23 |   unfold aux(x);
          ^^^^^^^^^^^^^^

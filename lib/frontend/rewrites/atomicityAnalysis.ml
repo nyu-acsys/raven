@@ -75,7 +75,7 @@ let unclosed_error ~(body_loc : location) (state : atomicity_check) : 'a =
         "unclosed_error called with nothing left open"
   | (msg, rel_loc, rel_msg) :: rest ->
       Error.fail_with
-        ((Error.Generic, Loc.last_char body_loc, msg)
+        ((Error.Verification, Loc.last_char body_loc, msg)
         :: (Error.RelatedLoc, rel_loc, rel_msg)
         :: List.map rest ~f:(fun (msg, rel_loc, _) ->
                (Error.RelatedLoc, rel_loc, msg)))
@@ -368,7 +368,7 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
     List.exists atomicity_state.au_opened ~f:(fun au ->
         Expr.alpha_equal au.token token)
   then
-    Error.error loc
+    Error.verification_error loc
       (Printf.sprintf !"Atomic token %{String} is already open"
          (Expr.to_source_string token))
   else
@@ -385,7 +385,7 @@ let close_au ~loc token atomicity_state : atomicity_check =
       (List.exists atomicity_state.au_opened ~f:(fun au ->
            Expr.alpha_equal au.token token))
   then
-    Error.error loc
+    Error.verification_error loc
       (Printf.sprintf !"Atomic token %{String} is not open (nothing to close)"
          (Expr.to_source_string token))
   else
@@ -889,7 +889,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let opened_au_token =
               match opened_au_token with
               | None ->
-                  Error.error stmt.stmt_loc "No opened AU token found to abort"
+                  Error.verification_error stmt.stmt_loc
+                    (Printf.sprintf
+                       !"Cannot %{String}: atomic token %{String} is not open"
+                       (auaction_kind_to_string auaction_desc.auaction_kind)
+                       (Expr.to_source_string token))
               | Some opened_au_token -> opened_au_token
             in
 
@@ -1110,7 +1114,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return new_stmt
         else
-          Error.error stmt.stmt_loc
+          Error.verification_error stmt.stmt_loc
             "Inconsistent atomicity states in then and else branches"
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
   in
