@@ -187,6 +187,14 @@ module ProphecyExt (Cont : ListApi) = struct
     | NewProph _ | ResolveProph -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
+  (* Both lower to ghost blocks over the ghost prophecy field: a resolution has to
+     sit alongside the physical step it is attached to (Iris's `Resolve e p v`),
+     so charging it a step of its own would make exactly that pattern impossible. *)
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | NewProph _ | ResolveProph -> Stmt.NoStep
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
   (* contract_ext_is_recognized: no contract_ext constructors here, so Cont's default
      is used. *)
 

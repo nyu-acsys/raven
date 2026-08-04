@@ -258,6 +258,11 @@ and ext_hooks = {
   stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list;
   stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list;
 
+  (** What one extension statement costs the atomicity analysis -- see
+      [Stmt.stmt_atomicity]. Covers both extension points, since the analysis
+      meets a [BasicStmtExt] and a [StmtExt] alike as an opaque tag. *)
+  stmt_ext_atomicity : Stmt.stmt_ext -> Stmt.stmt_atomicity;
+
   (** Best-effort "did you mean" lookup: given a [*_ext] tag the *active* extension
       chain didn't recognize, checks whether some *other* known [--extension] choice
       would have, and if so returns that flag's name. [None] means no known extension
@@ -405,6 +410,7 @@ let default_ext_hooks : ext_hooks = {
   stmt_ext_symbols = Stmt.default_stmt_ext_symbols;
   stmt_ext_local_vars_modified = Stmt.default_stmt_ext_local_vars_modified;
   stmt_ext_fields_accessed = Stmt.default_stmt_ext_fields_accessed;
+  stmt_ext_atomicity = Stmt.default_stmt_ext_atomicity;
   suggest_extension_for_type_ext = (fun _ -> None);
   suggest_extension_for_expr_ext = (fun _ -> None);
   suggest_extension_for_stmt_ext = (fun _ -> None);

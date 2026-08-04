@@ -1502,6 +1502,21 @@ module Stmt = struct
   
   type stmt_ext = ..
 
+  (** What one extension statement costs the atomicity analysis
+      ([lib/frontend/rewrites/atomicityAnalysis.ml]), which allows at most one
+      atomic step while an invariant is unfolded or an atomic update is in flight.
+      An extension statement is opaque there -- it is still an unlowered
+      [BasicStmtExt]/[StmtExt] tag, since the analysis has to run before the
+      lowering (a `cas` lowers to a read plus a conditional write, which would
+      count as several steps rather than the single machine instruction it is), so
+      its cost cannot be read off the statements it eventually becomes and the
+      extension has to declare it. *)
+  type stmt_atomicity =
+    | NoStep  (** ghost: nothing an interfering thread can observe *)
+    | AtomicStep  (** exactly one atomic step, e.g. `cas`/`faa` *)
+    | NonAtomicStep
+        (** not permitted at all while an invariant or atomic update is open *)
+
   (** Extension point for contract-level clauses (e.g. [decreases]) that attach to a
       callable's or loop's contract rather than to a single statement. Carried as
       [(tag * expr list)], the same shape as [StmtExt], so core code (alpha-renaming,
@@ -2140,6 +2155,10 @@ module Stmt = struct
 
   let default_basic_stmt_ext_fields_accessed : stmt_ext -> expr list -> qual_ident list = fun _ _ -> []
   let default_stmt_ext_fields_accessed : stmt_ext -> qual_ident list = fun _ -> []
+
+  (* Conservative: an unclassified extension statement is barred from an atomic
+     block rather than silently costing nothing there. *)
+  let default_stmt_ext_atomicity : stmt_ext -> stmt_atomicity = fun _ -> NonAtomicStep
 
   let make_stmt_fields_accessed ~basic_stmt_ext_fields_accessed ~stmt_ext_fields_accessed (s: t) : qual_ident list =
     let rec stmt_fields_accessed (s: t): (qual_ident list) =

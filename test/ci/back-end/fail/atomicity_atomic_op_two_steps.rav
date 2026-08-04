@@ -1,0 +1,20 @@
+// A built-in atomic operation costs one atomic step, like any other access to
+// the heap -- two of them while an invariant is open is one too many. The
+// analysis has to charge for it while it is still an opaque `faa`, before the
+// lowering into a read plus a write that would look like two steps by itself.
+
+field fa: Int
+field fb: Int
+
+inv counter_inv(c: Ref) {
+  exists na: Int, nb: Int :: own(c.fa, na) && own(c.fb, nb)
+}
+
+proc bump_both(c: Ref)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  val x := faa(c.fa, 1);
+  val y := faa(c.fb, 1);
+  fold counter_inv(c);
+}

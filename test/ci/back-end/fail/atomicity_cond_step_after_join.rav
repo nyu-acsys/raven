@@ -1,0 +1,18 @@
+// The step an arm of a conditional takes carries past the join, so a further
+// step while the invariant is still open must be rejected.
+
+field fa: Int
+field fb: Int
+
+inv counter_inv(c: Ref) {
+  exists na: Int, nb: Int :: own(c.fa, na) && own(c.fb, nb)
+}
+
+proc step_after_join(c: Ref, k: Bool)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  if (k) { c.fa := 1; } else { c.fb := 1; }
+  c.fa := 2;
+  fold counter_inv(c);
+}

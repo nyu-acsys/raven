@@ -1,0 +1,47 @@
+// A conditional is not itself a step: its test only inspects locals, so
+// interfering threads cannot observe it. Only one arm runs, so a conditional
+// whose arms each take a single atomic step is fine inside an open invariant
+// or an open atomic update.
+
+field fa: Int
+field fb: Int
+
+inv counter_inv(c: Ref) {
+  exists na: Int, nb: Int :: own(c.fa, na) && own(c.fb, nb)
+}
+
+proc bump_inv(c: Ref, k: Bool)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  if (k) { c.fa := 1; } else { c.fb := 1; }
+  fold counter_inv(c);
+}
+
+// Same, with the arms' single step being a built-in atomic operation rather than
+// a field write. `faa` lowers to a read plus a write, but it is one instruction
+// and costs one step.
+proc bump_inv_faa(c: Ref, k: Bool)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  if (k) { val x := faa(c.fa, 1); } else { val y := faa(c.fb, 1); }
+  fold counter_inv(c);
+}
+
+pred cell(x: Ref; a: Int) {
+  own(x.fa, a, 1.0)
+}
+
+proc set_au(x: Ref, k: Bool, implicit ghost a: Int)
+  atomic requires cell(x, a)
+  atomic ensures cell(x, k ? 1 : 2)
+{
+  ghost var phi := bindAU();
+
+  ghost var a0: Int := openAU(phi);
+  unfold cell(x, a0);
+  if (k) { x.fa := 1; } else { x.fa := 2; }
+  fold cell(x, k ? 1 : 2);
+  commitAU(phi, ());
+}

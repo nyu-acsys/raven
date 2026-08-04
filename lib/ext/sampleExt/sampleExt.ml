@@ -55,6 +55,12 @@ module SampleExt (Cont : ListApi) = struct
     | RandEven -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
+  (* Drawing a sample is one program step. *)
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | RandEven -> Stmt.AtomicStep
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
 
   (* Rewriter *)
   (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types/stmt_ext_rewrite: no

@@ -127,6 +127,17 @@ let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
     Error.verification_error loc
       "Cannot take a non-atomic step inside an atomic block"
 
+(* An extension statement is opaque here -- this pass has to run before the
+   lowering that would reveal what it does, since e.g. a `cas` lowers to a read
+   plus a conditional write yet is a single machine instruction. So the active
+   extension declares the cost; see [Stmt.stmt_atomicity]. *)
+let take_ext_step ~loc (atomicity : Stmt.stmt_atomicity) (state : atomicity_check)
+    : atomicity_check =
+  match atomicity with
+  | NoStep -> state
+  | AtomicStep -> take_atomic_step ~loc state
+  | NonAtomicStep -> take_non_atomic_step ~loc state
+
 (* Returns the extra assert statements (reentrancy guard + membership proof)
    the caller must splice in immediately before the [Unfold] statement,
    together with the updated state. *)
@@ -360,14 +371,16 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
     let* atomicity_state = Rewriter.current_user_state in
 
     (* Assigned-variable-drops mask entries mentioning them; see
-       [drop_mask_entries_mentioning]'s doc comment. [qis] are the (possibly
-       ghost) variables this statement writes to. *)
+       [drop_mask_entries_mentioning]'s doc comment. The arguments are the
+       (possibly ghost) variables this statement writes to. *)
+    let drop_stale_idents ~(idents : Ident.t list) (state : atomicity_check) :
+        atomicity_check =
+      let assigned = Set.of_list (module Ident) idents in
+      { state with mask = drop_mask_entries_mentioning assigned state.mask }
+    in
     let drop_stale ~(qis : QualIdent.t list) (state : atomicity_check) :
         atomicity_check =
-      let assigned =
-        List.map qis ~f:QualIdent.unqualify |> Set.of_list (module Ident)
-      in
-      { state with mask = drop_mask_entries_mentioning assigned state.mask }
+      drop_stale_idents ~idents:(List.map qis ~f:QualIdent.unqualify) state
     in
 
     match stmt.stmt_desc with
@@ -596,6 +609,19 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return
               (Stmt.mk_block_stmt ~loc (reentrancy_asserts @ [ stmt ]))
+    | Basic (BasicStmtExt (stmt_ext, args)) ->
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let atomicity_state =
+          drop_stale_idents
+            ~idents:(ext_hooks.basic_stmt_ext_local_vars_modified stmt_ext args)
+            atomicity_state
+        in
+        let atomicity_state =
+          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext)
+            atomicity_state
+        in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return stmt
     | Basic (Return return_expr) ->
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
@@ -928,6 +954,22 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let* _ = Rewriter.set_user_state atomicity_state in
 
             Rewriter.return new_stmt)
+    | StmtExt stmt_ext ->
+        (* [Rewriter.Stmt.descend] deliberately doesn't enter a [StmtExt]'s
+           nested statements (its hook is pinned to the unit user state), so
+           whatever they are is folded into the extension's own answer here. *)
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let atomicity_state =
+          drop_stale_idents
+            ~idents:(ext_hooks.stmt_ext_local_vars_modified stmt_ext)
+            atomicity_state
+        in
+        let atomicity_state =
+          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext)
+            atomicity_state
+        in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return stmt
     | Block block_desc -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
     | Cond cond_desc ->
         let* then_stmt =
@@ -959,7 +1001,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~f:Expr.alpha_equal
                  && List.for_all2_exn au1.implicit_bound_vars
                       au2.implicit_bound_vars ~f:Expr.alpha_equal)
-          (* && Bool.(then_atomicity_state.atomic_step_taken = else_atomicity_state.atomic_step_taken) *)
         in
 
         if if_else_atomicity_states_equal then
@@ -978,21 +1019,34 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
 
           if is_ghost_scope then Rewriter.return new_stmt
           else
-            (* [invs_opened]/[au_opened]/[atomic_step_taken] are required
-               exactly equal above (either branch's copy is fine to carry
-               forward). [mask] is not: a fresh [fold] in only one branch
-               (see [close_inv]) can credit that branch's mask without
-               touching [invs_opened] at all, so the two branches' masks can
-               legitimately differ even when everything else matches. Only
-               credit established on *every* reachable arm is safe to carry
-               past the join -- an intersection, not either side alone. *)
+            (* [invs_opened]/[au_opened] are required exactly equal above
+               (either branch's copy is fine to carry forward). [mask] is
+               not: a fresh [fold] in only one branch (see [close_inv]) can
+               credit that branch's mask without touching [invs_opened] at
+               all, so the two branches' masks can legitimately differ even
+               when everything else matches. Only credit established on
+               *every* reachable arm is safe to carry past the join -- an
+               intersection, not either side alone. *)
             let joined_mask =
               Callable.mask_inter then_atomicity_state.mask
                 else_atomicity_state.mask
             in
+            (* The conditional itself is not a step: evaluating the test is
+               thread-local (heap reads aren't permitted in a condition, so
+               it only inspects locals) and hence unobservable by interfering
+               threads. Only one arm runs, so the pair costs whatever the
+               more expensive arm costs -- taking the disjunction here lets a
+               conditional whose arms each take a single atomic step sit
+               inside an open invariant or atomic update, while still
+               rejecting a further step after the join. *)
             let atomicity_state =
-              take_non_atomic_step ~loc
-                { else_atomicity_state with mask = joined_mask }
+              {
+                else_atomicity_state with
+                mask = joined_mask;
+                atomic_step_taken =
+                  then_atomicity_state.atomic_step_taken
+                  || else_atomicity_state.atomic_step_taken;
+              }
             in
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return new_stmt

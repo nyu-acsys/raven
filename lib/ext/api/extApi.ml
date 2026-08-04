@@ -70,6 +70,17 @@ module type Ext = sig
   val stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list
   val stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list
 
+  (** How much of the single atomic step allowed inside an open invariant or atomic
+      update this extension's statement consumes -- see [Stmt.stmt_atomicity]. Every
+      extension that adds statements should answer for its own constructors (both
+      extension points come through here, [BasicStmtExt] and [StmtExt] alike) and
+      defer the rest to [Cont]. The base of the chain answers [NonAtomicStep], the
+      conservative choice: an unclassified statement is rejected inside an atomic
+      block rather than being waved through as free. Outside one, the answer is
+      never consulted, so a construct that can't appear in an atomic block anyway
+      need not implement this. *)
+  val stmt_ext_atomicity : Stmt.stmt_ext -> Stmt.stmt_atomicity
+
   (** Whether *this extension itself* (not [Cont]) declares the given constructor --
       not "does this chain recognize it" (that's what chaining to [Cont] in the
       wildcard case already gives every other hook here). Used solely so

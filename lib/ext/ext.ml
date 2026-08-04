@@ -91,6 +91,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     stmt_ext_symbols = Ext.stmt_ext_symbols;
     stmt_ext_local_vars_modified = Ext.stmt_ext_local_vars_modified;
     stmt_ext_fields_accessed = Ext.stmt_ext_fields_accessed;
+    stmt_ext_atomicity = Ext.stmt_ext_atomicity;
     suggest_extension_for_type_ext;
     suggest_extension_for_expr_ext;
     suggest_extension_for_stmt_ext;
