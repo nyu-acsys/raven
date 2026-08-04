@@ -176,7 +176,14 @@ module ProcessTypeExpr = struct
            instantiation's rep type. Anything else is still rejected, as before. *)
         let* generic_functor = ProgUtils.resolve_generic_functor qual_ident in
         match generic_functor with
-        | None -> unexpected_functor_error tp_attr.type_loc
+        | None ->
+            (* `resolve_generic_functor` also returns `None` when `qual_ident` fails to
+               resolve at all, which is a different problem from "resolves, but isn't
+               eligible for `M[T1,...,Tn]` sugar" -- surface that as the usual unknown-
+               identifier error instead of the functor-usage restriction below, which
+               would otherwise misleadingly suggest `qual_ident` is a functor. *)
+            let* _ = Rewriter.resolve_and_find qual_ident in
+            unexpected_functor_error tp_attr.type_loc
         | Some (fully_qualified_qual_ident, m) ->
             if
               not
