@@ -325,6 +325,10 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
         auth_frag(a, M.id)
     }
 
+    func full(a:M) returns (ret: T) {
+        auth_frag(a, a)
+    }
+
     auto lemma compValid()
         ensures forall a:T, b:T :: {valid(comp(a,b))} valid(comp(a, b)) ==> valid(a) && valid(b)
     { 
