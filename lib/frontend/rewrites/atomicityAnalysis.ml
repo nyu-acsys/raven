@@ -9,11 +9,15 @@ type au_token = {
   callable : QualIdent.t;
   callable_args : expr list;
   implicit_bound_vars : expr list;
+  (* Where the [openAU] was, so a never-committed update can point back at it. *)
+  au_loc : location;
 }
 
 type invs = {
   inv_name : QualIdent.t;
   inv_args : Expr.t list;
+  (* Where the [unfold] was, so a never-folded instance can point back at it. *)
+  inv_loc : location;
   (* Snapshot of [inv_args]' values at the moment this instance was opened,
      in a fresh ghost local. The matching [fold] must prove its own
      arguments equal this snapshot, since a local variable in [inv_args] can
@@ -32,6 +36,49 @@ type atomicity_check = {
   atomic_step_taken : bool;
   mask : Callable.mask;
 }
+
+(* Renders an open instance the way the [unfold] named it, e.g. [i(x)]. *)
+let inv_to_string (inv : invs) : string =
+  let name = Ident.to_string (QualIdent.unqualify inv.inv_name) in
+  match inv.inv_args with
+  | [] -> name
+  | args ->
+      name ^ "("
+      ^ String.concat ~sep:", " (List.map args ~f:Expr.to_source_string)
+      ^ ")"
+
+(* Something is still open at the end of a callable's body. Report it where the
+   omission is actually detected -- the end of the body -- and point back at the
+   [unfold]/[openAU] that opened it, which is the part of the program the reader
+   has to go find. Anything else still open is named as a further related
+   location rather than being left for a second run to discover. *)
+let unclosed_error ~(body_loc : location) (state : atomicity_check) : 'a =
+  let inv_entry inv =
+    ( Printf.sprintf "Missing fold for unfolded invariant %s" (inv_to_string inv),
+      inv.inv_loc,
+      Printf.sprintf "%s was unfolded here" (inv_to_string inv) )
+  in
+  let au_entry au =
+    let token = Expr.to_source_string au.token in
+    ( Printf.sprintf
+        "Missing commitAU or abortAU for open atomic update %s" token,
+      au.au_loc,
+      Printf.sprintf "%s was opened here" token )
+  in
+  let entries =
+    List.map state.invs_opened ~f:inv_entry
+    @ List.map state.au_opened ~f:au_entry
+  in
+  match entries with
+  | [] ->
+      Error.internal_error body_loc
+        "unclosed_error called with nothing left open"
+  | (msg, rel_loc, rel_msg) :: rest ->
+      Error.fail_with
+        ((Error.Generic, Loc.last_char body_loc, msg)
+        :: (Error.RelatedLoc, rel_loc, rel_msg)
+        :: List.map rest ~f:(fun (msg, rel_loc, _) ->
+               (Error.RelatedLoc, rel_loc, msg)))
 
 let list_remove_first (lst : 'a list) ~(f : 'a -> bool) : 'a list =
   let rec go = function
@@ -223,7 +270,13 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
   ( {
       atomicity_state with
       invs_opened =
-        { inv_name; inv_args; inv_snapshot; inv_consumed_mask_entry = chosen }
+        {
+          inv_name;
+          inv_args;
+          inv_loc = loc;
+          inv_snapshot;
+          inv_consumed_mask_entry = chosen;
+        }
         :: atomicity_state.invs_opened;
       mask;
     },
@@ -319,7 +372,7 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
     {
       atomicity_state with
       au_opened =
-        { token; callable; callable_args; implicit_bound_vars }
+        { token; callable; callable_args; implicit_bound_vars; au_loc = loc }
         :: atomicity_state.au_opened;
     }
 
@@ -1063,7 +1116,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
     List.is_empty atomicity_state.au_opened
     && List.is_empty atomicity_state.invs_opened
   then Rewriter.return stmt
-  else Error.error stmt.stmt_loc "Unclosed AU token or invariant"
+  else unclosed_error ~body_loc:stmt.stmt_loc atomicity_state
 
 let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in

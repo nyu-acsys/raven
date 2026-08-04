@@ -912,6 +912,33 @@ module Expr = struct
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:default_expr_ext_to_string
 
+  (** Like [to_string], but with the freshening numbers the disambiguation pass
+      gives a callable's locals dropped, so identifiers read the way they were
+      written: [i(x)] rather than [i(x^24)]. For user-facing messages only --
+      two distinct variables can print alike here, which is exactly why every
+      other consumer wants [to_string]. *)
+  let to_source_string (e : t) : string =
+    let unnumber id = Ident.make (Ident.to_loc id) (Ident.name id) 0 in
+    let unnumber_qi qi =
+      QualIdent.make
+        (List.map (QualIdent.path qi) ~f:unnumber)
+        (unnumber (QualIdent.unqualify qi))
+    in
+    let rec go = function
+      | App (constr, es, attr) ->
+          let constr =
+            match constr with Var qi -> Var (unnumber_qi qi) | c -> c
+          in
+          App (constr, List.map es ~f:go, attr)
+      | Binder (b, var_decls, trgs, e, attr) ->
+          let var_decls =
+            List.map var_decls ~f:(fun vd ->
+                Type.{ vd with var_name = unnumber vd.var_name })
+          in
+          Binder (b, var_decls, List.map trgs ~f:(List.map ~f:go), go e, attr)
+    in
+    to_string (go e)
+
   (** Constructors *)
   
   let mk_app ?(loc = Loc.dummy) ~typ c es =

@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- The atomicity analysis's `Unclosed AU token or invariant` error -- raised when a body ends with an invariant still unfolded or an atomic update still open -- now names what was left open, `Missing fold for unfolded invariant i(x)` or `Missing commitAU or abortAU for open atomic update phi`, and is reported at the body's closing brace, where the omission is actually detected, rather than spanning the whole body. The `unfold`/`openAU` that opened it is given as a Related Location, as is anything else left open, so a body with several omissions names them all in one run. Identifiers in these messages print as written in the source, without the numbers the disambiguation pass adds to a callable's locals.
+
 
 ### Fixed
 

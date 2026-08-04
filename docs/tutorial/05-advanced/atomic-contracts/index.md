@@ -114,10 +114,12 @@ know.
 
 The atomicity-analysis vocabulary from Part 4 reappears here verbatim, just guarding
 `bindAU`/`openAU`/`abortAU`/`commitAU` instead of `fold`/`unfold`: `Atomic token %s is already
-open`, `No opened AU token found to abort`, and `Unclosed AU token or invariant` at a `return`
-where the token was never committed. Recognizing these as *the same family* of error as Part
-4's is the actual point — there's nothing new to learn here, just a new pair of statements that
-the same one-step discipline applies to.
+open`, `No opened AU token found to abort`, and — when a path reaches the end of the body with
+the token still open — `Missing commitAU or abortAU for open atomic update phi`, reported at
+the closing brace with the `openAU` that opened it as a Related Location, exactly like Part 4's
+never-folded invariant. Recognizing these as *the same family* of error as Part 4's is the
+actual point — there's nothing new to learn here, just a new pair of statements that the same
+one-step discipline applies to.
 
 ## What's next
 

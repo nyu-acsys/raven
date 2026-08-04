@@ -75,7 +75,9 @@ before any SMT solving even starts:
   while `evenCount` is still open, and gets `[Verification Error] Attempting to take more than
   one atomic step with an open invariant or atomic update`.
 - [`broken/forgotten_fold.rav`](./broken/forgotten_fold.rav) unfolds and never folds back, and
-  gets `[Error] Unclosed AU token or invariant` at the end of the procedure.
+  gets `[Error] Missing fold for unfolded invariant evenCount(c)`, reported at the procedure's
+  closing brace — where the omission is finally detected — with the `unfold` that opened the
+  instance named as a Related Location.
 
 **Masks, in a nutshell.** How does Raven know, at any given point in a proof, which invariants
 are even legal to open? It tracks a *mask*: the set of invariant instances available to unfold at
@@ -176,7 +178,7 @@ There are three genuinely different failure modes from this chapter that are wor
 distinct because they call for different fixes:
 
 1. **Atomicity-analysis rejections** — `Attempting to take more than one atomic step...`,
-   `Unclosed AU token or invariant` — are syntactic. They name the exact discipline you broke,
+   `Missing fold for unfolded invariant %s` — are syntactic. They name the exact discipline you broke,
    they're flagged instantly (no solver call involved at all), and the fix is always
    restructuring control flow: add the missing `fold`, don't take two atomic steps before the
    next one.

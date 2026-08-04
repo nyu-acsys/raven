@@ -1,0 +1,16 @@
+// An invariant left unfolded at the end of a body. The error is reported at the
+// point the omission is detected -- the end of the body -- and points back at
+// the unfold that opened it.
+
+field f: Int
+
+inv i(x: Ref) {
+  own(x.f, 1)
+}
+
+proc bar(x: Ref)
+  requires i(x)
+{
+  unfold i(x);
+  val y := x.f;
+}
