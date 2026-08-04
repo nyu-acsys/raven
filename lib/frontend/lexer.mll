@@ -45,10 +45,10 @@ let lexical_error lexbuf msg =
      The stack starts empty, which behaves like [Group] (or, equivalently, like top level before
      any module has been entered) for insertion purposes: never insert.
    - [last_token_can_end_stmt] records whether the most recently lexed token could plausibly be
-     the last token of a complete statement or expression (an identifier, literal, or a closing
-     paren or bracket) as opposed to one that necessarily expects more to follow (an infix
-     operator, a keyword like if or return, a comma, etc). Insertion only happens when this is
-     true; it also disambiguates a loop's body brace (preceded by such a token) from a trigger
+     the last token of a complete statement or expression (an identifier, literal, a closing
+     paren or bracket, or a bare `return`) as opposed to one that necessarily expects more to
+     follow (an infix operator, a keyword like if, a comma, etc). Insertion only happens when this
+     is true; it also disambiguates a loop's body brace (preceded by such a token) from a trigger
      nested in an invariant (preceded by :: or a previous trigger's closing brace, neither of
      which qualifies).
    - [next_brace_kind] classifies the next plain brace lexed, whenever that ends up being: [Group]
@@ -142,7 +142,12 @@ let advance st (tok : Parser.token) =
     match tok with
     | IDENT _ | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
-    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE -> true
+    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE
+    (* Unlike every other keyword here, `return` can legally end a statement
+       on its own -- a return with no values, from a callable with no `returns`
+       clause. A `return` with values is always followed by at least one more
+       token before the next newline, so this can't misfire on those. *)
+    | RETURN -> true
     | _ -> false
   in
   { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond }
@@ -175,8 +180,15 @@ let on_newline st ~peek =
 (* A carriage return is only ever recognized as part of a line terminator, so a
    stray one remains the lexical error it always was. *)
 let newline = '\r'? '\n'
-let operator_char = ['+''-''*''%''.'':'',''?''>''<''=''&''|''!']
-let operator = '/' | ';' | operator_char+ | "in" | "!in" | "subseteq"
+(* `,` is deliberately excluded: unlike every character here, it never combines with a
+   neighbor to form a longer operator (see Terminals.operator_table), so folding it into
+   [operator_char+]'s maximal munch only ever causes harm -- e.g. `AtomicToken<P>,` lexing
+   `>,` as one (unregistered, and hence rejected) two-character candidate operator, instead
+   of `>` and `,` separately, whenever a `>` or another operator character is immediately
+   followed by a comma with no space. Matched as its own single-character alternative below,
+   the same way `;` already is, for exactly this reason. *)
+let operator_char = ['+''-''*''%''.'':''?''>''<''=''&''|''!']
+let operator = '/' | ';' | ',' | operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
 let lowercase_char = ['a'-'z''_']
