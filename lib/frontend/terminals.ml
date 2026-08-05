@@ -67,9 +67,8 @@ let _ =
 
       (* ProphecyExt *)
       ("Proph", PROPH);
-      ("new_1", NEW1);
       ("resolve", RESOLVE);
-      ("prophecy", PROPHECY);
+      ("proph", PROPHPRED);
 
       (* DecreasesExt *)
       ("decreases", DECREASES);

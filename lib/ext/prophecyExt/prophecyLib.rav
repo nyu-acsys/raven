@@ -1,7 +1,21 @@
 // Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module.
 
-// This defines a higher-order module used for defining prophecy variable semantics.
-// The name of this module and field are hard-coded in prophecyExy.ml:ProphecyExt.ProphPredefs
+// Multi-shot prophecy resource: predicts an unbounded sequence of future values.
+// The field is declared as plain `Typ`, not `List[Typ]` -- the "list of predictions"
+// shape comes from instantiating `Typ` itself with a `List[T]`-satisfying module at
+// the call site (see prophecyExt.ml:ProphecyExt.initialize_prophecy_module), rather
+// than from applying `List[...]` to the functor's own abstract type parameter here.
+// Writing `List[Typ]` directly in this declaration looks equivalent but is not: it
+// triggers a pre-existing bug in the module-instantiation/reification machinery
+// where the per-field `Frac$prophecyValue` datatype silently goes undeclared in the
+// generated SMT for the instantiated module.
+// The name of this module and field are hard-coded in prophecyExt.ml:ProphecyExt.ProphPredefs
 module Prophecy[Typ: Library.Type] {
     ghost field prophecyValue: Typ
+}
+
+// One-shot prophecy resource: predicts a single future value, resolved at most once.
+// The name of this module and field are hard-coded in prophecyExt.ml:ProphecyExt.ProphPredefs
+module Prophecy1[Typ: Library.Type] {
+    ghost field prophecyValue1: Typ
 }
