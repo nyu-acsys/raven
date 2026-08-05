@@ -3114,6 +3114,8 @@ module Predefs = struct
   let lib_countAgreeRA_destr1_ident = Ident.make Loc.dummy "count" 0
   let lib_countAgreeRA_destr2_ident = Ident.make Loc.dummy "value" 0
 
+  let lib_nat_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Nat" 0]
+
   let lib_atomic_token_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "AtomicTokenRA" 0]
 
   let lib_atomic_token_uncommitted_constr_ident = Ident.make Loc.dummy "au_uncommitted" 0

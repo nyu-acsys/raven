@@ -85,24 +85,31 @@ let pred_heap_name2 (pred_name : qual_ident) =
   let pred_name_str = ProgUtils.serialize pred_name_str in
   Ident.make Loc.dummy (pred_name_str ^ "$Heap2") 0
 
-(* The chunk value stored in a predicate/invariant's heap for one occurrence. For an
-   `inv` with no return (out) args, rewrite_add_pred_utils backs PredHeapRA$P with the
-   trivial one-element RA (see generate_unit_pred_ra below) instead of Agree, so
-   there's no RA-level constructor to apply here: the chunk is just the (empty)
-   out-args tuple itself.
+(* The chunk value stored in a predicate/invariant's heap for one occurrence.
 
-   A `pred` always goes through CountAgree regardless of arity, even with no data to
-   agree on -- unlike an `inv`, unfolding a `pred` consumes it, and CountAgree's count
-   is what makes folding the same pred twice and only unfolding it once a genuine
-   error rather than silently accepted (Agree's frame, unlike CountAgree's, doesn't
-   decrement on unfold at all -- an invariant is never consumed by unfolding it, so
-   collapsing it to the trivial RA changes nothing about that). *)
+   For an `inv` with no return (out) args, rewrite_add_pred_utils backs PredHeapRA$P
+   with the trivial one-element RA (see generate_unit_pred_ra below) instead of
+   Agree, so there's no RA-level constructor to apply here: the chunk is just the
+   (empty) out-args tuple itself. Unfolding an `inv` never consumes it (Agree's frame
+   doesn't decrement), so this changes nothing observable.
+
+   For a `pred` with no return args, rewrite_add_pred_utils backs PredHeapRA$P with
+   `Library.Nat` instead of CountAgree[()] -- same reasoning, minus the data
+   constructor, but a `pred` *is* consumed by unfolding, so the count itself has to
+   stay real: it's what makes folding a pred once and then unfolding it twice a
+   genuine error rather than silently accepted. The chunk is just the literal `1`
+   (one more fold), with no DataConstr wrapping since Nat's `T` is already `Int`.
+
+   A `pred`/`inv` with return args always goes through CountAgree/Agree, wrapping the
+   out-args in the RA's data constructor as before. *)
 let mk_pred_new_chunk ~loc (call_decl_kind : Callable.call_kind)
     (heap_elem_type : type_expr) (pred_ra_constr : qual_ident)
     (out_args : expr list) : expr =
   match call_decl_kind with
   | Invariant when List.is_empty out_args ->
       Expr.set_type (Expr.mk_tuple ~loc out_args) heap_elem_type
+  | Pred when List.is_empty out_args ->
+      Expr.set_type (Expr.mk_int ~loc 1) heap_elem_type
   | Pred ->
       Expr.mk_app ~loc ~typ:heap_elem_type (Expr.DataConstr pred_ra_constr)
         [ Expr.mk_int 1; Expr.mk_tuple out_args ]
@@ -1193,6 +1200,32 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
           in
           Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
             unit_pred_ra
+        else if
+          Poly.(c.call_decl.call_decl_kind = Pred)
+          && List.is_empty c.call_decl.call_decl_returns
+        then
+          (* Unlike Invariant above, a no-return-arg Pred still needs real counting
+             (see mk_pred_new_chunk's doc comment for why folding it can't be made
+             idempotent), just not CountAgree's data-constructor wrapping around a
+             value that's always (): `Library.Nat` -- rep type plain Int, no datatype
+             at all -- is exactly CountAgree[()] with that wrapping stripped off:
+             its comp/frame/valid are literally CountAgree's, specialized to a value
+             that always agrees with itself. Nat takes no type argument. *)
+          let instantiated_pred_heap_ra =
+            Module.ModInst
+              {
+                mod_inst_name =
+                  ProgUtils.pred_to_ra_mod_ident ~loc
+                    c.call_decl.call_decl_name;
+                mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
+                mod_inst_def = Some (Predefs.lib_nat_mod_qual_ident, []);
+                mod_inst_is_interface = false;
+                mod_inst_is_free = false;
+                mod_inst_loc = loc;
+              }
+          in
+          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
+            instantiated_pred_heap_ra
         else
           let pred_ret_type =
             Type.mk_prod c.call_decl.call_decl_loc
