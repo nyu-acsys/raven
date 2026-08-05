@@ -2173,10 +2173,27 @@ module ProcessCallable = struct
         ProcessTypeExpr.expand_type_expr var_decl.var_type
       in
       
+      (* A ghost `new` -- the LHS var is ghost, or we're already in a ghost scope -- may only
+         initialize ghost fields: with a non-ghost field in the mix, the allocation writes real
+         heap state that a ghost statement's erasure would silently drop. This is the same
+         restriction FieldWrite enforces on `is_ghost_scope`, generalized to also cover a `New`
+         whose ghost-ness comes from its own (locally ghost-declared) LHS var rather than an
+         enclosing ghost scope -- `local_var_def`'s desugaring emits `new`'s VarDef and the New
+         statement itself as two separate statements, so is_ghost_scope alone won't see it. *)
+      let is_ghost_new = var_decl.var_ghost || is_ghost_scope in
       if Type.equal var_type_expanded Type.ref then
         let process_field_init (field_name, expr_opt) =
           let* field_name, symbol =
             Rewriter.resolve_and_find field_name
+          in
+          let* () =
+            match Rewriter.Symbol.orig_symbol symbol with
+            | FieldDef { field_is_ghost; _ } ->
+              if is_ghost_new && not field_is_ghost then
+                Error.type_error (QualIdent.to_loc field_name)
+                  (Printf.sprintf !"Cannot assign to non-ghost field %{QualIdent} in ghost context" field_name)
+              else Rewriter.return ()
+            | _ -> Error.type_error (QualIdent.to_loc field_name) "Expected field"
           in
           let* field_type =
             Rewriter.Symbol.reify_field_type stmt_loc symbol
