@@ -2,6 +2,16 @@
 
 open Ext.ProphecyExtInstance
 
+(* Location of the LHS variable list an `assign_rhs` closure is applied to, used to report
+   arity errors (e.g. `new Proph[...]` needs exactly two LHS variables) at the LHS itself
+   rather than at the RHS type argument. Falls back to `fallback_loc` for an empty list,
+   which the grammar never actually produces here (an assignment's LHS is never empty). *)
+let lhs_list_loc ~fallback_loc es =
+  match es with
+  | [] -> fallback_loc
+  | first :: _ ->
+    List.fold_left (fun loc e -> Loc.merge loc (Expr.to_loc e)) (Expr.to_loc first) es
+
 %}
 
 %token PROPH RESOLVE PROPHPRED
@@ -37,8 +47,8 @@ open Ext.ProphecyExtInstance
   function
   | [proph_id; proph_val], _ ->
     Stmt.(Basic (BasicStmtExt ((NewProph (false, t)), [proph_id; proph_val]))), None
-  | _, _ ->
-    Error.syntax_error (Type.to_loc t) "Expected a prophecy id variable and a prophecy value variable on the left-hand side of new Proph[...]"
+  | es, _ ->
+    Error.syntax_error (lhs_list_loc ~fallback_loc:(Type.to_loc t) es) "Expected a prophecy id variable and a prophecy value variable on the left-hand side of new Proph[...]"
 }
 | NEW PROPH LBRACKET t=type_expr COMMA n=CONSTVAL RBRACKET {
   function
@@ -49,8 +59,8 @@ open Ext.ProphecyExtInstance
     | _ ->
       Error.syntax_error (Type.to_loc t) "new Proph[T, n] only supports n = 1 (one-shot); omit the second argument for a multi-shot prophecy"
     end
-  | _, _ ->
-    Error.syntax_error (Type.to_loc t) "Expected a prophecy id variable and a prophecy value variable on the left-hand side of new Proph[...]"
+  | es, _ ->
+    Error.syntax_error (lhs_list_loc ~fallback_loc:(Type.to_loc t) es) "Expected a prophecy id variable and a prophecy value variable on the left-hand side of new Proph[...]"
 }
 
 %public stmt_ext:
