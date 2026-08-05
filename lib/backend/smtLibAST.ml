@@ -147,9 +147,9 @@ let rec pr_var_decls ppf = function
 
 let term_constr_to_string loc (constr : Expr.constr) : string =
   match constr with
-  | Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div
-  | DataConstr _ | DataDestr _ ->
+  | Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div ->
       Expr.constr_to_string constr
+  | DataConstr id | DataDestr id -> Stdlib.Format.asprintf "%a" pr_smt_ident id
   | Mod -> "mod"
   | Not -> "not"
   | MapLookUp -> "select"
