@@ -147,9 +147,13 @@ let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
   (tbl, Some processed_md)
   end
 
-(** Runs backend/SMT checking for a single already-elaborated compilation unit. *)
-let backend_check_cu tbl smt_env processed_md =
-  Backend.Checker.check_module processed_md tbl smt_env
+(** Runs backend/SMT checking over every already-elaborated compilation unit together (the
+    library and the program being checked are siblings sharing one symbol table, not one
+    nested inside the other -- see [Backend.Dependencies.analyze]'s doc comment -- so they
+    have to be checked as one combined call for [Backend.Checker.check_members]'s hierarchical
+    scoping to see both sides of that sharing). *)
+let backend_check_cu tbl smt_env processed_mds =
+  Backend.Checker.check_module processed_mds tbl smt_env
 
 
 (** Parse and check all compilation units in files [file_names] *)
@@ -283,7 +287,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
      let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
      let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
      let (_ : Backend.Smt_solver.smt_env) =
-       List.fold processed_mds ~init:smt_env ~f:(backend_check_cu tbl)
+       backend_check_cu tbl smt_env processed_mds
      in
      ());
 
