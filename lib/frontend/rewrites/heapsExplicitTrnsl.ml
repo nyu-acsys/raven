@@ -4042,13 +4042,15 @@ module TrnslExhale = struct
             match given_expr with
             | App (DataConstr constr_ident, exprs, _) 
             | App (Var constr_ident, exprs, _) ->
-              (* #TODO: This exception is added to tackle the case of using AuthRA.auth() function, which is different from the AuthRA.auth_frag() data constructor. As such, this exception is not added in the explicit calculation which should ideally be fixed. *)
+              (* #TODO: This exception is added to tackle the case of using AuthRA.auth()/AuthRA.full() functions, which are different from the AuthRA.auth_frag() data constructor. As such, this exception is not added in the explicit calculation which should ideally be fixed. *)
                 if
                   Ident.(
                     QualIdent.unqualify constr_ident
                     = Predefs.lib_auth_frag_constr_ident) || Ident.(
                     QualIdent.unqualify constr_ident
-                    = Predefs.lib_auth_fun_ident)
+                    = Predefs.lib_auth_fun_ident) || Ident.(
+                    QualIdent.unqualify constr_ident
+                    = Predefs.lib_auth_full_fun_ident)
                 then
                   let auth_chunk =
                     Expr.mk_app
@@ -4172,17 +4174,20 @@ module TrnslExhale = struct
                     (destr, destr_ret_type))
               in
 
-              let destr_exprs =
+              let destr_concrete_exprs_and_sub_exprs =
                 List.map2_exn destrs exprs ~f:(fun (destr, ret_typ) expr ->
-                    Expr.mk_app ~typ:ret_typ (Expr.DataDestr destr) [ expr ])
+                    ( Expr.mk_app ~typ:ret_typ (Expr.DataDestr destr)
+                        [ concrete_expr ],
+                      expr ))
               in
 
               let* witness_map =
-                Rewriter.List.fold_left destr_exprs
+                Rewriter.List.fold_left destr_concrete_exprs_and_sub_exprs
                   ~init:(Map.empty (module Ident))
-                  ~f:(fun witness_map destr_expr ->
+                  ~f:(fun witness_map (destr_concrete_expr, sub_expr) ->
                     let* new_witness_map =
-                      core_witness_comp exists concrete_expr destr_expr true
+                      core_witness_comp exists destr_concrete_expr sub_expr
+                        true
                     in
 
                     let witness_map =

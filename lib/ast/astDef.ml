@@ -3073,7 +3073,9 @@ module Predefs = struct
   let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
   
   let lib_auth_fun_ident = Ident.make Loc.dummy "auth" 0
-  
+
+  let lib_auth_full_fun_ident = Ident.make Loc.dummy "full" 0
+
   let lib_auth_frag_constr_ident = Ident.make Loc.dummy "auth_frag" 0
   
   let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
