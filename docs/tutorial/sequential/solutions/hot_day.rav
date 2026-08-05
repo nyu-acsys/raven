@@ -1,0 +1,24 @@
+// Exercise 3 solution: given a per-day hit count (as a pure Map[Int, Int], with
+// `len` the number of meaningful days), find the busiest day's count.
+//
+// The invariant only needs a `forall` (an upper-bound fact), not an `exists` --
+// worth noticing, because a `forall` in an invariant is usually easy for Z3 to
+// re-instantiate every loop iteration via its trigger (here `{counts[j]}`),
+// while invariants built from `exists` tend to need much more help to carry
+// across iterations. When a spec has a choice, prefer the `forall` phrasing.
+proc busiestDay(counts: Map[Int, Int], len: Int) returns (r: Int)
+  requires len >= 1
+  ensures forall j: Int :: {counts[j]} 0 <= j && j < len ==> counts[j] <= r
+{
+  r := counts[0]
+  var k := 1
+  while (k < len)
+    invariant 1 <= k && k <= len
+    invariant forall j: Int :: {counts[j]} 0 <= j && j < k ==> counts[j] <= r
+  {
+    if (counts[k] > r) {
+      r := counts[k]
+    }
+    k := k + 1
+  }
+}

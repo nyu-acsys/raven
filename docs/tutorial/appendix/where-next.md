@@ -5,7 +5,7 @@ More worked examples than this tutorial covers, all in the main repository:
 - **`test/concurrent/lock/`** — this tutorial only used the ticket lock; the same directory has
   a spin lock, an MCS lock, and a CLH lock, each proved against the same `Lock` interface from
   Part 5b.
-- **`test/concurrent/counter/`** — the real files [`hit_counter_ghost.rav`](../04-ghost-and-concurrency/hit_counter_ghost.rav)
+- **`test/concurrent/counter/`** — the real files [`hit_counter_ghost.rav`](../ghost-and-concurrency/hit_counter_ghost.rav)
   was adapted from, plus a variant with no invariant at all worth comparing against.
 - **`test/concurrent/templates/`** — substantially harder, template-based proofs of realistic
   concurrent data structures: `give-up.rav` (a lock-coupling search tree), `bplustree.rav`, and

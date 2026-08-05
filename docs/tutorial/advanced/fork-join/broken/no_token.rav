@@ -1,0 +1,94 @@
+// DELIBERATELY BROKEN, on purpose -- this is the first, natural-looking
+// attempt at fork/join, before the capstone's actual fix. Read
+// ../index.md alongside this file; it walks through why this looks
+// right, and exactly where and why it fails.
+interface Instance {
+  type R
+
+  pred resource(r: R)
+
+  proc task() returns (r: R)
+    ensures resource(r)
+}
+
+module ForkJoin[I: Instance] {
+  import I._
+  import Library.Option
+
+  // The channel the worker thread uses to hand its result to the joiner.
+  field value: Option[R]
+
+  // `o` tracks whether the worker has posted a result yet; `b` is meant to
+  // distinguish "posted, but not yet claimed" from "already claimed" --
+  // while unclaimed (`b == true`), the invariant itself just holds on to
+  // the resource; once claimed (`b == false`), it holds nothing, on the
+  // assumption that whoever claimed it took it away for good.
+  inv is_forkjoin(p: Ref) {
+    exists o: Option[R], b: Bool ::
+      own(p.value, o) &&
+      (o == Option.none ? true : (b ? true : resource(o.Option.value)))
+  }
+
+  proc worker(p: Ref)
+    requires is_forkjoin(p)
+  {
+    val r := task()
+    unfold is_forkjoin(p)
+    p.value := Option.some(r)
+    fold is_forkjoin(p)[b := false]
+  }
+
+  proc fork() returns (p: Ref)
+    ensures is_forkjoin(p)
+  {
+    p := new (value: Option.none)
+    fold is_forkjoin(p)[b := false]
+    spawn worker(p)
+  }
+
+  proc join(p: Ref) returns (r: R)
+    requires is_forkjoin(p)
+    ensures resource(r)
+  {
+    var o: Option[R]
+    ghost var b0: Bool
+    unfold is_forkjoin(p)[b0 := b]
+    o := p.value
+    fold is_forkjoin(p)[b := true]
+
+    if (o == Option.none) {
+      r := join(p)
+      return r
+    } else {
+      r := o.Option.value
+      return r
+    }
+  }
+}
+
+field count: Int
+
+module ClientInstance : Instance {
+  type R = Ref
+
+  pred resource(r: Ref) {
+    own(r.count, 0)
+  }
+
+  proc task() returns (r: Ref)
+    ensures resource(r)
+  {
+    r := new (count: 0)
+    fold resource(r)
+  }
+}
+
+module FJ = ForkJoin[ClientInstance]
+
+proc client()
+{
+  var p := FJ.fork()
+  var r := FJ.join(p)
+  unfold ClientInstance.resource(r)
+  val y := r.count
+}

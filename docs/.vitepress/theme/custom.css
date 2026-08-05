@@ -1,0 +1,22 @@
+/* The tutorial's sidebar nests up to three levels deep (a Part, one of its
+   lettered capstones, then that capstone's own numbered sections), and every
+   numbered entry's own label starts with its number ("2.1. Fields and the
+   heap"). The intent is for a child level's number to line up under the
+   first letter of its parent's title -- e.g. "2.1" under the "O" of
+   "2. Ownership and Resources" -- so each level's indent should be about as
+   wide as a top-level entry's own leading "<N>. " (a single digit or
+   appendix letter, a period, a space). The font isn't monospace, so this
+   can't be exact; `1.5ch` is a best-effort approximation (`1ch` is defined
+   as the width of the "0" glyph in the current font, which covers the digit
+   itself, plus a little more for the period and space that follow it).
+   `!important` is needed because the default theme's own rule carries a Vue
+   scoped-style attribute selector, which outweighs an unscoped selector of
+   otherwise equal specificity. */
+.VPSidebarItem.level-0 .items,
+.VPSidebarItem.level-1 .items,
+.VPSidebarItem.level-2 .items,
+.VPSidebarItem.level-3 .items,
+.VPSidebarItem.level-4 .items,
+.VPSidebarItem.level-5 .items {
+  padding-left: 1.5ch !important;
+}

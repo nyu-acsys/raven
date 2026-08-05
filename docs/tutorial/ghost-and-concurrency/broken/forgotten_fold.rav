@@ -1,0 +1,23 @@
+// DELIBERATELY BROKEN: unfolds `evenCount` and never folds it back before the
+// procedure returns. Raven's atomicity analysis rejects this too, with:
+//
+//   [Verification Error] Missing fold for unfolded invariant evenCount(c)
+//
+// reported at the closing brace -- the point where the omission is finally
+// detected -- with the `unfold` that opened the instance named as a Related
+// Location. An atomic update opened and never committed (a Part 5 topic) is
+// reported the same way: structurally it's the same discipline, since you
+// borrowed something that only exists while briefly open, and never gave it
+// back.
+field count: Int
+
+inv evenCount(c: Ref) {
+  exists v: Int :: own(c.count, v) && v % 2 == 0
+}
+
+proc bumpForgetFold(c: Ref)
+  requires evenCount(c)
+{
+  unfold evenCount(c)
+  val _x := faa(c.count, 2)
+}

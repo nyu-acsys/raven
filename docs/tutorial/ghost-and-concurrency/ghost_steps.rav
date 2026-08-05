@@ -1,0 +1,23 @@
+// A companion example for §7's remark on atomicity: ghost statements never
+// count as one of the "at most one atomic step" §4's rule restricts while a
+// shared invariant is open -- only real, non-ghost statements do. This is
+// `bumpTwice` from `hit_counter_invariant.rav`, with a run of ghost
+// bookkeeping added on both sides of its one real atomic step.
+
+field count: Int
+
+inv evenCount(c: Ref) {
+  exists v: Int :: own(c.count, v) && v % 2 == 0
+}
+
+proc bumpTwice(c: Ref)
+  requires evenCount(c)
+{
+  unfold evenCount(c)
+  ghost var predicted: Int := 2
+  assert predicted == 2
+  val _x := faa(c.count, 2) // the one real atomic step
+  ghost var checked: Bool := true
+  assert checked
+  fold evenCount(c)
+}

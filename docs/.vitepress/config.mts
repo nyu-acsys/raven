@@ -1,6 +1,101 @@
 import { defineConfig } from 'vitepress'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { installSectionRefs } from './section-refs.mts'
+
+// The same registry that drives in-page numbering and {{ref}} (see
+// section-refs.mts) also drives the sidebar's numbered entries below, so a
+// section's number and anchor can never drift out of sync between the two --
+// the failure mode that kept recurring by hand before this existed. Only the
+// *label* stays hand-picked: a heading's full title is sometimes too long or
+// too markdown-heavy (backticks, parentheses) for a nav item, so
+// `SIDEBAR_LABELS` supplies the short running head instead; `numberedItems`
+// throws if a numbered section is missing one, so an added section can't
+// silently end up with no sidebar entry.
+const sectionRegistryPath = fileURLToPath(new URL('./section-registry.json', import.meta.url))
+const { sections, pagesOrder } = JSON.parse(readFileSync(sectionRegistryPath, 'utf-8'))
+
+const SIDEBAR_LABELS: Record<string, string> = {
+  'sec:install': 'Install',
+  'sec:first-rav-file': "Your first .rav file",
+  'sec:breaking-it-on-purpose': 'Breaking it on purpose',
+  'sec:two-kinds-of-red': 'Two kinds of red',
+
+  'sec:values-and-types': 'Values and types',
+  'sec:func-vs-proc': 'func vs. proc',
+  'sec:contracts-pure-code': 'Contracts on pure code',
+  'sec:control-flow': 'Control flow',
+  'sec:termination-measure': 'A more interesting termination measure',
+  'sec:algebraic-data-types': 'Algebraic data types',
+  'sec:quantifiers': 'Quantifiers, briefly',
+
+  'sec:fields-and-heap': 'Fields and the heap',
+  'sec:own-resource-not-fact': 'own is a resource, not a fact',
+  'sec:separating-conjunction': 'Separating conjunction',
+  'sec:fractional-permissions': 'Fractional permissions',
+  'sec:proc-contracts-revisited': 'Procedure contracts, revisited',
+  'sec:anti-aliasing': 'Anti-aliasing, for free',
+  'sec:bundling-pred': 'Bundling resources with pred',
+
+  'sec:interfaces-and-modules': 'Interfaces and modules',
+  'sec:implementing-interface': 'Implementing an interface',
+  'sec:abstract-predicates': 'Abstract predicates as a spec boundary',
+  'sec:lemmas-and-axioms': 'Lemmas and axioms',
+  'sec:functors': 'Functors',
+  'sec:implicit-functor-instantiation': 'Implicit functor instantiation',
+  'sec:import': 'import',
+  'sec:well-founded-order': 'Rolling your own well-founded order',
+
+  'sec:threads-and-atomics': 'Threads and atomic primitives',
+  'sec:shared-invariants-problem': 'The problem shared invariants solve',
+  'sec:shared-invariants': 'Shared invariants',
+  'sec:ghost-fields-resource-algebras': 'Ghost fields and resource algebras',
+  'sec:frame-preserving-updates': 'Frame-preserving updates',
+  'sec:ghost-blocks-erasure': 'Ghost blocks and the erasure guarantee',
+
+  'sec:shape-of-problem': 'The shape of the problem',
+  'sec:plan-transferring-ownership': 'A plan for transferring ownership',
+  'sec:why-it-fails': 'Why it fails',
+  'sec:idea-a-token': 'The idea: a token',
+  'sec:making-token-real': 'Making the token real',
+  'sec:auto-predicates': 'More automation with auto predicates',
+
+  'sec:linearizability-to-client': 'Linearizability, stated to a client',
+  'sec:au-mechanics': 'The mechanics: bindAU/openAU/abortAU/commitAU',
+  'sec:token-direct': 'Threading a token through a retry loop directly',
+  'sec:composing-atomic-contracts': 'Composing atomic contracts',
+
+  'sec:the-isc': 'The ISC',
+  'sec:addressing-abstract': "Addressing, and why it's abstract",
+  'sec:injectivity-side-condition': 'The injectivity side condition',
+  'sec:touching-one-slot': 'Touching one slot, without disturbing the rest',
+
+  'sec:implicit-parameters': 'Implicit parameters',
+  'sec:implicit-ghost-parameters': 'Implicit ghost parameters',
+  'sec:witness-computation': 'Witness computation',
+  'sec:bind-statement': 'The bind statement',
+  'sec:auto-lemmas-predicates': 'auto lemmas and predicates',
+  'sec:triggers-revisited': 'Triggers, revisited',
+  'sec:assert-with': 'assert ... with',
+
+  'sec:ra-definition': 'The definition',
+  'sec:ra-interface': 'The interface a custom RA implements',
+  'sec:ra-worked-examples': 'Worked examples: Excl and DisjSet',
+
+  'sec:from-viper': 'From Viper',
+  'sec:from-dafny': 'From Dafny',
+  'sec:from-iris': 'From Iris'
+}
+
+function numberedItems(pageKey: string) {
+  const ids: string[] = pagesOrder[pageKey] ?? []
+  return ids.map((id) => {
+    const section = sections[id]
+    const label = SIDEBAR_LABELS[id]
+    if (!label) throw new Error(`No SIDEBAR_LABELS entry for ${id} (${pageKey}) -- add one in config.mts`)
+    return { text: `${section.number}. ${label}`, link: `${pageKey}#${section.anchor}` }
+  })
+}
 
 // Without this, VitePress treats any relative link ending in an extension it
 // doesn't recognize as an internal page link and rewrites it by appending
@@ -55,7 +150,8 @@ export default defineConfig({
   ],
 
   markdown: {
-    languages: [ravenGrammar]
+    languages: [ravenGrammar],
+    config: (md) => installSectionRefs(md, { base })
   },
 
   // `.rav` files are real source, linked directly from the prose (e.g.
@@ -72,7 +168,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Tutorial', link: '/tutorial/' },
-      { text: 'Get Started', link: '/tutorial/00-getting-started/' },
+      { text: 'Get Started', link: '/tutorial/getting-started/' },
       { text: 'GitHub', link: 'https://github.com/nyu-acsys/raven' }
     ],
 
@@ -86,103 +182,126 @@ export default defineConfig({
       },
       {
         text: '0. Getting Started',
-        link: '/tutorial/00-getting-started/',
+        link: '/tutorial/getting-started/',
         collapsed: true,
         items: [
-          { text: 'Install', link: '/tutorial/00-getting-started/#install' },
-          { text: 'Your first .rav file', link: '/tutorial/00-getting-started/#your-first-rav-file' },
-          { text: 'Breaking it on purpose', link: '/tutorial/00-getting-started/#breaking-it-on-purpose' },
-          { text: 'Two kinds of red', link: '/tutorial/00-getting-started/#two-kinds-of-red' },
-          { text: 'Debugging Corner', link: '/tutorial/00-getting-started/#debugging-corner-reading-what-the-editor-tells-you' },
-          { text: "What's next", link: "/00-getting-started/#what-s-next" }
+          ...numberedItems('/tutorial/getting-started/'),
+          { text: 'Debugging Corner', link: '/tutorial/getting-started/#debugging-corner-reading-what-the-editor-tells-you' },
+          { text: "What's next", link: "/tutorial/getting-started/#what-s-next" }
         ]
       },
       {
         text: '1. Sequential Raven',
-        link: '/tutorial/01-sequential/',
+        link: '/tutorial/sequential/',
         collapsed: true,
         items: [
-          { text: '1. Values and types', link: '/tutorial/01-sequential/#_1-values-and-types' },
-          { text: '2. func vs. proc', link: '/tutorial/01-sequential/#_2-functions-func-vs-procedures-proc' },
-          { text: '3. Contracts on pure code', link: '/tutorial/01-sequential/#_3-contracts-on-pure-code' },
-          { text: '4. Control flow', link: '/tutorial/01-sequential/#_4-control-flow-recursion-and-loops' },
-          { text: '5. A more interesting termination measure', link: '/tutorial/01-sequential/#_5-a-more-interesting-termination-measure' },
-          { text: '6. Algebraic data types', link: '/tutorial/01-sequential/#_6-algebraic-data-types' },
-          { text: '7. Quantifiers, briefly', link: '/tutorial/01-sequential/#_7-quantifiers-briefly' },
-          { text: 'Why this matters for concurrency', link: '/tutorial/01-sequential/#why-this-matters-for-concurrency' },
-          { text: 'Debugging Corner', link: '/tutorial/01-sequential/#debugging-corner' },
-          { text: 'Exercises', link: '/tutorial/01-sequential/#exercises' },
-          { text: "What's next", link: "/01-sequential/#what-s-next" }
+          ...numberedItems('/tutorial/sequential/'),
+          { text: 'Why this matters for concurrency', link: '/tutorial/sequential/#why-this-matters-for-concurrency' },
+          { text: 'Debugging Corner', link: '/tutorial/sequential/#debugging-corner' },
+          { text: 'Exercises', link: '/tutorial/sequential/#exercises' },
+          { text: "What's next", link: "/tutorial/sequential/#what-s-next" }
         ]
       },
       {
         text: '2. Ownership and Resources',
-        link: '/tutorial/02-ownership/',
+        link: '/tutorial/ownership/',
         collapsed: true,
         items: [
-          { text: '1. Fields and the heap', link: '/tutorial/02-ownership/#_1-fields-and-the-heap' },
-          { text: '2. own is a resource, not a fact', link: '/tutorial/02-ownership/#_2-own-is-a-resource-not-a-fact' },
-          { text: '3. Separating conjunction', link: '/tutorial/02-ownership/#_3-separating-conjunction' },
-          { text: '4. Fractional permissions', link: '/tutorial/02-ownership/#_4-fractional-permissions' },
-          { text: '5. Procedure contracts, revisited', link: '/tutorial/02-ownership/#_5-procedure-contracts-revisited' },
-          { text: '6. Anti-aliasing, for free', link: '/tutorial/02-ownership/#_6-anti-aliasing-for-free' },
-          { text: 'Why this matters for concurrency', link: '/tutorial/02-ownership/#why-this-matters-for-concurrency' },
-          { text: 'Debugging Corner', link: '/tutorial/02-ownership/#debugging-corner' },
-          { text: 'Exercises', link: '/tutorial/02-ownership/#exercises' },
-          { text: "What's next", link: "/02-ownership/#what-s-next" }
+          ...numberedItems('/tutorial/ownership/'),
+          { text: 'Why this matters for concurrency', link: '/tutorial/ownership/#why-this-matters-for-concurrency' },
+          { text: 'Debugging Corner', link: '/tutorial/ownership/#debugging-corner' },
+          { text: 'Exercises', link: '/tutorial/ownership/#exercises' },
+          { text: "What's next", link: "/tutorial/ownership/#what-s-next" }
         ]
       },
       {
         text: '3. The Module System',
-        link: '/tutorial/03-modules/',
+        link: '/tutorial/modules/',
         collapsed: true,
         items: [
-          { text: '1. Interfaces and modules', link: '/tutorial/03-modules/#_1-interfaces-and-modules' },
-          { text: '2. Implementing an interface', link: '/tutorial/03-modules/#_2-implementing-an-interface' },
-          { text: '3. Abstract predicates as a spec boundary', link: '/tutorial/03-modules/#_3-abstract-predicates-as-a-specification-boundary' },
-          { text: '4. Lemmas and axioms', link: '/tutorial/03-modules/#_4-lemmas-and-axioms' },
-          { text: '5. Functors', link: '/tutorial/03-modules/#_5-functors' },
-          { text: '6. import', link: '/tutorial/03-modules/#_6-import' },
-          { text: '7. Rolling your own well-founded order', link: '/tutorial/03-modules/#_7-rolling-your-own-well-founded-order' },
-          { text: 'Why this matters for concurrency', link: '/tutorial/03-modules/#why-this-matters-for-concurrency' },
-          { text: 'Debugging Corner', link: '/tutorial/03-modules/#debugging-corner' },
-          { text: 'Exercise', link: '/tutorial/03-modules/#exercise' },
-          { text: "What's next", link: "/03-modules/#what-s-next" }
+          ...numberedItems('/tutorial/modules/'),
+          { text: 'Why this matters for concurrency', link: '/tutorial/modules/#why-this-matters-for-concurrency' },
+          { text: 'Debugging Corner', link: '/tutorial/modules/#debugging-corner' },
+          { text: 'Exercise', link: '/tutorial/modules/#exercise' },
+          { text: "What's next", link: "/tutorial/modules/#what-s-next" }
         ]
       },
       {
         text: '4. Ghost Code and Basic Concurrency',
-        link: '/tutorial/04-ghost-and-concurrency/',
+        link: '/tutorial/ghost-and-concurrency/',
         collapsed: true,
         items: [
-          { text: '1–2. Threads and atomic primitives', link: '/tutorial/04-ghost-and-concurrency/#_1–2-threads-and-atomic-primitives' },
-          { text: '3. The problem shared invariants solve', link: '/tutorial/04-ghost-and-concurrency/#_3-the-problem-shared-invariants-solve' },
-          { text: '4. Shared invariants', link: '/tutorial/04-ghost-and-concurrency/#_4-shared-invariants' },
-          { text: '5. Ghost fields and resource algebras', link: '/tutorial/04-ghost-and-concurrency/#_5-ghost-fields-and-resource-algebras' },
-          { text: '6. Frame-preserving updates', link: '/tutorial/04-ghost-and-concurrency/#_6-frame-preserving-updates' },
-          { text: 'Why this matters going forward', link: '/tutorial/04-ghost-and-concurrency/#why-this-matters-going-forward' },
-          { text: 'Debugging Corner', link: '/tutorial/04-ghost-and-concurrency/#debugging-corner' },
-          { text: 'Exercise', link: '/tutorial/04-ghost-and-concurrency/#exercise' },
-          { text: "What's next", link: "/04-ghost-and-concurrency/#what-s-next" }
+          ...numberedItems('/tutorial/ghost-and-concurrency/'),
+          { text: 'Why this matters going forward', link: '/tutorial/ghost-and-concurrency/#why-this-matters-going-forward' },
+          { text: 'Debugging Corner', link: '/tutorial/ghost-and-concurrency/#debugging-corner' },
+          { text: 'Exercise', link: '/tutorial/ghost-and-concurrency/#exercise' },
+          { text: "What's next", link: "/tutorial/ghost-and-concurrency/#what-s-next" }
         ]
       },
       {
         text: '5. Scaling Up',
         collapsed: true,
         items: [
-          { text: 'Overview', link: '/tutorial/05-advanced/' },
-          { text: '5a. Capstone: Fork/Join', link: '/tutorial/05-advanced/fork-join/' },
-          { text: '5b. Atomic Contracts', link: '/tutorial/05-advanced/atomic-contracts/' },
-          { text: '5c. Iterated Separating Conjunctions', link: '/tutorial/05-advanced/iterated-star/' },
-          { text: '5d. Automation Features', link: '/tutorial/05-advanced/automation/' }
+          { text: 'Overview', link: '/tutorial/advanced/' },
+          {
+            text: '5a. Capstone: Fork/Join',
+            link: '/tutorial/advanced/fork-join/',
+            collapsed: true,
+            items: [
+              ...numberedItems('/tutorial/advanced/fork-join/'),
+              { text: 'Why this matters for concurrency', link: '/tutorial/advanced/fork-join/#why-this-matters-for-concurrency' },
+              { text: "What's next", link: '/tutorial/advanced/fork-join/#what-s-next' }
+            ]
+          },
+          {
+            text: '5b. Atomic Contracts',
+            link: '/tutorial/advanced/atomic-contracts/',
+            collapsed: true,
+            items: [
+              ...numberedItems('/tutorial/advanced/atomic-contracts/'),
+              { text: 'Debugging Corner', link: '/tutorial/advanced/atomic-contracts/#debugging-corner' },
+              { text: "What's next", link: '/tutorial/advanced/atomic-contracts/#what-s-next' }
+            ]
+          },
+          {
+            text: '5c. Iterated Separating Conjunctions',
+            link: '/tutorial/advanced/iterated-star/',
+            collapsed: true,
+            items: [
+              ...numberedItems('/tutorial/advanced/iterated-star/'),
+              { text: 'Debugging Corner', link: '/tutorial/advanced/iterated-star/#debugging-corner' },
+              { text: 'Exercise', link: '/tutorial/advanced/iterated-star/#exercise' },
+              { text: "What's next", link: '/tutorial/advanced/iterated-star/#what-s-next' }
+            ]
+          },
+          {
+            text: '5d. Automation Features',
+            link: '/tutorial/advanced/automation/',
+            collapsed: true,
+            items: [
+              ...numberedItems('/tutorial/advanced/automation/'),
+              { text: 'Debugging Corner', link: '/tutorial/advanced/automation/#debugging-corner-my-proof-just-hangs' },
+              { text: "What's next", link: '/tutorial/advanced/automation/#what-s-next' }
+            ]
+          }
         ]
       },
       {
         text: 'Appendices',
         collapsed: true,
         items: [
-          { text: 'A. Resource Algebras, Formally', link: '/tutorial/appendix/resource-algebras' },
-          { text: 'B. Coming From Viper, Dafny, or Iris', link: '/tutorial/appendix/from-other-tools' },
+          {
+            text: 'A. Resource Algebras, Formally',
+            link: '/tutorial/appendix/resource-algebras',
+            collapsed: true,
+            items: numberedItems('/tutorial/appendix/resource-algebras.html')
+          },
+          {
+            text: 'B. Coming From Viper, Dafny, or Iris',
+            link: '/tutorial/appendix/from-other-tools',
+            collapsed: true,
+            items: numberedItems('/tutorial/appendix/from-other-tools.html')
+          },
           { text: 'C. The Extension API', link: '/tutorial/appendix/extension-api' },
           { text: 'D. Where to Go Next', link: '/tutorial/appendix/where-next' }
         ]

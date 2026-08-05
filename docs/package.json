@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/sync-rav.mjs",
+    "predev": "node scripts/build-section-registry.mjs && node scripts/sync-rav.mjs",
     "dev": "VITE_EXTRA_EXTENSIONS=rav vitepress dev",
-    "prebuild": "node scripts/sync-rav.mjs",
+    "prebuild": "node scripts/build-section-registry.mjs && node scripts/sync-rav.mjs",
     "build": "VITE_EXTRA_EXTENSIONS=rav vitepress build",
     "preview": "VITE_EXTRA_EXTENSIONS=rav vitepress preview"
   },

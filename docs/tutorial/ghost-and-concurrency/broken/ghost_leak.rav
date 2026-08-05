@@ -1,0 +1,24 @@
+// This file is DELIBERATELY BROKEN -- it will not type-check, on purpose.
+//
+// `predictedNext` is ghost, but the `if` below is an ordinary, non-ghost
+// statement -- so branching on it is exactly as illegal as letting the
+// program's real control flow depend on a fact only the proof can see.
+// Expect:
+//
+//   [Type Error] This expression reads ghost state, so it can only be used
+//   inside a ghost block, spec, or ghost-typed field
+//
+// The fix is `ghost_scope.rav`'s `{! ... !}` block: wrap the whole `if` so
+// the branch itself becomes ghost too, and the ghost condition is legal
+// again.
+field count: Int
+
+proc demo(c: Ref, implicit ghost v: Int)
+  requires own(c.count, v)
+  ensures own(c.count, v)
+{
+  ghost var predictedNext: Int := v + 1
+  if (predictedNext > 0) {
+    var x := c.count
+  }
+}

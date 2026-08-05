@@ -3,7 +3,7 @@
 A quick dictionary, not a full comparison — if you already know one of these tools, this is
 meant to shortcut your intuition to the nearest Raven concept.
 
-## From Viper
+## From Viper {#sec:from-viper}
 
 Viper's own field/heap model is exactly the same as Raven's — a field access is a permission
 plus a value, and fractional permissions work identically in both. What Raven adds on top is
@@ -35,21 +35,21 @@ or interfere with it partway through, by a Lipton-style reduction argument — a
 reasoning for free, rather than as something a concurrency proof has to establish itself. It's a
 real part of why Raven's pure-expression design is a better fit for concurrency than Viper's.
 
-## From Dafny
+## From Dafny {#sec:from-dafny}
 
 | Dafny | Raven | Note |
 |---|---|---|
 | `method`/`function` | `proc`/`func` | Same split: side-effecting vs. pure-and-spec-usable. |
 | `requires`/`ensures` | `requires`/`ensures` | Same. |
 | loop `invariant` | loop `invariant` | Same concept — but Raven also has a *completely different*, unrelated use of the word `invariant` for shared concurrent state (`inv`); don't conflate the two just because Dafny only needs the first. |
-| `decreases` | `decreases` | Same role, for recursive `func`/`lemma` termination — see Part 1 §4. |
+| `decreases` | `decreases` | Same role, for recursive `func`/`lemma` termination — see {{ref sec:control-flow}}. |
 | classes, `this` | heap-allocated objects via `field`/`Ref`, no implicit `this` | Dafny's memory model already assumes ownership tracking under the hood; Raven makes ownership the explicit thing you reason about, which is the entire subject of Part 2. |
 | `datatype` | `data` | Same idea, algebraic sum types. |
 | `modifies` | (implicit, via `own`) | The deeper difference, not just a syntax swap: Dafny is classical Hoare logic — there's no notion of a "heap resource," or any resource at all. Frame conditions have to be stated explicitly, by hand, via `modifies`; Raven's ownership model (Part 2) makes framing a *consequence* of what you own, rather than something you separately declare. |
 | no built-in concurrency | invariants, ghost fields/RAs, atomic contracts | Dafny is sequential-only; this is the single biggest thing to unlearn coming from it — see Part 4's "why this matters for concurrency" callouts throughout Parts 1–3. |
 | compiles to executable code | *(no compilation backend)* | Dafny compiles verified programs to real executables (C#, Java, Go, Python, JS, take your pick). Raven, as of this writing, is purely a verification language — there's no backend that turns a verified `.rav` file into something you run; the point is checking a design or an algorithm's correctness, not producing a deployable artifact from it. |
 
-## From Iris
+## From Iris {#sec:from-iris}
 
 If you know Iris, you already know the *ideas* behind Parts 2–5 — ownership, shared invariants,
 resource algebras (Iris's *cameras*, restricted here to Iris's simpler, non-step-indexed

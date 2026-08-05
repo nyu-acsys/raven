@@ -1,0 +1,23 @@
+// This file is DELIBERATELY BROKEN -- it will not verify, on purpose.
+//
+// `x + y == 10 && x >= 0 && y >= 0` is satisfiable -- x = 10, y = 0 is one
+// witness among infinitely many -- so this looks like exactly the kind of
+// fact `:|` exists for. It still fails:
+//
+//   [Verification Error] The right-hand side of this bind statement may not
+//   hold
+//
+// `:|`'s existence check is an ordinary SMT proof obligation, not an oracle:
+// the solver has to actually find (or be pointed at) a witness, and a
+// compound proposition over several inequalities isn't something it
+// searches for on spec alone, the same way it won't invent an induction
+// hypothesis for `assert ... with` unhelped. Compare Part 4's own use of
+// `:|` (`hit_counter_ghost.rav`'s `v2 :| own(c.count, v2, 1.0)`), which
+// reads its witness straight off an `own` fact already in scope -- see the
+// tutorial text for why that's the reliable shape, not the shape above.
+proc demo()
+{
+  ghost var x: Int
+  ghost var y: Int
+  x, y :| x + y == 10 && x >= 0 && y >= 0
+}

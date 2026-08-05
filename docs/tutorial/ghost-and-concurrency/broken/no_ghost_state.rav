@@ -1,0 +1,46 @@
+// DELIBERATELY BROKEN, on purpose, to motivate ghost state. This is
+// ../hit_counter_ghost.rav's `bump`, with the `seen` ghost field and its
+// `fpu` deleted -- otherwise identical. It fails at:
+//
+//   [Verification Error] This assertion may be violated
+//
+// on `assert v1 <= v2;`. Nothing here is wrong about how `count` itself is
+// read, CAS'd, or protected by the invariant -- the invariant alone simply
+// doesn't carry enough information across the gap between reading `v1` and
+// re-reading `v2` a moment later (some other thread could, as far as this
+// proof can tell, have raced in between and *decreased* the value). The
+// ghost field in the real file is exactly what closes that gap: it's a
+// separate piece of bookkeeping, invisible at runtime, whose only job is to
+// let the proof track a fact about the *history* of `count` that the field
+// itself doesn't remember.
+field count: Int
+
+inv countInv(c: Ref) {
+  exists v: Int :: own(c.count, v, 1.0)
+}
+
+proc bump(c: Ref)
+  requires countInv(c)
+  ensures countInv(c)
+{
+  var v1: Int
+  unfold countInv(c)
+  v1 := c.count
+  fold countInv(c)
+
+  var next: Int := v1 + 1
+  var ok: Bool
+
+  ghost var v2: Int
+  unfold countInv(c)
+  v2 :| own(c.count, v2, 1.0)
+  assert v1 <= v2
+  ok := cas(c.count, v1, next)
+
+  if (!ok) {
+    fold countInv(c)
+    bump(c)
+  } else {
+    fold countInv(c)
+  }
+}
