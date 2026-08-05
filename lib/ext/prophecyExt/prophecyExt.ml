@@ -31,23 +31,19 @@ module ProphecyExt (Cont : ListApi) = struct
   (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
   let lib_source = Some ("lib/ext/prophecyExt/prophecyLib.rav", [%blob "prophecyLib.rav"])
 
-  (* Defining pre-fixed idents from the `Prophecy`/`Prophecy1` modules defined in prophecyLib.rav. These modules get added to Raven's `Library`, and thus can be accessed as `Library.Prophecy`/`Library.Prophecy1`. We instantiate one of these modules for each type T used in the program (once for its multi-shot uses, once for its one-shot uses). Kept as two separate functor modules -- each with its field declared as plain `Typ`, substituted with `List[T]`/`T` respectively at instantiation time (see `initialize_prophecy_module`) -- rather than as `List[Typ]`/`Typ` fields on one shared functor: writing `List[Typ]` directly against the functor's own abstract type parameter in prophecyLib.rav triggers a pre-existing bug in the module-instantiation/reification machinery where that field's `Frac$...` datatype silently goes undeclared in the generated SMT. *)
+  (* Defining pre-fixed idents from the `Prophecy` module defined in prophecyLib.rav. This module gets added to Raven's `Library`, and thus can be accessed as `Library.Prophecy`. We instantiate this module once for each type T used in the program -- both prophecy flavors for a given T share that single instantiation, each backed by its own field on its own bare type parameter (see the module-level doc comment in prophecyLib.rav for why it's shaped this way, and `field_ident` below). *)
   module ProphPredefs = struct
     let proph_mod_ident = Ident.make Loc.dummy "Prophecy" 0
     let proph_mod_qi = QualIdent.from_list [Predefs.lib_ident; proph_mod_ident]
-    let proph1_mod_ident = Ident.make Loc.dummy "Prophecy1" 0
-    let proph1_mod_qi = QualIdent.from_list [Predefs.lib_ident; proph1_mod_ident]
 
     let field_ident one_shot =
       if one_shot then Ident.make Loc.dummy "prophecyValue1" 0
       else Ident.make Loc.dummy "prophecyValue" 0
 
-    (* Custom prefixes used for generating Prophecy module names, kept distinct so a
-       type T's multi-shot and one-shot instantiations never collide. Using `$` in
-       Raven makes the ident safe from collisions with user-defined modules, because
-       `$` is not supported by Raven's parser. *)
+    (* Custom prefix used for generating Prophecy module names. Using `$` in Raven
+       makes the ident safe from collisions with user-defined modules, because `$`
+       is not supported by Raven's parser. *)
     let proph_mod_ident_prefix = "ProphecyMod$"
-    let proph1_mod_ident_prefix = "ProphecyMod1$"
   end
 
   (* Type for Prophecy variables, parametric in the predicted element type. The bool
@@ -146,27 +142,26 @@ module ProphecyExt (Cont : ListApi) = struct
 
     | _ -> Cont.basic_stmt_ext_local_vars_modified stmt_ext exprs
 
-  (* Utility function to generate canonical module name. Using `Type.to_string` to convert the underlying type to a string. Using `ProgUtils.serialize` to make sure the name is compatible with SMT. Using `Ident.make` instead of `Ident.fresh` because we want all references to this ident to be to the same module. `one_shot` picks which of the two prefixes to use, so a type T's multi-shot and one-shot instantiations never collide.  *)
-  let prophecy_module_ident ~loc ~one_shot typ =
-      let prefix = if one_shot then ProphPredefs.proph1_mod_ident_prefix else ProphPredefs.proph_mod_ident_prefix in
-      let prophecy_mod_string = prefix ^ Type.to_string typ in
+  (* Utility function to generate canonical module name. Using `Type.to_string` to convert the underlying type to a string. Using `ProgUtils.serialize` to make sure the name is compatible with SMT. Using `Ident.make` instead of `Ident.fresh` because we want all references to this ident to be to the same module. One instantiation per T serves both prophecy flavors (see `ProphPredefs.field_ident`), so there is no shot-kind parameter here.  *)
+  let prophecy_module_ident ~loc typ =
+      let prophecy_mod_string = ProphPredefs.proph_mod_ident_prefix ^ Type.to_string typ in
       Ident.make loc (ProgUtils.serialize prophecy_mod_string) 0
 
   (* Utility function to generate fully qualified ident (qual_ident) to refer to the prophecy module. Computing the right scope to add the prophecy module. This only matters if abstract and custom types are used to create prophecy variables, otherwise the Prophecy module gets added to the root. But Raven's module system adds certain restrictions to where types and objects can and can't be defined or used. *)
-  let prophecy_module_from_type_qi ~loc ~one_shot typ =
+  let prophecy_module_from_type_qi ~loc typ =
     (* Type.symbols returns a set of all user-defined types that are referenced in a given type. *)
     let symbols = Type.symbols typ in
     (* This turns out to be the right place to add the new module. *)
     let module_scope = ProgUtils.largest_common_prefix_qi symbols in
 
     (* Construct the new qual_ident, by combining `module_scope` and `prophecy_module_ident` *)
-    QualIdent.append module_scope (prophecy_module_ident ~loc ~one_shot typ)
+    QualIdent.append module_scope (prophecy_module_ident ~loc typ)
 
   (* We need to return the list of fields that this command depends on. Since we model prophecy resources using a field defined in `prophecyLib.rav`, that field gets updated. The qual_ident for this is built by combining  *)
   let basic_stmt_ext_fields_accessed stmt_ext exprs =
     match stmt_ext, exprs with
     | NewProph (one_shot, typ), _ ->
-      let proph_mod_qi = prophecy_module_from_type_qi ~loc:Loc.dummy ~one_shot typ in
+      let proph_mod_qi = prophecy_module_from_type_qi ~loc:Loc.dummy typ in
       let proph_field_ident = ProphPredefs.field_ident one_shot in
 
       (* Append the fixed proph_field_ident (specified in prophecyLib.rav), to the specific instantiation of the prophecy module.  *)
@@ -175,7 +170,7 @@ module ProphecyExt (Cont : ListApi) = struct
       (* Same field getting modified when resolving a prophecy. Resolve's second argument is always of the predicted element type T (never List[T], one-shot or not), so we can read it straight off `resolve_val`'s type -- same as before genericity. *)
     | ResolveProph one_shot, [proph_id; resolve_val] ->
       let typ = Expr.to_type resolve_val in
-      let proph_mod_qi = prophecy_module_from_type_qi ~loc:Loc.dummy ~one_shot typ in
+      let proph_mod_qi = prophecy_module_from_type_qi ~loc:Loc.dummy typ in
       let proph_field_ident = ProphPredefs.field_ident one_shot in
 
       [QualIdent.append proph_mod_qi proph_field_ident]
@@ -398,14 +393,14 @@ module ProphecyExt (Cont : ListApi) = struct
 
   (** Safely initialize prophecy module and return its qual_ident. In particular, this function is idempotent, so can be called whenever need to convert a type_expr into its corresponding prophecy_module_qual_ident. `one_shot` picks between the `Prophecy`/`Prophecy1` library functors, and thus between instantiating with `Typ := List[typ]` (multi-shot) or `Typ := typ` (one-shot).
 
-  This function is used to take any type_expr, check if a Prophecy(1) module has been instantiated for this type, and if not, then define and instantiate such a Prophecy(1) module for that type.
+  This function is used to take any type_expr, check if a Prophecy module has been instantiated for this type, and if not, then define and instantiate such a Prophecy module for that type.
 
   *)
-  let initialize_prophecy_module loc ~one_shot (typ: type_expr): qual_ident Rewriter.t =
+  let initialize_prophecy_module loc (typ: type_expr): qual_ident Rewriter.t =
     let open Rewriter.Syntax in
 
     (* This is the canonical qual_ident that a type's prophecy_module must be at. *)
-    let proph_module_qi = prophecy_module_from_type_qi ~loc ~one_shot typ
+    let proph_module_qi = prophecy_module_from_type_qi ~loc typ
     in
 
     Logs.debug (fun m -> m "[EXT] ProphecyExt.initialize_prophecy_module: Looking up proph_module_qi: %a" QualIdent.pr proph_module_qi);
@@ -422,7 +417,7 @@ module ProphecyExt (Cont : ListApi) = struct
       (* Proph module not found. Initializing... *)
 
       (* `proph_module_insert_scope`, and `proph_module_reference_scope` refer to two different scope.
-        - The first is the location where the instantiation of `Library.Prophecy`/`Library.Prophecy1` module must be inserted.
+        - The first is the location where the instantiation of `Library.Prophecy` module must be inserted.
         - The second is part of the fully qualified ident from which to reference the aforementioned module.
 
         The reason these might be different, is if we have for instance:
@@ -454,11 +449,9 @@ module ProphecyExt (Cont : ListApi) = struct
         end
       in
 
-      (* We generate a module satisfying the `Library.Type` interface, with the right rep type: `List[typ]` for a multi-shot prophecy, or plain `typ` for a one-shot prophecy (its field holds a single predicted value, not a list of them). The field itself stays declared as plain `Typ` in prophecyLib.rav; it is this instantiation argument -- not a `List[Typ]` written against the functor's own abstract parameter -- that gives the multi-shot field its list shape (see the module-level doc comment on `ProphPredefs` for why). *)
-      let* type_module_qi =
-        let rep_typ = if one_shot then typ else Cont.ListFns.mk_list_tp loc typ in
-
-        (* Similarly, a canonical qual_ident exists for the `type_module` too. *)
+      (* We generate a module satisfying the `Library.Type` interface for a given rep type -- called once for `List[typ]` (the `MultiTyp` argument) and once for `typ` itself (the `OneTyp` argument), since the functor needs both regardless of which prophecy flavor is actually being allocated/resolved right now (the other field simply sits unused). Factored out since the two calls are otherwise identical. *)
+      let type_module_for rep_typ =
+        (* A canonical qual_ident exists for the `type_module` too. *)
         let type_module_canonical_qi =
           let mod_name_string = ProgUtils.tp_mod_ident_prefix ^ Type.to_string rep_typ in
           let type_module_ident = Ident.make loc (ProgUtils.serialize mod_name_string) 0 in
@@ -481,19 +474,21 @@ module ProphecyExt (Cont : ListApi) = struct
             type_module_canonical_qi
       in
 
+      let* multi_type_module_qi = type_module_for (Cont.ListFns.mk_list_tp loc typ) in
+      let* one_type_module_qi = type_module_for typ in
+
       (* Finally, we generate the name for the final Prophecy module. *)
-      let proph_module_ident = prophecy_module_ident ~loc ~one_shot typ in
-      let proph_functor_qi = if one_shot then ProphPredefs.proph1_mod_qi else ProphPredefs.proph_mod_qi in
+      let proph_module_ident = prophecy_module_ident ~loc typ in
 
       (* Definition of module instantiation. This is equivalent to the Raven syntax:
         ```
-          proph_module_ident = ProphPredefs.proph_mod_qi [ type_module_qi ]
+          proph_module_ident = ProphPredefs.proph_mod_qi [ multi_type_module_qi, one_type_module_qi ]
         ```
        *)
       let proph_module_inst = Module.ModInst {
         mod_inst_name = proph_module_ident;
-        mod_inst_type = proph_functor_qi;
-        mod_inst_def = Some (proph_functor_qi, [Module.ModArg type_module_qi]);
+        mod_inst_type = ProphPredefs.proph_mod_qi;
+        mod_inst_def = Some (ProphPredefs.proph_mod_qi, [Module.ModArg multi_type_module_qi; Module.ModArg one_type_module_qi]);
         mod_inst_is_interface = false;
         mod_inst_is_free = false;
         mod_inst_loc = loc;
@@ -546,7 +541,7 @@ module ProphecyExt (Cont : ListApi) = struct
       in
 
       (* Initialize prophecy_module if it doesn't exist. No worries if it does. *)
-      let* proph_module_qi = initialize_prophecy_module loc ~one_shot proph_type in
+      let* proph_module_qi = initialize_prophecy_module loc proph_type in
       let prophecy_field_qi = QualIdent.append proph_module_qi (ProphPredefs.field_ident one_shot) in
 
       (* Rewriter.find_and_reify_field takes the `qual_ident` for a field, finds it in the symbol table, does any Module substitutions to get a concrete symbol (reification), then unpacks the underlying `FieldDef` symbol.  *)
@@ -588,7 +583,7 @@ module ProphecyExt (Cont : ListApi) = struct
       let* () = Rewriter.Logs.debug (fun printers m -> m "[EXT] ProphecyExt.rewrite_stmt: NewProph(one_shot:%b; type:%a)" oneshot_b printers.pr_type typ) in
 
       (* using `initialize_prophecy_module` to generate the proph_module_qi. *)
-      let* proph_module_qi = initialize_prophecy_module loc ~one_shot:oneshot_b typ in
+      let* proph_module_qi = initialize_prophecy_module loc typ in
       let prophecy_field_qi = QualIdent.append proph_module_qi (ProphPredefs.field_ident oneshot_b) in
 
       let* prophecy_field_symbol = Rewriter.find_and_reify_field prophecy_field_qi in
@@ -628,7 +623,7 @@ module ProphecyExt (Cont : ListApi) = struct
       (* Resolve's second argument is always of the predicted element type T (never
          List[T], one-shot or not), so `typ` is read straight off it. *)
       let typ = Expr.to_type resolve_value in
-      let* proph_module_qi = initialize_prophecy_module loc ~one_shot typ in
+      let* proph_module_qi = initialize_prophecy_module loc typ in
       let prophecy_field_qi = QualIdent.append proph_module_qi
         (Ident.set_loc loc (ProphPredefs.field_ident one_shot))
       in
