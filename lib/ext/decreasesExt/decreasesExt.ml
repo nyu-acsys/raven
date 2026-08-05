@@ -71,6 +71,9 @@ module DecreasesExt (Cont : ListApi) = struct
   let lib_int_order_qual_ident =
     QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy "IntOrder" 0 ]
 
+  let lib_set_order_qual_ident =
+    QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy "SetOrder" 0 ]
+
   (* Checks whether [target] is (transitively) among [interfaces] -- some member
      either *is* [target], or itself (transitively) implements it. [visited]
      guards against cycles in the interface graph: [Type], the universal base
@@ -257,6 +260,21 @@ module DecreasesExt (Cont : ListApi) = struct
     let open Rewriter.Syntax in
     match tp with
     | App (Int, [], _) -> Rewriter.return (Some lib_int_order_qual_ident)
+    | App (FinSet, [ elem_tp ], _) ->
+      (* [FinSet] is a primitive [Type.constr] (see astDef.ml), not a module-owned
+         rep type either -- same reason [Int] needs the hardcoded case above rather
+         than the generic [Var qi] walk below. Unlike [Int] though, [SetOrder] is
+         itself generic (over the element type), so resolving to it means getting
+         or creating the right instantiation, the same way [ListExt.rewrite_type_ext]
+         turns surface [List[T]] into an instantiation of [Library.ListM] -- see
+         [ProgUtils.instantiate_type_functor]'s doc comment. *)
+      let* set_order_mod = Rewriter.find_and_reify_module lib_set_order_qual_ident in
+      let+ instance_qi =
+        ProgUtils.instantiate_type_functor ~loc:(Type.to_loc tp) ~f:!(Rewriter.process_symbol_ref)
+          ~functor_qual_ident:lib_set_order_qual_ident
+          ~functor_mod_decl:set_order_mod.mod_decl [ elem_tp ]
+      in
+      Some instance_qi
     | App (Var qi, [], _) as tp ->
       let module_qi = QualIdent.pop qi in
       let* is_wf = does_module_implement_wf_order module_qi (QualIdent.unqualify qi) in

@@ -273,175 +273,159 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
       new_expr
   | _ -> Rewriter.Expr.descend expr ~f:rewrite_compr_expr
 
-let rec rewrite_set_diff_expr (expr : expr) : expr Rewriter.t =
+(* Shared by [rewrite_set_diff_and_choose_expr]'s [Diff] and [Choose] cases: both
+   desugar to a call to a synthesized, axiomatized (`MachineFree`, no body)
+   function, differing only in arity, postcondition shape, and -- critically --
+   [fn_ident]: [Diff]'s caller passes a fresh one per source occurrence (matching
+   this rewrite's original, [Diff]-only behavior: two `--` occurrences never need
+   to agree on anything beyond their own postcondition), but [Choose]'s caller
+   passes a *deterministic* one and only calls this once per (module, element
+   type) pair -- every other occurrence reuses the qual_ident its caller already
+   found via [Rewriter.resolve_opt] instead of calling this again. `choose`
+   has to be deduplicated this way: unlike `--`, whose result is fully determined
+   by its own two operands, two *different* synthesized functions both claiming
+   "some unspecified member of s" would be free to disagree with each other on
+   the same s, breaking the (needed, e.g. by SetOrder's embed below) assumption
+   that `choose(s)` consistently names the same element everywhere it's written.
+   Builds the [call_decl], introduces and type-checks it in the current module
+   via [Rewriter.introduce_typecheck_symbol] (TODO: switch to
+   [Rewriter.introduce_typecheck_symbol] proper once it exists for symbols that
+   aren't types -- see the original comment this carries forward), and returns
+   the call expression invoking it with [actual_arg_exprs]. *)
+let introduce_synthesized_set_op_fn ~(loc : location) ~(fn_ident : ident)
+    ~(formal_var_decls : var_decl list)
+    ~(actual_arg_exprs : expr list) ~(ret_var_decl : var_decl)
+    ~(postcond_spec_form : expr) : expr Rewriter.t =
+  let open Rewriter.Syntax in
+  let ret_typ = ret_var_decl.Type.var_type in
+  let call_decl =
+    {
+      Callable.call_decl_kind = Func;
+      call_decl_name = fn_ident;
+      call_decl_formals = formal_var_decls;
+      call_decl_returns = [ ret_var_decl ];
+      call_decl_locals = [];
+      call_decl_precond = [];
+      call_decl_postcond = [ Stmt.mk_spec postcond_spec_form ];
+      call_decl_contract_ext = [];
+      call_decl_status = MachineFree;
+      call_decl_is_auto = false;
+      call_decl_needs_mask = None;
+      call_decl_grants_mask = None;
+      call_decl_loc = loc;
+    }
+  in
+
+  let* current_module_name = Rewriter.current_module_name in
+
+  let fn_qual_ident = QualIdent.append current_module_name fn_ident in
+  let fn_def =
+    Module.CallDef Callable.{ call_decl; call_def = FuncDef { func_body = None } }
+  in
+
+  let new_expr =
+    Expr.mk_app ~typ:ret_typ ~loc (Expr.Var fn_qual_ident) actual_arg_exprs
+  in
+
+  (* TODO: Change Rewriter.introduce_symbol to Rewriter.introduce_typecheck_symbol *)
+  let+ _ =
+    Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol fn_def
+  in
+  new_expr
+
+let mk_fresh_var_decl loc name var_type =
+  {
+    Type.var_name = Ident.fresh loc name;
+    var_loc = loc;
+    var_type;
+    var_const = true;
+    var_ghost = false;
+    var_implicit = false;
+  }
+
+let rec rewrite_set_diff_and_choose_expr (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
   | App (Diff, [ expr1; expr2 ], _expr_attr) ->
       let* () = Rewriter.Logs.debug (fun printers m ->
-          m "Rewrites.rewrite_set_diff_expr: expr: %a" printers.pr_expr expr) in
+          m "Rewrites.rewrite_set_diff_and_choose_expr: expr: %a" printers.pr_expr expr) in
 
-      let* expr1 = rewrite_set_diff_expr expr1 in
-      let* expr2 = rewrite_set_diff_expr expr2 in
-      
+      let* expr1 = rewrite_set_diff_and_choose_expr expr1 in
+      let* expr2 = rewrite_set_diff_and_choose_expr expr2 in
+
+      let loc = Expr.to_loc expr in
       let set_element_type = Type.set_elem (Expr.to_type expr1) in
-      let typ_string =
-        ProgUtils.serialize (Type.to_string set_element_type)
-      in
+      let typ_string = ProgUtils.serialize (Type.to_string set_element_type) in
+      let fn_ident = Ident.fresh loc (Stdlib.Format.asprintf "set_diff$%s" typ_string) in
+      let var_decl1 = mk_fresh_var_decl loc "a" (Expr.to_type expr1) in
+      let var_decl2 = mk_fresh_var_decl loc "b" (Expr.to_type expr1) in
+      let ret_var_decl = { (mk_fresh_var_decl loc "ret" (Expr.to_type expr)) with var_const = false } in
 
-      let set_diff_fn_ident =
-        Ident.fresh (Expr.to_loc expr)
-          (Stdlib.Format.asprintf "set_diff$%s" typ_string)
-      in
-
-      (* let free_vars = Expr.signature inner_expr in *)
-      let var_decl1 =
-        {
-          Type.var_name = Ident.fresh (Expr.to_loc expr) "a";
-          var_loc = Expr.to_loc expr;
-          var_type = Expr.to_type expr1;
-          var_const = true;
-          var_ghost = false;
-          var_implicit = false;
-        }
-      in
-
-      let var_decl2 =
-        {
-          Type.var_name = Ident.fresh (Expr.to_loc expr) "b";
-          var_loc = Expr.to_loc expr;
-          var_type = Expr.to_type expr1;
-          var_const = true;
-          var_ghost = false;
-          var_implicit = false;
-        }
-      in
-
-      let formal_var_decls, actual_arg_exprs =
-        ([ var_decl1; var_decl2 ], [ expr1; expr2 ])
-      in
-
-      let ret_var_decl =
-        {
-          Type.var_name = Ident.fresh (Expr.to_loc expr) "ret";
-          var_loc = Expr.to_loc expr;
-          var_type = Expr.to_type expr;
-          var_const = false;
-          var_ghost = false;
-          var_implicit = false;
-        }
-      in
-
-      let ret_typ = Expr.to_type expr in
-
-      let postcond =
-        let spec_form =
-          let var_decl =
-            {
-              Type.var_name = Ident.fresh (Expr.to_loc expr) "x";
-              var_loc = Expr.to_loc expr;
-              var_type = set_element_type;
-              var_const = true;
-              var_ghost = false;
-              var_implicit = false;
-            }
-          in
-
-          Expr.mk_binder ~typ:Type.bool Forall [ var_decl ]
-            ((* forall x :: *)
-             Expr.mk_and
-               [
-                 Expr.mk_app ~typ:Type.bool Impl
-                   [
-                     (*    x \in a && !(x \in b)   ==>    x \in ret  *)
-                     Expr.mk_and
-                       [
-                         Expr.mk_app ~typ:Type.bool Elem
-                           [
-                             Expr.from_var_decl var_decl;
-                             Expr.from_var_decl var_decl1;
-                           ];
-                         Expr.mk_not
-                           (Expr.mk_app ~typ:Type.bool Elem
-                              [
-                                Expr.from_var_decl var_decl;
-                                Expr.from_var_decl var_decl2;
-                              ]);
-                       ];
-                     Expr.mk_app ~typ:Type.bool Elem
-                       [
-                         Expr.from_var_decl var_decl;
-                         Expr.from_var_decl ret_var_decl;
-                       ];
-                   ];
-                 Expr.mk_app ~typ:Type.bool Impl
-                   [
-                     (*    x \in ret    ==>    x \in a && !(x \in b)  *)
-                     Expr.mk_app ~typ:Type.bool Elem
-                       [
-                         Expr.from_var_decl var_decl;
-                         Expr.from_var_decl ret_var_decl;
-                       ];
-                     Expr.mk_and
-                       [
-                         Expr.mk_app ~typ:Type.bool Elem
-                           [
-                             Expr.from_var_decl var_decl;
-                             Expr.from_var_decl var_decl1;
-                           ];
-                         Expr.mk_not
-                           (Expr.mk_app ~typ:Type.bool Elem
-                              [
-                                Expr.from_var_decl var_decl;
-                                Expr.from_var_decl var_decl2;
-                              ]);
-                       ];
-                   ];
-               ])
+      let postcond_spec_form =
+        let var_decl = mk_fresh_var_decl loc "x" set_element_type in
+        let elem_of vd1 vd2 =
+          Expr.mk_app ~typ:Type.bool Elem [ Expr.from_var_decl vd1; Expr.from_var_decl vd2 ]
         in
-
-        Stmt.mk_spec spec_form
+        Expr.mk_binder ~typ:Type.bool Forall [ var_decl ]
+          ((* forall x :: *)
+           Expr.mk_and
+             [
+               Expr.mk_app ~typ:Type.bool Impl
+                 [
+                   (*    x \in a && !(x \in b)   ==>    x \in ret  *)
+                   Expr.mk_and
+                     [ elem_of var_decl var_decl1; Expr.mk_not (elem_of var_decl var_decl2) ];
+                   elem_of var_decl ret_var_decl;
+                 ];
+               Expr.mk_app ~typ:Type.bool Impl
+                 [
+                   (*    x \in ret    ==>    x \in a && !(x \in b)  *)
+                   elem_of var_decl ret_var_decl;
+                   Expr.mk_and
+                     [ elem_of var_decl var_decl1; Expr.mk_not (elem_of var_decl var_decl2) ];
+                 ];
+             ])
       in
+      introduce_synthesized_set_op_fn ~loc ~fn_ident
+        ~formal_var_decls:[ var_decl1; var_decl2 ] ~actual_arg_exprs:[ expr1; expr2 ]
+        ~ret_var_decl ~postcond_spec_form
+  | App (Choose, [ expr1 ], _expr_attr) ->
+      let* () = Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_set_diff_and_choose_expr: expr: %a" printers.pr_expr expr) in
 
-      let call_decl =
-        {
-          Callable.call_decl_kind = Func;
-          call_decl_name = set_diff_fn_ident;
-          call_decl_formals = formal_var_decls;
-          call_decl_returns = [ ret_var_decl ];
-          call_decl_locals = [];
-          call_decl_precond = [];
-          call_decl_postcond = [ postcond ];
-          call_decl_contract_ext = [];
-          call_decl_status = MachineFree;
-          call_decl_is_auto = false;
-          call_decl_needs_mask = None;
-          call_decl_grants_mask = None;
-          call_decl_loc = Expr.to_loc expr;
-        }
-      in
+      let* expr1 = rewrite_set_diff_and_choose_expr expr1 in
 
+      let loc = Expr.to_loc expr in
+      let set_element_type = Expr.to_type expr in
+      let typ_string = ProgUtils.serialize (Type.to_string set_element_type) in
+      (* Deterministic, not [Ident.fresh]: see [introduce_synthesized_set_op_fn]'s
+         doc comment for why every [choose] occurrence for a given element type,
+         within a module, has to resolve to the very same function. *)
+      let fn_ident = Ident.make loc (Stdlib.Format.asprintf "choose$%s" typ_string) 0 in
       let* current_module_name = Rewriter.current_module_name in
-
-      let set_diff_fn_qual_ident =
-        QualIdent.append current_module_name set_diff_fn_ident
-      in
-      let set_diff_fn_def =
-        Module.CallDef
-          Callable.{ call_decl; call_def = FuncDef { func_body = None } }
-      in
-
-      let new_expr =
-        Expr.mk_app ~typ:ret_typ ~loc:(Expr.to_loc expr)
-          (Expr.Var set_diff_fn_qual_ident) actual_arg_exprs
-      in
-
-      (* TODO: Change Rewriter.introduce_symbol to Rewriter.introduce_typecheck_symbol *)
-      let+ _ =
-        Rewriter.introduce_typecheck_symbol ~loc:(Expr.to_loc expr)
-          ~f:Typing.process_symbol set_diff_fn_def
-      in
-      new_expr
-  | _ -> Rewriter.Expr.descend expr ~f:rewrite_set_diff_expr
+      let fn_qual_ident = QualIdent.append current_module_name fn_ident in
+      let* existing = Rewriter.resolve_opt fn_qual_ident in
+      (match existing with
+       | Some qi -> Rewriter.return (Expr.mk_app ~typ:set_element_type ~loc (Expr.Var qi) [ expr1 ])
+       | None ->
+         (* The formal is `Set[T]`, not `expr1`'s own (possibly `FinSet[T]`) type:
+            `choose` works on `FinSet[T]` contravariantly, via the same upcast any
+            other call with a wider-typed formal gets, so this one synthesized
+            function per element type serves both. *)
+         let set_type = Type.set_typed set_element_type in
+         let var_decl_s = mk_fresh_var_decl loc "s" set_type in
+         let ret_var_decl = { (mk_fresh_var_decl loc "res" set_element_type) with var_const = false } in
+         let postcond_spec_form =
+           (*    s != {||}   ==>   res \in s  *)
+           Expr.mk_impl
+             (Expr.mk_not (Expr.mk_eq (Expr.from_var_decl var_decl_s) (Expr.mk_app ~typ:set_type Empty [])))
+             (Expr.mk_app ~typ:Type.bool Elem
+                [ Expr.from_var_decl ret_var_decl; Expr.from_var_decl var_decl_s ])
+         in
+         introduce_synthesized_set_op_fn ~loc ~fn_ident
+           ~formal_var_decls:[ var_decl_s ] ~actual_arg_exprs:[ expr1 ]
+           ~ret_var_decl ~postcond_spec_form)
+  | _ -> Rewriter.Expr.descend expr ~f:rewrite_set_diff_and_choose_expr
 
 let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
   Rewriter.eval
@@ -2907,9 +2891,9 @@ let rec rewrites_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_compr_expr m in
 
   Logs.debug (fun m1 ->
-      m1 "Rewrites.all_rewrites: Starting rewrite_set_diff_expr on module %a"
+      m1 "Rewrites.all_rewrites: Starting rewrite_set_diff_and_choose_expr on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
-  let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_set_diff_expr m in
+  let* m = Rewriter.Module.rewrite_expressions ~f:rewrite_set_diff_and_choose_expr m in
 
   Logs.debug (fun m1 ->
       m1 "Rewrites.all_rewrites: Starting rewrite_loops on module %a" Ident.pr

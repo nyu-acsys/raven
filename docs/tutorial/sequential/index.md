@@ -47,6 +47,17 @@ func recordVisitor(seen: Set[Int], id: Int) returns (r: Set[Int])
 *comprehensions* (`{| k: Int :: k > 5 |}`) show up later once we need to describe unbounded
 families of values at once.
 
+A comprehension like that one can describe an infinite set, so `Set[T]` on its own doesn't
+promise finiteness. `FinSet[T]` is a built-in subtype of `Set[T]` for sets that are finite by
+construction: union, intersection, difference, and enumeration literals (including `{|id|}`
+above) all come out `FinSet[T]` whenever their inputs do — `recordVisitor` above could equally
+well have been typed `FinSet[Int] -> FinSet[Int]` — but there's no way to *downcast* a plain
+`Set[T]` into a `FinSet[T]`, even one you happen to know is finite; the guarantee is purely
+syntactic. `choose(s)`, usable on either `Set[T]` or `FinSet[T]`, picks some element out of a
+nonempty `s` — the same element every time you write `choose(s)` for the same `s`, so it's safe
+to reason about across multiple uses. You'll reach for both once a termination measure needs to
+shrink a set one element at a time ({{ref sec:well-founded-order}}).
+
 ## Functions (`func`) vs. procedures (`proc`) {#sec:func-vs-proc}
 
 ```raven

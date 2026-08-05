@@ -1,0 +1,55 @@
+// Regression test for the FinSet[T] closure rules:
+//   1. comprehension is always Set, never FinSet
+//   2. intersection is FinSet if at least one operand is FinSet
+//   3. union is FinSet only if both operands are FinSet
+//   4. difference is FinSet iff the first operand is (second operand's
+//      finiteness is irrelevant)
+//   5. enumerations (including the empty set) are always FinSet
+// plus FinSet[T] <: Set[T] (upcast allowed, no downcast).
+module M {
+  func inter_both_finite(s1: FinSet[Int], s2: FinSet[Int]) returns (res: FinSet[Int])
+    ensures res == s1 ** s2
+  {
+    s1 ** s2
+  }
+
+  func inter_mixed(s1: FinSet[Int], s2: Set[Int]) returns (res: FinSet[Int])
+    ensures res == s1 ** s2
+  {
+    s1 ** s2
+  }
+
+  func union_both_finite(s1: FinSet[Int], s2: FinSet[Int]) returns (res: FinSet[Int])
+    ensures res == s1 ++ s2
+  {
+    s1 ++ s2
+  }
+
+  func union_mixed_widens(s1: FinSet[Int], s2: Set[Int]) returns (res: Set[Int])
+    ensures res == s1 ++ s2
+  {
+    s1 ++ s2
+  }
+
+  func diff_inherits_first_operand(s1: FinSet[Int], s2: Set[Int]) returns (res: FinSet[Int])
+    ensures forall x: Int :: (x in res) == (x in s1 && !(x in s2))
+  {
+    s1 -- s2
+  }
+
+  func empty_is_finite() returns (res: FinSet[Int]) {
+    {||}
+  }
+
+  func enum_is_finite() returns (res: FinSet[Int]) {
+    {|1, 2, 3|}
+  }
+
+  func compr_stays_set(bound: Int) returns (res: Set[Int]) {
+    {| x: Int :: x > bound |}
+  }
+
+  func upcast_allowed(s: FinSet[Int]) returns (res: Set[Int]) {
+    s
+  }
+}

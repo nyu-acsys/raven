@@ -291,6 +291,7 @@ module Type = struct
       | Any
       | Var of QualIdent.t
       | Map
+      | FinSet
       | Fld
       | Data of QualIdent.t * variant_decl list
       | AtomicToken of QualIdent.t
@@ -321,6 +322,7 @@ module Type = struct
   let ref_type_string = "Ref"
   let map_type_string = "Map"
   let set_type_string = "Set"
+  let finset_type_string = "FinSet"
   let fld_type_string = "Fld"
   let bool_type_string = "Bool"
   let int_type_string = "Int"
@@ -342,6 +344,7 @@ module Type = struct
     | Any -> any_type_string
     | Ref -> ref_type_string
     | Map -> map_type_string
+    | FinSet -> finset_type_string
     | Fld -> fld_type_string
     | Perm -> perm_type_string
     | Data (id, _) -> QualIdent.to_string id
@@ -361,7 +364,7 @@ module Type = struct
     let rec pr_constr ppf t =
       match t with
       | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
-      | Map | Fld | Prod | TypeExt _ ->
+      | Map | FinSet | Fld | Prod | TypeExt _ ->
           Stdlib.Format.fprintf ppf "%s" (to_name t)
       | Data (id, decls) ->
         Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
@@ -430,6 +433,7 @@ module Type = struct
   let mk_bot loc = App (Bot, [], mk_attr loc)
   let mk_ref loc = App (Ref, [], mk_attr loc)
   let mk_set loc tp = App (Map, [tp; mk_bool loc], mk_attr loc)
+  let mk_finset loc tp = App (FinSet, [tp], mk_attr loc)
   let mk_map loc tpi tpo = App (Map, [tpi; tpo], mk_attr loc)
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
@@ -455,6 +459,7 @@ module Type = struct
   let ref = mk_ref Loc.dummy
   let set = mk_set Loc.dummy bot
   let set_typed tp = mk_set Loc.dummy tp
+  let finset_typed tp = mk_finset Loc.dummy tp
   let map = mk_map Loc.dummy
   let perm = mk_perm Loc.dummy |> set_ghost true
   let data id decls = mk_data id decls Loc.dummy
@@ -498,11 +503,15 @@ module Type = struct
     | App (Bot, [], _), t | t, App (Bot, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [meet ti1 ti2; join to1 to2], a1)
+    | App (FinSet, [t1], a1), App (FinSet, [t2], _) -> App (FinSet, [meet t1 t2], a1)
+    | App (FinSet, [t1], a1), App (Map, [t2; (App (Bool, _, _) as b)], _)
+    | App (Map, [t2; (App (Bool, _, _) as b)], a1), App (FinSet, [t1], _) ->
+      App (Map, [meet t1 t2; b], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:join ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
       | _ -> App (Any, [], a1))
-    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1 
+    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
 
   and meet t1 t2 = 
@@ -511,10 +520,14 @@ module Type = struct
     | App (Any, [], _), t | t, App (Any, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [join ti1 ti2; meet to1 to2], a1)
+    | App (FinSet, [t1], a1), App (FinSet, [t2], _) -> App (FinSet, [join t1 t2], a1)
+    | App (FinSet, [t1], a1), App (Map, [t2; App (Bool, _, _)], _)
+    | App (Map, [t2; App (Bool, _, _)], a1), App (FinSet, [t1], _) ->
+      App (FinSet, [join t1 t2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:meet ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
-      | _ -> App (Bot, [], a1))      
+      | _ -> App (Bot, [], a1))
     | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
 
@@ -540,6 +553,11 @@ module Type = struct
 
   let is_set tp_expr = match tp_expr with
     | App (Map, [_; App(Bool, _, _)], _) -> true
+    | App (FinSet, [_], _) -> true
+    | _ -> false
+
+  let is_finset tp_expr = match tp_expr with
+    | App (FinSet, [_], _) -> true
     | _ -> false
   let is_ghost_var vdecl = vdecl.var_ghost
   let is_const_var vdecl = vdecl.var_const
@@ -564,6 +582,7 @@ module Type = struct
 
   let set_elem = function
   | App (Map, [elem; App (Bool, _, _)], _) -> elem
+  | App (FinSet, [elem], _) -> elem
   | _ -> failwith "Expected Set type"
         
   let map_dom = function
@@ -625,6 +644,7 @@ module Expr = struct
     (* Unary operators *)
     | Not
     | Uminus
+    | Choose
     (* Binary operators *)
     | TupleLookUp
     | MapLookUp
@@ -760,6 +780,7 @@ module Expr = struct
     | Gt -> ">"
     | Elem -> "in"
     | Subseteq -> "subsetof"
+    | Choose -> "choose"
     | And -> "&&"
     | Not -> "!"
     | Or -> "||"
@@ -776,7 +797,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
+    | Setenum | Tuple | Read | Own | Choose | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4

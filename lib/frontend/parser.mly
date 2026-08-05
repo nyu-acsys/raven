@@ -49,7 +49,7 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
-%token HAVOC NEW RETURN OWN AU AUCOMMIT
+%token HAVOC NEW RETURN OWN AU AUCOMMIT CHOOSE
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA FREE
@@ -817,6 +817,7 @@ primary:
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = au_expr { e }
+| e = choose_expr { e }
 ;
 
 compr_expr:
@@ -839,6 +840,11 @@ dot_expr:
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Own es)
+}
+
+choose_expr:
+| CHOOSE; LPAREN; e = expr; RPAREN {
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Choose [e])
 }
 
 (*cas_expr:

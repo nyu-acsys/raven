@@ -299,13 +299,16 @@ well-foundedness to one single trusted fact, rather than asking you to prove non
 an infinite descending chain directly each time (which, for most interesting orders, is a much
 harder thing to show from scratch).
 
-Raven ships four instances of `WellFoundedOrder`: `Library.IntOrder` (what every plain-`Int`
+Raven ships five instances of `WellFoundedOrder`: `Library.IntOrder` (what every plain-`Int`
 `decreases` clause you've written so far actually resolves to), `Library.LexOrder[A, B]`
 ({{ref sec:termination-measure}}'s lexicographic combinator, generic over any two well-founded orders `A` and `B`),
-`Library.Ordinal` (the raw ordinals themselves), and `Library.MultisetOrder` (for a termination
+`Library.Ordinal` (the raw ordinals themselves), `Library.MultisetOrder` (for a termination
 argument shaped like "some multiset only ever shrinks," which no fixed-arity lexicographic
-tuple can express — see `lib/ext/decreasesExt/well_founded_order.rav` if you want the
-details). There's a fifth built-in option you may already have seen or used without noticing:
+tuple can express), and `Library.SetOrder[E]` (strict subset inclusion on `FinSet[E]` — see
+{{ref sec:values-and-types}} — resolved automatically the same way, so `decreases s` just works
+for any `FinSet`-typed `s` with no instance to name explicitly; see
+`lib/ext/decreasesExt/well_founded_order.rav` if you want the details on any of these). There's
+a sixth built-in option you may already have seen or used without noticing:
 write `decreases` on a value of a self-recursive `data` type (a `List[E]`'s tail, a tree's
 child), and Raven auto-generates a structural "subterm" order on the fly: `x` counts as smaller
 than `y` exactly when `x` is one of the pieces `y` was built from. This is what makes

@@ -1,0 +1,26 @@
+// Regression test for the `choose` built-in operator:
+//   func choose(s: Set[T]) returns (res: T)
+//     ensures s != {||} ==> res in s
+// works contravariantly on FinSet[T] (upcast to Set[T]), and every
+// occurrence of `choose(s)` for the same `s` resolves to the same
+// underlying (deduplicated, per module/element-type) synthesized function --
+// see rewrites.ml's `rewrite_set_diff_and_choose_expr`.
+module M {
+  func choose_on_set(s: Set[Int]) returns (res: Int)
+    ensures s != {||} ==> res in s
+  {
+    choose(s)
+  }
+
+  func choose_on_finset(s: FinSet[Int]) returns (res: Int)
+    ensures s != {||} ==> res in s
+  {
+    choose(s)
+  }
+
+  func choose_deduplicated(s: Set[Int]) returns (res: Bool)
+    ensures res
+  {
+    choose(s) == choose(s)
+  }
+}

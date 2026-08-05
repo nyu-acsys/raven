@@ -232,7 +232,15 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
   let* tp1 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type inv_expr)
   and* tp2 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type arg_expr) in
 
-  assert (Type.(tp1 = tp2));
+  (* [inv_expr] and [arg_expr] need not be *exactly* the same type anymore now that
+     `FinSet[T] <: Set[T]` exists: e.g. `inv_expr` can be `{||}` (typed `FinSet[K]`,
+     since set enumerations always prefer the tightest available type) while
+     `arg_expr` is a universally-quantified variable genuinely ranging over `Set[K]`.
+     Subtype-comparable is enough; below, [arg_type] uses [Type.join tp1 tp2] (not
+     bare [tp1]) as the synthesized function's formal parameter type specifically so
+     that it stays a supertype of whichever of the two is narrower, keeping the
+     [arg_expr] passed as the actual argument sound to accept. *)
+  assert (Type.(subtype_of tp1 tp2 || subtype_of tp2 tp1));
 
   if List.is_empty universal_quants.univ_vars then Rewriter.return inv_expr
   else begin
@@ -245,7 +253,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       compute_env_local_var_decls ~loc inv_expr conds universal_quants
     in
 
-    let arg_type = Expr.to_type inv_expr in
+    let arg_type = Type.join tp1 tp2 in
 
     let arg_var_decl =
       let arg_ident = Ident.fresh loc "res" in

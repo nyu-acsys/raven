@@ -14,6 +14,7 @@ let _ =
       ("auto", AUTO);
       ("Bool", CONSTTYPE Type.Bool);
       ("case", CASE);
+      ("choose", CHOOSE);
       ("data", DATA);
       ("else", ELSE);
       ("ensures", ENSURES);
@@ -53,6 +54,7 @@ let _ =
       ("returns", RETURNS);
       (* ("subseteq", SUBSETEQ); *)
       ("Set", TYPECONSTR (Type.Map, 1));
+      ("FinSet", TYPECONSTR (Type.FinSet, 1));
       ("spawn", SPAWN);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
