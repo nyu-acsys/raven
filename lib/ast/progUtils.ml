@@ -1085,6 +1085,16 @@ let instantiate_type_functor ~(loc : location)
     Error.internal_error loc
       "wrong number of type arguments for this functor instantiation"
   else
+    (* Canonicalize via [expand_type_expr] before deriving the instantiation's name
+       below: callers can reach here with an argument type either written as a type
+       alias (e.g. a functor called directly from a type position) or already
+       expanded (e.g. inferred from a call's argument, expanded during unification
+       against the functor's formals) -- without normalizing both to the same form
+       first, the same semantic type argument would name two different, mutually
+       incompatible instantiations. *)
+    let* arg_types =
+      Rewriter.List.map arg_types ~f:(fun tp -> !Rewriter.expand_type_expr_ref tp)
+    in
     let* insert_scope, reference_scope = find_insertion_scope_for_types arg_types in
     let* arg_module_qis =
       Rewriter.List.map2_exn functor_mod_decl.mod_decl_formals arg_types
