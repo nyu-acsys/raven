@@ -371,6 +371,23 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
     Error.verification_error loc
       (Printf.sprintf !"Atomic token %{String} is already open"
          (Expr.to_source_string token))
+  else if not (List.is_empty atomicity_state.au_opened) then
+    (* At most one atomic update may be open at a time. A once-open AU's own
+       [α] is licensed by a genuine mask-shrink (or, for a proc's own token,
+       by its caller's external obligation); a second, simultaneously-open AU
+       has no such license of its own and would let openAU mint an
+       independent, unconstrained copy of whatever its atomic precondition
+       says -- e.g. two coexisting full shares of the same exclusive
+       resource. Closing the current AU first (commitAU/abortAU) and only
+       then opening the next is always sufficient: view shifts are purely
+       logical, so nothing can interleave between the close and the next
+       open, and the next open still has to honestly justify its own atomic
+       precondition against whatever is actually held at that point. *)
+    Error.verification_error loc
+      (Printf.sprintf
+         !"Cannot open atomic token %{String} while another atomic update \
+           is still open; commit or abort it first"
+         (Expr.to_source_string token))
   else
     {
       atomicity_state with
