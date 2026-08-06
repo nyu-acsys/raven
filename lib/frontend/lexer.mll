@@ -57,6 +57,10 @@ let lexical_error lexbuf msg =
      scope otherwise (covering a nested block/loop body, and a trigger nested in a func body).
    - [next_paren_is_loop_cond] records whether the next '(' lexed opens a while loop's condition
      (set right after seeing [WHILE], consumed by that very next '(').
+   - [next_lt_opens_atomic_token]/[in_atomic_token_brackets] track the same way, for
+     [AtomicToken<P>]'s '<'/'>' pair -- the one place these lex as a closing delimiter rather
+     than the comparison operator LT/GT ordinarily do, so a statement ending in [AtomicToken<P>]
+     can have [last_token_can_end_stmt] set on its '>' the same as a closing paren/bracket would.
 
    One case needs a single token of lookahead rather than being decidable from [lex_state] alone:
    a multi-line ternary split right after '?' and again right after ':' can leave a branch
@@ -74,6 +78,16 @@ type lex_state = {
   last_token_can_end_stmt : bool;
   next_brace_kind : scope_kind option;
   next_paren_is_loop_cond : bool;
+  (* Same lookahead-free trick as [next_paren_is_loop_cond]/[Loop_header]: [AtomicToken<P>]
+     (parser.mly's [ATOMICTOKEN LT qid = qual_ident GT]) is the only place '<'/'>' are a
+     closing delimiter pair rather than the comparison operator LT/GT ordinarily lex as.
+     [next_lt_opens_atomic_token] is set on [ATOMICTOKEN], consumed by the very next [LT];
+     [in_atomic_token_brackets] is set by that [LT], consumed by the matching [GT]. Without
+     this, a statement ending in [AtomicToken<P>] (e.g. a bare `var tok: AtomicToken<P>`
+     declaration) never got its semicolon inserted, since a trailing '>' otherwise always
+     looks like an unfinished comparison awaiting its right operand. *)
+  next_lt_opens_atomic_token : bool;
+  in_atomic_token_brackets : bool;
 }
 
 let initial_state =
@@ -81,6 +95,8 @@ let initial_state =
     last_token_can_end_stmt = false;
     next_brace_kind = None;
     next_paren_is_loop_cond = false;
+    next_lt_opens_atomic_token = false;
+    in_atomic_token_brackets = false;
   }
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
@@ -138,6 +154,18 @@ let advance st (tok : Parser.token) =
     | LPAREN -> false (* consumed, whether or not it triggered [Loop_header] above *)
     | _ -> st.next_paren_is_loop_cond
   in
+  let next_lt_opens_atomic_token =
+    match tok with
+    | ATOMICTOKEN -> true
+    | LT -> false (* consumed, whether or not it triggered [in_atomic_token_brackets] below *)
+    | _ -> st.next_lt_opens_atomic_token
+  in
+  let in_atomic_token_brackets =
+    match tok with
+    | LT -> st.next_lt_opens_atomic_token
+    | GT -> false (* consumed *)
+    | _ -> st.in_atomic_token_brackets
+  in
   let last_token_can_end_stmt =
     match tok with
     | IDENT _ | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
@@ -148,9 +176,14 @@ let advance st (tok : Parser.token) =
        clause. A `return` with values is always followed by at least one more
        token before the next newline, so this can't misfire on those. *)
     | RETURN -> true
+    (* The closing '>' of [AtomicToken<P>] -- see [in_atomic_token_brackets]'s doc comment.
+       [st], not the freshly-computed [in_atomic_token_brackets] above, since what matters is
+       whether *this* '>' was the closing one, i.e. the state as of just before it. *)
+    | GT when st.in_atomic_token_brackets -> true
     | _ -> false
   in
-  { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond }
+  { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
+    next_lt_opens_atomic_token; in_atomic_token_brackets }
 
 (* Produces [tok], pairing it with the state to carry forward after it, and no buffered
    follow-up token (see [on_newline] for the one case that needs one). *)
