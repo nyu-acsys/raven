@@ -4,76 +4,198 @@
 import Library.Auth
 import Library.Excl
 import Library.SetRA
+import Library.MaxNat
 
 module DistCounter {
-  field count_a: Int
-  field count_b: Int
-  ghost field count_auth: Auth[Excl[Int]]
-  ghost field reg_auth: Auth[SetRA[Proph]]
+  type T = data { case counter(a: Ref, b: Ref, s: Ref) }
+  type TID = Proph[(), 1]
 
-  inv state(c: Ref, token: AtomicToken<get>) {
-    true
+  // `Auth[MaxNat]` pairs an authoritative view of the counter's total with fragments
+  // that can be checked against it later. `counter_inv` keeps auth and frag together in
+  // lockstep with the real total (mirroring the tutorial's `hit_counter_ghost.rav`), so
+  // a value observed at one unfold is provably a lower bound on the total observed at
+  // any later unfold -- MaxNat's frame-preserving-update relation only allows moving up.
+  module AuthMaxNat = Auth[MaxNat]
+
+  field count: Int
+  field refa: Ref
+  field refb: Ref
+  ghost field count_auth: Int
+  ghost field token: AtomicToken<get>
+  ghost field count_proph: Int
+  // Track `a.count`/`b.count` monotonically *individually*, not just their sum: `get`
+  // reads them at two different unfolds (n1 early, n2 later), so showing its allocation
+  // snapshot `x = na_0 + nb_0` is <= `n1 + n2` needs `nb_0 <= n2` specifically (na_0 == n1
+  // exactly already, since n1 is read within the same unfold as x) -- a fact about the sum
+  // alone can't give that, since a's own count could have grown in between.
+  ghost field count_a_max: AuthMaxNat
+  ghost field count_b_max: AuthMaxNat
+  // The counter's total *at the moment this cell was registered*, frozen forever after.
+  // Held as two 0.5 shares -- one inside helping_prot_state's own body, one kept by `get`
+  // itself (never spent elsewhere) -- so that whenever `get` later re-unfolds
+  // helping_prot_state, the two fractions of the same plain field are forced to agree,
+  // handing `get` back its own `x` as the invariant's internal witness for free, with no
+  // need to thread `x` through as an extra invariant parameter.
+  ghost field x0: Int
+
+  ghost field regs_auth: Auth[SetRA[Ref]]
+  // Ghost field on a per-registration helping cell: a snapshot of the counter's value,
+  // held as two 0.5 shares -- one here, updated by counter_inv on every fold, and one
+  // in helping_prot_state, read by the protocol to decide when `r` is "due".
+  ghost field snap: Int
+
+  auto pred pending(c: T, token: AtomicToken<get>) {
+    au<get>(token, c)
   }
 
+  auto pred done(c: T, token: AtomicToken<get>, np: Int) {
+    auCommit<get>(token, c, np)
+  }
 
-  inv counter_inv(c: Ref) {
+  inv helping_prot_state(hcell: Ref, c: T) {
+    (exists n: Int, token: AtomicToken<get>, np: Int, x: Int ::
+      own(hcell.snap, n, 0.5) &&
+      own(hcell.token, token, 0.5) &&
+      own(hcell.count_proph, np, 0.5) &&
+      own(hcell.x0, x, 0.5) &&
+      // `snap` only ever moves up from its initial value `x` (bump_all's sole update is
+      // n -> n+1), so this holds unconditionally -- it's what lets bump_all chain
+      // `x <= n < n+1 == np` into `x <= np` and so open the AU below.
+      x <= n &&
+      // If the registration snapshot `x` turns out to exceed the predicted value `np`,
+      // this holds vacuously -- no need to rule that case out here, at fold time; it's
+      // ruled out later, once the prophecy resolves and monotonicity pins `x <= np` down.
+      (x <= np ==> (np <= n ? done(c, token, np) : pending(c, token))))
+  }
+
+  inv counter_inv(c: T) {
     exists na: Int, nb: Int ::
-      own(c.count_a, na) && own(c.count_b, nb) && own(c.count_auth, Auth.auth(Excl.excl(na + nb))) &&
-      (exists regs: Set[Proph] :: own(c.reg_auth, Auth.auth(SetRA.set(regs))))
+      own(c.a.count, na) && own(c.b.count, nb) &&
+      own(c.s.count_auth, na + nb, 0.5) &&
+      own(c.s.count_a_max, AuthMaxNat.auth_frag(na, na)) &&
+      own(c.s.count_b_max, AuthMaxNat.auth_frag(nb, nb)) &&
+      // `regs` is the persistent SetRA-backed registry, shared verbatim with
+      // helping_prot_state. `regs`/`reg_auth` and the `locs` map are gone: the set of
+      // registered TIDs is just pairs' projection onto its first component, and the ISC
+      // below addresses each cell as `p#1` -- a plain function of its own bound pair `p` --
+      // rather than looking an address up in a separate map.
+      (exists regs: FinSet[Ref] ::
+         own(c.s.regs_auth, Auth.full(SetRA.set(regs))) &&
+         (forall r: Ref ::
+            r in regs  ==>
+              own(r.snap, na + nb, 0.5) && helping_prot_state(r, c))
+      )
   }
 
-  auto pred is_counter(c: Ref) {
+  lemma bump_all(c: T, n: Int, regs: FinSet[Ref])
+    requires counter_state(c, n+1)
+    requires forall r0: Ref :: r0 in regs ==> own(r0.snap, n, 0.5) && helping_prot_state(r0, c)
+    ensures forall r0: Ref :: r0 in regs ==> own(r0.snap, n + 1, 0.5) && helping_prot_state(r0, c)
+    ensures counter_state(c, n+1)
+    decreases regs
+  {
+    if (regs != {||}) {
+      ghost val r := choose(regs)
+      bump_all(c, n, regs -- {|r|})
+      unfold helping_prot_state(r, c)
+      r.snap := n + 1
+      var np: Int
+      np :| own(r.count_proph, np, 0.5)
+      var tok: AtomicToken<get>;
+
+      tok :| own(r.token, tok, 0.5)
+      if (n + 1 == np) {
+        val x_: Int := openAU(tok, c)
+        commitAU(tok, c, np)
+      }
+      fold helping_prot_state(r, c)
+    }
+  }
+
+  auto pred is_counter(c: T) {
     counter_inv(c)
   }
 
-  auto pred counter_state(c: Ref; n: Int) {
-    own(c.count_auth, Auth.frag(Excl.excl(n)))
+  auto pred counter_state(c: T; n: Int) {
+    own(c.s.count_auth, n, 0.5)
   }
 
-  proc create() returns (ret: Ref)
+  proc create() returns (ret: T)
     ensures is_counter(ret)
   {
-    ret := new(count_a: 0, count_b: 0, 
-               count_auth: Auth.full(Excl.excl(0)), 
-               reg_auth: Auth.full(SetRA.set({||} : Set[Proph])))
-    fold counter_inv(ret)
+    val ca := new (count: 0)
+    val cb := new (count: 0)
+    val cs := new(count_auth: 0,
+               count_a_max: AuthMaxNat.auth_frag(0, 0),
+               count_b_max: AuthMaxNat.auth_frag(0, 0),
+               regs_auth: Auth.full(SetRA.set({||} : FinSet[Ref])))
+    ret := counter(ca, cb, cs)
+    fold counter_inv(ret)[regs := {||}]
     return ret
   }
 
-  proc get(c: Ref, implicit ghost n: Int) returns (ret: Int)
+  proc get(c: T, implicit ghost n: Int) returns (ret: Int)
     requires is_counter(c)
     atomic requires counter_state(c, n)
     atomic ensures counter_state(c, n) && ret == n
   {
     ghost var phi := bindAU()
-    unfold counter_inv(c)
-    val n1 := c.count_a
-    fold counter_inv(c)
+    ghost var regs: FinSet[Ref]
+    ghost var n_lp: Int
+    ghost var p: Proph[Int, 1]
+    p, n_lp := new Proph[Int, 1]
+    ghost var x: Int
+    unfold counter_inv(c)[regs := regs]
+    x :| own(c.s.count_auth, x, 0.5)
+    ghost val r := new(snap: x, token: phi, count_proph: n_lp, x0: x)
+    {!
+      if (x == n_lp) {
+        // there will be no interference by incr threads. Linearize now.
+        ghost val y_: Int := openAU(phi)
+        commitAU(phi, n_lp)
+      }
+    !}
+    fold helping_prot_state(r, c)
+    fpu(c.s.regs_auth, Auth.auth(SetRA.set(regs)), Auth.full(SetRA.set(regs ++ {|r|})))
+    val n1 := c.a.count
+    fold counter_inv(c)[regs := regs ++ {|r|}]
 
-    unfold counter_inv(c)
-    val n2 := c.count_b
-    fold counter_inv(c)
-    assume false
+    unfold counter_inv(c)[regs := regs]
+    val n2 := c.b.count
+    ghost var n_cur: Int
+    n_cur :| own(c.s.count_auth, n_cur, 0.5)
+    Proph.resolve(p, n1 + n2)
+    unfold helping_prot_state(r, c)
+    ghost var na_new: Int
+    na_new :| own(c.s.count_a_max, AuthMaxNat.auth_frag(na_new, na_new))
+    assert n_cur == n2 + na_new
+    assert x <= n1 + n2
+    assert n1 <= na_new
+    fold helping_prot_state(r, c)
+    fold counter_inv(c)[regs := regs]
     return n1 + n2
   }
 
-  proc incr(c: Ref, implicit ghost n: Int)
+  proc incr(c: T, implicit ghost n: Int)
     requires counter_inv(c)
     atomic requires counter_state(c, n)
     atomic ensures counter_state(c, n + 1)
   {
     ghost var phi := bindAU()
+    ghost var regs: FinSet[Ref]
     var b: Bool
+    var x := b ? c.a : c.b
+    unfold counter_inv(c)[regs := regs]
     n := openAU(phi)
-    unfold counter_inv(c)
+    val nx_ := faa(x.count, 1)
+    c.s.count_auth := n + 1
     if (b) {
-      val ca_ := faa(c.count_a, 1)
+      fpu(c.s.count_a_max, AuthMaxNat.auth_frag(nx_, nx_), AuthMaxNat.auth_frag(nx_ + 1, nx_ + 1))
     } else {
-      val cb_ := faa(c.count_b, 1)
+      fpu(c.s.count_b_max, AuthMaxNat.auth_frag(nx_, nx_), AuthMaxNat.auth_frag(nx_ + 1, nx_ + 1))
     }
-    fpu(c.count_auth, Auth.full(Excl.excl(n)), Auth.full(Excl.excl(n + 1)))
-    fold counter_inv(c)
     commitAU(phi, ())
+    bump_all(c, n, regs)
+    fold counter_inv(c)[regs := regs]
   }
-
 }
