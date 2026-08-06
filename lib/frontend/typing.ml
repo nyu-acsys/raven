@@ -2034,8 +2034,8 @@ module ProcessCallable = struct
             (Printf.sprintf !"Cannot assign directly to field %{QualIdent}, whose value is a resource algebra (RA) element; use a frame-preserving update ('fpu') instead" fw_desc.field_write_field)
       in
       let* field_write_ref =
-        disambiguate_process_expr fw_desc.field_write_ref Type.ref
-          disam_tbl
+        disambiguate_process_expr fw_desc.field_write_ref
+          (Type.ref |> Type.set_ghost is_ghost_scope) disam_tbl
       in
       let+ field_write_val =
         disambiguate_process_expr fw_desc.field_write_val field_type
