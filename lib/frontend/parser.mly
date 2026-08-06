@@ -428,6 +428,7 @@ contract:
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];
+           spec_source = None;
          }
   in
   ([spec], [], [])
@@ -438,6 +439,7 @@ contract:
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];
+           spec_source = None;
          }
   in
   ([], [spec], [])
@@ -586,7 +588,8 @@ with_clause:
     let spec = { spec_form = e;
                  spec_atomic = false;
                  spec_comment = None;
-                 spec_error = []; }
+                 spec_error = [];
+                 spec_source = None; }
     in
     [Basic (Spec (sk, spec))]
 }
@@ -796,6 +799,7 @@ loop_contract:
            spec_atomic = false;
            spec_comment = None;
            spec_error = [];
+           spec_source = None;
          }
   in
   `Invariant spec

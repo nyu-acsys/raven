@@ -1205,6 +1205,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
   match stmt.stmt_desc with
   | Basic (Use use_desc) ->
+      let* pred_qual_ident = Rewriter.resolve use_desc.use_name in
       let* symbol = Rewriter.find_and_reify use_desc.use_name in
 
       let pred_decl, body =
@@ -1376,10 +1377,11 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               pred_expr 
           in
           
-          let exhale_stmt = 
+          let exhale_stmt =
             Stmt.mk_exhale_expr ~loc
               ~cmnt:("fold : " ^ Expr.to_string pred_expr)
               ~spec_error
+              ~spec_source:(pred_qual_ident, 0)
               body_fold_expr
           in
           (match new_dropped_args with
@@ -1395,9 +1397,10 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               )
             in
             
-            let pred_body_inhale_stmt = 
+            let pred_body_inhale_stmt =
               Stmt.mk_inhale_expr ~loc
                 ~cmnt:("unfold : " ^ Expr.to_string pred_expr)
+                ~spec_source:(pred_qual_ident, 0)
                 body_unfold_expr
             in
             
@@ -1439,6 +1442,7 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match stmt.stmt_desc with
   | Basic (Call call_desc) -> (
+      let* callee_qual_ident = Rewriter.resolve call_desc.call_name in
       let* symbol = Rewriter.find_and_reify call_desc.call_name in
 
       let call_decl, call_def =
@@ -1593,21 +1597,27 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
           in
 
           let exhale_stmts =
-            List.map call_decl.call_decl_precond ~f:(fun spec ->
+            List.mapi call_decl.call_decl_precond ~f:(fun i spec ->
                 (* Logs.debug (fun m -> m "Rewrites.rewrite_call_stmts: Exhale_stmt=%a; Exhale_stmt_error_len = %i; Exhale_stmt_error=%s" Expr.pr spec.spec_form (List.length spec_error) (Error.to_string ((List.hd_exn spec_error) (QualIdent.from_ident call_decl.call_decl_name) stmt.stmt_loc)) ); *)
 
                 Stmt.mk_exhale_expr ~loc:stmt.stmt_loc
                   ~cmnt:("Exhale stmt for Call: " ^ Stmt.to_string stmt)
                   ~spec_error:spec.spec_error
+                  ~spec_source:(callee_qual_ident, i)
                   (Expr.alpha_renaming spec.spec_form new_renaming_map))
           in
 
-          let inhale_stmt =
-            Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
-              ~cmnt:("Inhale stmt for Call: " ^ Stmt.to_string stmt)
-              (Expr.mk_and
-                 (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                      Expr.alpha_renaming spec.spec_form new_renaming_map)))
+          (* One inhale per postcond clause (rather than a single inhale of their
+             conjunction) so each can carry its own [spec_source] -- `assume (p && q)`
+             and `assume p; assume q` are equivalent, so this is not an observable
+             behavior change. *)
+          let num_precond = List.length call_decl.call_decl_precond in
+          let inhale_stmts =
+            List.mapi call_decl.call_decl_postcond ~f:(fun j spec ->
+                Stmt.mk_inhale_expr ~loc:stmt.stmt_loc
+                  ~cmnt:("Inhale stmt for Call: " ^ Stmt.to_string stmt)
+                  ~spec_source:(callee_qual_ident, num_precond + j)
+                  (Expr.alpha_renaming spec.spec_form new_renaming_map))
           in
 
           let reassign_lhs_stmt =
@@ -1623,13 +1633,13 @@ let rec rewrite_call_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
               (* [inhale_stmt] *)
               (* else *)
               (match (new_dropped_args, lhs_list) with
-              | [], [] -> exhale_stmts @ [ inhale_stmt ]
-              | [], _ -> exhale_stmts @ [ inhale_stmt; reassign_lhs_stmt ]
+              | [], [] -> exhale_stmts @ inhale_stmts
+              | [], _ -> exhale_stmts @ inhale_stmts @ [ reassign_lhs_stmt ]
               | _, [] ->
-                  (bind_stmt :: exhale_stmts) @ [ inhale_stmt ]
+                  (bind_stmt :: exhale_stmts) @ inhale_stmts
               | _, _ ->
                   (bind_stmt :: exhale_stmts)
-                  @ [ inhale_stmt; reassign_lhs_stmt ])
+                  @ inhale_stmts @ [ reassign_lhs_stmt ])
           in
 
           Rewriter.return new_stmt
@@ -1673,19 +1683,25 @@ let rewrite_callable_pre_post_conds (c : Callable.t) : Callable.t Rewriter.t =
       | None -> Rewriter.return c
       | Some body ->
           let loc = Stmt.to_loc body in
+          let* own_qual_ident = Rewriter.current_scope_id in
+          let num_precond = List.length c.call_decl.call_decl_precond in
           let pre_conds =
-            List.filter_map c.call_decl.call_decl_precond ~f:(fun spec ->
+            List.filter_mapi c.call_decl.call_decl_precond ~f:(fun i spec ->
                 if spec.spec_atomic then None
                 else
+                  let spec = { spec with spec_source = Some (own_qual_ident, i) } in
                   Some
                     (Stmt.mk_inhale_spec
                        ~cmnt:("precond: " ^ Expr.to_string spec.spec_form)
                        ~loc:(Expr.to_loc spec.spec_form)
                        spec))
           and post_conds =
-            List.filter_map c.call_decl.call_decl_postcond ~f:(fun spec ->
+            List.filter_mapi c.call_decl.call_decl_postcond ~f:(fun j spec ->
                 if spec.spec_atomic then None
                 else
+                  let spec =
+                    { spec with spec_source = Some (own_qual_ident, num_precond + j) }
+                  in
                   Some
                     (Stmt.mk_exhale_spec
                        ~cmnt:("postcond: " ^ Expr.to_string spec.spec_form)
@@ -2235,12 +2251,16 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
             }
           in
 
+          let* pred_qual_ident = Rewriter.current_scope_id in
+
           let call_body =
             Stmt.mk_block_stmt ~loc:c.call_decl.call_decl_loc
               [
                 Stmt.mk_inhale_expr ~loc:c.call_decl.call_decl_loc
+                  ~spec_source:(pred_qual_ident, 0)
                   (Expr.alpha_renaming body renaming_map1);
                 Stmt.mk_inhale_expr ~loc:c.call_decl.call_decl_loc
+                  ~spec_source:(pred_qual_ident, 0)
                   (Expr.alpha_renaming body renaming_map2);
               ]
           in

@@ -222,13 +222,13 @@ module DistCounter {
     // and are only here because of the solver flakiness noted separately; treat them as
     // scaffolding to be deleted once that's tracked down, not as meaningful proof steps.
     unfold helping_prot_state(hcell, c)
-    ghost var total2: Int
-    total2 :| own(c.shared.total, total2, 0.5)
-    ghost var na2: Int
-    na2 :| own(c.shared.count_a_max, AuthMaxNat.auth_frag(na2, na2))
-    assert total2 == n2 + na2
-    assert snap0 <= n1 + n2
-    assert n1 <= na2
+    //ghost var total2: Int
+    //total2 :| own(c.shared.total, total2, 0.5)
+    //ghost var na2: Int
+    //na2 :| own(c.shared.count_a_max, AuthMaxNat.auth_frag(na2, na2))
+    //assert total2 == n2 + na2
+    //assert snap0 <= n1 + n2
+    //assert n1 <= na2
     fold helping_prot_state(hcell, c)
     fold counter_inv(c)[regs := regs]
     return n1 + n2

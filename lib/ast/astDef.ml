@@ -1403,6 +1403,14 @@ module Stmt = struct
     spec_atomic : bool;
     spec_comment : string option;
     spec_error : (qual_ident -> Loc.t -> Error.t) list;
+    (* Set when this spec's [spec_form] is a formal->actual substitution instance of a
+       known callable's declared clause -- i.e. a fold/unfold of a predicate body, or a
+       call-site/self exhale-of-requires / inhale-of-ensures. [qual_ident] identifies the
+       declaration; the [int] indexes into the conceptual list
+       [call_decl_precond @ call_decl_postcond @ [body]] for that declaration (predicates
+       have their body at index 0). Lets ISC translation in [HeapsExplicitTrnsl] reuse an
+       already-compiled inverse function instead of minting a fresh one per occurrence. *)
+    spec_source : (qual_ident * int) option;
   }
 
   let mk_const_spec_error error = (fun _ _ -> error)
@@ -1803,8 +1811,8 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_assume_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
   let mk_assume_spec ~loc ?cmnt spec : t = 
@@ -1817,8 +1825,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_inhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
   let mk_inhale_spec ~loc ?cmnt spec : t = 
@@ -1831,8 +1839,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_exhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
   let mk_exhale_spec ~loc ?cmnt spec : t = 
@@ -1845,8 +1853,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_assert_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
   let mk_assert_spec ~loc ?cmnt spec : t =
@@ -1893,12 +1901,13 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?cmnt ?(spec_error = []) e = 
+  let mk_spec ?(atomic = false) ?cmnt ?(spec_error = []) ?spec_source e =
     {
       spec_form = e;
       spec_atomic = atomic;
       spec_comment = cmnt;
       spec_error;
+      spec_source;
     }
 
   let to_loc s = s.stmt_loc

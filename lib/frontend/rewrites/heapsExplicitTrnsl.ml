@@ -255,6 +255,84 @@ let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal
   ) in
   Rewriter.return local_var_decls
 
+(* Dead code, retained for potential future reuse -- not called anywhere.
+
+   [generate_inv_function] below states the ISC inverse function's "left-inverse"
+   axiom (what it currently calls [postcond2]) and proves the injectivity it relies on
+   *unconditionally* -- i.e. for all values of the quantified variable(s), not just
+   those satisfying the ISC's own guard/condition ([conds]). That's a strictly
+   stronger (and in general unsound) statement: it's only valid when the ISC's index
+   expression is injective on its whole domain, not merely within the guard.
+
+   It was made unconditional deliberately, after measuring a real problem with the
+   guarded form: when the guard *doesn't* hold, the guarded axiom's implication is
+   vacuously true, giving Z3 no equality to close off a matching loop between this
+   axiom and the "right-inverse" axiom ([postcond1]) -- each instantiation re-creates a
+   fresh application of the other's trigger, so E-matching can keep re-firing both
+   without bound. Dropping the guard turns every instantiation into a genuine unit
+   equality, which collapses the loop via congruence closure immediately. Measured on
+   `test/arrays/array_utils.rav`: Z3 quantifier instantiations dropped from ~98,551
+   (guarded) to ~41,945 (unconditional, below even the ~51,956 baseline from before
+   this ISC-sharing machinery existed at all); `test/ext/prophecy/dist_counter.rav`
+   went from ~45s (and documented flakiness) to a stable ~2s. The entire `dune runtest`
+   suite verifies identically either way, i.e. every ISC index expression in the
+   current codebase happens to be unconditionally injective -- but that's an empirical
+   observation about today's tests, not a property the compiler checks or guarantees
+   for arbitrary future Raven programs. A program whose ISC genuinely relies on its
+   guard for injectivity will simply fail to verify (the injectivity assertion is a
+   real, checked proof obligation either way -- this can't produce a silent unsoundness,
+   only a spurious verification failure).
+
+   To revive guard-dependent handling: in [generate_inv_function], replace the
+   [postcond2] block's body with [GuardedIscInvAxioms.postcond2 ~loc ~inv_fn_qual_ident
+   ~ret_type inv_expr env_local_var_decls universal_quants conds], and change the
+   [generate_injectivity_assertions] call a few lines below back to passing [conds]
+   instead of [[]] (so the proof obligation matches what this weaker axiom needs).
+
+   A cheaper middle ground than reverting wholesale: a syntactic check for
+   unconditional injectivity (e.g. recognizing index expressions built from injective
+   constructors/free functions independent of any bound), falling back to this guarded
+   form only where that check fails. Deliberately not implemented speculatively --
+   nothing so far demonstrates it's needed in practice. *)
+module GuardedIscInvAxioms = struct
+  let postcond2 ~loc ~(inv_fn_qual_ident : qual_ident) ~(ret_type : Type.t)
+      (inv_expr : expr) (env_local_var_decls : var_decl list)
+      (universal_quants : universal_quants) (conds : conditions) : Stmt.spec =
+    let inverted_expr_with_inv_expr =
+      Expr.mk_app ~loc ~typ:ret_type (Var inv_fn_qual_ident)
+        (inv_expr :: List.map env_local_var_decls ~f:Expr.from_var_decl)
+    in
+    let spec_expr2 =
+      let ret_var_decls =
+        List.map universal_quants.univ_vars ~f:(fun (_, vd) ->
+            Type.mk_var_decl ~const:true (Ident.fresh loc "$ret") ~loc vd.var_type)
+      in
+      (* x ~> ret0;; y ~> ret1 *)
+      let ret_renam_map =
+        List.fold2_exn universal_quants.univ_vars ret_var_decls
+          ~init:(Map.empty (module QualIdent)) ~f:(fun mp (_, vd) ret_vd ->
+            Map.add_exn mp ~key:(QualIdent.from_ident vd.var_name)
+              ~data:(Expr.from_var_decl ret_vd))
+      in
+      Expr.mk_binder Forall ~loc (ret_var_decls @ env_local_var_decls)
+        ~trigs:[ [ Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map ] ]
+        (Expr.mk_impl ~loc
+           (Expr.mk_chained_and ~loc
+              (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map)))
+           (Expr.mk_eq ~loc
+              (Expr.mk_tuple ~loc
+                 (List.map ret_var_decls ~f:(fun ret_vd -> Expr.from_var_decl ret_vd)))
+              (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map)))
+    in
+    let error =
+      ( Error.Verification,
+        loc,
+        "This iterated separating conjunction may not be injective on the quantified \
+         variable(s) within its guard" )
+    in
+    Stmt.mk_spec ~spec_error:[ (fun _ _ -> error) ] spec_expr2
+end
+
 let generate_inv_function ~loc (universal_quants : universal_quants)
     (conds : conditions) (inv_expr : expr) ~(arg_expr : expr) : expr Rewriter.t
     =
@@ -451,16 +529,15 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
               )
             in
 
-            Expr.mk_binder Forall ~loc (ret_var_decls @ env_local_var_decls) 
-              ~trigs:[[ 
-                Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map 
+            (* Unconditional -- no [conds] guard. See [GuardedIscInvAxioms] above for
+               the guarded form this was weakened from, and why. *)
+            Expr.mk_binder Forall ~loc (ret_var_decls @ env_local_var_decls)
+              ~trigs:[[
+                Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map
               ]] (
-              Expr.mk_impl ~loc 
-                (Expr.mk_chained_and ~loc (List.map conds ~f:(fun e -> Expr.alpha_renaming e ret_renam_map)))
-
-                (Expr.mk_eq ~loc
+                Expr.mk_eq ~loc
                   (Expr.mk_tuple ~loc (List.map ret_var_decls ~f:(fun ret_vd -> Expr.from_var_decl ret_vd)))
-                  (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map))
+                  (Expr.alpha_renaming inverted_expr_with_inv_expr ret_renam_map)
             )
 
           in
@@ -476,8 +553,12 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
       in
 
 
-      let+ injectivity_assertion = 
-        generate_injectivity_assertions ~loc universal_quants conds ~env_local_var_decls inv_expr
+      let+ injectivity_assertion =
+        (* [] rather than [conds]: proves injectivity of [inv_expr] unconditionally,
+           matching postcond2's now-unconditional axiom above. See
+           [GuardedIscInvAxioms] for the guarded pairing ([conds] passed here) this was
+           weakened from. *)
+        generate_injectivity_assertions ~loc universal_quants [] ~env_local_var_decls inv_expr
       in
 
       let call_decl =
@@ -1960,12 +2041,102 @@ let match_up_expr ~(printers : Rewriter.printers) (expr1 : expr) (expr2 : expr) 
                    "expected all variables to be matched up"))
   | None -> None
 
+(* Looks up an already-compiled inverse function for the ISC identified by
+   [spec_source]/[conjunct_idx] (the [clause_idx]-th clause of the callable [decl_qi],
+   [conjunct_idx]-th ISC within that clause -- see [Rewriter.state_isc_cache]), reusing it
+   if the current occurrence's [(universal_quants, conds, inv_expr)] matches (via
+   [match_up_expr]) the template recorded for the first occurrence seen for that key.
+   Falls back to [generate_inv_function] (minting a fresh function, exactly as before)
+   whenever there's no [spec_source], this is the first occurrence for the key, or -- as a
+   pure safety net -- matching against a cached template unexpectedly fails.
+
+   Returns the same [expr] [generate_inv_function] would (the inverse function applied to
+   [arg_expr]), plus the "env" actual expressions to substitute for [inv_expr]'s free
+   locals when a caller needs to reapply the same inverse function to [inv_expr] itself
+   (e.g. for forward-trigger assertions) -- previously recomputed there via a second,
+   independent [compute_env_local_var_decls] call. *)
+let get_or_generate_inv_function ~loc (universal_quants : universal_quants)
+    (conds : conditions) (inv_expr : expr) ~(arg_expr : expr)
+    ~(spec_source : (qual_ident * int) option) ~(conjunct_idx : int) :
+    (expr * expr list) Rewriter.t =
+  let open Rewriter.Syntax in
+  if List.is_empty universal_quants.univ_vars then Rewriter.return (inv_expr, [])
+  else
+    let mint_fresh () =
+      let* inv_fn_expr =
+        generate_inv_function ~loc universal_quants conds inv_expr ~arg_expr
+      in
+      let+ env_local_var_decls =
+        compute_env_local_var_decls ~loc inv_expr conds universal_quants
+      in
+      (inv_fn_expr, env_local_var_decls)
+    in
+    match spec_source with
+    | None ->
+        let+ inv_fn_expr, env_local_var_decls = mint_fresh () in
+        (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)
+    | Some (decl_qi, clause_idx) -> (
+        let* isc_cache = Rewriter.current_isc_cache in
+        let cache_key = (decl_qi, clause_idx, conjunct_idx) in
+        match Hashtbl.find isc_cache cache_key with
+        | None ->
+            let* inv_fn_expr, env_local_var_decls = mint_fresh () in
+            (match inv_fn_expr with
+            | App (Var inv_fn_qual_ident, _, _) ->
+                Hashtbl.set isc_cache ~key:cache_key
+                  ~data:
+                    Rewriter.
+                      {
+                        isc_inv_fn_qual_ident = inv_fn_qual_ident;
+                        isc_univ_vars = universal_quants.univ_vars;
+                        isc_conds = conds;
+                        isc_inv_expr = inv_expr;
+                        isc_env_var_decls = env_local_var_decls;
+                      }
+            | _ -> ());
+            Rewriter.return
+              (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)
+        | Some tmpl ->
+            let* printers = Rewriter.current_printers in
+            let template_forall =
+              Expr.mk_binder Forall
+                (List.map tmpl.isc_univ_vars ~f:snd)
+                (Expr.mk_tuple (tmpl.isc_conds @ [ tmpl.isc_inv_expr ]))
+            in
+            let occurrence_forall =
+              Expr.mk_binder Forall
+                (List.map universal_quants.univ_vars ~f:snd)
+                (Expr.mk_tuple (conds @ [ inv_expr ]))
+            in
+            (match
+               match_up_expr ~printers template_forall occurrence_forall
+                 tmpl.isc_env_var_decls
+             with
+            | Some var_map ->
+                let env_actual_exprs =
+                  List.map tmpl.isc_env_var_decls ~f:(fun vd ->
+                      snd (Map.find_exn var_map vd.var_name))
+                in
+                let ret_type =
+                  Type.mk_prod loc
+                    (List.map universal_quants.univ_vars ~f:(fun (_, vd) ->
+                         vd.var_type))
+                in
+                let inv_fn_expr =
+                  Expr.mk_app ~loc ~typ:ret_type
+                    (Var tmpl.isc_inv_fn_qual_ident) (arg_expr :: env_actual_exprs)
+                in
+                Rewriter.return (inv_fn_expr, env_actual_exprs)
+            | None ->
+                let+ inv_fn_expr, env_local_var_decls = mint_fresh () in
+                (inv_fn_expr, List.map env_local_var_decls ~f:Expr.from_var_decl)))
+
 module ParseAssertionLang = struct
-  let rec parse_a ?cmnt ?spec_error ~loc
+  let rec parse_a ?cmnt ?spec_error ?spec_source ~loc
       ?(universal_quants : universal_quants = { univ_vars = []; triggers = [] })
       (conds : conditions) (expr : expr) ~parse_a0 : Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
-    let parse_a = parse_a ?cmnt ~loc ?spec_error ~parse_a0 in
+    let parse_a = parse_a ?cmnt ~loc ?spec_error ?spec_source ~parse_a0 in
     match expr with
     | App (Ite, [ c; e1; e2 ], expr_attr) ->
         let* stmt1 = parse_a ~universal_quants (c :: conds) e1 in
@@ -2003,10 +2174,28 @@ module ParseAssertionLang = struct
         let* stmt = parse_a ~universal_quants conds e in
 
         Rewriter.return stmt
-    | _ -> parse_a0 ?cmnt ?spec_error ~loc universal_quants conds expr
+    | _ -> parse_a0 ?cmnt ?spec_error ?spec_source ~loc universal_quants conds expr
 end
 
 module TrnslInhale = struct
+  (* Counts ISC (own/AU-token/predicate-application) occurrences seen so far while
+     translating the *current* top-level spec, left-to-right -- reset by
+     [trnsl_inhale_expr] before each such translation, incremented by
+     [trnsl_inhale_a0] at each of its three ISC-detection branches. Local, single-purpose
+     mutable state (not part of the [Rewriter] monad, never read/written outside this
+     module): [trnsl_inhale_a0] is handed to [ParseAssertionLang.parse_a] as a plain
+     callback, whose signature can't carry an extra threaded accumulator, and the
+     resulting [conjunct_idx] only needs to agree, position-for-position, between the
+     original declaration's clause and any of its substituted occurrences -- both walked
+     by this same left-to-right recursion -- for [get_or_generate_inv_function]'s cache
+     key to line up. *)
+  let conjunct_counter = ref 0
+
+  let next_conjunct_idx () =
+    let idx = !conjunct_counter in
+    conjunct_counter := idx + 1;
+    idx
+
   let rec skolemize_inhale_expr (universal_quants : universal_quants)
       (subst : expr qual_ident_map) (expr : expr) : expr Rewriter.t =
     let open Rewriter.Syntax in
@@ -2223,12 +2412,13 @@ module TrnslInhale = struct
         let* () = Rewriter.set_user_state None in
         Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_binds_for_inhale
 
-  let rec trnsl_inhale_expr ?cmnt ?spec_error ~loc (expr : expr) :
+  let rec trnsl_inhale_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
       Stmt.t Rewriter.t =
-    ParseAssertionLang.parse_a ?cmnt ?spec_error ~loc [] expr
+    conjunct_counter := 0;
+    ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
       ~parse_a0:trnsl_inhale_a0
 
-  and trnsl_inhale_a0 ?cmnt ?spec_error ~loc
+  and trnsl_inhale_a0 ?cmnt ?spec_error ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -2306,8 +2496,10 @@ module TrnslInhale = struct
           Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name)
         in
 
-        let* inv_fn_expr =
-          generate_inv_function ~loc universal_quants conds e1 ~arg_expr:l_expr
+        let conjunct_idx = next_conjunct_idx () in
+        let* inv_fn_expr, env_actual_exprs =
+          get_or_generate_inv_function ~loc universal_quants conds e1
+            ~arg_expr:l_expr ~spec_source ~conjunct_idx
         in
 
         let inv_exprs =
@@ -2317,61 +2509,59 @@ module TrnslInhale = struct
           )
         in
 
-        
+
         (* inhale forall i, j :: { v(i,j) } own(f(i, j), fld, v(i, j))
           *   ~~>
-          * forall i, j :: { v(i,j) } 
+          * forall i, j :: { v(i,j) }
           *  v[
-          *      i <- inv(f(i, j), i, j)#0, 
+          *      i <- inv(f(i, j), i, j)#0,
           *      j <- inv(f(i, j), i, j)#1
           *  ] (var substitution)
-          *    = 
+          *    =
           *  v(i, j) *)
         let* forward_trigger_assertions =
           let inv_fn_qi_opt = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> Some inv_fn_qi
             | _ -> None
           ) in
-          
+
           begin match inv_fn_qi_opt with
-          | None -> 
+          | None ->
             Rewriter.return []
 
           | Some inv_fn_qi ->
-            let+ env_local_var_decls =
-              compute_env_local_var_decls ~loc e1 conds universal_quants
-            in
-            
-            let inv_expr = 
-              Expr.mk_app ~loc 
-                ~typ:(Type.mk_prod loc 
+            let inv_expr =
+              Expr.mk_app ~loc
+                ~typ:(Type.mk_prod loc
                   (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
-                )  
-                (Expr.Var inv_fn_qi) 
-                  (e1 :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
-            in 
+                )
+                (Expr.Var inv_fn_qi)
+                  (e1 :: env_actual_exprs)
+            in
 
             (* i ~> inv(f(i, j), i, j)#0
             * j ~> inv(f(i, j), i, j)#1*)
             let renaming_map =
-              List.foldi univ_vars_list 
+              List.foldi univ_vars_list
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
                     ~data:(
-                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else
                         Expr.mk_tuple_lookup ~loc inv_expr index))
             in
 
-            List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
-              let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+            Rewriter.return (
+              List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
 
-              Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                (Expr.mk_impl 
-                  (Expr.mk_and conds)
-                  (Expr.mk_eq ~loc trg_term new_trg_term))
+                Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                  Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                  (Expr.mk_impl
+                    (Expr.mk_and conds)
+                    (Expr.mk_eq ~loc trg_term new_trg_term))
+                )
               )
             )
           end
@@ -2541,74 +2731,73 @@ module TrnslInhale = struct
 
         let new_token_expr = Expr.from_var_decl new_token_var in
 
-        let* inv_fn_expr =
-          generate_inv_function ~loc universal_quants conds token
-            ~arg_expr:new_token_expr
+        let conjunct_idx = next_conjunct_idx () in
+        let* inv_fn_expr, env_actual_exprs =
+          get_or_generate_inv_function ~loc universal_quants conds token
+            ~arg_expr:new_token_expr ~spec_source ~conjunct_idx
         in
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
-            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else
               Expr.mk_tuple_lookup inv_fn_expr index
           )
         in
 
         (* inhale forall i, j :: { v(i,j) } AUPred(proc, gamma(i,j), (a_1, ... a_k)(i, j))
         *   ~~>
-        * forall i, j :: { v(i,j) } 
+        * forall i, j :: { v(i,j) }
         *  (a_1, ... a_k)[
-        *      i <- inv(f(i, j), i, j)#0, 
+        *      i <- inv(f(i, j), i, j)#0,
         *      j <- inv(f(i, j), i, j)#1
         *  ] (var substitution)
-        *    = 
+        *    =
         *  (a_1, ... a_k)(i, j) *)
         let* forward_trigger_assertions =
           let inv_fn_qi_opt = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> Some inv_fn_qi
             | _ -> None
           ) in
-          
+
           begin match inv_fn_qi_opt with
-          | None -> 
+          | None ->
             Rewriter.return []
 
           | Some inv_fn_qi ->
-            let+ env_local_var_decls =
-              compute_env_local_var_decls ~loc token conds universal_quants
-            in
-            
-            let inv_expr = 
-              Expr.mk_app ~loc 
-                ~typ:(Type.mk_prod loc 
+            let inv_expr =
+              Expr.mk_app ~loc
+                ~typ:(Type.mk_prod loc
                   (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
-                )  
-                (Expr.Var inv_fn_qi) 
-                  (token :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
-            in 
+                )
+                (Expr.Var inv_fn_qi)
+                  (token :: env_actual_exprs)
+            in
 
             (* i ~> inv(f(i, j), i, j)#0
               * j ~> inv(f(i, j), i, j)#1*)
             let renaming_map =
-              List.foldi univ_vars_list 
+              List.foldi univ_vars_list
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
                     ~data:(
-                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else
                         Expr.mk_tuple_lookup ~loc inv_expr index
                   )
                 )
             in
 
-            List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
-              let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+            Rewriter.return (
+              List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
 
-              Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                (Expr.mk_impl 
-                  (Expr.mk_and conds)
-                  (Expr.mk_eq ~loc trg_term new_trg_term))
+                Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                  Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                  (Expr.mk_impl
+                    (Expr.mk_and conds)
+                    (Expr.mk_eq ~loc trg_term new_trg_term))
+                )
               )
             )
           end
@@ -2843,75 +3032,74 @@ module TrnslInhale = struct
                     List.drop args (List.length pred_in_types)
                   in
 
-                  let* inv_fn_expr =
-                    generate_inv_function ~loc universal_quants conds
+                  let conjunct_idx = next_conjunct_idx () in
+                  let* inv_fn_expr, env_actual_exprs =
+                    get_or_generate_inv_function ~loc universal_quants conds
                       (Expr.mk_tuple actual_arg_in_exprs)
-                      ~arg_expr:in_vars_tuple
+                      ~arg_expr:in_vars_tuple ~spec_source ~conjunct_idx
                   in
 
                   let inv_exprs =
                     List.mapi univ_vars_list ~f:(fun index var_decl ->
-                      if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+                      if Int.(List.length univ_vars_list = 1) then inv_fn_expr else
                         Expr.mk_tuple_lookup inv_fn_expr index
                     )
                   in
 
                   (* inhale forall i, j :: { v(i,j) } pred(ins(i, j); outs(i, j))
                   *   ~~>
-                  * forall i, j :: { v(i,j) } 
+                  * forall i, j :: { v(i,j) }
                   *  outs[
-                  *      i <- inv(f(i, j), i, j)#0, 
+                  *      i <- inv(f(i, j), i, j)#0,
                   *      j <- inv(f(i, j), i, j)#1
                   *  ] (var substitution)
-                  *    = 
+                  *    =
                   *  outs(i, j) *)
                   let* forward_trigger_assertions =
                     let inv_fn_qi_opt = (match inv_fn_expr with
                       | App ((Expr.Var inv_fn_qi), args, _) -> Some inv_fn_qi
                       | _ -> None
                     ) in
-                    
+
                     begin match inv_fn_qi_opt with
-                    | None -> 
+                    | None ->
                       Rewriter.return []
 
                     | Some inv_fn_qi ->
-                      let+ env_local_var_decls =
-                        compute_env_local_var_decls ~loc (Expr.mk_tuple actual_arg_in_exprs) conds universal_quants
-                      in
-                      
-                      let inv_expr = 
-                        Expr.mk_app ~loc 
-                          ~typ:(Type.mk_prod loc 
+                      let inv_expr =
+                        Expr.mk_app ~loc
+                          ~typ:(Type.mk_prod loc
                             (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
-                          )  
-                          (Expr.Var inv_fn_qi) 
-                            ((Expr.mk_tuple actual_arg_in_exprs) :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
-                      in 
-            
+                          )
+                          (Expr.Var inv_fn_qi)
+                            ((Expr.mk_tuple actual_arg_in_exprs) :: env_actual_exprs)
+                      in
+
                       (* i ~> inv(f(i, j), i, j)#0
                       * j ~> inv(f(i, j), i, j)#1*)
                       let renaming_map =
-                        List.foldi univ_vars_list 
+                        List.foldi univ_vars_list
                           ~init:(Map.empty (module QualIdent))
                           ~f:(fun index map var_decl ->
                             Map.set map
                               ~key:(QualIdent.from_ident var_decl.var_name)
                               ~data:(
-                                if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                                if Int.(List.length univ_vars_list = 1) then inv_expr else
                                   Expr.mk_tuple_lookup ~loc inv_expr index
                             )
                           )
                       in
 
-                      List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
-                        let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
-            
-                        Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                          Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                          (Expr.mk_impl 
-                            (Expr.mk_and conds)
-                            (Expr.mk_eq ~loc trg_term new_trg_term))
+                      Rewriter.return (
+                        List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                          let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+
+                          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                            (Expr.mk_impl
+                              (Expr.mk_and conds)
+                              (Expr.mk_eq ~loc trg_term new_trg_term))
+                          )
                         )
                       )
                     end
@@ -3061,13 +3249,13 @@ module TrnslInhale = struct
             (* Logs.debug (fun m -> m "TrnslInhale.trnsl_inhale_a0: unknown inhale expr"); *)
             unsupported_expr_error expr)
 
-  let rec trnsl_assume_expr ?cmnt ?spec_error ~loc (expr : expr) :
+  let rec trnsl_assume_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
       Stmt.t Rewriter.t =
-    ParseAssertionLang.parse_a ?cmnt ?spec_error ~loc [] expr
+    ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
       ~parse_a0:trnsl_assume_a0
   (* trnsl_assume_a ?cmnt ~loc [] expr *)
 
-  and trnsl_assume_a0 ?cmnt ?spec_error ~loc
+  and trnsl_assume_a0 ?cmnt ?spec_error ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -3294,6 +3482,15 @@ module TrnslInhale = struct
 end
 
 module TrnslExhale = struct
+  (* See [TrnslInhale.conjunct_counter]: same purpose, own counter, reset by
+     [trnsl_exhale_expr]. *)
+  let conjunct_counter = ref 0
+
+  let next_conjunct_idx () =
+    let idx = !conjunct_counter in
+    conjunct_counter := idx + 1;
+    idx
+
   let rec rewriter_user_annot_elim_exists_from_exhales (stmt : Stmt.t) :
       (Stmt.t, expr option) Rewriter.t_ext =
     let open Rewriter.Syntax in
@@ -4433,12 +4630,13 @@ module TrnslExhale = struct
         Rewriter.Stmt.descend stmt
           ~f:rewriter_find_witness_elim_exists_from_exhale
 
-  let rec trnsl_exhale_expr ?cmnt ?spec_error ~loc (expr : expr) :
+  let rec trnsl_exhale_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
       Stmt.t Rewriter.t =
-    ParseAssertionLang.parse_a ?cmnt ?spec_error ~loc [] expr
+    conjunct_counter := 0;
+    ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
       ~parse_a0:trnsl_exhale_a0
 
-  and trnsl_exhale_a0 ?cmnt ?(spec_error = []) ~loc
+  and trnsl_exhale_a0 ?cmnt ?(spec_error = []) ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -4513,73 +4711,73 @@ module TrnslExhale = struct
           Expr.mk_var ~typ:l_var.var_type (QualIdent.from_ident l_var.var_name)
         in
 
-        let* inv_fn_expr =
-          generate_inv_function ~loc universal_quants conds e1 ~arg_expr:l_expr
+        let conjunct_idx = next_conjunct_idx () in
+        let* inv_fn_expr, env_actual_exprs =
+          get_or_generate_inv_function ~loc universal_quants conds e1
+            ~arg_expr:l_expr ~spec_source ~conjunct_idx
         in
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
-            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else
               Expr.mk_tuple_lookup inv_fn_expr index
           )
         in
 
         (* exhale forall i, j :: { v(i,j) } own(f(i, j), fld, v(i, j))
           *   ~~>
-          * forall i, j :: { v(i,j) } 
+          * forall i, j :: { v(i,j) }
           *  v[
-          *      i <- inv(f(i, j), i, j)#0, 
+          *      i <- inv(f(i, j), i, j)#0,
           *      j <- inv(f(i, j), i, j)#1
           *  ] (var substitution)
-          *    = 
+          *    =
           *  v(i, j) *)
         let* forward_trigger_assertions =
           let inv_fn_qi_opt = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> Some inv_fn_qi
             | _ -> None
           ) in
-          
+
           begin match inv_fn_qi_opt with
-          | None -> 
+          | None ->
             Rewriter.return []
 
           | Some inv_fn_qi ->
-            let+ env_local_var_decls =
-              compute_env_local_var_decls ~loc e1 conds universal_quants
-            in
-            
-            let inv_expr = 
-              Expr.mk_app ~loc 
-                ~typ:(Type.mk_prod loc 
+            let inv_expr =
+              Expr.mk_app ~loc
+                ~typ:(Type.mk_prod loc
                   (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
-                )  
-                (Expr.Var inv_fn_qi) 
-                  (e1 :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
-            in 
+                )
+                (Expr.Var inv_fn_qi)
+                  (e1 :: env_actual_exprs)
+            in
 
             (* i ~> inv(f(i, j), i, j)#0
               * j ~> inv(f(i, j), i, j)#1*)
             let renaming_map =
-              List.foldi univ_vars_list 
+              List.foldi univ_vars_list
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
                     ~data:(
-                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else
                         Expr.mk_tuple_lookup ~loc inv_expr index
                     )
               )
             in
 
-            List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
-              let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+            Rewriter.return (
+              List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
 
-              Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                (Expr.mk_impl 
-                  (Expr.mk_and conds)
-                  (Expr.mk_eq ~loc trg_term new_trg_term))
+                Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                  Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                  (Expr.mk_impl
+                    (Expr.mk_and conds)
+                    (Expr.mk_eq ~loc trg_term new_trg_term))
+                )
               )
             )
           end
@@ -4746,74 +4944,73 @@ module TrnslExhale = struct
 
         let new_token_expr = Expr.from_var_decl new_token_var in
 
-        let* inv_fn_expr =
-          generate_inv_function ~loc universal_quants conds token
-            ~arg_expr:new_token_expr
+        let conjunct_idx = next_conjunct_idx () in
+        let* inv_fn_expr, env_actual_exprs =
+          get_or_generate_inv_function ~loc universal_quants conds token
+            ~arg_expr:new_token_expr ~spec_source ~conjunct_idx
         in
 
         let inv_exprs =
           List.mapi univ_vars_list ~f:(fun index var_decl ->
-            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+            if Int.(List.length univ_vars_list = 1) then inv_fn_expr else
               Expr.mk_tuple_lookup inv_fn_expr index
           )
         in
 
         (* exhale forall i, j :: { v(i,j) } AUPred(proc, gamma(i,j), (a_1, ... a_k)(i, j))
         *   ~~>
-        * forall i, j :: { v(i,j) } 
+        * forall i, j :: { v(i,j) }
         *  (a_1, ... a_k)[
-        *      i <- inv(f(i, j), i, j)#0, 
+        *      i <- inv(f(i, j), i, j)#0,
         *      j <- inv(f(i, j), i, j)#1
         *  ] (var substitution)
-        *    = 
+        *    =
         *  (a_1, ... a_k)(i, j) *)
         let* forward_trigger_assertions =
           let inv_fn_qi_opt = (match inv_fn_expr with
             | App ((Expr.Var inv_fn_qi), args, _) -> Some inv_fn_qi
             | _ -> None
           ) in
-          
+
           begin match inv_fn_qi_opt with
-          | None -> 
+          | None ->
             Rewriter.return []
 
           | Some inv_fn_qi ->
-            let+ env_local_var_decls =
-              compute_env_local_var_decls ~loc token conds universal_quants
-            in
-            
-            let inv_expr = 
-              Expr.mk_app ~loc 
-                ~typ:(Type.mk_prod loc 
+            let inv_expr =
+              Expr.mk_app ~loc
+                ~typ:(Type.mk_prod loc
                   (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
-                )  
-                (Expr.Var inv_fn_qi) 
-                  (token :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
-            in 
+                )
+                (Expr.Var inv_fn_qi)
+                  (token :: env_actual_exprs)
+            in
 
             (* i ~> inv(f(i, j), i, j)#0
               * j ~> inv(f(i, j), i, j)#1*)
             let renaming_map =
-              List.foldi univ_vars_list 
+              List.foldi univ_vars_list
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun index map var_decl ->
                   Map.set map
                     ~key:(QualIdent.from_ident var_decl.var_name)
                     ~data:(
-                      if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                      if Int.(List.length univ_vars_list = 1) then inv_expr else
                         Expr.mk_tuple_lookup ~loc inv_expr index
                   )
                 )
             in
 
-            List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
-              let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+            Rewriter.return (
+              List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
 
-              Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                (Expr.mk_impl 
-                  (Expr.mk_and conds)
-                  (Expr.mk_eq ~loc trg_term new_trg_term))
+                Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                  Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                  (Expr.mk_impl
+                    (Expr.mk_and conds)
+                    (Expr.mk_eq ~loc trg_term new_trg_term))
+                )
               )
             )
           end
@@ -5056,27 +5253,28 @@ module TrnslExhale = struct
                     List.drop args (List.length pred_in_types)
                   in
 
-                  let* inv_fn_expr =
-                    generate_inv_function ~loc universal_quants conds
+                  let conjunct_idx = next_conjunct_idx () in
+                  let* inv_fn_expr, env_actual_exprs =
+                    get_or_generate_inv_function ~loc universal_quants conds
                       (Expr.mk_tuple actual_arg_in_exprs)
-                      ~arg_expr:in_vars_tuple
+                      ~arg_expr:in_vars_tuple ~spec_source ~conjunct_idx
                   in
 
                   let inv_exprs =
                     List.mapi univ_vars_list ~f:(fun index var_decl ->
-                      if Int.(List.length univ_vars_list = 1) then inv_fn_expr else 
+                      if Int.(List.length univ_vars_list = 1) then inv_fn_expr else
                         Expr.mk_tuple_lookup inv_fn_expr index
                     )
                   in
 
                   (* exhale forall i, j :: { v(i,j) } pred(ins(i, j); outs(i, j))
                   *   ~~>
-                  * forall i, j :: { v(i,j) } 
+                  * forall i, j :: { v(i,j) }
                   *  outs[
-                  *      i <- inv(f(i, j), i, j)#0, 
+                  *      i <- inv(f(i, j), i, j)#0,
                   *      j <- inv(f(i, j), i, j)#1
                   *  ] (var substitution)
-                  *    = 
+                  *    =
                   *  outs(i, j) *)
                   let* forward_trigger_assertions =
                     let inv_fn_qi_opt = (match inv_fn_expr with
@@ -5085,46 +5283,44 @@ module TrnslExhale = struct
                     ) in
 
                     begin match inv_fn_qi_opt with
-                    | None -> 
+                    | None ->
                       Rewriter.return []
 
                     | Some inv_fn_qi ->
-                      let+ env_local_var_decls =
-                        compute_env_local_var_decls ~loc (Expr.mk_tuple actual_arg_in_exprs) conds universal_quants
-                      in
-                      
-                      let inv_expr = 
-                        Expr.mk_app ~loc 
-                          ~typ:(Type.mk_prod loc 
+                      let inv_expr =
+                        Expr.mk_app ~loc
+                          ~typ:(Type.mk_prod loc
                             (List.map univ_vars_list ~f:(fun var_decl -> var_decl.var_type))
-                          )  
-                          (Expr.Var inv_fn_qi) 
-                            ((Expr.mk_tuple actual_arg_in_exprs) :: (List.map env_local_var_decls ~f:Expr.from_var_decl))
-                      in 
-            
+                          )
+                          (Expr.Var inv_fn_qi)
+                            ((Expr.mk_tuple actual_arg_in_exprs) :: env_actual_exprs)
+                      in
+
                       (* i ~> inv(f(i, j), i, j)#0
                       * j ~> inv(f(i, j), i, j)#1*)
                       let renaming_map =
-                        List.foldi univ_vars_list 
+                        List.foldi univ_vars_list
                           ~init:(Map.empty (module QualIdent))
                           ~f:(fun index map var_decl ->
                             Map.set map
                               ~key:(QualIdent.from_ident var_decl.var_name)
                               ~data: (
-                                if Int.(List.length univ_vars_list = 1) then inv_expr else 
+                                if Int.(List.length univ_vars_list = 1) then inv_expr else
                                   Expr.mk_tuple_lookup ~loc inv_expr index
                               )
                           )
                       in
 
-                      List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
-                        let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
-            
-                        Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
-                          Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
-                          (Expr.mk_impl 
-                            (Expr.mk_and conds)
-                            (Expr.mk_eq ~loc trg_term new_trg_term))
+                      Rewriter.return (
+                        List.map (List.concat universal_quants.triggers) ~f:(fun trg_term ->
+                          let new_trg_term = Expr.alpha_renaming trg_term renaming_map in
+
+                          Stmt.mk_assume_expr ~loc  ~cmnt:"forward_trigger_assertion" (
+                            Expr.mk_binder ~trigs:universal_quants.triggers ~loc ~typ:Type.bool Forall univ_vars_list
+                            (Expr.mk_impl
+                              (Expr.mk_and conds)
+                              (Expr.mk_eq ~loc trg_term new_trg_term))
+                          )
                         )
                       )
                     end
@@ -5299,7 +5495,8 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
               let* stmt =
                 TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment
-                  ~spec_error:spec.spec_error ~loc:s.stmt_loc expr
+                  ~spec_error:spec.spec_error ?spec_source:spec.spec_source
+                  ~loc:s.stmt_loc expr
               in
               Rewriter.return stmt
           | Exhale ->
@@ -5307,7 +5504,8 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
 
               let* stmt =
                 TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment
-                  ~spec_error:spec.spec_error ~loc:s.stmt_loc expr
+                  ~spec_error:spec.spec_error ?spec_source:spec.spec_source
+                  ~loc:s.stmt_loc expr
               in
               Rewriter.return stmt
           | Assume ->
