@@ -4020,8 +4020,23 @@ module TrnslExhale = struct
                   ~f:(Ident.equal var_decl.var_name))
           in
 
+          (* For an RA whose rep type is a bare primitive (e.g. `MaxNat`'s `rep type T
+             = Int`), expand_type_expr has no nominal wrapper to preserve, so
+             `Expr.to_type val_expr` comes back as just `Int` by this point -- unlike
+             an ADT-backed RA (e.g. `Auth`), whose data type keeps the module
+             identity. Look the RA up directly from the field declaration itself as a
+             fallback for core_witness_comp to use when the expression's type alone
+             isn't enough to identify it. *)
+          let* field_ra_hint =
+            let* field_symbol = Rewriter.find_and_reify field_name in
+            match field_symbol with
+            | FieldDef f -> Rewriter.return (Some (ProgUtils.field_get_ra_qual_iden f))
+            | _ -> Rewriter.return None
+          in
+
           let* witnesses =
-            core_witness_comp relevant_vars concrete_expr val_expr false
+            core_witness_comp ~ra_hint:field_ra_hint relevant_vars concrete_expr
+              val_expr false
           in
 
           let* () = Rewriter.Logs.debug (fun printers m ->
@@ -4163,8 +4178,9 @@ module TrnslExhale = struct
           | _ -> Rewriter.return witness_map)
       | _ -> Rewriter.return witness_map
 
-    and core_witness_comp (exists : var_decl list) (concrete_expr : expr)
-        (given_expr : expr) (exact : bool) : expr ident_map Rewriter.t =
+    and core_witness_comp ?(ra_hint : qual_ident option = None)
+        (exists : var_decl list) (concrete_expr : expr) (given_expr : expr)
+        (exact : bool) : expr ident_map Rewriter.t =
       let open Rewriter.Syntax in
       let* () = Rewriter.Logs.debug (fun printers m ->
           m
@@ -4180,9 +4196,12 @@ module TrnslExhale = struct
             match Expr.to_type given_expr with
             | App (Var ra_name, [], _) -> QualIdent.pop ra_name
             | App (Data (ra_name, _), [], _) -> QualIdent.pop ra_name
-            | tp ->
-                Error.type_error (Expr.to_loc given_expr)
-                  ("Expected an RA type; found: " ^ Type.to_string tp)
+            | tp -> (
+                match ra_hint with
+                | Some ra_name -> ra_name
+                | None ->
+                    Error.type_error (Expr.to_loc given_expr)
+                      ("Expected an RA type; found: " ^ Type.to_string tp))
           in
 
           let* orig_name, ra_def, _ =
