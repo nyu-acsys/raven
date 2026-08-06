@@ -623,16 +623,17 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         (loop_ret_var_decls, loop_ret_renaming_map, curr_loop_ret_var_decls, loop_local_var_decls)
       in
 
-      (* A loop's synthesized recursive callable inherits [Lemma] from its enclosing
-         callable (instead of always being a [Proc]) so that a loop inside a lemma is
-         just another self-recursive [Lemma] as far as everything downstream is
-         concerned (decreases-group analysis, ghost/non-ghost call checking, etc.) --
-         no separate loop-specific handling needed anywhere else. *)
-      let* loop_proc_name, enclosing_call_decl_kind =
+      (* A loop's synthesized callable is a [Lemma] iff the loop itself is in a
+         ghost scope (which also covers a loop inside an enclosing [Lemma]).
+         [Rewriter.enter]'s ghost-scope check looks only at the newly-entered
+         callable's own kind, not the context it was introduced in, so a
+         [Proc] synthesized from a loop inside ghost code would type-check
+         with ghost-scope off and reject the ghost state the loop touches. *)
+      let* loop_proc_name, is_ghost_scope =
         let* proc_name = Rewriter.current_scope_id in
-        let+ enclosing = Rewriter.find_and_reify_callable proc_name in
+        let+ is_ghost_scope = Rewriter.is_ghost_scope in
         ( Ident.fresh stmt.stmt_loc (proc_name.qual_base.ident_name ^ "_loop"),
-          enclosing.Callable.call_decl.call_decl_kind )
+          is_ghost_scope )
       in
 
       (* Create new map which replaces loop_arg vars with loop_ret vars, for post conditions *)
@@ -690,8 +691,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
         in
 
         {
-          Callable.call_decl_kind =
-            (match enclosing_call_decl_kind with Lemma -> Lemma | _ -> Proc);
+          Callable.call_decl_kind = (if is_ghost_scope then Lemma else Proc);
           call_decl_name = loop_proc_name;
           call_decl_formals = loop_arg_var_decls;
           call_decl_returns = loop_ret_var_decls;
