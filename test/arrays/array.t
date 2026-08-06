@@ -1,2 +1,2 @@
-  $ dune exec -- raven --shh ./array.rav --smt-timeout 20000
+  $ dune exec -- raven --shh ./array.rav
   Verification successful.
