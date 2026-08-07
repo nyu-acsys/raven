@@ -1,4 +1,4 @@
-// Small, self-contained demonstrations for Part 5d. `auto pred`/`auto lemma`
+// Small, self-contained demonstrations for Part 5.5. `auto pred`/`auto lemma`
 // and ISC-style triggers are demonstrated in-place, already, by the
 // fork-join, atomic-contracts, and iterated-star capstones (fork_join.rav's
 // `auto pred token`; ticket_lock_atomic.rav's `auto pred locked`; every

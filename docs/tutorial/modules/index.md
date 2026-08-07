@@ -355,7 +355,7 @@ Every lock and every concurrent data structure from Part 4 uses the module syste
 parameterize proofs and implementations *exactly* this way. In particular, a lock abstracts
 over an abstract resource it protects, left as abstract as `Counter`'s `valid` is here. The
 `LockResource`/`Lock` interface split you'll meet in Part 5 is this chapter's pattern, applied
-to threads instead of sequential callers. Part 5a's fork/join capstone pushes the same pattern
+to threads instead of sequential callers. Part 5.1's fork/join capstone pushes the same pattern
 one step further: its `Instance` interface abstracts over not just a resource, but an entire
 *computation* that produces one (`proc task() returns (r: R) ensures resource(r)`): the functor
 parameterizes an actual piece of behavior, not only a specification. Similarly, client code of

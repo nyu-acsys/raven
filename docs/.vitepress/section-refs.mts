@@ -4,7 +4,7 @@
 // 1. Numbering: a `##` heading with an explicit `{#sec:some-id}` anchor
 //    (VitePress's own anchor plugin already turns that into the heading's
 //    `id` and strips the marker from the rendered text, before this runs)
-//    gets its registry-computed number ("1.1", "5b.3", ...) rendered right
+//    gets its registry-computed number ("1.1", "5.2.3", ...) rendered right
 //    after the opening tag. The number is never hand-typed in the heading
 //    itself -- inserting, removing, or reordering a numbered section
 //    elsewhere in the same chapter is exactly what the registry is

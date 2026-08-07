@@ -1,9 +1,9 @@
-# 5b. Atomic Contracts — Capstone: The Ticket Lock
+# 5.2. Atomic Contracts — Capstone: The Ticket Lock
 
 *Assumes: Part 3's interface/functor pattern (`LockResource`, a module parameterizing over an
 abstract protected resource) and Part 4's invariant fold/unfold discipline, ghost fields, and
 `fpu`. Not re-taught here — if either feels shaky, skim [Part 3](../../modules/) and
-[Part 4](../../ghost-and-concurrency/) first; [5a](../fork-join/) exercises the same
+[Part 4](../../ghost-and-concurrency/) first; [5.1](../fork-join/) exercises the same
 material end to end and is good warm-up if you haven't done it yet.*
 
 A **ticket lock**, also called the *bakery algorithm*, is a mutual-exclusion lock where waiting
@@ -11,7 +11,7 @@ threads are served in first-come-first-served order, like a numbered queue at a 
 A thread calling `acquire` atomically draws a ticket number and then spins, watching a shared
 "now serving" counter, until it's called.
 
-If 5a's fork/join felt comfortable, most of the shape here should too: the same
+If 5.1's fork/join felt comfortable, most of the shape here should too: the same
 existentials-plus-boolean-flag invariant pattern, the same `LockResource`/`Lock`-as-functor
 structure as `Instance`/`ForkJoin` there. What's new in this section is what happens once mutual
 exclusion (rather than a one-shot handoff) needs a *retry loop*, and the more ergonomic way —
@@ -228,8 +228,8 @@ one-step discipline applies to.
 
 ## What's next
 
-[5c](../iterated-star/) is the next capstone: an array of independently-lockable counters,
+[5.3](../iterated-star/) is the next capstone: an array of independently-lockable counters,
 which needs a way to own an entire *family* of resources — one per array slot — at once, rather
-than one at a time. [5d](../automation/) then collects the smaller automation features
-(implicit parameters, witness computation, `auto` lemmas, triggers) that all three capstones
+than one at a time. [5.5](../automation/) then collects the smaller automation features
+(implicit parameters, witness computation, `auto` lemmas, triggers) that all four capstones
 lean on without calling out by name.

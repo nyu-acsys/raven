@@ -20,7 +20,7 @@ plain type, which is what everything from Part 4 onward is built on.
 | macros | `auto pred` | Automatically inlined, no fold/unfold. |
 | `inhale`/`exhale` | `inhale`/`exhale` | Same ghost statements, same role — Raven's own compilation pipeline reduces everything else down to exactly these two, the same way Viper's does. |
 | `domain` | ADTs (`data`), or the module system | A Viper `domain` is closest to a restricted `interface`: a rep type plus axioms characterizing it, but no functors, no implementations, no functor composition. For a simple algebraic sum type, Raven's `data` is the direct match; for anything with more structure (a domain used to axiomatize a whole data structure), Raven's module system is the more general — and more capable — analogue. |
-| quantified permissions | iterated separating conjunctions (Part 5c) | Raven's ISC design is explicitly built on Viper's, generalized to arbitrary resource algebras rather than just permissions. |
+| quantified permissions | iterated separating conjunctions (Part 5.3) | Raven's ISC design is explicitly built on Viper's, generalized to arbitrary resource algebras rather than just permissions. |
 | magic wand (`A --* B`) | *(not currently supported)* | A magic wand asserts "give up `A` and you get `B` back" — handy for partially unfolding a recursive predicate (walk partway into a linked list, leave a wand behind that remembers how to fold it back up once you're done with the part you unfolded) without committing to the whole structure at once. Raven has no equivalent construct yet; the same traversals are instead written by carrying the "rest of the structure" explicitly as a separate resource, which is more verbose but doesn't need anything new. |
 | `decreases e1, ..., en` | `decreases e1, ..., en` | Same contract syntax, same lexicographic-tuple concept — but Viper has no equivalent of Raven's user-definable `WellFoundedOrder` instances (Part 3). |
 | no built-in concurrency | invariants, ghost fields/RAs, atomic contracts, prophecy variables | The actual gap Raven is designed to fill; see the Part 4/5 story in this tutorial, and Appendix D for prophecies specifically. |
@@ -61,7 +61,7 @@ discharged by Z3. Concretely:
 |---|---|
 | Invariant `Inv N P` | `inv` |
 | A camera | A resource algebra implementing `Library.ResourceAlgebra` (Appendix A) — deliberately the *non*-step-indexed, non-higher-order fragment of Iris's cameras, since that's what stays SMT-automatable. |
-| Atomic triple `<< P >> e << v, Q >>` | `atomic requires`/`atomic ensures` (Part 5b) |
+| Atomic triple `<< P >> e << v, Q >>` | `atomic requires`/`atomic ensures` (Part 5.2) |
 | Ghost state ownership `own γ a` | `ghost field`, `own(e.g, v)` |
 | Frame-preserving update | `fpu` |
 | View shift / mask-aware invariant opening | Raven's atomicity analysis, checked automatically rather than proved by hand each time |

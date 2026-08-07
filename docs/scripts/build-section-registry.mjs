@@ -1,7 +1,7 @@
 // Computes the section-numbering registry: a map from every numbered
 // section's stable id (`sec:foo`, written in the markdown source as a
 // heading's `{#sec:foo}` anchor) to the section number it should currently
-// render as (`1.1`, `5b.3`, `A.2`, ...), its title, and the page it lives on.
+// render as (`1.1`, `5.2.3`, `A.2`, ...), its title, and the page it lives on.
 //
 // This is what makes numbering and cross-references symbolic rather than
 // hand-typed: a heading's number is *this file's position in a list*, not
@@ -49,10 +49,11 @@ const PART_LABELS = {
   'tutorial/ownership/': '2',
   'tutorial/modules/': '3',
   'tutorial/ghost-and-concurrency/': '4',
-  'tutorial/advanced/fork-join/': '5a',
-  'tutorial/advanced/atomic-contracts/': '5b',
-  'tutorial/advanced/iterated-star/': '5c',
-  'tutorial/advanced/automation/': '5d',
+  'tutorial/advanced/fork-join/': '5.1',
+  'tutorial/advanced/atomic-contracts/': '5.2',
+  'tutorial/advanced/iterated-star/': '5.3',
+  'tutorial/advanced/prophecies/': '5.4',
+  'tutorial/advanced/automation/': '5.5',
   'tutorial/appendix/resource-algebras': 'A',
   'tutorial/appendix/from-other-tools': 'B',
 }

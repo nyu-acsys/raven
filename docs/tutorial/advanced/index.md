@@ -8,8 +8,9 @@ grows across the whole tutorial" pitch from the [introduction](../index.md) — 
 backreferences to *specific* earlier subsections rather than re-teaching them. Each section
 opens with a one-line "Assumes" pointer naming exactly what's carried over from earlier parts.
 
-- **[5a. Capstone: Fork/Join](./fork-join/)** — no new mechanism, just Parts 1–4's whole toolkit,
+- **[5.1. Capstone: Fork/Join](./fork-join/)** — no new mechanism, just Parts 1–4's whole toolkit,
   applied once, start to finish, including the first attempt that doesn't work.
-- **[5b. Atomic Contracts — Capstone: The Ticket Lock](./atomic-contracts/)**
-- **[5c. Iterated Separating Conjunctions — Capstone: A Shelf of Counters](./iterated-star/)**
-- **[5d. Automation Features](./automation/)**
+- **[5.2. Atomic Contracts — Capstone: The Ticket Lock](./atomic-contracts/)**
+- **[5.3. Iterated Separating Conjunctions — Capstone: A Shelf of Counters](./iterated-star/)**
+- **[5.4. Prophecies — Capstone: A Distributed Counter](./prophecies/)**
+- **[5.5. Automation Features](./automation/)**

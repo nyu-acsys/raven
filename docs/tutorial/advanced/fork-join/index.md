@@ -1,9 +1,9 @@
-# 5a. Capstone: Fork/Join
+# 5.1. Capstone: Fork/Join
 
-*Assumes: Parts 1–4, in full. Unlike 5b/5c, this capstone doesn't lean on any single new
+*Assumes: Parts 1–4, in full. Unlike 5.2/5.3, this capstone doesn't lean on any single new
 mechanism — it's Parts 1–4's own toolkit (ownership, shared invariants, ghost fields and resource
 algebras, the module system), applied once, start to finish, on a data structure you haven't seen
-yet. If any of that still feels shaky, this is worth doing before 5b/5c, not after.*
+yet. If any of that still feels shaky, this is worth doing before 5.2/5.3, not after.*
 
 Fork/join protects a different shape of synchronization than anything in Part 4: not "many
 threads repeatedly touch shared state safely" (the counter), but "one thread computes a result of
@@ -219,6 +219,6 @@ instantiated and used, the same way `UsePlain = UseCounter[PlainCounter]` did ba
 
 ## What's next
 
-[5b](../atomic-contracts/) revisits this same existentials-plus-boolean-flag invariant shape for
+[5.2](../atomic-contracts/) revisits this same existentials-plus-boolean-flag invariant shape for
 repeated mutual exclusion instead of a one-shot handoff, and introduces atomic contracts as a
 more ergonomic way to state what an invariant-based proof already proves by hand.

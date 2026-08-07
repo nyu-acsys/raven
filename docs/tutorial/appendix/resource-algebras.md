@@ -66,7 +66,7 @@ without anything re-stating them.
 
 ## Worked examples: `Excl` and `DisjSet` {#sec:ra-worked-examples}
 
-Part 5a's [`fork_join.rav`](../advanced/fork-join/fork_join.rav) already had you read one
+Part 5.1's [`fork_join.rav`](../advanced/fork-join/fork_join.rav) already had you read one
 of these end to end — its hand-rolled `Excl` (a non-duplicable token: any two non-`id` elements
 compose to the invalid `top`) is about as simple as a resource algebra gets, and every axiom
 above is either immediate from its `case` split or, for `fpuAllowed` (`false`, unconditionally),
@@ -74,7 +74,7 @@ vacuously satisfied. Worth a second look now that you've seen the general defini
 piece of that module maps directly onto one of the six things this appendix's interface asks
 for.
 
-A second, slightly richer example — the one Raven's own ticket lock (Part 5b) actually uses, via
+A second, slightly richer example — the one Raven's own ticket lock (Part 5.2) actually uses, via
 `Auth[DisjSet[Int]]`, to track which tickets have been issued:
 
 ```raven

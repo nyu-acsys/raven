@@ -1,4 +1,4 @@
-# 5c. Iterated Separating Conjunctions — Capstone: A Shelf of Counters
+# 5.3. Iterated Separating Conjunctions — Capstone: A Shelf of Counters
 
 *Assumes: Part 2's separating conjunction and frame rule ({{ref sec:separating-conjunction}},
 {{ref sec:proc-contracts-revisited}}), and Part 4's shared invariants ({{ref sec:shared-invariants}}).
@@ -124,7 +124,11 @@ reaching a specific cell to touch it costs an unfold/fold per link along the way
 
 ## What's next
 
-[5d](../automation/) collects the smaller automation features — implicit parameters, witness
-computation, `auto` lemmas, triggers, `assert ... with` — that this capstone and 5b's ticket
-lock (and, in its own way, 5a's fork/join) have all been quietly leaning on without calling out
-by name (the `{S.loc(s, i)}` triggers above, for instance).
+[5.4](../prophecies/) is the next — and last — capstone: a distributed counter whose `get`
+operation doesn't always know its own linearization point without help from a concurrent `incr`,
+solved by combining prophecy variables with a "helping protocol" built from everything up to this
+point — one-shot handoffs from 5.1, atomic contracts from 5.2, and, in the counter's own invariant,
+an ISC over a *set* rather than an index range. [5.5](../automation/) then collects the smaller
+automation features — implicit parameters, witness computation, `auto` lemmas, triggers,
+`assert ... with` — that all four capstones have been quietly leaning on without calling out by
+name (the `{S.loc(s, i)}` triggers above, for instance).

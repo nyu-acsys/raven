@@ -1,10 +1,10 @@
-# 5d. Automation Features
+# 5.5. Automation Features
 
-All three capstones you just finished were quietly leaning on a handful of smaller features that
+All four capstones you just finished were quietly leaning on a handful of smaller features that
 make Raven's automation more usable in practice. None of them are new *reasoning* — everything
 here is still ownership, invariants, and resource algebras from Parts 2–4 — they're ergonomics.
 Code for the first and last sections is in [`automation.rav`](./automation.rav); the middle two
-are already demonstrated in place by 5a–5c, and cited rather than duplicated.
+are already demonstrated in place by 5.1–5.4, and cited rather than duplicated.
 
 ## Implicit parameters {#sec:implicit-parameters}
 
@@ -29,7 +29,7 @@ machinery in the same exercise would have been one new idea too many at the time
 ## Implicit ghost parameters, for procs and lemmas {#sec:implicit-ghost-parameters}
 
 A `proc` or `lemma` parameter can be marked implicit the exact same way — every atomic-contract
-signature in 5b (`implicit ghost r: R`) and 5a's `Instance` interface already lean on this — but
+signature in 5.2 (`implicit ghost r: R`) and 5.1's `Instance` interface already lean on this — but
 without `pred`'s uniqueness side condition, because there's nothing to be ambiguous about here.
 `sized`'s `n` has to be *searched for*, since `sized(c)` is an opaque, foldable resource that
 could in principle be witnessed by more than one value unless Raven separately checks otherwise.
@@ -52,7 +52,7 @@ sitting there in plain sight.
 ## Witness computation {#sec:witness-computation}
 
 When you `fold` a predicate or invariant whose body existentially quantifies over some variables
-— `shelfInv`'s `counts`, `lock_inv`'s `n`/`c`/`b` in 5b, `is_forkjoin`'s `o`/`b` in 5a — you're
+— `shelfInv`'s `counts`, `lock_inv`'s `n`/`c`/`b` in 5.2, `is_forkjoin`'s `o`/`b` in 5.1 — you're
 *proving* that existential: some concrete value is already implied by the surrounding proof
 state (the value you just wrote to a field, say), and folding has to establish that the body
 holds for it. Raven tries to work out that witness automatically rather than leaving it to the
@@ -144,7 +144,7 @@ Two related but different uses of `auto`:
   contract isn't (`This specification of auto lemma %s is not pure`). This is a hard boundary,
   not just a style guideline: there's no such thing as an `auto` lemma about ownership.
 - An **`auto pred`** is automatically inlined wherever it's used. No `fold`/`unfold` is ever
-  needed, unlike every predicate you've seen so far. 5a's fork/join capstone is built entirely
+  needed, unlike every predicate you've seen so far. 5.1's fork/join capstone is built entirely
   around watching this happen: `fork_join_explicit.rav`'s plain `pred token` needs an explicit
   proof for `token_unique` and an explicit call to it inside `join`; marking `token` `auto` in
   `fork_join.rav` is the *only* change that shrinks the lemma's proof to an empty body and

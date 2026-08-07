@@ -139,7 +139,7 @@ Raven ships a small library of these constructions under `Library` — `Frac` (f
 permissions, which you've actually been using since Part 2: every concrete field is secretly
 wrapped in this one), `Excl` (a token exactly one thread can hold), `Agree` (values that must
 agree to combine), `Auth` (an authoritative view plus distributable fragments), and monotone
-counters like `MaxNat`. You can also define your own — Part 5a does exactly that, and Appendix A
+counters like `MaxNat`. You can also define your own — Part 5.1 does exactly that, and Appendix A
 gives the formal definition every such algebra has to satisfy.
 
 ## Frame-preserving updates {#sec:frame-preserving-updates}
@@ -297,7 +297,7 @@ not something the type checker enforces for you: give any ghost recursion you wr
 
 This chapter's toolkit — shared invariants, masks, ghost fields, resource algebras, `fpu`, ghost
 blocks — *is* the core of what makes Raven different from a purely sequential verifier. Part 5
-doesn't introduce new logical machinery on top of any of it; its first capstone (5a, fork/join)
+doesn't introduce new logical machinery on top of any of it; its first capstone (5.1, fork/join)
 puts exactly this toolkit to work on a complete data structure with nothing added (including a
 `{! ... !}` block of its own, for a branch whose condition depends on ghost state exactly the way
 {{ref sec:ghost-blocks-erasure}}'s does), and the two after that introduce two conveniences (atomic contracts, iterated
@@ -340,8 +340,9 @@ moves up); a checked solution is in [`solutions/min_max_tracker.rav`](./solution
 ## What's next
 
 [Part 5](../advanced/) doesn't ask you to learn new reasoning — it puts everything from
-Parts 1–4 to work on three full case studies: fork/join (5a, no new mechanism at all, built up
-from a first attempt that doesn't work), a ticket lock (5b, using *atomic contracts*, a more
-ergonomic way to state what you've already been proving with invariants), and an array of
-lockable counters (5c, using *iterated separating conjunctions* to own an unboundedly large
-family of resources at once).
+Parts 1–4 to work on four full case studies: fork/join (5.1, no new mechanism at all, built up
+from a first attempt that doesn't work), a ticket lock (5.2, using *atomic contracts*, a more
+ergonomic way to state what you've already been proving with invariants), an array of
+lockable counters (5.3, using *iterated separating conjunctions* to own an unboundedly large
+family of resources at once), and a distributed counter (5.4, using *prophecy variables* and a
+"helping protocol" to handle a linearization point that depends on the future).

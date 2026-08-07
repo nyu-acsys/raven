@@ -70,6 +70,14 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:injectivity-side-condition': 'The injectivity side condition',
   'sec:touching-one-slot': 'Touching one slot, without disturbing the rest',
 
+  'sec:predicting-the-future': "Predicting a value that hasn't been decided yet",
+  'sec:reading-the-coin': "A coin that already knows its own answer",
+  'sec:future-dependent-linearization': 'A linearization point that depends on the future',
+  'sec:the-helping-protocol': 'The helping protocol',
+  'sec:counter-invariant': 'The counter\'s invariant, and an ISC over a set',
+  'sec:get-predict-register': 'get: predict, register, maybe finish on the spot',
+  'sec:bump-all-helping': 'incr and bump_all: helping on someone else\'s behalf',
+
   'sec:implicit-parameters': 'Implicit parameters',
   'sec:implicit-ghost-parameters': 'Implicit ghost parameters',
   'sec:witness-computation': 'Witness computation',
@@ -164,7 +172,7 @@ export default defineConfig({
   ignoreDeadLinks: [/\.rav$/],
 
   themeConfig: {
-    logo: '/logo.png',
+    logo: '/logo-small.png',
 
     nav: [
       { text: 'Tutorial', link: '/tutorial/' },
@@ -244,7 +252,7 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/tutorial/advanced/' },
           {
-            text: '5a. Capstone: Fork/Join',
+            text: '5.1. Capstone: Fork/Join',
             link: '/tutorial/advanced/fork-join/',
             collapsed: true,
             items: [
@@ -254,7 +262,7 @@ export default defineConfig({
             ]
           },
           {
-            text: '5b. Atomic Contracts',
+            text: '5.2. Atomic Contracts',
             link: '/tutorial/advanced/atomic-contracts/',
             collapsed: true,
             items: [
@@ -264,7 +272,7 @@ export default defineConfig({
             ]
           },
           {
-            text: '5c. Iterated Separating Conjunctions',
+            text: '5.3. Iterated Separating Conjunctions',
             link: '/tutorial/advanced/iterated-star/',
             collapsed: true,
             items: [
@@ -275,7 +283,18 @@ export default defineConfig({
             ]
           },
           {
-            text: '5d. Automation Features',
+            text: '5.4. Capstone: Prophecies',
+            link: '/tutorial/advanced/prophecies/',
+            collapsed: true,
+            items: [
+              ...numberedItems('/tutorial/advanced/prophecies/'),
+              { text: 'Beyond counters: the same protocol elsewhere', link: '/tutorial/advanced/prophecies/#beyond-counters-the-same-protocol-elsewhere' },
+              { text: 'Debugging Corner', link: '/tutorial/advanced/prophecies/#debugging-corner' },
+              { text: "What's next", link: '/tutorial/advanced/prophecies/#what-s-next' }
+            ]
+          },
+          {
+            text: '5.5. Automation Features',
             link: '/tutorial/advanced/automation/',
             collapsed: true,
             items: [

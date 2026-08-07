@@ -42,7 +42,7 @@ module Excl : Library.ResourceAlgebra {
 }
 
 // The interface `ForkJoin` is parameterized over: whatever `task` computes,
-// and whatever resource it hands back. Compare this to Part 5b's
+// and whatever resource it hands back. Compare this to Part 5.2's
 // `LockResource`/`Lock` split -- same pattern (a functor abstracting over a
 // client-supplied resource and a client-supplied operation producing it),
 // applied here to a one-shot computation instead of a lock.
@@ -84,7 +84,7 @@ module ForkJoin[I: Instance] {
   // The shared invariant. `o` tracks whether the worker has posted a result
   // yet; `b` distinguishes "posted, but not yet claimed" from "already
   // claimed" -- exactly the same existentials-plus-boolean-flag shape as
-  // Part 5b's `lock_inv`, just for a handoff instead of a lock. While no
+  // Part 5.2's `lock_inv`, just for a handoff instead of a lock. While no
   // result has been posted (`o == none`), neither `token(p)` nor
   // `resource(...)` is owned by the invariant at all -- both are still with
   // whoever holds them at that point (the joiner holds the token from
@@ -122,7 +122,7 @@ module ForkJoin[I: Instance] {
   // posted yet, it retries. Nothing here proves this retry loop terminates
   // (there's no `decreases` measure a caller could see; termination depends
   // on the *other* thread eventually finishing), which mirrors exactly how
-  // Part 5b's `wait_loop` retries a spin lock's acquire.
+  // Part 5.2's `wait_loop` retries a spin lock's acquire.
   proc join(p: Ref) returns (r: R)
     requires is_forkjoin(p) && token(p)
     ensures resource(r)
