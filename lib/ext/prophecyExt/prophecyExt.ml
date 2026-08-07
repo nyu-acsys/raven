@@ -672,6 +672,42 @@ module ProphecyExt (Cont : ListApi) = struct
            permission left to read the field. That is what makes a one-shot
            prophecy actually resolvable at most once, rather than merely by
            convention. *)
+
+        (* Checked explicitly, with a message specific to this extension, so that a
+           missing resource here doesn't surface `field_read_stmt`'s own generic
+           "Could not assert sufficient permissions to access this field" -- which
+           would leak the fact that prophecies are encoded as a hidden field on a
+           `Ref` under the hood. The message only states what's actually missing --
+           the resource isn't available *at this point in the proof* -- not why: it
+           may genuinely already have been spent by an earlier `Proph.resolve`, but
+           it could just as well still be held, only somewhere this proof hasn't
+           gotten it from yet (an unopened invariant, say). Existentially quantified
+           over the field's value: we don't know it yet (that's what
+           `field_read_stmt` is about to find out), only that we still hold the
+           resource at all. If this holds, `field_read_stmt`'s own check trivially
+           holds too, so this is the only message a user ever sees. *)
+        let has_resource_check_stmt =
+          let v_var_decl = Type.mk_var_decl ~ghost:true (Ident.fresh loc "v") ~loc proph_read_tp in
+          let has_resource_expr =
+            Expr.mk_binder ~loc ~typ:Type.bool Exists [v_var_decl]
+              (Expr.mk_app ~loc ~typ:Type.perm Expr.Own [
+                Expr.from_var_decl proph_id_var_def.var_decl;
+                Expr.mk_var ~typ:prophecy_field.field_type prophecy_field_qi;
+                Expr.from_var_decl v_var_decl;
+                Expr.mk_real ~loc 1.0;
+              ])
+          in
+          let error =
+            ( Error.Verification, loc,
+              "This prophecy's resource is not available here -- it may already have \
+               been resolved, or it may still be held elsewhere in the proof" )
+          in
+          Stmt.mk_assert_expr ~loc
+            ~cmnt:("[EXT] ProphecyExt: check the one-shot prophecy's resource is available to resolve")
+            ~spec_error:[ Stmt.mk_const_spec_error error ]
+            has_resource_expr
+        in
+
         let prophetic_assertion =
           Stmt.mk_assume_expr ~loc
           ~cmnt:("[EXT] ProphecyExt: Prophecising Assertion")
@@ -693,7 +729,7 @@ module ProphecyExt (Cont : ListApi) = struct
         in
 
         Rewriter.return (Stmt.mk_block_stmt ~loc ~ghost:true
-          [field_read_stmt; prophetic_assertion; exhale_stmt])
+          [has_resource_check_stmt; field_read_stmt; prophetic_assertion; exhale_stmt])
       else
 
       (* Add assumption about the prophecy, as an `assume` stmt.
