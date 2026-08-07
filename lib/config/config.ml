@@ -1,7 +1,7 @@
 (** Configuration and command line options *)
 
 (** Version string *)
-let version = "1.2.0"
+let version = "1.3.0"
 
 (** Version of the machine-readable interface an editor integration drives raven
     through: the JSON diagnostic schema emitted under [--lsp-mode], and the flags such
