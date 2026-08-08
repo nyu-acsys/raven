@@ -1,0 +1,48 @@
+// An interface may declare both a field and operations over it, and be
+// implemented with a manifest field standing for that field.
+//
+// The two specs below are the same assertion but name the field differently:
+// the interface's own spec says `Impl.f` after the merge substitution, while the
+// implementation's resolves through the alias to `g`. The exact-match contract
+// check compares specs syntactically, so it is given the manifest binding and
+// compares modulo it.
+
+field g: Int
+
+interface HasF {
+  field f: Int
+
+  proc read(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.f, v, 1.0)
+    ensures  own(x.f, v, 1.0) && r == v
+
+  proc write(x: Ref, ghost v: Int)
+    requires own(x.f, v, 1.0)
+    ensures  own(x.f, 7, 1.0)
+}
+
+module Impl : HasF {
+  field f = g
+
+  proc read(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.f, v, 1.0)
+    ensures  own(x.f, v, 1.0) && r == v
+  { r := x.f; }
+
+  proc write(x: Ref, ghost v: Int)
+    requires own(x.f, v, 1.0)
+    ensures  own(x.f, 7, 1.0)
+  { x.f := 7; }
+}
+
+module Client {
+  // The caller holds the target under its own name and calls through the
+  // interface's operations.
+  proc use(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.g, v, 1.0)
+    ensures  own(x.g, 7, 1.0) && r == v
+  {
+    r := Impl.read(x, v);
+    Impl.write(x, v);
+  }
+}

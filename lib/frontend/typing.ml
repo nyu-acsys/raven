@@ -2837,7 +2837,14 @@ module ProcessModule = struct
     let (var : Stmt.var_def) = { var_decl = { var_decl with var_type }; var_init; var_is_free } in
     Module.(VarDef var)
 
-  let check_implements_symbol interface_ident (symbol : Symbol.t)
+  (* [manifest_subst] maps a manifest field's name, as the interface's own
+     specs spell it after the merge substitution (`Impl.f`), to the field it
+     stands for (`g`). Without it an interface that declares both a field and
+     operations over it cannot be implemented with a manifest field: the two
+     specs are the same assertion but name the field differently, and the
+     exact-match check below compares them syntactically. *)
+  let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
+      interface_ident (symbol : Symbol.t)
       (orig_symbol : Symbol.t) : unit Rewriter.t =
     let open Rewriter.Syntax in
     let loc = Symbol.to_loc symbol in
@@ -2979,8 +2986,7 @@ module ProcessModule = struct
         else
           let* sm =
             make_subst call_def.call_decl.call_decl_formals
-              orig_call_def.call_decl.call_decl_formals
-              (Map.empty (module QualIdent))
+              orig_call_def.call_decl.call_decl_formals manifest_subst
           in
           let pre_ok =
             List.for_all2 call_def.call_decl.call_decl_precond
@@ -3869,13 +3875,25 @@ module ProcessModule = struct
     let* mod_def = Rewriter.List.map merged_symbols ~f:process_instr in
 
     (* Check symbols against what is specified in the interface *)
+    let manifest_subst =
+      List.fold mod_def
+        ~init:(Map.empty (module QualIdent))
+        ~f:(fun acc -> function
+          | Module.SymbolDef
+              (FieldDef { field_name; field_alias = Some target; _ }) ->
+              Map.set acc
+                ~key:(QualIdent.append mod_qual_ident field_name)
+                ~data:target
+          | _ -> acc)
+    in
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
         | SymbolDef symbol ->
             let ident = Symbol.to_name symbol in
             Map.find symbols_to_check ident
             |> Rewriter.Option.iter ~f:(fun (owning_interface, orig_symbol) ->
-                check_implements_symbol owning_interface symbol orig_symbol)
+                check_implements_symbol ~manifest_subst owning_interface symbol
+                  orig_symbol)
         | _ -> Rewriter.return ())
     in
 
