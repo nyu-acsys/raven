@@ -75,10 +75,14 @@ module type Ext = sig
       extension that adds statements should answer for its own constructors (both
       extension points come through here, [BasicStmtExt] and [StmtExt] alike) and
       defer the rest to [Cont]. The base of the chain answers [NonAtomicStep], the
-      conservative choice: an unclassified statement is rejected inside an atomic
-      block rather than being waved through as free. Outside one, the answer is
-      never consulted, so a construct that can't appear in an atomic block anyway
-      need not implement this. *)
+      conservative choice: an unclassified statement is rejected while an invariant
+      or atomic update is open rather than being waved through as free. When none
+      is open the answer is never consulted, so a construct that cannot appear
+      there anyway need not implement this.
+
+      Note this is the *logical* region -- an open invariant or atomic update --
+      not the syntactic `atomic { ... }` block, which makes its own body a single
+      step and is handled in the core. *)
   val stmt_ext_atomicity : Stmt.stmt_ext -> Stmt.stmt_atomicity
 
   (** Whether *this extension itself* (not [Cont]) declares the given constructor --

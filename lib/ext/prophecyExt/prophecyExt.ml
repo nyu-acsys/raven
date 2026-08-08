@@ -611,7 +611,7 @@ module ProphecyExt (Cont : ListApi) = struct
       in
 
       (* Create a block_stmt containing all the statements. This block is indeed a ghost block, so setting ~ghost:true *)
-      Rewriter.return (Stmt.mk_block_stmt ~loc ~ghost:true
+      Rewriter.return (Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost
         [havoc_stmt1; havoc_stmt2; proph_new_stmt]
       )
 
@@ -728,7 +728,7 @@ module ProphecyExt (Cont : ListApi) = struct
           ])
         in
 
-        Rewriter.return (Stmt.mk_block_stmt ~loc ~ghost:true
+        Rewriter.return (Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost
           [has_resource_check_stmt; field_read_stmt; prophetic_assertion; exhale_stmt])
       else
 
@@ -770,7 +770,7 @@ module ProphecyExt (Cont : ListApi) = struct
         Stmt.{stmt_desc = Basic (FieldWrite field_write_desc); stmt_loc = loc;}
       in
 
-      Rewriter.return (Stmt.mk_block_stmt ~loc ~ghost:true
+      Rewriter.return (Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost
         [field_read_stmt; prophetic_assertion; list_non_empty; field_write_stmt])
 
     | ResolveProph _, _ ->

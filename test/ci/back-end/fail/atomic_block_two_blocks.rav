@@ -1,0 +1,18 @@
+// Two atomic blocks are two steps. The block makes its own body one step; it
+// does not make everything around it free.
+
+field f: Int
+inv cell_inv(c: Ref) { exists n: Int :: own(c.f, n, 1.0) }
+
+proc two_blocks(c: Ref)
+  requires cell_inv(c)
+{
+  unfold cell_inv(c)
+  atomic {
+    c.f := 1
+  }
+  atomic {
+    c.f := 2
+  }
+  fold cell_inv(c)
+}

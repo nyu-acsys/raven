@@ -35,6 +35,12 @@ type atomicity_check = {
   invs_opened : invs list;
   atomic_step_taken : bool;
   mask : Callable.mask;
+  (* Set while analysing the body of a physically atomic block. The block as a
+     whole already cost one step in the enclosing context, and no intermediate
+     state inside it is observable, so step counting is suspended within.
+     Invariant and atomic-update tracking continues, so anything opened inside
+     must still be closed inside. *)
+  in_atomic_block : bool;
 }
 
 (* Renders an open instance the way the [unfold] named it, e.g. [i(x)]. *)
@@ -159,7 +165,8 @@ let find_matching_open_inv (atomicity_state : atomicity_check)
   | None -> List.hd candidates
 
 let take_atomic_step ~loc (state : atomicity_check) : atomicity_check =
-  if List.is_empty state.au_opened && List.is_empty state.invs_opened then state
+  if state.in_atomic_block then state
+  else if List.is_empty state.au_opened && List.is_empty state.invs_opened then state
   else
     match state.atomic_step_taken with
     | false -> { state with atomic_step_taken = true }
@@ -169,10 +176,11 @@ let take_atomic_step ~loc (state : atomicity_check) : atomicity_check =
            or atomic update"
 
 let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
-  if List.is_empty state.au_opened && List.is_empty state.invs_opened then state
+  if state.in_atomic_block then state
+  else if List.is_empty state.au_opened && List.is_empty state.invs_opened then state
   else
     Error.verification_error loc
-      "Cannot take a non-atomic step inside an atomic block"
+      "Cannot take a non-atomic step while an invariant or atomic update is open"
 
 (* An extension statement is opaque here -- this pass has to run before the
    lowering that would reveal what it does, since e.g. a `cas` lowers to a read
@@ -1050,6 +1058,32 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
+    | Block { block_kind = Atomic; _ } ->
+        (* One step to the enclosing context, however many statements inside. *)
+        let outer = take_atomic_step ~loc atomicity_state in
+        let* _ =
+          Rewriter.set_user_state { outer with in_atomic_block = true }
+        in
+        let* stmt = Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds in
+        let* inner = Rewriter.current_user_state in
+        (* Anything opened inside must be closed inside: an invariant held across
+           the block's boundary is held across a step boundary, which is what the
+           one-step rule exists to police. *)
+        let* () =
+          if
+            List.length inner.invs_opened <> List.length outer.invs_opened
+            || List.length inner.au_opened <> List.length outer.au_opened
+          then
+            Error.verification_error loc
+              "An invariant or atomic update opened inside an atomic block must \
+               also be closed inside it"
+          else Rewriter.return ()
+        in
+        let* _ =
+          Rewriter.set_user_state
+            { inner with in_atomic_block = outer.in_atomic_block }
+        in
+        Rewriter.return stmt
     | Block block_desc -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
     | Cond cond_desc ->
         let* then_stmt =
@@ -1160,6 +1194,7 @@ let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
           au_opened = [];
           invs_opened = [];
           atomic_step_taken = false;
+          in_atomic_block = false;
           mask = Option.value c.call_decl.call_decl_needs_mask ~default:[];
         }
       (Rewriter.Callable.rewrite_stmts ~f:rewrite_au_cmnds c)

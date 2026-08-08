@@ -1613,7 +1613,21 @@ module Stmt = struct
   }
 
   and cond_desc = { cond_test : expr option; cond_then : t; cond_else : t; cond_if_assumes_false : bool; }
-  and block_desc = { block_body : t list; block_is_ghost: bool }
+  and block_kind =
+    | Regular
+    | Ghost  (** `{! ... !}` *)
+    | Atomic
+        (** `atomic { ... }`: a *physically* atomic block, whose body counts as a
+            single machine step however many statements it contains. A trusted
+            claim about the target machine -- Raven has no scheduler to enforce
+            it -- and what lets a body that really takes several steps discharge a
+            logically atomic contract. Distinct from [spec_atomic], which is the
+            *logical* atomicity of a contract and is checked.
+
+            The three are mutually exclusive: ghost code takes no physical steps,
+            so there is no such thing as a ghost atomic block. *)
+
+  and block_desc = { block_body : t list; block_kind : block_kind }
 
   and stmt_desc =
     | Block of block_desc
@@ -1771,12 +1785,17 @@ module Stmt = struct
             fprintf ppf "choose %a@ or@ %a"
               pr cdesc.cond_then pr cdesc.cond_else
         )
-      | Block { block_body = stmts; block_is_ghost = false } ->
+      | Block { block_body = stmts; block_kind = Atomic } ->
+          begin match stmts with
+            | [] -> fprintf ppf "atomic { }"
+            | _ -> fprintf ppf "atomic {@\n  @[%a@]@\n}" pr_block stmts
+          end
+      | Block { block_body = stmts; block_kind = Regular } ->
           begin match stmts with
             | [] -> fprintf ppf "{ }"
             | _ -> fprintf ppf "{@\n  @[%a@]@\n}" pr_block stmts
           end
-      | Block { block_body = stmts; block_is_ghost = true } ->
+      | Block { block_body = stmts; block_kind = Ghost } ->
           begin match stmts with
             | [] -> fprintf ppf "{! !}"
             | _ -> fprintf ppf "{!@\n  @[%a@]@\n!}" pr_block stmts
@@ -1799,17 +1818,26 @@ module Stmt = struct
 
   (** Constructors *)
 
-  let mk_skip ~loc = { stmt_desc = Block { block_body = []; block_is_ghost = false }; stmt_loc = loc }
+  let block_is_ghost (b : block_desc) =
+    match b.block_kind with Ghost -> true | Regular | Atomic -> false
 
-  let mk_block ?(ghost=false) stmts = 
+  let block_is_atomic (b : block_desc) =
+    match b.block_kind with Atomic -> true | Regular | Ghost -> false
+
+  let mk_skip ~loc = { stmt_desc = Block { block_body = []; block_kind = Regular }; stmt_loc = loc }
+
+  let mk_block ?(kind = Regular) stmts =
+    (* Plain nested blocks are flattened away; a ghost or atomic one must not be,
+       or its kind -- and with it, for an atomic block, its claim to be a single
+       step -- is silently lost. *)
     let stmts = List.concat_map stmts ~f:(function
-      | { stmt_desc = Block { block_body; block_is_ghost = false }; _ } -> block_body
+      | { stmt_desc = Block { block_body; block_kind = Regular }; _ } -> block_body
       | s -> [s]) in
 
-    Block { block_body = stmts; block_is_ghost = ghost }
+    Block { block_body = stmts; block_kind = kind }
 
-  let mk_block_stmt ~loc ?(ghost=false) stmts = 
-    { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
+  let mk_block_stmt ~loc ?(kind = Regular) stmts =
+    { stmt_desc = mk_block ~kind stmts; stmt_loc = loc }
 
   let mk_assume_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
     let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in

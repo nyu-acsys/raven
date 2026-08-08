@@ -683,7 +683,7 @@ let find_absolute qual_ident s = (s, Base.Map.find s.state_table.tbl_symbols qua
 
 let exit_block s = exit_ghost s
 let enter_block block s =
-  let is_ghost_scope = Base.List.hd_exn s.state_ghost_scope || block.Stmt.block_is_ghost in
+  let is_ghost_scope = Base.List.hd_exn s.state_ghost_scope || Stmt.block_is_ghost block in
   enter_ghost is_ghost_scope s
 
 let rec module_add_descendants (mdef: Module.t) (new_symbols_node: NewSymbolsTree.t) =

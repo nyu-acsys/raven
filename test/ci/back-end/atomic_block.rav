@@ -1,0 +1,64 @@
+// `atomic { ... }` -- a *physically* atomic block. Its body counts as one
+// machine step however many statements it contains.
+//
+// This is a trusted claim about the target machine: Raven has no scheduler to
+// enforce it. It is distinct from the `atomic` modifier on a contract, which
+// states a callable's *logical* atomicity and is checked. The two compose --
+// see cas_like below, where the block is what lets a body that really takes
+// several steps discharge a logically atomic contract.
+
+field f: Int
+
+inv cell_inv(c: Ref) {
+  exists n: Int :: own(c.f, n, 1.0)
+}
+
+// Two writes cost two steps and would be rejected while an invariant is open
+// (see fail/atomic_block_two_blocks.rav); wrapped in a block they cost one.
+proc two_writes(c: Ref)
+  requires cell_inv(c)
+{
+  unfold cell_inv(c)
+  atomic {
+    c.f := 1
+    c.f := 2
+  }
+  fold cell_inv(c)
+}
+
+pred cell(x: Ref; v: Int) { own(x.f, v, 1.0) }
+
+// The motivating case: a read plus a conditional write really is several steps,
+// but the hardware performs it as one, and the block is where that is claimed.
+proc cas_like(x: Ref, old_val: Int, new_val: Int, implicit ghost v: Int)
+  returns (b: Bool)
+  atomic requires cell(x, v)
+  atomic ensures  cell(x, v == old_val ? new_val : v) && b == (v == old_val)
+{
+  atomic {
+    ghost val phi := bindAU()
+    v := openAU(phi)
+    unfold cell(x, v)
+    val cur: Int := x.f
+    if (cur == old_val) {
+      x.f := new_val
+      b := true
+    } else {
+      b := false
+    }
+    fold cell(x, v == old_val ? new_val : v)
+    commitAU(phi, b)
+  }
+}
+
+inv cas_inv(x: Ref) { exists n: Int :: cell(x, n) }
+
+// And the caller side is unchanged: a call to a logically atomic procedure
+// already costs exactly one step.
+proc caller(x: Ref)
+  requires cas_inv(x)
+{
+  unfold cas_inv(x)
+  val b: Bool := cas_like(x, 0, 1)
+  fold cas_inv(x)
+}

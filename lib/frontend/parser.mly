@@ -498,6 +498,7 @@ stmt_desc:
 | s = if_then_else_stmt { s }
 | s = while_stmt { s }
 | s = ghost_block { s }
+| s = atomic_block { s }
 ;
 
 stmt_no_short_if:
@@ -705,7 +706,17 @@ var_modifier:
 
 ghost_block:
 | LGHOSTBRACE; stmts = list(stmt); RGHOSTBRACE {
-  [Stmt.mk_block ~ghost:true (List.flatten stmts)]
+  [Stmt.mk_block ~kind:Stmt.Ghost (List.flatten stmts)]
+}
+;
+
+(* A *physically* atomic block: its body counts as one machine step however many
+   statements it contains. Trusted -- Raven has no scheduler to enforce it. Not
+   to be confused with the `atomic` modifier on a contract, which states the
+   *logical* atomicity of a callable and is checked. *)
+atomic_block:
+| ATOMIC; LBRACE; stmts = list(stmt); RBRACE {
+  [Stmt.mk_block ~kind:Stmt.Atomic (List.flatten stmts)]
 }
 ;
 

@@ -1,0 +1,16 @@
+// An invariant opened inside a block must be closed inside it. Held across the
+// block's boundary it is held across a step boundary, which is exactly what the
+// one-step rule exists to police.
+
+field f: Int
+inv cell_inv(c: Ref) { exists n: Int :: own(c.f, n, 1.0) }
+
+proc leaks(c: Ref)
+  requires cell_inv(c)
+{
+  atomic {
+    unfold cell_inv(c)
+    c.f := 1
+  }
+  fold cell_inv(c)
+}

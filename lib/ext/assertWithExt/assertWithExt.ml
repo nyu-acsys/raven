@@ -128,7 +128,7 @@ module AssertWithExt (Cont : ListApi) = struct
         let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) ~spec_error:spec.spec_error e1 in
         let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
         let checks_block =
-          Stmt.mk_block_stmt ~loc ~ghost:true (vardefs @ [ proof; assert_stmt; assume_false ])
+          Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost (vardefs @ [ proof; assert_stmt; assume_false ])
         in
         let nondet_var =
           Type.
@@ -168,7 +168,7 @@ module AssertWithExt (Cont : ListApi) = struct
               stmt_loc = loc
             }
         in
-        let whole_block = Stmt.mk_block_stmt ~loc ~ghost:true [ nondet_var_def; cond_stmt ] in
+        let whole_block = Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost [ nondet_var_def; cond_stmt ] in
         (* Type-checking [assume_spec_stmt]'s [spec.spec_form] here goes through the
            ordinary [Spec (Assume, _)] path, which checks it against [Type.perm] --
            the same wide expected type ordinary `assume`/`assert` accept. That's too

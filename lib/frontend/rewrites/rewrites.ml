@@ -2707,7 +2707,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
         Rewriter.List.map block_stmt.block_body ~f:rewrite_ssa_stmts
       in
 
-      Stmt.mk_block_stmt ~ghost:block_stmt.block_is_ghost ~loc:s.stmt_loc
+      Stmt.mk_block_stmt ~kind:block_stmt.block_kind ~loc:s.stmt_loc
         block_body
       (* { s with stmt_desc = Block { block_stmt with block_body; } } *)
   | Cond cond_stmt when not cond_stmt.cond_if_assumes_false ->
@@ -2803,7 +2803,7 @@ let rec rewrite_ssa_stmts (s : Stmt.t) :
       assert (
         Poly.(
           cond_stmt.cond_else.stmt_desc
-          = Block { block_is_ghost = false; block_body = [] }));
+          = Block { block_kind = Regular; block_body = [] }));
 
       let* orig_map = Rewriter.current_user_state in
 
