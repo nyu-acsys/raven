@@ -1,9 +1,9 @@
 // Mirrors every `.rav` file under `tutorial/` into `public/`, keeping its path
 // relative to the site root, so that links like `./hit_counter_pure.rav` in the
 // tutorial's prose -- which point at real source files, not other pages --
-// resolve to something VitePress actually serves. A page at /tutorial/01-sequential/
+// resolve to something VitePress actually serves. A page at /tutorial/sequential/
 // links to ./hit_counter_pure.rav, so the copy has to land at
-// public/tutorial/01-sequential/hit_counter_pure.rav. Run automatically via the `predev`/`prebuild` npm
+// public/tutorial/sequential/hit_counter_pure.rav. Run automatically via the `predev`/`prebuild` npm
 // scripts; safe to re-run any time.
 //
 // Wipes and rebuilds the mirror from scratch on every run (rather than only

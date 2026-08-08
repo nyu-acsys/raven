@@ -138,6 +138,14 @@ module ErrorCreditsExt (Cont : ListApi) = struct
     | EC_Rand _ | EC_RandVal _ | EC_RandFn _ | EC_RandList _ | EC_Contra -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
+  (* Sampling is a real program step, however many error credits it consumes on the
+     side; deriving a contradiction from the credits is pure ghost reasoning. *)
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | EC_Rand _ | EC_RandVal _ | EC_RandFn _ | EC_RandList _ -> Stmt.AtomicStep
+    | EC_Contra -> Stmt.NoStep
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
   (* contract_ext_is_recognized: no contract_ext constructors here, so Cont's default
      is used. *)
 

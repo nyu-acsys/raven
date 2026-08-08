@@ -1,0 +1,33 @@
+// A standalone example for §7: the type-checking rules that keep ghost code
+// from being able to affect anything the compiled (non-ghost) program
+// actually does -- which is exactly what makes it sound to erase before
+// compilation in the first place.
+
+field count: Int
+
+proc bump(c: Ref, implicit ghost v: Int)
+  requires own(c.count, v)
+  ensures own(c.count, v + 1)
+{
+  var x := c.count
+  c.count := x + 1
+}
+
+proc demo(c: Ref, implicit ghost v: Int)
+  requires own(c.count, v)
+  ensures own(c.count, v + 1)
+{
+  // An ordinary ghost local: same declaration syntax as `var`, just erased.
+  ghost var predictedNext: Int := v + 1
+  bump(c)
+
+  // An *ordinary* (non-ghost) `if` can't branch on a ghost condition -- see
+  // broken/ghost_leak.rav. Wrapping the whole statement in `{! ... !}`
+  // marks it as ghost itself, and inside a ghost block, ghost conditions
+  // (and ghost-only assertions, like the one below) are fine.
+  {!
+    if (predictedNext > 0) {
+      assert predictedNext == v + 1
+    }
+  !}
+}

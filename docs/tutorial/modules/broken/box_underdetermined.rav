@@ -1,0 +1,27 @@
+// This file is DELIBERATELY BROKEN -- it will not type-check, on purpose.
+//
+// `mkTag` takes no argument at all, so nothing at the call site pins down
+// what `T` should be. Expect:
+//
+//   [Error] Type Error: Cannot infer a type argument for parameter T of Box;
+//   write an explicit instantiation, e.g. `module M_X = Box[...]`
+//
+// Implicit instantiation (§6) only works when the call's own arguments (or,
+// for `get`-style destructors, the receiver's already-inferred type) supply
+// enough information to solve every formal. When they don't, the fix is
+// exactly what the error suggests: instantiate `Box` explicitly, once, under
+// a name, and call through that instead.
+module Box[T: Library.Type] {
+  rep type S = data {
+    case box(unwrap: T)
+    case tag(flag: Bool)
+  }
+
+  func mkTag() returns (res: S) {
+    tag(true)
+  }
+}
+
+proc demo() {
+  var n := Box.mkTag()
+}

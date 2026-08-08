@@ -16,12 +16,12 @@ interface LCList {
     ghost field authSet: AuthSetRef
 
     pred inFP(r: Ref, n: Ref) {
-        own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+        own(r.authSet, AuthSetRef.frag(SetRefRA.set({|n|})) )
     }
 
     pred cssR(r: Ref, fp: Set[Ref], locks: Map[Ref, Int], nexts: Map[Ref, Ref], vals: Map[Ref, Int]) {
         (r in fp && null !in fp) &&
-        (own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(fp)))) &&
+        (own(r.authSet, AuthSetRef.auth(SetRefRA.set(fp)))) &&
         (forall n: Ref :: n in fp && nexts[n] != null ==> nexts[n] in fp) &&
         (forall n: Ref :: n in fp ==> 
             own(n.lock, locks[n], 1.0) 
@@ -58,8 +58,8 @@ interface LCList {
         unfold cssR(r, fp, locks, nexts, vals);
 
         fpu(r, authSet, 
-            AuthSetRef.auth(SetRefRA.set_constr(fp)), 
-            AuthSetRef.auth_frag(SetRefRA.set_constr(fp), SetRefRA.set_constr(fp))
+            AuthSetRef.auth(SetRefRA.set(fp)), 
+            AuthSetRef.auth_frag(SetRefRA.set(fp), SetRefRA.set(fp))
         );
 
         fold cssR(r, fp, locks, nexts, vals);
@@ -167,7 +167,7 @@ interface LCList {
             next: null, 
             lock: 0, 
             value: 0, 
-            authSet:AuthSetRef.auth(SetRefRA.set_constr({|r|}))
+            authSet:AuthSetRef.auth(SetRefRA.set({|r|}))
         );
 
         ghost var fp: Set[Ref] := {|r|};
@@ -323,10 +323,10 @@ interface LCList {
                 ghost var vals1: Map[Ref, Int] := vals0[new_node := k];
 
                 fpu(r, authSet,
-                    AuthSetRef.auth(SetRefRA.set_constr(fp0)),
+                    AuthSetRef.auth(SetRefRA.set(fp0)),
                     AuthSetRef.auth_frag(
-                        SetRefRA.set_constr(fp1),
-                        SetRefRA.set_constr({| new_node |})
+                        SetRefRA.set(fp1),
+                        SetRefRA.set({| new_node |})
                     )
                 );
 
@@ -380,10 +380,10 @@ interface LCList {
                     ghost var vals1: Map[Ref, Int] := vals0[new_node := k];
 
                     fpu(r, authSet,
-                        AuthSetRef.auth(SetRefRA.set_constr(fp0)),
+                        AuthSetRef.auth(SetRefRA.set(fp0)),
                         AuthSetRef.auth_frag(
-                            SetRefRA.set_constr(fp1),
-                            SetRefRA.set_constr({| new_node |})
+                            SetRefRA.set(fp1),
+                            SetRefRA.set({| new_node |})
                         )
                     );
 

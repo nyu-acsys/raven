@@ -9,11 +9,15 @@ type au_token = {
   callable : QualIdent.t;
   callable_args : expr list;
   implicit_bound_vars : expr list;
+  (* Where the [openAU] was, so a never-committed update can point back at it. *)
+  au_loc : location;
 }
 
 type invs = {
   inv_name : QualIdent.t;
   inv_args : Expr.t list;
+  (* Where the [unfold] was, so a never-folded instance can point back at it. *)
+  inv_loc : location;
   (* Snapshot of [inv_args]' values at the moment this instance was opened,
      in a fresh ghost local. The matching [fold] must prove its own
      arguments equal this snapshot, since a local variable in [inv_args] can
@@ -32,6 +36,49 @@ type atomicity_check = {
   atomic_step_taken : bool;
   mask : Callable.mask;
 }
+
+(* Renders an open instance the way the [unfold] named it, e.g. [i(x)]. *)
+let inv_to_string (inv : invs) : string =
+  let name = Ident.to_string (QualIdent.unqualify inv.inv_name) in
+  match inv.inv_args with
+  | [] -> name
+  | args ->
+      name ^ "("
+      ^ String.concat ~sep:", " (List.map args ~f:Expr.to_source_string)
+      ^ ")"
+
+(* Something is still open at the end of a callable's body. Report it where the
+   omission is actually detected -- the end of the body -- and point back at the
+   [unfold]/[openAU] that opened it, which is the part of the program the reader
+   has to go find. Anything else still open is named as a further related
+   location rather than being left for a second run to discover. *)
+let unclosed_error ~(body_loc : location) (state : atomicity_check) : 'a =
+  let inv_entry inv =
+    ( Printf.sprintf "Missing fold for unfolded invariant %s" (inv_to_string inv),
+      inv.inv_loc,
+      Printf.sprintf "%s was unfolded here" (inv_to_string inv) )
+  in
+  let au_entry au =
+    let token = Expr.to_source_string au.token in
+    ( Printf.sprintf
+        "Missing commitAU or abortAU for open atomic update %s" token,
+      au.au_loc,
+      Printf.sprintf "%s was opened here" token )
+  in
+  let entries =
+    List.map state.invs_opened ~f:inv_entry
+    @ List.map state.au_opened ~f:au_entry
+  in
+  match entries with
+  | [] ->
+      Error.internal_error body_loc
+        "unclosed_error called with nothing left open"
+  | (msg, rel_loc, rel_msg) :: rest ->
+      Error.fail_with
+        ((Error.Verification, Loc.last_char body_loc, msg)
+        :: (Error.RelatedLoc, rel_loc, rel_msg)
+        :: List.map rest ~f:(fun (msg, rel_loc, _) ->
+               (Error.RelatedLoc, rel_loc, msg)))
 
 let list_remove_first (lst : 'a list) ~(f : 'a -> bool) : 'a list =
   let rec go = function
@@ -127,6 +174,17 @@ let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
     Error.verification_error loc
       "Cannot take a non-atomic step inside an atomic block"
 
+(* An extension statement is opaque here -- this pass has to run before the
+   lowering that would reveal what it does, since e.g. a `cas` lowers to a read
+   plus a conditional write yet is a single machine instruction. So the active
+   extension declares the cost; see [Stmt.stmt_atomicity]. *)
+let take_ext_step ~loc (atomicity : Stmt.stmt_atomicity) (state : atomicity_check)
+    : atomicity_check =
+  match atomicity with
+  | NoStep -> state
+  | AtomicStep -> take_atomic_step ~loc state
+  | NonAtomicStep -> take_non_atomic_step ~loc state
+
 (* Returns the extra assert statements (reentrancy guard + membership proof)
    the caller must splice in immediately before the [Unfold] statement,
    together with the updated state. *)
@@ -212,7 +270,13 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
   ( {
       atomicity_state with
       invs_opened =
-        { inv_name; inv_args; inv_snapshot; inv_consumed_mask_entry = chosen }
+        {
+          inv_name;
+          inv_args;
+          inv_loc = loc;
+          inv_snapshot;
+          inv_consumed_mask_entry = chosen;
+        }
         :: atomicity_state.invs_opened;
       mask;
     },
@@ -303,12 +367,32 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
   if
     List.exists atomicity_state.au_opened ~f:(fun au ->
         Expr.alpha_equal au.token token)
-  then Error.error loc (Printf.sprintf !"Atomic token %{Expr} is already open" token)
+  then
+    Error.verification_error loc
+      (Printf.sprintf !"Atomic token %{String} is already open"
+         (Expr.to_source_string token))
+  else if not (List.is_empty atomicity_state.au_opened) then
+    (* At most one atomic update may be open at a time. A once-open AU's own
+       [α] is licensed by a genuine mask-shrink (or, for a proc's own token,
+       by its caller's external obligation); a second, simultaneously-open AU
+       has no such license of its own and would let openAU mint an
+       independent, unconstrained copy of whatever its atomic precondition
+       says -- e.g. two coexisting full shares of the same exclusive
+       resource. Closing the current AU first (commitAU/abortAU) and only
+       then opening the next is always sufficient: view shifts are purely
+       logical, so nothing can interleave between the close and the next
+       open, and the next open still has to honestly justify its own atomic
+       precondition against whatever is actually held at that point. *)
+    Error.verification_error loc
+      (Printf.sprintf
+         !"Cannot open atomic token %{String} while another atomic update \
+           is still open; commit or abort it first"
+         (Expr.to_source_string token))
   else
     {
       atomicity_state with
       au_opened =
-        { token; callable; callable_args; implicit_bound_vars }
+        { token; callable; callable_args; implicit_bound_vars; au_loc = loc }
         :: atomicity_state.au_opened;
     }
 
@@ -317,7 +401,10 @@ let close_au ~loc token atomicity_state : atomicity_check =
     not
       (List.exists atomicity_state.au_opened ~f:(fun au ->
            Expr.alpha_equal au.token token))
-  then Error.error loc (Printf.sprintf !"Atomic token %{Expr} is not open (nothing to close)" token)
+  then
+    Error.verification_error loc
+      (Printf.sprintf !"Atomic token %{String} is not open (nothing to close)"
+         (Expr.to_source_string token))
   else
     let au_opened =
       List.filter atomicity_state.au_opened ~f:(fun au ->
@@ -360,14 +447,16 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
     let* atomicity_state = Rewriter.current_user_state in
 
     (* Assigned-variable-drops mask entries mentioning them; see
-       [drop_mask_entries_mentioning]'s doc comment. [qis] are the (possibly
-       ghost) variables this statement writes to. *)
+       [drop_mask_entries_mentioning]'s doc comment. The arguments are the
+       (possibly ghost) variables this statement writes to. *)
+    let drop_stale_idents ~(idents : Ident.t list) (state : atomicity_check) :
+        atomicity_check =
+      let assigned = Set.of_list (module Ident) idents in
+      { state with mask = drop_mask_entries_mentioning assigned state.mask }
+    in
     let drop_stale ~(qis : QualIdent.t list) (state : atomicity_check) :
         atomicity_check =
-      let assigned =
-        List.map qis ~f:QualIdent.unqualify |> Set.of_list (module Ident)
-      in
-      { state with mask = drop_mask_entries_mentioning assigned state.mask }
+      drop_stale_idents ~idents:(List.map qis ~f:QualIdent.unqualify) state
     in
 
     match stmt.stmt_desc with
@@ -596,6 +685,19 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return
               (Stmt.mk_block_stmt ~loc (reentrancy_asserts @ [ stmt ]))
+    | Basic (BasicStmtExt (stmt_ext, args)) ->
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let atomicity_state =
+          drop_stale_idents
+            ~idents:(ext_hooks.basic_stmt_ext_local_vars_modified stmt_ext args)
+            atomicity_state
+        in
+        let atomicity_state =
+          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext)
+            atomicity_state
+        in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return stmt
     | Basic (Return return_expr) ->
         let atomicity_state = take_atomic_step ~loc atomicity_state in
         let* _ = Rewriter.set_user_state atomicity_state in
@@ -804,7 +906,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let opened_au_token =
               match opened_au_token with
               | None ->
-                  Error.error stmt.stmt_loc "No opened AU token found to abort"
+                  Error.verification_error stmt.stmt_loc
+                    (Printf.sprintf
+                       !"Cannot %{String}: atomic token %{String} is not open"
+                       (auaction_kind_to_string auaction_desc.auaction_kind)
+                       (Expr.to_source_string token))
               | Some opened_au_token -> opened_au_token
             in
 
@@ -928,6 +1034,22 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             let* _ = Rewriter.set_user_state atomicity_state in
 
             Rewriter.return new_stmt)
+    | StmtExt stmt_ext ->
+        (* [Rewriter.Stmt.descend] deliberately doesn't enter a [StmtExt]'s
+           nested statements (its hook is pinned to the unit user state), so
+           whatever they are is folded into the extension's own answer here. *)
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let atomicity_state =
+          drop_stale_idents
+            ~idents:(ext_hooks.stmt_ext_local_vars_modified stmt_ext)
+            atomicity_state
+        in
+        let atomicity_state =
+          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext)
+            atomicity_state
+        in
+        let* _ = Rewriter.set_user_state atomicity_state in
+        Rewriter.return stmt
     | Block block_desc -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
     | Cond cond_desc ->
         let* then_stmt =
@@ -959,7 +1081,6 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~f:Expr.alpha_equal
                  && List.for_all2_exn au1.implicit_bound_vars
                       au2.implicit_bound_vars ~f:Expr.alpha_equal)
-          (* && Bool.(then_atomicity_state.atomic_step_taken = else_atomicity_state.atomic_step_taken) *)
         in
 
         if if_else_atomicity_states_equal then
@@ -978,26 +1099,39 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
 
           if is_ghost_scope then Rewriter.return new_stmt
           else
-            (* [invs_opened]/[au_opened]/[atomic_step_taken] are required
-               exactly equal above (either branch's copy is fine to carry
-               forward). [mask] is not: a fresh [fold] in only one branch
-               (see [close_inv]) can credit that branch's mask without
-               touching [invs_opened] at all, so the two branches' masks can
-               legitimately differ even when everything else matches. Only
-               credit established on *every* reachable arm is safe to carry
-               past the join -- an intersection, not either side alone. *)
+            (* [invs_opened]/[au_opened] are required exactly equal above
+               (either branch's copy is fine to carry forward). [mask] is
+               not: a fresh [fold] in only one branch (see [close_inv]) can
+               credit that branch's mask without touching [invs_opened] at
+               all, so the two branches' masks can legitimately differ even
+               when everything else matches. Only credit established on
+               *every* reachable arm is safe to carry past the join -- an
+               intersection, not either side alone. *)
             let joined_mask =
               Callable.mask_inter then_atomicity_state.mask
                 else_atomicity_state.mask
             in
+            (* The conditional itself is not a step: evaluating the test is
+               thread-local (heap reads aren't permitted in a condition, so
+               it only inspects locals) and hence unobservable by interfering
+               threads. Only one arm runs, so the pair costs whatever the
+               more expensive arm costs -- taking the disjunction here lets a
+               conditional whose arms each take a single atomic step sit
+               inside an open invariant or atomic update, while still
+               rejecting a further step after the join. *)
             let atomicity_state =
-              take_non_atomic_step ~loc
-                { else_atomicity_state with mask = joined_mask }
+              {
+                else_atomicity_state with
+                mask = joined_mask;
+                atomic_step_taken =
+                  then_atomicity_state.atomic_step_taken
+                  || else_atomicity_state.atomic_step_taken;
+              }
             in
             let* _ = Rewriter.set_user_state atomicity_state in
             Rewriter.return new_stmt
         else
-          Error.error stmt.stmt_loc
+          Error.verification_error stmt.stmt_loc
             "Inconsistent atomicity states in then and else branches"
     | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
   in
@@ -1009,7 +1143,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
     List.is_empty atomicity_state.au_opened
     && List.is_empty atomicity_state.invs_opened
   then Rewriter.return stmt
-  else Error.error stmt.stmt_loc "Unclosed AU token or invariant"
+  else unclosed_error ~body_loc:stmt.stmt_loc atomicity_state
 
 let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in

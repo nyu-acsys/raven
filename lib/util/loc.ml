@@ -67,6 +67,15 @@ let display_file_name loc =
 let to_end loc = { loc with loc_start = loc.loc_end }
 let to_start loc = { loc with loc_end = loc.loc_start }
 
+(** The final character of [loc], for pointing at a closing delimiter itself
+    rather than at the empty position just past it as [to_end] does. Degenerates
+    to [to_end] when [loc] ends at the very start of a line, where there is no
+    preceding character on that line to point at. *)
+let last_char loc =
+  let e = loc.loc_end in
+  if e.pos_cnum <= e.pos_bol then to_end loc
+  else { loc_start = { e with pos_cnum = e.pos_cnum - 1 }; loc_end = e }
+
 let start_index loc = loc.loc_start.pos_cnum
 let end_index loc = loc.loc_end.pos_cnum
 

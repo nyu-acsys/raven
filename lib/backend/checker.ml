@@ -314,9 +314,12 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
         end
       | _ -> State.return ())
 
-let check_members (mod_name : ident) (deps : QualIdent.t list list) tbl =
-  Logs.debug(fun m -> m "Checker.check_members: deps= %a" 
-      (Util.Print.pr_list_nl (Util.Print.pr_list_comma QualIdent.pr)) deps );
+(** Declares and checks a single SCC ([dep], as returned by [Dependencies.analyze]) at
+    whatever scope is currently open -- the caller ([check_members]) is responsible for
+    getting that scope right first. Function symbols get their [declare-fun] before anything
+    in the group is checked (so mutually-recursive references resolve), likewise datatypes
+    before their constructors/destructors are used; both match [check_member]'s own needs. *)
+let declare_and_check_dep (tbl : SymbolTbl.t) (dep : QualIdent.t list) : unit t =
   let open Rewriter.Syntax in
   let declare_fn (fully_qual_name: qual_ident) (sym: Module.symbol) : unit t =
     match sym with
@@ -358,60 +361,117 @@ let check_members (mod_name : ident) (deps : QualIdent.t list list) tbl =
         Error.unsupported_error Loc.dummy
           ("Unsupported symbol: " ^ Symbol.to_string symbol)
   in
-  let* _ = push in
+
+  let dep_sym =
+    List.map dep ~f:(fun qual_name ->
+      let tbl1 = SymbolTbl.goto qual_name tbl in
+      let _, symbol = Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1 in
+      (qual_name, symbol))
+  in
+
+  let dep_sym_fn = List.filter dep_sym ~f:(function
+    | _, Module.CallDef { call_def = FuncDef _; _ } -> true
+    | _ -> false)
+  in
+
+  let* _ = State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
+    declare_fn qual_name sym
+  )
+  in
+
+  let data_types = List.filter_map dep_sym ~f:(function
+  | qual_ident, Module.TypeDef ({ type_def_expr = Some (App (Data _, _, _)); _ } as typ_def) -> Some (qual_ident, typ_def)
+  | _ -> None
+  ) in
+
   let* _ =
-    write_comment
-      (Stdlib.Format.asprintf "Checking members in %a" Ident.pr mod_name)
+    if List.is_empty data_types then
+      Rewriter.return ()
+    else
+      let+ _ = define_datatypes data_types in
+      ()
   in
-  let* smt_env = get_state in
-  let* _ = State.List.map deps ~f:(fun dep ->
-      let dep_sym = 
-        List.map dep ~f:(fun qual_name ->
-          let tbl1 = SymbolTbl.goto qual_name tbl in
-          let _, symbol = Rewriter.eval ~update:false (Rewriter.find_and_reify qual_name) tbl1 in
-          (qual_name, symbol))  
-      in
-      
-      let dep_sym_fn = List.filter dep_sym ~f:(function
-        | _, Module.CallDef { call_def = FuncDef _; _ } -> true
-        | _ -> false)
-      in
 
-      let* _ = State.List.iter dep_sym_fn ~f:(fun (qual_name, sym) ->
-        declare_fn qual_name sym
-      )
+  State.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym)
+
+(** A tree grouping the SCCs of [placed] by the module-path scope
+    [Dependencies.compute_placements] assigned each one, mirroring the nesting those paths
+    describe: [own_rev] holds every SCC placed at exactly this node's path (most recently
+    added first -- built by prepending, like [child_order_rev], to keep construction linear
+    rather than quadratic; both get reversed once, in [walk], on the way out), [children] the
+    subtrees for paths one component longer. Two SCCs placed at the same path need not be
+    adjacent in [placed]'s (whole-program) topological order -- something with a different,
+    unrelated placement can easily fall between them -- so grouping by path has to happen
+    explicitly like this rather than by diffing each SCC's path against the one before it. *)
+module PathTree = struct
+  type t = {
+    mutable own_rev : QualIdent.t list list;
+    children : (Ident.t, t) Hashtbl.t;
+    mutable child_order_rev : Ident.t list;
+  }
+
+  let create () : t = { own_rev = []; children = Hashtbl.create (module Ident); child_order_rev = [] }
+
+  let rec scope (root : t) (path : Ident.t list) : t =
+    match path with
+    | [] -> root
+    | id :: rest ->
+      let child = match Hashtbl.find root.children id with
+        | Some child -> child
+        | None ->
+          let child = create () in
+          Hashtbl.set root.children ~key:id ~data:child;
+          root.child_order_rev <- id :: root.child_order_rev;
+          child
       in
+      scope child rest
 
-      let data_types = List.filter_map dep_sym ~f:(function
-      | qual_ident, Module.TypeDef ({ type_def_expr = Some (App (Data _, _, _)); _ } as typ_def) -> Some (qual_ident, typ_def)
-      | _ -> None
-      ) in
+  let of_placed (placed : (Ident.t list * QualIdent.t list) list) : t =
+    let root = create () in
+    List.iter placed ~f:(fun (path, dep) ->
+      let node = scope root path in
+      node.own_rev <- dep :: node.own_rev);
+    root
+end
 
-      let* _ = 
-        if List.is_empty data_types then
-          Rewriter.return ()
-        else
-          let+ _ = define_datatypes data_types in
-          ()
-      in
-
-      State.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym))
+(** Walks the [PathTree] built from [placed], declaring/checking each node's own SCCs (in
+    their relative dependency order -- a subsequence of a topological order is itself a valid
+    topological order) before descending into its children, each under its own nested
+    [push]/[pop]: nothing a node's own SCCs need can live in one of its children (a symbol's
+    placement is always an ancestor of everywhere it's used, never a sibling or a descendant
+    -- see [Dependencies.compute_placements]), so it's always safe to declare a node's own
+    members first and only then open its children's scopes. *)
+let check_members (placed : (Ident.t list * QualIdent.t list) list) tbl =
+  Logs.debug(fun m -> m "Checker.check_members: placed= %a"
+      (Util.Print.pr_list_nl (fun ppf (path, dep) ->
+           Stdlib.Format.fprintf ppf "@[%a@] : %a" (Util.Print.pr_list_comma Ident.pr) path (Util.Print.pr_list_comma QualIdent.pr) dep))
+      placed );
+  let open Rewriter.Syntax in
+  let rec walk (node : PathTree.t) : unit t =
+    let* _ = State.List.iter (List.rev node.own_rev) ~f:(declare_and_check_dep tbl) in
+    State.List.iter (List.rev node.child_order_rev) ~f:(fun id ->
+      let child = Hashtbl.find_exn node.children id in
+      let* _ = push in
+      let* _ = write_comment (Stdlib.Format.asprintf "Checking members in %a" Ident.pr id) in
+      let* _ = walk child in
+      pop)
   in
-  pop
+  walk (PathTree.of_placed placed)
 
-let check_module (module_def : Ast.Module.t) (tbl : SymbolTbl.t)
+let check_module (module_defs : Ast.Module.t list) (tbl : SymbolTbl.t)
     (smt_env : smt_env) : smt_env =
-  let dependencies, auto_dependencies = Dependencies.analyze tbl module_def smt_env.auto_dependencies in
+  let dependencies, auto_dependencies = Dependencies.analyze tbl module_defs smt_env.auto_dependencies in
 
   Logs.debug (fun m ->
       m "Dependencies: %a"
-        (Util.Print.pr_list_sep " ]]\n" (Util.Print.pr_list_comma QualIdent.pr))
+        (Util.Print.pr_list_sep " ]]\n" (fun ppf (path, dep) ->
+             Stdlib.Format.fprintf ppf "@[%a@] : %a" (Util.Print.pr_list_comma Ident.pr) path (Util.Print.pr_list_comma QualIdent.pr) dep))
         dependencies);
 
-  let smt_env = { smt_env with auto_dependencies } in 
-  
+  let smt_env = { smt_env with auto_dependencies } in
+
   let smt_env, _ =
     State.eval
-      (check_members module_def.mod_decl.mod_decl_name dependencies tbl) smt_env
+      (check_members dependencies tbl) smt_env
   in
   smt_env

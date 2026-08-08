@@ -29,6 +29,11 @@ module DefaultExt = struct
   let stmt_ext_local_vars_modified stmt_ext = []
   let stmt_ext_fields_accessed stmt_ext = []
 
+  (* Conservative rather than an error: reaching here just means no extension in the
+     chain classified the statement, and barring it from atomic blocks is always
+     sound. *)
+  let stmt_ext_atomicity (_: Stmt.stmt_ext) : Stmt.stmt_atomicity = NonAtomicStep
+
   (* Base of the chain: this extension declares no constructors of its own. *)
   let type_ext_is_recognized (_: Type.type_ext) = false
   let expr_ext_is_recognized (_: Expr.expr_ext) = false

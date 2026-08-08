@@ -1,0 +1,34 @@
+// This file verifies -- and that's the point, not a bug in the example.
+//
+// `loopForever` recurses on itself unconditionally, with no `decreases`
+// clause, so Raven never checks that it actually terminates; it just
+// *assumes* it does, exactly like any other unmeasured recursive `func`/
+// `lemma` (Part 1 §4, Part 3 §4). Nothing here touches non-ghost state --
+// the call sits inside a `{! ... !}` block -- so every check from this
+// section's main discussion passes. The gap is specifically termination,
+// and it's real: this "proves" `false` from ghost code alone, and calling
+// it from any procedure lets that procedure discharge literally any
+// postcondition through it.
+//
+// Add `decreases n` to `loopForever`'s own contract instead, and Raven
+// immediately rejects it:
+//
+//   [Verification Error] This decreases clause's termination measure may
+//   not decrease on this recursive call
+//
+// -- because `n` never actually gets smaller across the recursive call.
+// That's the fix, and the discipline: any ghost recursion you write is only
+// as trustworthy as the `decreases` clause backing it.
+lemma loopForever(n: Int)
+  ensures false
+{
+  loopForever(n)
+}
+
+proc demo()
+{
+  {!
+    loopForever(0)
+  !}
+  assert false
+}

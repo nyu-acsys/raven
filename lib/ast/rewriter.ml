@@ -159,6 +159,30 @@ module NewSymbolsTree = struct
 end
 
 
+(* Key for [state_isc_cache]: (declaration, clause index, conjunct index within that
+   clause) identifying one source-level iterated separating conjunction (ISC). See
+   [heapsExplicitTrnsl.ml]'s [get_or_generate_inv_function]. *)
+module IscCacheKey = struct
+  type t = QualIdent.t * int * int [@@deriving compare, hash, sexp]
+end
+
+(* Cached compiled ISC: the already-minted inverse function, plus the template
+   -- the first occurrence's own [(universal_quants, conds, inv_expr)], flattened into
+   plain fields since [lib/ast] can't depend on [heapsExplicitTrnsl.ml]'s (in
+   [lib/frontend/rewrites]) named [universal_quants]/[conditions] types -- that later
+   occurrences of the same [IscCacheKey.t] get matched against (via [match_up_expr]) to
+   recover their own substitution, plus the env formals ([isc_env_var_decls]) the
+   function was actually parameterized over. *)
+type isc_template = {
+  isc_inv_fn_qual_ident : QualIdent.t;
+  isc_univ_vars : (ident * var_decl) list;
+  isc_conds : expr list;
+  isc_inv_expr : expr;
+  isc_env_var_decls : var_decl list;
+}
+
+module IscCacheTbl = Hashtbl.M (IscCacheKey)
+
 (* [ext_hooks] bundles every function an active language extension contributes to the
    core pipeline (see docs/ext/README.md). It has to be defined mutually with [state]/[t]
    because several of its fields return [_ t]. A value of this type is installed once,
@@ -175,6 +199,12 @@ type 'a state = {
   state_user_data : 'a;
   state_ext_hooks : ext_hooks;
   state_cli_config : cli_config;
+  (* Cache of already-compiled ISCs, keyed by [IscCacheKey.t]. A single [Hashtbl.t]
+     instance threaded (not rebuilt) through every state copy for the run -- mutated in
+     place via [Hashtbl.add]/[Hashtbl.find] at the handful of call sites in
+     [heapsExplicitTrnsl.ml], never exposed outside this module as a global/mutable
+     reference. *)
+  state_isc_cache : isc_template IscCacheTbl.t;
 }
 
 (* CLI flags the pipeline needs deep inside rewrite/check passes (e.g. [--strict]).
@@ -257,6 +287,11 @@ and ext_hooks = {
   stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
   stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list;
   stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list;
+
+  (** What one extension statement costs the atomicity analysis -- see
+      [Stmt.stmt_atomicity]. Covers both extension points, since the analysis
+      meets a [BasicStmtExt] and a [StmtExt] alike as an opaque tag. *)
+  stmt_ext_atomicity : Stmt.stmt_ext -> Stmt.stmt_atomicity;
 
   (** Best-effort "did you mean" lookup: given a [*_ext] tag the *active* extension
       chain didn't recognize, checks whether some *other* known [--extension] choice
@@ -405,6 +440,7 @@ let default_ext_hooks : ext_hooks = {
   stmt_ext_symbols = Stmt.default_stmt_ext_symbols;
   stmt_ext_local_vars_modified = Stmt.default_stmt_ext_local_vars_modified;
   stmt_ext_fields_accessed = Stmt.default_stmt_ext_fields_accessed;
+  stmt_ext_atomicity = Stmt.default_stmt_ext_atomicity;
   suggest_extension_for_type_ext = (fun _ -> None);
   suggest_extension_for_expr_ext = (fun _ -> None);
   suggest_extension_for_stmt_ext = (fun _ -> None);
@@ -492,6 +528,7 @@ let eval ?(update = true) ?(ext_hooks = default_ext_hooks) ?(cli_config = defaul
       state_user_data = ();
       state_ext_hooks = ext_hooks;
       state_cli_config = cli_config;
+      state_isc_cache = Hashtbl.create (module IscCacheKey);
     }
   in
   let sout, res = m sin in
@@ -611,6 +648,11 @@ let current_scope_entries s : 'a state * SymbolTbl.entry IdentHashtbl.t =
 
 let current_user_state s : 'a state * 'a = (s, s.state_user_data)
 let set_user_state user_data s = ({ s with state_user_data = user_data }, ())
+
+(* Returns the single [state_isc_cache] table instance for this run. Callers
+   [Hashtbl.find]/[Hashtbl.add] into it directly -- the table is mutated in place, not
+   rebuilt, so no "set" counterpart is needed the way [state_user_data] has one. *)
+let current_isc_cache s : 'a state * isc_template IscCacheTbl.t = (s, s.state_isc_cache)
 
 let current_module_name s : 'a state * qual_ident =
   let s, curr_scope = current_scope s in

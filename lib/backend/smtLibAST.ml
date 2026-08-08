@@ -115,6 +115,7 @@ let rec pr_sort ppf (sort : sort) =
   | App (Ref, [], _) -> pr_smt_ident ppf PreambleConsts.loc_ident
   | App (Var qual_iden, [], _) -> pr_smt_ident ppf qual_iden
   | App (Map, [ srt; App (Bool, _, _)], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
+  | App (FinSet, [ srt ], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (Map, [ srt1; srt2 ], _) ->
       fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
   | App (Data (id, _), [], _) -> pr_smt_ident ppf id
@@ -147,9 +148,9 @@ let rec pr_var_decls ppf = function
 
 let term_constr_to_string loc (constr : Expr.constr) : string =
   match constr with
-  | Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div
-  | DataConstr _ | DataDestr _ ->
+  | Bool _ | Int _ | Real _ | Gt | Lt | Geq | Leq | Plus | Minus | Mult | Div ->
       Expr.constr_to_string constr
+  | DataConstr id | DataDestr id -> Stdlib.Format.asprintf "%a" pr_smt_ident id
   | Mod -> "mod"
   | Not -> "not"
   | MapLookUp -> "select"

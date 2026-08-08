@@ -68,6 +68,14 @@ module AtomicExt (Cont : ListApi) = struct
 
     | _ -> Cont.basic_stmt_ext_fields_accessed stmt_ext exprs
 
+  (* The whole point of these commands: each is a single hardware instruction, so
+     each costs exactly one atomic step -- however many statements it lowers to
+     (`cas` becomes a read plus a conditional write). *)
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | AtomicInbuiltInit _ | AtomicInbuiltNonInit _ -> Stmt.AtomicStep
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
   (* No expr_ext/type_ext/top-level stmt_ext/contract_ext constructors here, so
      pr_stmt_ext/stmt_ext_*/type_ext_is_recognized/expr_ext_is_recognized/
      contract_ext_is_recognized all use Cont's default. *)
@@ -179,7 +187,7 @@ module AtomicExt (Cont : ListApi) = struct
           | _ ->
               Error.type_error (Expr.to_loc field_expr)
               ("Expected field identifier, but found "
-               ^ Expr.to_string field_expr)
+               ^ Expr.to_source_string field_expr)
         in
         (* type-checking `ref_expr` *)
         let* atomic_inbuilt_ref = type_check_stmt_functs.disambiguate_process_expr ref_expr Type.ref disam_tbl in

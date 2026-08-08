@@ -76,7 +76,7 @@ module Descr {
   }
 
   field descr_fld: L_descr
-  ghost field prophVar: Proph
+  ghost field prophVar: Proph[(Bool, Proph[Int])]
   ghost field token: Excl_Unit
 }
 
@@ -88,10 +88,10 @@ ghost field rdcss_token: Excl_Unit
 
 type AbstractState = data {
   case quiescentState(value0: Int)
-  case updatingState(l_descr_ref_destr: Ref, l_descr_val: Descr.L_descr, proph: Proph)
+  case updatingState(l_descr_ref_destr: Ref, l_descr_val: Descr.L_descr, prophField: Proph[(Bool, Proph[Int])])
 }
 
-module ProphTyp: Library.Type { rep type T = Proph }
+module ProphTyp: Library.Type { rep type T = Proph[Int] }
 module Opt_Proph = Library.Option[ProphTyp]
 
 // RDCSS OPERATIONS
@@ -130,8 +130,8 @@ lemma duplicate_read_l_m(l_m_ref: Ref, implicit ghost z: Int)
 proc complete(l_descr_ref: Ref, l_n: Ref, 
     implicit ghost l_descr' : Descr.L_descr,
     implicit ghost token: AtomicToken<rdcss> ,
-    implicit ghost p: Proph, 
-    implicit ghost tid_ghost_winner: Proph 
+    implicit ghost p: Proph[(Bool, Proph[Int])], 
+    implicit ghost tid_ghost_winner: Proph[Int] 
 ) 
   requires rdcss_inv(l_n)
   requires descr_inv(token, p, l_descr'.Descr.n1, l_n, l_descr_ref, l_descr', tid_ghost_winner)
@@ -150,13 +150,13 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
   var n2 := l_descr.Descr.n2;
 
   ghost var vs_ghost: List[Int];
-  ghost var tid_ghost: Proph;
+  ghost var tid_ghost: Proph[Int];
 
-  tid_ghost, vs_ghost := Proph.new[Int];
+  tid_ghost, vs_ghost := new Proph[Int];
 
   ghost var s: AbstractState;
   ghost var token': AtomicToken<rdcss>;
-  ghost var tid_ghost_winner': Proph;
+  ghost var tid_ghost_winner': Proph[Int];
   ghost var q1: Real; ghost var q2: Real;
 
   unfold rdcss_inv(l_n)[s := s, q1 := q1, token' := token , tid_ghost_winner' := tid_ghost_winner];
@@ -165,7 +165,7 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
   ghost var m': Int;
   ghost var n': Int;
 
-  ghost var vs: List[(Bool, Proph)];
+  ghost var vs: List[(Bool, Proph[Int])];
   ghost var notDone: Bool;
   ghost var isPending: Bool;
 
@@ -287,8 +287,8 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
 
   ghost var newState: AbstractState := succ ? quiescentState(n_new) : s;
 
-  // Is there a difference between resolving the Proph.prophecy "around" the cas, vs
-  // first doing the cas, and then resolving the Proph.prophecy?
+  // Is there a difference between resolving the Proph.proph "around" the cas, vs
+  // first doing the cas, and then resolving the Proph.proph?
   Proph.resolve(p, (succ, tid_ghost));
 
   {!
@@ -331,7 +331,7 @@ proc get(l_n: Ref, implicit ghost n: Int) returns (ret: Int)
 
   ghost var s: AbstractState;
   ghost var tkn: AtomicToken<rdcss>;
-  ghost var tid_ghost_winner: Proph;
+  ghost var tid_ghost_winner: Proph[Int];
   ghost var q1: Real; ghost var q2: Real;
 
   unfold rdcss_inv(l_n)[s := s, q1 := q1, tkn := token, tid_ghost_winner := tid_ghost_winner];
@@ -358,7 +358,7 @@ proc get(l_n: Ref, implicit ghost n: Int) returns (ret: Int)
     fold is_rdcss(l_n);
     fold read_l_descr(l_n_val.descr, s.l_descr_val)[q := q1/2];
 
-    complete(l_n_val.descr, l_n, s.l_descr_val, tkn, s.proph, tid_ghost_winner);
+    complete(l_n_val.descr, l_n, s.l_descr_val, tkn, s.prophField, tid_ghost_winner);
 
     n' := openAU(phi);
     var ret := get(l_n, n');
@@ -370,14 +370,14 @@ proc get(l_n: Ref, implicit ghost n: Int) returns (ret: Int)
 proc rdcss_inner(l_n: Ref, l_descr_ref: Ref, 
     implicit ghost token: AtomicToken<rdcss> ,
     implicit ghost l_descr': Descr.L_descr,
-    implicit ghost p: Proph,
-    implicit ghost prophecies: List[(Bool, Proph)]
+    implicit ghost p: Proph[(Bool, Proph[Int])],
+    implicit ghost prophecies: List[(Bool, Proph[Int])]
 ) returns(ret: Int)
   requires rdcss_inv(l_n)
   requires own(l_descr_ref.Descr.descr_fld, l_descr', 1.0)
   requires au<rdcss>(token, (l_n, l_descr'))
   requires own_descr_token(l_descr_ref) && own_rdcss_token(l_descr_ref) && own(l_descr_ref.one_shot, private)
-  requires Proph.prophecy(p, prophecies)
+  requires Proph.proph(p, prophecies)
 
   ensures auCommit<rdcss>(token, (l_n, l_descr'), ret)
 {
@@ -387,7 +387,7 @@ proc rdcss_inner(l_n: Ref, l_descr_ref: Ref,
   ghost var s: AbstractState;
   ghost var q1: Real;
   ghost var token': AtomicToken<rdcss>;
-  ghost var tid_ghost_winner': Proph;
+  ghost var tid_ghost_winner': Proph[Int];
   ghost var q2: Real;
 
   unfold rdcss_inv(l_n)[s := s, q1 := q1, token' := token , tid_ghost_winner' := tid_ghost_winner];
@@ -415,8 +415,11 @@ proc rdcss_inner(l_n: Ref, l_descr_ref: Ref,
       duplicate_read_l_m(l_descr'.Descr.l_m, m);
       abortAU(token, (l_n, l_descr'));
 
-      ghost var winner: Proph := 
-        proph_extract_winner(prophecies) == Opt_Proph.none ? p : (proph_extract_winner(prophecies)).Opt_Proph.value;
+      // In the `none` branch there is no recorded winner yet, so any Proph[Int] value
+      // does -- `tid_ghost_winner'` is exactly such an unconstrained placeholder here
+      // (rdcss_inv only binds it meaningfully when `s is updatingState`).
+      ghost var winner: Proph[Int] := 
+        proph_extract_winner(prophecies) == Opt_Proph.none ? tid_ghost_winner' : (proph_extract_winner(prophecies)).Opt_Proph.value;
 
       fold pending_state(token, l_descr', n1, proph_extract_winner(prophecies), winner, l_n, l_descr_ref);
       fold descr_inv(token, p, n1, l_n, l_descr_ref, l_descr, winner)[notDone := true, isPending := true];
@@ -447,7 +450,7 @@ proc rdcss_inner(l_n: Ref, l_descr_ref: Ref,
 
     fold rdcss_inv(l_n)[s := s, q1 := q1/2, token := token', tid_ghost_winner := tid_ghost_winner'];
 
-    complete(l_n_val.descr, l_n, s.l_descr_val, token', s.proph, tid_ghost_winner');
+    complete(l_n_val.descr, l_n, s.l_descr_val, token', s.prophField, tid_ghost_winner');
 
     ret := rdcss_inner(l_n, l_descr_ref, token, l_descr', p, prophecies);
   }
@@ -460,12 +463,12 @@ proc rdcss(l_n: Ref, l_descr: Descr.L_descr, implicit ghost m: Int, implicit gho
   atomic ensures read_l_m(l_descr.Descr.l_m, m) && rdcss_state(l_n, ((m == l_descr.Descr.m1 && n == l_descr.Descr.n1) ? l_descr.Descr.n2 : n) )
 {
   ghost var phi: AtomicToken<rdcss> := bindAU();
-  ghost var p: Proph;
-  ghost var prophecies: List[(Bool, Proph)];
+  ghost var p: Proph[(Bool, Proph[Int])];
+  ghost var prophecies: List[(Bool, Proph[Int])];
 
   unfold is_rdcss(l_n);
 
-  p, prophecies := Proph.new[(Bool, Proph)];
+  p, prophecies := new Proph[(Bool, Proph[Int])];
 
   var l_descr_ref := new(Descr.descr_fld: l_descr, 
     Descr.prophVar: p, 
@@ -521,7 +524,7 @@ lemma update_value(l_n: Ref, n1: Int, n2: Int, m: Int)
   fold rdcss_state_auth(l_n, m);
 }
 
-func proph_extract_winner(pvs: List[(Bool, Proph)]) returns (ret: Opt_Proph) {
+func proph_extract_winner(pvs: List[(Bool, Proph[Int])]) returns (ret: Opt_Proph) {
   (List.len(pvs) == 0) ?
     Opt_Proph.none : 
     Opt_Proph.some((List.hd(pvs))#1)
@@ -545,7 +548,7 @@ pred pending_state(token: AtomicToken<rdcss> ,
     l_descr: Descr.L_descr, 
     n1: Int, 
     proph_winner: Opt_Proph, 
-    tid_ghost_winner: Proph, 
+    tid_ghost_winner: Proph[Int], 
     l_n: Ref, 
     l_descr_ref: Ref
 ) {
@@ -561,10 +564,10 @@ pred accepted_state(token: AtomicToken<rdcss> ,
     l_descr: Descr.L_descr,
     rdcss_ret: Int,
     proph_winner: Opt_Proph,
-    tid_ghost_winner: Proph
+    tid_ghost_winner: Proph[Int]
 ) {
   auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret)
-  && (exists vs: List[Int] :: Proph.prophecy(tid_ghost_winner, vs))
+  && (exists vs: List[Int] :: Proph.proph(tid_ghost_winner, vs))
   && (proph_winner == Opt_Proph.some(proph_winner.(Opt_Proph.value)) ? 
     proph_winner.Opt_Proph.value == tid_ghost_winner : 
     true
@@ -576,20 +579,20 @@ pred done_state(token: AtomicToken<rdcss> ,
     l_descr_ref: Ref,
     l_descr: Descr.L_descr,
     rdcss_ret: Int,
-    tid_ghost_winner: Proph
+    tid_ghost_winner: Proph[Int]
 ) {
   (exists auRetrieved: Bool :: 
       (auRetrieved ? 
           own_rdcss_token(l_descr_ref) :
           auCommit<rdcss>(token, (l_n, l_descr), rdcss_ret))
   ) && 
-  (exists vs: List[Int] :: Proph.prophecy(tid_ghost_winner, vs)) &&
+  (exists vs: List[Int] :: Proph.proph(tid_ghost_winner, vs)) &&
     own(l_descr_ref.Descr.descr_fld, l_descr, 0.5) &&
     own_descr_token(l_descr_ref)
 }
 
-inv descr_inv(token: AtomicToken<rdcss> , p: Proph, rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr , tid_ghost_winner: Proph) {
-  exists vs: List[(Bool, Proph)] :: Proph.prophecy(p, vs) && (
+inv descr_inv(token: AtomicToken<rdcss> , p: Proph[(Bool, Proph[Int])], rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr , tid_ghost_winner: Proph[Int]) {
+  exists vs: List[(Bool, Proph[Int])] :: Proph.proph(p, vs) && (
     exists notDone: Bool :: notDone ? (
     // First disjunct: This contains either `pending` or `accepted` state.
       own(l_descr_ref.one_shot, private)
@@ -615,10 +618,10 @@ inv rdcss_inv(l_n: Ref) {
       own(l_n.n_loc, quiescent(s.value0), 0.5)
       && rdcss_state_auth(l_n, s.value0)
     ) : (
-      // s == updatingState(s.l_descr_ref, s.l_descr_val, s.proph)
-      exists q1: Real, token: AtomicToken<rdcss> , tid_ghost_winner: Proph :: 
+      // s == updatingState(s.l_descr_ref, s.l_descr_val, s.prophField)
+      exists q1: Real, token: AtomicToken<rdcss> , tid_ghost_winner: Proph[Int] :: 
         q1 > 0.0 && own(s.l_descr_ref_destr.Descr.descr_fld, s.l_descr_val, 0.5+q1)
-        && descr_inv(token, s.proph, s.l_descr_val.(Descr.n1), l_n, s.l_descr_ref_destr, s.l_descr_val, tid_ghost_winner)
+        && descr_inv(token, s.prophField, s.l_descr_val.(Descr.n1), l_n, s.l_descr_ref_destr, s.l_descr_val, tid_ghost_winner)
         && (exists l_m_val: Int :: read_l_m(s.l_descr_val.(Descr.l_m), l_m_val))
     )
   )
@@ -636,7 +639,7 @@ lemma rdcss_state_exclusive(l_n: Ref, n_1: Int, n_2: Int)
   unfold rdcss_state(l_n, n_2);
 }
 
-lemma state_done_extract_Q(token: AtomicToken<rdcss> , p: Proph, rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr, tid_ghost_winner: Proph)
+lemma state_done_extract_Q(token: AtomicToken<rdcss> , p: Proph[(Bool, Proph[Int])], rdcss_ret: Int, l_n: Ref, l_descr_ref: Ref, l_descr: Descr.L_descr, tid_ghost_winner: Proph[Int])
   requires descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)
   requires own(l_descr_ref.one_shot, public)
   requires own_rdcss_token(l_descr_ref)
@@ -644,7 +647,7 @@ lemma state_done_extract_Q(token: AtomicToken<rdcss> , p: Proph, rdcss_ret: Int,
 {
   var notDone: Bool;
   var isPending: Bool;
-  var vs: List[(Bool, Proph)];
+  var vs: List[(Bool, Proph[Int])];
   unfold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[vs := vs, notDone := notDone, isPending := isPending];
 
   if (notDone) { 

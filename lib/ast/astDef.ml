@@ -291,6 +291,7 @@ module Type = struct
       | Any
       | Var of QualIdent.t
       | Map
+      | FinSet
       | Fld
       | Data of QualIdent.t * variant_decl list
       | AtomicToken of QualIdent.t
@@ -321,6 +322,7 @@ module Type = struct
   let ref_type_string = "Ref"
   let map_type_string = "Map"
   let set_type_string = "Set"
+  let finset_type_string = "FinSet"
   let fld_type_string = "Fld"
   let bool_type_string = "Bool"
   let int_type_string = "Int"
@@ -342,6 +344,7 @@ module Type = struct
     | Any -> any_type_string
     | Ref -> ref_type_string
     | Map -> map_type_string
+    | FinSet -> finset_type_string
     | Fld -> fld_type_string
     | Perm -> perm_type_string
     | Data (id, _) -> QualIdent.to_string id
@@ -361,7 +364,7 @@ module Type = struct
     let rec pr_constr ppf t =
       match t with
       | Int | Real | Num | Bool | Any | Bot | Ref | Perm | Var _ | AtomicToken _
-      | Map | Fld | Prod | TypeExt _ ->
+      | Map | FinSet | Fld | Prod | TypeExt _ ->
           Stdlib.Format.fprintf ppf "%s" (to_name t)
       | Data (id, decls) ->
         Stdlib.Format.fprintf ppf "data %a {@\n  @[%a@]@\n}"
@@ -430,6 +433,7 @@ module Type = struct
   let mk_bot loc = App (Bot, [], mk_attr loc)
   let mk_ref loc = App (Ref, [], mk_attr loc)
   let mk_set loc tp = App (Map, [tp; mk_bool loc], mk_attr loc)
+  let mk_finset loc tp = App (FinSet, [tp], mk_attr loc)
   let mk_map loc tpi tpo = App (Map, [tpi; tpo], mk_attr loc)
   let mk_fld loc tpf = App (Fld, [tpf], mk_attr loc)
   let mk_perm loc = App (Perm, [], mk_attr loc)
@@ -455,6 +459,7 @@ module Type = struct
   let ref = mk_ref Loc.dummy
   let set = mk_set Loc.dummy bot
   let set_typed tp = mk_set Loc.dummy tp
+  let finset_typed tp = mk_finset Loc.dummy tp
   let map = mk_map Loc.dummy
   let perm = mk_perm Loc.dummy |> set_ghost true
   let data id decls = mk_data id decls Loc.dummy
@@ -498,11 +503,15 @@ module Type = struct
     | App (Bot, [], _), t | t, App (Bot, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (join_constr t1 t2, [], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [meet ti1 ti2; join to1 to2], a1)
+    | App (FinSet, [t1], a1), App (FinSet, [t2], _) -> App (FinSet, [meet t1 t2], a1)
+    | App (FinSet, [t1], a1), App (Map, [t2; (App (Bool, _, _) as b)], _)
+    | App (Map, [t2; (App (Bool, _, _) as b)], a1), App (FinSet, [t1], _) ->
+      App (Map, [meet t1 t2; b], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:join ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
       | _ -> App (Any, [], a1))
-    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1 
+    | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1
     | App (_, _, a1), App (_, _, _) -> App (Any, [], a1)
 
   and meet t1 t2 = 
@@ -511,10 +520,14 @@ module Type = struct
     | App (Any, [], _), t | t, App (Any, [], _) -> t
     | App (t1, [], a1), App (t2, [], _) -> App (meet_constr t1 t2, [], a1)
     | App (Map, [ti1; to1], a1), App (Map, [ti2; to2], _) -> App (Map, [join ti1 ti2; meet to1 to2], a1)
+    | App (FinSet, [t1], a1), App (FinSet, [t2], _) -> App (FinSet, [join t1 t2], a1)
+    | App (FinSet, [t1], a1), App (Map, [t2; App (Bool, _, _)], _)
+    | App (Map, [t2; App (Bool, _, _)], a1), App (FinSet, [t1], _) ->
+      App (FinSet, [join t1 t2], a1)
     | App (Prod, ts1, a1), App (Prod, ts2, _a2) ->
       (List.map2 ~f:meet ts1 ts2 |> function
       | Ok ts -> App (Prod, ts, a1)
-      | _ -> App (Bot, [], a1))      
+      | _ -> App (Bot, [], a1))
     | App (Fld, [tf1], _), App (Fld, [tf2], _) when equal tf1 tf2 -> t1
     | App (_, _, a1), App (_, _, _) -> App (Bot, [], a1)
 
@@ -540,6 +553,11 @@ module Type = struct
 
   let is_set tp_expr = match tp_expr with
     | App (Map, [_; App(Bool, _, _)], _) -> true
+    | App (FinSet, [_], _) -> true
+    | _ -> false
+
+  let is_finset tp_expr = match tp_expr with
+    | App (FinSet, [_], _) -> true
     | _ -> false
   let is_ghost_var vdecl = vdecl.var_ghost
   let is_const_var vdecl = vdecl.var_const
@@ -564,6 +582,7 @@ module Type = struct
 
   let set_elem = function
   | App (Map, [elem; App (Bool, _, _)], _) -> elem
+  | App (FinSet, [elem], _) -> elem
   | _ -> failwith "Expected Set type"
         
   let map_dom = function
@@ -625,6 +644,7 @@ module Expr = struct
     (* Unary operators *)
     | Not
     | Uminus
+    | Choose
     (* Binary operators *)
     | TupleLookUp
     | MapLookUp
@@ -760,6 +780,7 @@ module Expr = struct
     | Gt -> ">"
     | Elem -> "in"
     | Subseteq -> "subsetof"
+    | Choose -> "choose"
     | And -> "&&"
     | Not -> "!"
     | Or -> "||"
@@ -776,7 +797,7 @@ module Expr = struct
 
   let constr_to_prio = function
     | Null | Empty | Int _ | Real _ | Bool _ -> 0
-    | Setenum | Tuple | Read | Own | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
+    | Setenum | Tuple | Read | Own | Choose | AUPred _ | AUPredCommit _ | Var _ | TupleLookUp | MapLookUp | MapUpdate -> 1
     | Uminus | Not -> 2
     | DataConstr _ | DataDestr _ -> 3
     | Mult | Div | Mod -> 4
@@ -912,6 +933,33 @@ module Expr = struct
     make_printers ~type_ext_to_name:Type.default_type_ext_to_name
       ~expr_ext_to_string:default_expr_ext_to_string
 
+  (** Like [to_string], but with the freshening numbers the disambiguation pass
+      gives a callable's locals dropped, so identifiers read the way they were
+      written: [i(x)] rather than [i(x^24)]. For user-facing messages only --
+      two distinct variables can print alike here, which is exactly why every
+      other consumer wants [to_string]. *)
+  let to_source_string (e : t) : string =
+    let unnumber id = Ident.make (Ident.to_loc id) (Ident.name id) 0 in
+    let unnumber_qi qi =
+      QualIdent.make
+        (List.map (QualIdent.path qi) ~f:unnumber)
+        (unnumber (QualIdent.unqualify qi))
+    in
+    let rec go = function
+      | App (constr, es, attr) ->
+          let constr =
+            match constr with Var qi -> Var (unnumber_qi qi) | c -> c
+          in
+          App (constr, List.map es ~f:go, attr)
+      | Binder (b, var_decls, trgs, e, attr) ->
+          let var_decls =
+            List.map var_decls ~f:(fun vd ->
+                Type.{ vd with var_name = unnumber vd.var_name })
+          in
+          Binder (b, var_decls, List.map trgs ~f:(List.map ~f:go), go e, attr)
+    in
+    to_string (go e)
+
   (** Constructors *)
   
   let mk_app ?(loc = Loc.dummy) ~typ c es =
@@ -1028,7 +1076,7 @@ module Expr = struct
     | App (Var qual_ident, _, _) -> qual_ident
     | _ ->
       Error.error (to_loc expr)
-        (Printf.sprintf "Expected Var expression instead of %s" (to_string expr))
+        (Printf.sprintf "Expected Var expression instead of %s" (to_source_string expr))
 
   let to_ident expr =
     expr |> to_qual_ident |> QualIdent.to_ident
@@ -1355,6 +1403,14 @@ module Stmt = struct
     spec_atomic : bool;
     spec_comment : string option;
     spec_error : (qual_ident -> Loc.t -> Error.t) list;
+    (* Set when this spec's [spec_form] is a formal->actual substitution instance of a
+       known callable's declared clause -- i.e. a fold/unfold of a predicate body, or a
+       call-site/self exhale-of-requires / inhale-of-ensures. [qual_ident] identifies the
+       declaration; the [int] indexes into the conceptual list
+       [call_decl_precond @ call_decl_postcond @ [body]] for that declaration (predicates
+       have their body at index 0). Lets ISC translation in [HeapsExplicitTrnsl] reuse an
+       already-compiled inverse function instead of minting a fresh one per occurrence. *)
+    spec_source : (qual_ident * int) option;
   }
 
   let mk_const_spec_error error = (fun _ _ -> error)
@@ -1501,6 +1557,21 @@ module Stmt = struct
   }
   
   type stmt_ext = ..
+
+  (** What one extension statement costs the atomicity analysis
+      ([lib/frontend/rewrites/atomicityAnalysis.ml]), which allows at most one
+      atomic step while an invariant is unfolded or an atomic update is in flight.
+      An extension statement is opaque there -- it is still an unlowered
+      [BasicStmtExt]/[StmtExt] tag, since the analysis has to run before the
+      lowering (a `cas` lowers to a read plus a conditional write, which would
+      count as several steps rather than the single machine instruction it is), so
+      its cost cannot be read off the statements it eventually becomes and the
+      extension has to declare it. *)
+  type stmt_atomicity =
+    | NoStep  (** ghost: nothing an interfering thread can observe *)
+    | AtomicStep  (** exactly one atomic step, e.g. `cas`/`faa` *)
+    | NonAtomicStep
+        (** not permitted at all while an invariant or atomic update is open *)
 
   (** Extension point for contract-level clauses (e.g. [decreases]) that attach to a
       callable's or loop's contract rather than to a single statement. Carried as
@@ -1740,8 +1811,8 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(ghost=false) stmts = 
     { stmt_desc = mk_block ~ghost stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_assume_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
   let mk_assume_spec ~loc ?cmnt spec : t = 
@@ -1754,8 +1825,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_inhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
   let mk_inhale_spec ~loc ?cmnt spec : t = 
@@ -1768,8 +1839,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_exhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
   let mk_exhale_spec ~loc ?cmnt spec : t = 
@@ -1782,8 +1853,8 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
-  let mk_assert_expr ~loc ?cmnt ?(spec_error = []) expr : t = 
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error } in
+  let mk_assert_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
   let mk_assert_spec ~loc ?cmnt spec : t =
@@ -1830,12 +1901,13 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?cmnt ?(spec_error = []) e = 
+  let mk_spec ?(atomic = false) ?cmnt ?(spec_error = []) ?spec_source e =
     {
       spec_form = e;
       spec_atomic = atomic;
       spec_comment = cmnt;
       spec_error;
+      spec_source;
     }
 
   let to_loc s = s.stmt_loc
@@ -2140,6 +2212,10 @@ module Stmt = struct
 
   let default_basic_stmt_ext_fields_accessed : stmt_ext -> expr list -> qual_ident list = fun _ _ -> []
   let default_stmt_ext_fields_accessed : stmt_ext -> qual_ident list = fun _ -> []
+
+  (* Conservative: an unclassified extension statement is barred from an atomic
+     block rather than silently costing nothing there. *)
+  let default_stmt_ext_atomicity : stmt_ext -> stmt_atomicity = fun _ -> NonAtomicStep
 
   let make_stmt_fields_accessed ~basic_stmt_ext_fields_accessed ~stmt_ext_fields_accessed (s: t) : qual_ident list =
     let rec stmt_fields_accessed (s: t): (qual_ident list) =
@@ -3027,7 +3103,9 @@ module Predefs = struct
   let lib_auth_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Auth" 0]
   
   let lib_auth_fun_ident = Ident.make Loc.dummy "auth" 0
-  
+
+  let lib_auth_full_fun_ident = Ident.make Loc.dummy "full" 0
+
   let lib_auth_frag_constr_ident = Ident.make Loc.dummy "auth_frag" 0
   
   let lib_auth_frag_destr1_ident = Ident.make Loc.dummy "af_proj1" 0
@@ -3044,6 +3122,8 @@ module Predefs = struct
 
   let lib_countAgreeRA_destr1_ident = Ident.make Loc.dummy "count" 0
   let lib_countAgreeRA_destr2_ident = Ident.make Loc.dummy "value" 0
+
+  let lib_nat_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Nat" 0]
 
   let lib_atomic_token_ra_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "AtomicTokenRA" 0]
 

@@ -4,6 +4,33 @@ open Util
 open Ast
 (*open Base*)
 
+(* Shared by [local_var_def]'s two productions. They spell the `ghost` modifier
+   out instead of taking it from the nullable [ghost_modifier], so that the
+   production never starts with an empty symbol: menhir would otherwise report
+   its [$startpos] -- and hence the whole statement's [stmt_loc], assigned from
+   it in [stmt] -- as the end of the *preceding* token, pointing every
+   statement-level diagnostic at the line above. *)
+let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
+  let decl =
+    Type.{ decl with
+           var_type = decl.var_type |> Type.set_ghost ghost;
+           var_ghost = ghost;
+           var_const = const;
+         }
+  in
+  match rhs_opt with
+  | Some rhs ->
+      let stmt, default_expr_optn = rhs ([Expr.from_var_decl decl], true) in
+      let var_init =
+        match stmt, default_expr_optn with
+        | Stmt.Basic (Assign assign_desc), None -> Some assign_desc.assign_rhs
+        | _, Some expr -> Some (Expr.set_loc expr rhs_loc)
+        | _ -> None
+      in
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = NotFree })); stmt]
+  | None ->
+      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree }))]
+
 %}
 
 %token <Ast.Ident.t> IDENT MODIDENT
@@ -22,7 +49,7 @@ open Ast
 %token <Ast.Expr.binder> QUANT
 %token <Ast.Stmt.spec_kind> SPEC
 %token <Ast.Stmt.use_kind> USE  
-%token HAVOC NEW RETURN OWN AU AUCOMMIT
+%token HAVOC NEW RETURN OWN AU AUCOMMIT CHOOSE
 %token IF ELSE WHILE SPAWN
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA FREE
@@ -401,6 +428,7 @@ contract:
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];
+           spec_source = None;
          }
   in
   ([spec], [], [])
@@ -411,6 +439,7 @@ contract:
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];
+           spec_source = None;
          }
   in
   ([], [spec], [])
@@ -559,7 +588,8 @@ with_clause:
     let spec = { spec_form = e;
                  spec_atomic = false;
                  spec_comment = None;
-                 spec_error = []; }
+                 spec_error = [];
+                 spec_source = None; }
     in
     [Basic (Spec (sk, spec))]
 }
@@ -592,32 +622,11 @@ with_clause:
 }
 
 local_var_def:
-| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
-  let decl =
-    Type.{ decl with
-           var_type = decl.var_type |> Type.set_ghost g;
-           var_ghost = g;
-           var_const = v;
-         }
-  in
-  match e with
-  | Some rhs ->
-      let stmt, default_expr_optn = rhs ([Expr.from_var_decl decl], true) in
-      let var_init =
-        match stmt, default_expr_optn with
-        | Stmt.Basic (Assign assign_desc), None -> Some assign_desc.assign_rhs
-        | _, Some expr -> Some (Expr.set_loc expr (Loc.make $startpos(e) $endpos(e)))
-
-        (*| Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Cas _; _ }) -> Some (Expr.mk_bool ~loc:(Loc.make $startpos(e) $endpos(e)) true)
-        | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Faa _; _ }) -> Some (Expr.mk_int ~loc:(Loc.make $startpos(e) $endpos(e)) 0)
-        | Stmt.Basic (AtomicInbuilt { atomic_inbuilt_kind = Xchg xchg_desc; _ }) -> 
-            Some xchg_desc.Stmt.xchg_new_val
-        | Stmt.Basic (New _new_desc) -> Some (Expr.mk_null ())*)
-        | _ -> None
-      in
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init; var_is_free = NotFree })); stmt]
-  | None ->
-      [Stmt.(Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree }))]
+| GHOST; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
+  mk_local_var_def ~ghost:true ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
+}
+| v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
+  mk_local_var_def ~ghost:false ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
 }
 
     
@@ -790,6 +799,7 @@ loop_contract:
            spec_atomic = false;
            spec_comment = None;
            spec_error = [];
+           spec_source = None;
          }
   in
   `Invariant spec
@@ -811,6 +821,7 @@ primary:
 | e = dot_expr { e }
 | e = own_expr { e }
 | e = au_expr { e }
+| e = choose_expr { e }
 ;
 
 compr_expr:
@@ -833,6 +844,11 @@ dot_expr:
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Own es)
+}
+
+choose_expr:
+| CHOOSE; LPAREN; e = expr; RPAREN {
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Choose [e])
 }
 
 (*cas_expr:

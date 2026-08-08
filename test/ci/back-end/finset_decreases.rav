@@ -1,0 +1,15 @@
+// End-to-end regression test for the decreasesExt/FinSet integration: a
+// `decreases` clause over a FinSet[T]-typed parameter, using the
+// peel-one-element-via-`--`/`choose` pattern, should resolve to
+// `Library.SetOrder` (see lib/ext/decreasesExt/decreasesExt.ml's
+// `is_wf_order_type` and lib/ext/decreasesExt/well_founded_order.rav's
+// `SetOrder`) and verify. `choose` itself needs no module qualification --
+// it's a core built-in operator, resolved via its own rewrite pass.
+module M {
+  func count(s: FinSet[Int]) returns (res: Int)
+    decreases s
+    ensures res >= 0
+  {
+    s == {||} ? 0 : 1 + count(s -- {|choose(s)|})
+  }
+}

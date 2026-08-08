@@ -1,0 +1,24 @@
+// This file is DELIBERATELY BROKEN -- it will not type-check, on purpose.
+//
+// A `{! ... !}` ghost block can read and manipulate ghost state freely, but
+// it still can't touch anything real -- `count` is an ordinary, non-ghost
+// field, so writing it from inside the block is exactly the write a
+// compiled (ghost-code-erased) program could never actually perform.
+// Expect:
+//
+//   [Type Error] Cannot assign to non-ghost field count in ghost context
+//
+// The same check guards non-ghost *local variables* too, one level down --
+// `x := 5` for a non-ghost local `x`, from inside a ghost block, fails with
+// `Cannot assign to non-ghost var x in ghost context` for the identical
+// reason.
+field count: Int
+
+proc demo(c: Ref, implicit ghost v: Int)
+  requires own(c.count, v)
+  ensures own(c.count, v)
+{
+  {!
+    c.count := 5
+  !}
+}

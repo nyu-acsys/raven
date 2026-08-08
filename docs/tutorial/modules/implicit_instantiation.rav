@@ -1,0 +1,42 @@
+// A standalone example for §6: `Box` is a functor with one formal, `T:
+// Library.Type` -- since `Library.Type` itself declares a `rep type`, `Box`
+// qualifies for *implicit* instantiation. `demo` below never writes
+// `module BoxInt = Box[Library.IntType]`; Raven infers it every time.
+
+module Box[T: Library.Type] {
+  rep type S = data {
+    case box(unwrap: T)
+  }
+
+  func mk(a: T) returns (res: S) {
+    box(a)
+  }
+
+  func get(b: S) returns (res: T) {
+    b.unwrap
+  }
+}
+
+proc demo() {
+  // `mk`'s formal is declared `a: T`, and the argument `3` has type `Int` --
+  // unifying the two solves `T := Int`, and Raven silently instantiates
+  // `Box[Int]` (internally, not under any name you ever have to write).
+  var b := Box.mk(3)
+  assert Box.get(b) == 3
+
+  // Calling `Box.mk(3)` again resolves to the exact same instantiation as
+  // above (Raven deduplicates by inferred type argument), so the two
+  // results are the same type and can be compared.
+  var c := Box.mk(3)
+  assert b == c
+
+  // A different inferred type argument -- `true: Bool` -- gets its own,
+  // separate implicit instantiation, coexisting with `Box[Int]` above.
+  var s := Box.mk(true)
+  assert Box.get(s) == true
+
+  // Implicit instantiation isn't limited to ordinary calls: `b.Box.unwrap`
+  // is the destructor form, and resolves the same way, reading the type
+  // argument off `b`'s own (already-inferred) type.
+  assert b.Box.unwrap == 3
+}

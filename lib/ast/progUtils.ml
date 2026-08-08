@@ -960,6 +960,61 @@ let existing_module_for_rep_type ~(interface_qual_ident : qual_ident)
           else return None)
   | _ -> return None
 
+(** Names (with their symbol kind, e.g. "value"/"function") of [interface_qual_ident]'s
+    abstract members other than its rep type [rep_ident] -- the members a bare type
+    argument can never supply. Empty for interfaces that consist of nothing but a rep
+    type (e.g. [Type]), which is exactly the case [intros_rep_module] is sound for;
+    non-empty for interfaces like [ResourceAlgebra] that also require operations
+    ([id]/[valid]/[comp]/...). Used to reject [intros_rep_module]'s stub before it is
+    even created, rather than letting it fail later, confusingly, when the stub is
+    found to still have those members abstract.
+
+    Looks at the interface's members as originally declared (via
+    [Rewriter.Symbol.orig_symbol], not [Rewriter.Symbol.reify]): reifying a symbol
+    reached through a non-trivial substitution unconditionally marks every [CallDef] it
+    contains as machine-free (see [Rewriter.Symbol.reify]), which would hide exactly the
+    operations ([comp], [valid], ...) this check exists to find.
+
+    A member counts as "must be supplied" unless its [free_status] is [UserFree] --
+    i.e. unless the source explicitly wrote `free` on it. [NotFree] (never marked free)
+    and [MachineFree] both count: the entire standard library is force-marked
+    [MachineFree] wholesale so it isn't re-verified per program (see the comment on
+    [un_free_inherited] in [Typing.ProcessModule.process_module]), which is
+    indistinguishable, per member, from genuine freeness unless [UserFree] is checked
+    for specifically. [Lemma]-kind callables (axioms) are excluded unconditionally: an
+    interface's axioms never need to be supplied by an implementer, regardless of how
+    they're marked. *)
+let non_rep_abstract_members ~(interface_qual_ident : qual_ident) ~(rep_ident : ident) :
+    (string * ident) list t =
+  let open Rewriter.Syntax in
+  let+ _, symbol = Rewriter.resolve_and_find interface_qual_ident in
+  match Rewriter.Symbol.orig_symbol symbol with
+  | AstDef.Module.ModDef iface ->
+      Base.List.filter_map iface.mod_def ~f:(function
+        | AstDef.Module.SymbolDef symbol
+          when (match AstDef.Symbol.free_status symbol with
+               | UserFree -> false
+               | NotFree | MachineFree -> true)
+          -> (
+            match symbol with
+            | TypeDef { type_def_name; type_def_expr = None; _ }
+              when not (Ident.equal type_def_name rep_ident) ->
+                Some (AstDef.Symbol.kind symbol, type_def_name)
+            | ModInst { mod_inst_name; mod_inst_def = None; _ } ->
+                Some (AstDef.Symbol.kind symbol, mod_inst_name)
+            | VarDef { var_decl = { var_const = true; var_name; _ }; var_init = None; _ } ->
+                Some (AstDef.Symbol.kind symbol, var_name)
+            | CallDef
+                {
+                  call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
+                  call_decl = { call_decl_kind = Proc | Func | Pred | Invariant; _ };
+                  _;
+                } ->
+                Some (AstDef.Symbol.kind symbol, AstDef.Symbol.to_name symbol)
+            | _ -> None)
+        | _ -> None)
+  | _ -> []
+
 (** Get the module wrapping [tp] as an implementation of [interface_qual_ident]
     (with rep type [rep_ident]): reuses an existing module already implementing
     [interface_qual_ident] if [tp] happens to be exactly its rep type (see
@@ -985,6 +1040,26 @@ let get_or_intros_rep_module ~(loc : location)
       match resolve_result with
       | Some _ -> return canonical_qi
       | None ->
+          let* missing = non_rep_abstract_members ~interface_qual_ident ~rep_ident in
+          let* () =
+            match missing with
+            | [] -> return ()
+            | _ :: _ ->
+                let* printers = Rewriter.current_printers in
+                let missing_str =
+                  Base.List.map missing ~f:(fun (kind, id) ->
+                      Printf.sprintf "%s `%s`" kind (Ident.to_string id))
+                  |> String.concat ~sep:", "
+                in
+                Error.type_error loc
+                  (Printf.sprintf
+                     !"`%s` cannot be used here as a type argument: interface \
+                       %{QualIdent} requires more than a representation type -- it also \
+                       declares %s, which a bare type does not supply. Pass a module \
+                       that implements %{QualIdent} instead of a type here"
+                     (Print.string_of_format printers.pr_type tp) interface_qual_ident
+                     missing_str interface_qual_ident)
+          in
           intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident ~rep_ident tp
 
 (** Get or create (and typecheck) the instantiation
@@ -1010,6 +1085,16 @@ let instantiate_type_functor ~(loc : location)
     Error.internal_error loc
       "wrong number of type arguments for this functor instantiation"
   else
+    (* Canonicalize via [expand_type_expr] before deriving the instantiation's name
+       below: callers can reach here with an argument type either written as a type
+       alias (e.g. a functor called directly from a type position) or already
+       expanded (e.g. inferred from a call's argument, expanded during unification
+       against the functor's formals) -- without normalizing both to the same form
+       first, the same semantic type argument would name two different, mutually
+       incompatible instantiations. *)
+    let* arg_types =
+      Rewriter.List.map arg_types ~f:(fun tp -> !Rewriter.expand_type_expr_ref tp)
+    in
     let* insert_scope, reference_scope = find_insertion_scope_for_types arg_types in
     let* arg_module_qis =
       Rewriter.List.map2_exn functor_mod_decl.mod_decl_formals arg_types

@@ -3,13 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "predev": "node scripts/sync-rav.mjs",
+    "predev": "node scripts/build-section-registry.mjs && node scripts/sync-rav.mjs",
     "dev": "VITE_EXTRA_EXTENSIONS=rav vitepress dev",
-    "prebuild": "node scripts/sync-rav.mjs",
+    "prebuild": "node scripts/build-section-registry.mjs && node scripts/sync-rav.mjs",
     "build": "VITE_EXTRA_EXTENSIONS=rav vitepress build",
     "preview": "VITE_EXTRA_EXTENSIONS=rav vitepress preview"
   },
   "devDependencies": {
     "vitepress": "^1.6.4"
+  },
+  "//": "VitePress 1.6.4 pins vite ^5.4.14, and every vite 5 carries dev-server advisories fixed only in 6.4.3 (and esbuild 0.25.0). No version bump resolves that: VitePress 2 is alpha-only. Remove once VitePress 2 is stable and brings a fixed vite itself.",
+  "overrides": {
+    "esbuild": "^0.25.0",
+    "vite": "^6.4.3"
   }
 }

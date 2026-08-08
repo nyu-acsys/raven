@@ -47,9 +47,9 @@ module OrdinalBase {
 // this reduces every instance's well-foundedness to OrdinalBase.lt's -- the
 // one thing actually trusted (by structural induction, see OrdinalBase's doc
 // comment) rather than merely assumed. lt_embed_mono is not `auto`: nothing
-// decreasesExt.ml generates ever needs to invoke it, or otherwise reference
-// embed/OrdinalBase at all, since the fact exists purely for this
-// meta-theoretic soundness argument.
+// else here needs to invoke it, or otherwise reference embed/OrdinalBase at
+// all -- the fact exists purely to justify, once, that this order really is
+// well-founded, not because anything else depends on it directly.
 interface WellFoundedOrder : Type {
   func lt(x: T, y: T) returns (res: Bool)
   func embed(x: T) returns (res: OrdinalBase.T)
@@ -61,13 +61,13 @@ interface WellFoundedOrder : Type {
 // WellFoundedOrder instance for OrdinalBase itself, via the trivial
 // embedding (embed = unwrap). Not `rep type T = OrdinalBase.T` directly: a
 // `rep type` defined as an alias to another module's type resolves
-// transparently to that module's own identity once elaborated (confirmed
-// empirically -- this holds even for a non-generic alias, not just a generic
-// instantiation like MultisetOrder's comment below describes), which would
-// make a `decreases` measure of this type resolve to OrdinalBase (which
-// deliberately doesn't implement WellFoundedOrder) rather than to Ordinal
-// itself. A single-constructor wrapper keeps its own module identity while
-// still making embed a one-line unwrap.
+// transparently to that module's own identity (this holds even for a
+// non-generic alias, not just a generic instantiation like MultisetOrder's
+// comment below describes), which would make a `decreases` measure of this
+// type resolve to OrdinalBase (which deliberately doesn't implement
+// WellFoundedOrder) rather than to Ordinal itself. A single-constructor
+// wrapper keeps its own module identity while still making embed a one-line
+// unwrap.
 module Ordinal : WellFoundedOrder {
   rep type T = data {
     case wrap(unwrap: OrdinalBase.T)
@@ -171,5 +171,119 @@ module MultisetOrder : WellFoundedOrder {
 
   func lt(x: T, y: T) returns (res: Bool) {
     OrdinalBase.lt(embed(x), embed(y))
+  }
+}
+
+// Strict subset inclusion on FinSet[E], for any element type E -- lets a
+// `decreases` clause use a `FinSet[_]`-typed measure component directly,
+// with no explicit instantiation of this module required.
+//
+// `choose` picks an arbitrary member of a nonempty Set/FinSet -- it's what
+// makes `embed` computable at all without assuming any order on E (contrast
+// MultisetOrder above, which can pick a canonical "max" because its elements
+// are Int). `embed` ranks a set by its cardinality, computed via `msize`
+// (peel one element via `choose`, recurse, count the steps) folded into a
+// single IntOrder-shaped CNF term.
+//
+// Unlike IntOrder/Ordinal/MultisetOrder above, this module proves
+// lt_embed_mono explicitly rather than leaving it to follow automatically
+// from lt/embed's own definitions. The crux is msize_remove: peeling *any*
+// already-present element -- not just `choose(s)`'s own arbitrary choice --
+// has to decrease msize by exactly 1. Proved by induction on `s`, with a
+// nested recursive call on the other set reached by removing the given
+// element first, relating two different single-step removals back to their
+// common further reduct. msize_mono (subset monotonicity of msize) follows
+// the same way, and lt_embed_mono itself then reduces to comparing two
+// ordinary Int values.
+module SetOrder[E: Type] : WellFoundedOrder {
+  rep type T = FinSet[E]
+
+  func msize_step(s: T) returns (res: T) {
+    s -- {|choose(s)|}
+  }
+
+  func msize(s: T) returns (res: Int) {
+    s == {||} ? 0 : 1 + msize(msize_step(s))
+  }
+
+  func lt(x: T, y: T) returns (res: Bool) {
+    x subseteq y && x != y
+  }
+
+  func embed(s: T) returns (res: OrdinalBase.T) {
+    OrdinalBase.cons(OrdinalBase.zero, msize(s), OrdinalBase.zero)
+  }
+
+  lemma msize_nonneg(s: T)
+    ensures msize(s) >= 0
+  {
+    if (s != {||}) {
+      msize_nonneg(msize_step(s));
+    }
+  }
+
+  // Peeling any already-present element -- not just choose(s)'s own choice --
+  // decreases msize by exactly 1. `s'` is given as an explicit parameter,
+  // characterized purely by its membership relative to `s` and `e`, rather
+  // than written as `s -- {|e|}` in the conclusion: nothing forces two
+  // separately-written set-difference expressions to be recognized as
+  // denoting the same set automatically, so stating the needed set directly
+  // by its membership avoids relying on that.
+  //
+  // Proved by induction on `s` (via choose(s)'s own peeling), with a nested
+  // recursive call on the *other* smaller instance reached by removing `e`
+  // first: `e == choose(s)` is immediate from msize's own definition;
+  // `e != choose(s)` needs both the outer induction hypothesis (applied to
+  // msize_step(s), the same smaller set choose(s)'s own peeling reaches) and
+  // a second call to this same lemma (applied to the set already missing
+  // `e`, with `choose(s)` as the element to remove from it) to relate the
+  // two different single-step removals back to their common further reduct.
+  lemma msize_remove(s: T, e: E, s': T)
+    requires e in s
+    requires forall z: E :: {z in s'} (z in s') == (z in s && z != e)
+    ensures msize(s) == 1 + msize(s')
+  {
+    var e0: E := choose(s);
+    var s0: T := msize_step(s);
+    assert forall z: E :: {z in s0} (z in s0) == (z in s && z != e0);
+    if (e == e0) {
+    } else {
+      var u: T := s0 -- {|e|};
+      assert forall z: E :: {z in u} (z in u) == (z in s0 && z != e);
+      msize_remove(s0, e, u);
+      msize_remove(s', e0, u);
+    }
+  }
+
+  lemma msize_mono(x: T, y: T)
+    requires x subseteq y && x != y
+    ensures msize(x) < msize(y)
+  {
+    var e: E := choose(y);
+    var y0: T := msize_step(y);
+    assert forall z: E :: {z in y0} (z in y0) == (z in y && z != e);
+    msize_remove(y, e, y0);
+    if (e in x) {
+      var x0: T := x -- {|e|};
+      assert forall z: E :: {z in x0} (z in x0) == (z in x && z != e);
+      msize_remove(x, e, x0);
+      msize_mono(x0, y0);
+    } else {
+      if (x == y0) {
+      } else {
+        msize_mono(x, y0);
+      }
+    }
+  }
+
+  lemma lt_embed_mono()
+    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y))
+  {
+    assert forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y)) with {
+      if (lt(x, y)) {
+        msize_nonneg(x);
+        msize_mono(x, y);
+      }
+    }
   }
 }

@@ -1,0 +1,176 @@
+// A variant of `ticket_lock_atomic.rav`, shown *first* in the tutorial text:
+// here, `wait_loop` has no atomic contract of its own at all. Instead it
+// takes `acquire`'s own AU token directly -- still uncommitted -- as an
+// ordinary (ghost) parameter, and its postcondition says that very token is
+// now committed. The whole retry loop, however many recursive calls it
+// actually takes, is thus transparently just the tail end of `acquire`'s
+// own single linearization step -- there is only ever one token in this
+// story, created once by `acquire`'s own `bindAU()`. Compare
+// `ticket_lock_atomic.rav`, where `wait_loop` instead gets its own,
+// separate atomic contract and its own token -- see the tutorial text for
+// what that buys you.
+interface LockResource : Library.Type {
+  rep type T
+
+  // Resource protected by a lock
+  pred resource(r: T)
+}
+
+module TicketLock[R: LockResource] {
+  import R.resource
+
+  field next: Int
+  field curr: Int
+
+  module IntSet = Library.DisjSet[Library.IntType]
+  module AuthDisjInts = Library.Auth[IntSet]
+
+  ghost field tickets: AuthDisjInts
+
+  module UnitType : Library.Type {
+    rep type T = ()
+  }
+
+  module ExclUnit = Library.Excl[UnitType]
+
+  ghost field exclusive: ExclUnit
+
+  auto pred locked(l: Ref) {
+    own(l.exclusive, ExclUnit.excl(()))
+  }
+
+  lemma lk_exclusive(l: Ref)
+    requires locked(l) && locked(l)
+    ensures false
+  {
+
+  }
+
+  pred is_lock(l: Ref; r: R) {
+    exists n: Int, c: Int, b: Bool ::
+      own(l.next, n, 1.0) && n >= 0
+      && own(l.curr, c, 1.0)
+      && (b ?
+        own(l.tickets, AuthDisjInts.frag(IntSet.set({|c|}))) :
+        resource(r) && locked(l)
+      )
+      && own(l.tickets,
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < n|}),
+          IntSet.set({||})
+        )
+      )
+  }
+
+  proc create(r: R) returns (l: Ref)
+    requires resource(r)
+    ensures is_lock(l, r)
+  {
+    l := new (
+      next: 0, curr: -1,
+      tickets: AuthDisjInts.auth_frag(
+        IntSet.set({||}), IntSet.set({||})
+      ),
+      exclusive: ExclUnit.excl(())
+    )
+
+    fold is_lock(l, r)[b := false]
+  }
+
+  // No `atomic requires`/`atomic ensures` here at all. `token` is `acquire`'s
+  // own, still-open AU token, threaded straight through: `au<acquire>(token,
+  // l)` in the precondition is "I am holding acquire's uncommitted token,
+  // for the call `acquire(l)`"; `auCommit<acquire>(token, l, ())` in the
+  // postcondition is "that same token is now committed, and acquire
+  // returned `()`" -- `acquire` has no `returns` clause, so its return-value
+  // tuple is trivially `()`.
+  proc wait_loop(l: Ref, x: Int, ghost token: AtomicToken<acquire>, implicit ghost r: R)
+    requires own(l.tickets, AuthDisjInts.frag(IntSet.set({|x|})))
+    requires au<acquire>(token, l)
+    ensures auCommit<acquire>(token, l, ())
+  {
+    // `openAU(token, l)` opens *acquire's* token, not one bound here -- so
+    // the call spells out `acquire`'s own concrete argument (`l`) by hand.
+    // Its return value, `r`, is `acquire`'s sole *implicit* parameter,
+    // freshly rebound to whatever value currently makes `is_lock(l, r)`
+    // hold.
+    ghost var b: Bool
+    r := openAU(token, l)
+    unfold is_lock(l)[b := b]
+    val c: Int := l.curr
+
+    if (x == c) {
+      fold is_lock(l, r)[b := true]
+      commitAU(token, l, ())
+      return
+    } else {
+      fold is_lock(l, r)[b := b]
+      abortAU(token, l)
+      wait_loop(l, x, token)
+    }
+  }
+
+  proc acquire(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r)
+    atomic ensures is_lock(l, r) && locked(l) && resource(r)
+  {
+    ghost val phi := bindAU()
+    ghost var b : Bool
+    r := openAU(phi)
+    unfold is_lock(l)[b := b]
+    val nxt: Int := l.next
+    fold is_lock(l, r)[b := b]
+    abortAU(phi)
+
+    r := openAU(phi)
+    unfold is_lock(l)[b := b]
+    val res: Bool := cas(l.next, nxt, nxt+1)
+
+    if (res) {
+      fpu(l, tickets,
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < nxt|}),
+          IntSet.set({||})
+        ),
+        AuthDisjInts.auth_frag(
+          IntSet.set({|i: Int :: 0 <= i && i < nxt+1|}),
+          IntSet.set({|nxt|})
+        )
+      )
+      // No re-abort/re-open/commitAU dance here: `phi` is simply handed to
+      // `wait_loop`, which will open, retry, and eventually commit it --
+      // `wait_loop`'s postcondition already *is* `acquire`'s own commit
+      // obligation, discharged.
+      fold is_lock(l, r)[b := b]
+      abortAU(phi)
+      wait_loop(l, nxt, phi)
+
+    } else {
+      fold is_lock(l, r)[b := b]
+      abortAU(phi)
+      r := openAU(phi)
+      acquire(l)
+      commitAU(phi, ())
+    }
+  }
+
+
+  proc release(l: Ref, implicit ghost r: R)
+    atomic requires is_lock(l, r) && locked(l) && resource(r)
+    atomic ensures is_lock(l, r)
+  {
+    ghost val phi := bindAU()
+    r := openAU(phi)
+    unfold is_lock(l, r)
+    val c: Int := l.curr
+    fold is_lock(l, r)[b := true]
+    abortAU(phi)
+
+    val c1: Int := c + 1
+    r := openAU(phi)
+    unfold is_lock(l, r)
+    l.curr := c1
+    fold is_lock(l, r)[b := false]
+    commitAU(phi, ())
+  }
+}

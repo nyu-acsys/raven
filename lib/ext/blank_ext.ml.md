@@ -76,6 +76,13 @@ module ExtName (Cont : Ext) = struct
     match stmt_ext with
     | _ -> Cont.stmt_ext_fields_accessed stmt_ext
 
+  (* Covers both statement extension points. Answer NoStep for a ghost statement
+     and AtomicStep for one indivisible machine step; the base of the chain
+     answers NonAtomicStep, barring the statement from atomic blocks. *)
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
   let contract_ext_to_string contract_ext =
     match contract_ext with
     | _ -> Cont.contract_ext_to_string contract_ext

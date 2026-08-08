@@ -1,0 +1,21 @@
+// Exercise 2: gcd by repeated subtraction (subtractive Euclid). Fill in the
+// loop invariant(s) so that the postcondition goes through. (We're only asking
+// for a common divisor bound here, not a proof that `r` is the *greatest*
+// common divisor -- that needs more machinery than this exercise is about.)
+proc gcd(a: Int, b: Int) returns (r: Int)
+  requires a > 0 && b > 0
+  ensures r > 0 && r <= a && r <= b
+{
+  var x := a
+  var y := b
+  while (x != y)
+    invariant true // TODO: replace with a real invariant
+  {
+    if (x > y) {
+      x := x - y
+    } else {
+      y := y - x
+    }
+  }
+  r := x
+}

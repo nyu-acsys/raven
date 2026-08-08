@@ -1,0 +1,24 @@
+// An atomic update opened and then neither committed nor aborted, alongside an
+// invariant left unfolded: both are named, the first as the error itself and
+// the rest as further related locations.
+
+field c: Int
+field d: Int
+
+pred counter(x: Ref; v: Int) {
+  own(x.c, v, 1.0)
+}
+
+inv aux(x: Ref) {
+  exists w: Int :: own(x.d, w)
+}
+
+proc incr(x: Ref, implicit ghost v: Int)
+  requires aux(x)
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v + 1)
+{
+  ghost var phi := bindAU();
+  ghost var v0: Int := openAU(phi);
+  unfold aux(x);
+}

@@ -1,0 +1,17 @@
+// A conditional itself takes no atomic step, but each of its arms still has
+// to fit inside the single step allowed while an invariant is open.
+
+field fa: Int
+field fb: Int
+
+inv counter_inv(c: Ref) {
+  exists na: Int, nb: Int :: own(c.fa, na) && own(c.fb, nb)
+}
+
+proc two_steps_in_arm(c: Ref, k: Bool)
+  requires counter_inv(c)
+{
+  unfold counter_inv(c);
+  if (k) { c.fa := 1; c.fb := 2; } else { c.fb := 1; }
+  fold counter_inv(c);
+}

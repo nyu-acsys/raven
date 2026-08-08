@@ -1,0 +1,24 @@
+// Statements here are terminated by inferred semicolons rather than written
+// ones. A diagnostic reported against a whole statement must still be confined
+// to that statement's own line: the inferred semicolon belongs at the line
+// break, not at the next token, which here is several lines further down past a
+// blank line and a comment.
+
+field f: Int
+
+inv i(x: Ref) {
+  own(x.f, 1)
+}
+
+proc two_steps(x: Ref)
+  requires i(x)
+{
+  unfold i(x)
+  val a := x.f
+
+  // deliberately a second atomic step, to get an error anchored at the
+  // statement as a whole
+  val b := x.f
+
+  fold i(x)
+}

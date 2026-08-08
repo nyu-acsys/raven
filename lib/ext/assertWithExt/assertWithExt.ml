@@ -68,6 +68,12 @@ module AssertWithExt (Cont : ListApi) = struct
     | AssertWith _ -> true
     | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
+  (* An assertion and its proof block are ghost through and through. *)
+  let stmt_ext_atomicity stmt_ext =
+    match stmt_ext with
+    | AssertWith _ -> Stmt.NoStep
+    | _ -> Cont.stmt_ext_atomicity stmt_ext
+
   (* Rewriter *)
   (* expr_ext_rewrite_types/basic_stmt_ext_rewrite_types: no expr_ext/BasicStmtExt
      constructors here, so Cont's default is used. *)

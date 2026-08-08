@@ -40,7 +40,7 @@
 		"keywords": {
 			"patterns": [{
 				"name": "keyword.control.raven",
-				"match": "\\b(if|while|else|return|havoc|assert|assume|inhale|exhale|fold|unfold|case|data|exists|forall|new|with|spawn|match|is)\\b"
+				"match": "\\b(if|while|else|return|havoc|assert|assume|inhale|exhale|fold|unfold|case|data|exists|forall|new|with|spawn|match)\\b"
 			}]
 		},
 		"symbols": {
@@ -74,12 +74,12 @@
 		"inbuilt": {
 			"patterns": [{
 				"name": "support.function.raven",
-				"match": "\\b(cas|faa|xchg|own|bindAU|openAU|commitAU|abortAU)\\b"
+				"match": "\\b(cas|faa|xchg|own|bindAU|openAU|commitAU|abortAU|subseteq|is|in|choose)\\b"
 			}]
 		},
 		"operators": {
 			"patterns": [{
-				"match": "!|%|&|\\*|\\-\\-|\\-|\\+\\+|\\+|==|:=|!=|<=|>=|=>|==>|<|>|!|&&|\\|\\||::|:\\|",
+				"match": "!=|%|&|\\*|\\-\\-|\\-|\\+\\+|\\+|==|:=|<=|>=|=>|==>|<|>|!|&&|\\|\\||::|:\\|",
 				"name": "keyword.operator.raven"
 			}]
 		},

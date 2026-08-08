@@ -14,7 +14,7 @@ hero:
       link: /tutorial/
     - theme: alt
       text: Install
-      link: /tutorial/00-getting-started/#install
+      link: /tutorial/getting-started/#install
     - theme: alt
       text: GitHub
       link: https://github.com/nyu-acsys/raven
@@ -120,7 +120,7 @@ and Eris-style error credits for probabilistic reasoning — as worked reference
 ## Getting started
 
 The quickest route is the **Raven Verifier** extension for VS Code, which bundles the verifier
-and Z3; [Part 0 of the tutorial](/tutorial/00-getting-started/) walks through installing it and
+and Z3; [Part 0 of the tutorial](/tutorial/getting-started/) walks through installing it and
 verifying a first file. To build from source instead:
 
 ```bash

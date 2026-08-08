@@ -157,7 +157,7 @@ interface BPlusTree[AK: OrderedArray, AN: RefArray] : NodeImpl {
       lock: 0,
       authFlow: AuthFlow_K.auth_frag(flow_id, flow_id),
       authKS: AuthKeyset_K.auth_frag(ks_r, ks_r),
-      authSet: AuthSetRef.auth(SetRefRA.set_constr({||}))
+      authSet: AuthSetRef.auth(SetRefRA.set({||}))
     );
 
     val cmap: Map[Int, Ref] := {| i: Int :: 0 <= i < 2*b ? null : AN.default |};
@@ -170,8 +170,8 @@ interface BPlusTree[AK: OrderedArray, AN: RefArray] : NodeImpl {
       AuthFlow_K.auth_frag(ir, ir)
     );
     fpu(r.authSet, 
-      AuthSetRef.auth(SetRefRA.set_constr({||})),
-      AuthSetRef.auth_frag(SetRefRA.set_constr({|r|}), SetRefRA.set_constr({|r|}))
+      AuthSetRef.auth(SetRefRA.set({||})),
+      AuthSetRef.auth_frag(SetRefRA.set({|r|}), SetRefRA.set({|r|}))
     );
     fold globalRes(r, {||}, ir);
     fold nodePred(r, r, {||}, ir);

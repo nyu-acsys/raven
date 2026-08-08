@@ -147,9 +147,13 @@ let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
   (tbl, Some processed_md)
   end
 
-(** Runs backend/SMT checking for a single already-elaborated compilation unit. *)
-let backend_check_cu tbl smt_env processed_md =
-  Backend.Checker.check_module processed_md tbl smt_env
+(** Runs backend/SMT checking over every already-elaborated compilation unit together (the
+    library and the program being checked are siblings sharing one symbol table, not one
+    nested inside the other -- see [Backend.Dependencies.analyze]'s doc comment -- so they
+    have to be checked as one combined call for [Backend.Checker.check_members]'s hierarchical
+    scoping to see both sides of that sharing). *)
+let backend_check_cu tbl smt_env processed_mds =
+  Backend.Checker.check_module processed_mds tbl smt_env
 
 
 (** Parse and check all compilation units in files [file_names] *)
@@ -283,7 +287,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
      let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
      let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
      let (_ : Backend.Smt_solver.smt_env) =
-       List.fold processed_mds ~init:smt_env ~f:(backend_check_cu tbl)
+       backend_check_cu tbl smt_env processed_mds
      in
      ());
 
@@ -382,6 +386,23 @@ let print_library_source =
              display a library location that has no file on disk." in
   Arg.(value & opt (some string) None & info [ "print-library-source" ] ~docv:"PATH" ~doc)
 
+let manifest =
+  let doc = "Print, as one line of JSON, what this binary is and what a client can \
+             expect of it -- its release version, the version of the machine-readable \
+             interface driven by --lsp-mode, and the oldest Z3 it works against -- and \
+             exit. An editor integration that can fetch verifier builds it was not \
+             shipped with reads this both from a release and from a binary it already \
+             has, to decide whether it can drive it." in
+  Arg.(value & flag & info [ "manifest" ] ~doc)
+
+(** What [--manifest] emits. Also published as a release asset, so a client can check a
+    release before spending a download on it; keep the two producing the same shape. *)
+let manifest_json =
+  `Assoc
+    [ ("version", `String Config.version);
+      ("lsp_protocol", `Int Config.lsp_protocol_version);
+      ("min_z3", `String Config.min_z3_version) ]
+
 let greeting = "Raven version " ^ Config.version
 
 let print_errors config errs =
@@ -467,7 +488,13 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   in
   Option.is_some dumped || Option.is_some printed
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict dump_library print_library_source =
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict dump_library print_library_source manifest =
+  if manifest then begin
+    (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
+       is a program parsing this one line. *)
+    Stdlib.print_endline (Yojson.Safe.to_string manifest_json);
+    Stdlib.exit 0
+  end;
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
   let config = {
     no_library;
@@ -497,8 +524,8 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
   | Unix.Unix_error (err, _, prog) ->
     let msg =
       Printf.sprintf
-        "Could not start '%s' (%s). Raven requires Z3 (>= 4.13.0) to be installed and on your PATH."
-        prog (Unix.error_message err)
+        "Could not start '%s' (%s). Raven requires Z3 (>= %s) to be installed and on your PATH."
+        prog (Unix.error_message err) Config.min_z3_version
     in
     print_errors config [ (Generic, Loc.dummy, msg) ]
   | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
@@ -517,6 +544,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

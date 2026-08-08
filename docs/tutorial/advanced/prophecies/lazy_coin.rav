@@ -1,0 +1,50 @@
+module PLC {
+
+  field c: Library.Option[Bool]
+  field p: Proph[Bool, 1]
+
+  proc new_lazy_coin() returns (ret: Ref, implicit ghost b: Bool)
+    ensures lazy_coin(ret, b)
+  {
+    var p1: Proph[Bool, 1]
+    var z: Bool
+    p1, z := new Proph[Bool, 1]
+
+    var x: Ref := new(c: Library.Option.none, p: p1)
+
+    fold lazy_coin(x, z)
+    return x, z
+  }
+
+  proc read_lazy_coin(coin: Ref, implicit ghost b: Bool)
+    returns (ret: Bool)
+    requires lazy_coin(coin, b)
+    ensures lazy_coin(coin, b) && ret == b
+  {
+    unfold lazy_coin(coin, b)
+    var c_val := coin.c
+    ghost var proph_id := coin.p
+    if (c_val == Library.Option.none) {
+        var b: Bool
+        havoc b
+        coin.c := Library.Option.some(b)
+        Proph.resolve(proph_id, b)
+        fold lazy_coin(coin, b)
+        return b
+    } else {
+        var res := c_val.Library.Option.value
+        fold lazy_coin(coin, b)
+        return res
+    }
+  }
+
+  pred lazy_coin (coin: Ref, b: Bool) {
+    exists b': Library.Option[Bool], p': Proph[Bool, 1] ::
+      own(coin.c, b') && own(coin.p, p') &&
+
+      (b' == Library.Option.some(b'.Library.Option.value) ?
+        b'.Library.Option.value == b :
+        Proph.proph(p', b)
+      )
+  }
+}

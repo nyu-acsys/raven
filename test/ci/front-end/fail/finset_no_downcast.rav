@@ -1,0 +1,9 @@
+// FinSet[T] <: Set[T] is one-directional: a plain Set[T] value can never be
+// used where FinSet[T] is expected, even though every FinSet[T] operation
+// (union/intersection/difference/enumeration) closes back over FinSet -- see
+// test/ci/front-end/finset_closure.rav for the positive cases.
+module M {
+  func bad_downcast(s: Set[Int]) returns (res: FinSet[Int]) {
+    s
+  }
+}

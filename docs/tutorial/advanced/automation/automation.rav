@@ -1,0 +1,122 @@
+// Small, self-contained demonstrations for Part 5.5. `auto pred`/`auto lemma`
+// and ISC-style triggers are demonstrated in-place, already, by the
+// fork-join, atomic-contracts, and iterated-star capstones (fork_join.rav's
+// `auto pred token`; ticket_lock_atomic.rav's `auto pred locked`; every
+// `{S.loc(s, i)}`-style trigger in shelf_of_counters.rav) -- see this
+// directory's README.md rather than duplicating them here.
+
+// --- Implicit predicate parameters -----------------------------------------
+//
+// Compare this to Part 3's `pred valid(c: T, v: Int)`, where `v` was an
+// ordinary, explicit parameter: every call site -- `valid(c, v)`, `fold
+// valid(c, v)`, `unfold valid(c, v)` -- had to spell it out. Here, `n` is
+// separated from `c` by a semicolon, marking it *implicit*: every use below
+// writes just `sized(c)`, and Raven recovers `n` on its own from whichever
+// `sized(c)` resource is already in scope.
+field count: Int
+
+pred sized(c: Ref; n: Int) {
+  own(c.count, n) && n >= 0
+}
+
+proc peek(c: Ref) returns (r: Int)
+  requires sized(c)
+  ensures sized(c) && r >= 0
+{
+  unfold sized(c)
+  r := c.count
+  fold sized(c)
+}
+
+proc create() returns (c: Ref)
+  ensures sized(c)
+{
+  c := new (count: 0)
+  fold sized(c)
+}
+
+// --- Implicit ghost parameters, for procs and lemmas ------------------------
+//
+// A `proc`/`lemma` can mark a parameter implicit exactly the same way --
+// but without `pred`'s uniqueness side condition, because there's nothing
+// to be ambiguous about here. `sized`'s `n` has to be *searched for*,
+// because `sized(c)` is an opaque, foldable resource that could in
+// principle be witnessed by more than one value unless Raven checks
+// otherwise. `nonNegCount`'s `n` below is recovered from an ordinary,
+// already-visible `own` fact directly -- whatever value that fact holds
+// *is* `n`, by plain unification, nothing to prove unique first.
+lemma nonNegCount(c: Ref, implicit ghost n: Int)
+  requires own(c.count, n, 1.0) && n >= 0
+  ensures own(c.count, n, 1.0)
+{
+}
+
+proc demoImplicitGhostParam()
+{
+  var c := create()
+  unfold sized(c)
+  nonNegCount(c)
+  fold sized(c)
+}
+
+// --- Triggers: more than one term, more than one set ------------------------
+//
+// A trigger can list more than one term, separated by commas: `{low(x),
+// high(y)}` only fires once *both* appear together as ground terms in the
+// same proof state -- between them the set has to mention every bound
+// variable, but no single term needs to. A quantifier can also carry more
+// than one trigger *set*, written back to back: `{t1} {t2}` means either
+// one firing is enough, independently -- see test/arrays/array_utils.rav
+// or test/concurrent/templates/flows_ra.rav for this at full scale, several
+// trigger sets deep.
+interface Bounds {
+  func low(x: Int) returns (r: Int)
+  func high(x: Int) returns (r: Int)
+
+  auto axiom lowHigh()
+    ensures forall x: Int, y: Int :: {low(x), high(y)} x < y ==> low(x) <= high(y)
+}
+
+module DemoBounds[B: Bounds] {
+  import B._
+
+  proc demoMultiTermTrigger()
+  {
+    val a := low(1)
+    val b := high(2)
+    assert a <= b
+  }
+}
+
+// --- `assert ... with` ------------------------------------------------------
+//
+// `assert a with { s }` is most useful when proving the body `P(x)` of a
+// quantified fact `forall x: T :: P(x)` genuinely needs an explicit lemma
+// call for each individual `x` -- not something Z3 can already do alone.
+// `sumFormula` below establishes the closed-form sum by induction, one call
+// per `n`; `assert ... with` is what turns "true for whichever `n` I
+// happen to call `sumFormula` with" into a real quantified fact the rest of
+// a proof can use without calling it again. Delete the `with` block (or the
+// `sumFormula(n);` call inside it) and this `assert` fails on its own --
+// nonlinear induction like this is exactly what Z3 can't discover by itself.
+func sumUpTo(n: Int) returns (s: Int)
+  decreases n
+{
+  n <= 0 ? 0 : n + sumUpTo(n - 1)
+}
+
+lemma sumFormula(n: Int)
+  ensures n >= 0 ==> sumUpTo(n) * 2 == n * (n + 1)
+  decreases n
+{
+  if (n > 0) {
+    sumFormula(n - 1)
+  }
+}
+
+proc demoAssertWith()
+{
+  assert forall n: Int :: n >= 0 ==> sumUpTo(n) * 2 == n * (n + 1) with {
+    sumFormula(n)
+  }
+}

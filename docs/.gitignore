@@ -7,3 +7,8 @@ node_modules/
 # public/ so that the links in the prose (e.g. ./hit_counter_pure.rav) resolve
 # to something the site actually serves.
 public/**/*.rav
+
+# Built by scripts/build-section-registry.mjs (predev/prebuild) from the
+# `{#sec:...}` headings under tutorial/**; regenerated, not source -- see
+# section-refs.mts for what reads it.
+.vitepress/section-registry.json

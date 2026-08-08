@@ -45,10 +45,10 @@ let lexical_error lexbuf msg =
      The stack starts empty, which behaves like [Group] (or, equivalently, like top level before
      any module has been entered) for insertion purposes: never insert.
    - [last_token_can_end_stmt] records whether the most recently lexed token could plausibly be
-     the last token of a complete statement or expression (an identifier, literal, or a closing
-     paren or bracket) as opposed to one that necessarily expects more to follow (an infix
-     operator, a keyword like if or return, a comma, etc). Insertion only happens when this is
-     true; it also disambiguates a loop's body brace (preceded by such a token) from a trigger
+     the last token of a complete statement or expression (an identifier, literal, a closing
+     paren or bracket, or a bare `return`) as opposed to one that necessarily expects more to
+     follow (an infix operator, a keyword like if, a comma, etc). Insertion only happens when this
+     is true; it also disambiguates a loop's body brace (preceded by such a token) from a trigger
      nested in an invariant (preceded by :: or a previous trigger's closing brace, neither of
      which qualifies).
    - [next_brace_kind] classifies the next plain brace lexed, whenever that ends up being: [Group]
@@ -57,6 +57,10 @@ let lexical_error lexbuf msg =
      scope otherwise (covering a nested block/loop body, and a trigger nested in a func body).
    - [next_paren_is_loop_cond] records whether the next '(' lexed opens a while loop's condition
      (set right after seeing [WHILE], consumed by that very next '(').
+   - [next_lt_opens_atomic_token]/[in_atomic_token_brackets] track the same way, for
+     [AtomicToken<P>]'s '<'/'>' pair -- the one place these lex as a closing delimiter rather
+     than the comparison operator LT/GT ordinarily do, so a statement ending in [AtomicToken<P>]
+     can have [last_token_can_end_stmt] set on its '>' the same as a closing paren/bracket would.
 
    One case needs a single token of lookahead rather than being decidable from [lex_state] alone:
    a multi-line ternary split right after '?' and again right after ':' can leave a branch
@@ -74,6 +78,16 @@ type lex_state = {
   last_token_can_end_stmt : bool;
   next_brace_kind : scope_kind option;
   next_paren_is_loop_cond : bool;
+  (* Same lookahead-free trick as [next_paren_is_loop_cond]/[Loop_header]: [AtomicToken<P>]
+     (parser.mly's [ATOMICTOKEN LT qid = qual_ident GT]) is the only place '<'/'>' are a
+     closing delimiter pair rather than the comparison operator LT/GT ordinarily lex as.
+     [next_lt_opens_atomic_token] is set on [ATOMICTOKEN], consumed by the very next [LT];
+     [in_atomic_token_brackets] is set by that [LT], consumed by the matching [GT]. Without
+     this, a statement ending in [AtomicToken<P>] (e.g. a bare `var tok: AtomicToken<P>`
+     declaration) never got its semicolon inserted, since a trailing '>' otherwise always
+     looks like an unfinished comparison awaiting its right operand. *)
+  next_lt_opens_atomic_token : bool;
+  in_atomic_token_brackets : bool;
 }
 
 let initial_state =
@@ -81,6 +95,8 @@ let initial_state =
     last_token_can_end_stmt = false;
     next_brace_kind = None;
     next_paren_is_loop_cond = false;
+    next_lt_opens_atomic_token = false;
+    in_atomic_token_brackets = false;
   }
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
@@ -138,14 +154,36 @@ let advance st (tok : Parser.token) =
     | LPAREN -> false (* consumed, whether or not it triggered [Loop_header] above *)
     | _ -> st.next_paren_is_loop_cond
   in
+  let next_lt_opens_atomic_token =
+    match tok with
+    | ATOMICTOKEN -> true
+    | LT -> false (* consumed, whether or not it triggered [in_atomic_token_brackets] below *)
+    | _ -> st.next_lt_opens_atomic_token
+  in
+  let in_atomic_token_brackets =
+    match tok with
+    | LT -> st.next_lt_opens_atomic_token
+    | GT -> false (* consumed *)
+    | _ -> st.in_atomic_token_brackets
+  in
   let last_token_can_end_stmt =
     match tok with
     | IDENT _ | MODIDENT _ | CONSTVAL _ | CONSTTYPE _ | ATOMICTOKEN
     | STRINGVAL _ | HASH _
-    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE -> true
+    | RPAREN | RBRACKET | RBRACEPIPE | RBRACKETPIPE
+    (* Unlike every other keyword here, `return` can legally end a statement
+       on its own -- a return with no values, from a callable with no `returns`
+       clause. A `return` with values is always followed by at least one more
+       token before the next newline, so this can't misfire on those. *)
+    | RETURN -> true
+    (* The closing '>' of [AtomicToken<P>] -- see [in_atomic_token_brackets]'s doc comment.
+       [st], not the freshly-computed [in_atomic_token_brackets] above, since what matters is
+       whether *this* '>' was the closing one, i.e. the state as of just before it. *)
+    | GT when st.in_atomic_token_brackets -> true
     | _ -> false
   in
-  { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond }
+  { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
+    next_lt_opens_atomic_token; in_atomic_token_brackets }
 
 (* Produces [tok], pairing it with the state to carry forward after it, and no buffered
    follow-up token (see [on_newline] for the one case that needs one). *)
@@ -159,7 +197,8 @@ let emit st (tok : Parser.token) = advance st tok, tok, None
    where the '?' branch (say, a bare identifier) looks like a complete statement in its own
    right. [peek] lexes that one lookahead token; since doing so unavoidably consumes it from the
    buffer, it is threaded back out as a third, optional "replay this token next" component, which
-   [make_token] returns verbatim on its following call instead of touching the lexbuf again. *)
+   the ['\n'] rule pairs with the lookahead's own source positions and [make_token] then returns
+   verbatim on its following call instead of touching the lexbuf again. *)
 let on_newline st ~peek =
   match st.scopes with
   | Stmt_list :: _ when st.last_token_can_end_stmt ->
@@ -171,8 +210,18 @@ let on_newline st ~peek =
 
 }
 
-let operator_char = ['+''-''*''%''.'':'',''?''>''<''=''&''|''!']
-let operator = '/' | ';' | operator_char+ | "in" | "!in" | "subseteq"
+(* A carriage return is only ever recognized as part of a line terminator, so a
+   stray one remains the lexical error it always was. *)
+let newline = '\r'? '\n'
+(* `,` is deliberately excluded: unlike every character here, it never combines with a
+   neighbor to form a longer operator (see Terminals.operator_table), so folding it into
+   [operator_char+]'s maximal munch only ever causes harm -- e.g. `AtomicToken<P>,` lexing
+   `>,` as one (unregistered, and hence rejected) two-character candidate operator, instead
+   of `>` and `,` separately, whenever a `>` or another operator character is immediately
+   followed by a comma with no space. Matched as its own single-character alternative below,
+   the same way `;` already is, for exactly this reason. *)
+let operator_char = ['+''-''*''%''.'':''?''>''<''=''&''|''!']
+let operator = '/' | ';' | ',' | operator_char+ | "in" | "!in" | "subseteq"
 let digit_char = ['0'-'9']
 let ident_char = ['A'-'Z''a'-'z''_']
 let lowercase_char = ['a'-'z''_']
@@ -184,13 +233,32 @@ let float = digits '.' digits
 
 rule token_lex st = parse
   [' ' '\t'] { token_lex st lexbuf }
-| '\n' {
+| newline {
+    (* Where an inserted semicolon belongs: the line break itself, i.e. just past
+       the last token on the line being ended -- the carriage return of a CRLF
+       pair, where there is one, being part of that break rather than of the
+       line's text. *)
+    let nl_pos = lexbuf.lex_start_p in
     Lexing.new_line lexbuf;
     match on_newline st ~peek:(fun st -> token_lex st lexbuf) with
-    | Some (st', tok, pending) -> st', tok, pending
+    | Some (st', tok, None) -> st', tok, None
+    | Some (st', tok, Some (pending_st, pending_tok)) ->
+        (* Deciding to insert consumed the lookahead token, leaving the lexbuf's
+           positions describing *it* -- so menhir would give the inserted
+           SEMICOLON, and hence the statement it terminates, an end position on
+           the next line, past the token that starts the next statement. Report
+           the semicolon at the line break instead, and stash the lookahead's own
+           positions to be restored when it is replayed. That restore also puts
+           [lex_curr_p] back the way [Lexing.engine] left it, before the next
+           token is scanned from it. *)
+        let pending_start_p = lexbuf.lex_start_p in
+        let pending_curr_p = lexbuf.lex_curr_p in
+        lexbuf.lex_start_p <- nl_pos;
+        lexbuf.lex_curr_p <- nl_pos;
+        st', tok, Some (pending_st, pending_tok, pending_start_p, pending_curr_p)
     | None -> token_lex st lexbuf
   }
-| "//" [^ '\n']* { token_lex st lexbuf }
+| "//" [^ '\n' '\r']* { token_lex st lexbuf }
 | "/*" { comments 0 st lexbuf }
 | "{|" { emit st LBRACEPIPE }
 | "|}" { emit st RBRACEPIPE }
@@ -235,7 +303,7 @@ and comments level st = parse
          else comments (level - 1) st lexbuf
        }
 | "/*" { comments (level + 1) st lexbuf }
-| '\n' { Lexing.new_line lexbuf; comments level st lexbuf }
+| newline { Lexing.new_line lexbuf; comments level st lexbuf }
 | _ { comments level st lexbuf }
 | eof { st, EOF, None }
 
@@ -247,12 +315,18 @@ and comments level st = parse
    The one token of state carried between calls beyond [lex_state] itself is a possible buffered
    token: [on_newline] occasionally has to look one token ahead to decide whether to insert a
    semicolon, which unavoidably consumes that lookahead token from the buffer; when that happens
-   it is stashed here and replayed on the following call instead of lexing afresh. *)
+   it is stashed here, along with its own source positions, and replayed on the following call
+   instead of lexing afresh. Restoring those positions is what keeps the inserted semicolon's
+   own position (the line break -- see the ['\n'] rule) from displacing the lookahead's. *)
 let make_token () =
   let state = ref (initial_state, None) in
   fun lexbuf ->
     match !state with
-    | _, Some (st', tok) -> state := (st', None); tok
+    | _, Some (st', tok, start_p, curr_p) ->
+        state := (st', None);
+        lexbuf.lex_start_p <- start_p;
+        lexbuf.lex_curr_p <- curr_p;
+        tok
     | st, None ->
         let st', tok, pending = token_lex st lexbuf in
         state := (st', pending);

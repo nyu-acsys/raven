@@ -1,0 +1,13 @@
+// A one-shot prophecy's `Proph.proph(p, v)` resource is given up for good by
+// `Proph.resolve` -- nothing hands it back, unlike an invariant's
+// fold/unfold. Resolving the same prophecy a second time tries to give up a
+// resource that's no longer there.
+proc p() {
+  var myProph: Proph[Int, 1]
+  var myPred: Int
+  var actual: Int
+
+  myProph, myPred := new Proph[Int, 1]
+  Proph.resolve(myProph, actual)
+  Proph.resolve(myProph, actual)
+}

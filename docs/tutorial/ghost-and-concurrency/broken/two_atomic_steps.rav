@@ -1,0 +1,30 @@
+// DELIBERATELY BROKEN: takes two heap steps (a read, then a write) while
+// `evenCount` is still unfolded. Raven's atomicity analysis catches this
+// before Z3 is ever invoked:
+//
+//   [Verification Error] Attempting to take more than one atomic step with
+//   an open invariant or atomic update
+//
+// An invariant may only be open for a single atomic step, because Iris-style
+// invariants are only sound if every *other* thread could have interleaved
+// its own steps in between yours -- if you take two steps with the
+// invariant still open, nothing stops another thread from observing (or
+// changing) the state in between, which the fold/unfold discipline is
+// specifically supposed to rule out. This is checked purely syntactically,
+// before any SMT solving happens -- notice there's no related location, no
+// solver involved, just a flat rejection.
+field count: Int
+
+inv evenCount(c: Ref) {
+  exists v: Int :: own(c.count, v) && v % 2 == 0
+}
+
+proc bumpTwiceBroken(c: Ref)
+  requires evenCount(c)
+{
+  unfold evenCount(c)
+  var x := c.count
+  c.count := x + 1
+  c.count := x + 2
+  fold evenCount(c)
+}

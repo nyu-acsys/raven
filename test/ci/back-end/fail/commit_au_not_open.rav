@@ -1,0 +1,17 @@
+// Committing a token that was bound but never opened. The message names the
+// statement that was actually attempted -- `abortAU` on an unopened token gets
+// the same message with `abortAU` in place of `commitAU`.
+
+field c: Int
+
+pred counter(x: Ref; v: Int) {
+  own(x.c, v, 1.0)
+}
+
+proc incr(x: Ref, implicit ghost v: Int)
+  atomic requires counter(x, v)
+  atomic ensures counter(x, v + 1)
+{
+  ghost var phi := bindAU();
+  commitAU(phi, ());
+}

@@ -1,0 +1,249 @@
+// A distributed counter whose `get` operation has a *future-dependent* linearization point:
+// when `get` starts, it doesn't yet know whether it will finish on its own or whether some
+// concurrent `incr` will effectively finish it first. This example puts two techniques
+// together to handle that: prophecy (predicting the future so the proof can reason about it
+// now) and a "helping protocol" (registering with a shared invariant so another thread can
+// complete your operation on your behalf).
+//
+// The counter's value is split across two cells, `a` and `b`, each bumped independently by
+// `incr` to spread out contention. `get` must report `a.count + b.count` as of one instant,
+// but reads the two fields separately, and any number of concurrent `incr` calls may run in
+// between those two reads. If one of them happens to bring the total to exactly the value
+// `get` ends up reporting, *that* `incr` call is `get`'s real linearization point -- not
+// either of `get`'s own reads. Since `get` can't know in advance which increment (if any)
+// that will be, it predicts its own answer with a one-shot prophecy up front, and registers
+// a "helping cell" that every subsequent `incr` checks against.
+
+import Library.Auth
+import Library.Excl
+import Library.SetRA
+import Library.MaxNat
+
+module DistCounter {
+  // The counter object: two backing cells, plus a `shared` ref holding all of the ghost
+  // bookkeeping described below.
+  type Counter = data { case counter(a: Ref, b: Ref, shared: Ref) }
+
+  // `Auth[MaxNat]` pairs an authoritative view of a monotonically-increasing number with
+  // fragments that can be checked against it later: composing `auth(v)` with `frag(w)` is
+  // only valid when `w <= v`, and `fpu` only ever allows the authoritative side to move up.
+  // It's the same construction the tutorial's "Ghost Code and Basic Concurrency" chapter
+  // builds for a single counter; here it's applied to `a.count` and `b.count` individually
+  // (see `count_a_max`/`count_b_max` below for why individually, not just their sum).
+  module AuthMaxNat = Auth[MaxNat]
+
+  field count: Int
+
+  // The ghost witness of the counter's current total `a.count + b.count`, shared 0.5/0.5
+  // with `counter_inv` -- see `counter_state`.
+  ghost field total: Int
+
+  // `a.count` and `b.count`, tracked monotonically *individually*, not just as their sum.
+  // `get` reads them at two different points in time (`a` early, `b` late), and showing that
+  // its registration snapshot is a valid lower bound on its eventual answer needs each
+  // field's own monotonicity -- a fact about the combined total alone wouldn't give that,
+  // since `a`'s count could grow on its own in between the two reads.
+  ghost field count_a_max: AuthMaxNat
+  ghost field count_b_max: AuthMaxNat
+
+  // The authoritative set of currently-registered helping cells (see `snap` below);
+  // `counter_inv` always holds both the authoritative and fragment side together
+  // (`Auth.full`), so this isn't used to hand out lower-bound witnesses the way
+  // `count_a_max`/`count_b_max` are -- just to get a frame-preserving update out of `fpu`
+  // when `get` adds a new cell (see `get`).
+  ghost field regs_auth: Auth[SetRA[Ref]]
+
+  // --- Per-helping-cell ghost fields. Each `get` call allocates one of these (see `get`)
+  // and registers it in `counter_inv`'s `regs` set so that `incr`'s `bump_all` can find it,
+  // advance it, and -- if its prediction has just been met -- finish it. ---
+
+  // The counter's live total, as last observed by whichever `incr` most recently advanced
+  // this cell (see `bump_all`). Held as two 0.5 shares: one inside `counter_inv` itself,
+  // kept in lockstep with the real total on every fold, and one inside
+  // `helping_prot_state`, read by the protocol to decide whether this cell is "due".
+  ghost field snap: Int
+  // This `get` call's own atomic-update token, so a helping `incr` can commit on its behalf.
+  ghost field token: AtomicToken<get>
+  // The value this `get` call's prophecy predicts it will eventually return.
+  ghost field count_proph: Int
+  // The counter's total at the moment this cell was registered, frozen forever after. Held
+  // as two 0.5 shares -- one inside `helping_prot_state`'s own body, one kept by `get`
+  // itself and never spent elsewhere -- so that whenever `get` later re-unfolds
+  // `helping_prot_state`, the two fractions of this same plain field are forced to agree,
+  // handing `get` back its own registration snapshot as the invariant's internal witness
+  // for free, with no need to thread it through as an extra invariant parameter.
+  ghost field snap0: Int
+
+  // The atomic update is still open: nobody has linearized this `get` call yet.
+  auto pred pending(c: Counter, token: AtomicToken<get>) {
+    au<get>(token, c)
+  }
+
+  // The atomic update has been committed with return value `np` -- either by `get` itself,
+  // if it registered with a snapshot that already matched its own prediction, or later by
+  // some `incr`'s `bump_all`, once the total caught up to it.
+  auto pred done(c: Counter, token: AtomicToken<get>, np: Int) {
+    auCommit<get>(token, c, np)
+  }
+
+  // The state of one registered `get` call, as tracked by its helping cell `hcell`.
+  inv helping_prot_state(hcell: Ref, c: Counter) {
+    (exists n: Int, token: AtomicToken<get>, np: Int, snap0: Int ::
+      own(hcell.snap, n, 0.5) &&
+      own(hcell.token, token, 0.5) &&
+      own(hcell.count_proph, np, 0.5) &&
+      own(hcell.snap0, snap0, 0.5) &&
+      // `snap` only ever moves up from its registration value `snap0` (bump_all's sole
+      // update is n -> n+1), so this holds unconditionally. It's what lets bump_all, once
+      // it has bumped the total to n+1 == np, chain `snap0 <= n < n+1 == np` into
+      // `snap0 <= np` and so legally open the AU below.
+      snap0 <= n &&
+      // The prediction `np` was made before anyone could know whether it would turn out to
+      // be at least the registration snapshot `snap0`. If it doesn't (`snap0 > np`), this
+      // holds vacuously -- there's nothing to prove, and in particular no need to rule that
+      // case out here, at registration time. It's ruled out later instead, once the
+      // prophecy resolves and monotonicity of `count_a_max`/`count_b_max` pins
+      // `snap0 <= np` down for real (see `get`).
+      (snap0 <= np ==> (np <= n ? done(c, token, np) : pending(c, token))))
+  }
+
+  inv counter_inv(c: Counter) {
+    exists na: Int, nb: Int ::
+      own(c.a.count, na) && own(c.b.count, nb) &&
+      own(c.shared.total, na + nb, 0.5) &&
+      own(c.shared.count_a_max, AuthMaxNat.auth_frag(na, na)) &&
+      own(c.shared.count_b_max, AuthMaxNat.auth_frag(nb, nb)) &&
+      // Every currently-registered helping cell has its live `snap` in lockstep with the
+      // real total, and satisfies its own protocol state.
+      (exists regs: FinSet[Ref] ::
+         own(c.shared.regs_auth, Auth.full(SetRA.set(regs))) &&
+         (forall hcell: Ref ::
+            hcell in regs ==>
+              own(hcell.snap, na + nb, 0.5) && helping_prot_state(hcell, c))
+      )
+  }
+
+  // Called once per `incr`, right after the real increment: advances every registered
+  // cell's `snap` to the new total, and, for whichever cell (at most one) just had its
+  // prediction met, commits that `get` call's atomic update on its behalf.
+  lemma bump_all(c: Counter, n: Int, regs: FinSet[Ref])
+    requires counter_state(c, n+1)
+    requires forall hcell0: Ref :: hcell0 in regs ==> own(hcell0.snap, n, 0.5) && helping_prot_state(hcell0, c)
+    ensures forall hcell0: Ref :: hcell0 in regs ==> own(hcell0.snap, n + 1, 0.5) && helping_prot_state(hcell0, c)
+    ensures counter_state(c, n+1)
+    decreases regs
+  {
+    if (regs != {||}) {
+      ghost val hcell := choose(regs)
+      bump_all(c, n, regs -- {|hcell|})
+      unfold helping_prot_state(hcell, c)
+      hcell.snap := n + 1
+      var np: Int
+      np :| own(hcell.count_proph, np, 0.5)
+      var tok: AtomicToken<get>
+
+      tok :| own(hcell.token, tok, 0.5)
+      if (n + 1 == np) {
+        // The total has just reached this cell's prediction: this is its linearization
+        // point, wherever `get` itself has gotten to.
+        val opened_: Int := openAU(tok, c)
+        commitAU(tok, c, np)
+      }
+      fold helping_prot_state(hcell, c)
+    }
+  }
+
+  auto pred is_counter(c: Counter) {
+    counter_inv(c)
+  }
+
+  auto pred counter_state(c: Counter; n: Int) {
+    own(c.shared.total, n, 0.5)
+  }
+
+  proc create() returns (ret: Counter)
+    ensures is_counter(ret)
+  {
+    val a_ref := new (count: 0)
+    val b_ref := new (count: 0)
+    val shared_ref := new(total: 0,
+               count_a_max: AuthMaxNat.auth_frag(0, 0),
+               count_b_max: AuthMaxNat.auth_frag(0, 0),
+               regs_auth: Auth.full(SetRA.set({||} : FinSet[Ref])))
+    ret := counter(a_ref, b_ref, shared_ref)
+    fold counter_inv(ret)[regs := {||}]
+    return ret
+  }
+
+  proc get(c: Counter, implicit ghost n: Int) returns (ret: Int)
+    requires is_counter(c)
+    atomic requires counter_state(c, n)
+    atomic ensures counter_state(c, n) && ret == n
+  {
+    ghost var phi := bindAU()
+    ghost var regs: FinSet[Ref]
+    // Predict our own answer before reading either half of it. `predicted` is fixed from
+    // here on, but entirely unconstrained -- as far as the proof knows yet, it could be
+    // anything, including a value the counter has already passed. `helping_prot_state`'s
+    // guard is what makes that harmless below, rather than something to rule out here.
+    ghost var predicted: Int
+    ghost var proph_id: Proph[Int, 1]
+    proph_id, predicted := new Proph[Int, 1]
+    ghost var snap0: Int
+    unfold counter_inv(c)[regs := regs]
+    snap0 :| own(c.shared.total, snap0, 0.5)
+    ghost val hcell := new(snap: snap0, token: phi, count_proph: predicted, snap0: snap0)
+    {!
+      if (snap0 == predicted) {
+        // Lucky case: the total already equals our own prediction, so there's no
+        // concurrent `incr` left that could still catch it -- linearize right here instead
+        // of registering as pending.
+        ghost val opened_: Int := openAU(phi)
+        commitAU(phi, predicted)
+      }
+    !}
+    fold helping_prot_state(hcell, c)
+    fpu(c.shared.regs_auth, Auth.auth(SetRA.set(regs)), Auth.full(SetRA.set(regs ++ {|hcell|})))
+    val n1 := c.a.count
+    fold counter_inv(c)[regs := regs ++ {|hcell|}]
+
+    unfold counter_inv(c)[regs := regs]
+    val n2 := c.b.count
+    Proph.resolve(proph_id, n1 + n2)
+    // From here it's just bookkeeping: `predicted == n1 + n2` now (`Proph.resolve`'s doing),
+    // and `snap0 <= n1 + n2` because `a.count` and `b.count` are each tracked monotonically
+    // -- `a.count` can only have grown since `n1` was read from it above, and `b.count` is
+    // `n2` by the direct read just above. Together they rule out the "impossible
+    // prediction" case that `helping_prot_state`'s guard left open at registration, so
+    // `hcell` is provably either already `done` or legitimately still catching up.
+    unfold helping_prot_state(hcell, c)
+    fold helping_prot_state(hcell, c)
+    fold counter_inv(c)[regs := regs]
+    return n1 + n2
+  }
+
+  proc incr(c: Counter, implicit ghost n: Int)
+    requires counter_inv(c)
+    atomic requires counter_state(c, n)
+    atomic ensures counter_state(c, n + 1)
+  {
+    ghost var phi := bindAU()
+    ghost var regs: FinSet[Ref]
+    var pick_a: Bool
+    var target := pick_a ? c.a : c.b
+    unfold counter_inv(c)[regs := regs]
+    n := openAU(phi)
+    val old_count := faa(target.count, 1)
+    c.shared.total := n + 1
+    if (pick_a) {
+      fpu(c.shared.count_a_max, AuthMaxNat.auth_frag(old_count, old_count), AuthMaxNat.auth_frag(old_count + 1, old_count + 1))
+    } else {
+      fpu(c.shared.count_b_max, AuthMaxNat.auth_frag(old_count, old_count), AuthMaxNat.auth_frag(old_count + 1, old_count + 1))
+    }
+    commitAU(phi, ())
+    // Advance every registered `get` call's snapshot to the new total, finishing off
+    // whichever one (if any) just had its prediction met.
+    bump_all(c, n, regs)
+    fold counter_inv(c)[regs := regs]
+  }
+}

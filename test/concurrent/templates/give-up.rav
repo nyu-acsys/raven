@@ -109,7 +109,7 @@ interface NodeImpl {
 
   pred globalRes(r: Ref, c: Set[K], g_i: Flow_K) {
     own(r.authKS, AuthKeyset_K.auth( Keyset_K.prodKS( keyspace, c ))) &&
-    own(r.authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom))) && 
+    own(r.authSet, AuthSetRef.auth(SetRefRA.set(g_i.dom))) && 
     own(r.authFlow, AuthFlow_K.auth(g_i)) &&
     globalinv(g_i, r)
   }
@@ -249,7 +249,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
   
 
   auto pred inFP(r: Ref, n: Ref) {
-    own(r.authSet, AuthSetRef.frag(SetRefRA.set_constr({|n|})) )
+    own(r.authSet, AuthSetRef.frag(SetRefRA.set({|n|})) )
   }
 
   
@@ -280,7 +280,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     unfold cssR(r, c, g_i, lockval, contents, intf);
     unfold globalRes(r, c, g_i);
 
-    fpu(r, authSet, AuthSetRef.auth(SetRefRA.set_constr(g_i.dom)), AuthSetRef.auth_frag(SetRefRA.set_constr(g_i.dom), SetRefRA.set_constr(g_i.dom)));
+    fpu(r, authSet, AuthSetRef.auth(SetRefRA.set(g_i.dom)), AuthSetRef.auth_frag(SetRefRA.set(g_i.dom), SetRefRA.set(g_i.dom)));
 
     fold globalRes(r, c, g_i);
     //fold inFP(r, n);

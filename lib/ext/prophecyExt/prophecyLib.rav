@@ -1,7 +1,25 @@
 // Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module.
 
-// This defines a higher-order module used for defining prophecy variable semantics.
-// The name of this module and field are hard-coded in prophecyExy.ml:ProphecyExt.ProphPredefs
-module Prophecy[Typ: Library.Type] {
-    ghost field prophecyValue: Typ
+// One functor, instantiated once per predicted type T, backing both prophecy
+// flavors: `prophecyValue` (bound to `MultiTyp`, instantiated with a `List[T]`
+// wrapper) for multi-shot prophecies, `prophecyValue1` (bound to `OneTyp`,
+// instantiated with T directly) for one-shot ones. A prophecy only ever owns the
+// one field matching how it was allocated -- the other sits unused, which is free
+// in separation logic. Two independent parameters rather than one `Typ` reused as
+// both `List[Typ]` and `Typ`: any field written as `List[Typ]` directly against a
+// functor's own abstract parameter triggers a pre-existing bug in the
+// module-instantiation/reification machinery (substitution renames qualified
+// identifiers; it does not re-synthesize the auxiliary `Library.Type`-wrapper
+// module `List[Typ]` needs, so that field's own `Frac$prophecyValue` datatype
+// silently goes undeclared in the generated SMT for the instantiated module). A
+// two-functor split (one module per flavor) avoids that but was tried first and
+// rejected: it doubles the generic Frac/resource-algebra axiom schemas loaded into
+// every verification's SMT context -- `--extension default` always loads this
+// library -- which measurably slows down completely unrelated proofs. Keeping
+// each field bound directly to its own bare parameter avoids both.
+// The name of this module and these fields are hard-coded in
+// prophecyExt.ml:ProphecyExt.ProphPredefs
+module Prophecy[MultiTyp: Library.Type, OneTyp: Library.Type] {
+    ghost field prophecyValue: MultiTyp
+    ghost field prophecyValue1: OneTyp
 }
