@@ -43,7 +43,9 @@ module Client {
     requires own(x.HF.f, v, 1.0)
     ensures  own(x.HF.f, 7, 1.0) && r == v
   {
-    r := O.read(x, v)
+    // A location may be passed as `x.f` at the call site, matching how it is
+    // declared -- or as a bare Ref, which stays legal.
+    r := O.read(x.HF.f, v)
     O.write(x, v)
   }
 }

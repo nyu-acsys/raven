@@ -1048,6 +1048,31 @@ module ProcessExpr = struct
             callable_decl.call_decl_name)
     in
 
+    (* A location parameter may be given as `x.f` at the call site, matching how
+       it is declared. The field must be the one the callee declares; what is
+       passed on is the Ref. Writing the bare Ref stays legal. *)
+    let* args_list =
+      let locs = callable_decl.call_decl_loc_params in
+      if List.is_empty locs then Rewriter.return args_list
+      else
+        Rewriter.List.map (List.mapi args_list ~f:(fun i a -> (i, a)))
+          ~f:(fun (i, arg) ->
+            match List.nth locs i with
+            | None -> Rewriter.return arg
+            | Some declared_field -> (
+                match arg with
+                | Expr.App (Read, [ ref_expr; App (Var field, [], _) ], _) ->
+                    let* field = Rewriter.resolve field in
+                    let* declared_field = Rewriter.resolve declared_field in
+                    if QualIdent.equal field declared_field then
+                      Rewriter.return ref_expr
+                    else
+                      Error.type_error (Expr.to_loc arg)
+                        (Printf.sprintf
+                           !"%{Ident} operates on field %{QualIdent} here, but this argument names %{QualIdent}"
+                           callable_decl.call_decl_name declared_field field)
+                | _ -> Rewriter.return arg))
+    in
     let provided_formals = List.take callable_formals (List.length args_list) in
     let explicit_formal_types =
       List.map provided_formals ~f:(fun var_decl ->

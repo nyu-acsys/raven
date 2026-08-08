@@ -1,0 +1,20 @@
+// A location passed at a call site must name the field the callee declares.
+interface HasField { field f: Int }
+
+field other: Int
+
+module Ops[A: HasField] {
+  proc read(x.A.f, ghost v: Int) returns (r: Int)
+    requires own(x.A.f, v, 1.0)
+    ensures  own(x.A.f, v, 1.0) && r == v
+  { r := x.A.f; }
+}
+
+module HF : HasField {}
+module O = Ops[HF]
+
+module Client {
+  proc use(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.other, v, 1.0)
+  { r := O.read(x.other, v); }
+}

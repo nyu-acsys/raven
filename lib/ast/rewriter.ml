@@ -1621,10 +1621,20 @@ module Callable = struct
           let+ mask = rewrite_mask mask in
           Some mask
     in
+    (* Location parameters name a field of the callable's own module, so a
+       substitution has to reach them too -- otherwise a call through an instance
+       would still see the functor's abstract field. *)
+    let call_decl_loc_params =
+      Base.List.map callable.call_decl.call_decl_loc_params ~f
+    in
     let callable =
       {
         callable with
-        call_decl = { callable.call_decl with call_decl_needs_mask; call_decl_grants_mask };
+        call_decl =
+          { callable.call_decl with
+            call_decl_needs_mask;
+            call_decl_grants_mask;
+            call_decl_loc_params };
       }
     in
     return callable
