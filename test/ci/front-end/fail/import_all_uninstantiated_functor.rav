@@ -1,9 +1,0 @@
-// Regression test for issue #40: `import M._` on an uninstantiated generic functor
-// must produce a clear diagnostic pointing at the import statement, rather than a
-// confusing "unknown identifier" error attributed to the stdlib's own source.
-
-import Library.Option._
-
-module M {
-  field f: Int
-}

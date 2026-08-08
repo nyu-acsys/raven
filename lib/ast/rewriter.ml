@@ -2002,6 +2002,12 @@ let resolve_opt name : (QualIdent.t option, 'a) t_ext =
 
   result |> Base.Option.map ~f:(fun (qual_ident, _) -> qual_ident)
 
+(* See [SymbolTbl.find_import_target]. *)
+let find_import_target name : (QualIdent.t option, 'a) t_ext =
+  let open Syntax in
+  let+ tbl = get_table in
+  SymbolTbl.find_import_target name tbl
+
 let find name : (Symbol.t, 'a) t_ext =
   let open Syntax in
   let+ _, symbol = resolve_and_find name in
@@ -2044,9 +2050,17 @@ let find_and_reify_module name : (AstDef.Module.t, 'a) t_ext =
   | _ -> Error.type_error (QualIdent.to_loc name) (Printf.sprintf "Expected module or interface but found %s" (AstDef.Symbol.kind symbol))
 
 
+(* A name that does not resolve is certainly not a local variable, so answer
+   [false] rather than raising: it may be a member imported from an
+   uninstantiated functor, which cannot resolve until the type checker solves the
+   functor's parameters from the use site. A genuinely unbound identifier is
+   still reported, just by the type checker rather than here. *)
 let is_local qual_ident s =
-  let s, qual_ident = resolve qual_ident s in
-  (s, Base.List.is_empty qual_ident.qual_path)
+  let s, resolved = resolve_opt qual_ident s in
+  ( s,
+    match resolved with
+    | Some qual_ident -> Base.List.is_empty qual_ident.qual_path
+    | None -> false )
 
 
 

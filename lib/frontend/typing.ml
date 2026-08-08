@@ -381,8 +381,15 @@ module ProcessExpr = struct
               (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
                  its type argument(s) from the call and rewrite to the instantiation. *)
               resolve_or_implicit qual_ident ~on_miss:(fun () ->
-                  try_resolve_implicit_instantiation ~loc:(Expr.to_loc expr) ~qual_ident
-                    ~arg_exprs:args_list ~expected_typ)
+                  (* An unqualified name imported from an uninstantiated functor
+                     carries no functor path of its own, so recover the candidate
+                     from the import before trying to solve the parameters. *)
+                  let* imported = Rewriter.find_import_target qual_ident in
+                  let candidate =
+                    Base.Option.value imported ~default:qual_ident
+                  in
+                  try_resolve_implicit_instantiation ~loc:(Expr.to_loc expr)
+                    ~qual_ident:candidate ~arg_exprs:args_list ~expected_typ)
             in
             (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
             let* symbol = Rewriter.Symbol.reify symbol in
@@ -3394,21 +3401,6 @@ module ProcessModule = struct
           Module.SymbolDef symbol_def
       | Import import ->
         (* Handled by symbol table *)
-            let* () =
-              if not import.import_all then Rewriter.return ()
-              else
-                let* generic_functor = ProgUtils.resolve_generic_functor import.import_name in
-                match generic_functor with
-                | None -> Rewriter.return ()
-                | Some _ ->
-                    let import_name_str = QualIdent.to_string import.import_name in
-                    Error.type_error import.import_loc
-                      (Printf.sprintf
-                         "Cannot import all members of `%s` because it is a generic functor \
-                          that has not been instantiated; write `import %s[...]._` after an \
-                          explicit instantiation"
-                         import_name_str import_name_str)
-            in
             let* _ = Rewriter.import import in
             Rewriter.return (Module.Import import)
     in

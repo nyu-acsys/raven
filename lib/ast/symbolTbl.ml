@@ -416,6 +416,29 @@ let get_scope_exn scope_name tbl : scope =
 
   Hashtbl.find_exn scope_children scope_name.qual_base
 
+(** The raw target of an [Import] entry bound to [name]'s first identifier, without
+    attempting to resolve it. A generic functor's members are imported under the
+    functor's own path (see [import]) and cannot be resolved until the functor's
+    parameters are known, so this is how the type checker recovers the candidate
+    after ordinary resolution has failed. *)
+let find_import_target name (tbl : t) : QualIdent.t option =
+  match QualIdent.to_list name with
+  | [] -> None
+  | first :: rest ->
+      let rec go scope path =
+        match Hashtbl.find (get_scope_entries scope) first with
+        | Some (Import target) -> Some target
+        | Some _ -> None
+        | None -> ( match path with s :: ss -> go s ss | [] -> None)
+      in
+      (* Substitute the target for the first identifier and keep the rest of the
+         path: `Option.none` under `import Library.Option` is `Library.Option.none`,
+         and a bare `some` under `import Library.Option._` is
+         `Library.Option.some`. *)
+      go tbl.tbl_curr tbl.tbl_path
+      |> Option.map ~f:(fun target ->
+             QualIdent.from_list (QualIdent.to_list target @ rest))
+
 (** Add an alias based on the import instruction [import_instr] *)
 let rec import import_instr (tbl : t) : t =
   let open Module in
@@ -427,19 +450,33 @@ let rec import import_instr (tbl : t) : t =
   let curr_scope = tbl.tbl_curr in
   let _ =
     match (symbol, import_instr.import_all) with
-    | ModDef { mod_def; _ }, true ->
-        List.iter mod_def ~f:(function
+    | ModDef mdef, true ->
+        (* A generic functor's members cannot be resolved from outside it -- the
+           abstract-scope guard in [resolve] rejects them until an instantiation
+           is in play. Import them under the functor's own path anyway: a use of
+           the imported name then fails to resolve in the ordinary way, and the
+           type checker's implicit-instantiation path solves the functor's
+           parameters from the use site (see [Typing]'s [resolve_or_implicit]). *)
+        let is_generic = not (List.is_empty mdef.mod_decl.mod_decl_formals) in
+        List.iter mdef.mod_def ~f:(function
           | SymbolDef symbol ->
               let symbol_name = Symbol.to_name symbol in
               let symbol_ident =
                 QualIdent.append unresolved_imported_ident symbol_name
               in
-              let _, symbol_fully_qual_ident, _, _ =
-                resolve_and_find_exn symbol_ident tbl
+              let target =
+                match resolve_and_find symbol_ident tbl with
+                | Some (_, symbol_fully_qual_ident, _, _) ->
+                    Some symbol_fully_qual_ident
+                | None ->
+                    if is_generic then
+                      Some (QualIdent.append imported_ident symbol_name)
+                    else None
               in
-              add_to_map (get_scope_entries curr_scope)
-                import_loc symbol_name (Import symbol_fully_qual_ident)
-                ~duplicate:(fun _ _ _ -> ())
+              Option.iter target ~f:(fun target ->
+                  add_to_map (get_scope_entries curr_scope)
+                    import_loc symbol_name (Import target)
+                    ~duplicate:(fun _ _ _ -> ()))
           | _ -> ())
     | _ ->
         let alias_ident = QualIdent.unqualify unresolved_imported_ident in

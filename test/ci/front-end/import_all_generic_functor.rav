@@ -1,0 +1,45 @@
+// `import M._` on an uninstantiated generic functor. Its members are registered
+// under the functor's own path; a use of one then fails to resolve in the
+// ordinary way, and the type checker's implicit-instantiation path solves the
+// functor's parameters from the use site -- the same inference that already
+// handled the qualified form `Library.Option.some(0)`.
+//
+// This supersedes a test (issue #40) that asserted the import was rejected.
+
+import Library.Option._
+
+module WithExpectedType {
+  proc p() returns (r: Bool) {
+    // The instantiation is pinned by the expected type.
+    val o: Library.Option[Int] := some(0)
+    r := is_some(o)
+  }
+}
+
+module FromArguments {
+  proc p() returns (r: Bool) {
+    // No expected type: solved from the argument alone.
+    val o := some(0)
+    r := is_some(o)
+  }
+}
+
+module TwoInstantiations {
+  proc p() returns (r: Bool, s: Bool) {
+    val oi := some(0)
+    val ob := some(true)
+    r := is_some(oi)
+    s := is_some(ob)
+  }
+}
+
+// The qualified form still works, both for a plain import of the module and for
+// a fully qualified reference.
+import Library.Option
+
+module StillQualified {
+  proc p() returns (r: Bool) {
+    val o: Library.Option[Int] := Option.some(0)
+    r := Library.Option.is_some(o)
+  }
+}
