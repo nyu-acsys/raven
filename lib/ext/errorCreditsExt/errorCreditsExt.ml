@@ -562,6 +562,7 @@ module ErrorCreditsExt (Cont : ListApi) = struct
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
         call_decl_loc = loc;
+               call_decl_loc_params = [];
       } in
 
       (* Define function body *)

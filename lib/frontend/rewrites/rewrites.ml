@@ -248,6 +248,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           call_decl_needs_mask = None;
           call_decl_grants_mask = None;
           call_decl_loc = Expr.to_loc expr;
+               call_decl_loc_params = [];
         }
       in
 
@@ -313,6 +314,7 @@ let introduce_synthesized_set_op_fn ~(loc : location) ~(fn_ident : ident)
       call_decl_needs_mask = None;
       call_decl_grants_mask = None;
       call_decl_loc = loc;
+               call_decl_loc_params = [];
     }
   in
 
@@ -704,6 +706,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_needs_mask = None;
           call_decl_grants_mask = None;
           call_decl_loc = stmt.stmt_loc;
+               call_decl_loc_params = [];
         }
       in
 
@@ -2263,6 +2266,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_needs_mask = Some [];
               call_decl_grants_mask = Some [];
               call_decl_loc = c.call_decl.call_decl_loc;
+               call_decl_loc_params = [];
             }
           in
 
@@ -2491,6 +2495,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                   call_decl_needs_mask = Some [];
                   call_decl_grants_mask = Some [];
                   call_decl_loc = call_decl.call_decl_loc;
+               call_decl_loc_params = [];
                 }
             in
 

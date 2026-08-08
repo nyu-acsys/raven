@@ -1,0 +1,81 @@
+// A *location* parameter, `x.A.f`. The declaration then reads the way a call
+// site does, `<ref>.<field>`, rather than taking a bare Ref and sourcing the
+// field from the enclosing functor.
+//
+// It is a destructuring binder, not a new value form: `A.f` is still supplied by
+// the functor and `x` is still the only runtime argument, so callers pass a Ref
+// exactly as before (see Client below).
+//
+// Any number of *leading* formals may be locations. More than one is needed for
+// a primitive that touches several locations in a single step -- 68k `CAS2`,
+// z/Architecture `PLO` -- as opposed to the double-width family
+// (`CMPXCHG16B`, `CASP`), which is one wider location and needs only one.
+// See Two below.
+
+interface HasField { field f: Int }
+
+module Ops[A: HasField] {
+  proc read(x.A.f, ghost v: Int) returns (r: Int)
+    requires own(x.A.f, v, 1.0)
+    ensures  own(x.A.f, v, 1.0) && r == v
+  { r := x.A.f; }
+
+  proc write(x.A.f, ghost v: Int)
+    requires own(x.A.f, v, 1.0)
+    ensures  own(x.A.f, 7, 1.0)
+  { x.A.f := 7; }
+
+  // Ordinary parameters may follow it.
+  proc add(x.A.f, n: Int, ghost v: Int)
+    requires own(x.A.f, v, 1.0)
+    ensures  own(x.A.f, v + n, 1.0)
+  {
+    val cur: Int := x.A.f
+    x.A.f := cur + n
+  }
+}
+
+module HF : HasField {}
+module O = Ops[HF]
+
+module Client {
+  proc use(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.HF.f, v, 1.0)
+    ensures  own(x.HF.f, 7, 1.0) && r == v
+  {
+    r := O.read(x, v)
+    O.write(x, v)
+  }
+}
+
+// Two locations, as a DCAS-shaped primitive would need.
+module Two[A: HasField, B: HasField] {
+  proc swap2(x.A.f, y.B.f, ghost va: Int, ghost vb: Int)
+    requires own(x.A.f, va, 1.0) && own(y.B.f, vb, 1.0)
+    ensures  own(x.A.f, vb, 1.0) && own(y.B.f, va, 1.0)
+  {
+    atomic {
+      val ca: Int := x.A.f
+      val cb: Int := y.B.f
+      x.A.f := cb
+      y.B.f := ca
+    }
+  }
+}
+
+module HG : HasField {}
+module T = Two[HF, HG]
+
+module TwoClient {
+  proc use(x: Ref, y: Ref, ghost va: Int, ghost vb: Int)
+    requires own(x.HF.f, va, 1.0) && own(y.HG.f, vb, 1.0)
+    ensures  own(x.HF.f, vb, 1.0) && own(y.HG.f, va, 1.0)
+  {
+    T.swap2(x, y, va, vb)
+  }
+}
+
+// Instantiating both at the same field is accepted, and the clash surfaces
+// where it should: the client would need 2.0 permission on one field, so the
+// call is simply unusable rather than unsound.
+module Aliased = Two[HF, HF]

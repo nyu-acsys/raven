@@ -382,8 +382,9 @@ func_decl:
 }
 
 callable_decl:
-  id = IDENT; LPAREN; formals = var_decls_with_modifiers; RPAREN; returns = return_params; cs = contracts {
+  id = IDENT; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
   let precond, postcond, contract_ext = cs in
+  let call_decl_loc_params, formals = formals in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
@@ -398,13 +399,15 @@ callable_decl:
                call_decl_needs_mask = None;
                call_decl_grants_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
+               call_decl_loc_params;
              }
   in decl
 }
 
 callable_decl_out_vars:
-  id = IDENT; LPAREN; formals = var_decls_with_modifiers; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
+  id = IDENT; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
   let precond, postcond, contract_ext = cs in
+  let call_decl_loc_params, formals = formals in
   let decl =
     Callable.{ call_decl_kind = Func;
                call_decl_name = id;
@@ -419,6 +422,7 @@ callable_decl_out_vars:
                call_decl_needs_mask = None;
                call_decl_grants_mask = None;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
+               call_decl_loc_params;
              }
   in decl
 }
@@ -430,6 +434,52 @@ return_params:
    
 var_decls_with_modifiers:
 | decls = separated_list (COMMA, var_decl_with_modifiers) { decls }
+;
+
+(* One formal, which may be a *location*, `x.A.f`: that binds `x` as the Ref and
+   names the field the callable operates on, so the declaration reads the way a
+   call site does. The field comes from the enclosing functor; `x` is the only
+   runtime argument. The two alternatives share their `var_modifier` prefix so
+   the choice falls on COLON vs DOT and the grammar stays LR(1). *)
+formal_with_loc:
+| m = var_modifier; decl = bound_var {
+  let implicit, ghost = m in
+  `Var Type.{ decl with
+              var_type = decl.var_type |> Type.set_ghost ghost;
+              var_ghost = ghost;
+              var_implicit = implicit;
+            }
+}
+| m = var_modifier; x = IDENT; DOT; f = qual_ident {
+  let implicit, ghost = m in
+  if implicit || ghost then
+    Error.syntax_error (Loc.make $startpos $endpos)
+      "A location parameter such as 'x.f' cannot be ghost or implicit";
+  `Loc (Expr.to_qual_ident f,
+        Type.mk_var_decl ~loc:(Loc.make $startpos(x) $endpos(x)) x Type.ref)
+}
+;
+
+(* Formals, of which any number of *leading* ones may be locations -- more than
+   one for a primitive that touches several locations in a single step, such as
+   68k `CAS2` or z/Architecture `PLO`. Kept as one list so the grammar stays
+   unambiguous; the ordering rule is enforced here, where it can be reported
+   properly. *)
+formals_with_loc:
+| fs = separated_list(COMMA, formal_with_loc) {
+  let rec leading acc = function
+    | (`Loc _ as f) :: tl -> leading (f :: acc) tl
+    | tl -> (List.rev acc, tl)
+  in
+  let locs, rest = leading [] fs in
+  if List.exists (function `Loc _ -> true | `Var _ -> false) rest then
+    Error.syntax_error (Loc.make $startpos $endpos)
+      "Location parameters such as 'x.f' must come before ordinary ones";
+  let flds =
+    List.map (function `Loc (fld, _) -> fld | `Var _ -> assert false) locs
+  in
+  (flds, List.map (function `Loc (_, d) -> d | `Var d -> d) fs)
+}
 ;
 
 var_decl_with_modifiers:

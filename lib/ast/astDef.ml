@@ -2470,6 +2470,16 @@ module Callable = struct
     call_decl_needs_mask : mask option; (** Invariant mask required from this callable's caller -- computed purely from [call_decl_precond] (see [masks.ml]); also the starting mask for checking this callable's own body. *)
     call_decl_grants_mask : mask option; (** Invariant mask entries a caller is guaranteed to gain by calling this callable, regardless of what it supplies -- computed purely from [call_decl_postcond]. Used only by other callables' checking passes at their own call sites into this one. *)
     call_decl_loc : location;  (** source location of declaration *)
+    call_decl_loc_params : QualIdent.t list;
+        (** Fields of the formals written as *locations*, `x.A.f`, in order.
+            Those formals are themselves ordinary [Ref] parameters; this records
+            the field each operates on, so the declaration reads the way a call
+            site does. Presentational: the fields come from the enclosing
+            functor, and the [Ref]s are still the only runtime arguments.
+
+            Several are allowed, for primitives that touch more than one location
+            in a single step -- 68k `CAS2`, z/Architecture `PLO`. They must be
+            the leading formals; [] when there are none. *)
   }
 
   type call_def =

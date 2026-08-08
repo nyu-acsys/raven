@@ -1,0 +1,5 @@
+// Location parameters must precede ordinary ones.
+interface H { field f: Int }
+module M[A: H, B: H] {
+  proc p(x.A.f, n: Int, y.B.f) { }
+}

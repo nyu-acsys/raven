@@ -1,0 +1,7 @@
+// A location parameter's second component must name a field.
+interface H { field f: Int }
+module M[A: H] {
+  func g() returns (r: Int) { 1 }
+
+  proc p(x.g) { }
+}

@@ -2469,6 +2469,21 @@ module ProcessCallable = struct
           in
           (disam_tbl, var_decl'))
     in
+    (* A location parameter's field must name a field. It is otherwise
+       presentational -- the parameter itself is an ordinary Ref -- so this is
+       the only thing to check about it. *)
+    let* call_decl_loc_params =
+      Rewriter.List.map call_decl.call_decl_loc_params ~f:(fun field ->
+          let* field, symbol = Rewriter.resolve_and_find field in
+          let+ symbol = Rewriter.Symbol.reify symbol in
+          match symbol with
+          | Module.FieldDef _ -> field
+          | _ ->
+              Error.type_error (QualIdent.to_loc field)
+                (Printf.sprintf
+                   !"Expected a field in the location parameter of %{Ident}, but found %s %{QualIdent}"
+                   call_decl.call_decl_name (Symbol.kind symbol) field))
+    in
     (* TODO: Add a check to make sure that all the implicit ghost variables are declared at the end. *)
     let* disam_tbl, call_decl_formals =
       process_decls call_decl.call_decl_formals disam_tbl
@@ -2574,6 +2589,7 @@ module ProcessCallable = struct
         call_decl_precond;
         call_decl_postcond;
         call_decl_contract_ext;
+        call_decl_loc_params;
       }
     in
     let* callable =

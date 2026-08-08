@@ -237,6 +237,7 @@ module DecreasesExt (Cont : ListApi) = struct
       call_decl_needs_mask = None;
       call_decl_grants_mask = None;
       call_decl_loc = loc;
+               call_decl_loc_params = [];
     } in
     let lt_call_def =
       Callable.FuncDef { func_body = Some (mk_auto_order_lt_body ~loc data_qi variant_decls x_vd y_vd) }

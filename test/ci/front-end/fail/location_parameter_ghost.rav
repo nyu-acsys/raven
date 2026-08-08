@@ -1,0 +1,6 @@
+// A location parameter is an ordinary Ref, so the ghost and implicit modifiers
+// do not apply to it.
+interface H { field f: Int }
+module M[A: H] {
+  proc p(ghost x.A.f) { }
+}
