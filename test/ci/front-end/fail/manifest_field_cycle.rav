@@ -1,0 +1,7 @@
+// A manifest field's target is resolved where the field is declared, so it can
+// only name something already declared. That makes alias cycles impossible by
+// construction rather than by a cycle check -- here the mutual reference is
+// reported as an unknown identifier at the first of the two.
+
+module A { field f = B.g }
+module B { field g = A.f }

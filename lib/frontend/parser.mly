@@ -215,6 +215,21 @@ field_def:
       Module.{ field_name = x;
                field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t |> Type.set_ghost g;
                field_is_ghost = g;
+               field_alias = None;
+               field_loc = Loc.make $startpos $endpos
+           }
+    in
+    decl
+  }
+(* Manifest field: `field f = M.g` denotes an existing field rather than
+   declaring a new one, the counterpart of `rep type T = Int` for types. The
+   type and ghost-ness are taken from the target and checked in Typing. *)
+| g = ghost_modifier; FIELD x = IDENT; EQ; target = qual_ident {
+    let decl =
+      Module.{ field_name = x;
+               field_type = Type.mk_fld (Loc.make $startpos(target) $endpos(target)) Type.any |> Type.set_ghost g;
+               field_is_ghost = g;
+               field_alias = Some (Expr.to_qual_ident target);
                field_loc = Loc.make $startpos $endpos
            }
     in

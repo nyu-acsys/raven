@@ -26,6 +26,15 @@ let extend_subst s (b1, b2, ss) = (b1, b2, ss @ [ s ])
 type entry =
   | Symbol of QualIdent.t
   | Alias of bool * QualIdent.t * QualIdent.subst
+  (* Resolves straight through to the target, keeping the *target's* name.
+     [Alias] cannot serve here: it records a reverse substitution so that a
+     functor instance keeps reporting under its own path (`O.Inner`, not
+     `Outer.Inner`), which is right for an instance but wrong for a manifest
+     field, whose whole purpose is to denote the very same field -- and so to
+     share its heap. [Import] resolves through without that substitution but is
+     gated to the declaring scope, so it cannot be reached as `M.f` from
+     outside. *)
+  | Transparent of QualIdent.t
   | Import of QualIdent.t
 
 type scope = {
@@ -241,6 +250,9 @@ let resolve name (tbl : t) :
             in
             (* Jump back to the root scope because the remainder of the path to be traversed has been requalified relative to target_qual_ident, which is a fully qualified id. *)
             go_forward new_inst_scopes tbl.tbl_root subst new_path
+        | Transparent qual_ident, _ ->
+            go_forward inst_scopes tbl.tbl_root subst
+              (QualIdent.to_list qual_ident @ ids1)
         | Import qual_ident, _ ->
             (* Logs.debug (fun m -> m "SymbolTbl.resolve.go_forward: 2"); *)
             let target_qual_ident = (*QualIdent.requalify subst*) qual_ident in
@@ -469,6 +481,18 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
     in
 
     match symbol with
+    (* A manifest field denotes an existing field, so it is registered as an
+       alias rather than as a symbol of its own. [resolve]'s [Alias] case is
+       generic over what it points at, so every lookup of this name redirects to
+       the target -- which is what keeps the two sharing one heap. *)
+    | FieldDef { field_alias = Some target; _ } ->
+        let _, target_qual_ident, _, _ = resolve_and_find_exn target tbl in
+        add_to_map
+          (get_scope_entries appropriate_scope)
+          symbol_loc symbol_ident
+          (Transparent target_qual_ident)
+          ~duplicate;
+        tbl
     | ModInst mod_inst ->
         let mod_inst_qual_ident, subst =
           match mod_inst.mod_inst_def with

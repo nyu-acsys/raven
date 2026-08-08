@@ -1,0 +1,49 @@
+// Manifest fields: `field f = M.g` denotes an existing field rather than
+// declaring a new one -- the field counterpart of `rep type T = Int` for types.
+// The two share one heap, so ownership of either is ownership of the other.
+//
+// Known limitation: this does not yet work through a functor instantiation, see
+// fail/manifest_field_through_functor.rav.
+
+field g: Int
+
+module Direct { field f = g }
+
+// An alias may point at another alias.
+module Chained { field h = Direct.f }
+
+interface HasField { field f: Int }
+
+// A manifest field satisfies an interface's field. A plain redeclaration would
+// introduce a second field with its own heap and is still rejected.
+module Impl : HasField { field f = g }
+
+module Client {
+  // Ownership arrives under the target's name and leaves under the alias's:
+  // one resource, not two.
+  proc same_resource(x: Ref, ghost v: Int)
+    requires own(x.g, v, 1.0)
+    ensures  own(x.Direct.f, v, 1.0)
+  { }
+
+  proc read_through_alias(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.g, v, 1.0)
+    ensures  own(x.g, v, 1.0) && r == v
+  { r := x.Direct.f; }
+
+  proc read_through_chain(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.g, v, 1.0)
+    ensures  own(x.g, v, 1.0) && r == v
+  { r := x.Chained.h; }
+
+  proc read_through_interface(x: Ref, ghost v: Int) returns (r: Int)
+    requires own(x.g, v, 1.0)
+    ensures  own(x.g, v, 1.0) && r == v
+  { r := x.Impl.f; }
+
+  // Writing through the alias is a write to the target.
+  proc write_through_alias(x: Ref, ghost v: Int)
+    requires own(x.g, v, 1.0)
+    ensures  own(x.g, 7, 1.0)
+  { x.Direct.f := 7; }
+}

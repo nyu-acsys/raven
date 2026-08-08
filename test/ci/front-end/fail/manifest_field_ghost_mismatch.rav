@@ -1,0 +1,7 @@
+// A manifest field's ghost modifier must agree with its target's: the alias and
+// the target are one field, so they cannot disagree about whether writing it is
+// a real heap update.
+
+ghost field g: Int
+
+module M { field f = g }

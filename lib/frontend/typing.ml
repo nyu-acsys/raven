@@ -2756,8 +2756,47 @@ module ProcessModule = struct
         let type_def = { type_def with type_def_expr = Some tp_expr } in
         Module.TypeDef type_def
 
+  (* A manifest field, `field f = M.g`, takes its type from the target rather
+     than declaring one of its own; the ghost modifier, if written, must agree
+     with the target's. *)
+  let process_alias_field (field : Module.field_def) (target : qual_ident) :
+      Module.symbol Rewriter.t =
+    let open Rewriter.Syntax in
+    let* target, symbol = Rewriter.resolve_and_find target in
+    let* symbol = Rewriter.Symbol.reify symbol in
+    let target_field =
+      match symbol with
+      | Module.FieldDef target_field -> target_field
+      | _ ->
+          Error.type_error (QualIdent.to_loc target)
+            (Printf.sprintf
+               !"Expected a field on the right-hand side of 'field %{Ident} = \
+                 ...', but found %s %{QualIdent}"
+               field.field_name (Symbol.kind symbol) target)
+    in
+    let _ =
+      if Bool.(field.field_is_ghost <> target_field.field_is_ghost) then
+        Error.type_error field.field_loc
+          (Printf.sprintf
+             !"Field %{Ident} is declared %s, but %{QualIdent} is %s"
+             field.field_name
+             (if field.field_is_ghost then "ghost" else "non-ghost")
+             target
+             (if target_field.field_is_ghost then "ghost" else "non-ghost"))
+    in
+    Rewriter.return
+      (Module.FieldDef
+         {
+           field with
+           field_type = target_field.field_type;
+           field_alias = Some target;
+         })
+
   let process_field (field : Module.field_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
+    match field.field_alias with
+    | Some target -> process_alias_field field target
+    | None ->
     let+ tp_expr =
       match field.field_type with
       | App (Var qual_ident, [], tp_attr) -> (
@@ -2804,6 +2843,33 @@ module ProcessModule = struct
     let loc = Symbol.to_loc symbol in
     let ident = Symbol.to_name symbol in
     match (symbol, orig_symbol) with
+    (* An inherited field may be redeclared only as a manifest field, naming an
+       existing field to stand for it -- the field counterpart of implementing an
+       abstract `rep type T` with `rep type T = Int`. A plain redeclaration would
+       instead introduce a second field with its own heap, which is what the
+       fall-through below rejects. *)
+    | FieldDef ({ field_alias = Some target; _ } as field_def),
+      FieldDef orig_field_def ->
+        let* target_type = ProcessTypeExpr.expand_type_expr field_def.field_type
+        and* orig_type = ProcessTypeExpr.expand_type_expr orig_field_def.field_type in
+        if not (Type.equal target_type orig_type) then
+          Error.type_error loc
+            (Printf.sprintf
+               !"Field %{Ident} stands for %{QualIdent}, of type %{Type}, but \
+                 interface %{QualIdent} declares it with type %{Type}"
+               ident target target_type interface_ident orig_type)
+        else if
+          Bool.(field_def.field_is_ghost <> orig_field_def.field_is_ghost)
+        then
+          Error.type_error loc
+            (Printf.sprintf
+               !"Field %{Ident} is declared %s, but interface %{QualIdent} \
+                 declares it %s"
+               ident
+               (if field_def.field_is_ghost then "ghost" else "non-ghost")
+               interface_ident
+               (if orig_field_def.field_is_ghost then "ghost" else "non-ghost"))
+        else Rewriter.return ()
     | TypeDef typ_def, TypeDef orig_typ_def -> (
         if Bool.(typ_def.type_def_rep <> orig_typ_def.type_def_rep) then
           Error.type_error loc

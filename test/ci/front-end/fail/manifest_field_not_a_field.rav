@@ -1,0 +1,7 @@
+// The right-hand side of a manifest field must be a field.
+
+module M {
+  func g() returns (r: Int) { 1 }
+
+  field f = g
+}

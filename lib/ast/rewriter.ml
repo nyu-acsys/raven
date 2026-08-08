@@ -1826,7 +1826,10 @@ module Module = struct
         VarDef { var_decl; var_init; var_is_free = var_def.var_is_free }
     | FieldDef field_def ->
         let+ field_type = Type.rewrite_qual_idents ~f field_def.field_type in
-        FieldDef { field_def with field_type }
+        FieldDef
+          { field_def with
+            field_type;
+            field_alias = Base.Option.map field_def.field_alias ~f }
     | CallDef call_def ->
         let* _ = enter_callable call_def in
 

@@ -1,0 +1,16 @@
+// Manifest-field shapes that are accepted but whose intended meaning has not
+// been settled. Pinned here so that a change in behaviour is noticed and
+// thought about rather than slipping through unremarked. Neither is needed by
+// the motivating use case (letting a client hand its own field to a functor).
+
+field g: Int
+
+// A manifest field in an interface, fixing the field for every implementor.
+interface FixedField { field f = g }
+
+module UsesFixed : FixedField { }
+
+// A manifest field naming the abstract field of a module parameter.
+interface HasQ { field q: Int }
+
+module OverFormal[H: HasQ] { field f = H.q }

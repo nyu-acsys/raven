@@ -1144,6 +1144,9 @@ let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t
     =
   let open Rewriter.Syntax in
   match symbol with
+  (* A manifest field shares the target's heap and utils module; generating a
+     second set keyed on the alias would defeat the point. *)
+  | FieldDef { field_alias = Some _; _ } -> Rewriter.return symbol
   | FieldDef f ->
       let* printers = Rewriter.current_printers in
       let* utils_module =

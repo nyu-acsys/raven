@@ -1841,6 +1841,9 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
   | ModDef _ | ModInst _ | TypeDef _ | ConstrDef _ | DestrDef _ | VarDef _
   | CallDef _ ->
       Rewriter.return symbol
+  (* See [HeapsExplicitTrnsl.rewrite_add_field_utils]: a manifest field takes
+     the target's already-rewritten type, so it must not be wrapped again. *)
+  | FieldDef { field_alias = Some _; _ } -> Rewriter.return symbol
   | FieldDef f ->
       let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 

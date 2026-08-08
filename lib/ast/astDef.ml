@@ -2698,10 +2698,18 @@ module Module = struct
   }
 
   type field_def = {
-    field_name : ident; 
+    field_name : ident;
     field_type : type_expr;
     field_is_ghost: bool;
-    field_loc : Loc.t 
+    (** Set for a manifest field, `field f = M.g`, which denotes an existing
+        field rather than declaring a new one -- the counterpart for fields of
+        `rep type T = Int` for types. Such a field is registered as an alias in
+        the symbol table, so every lookup redirects to the target and no second
+        heap is created for it (heaps are keyed by field name, see
+        [HeapsExplicitTrnsl.field_heap_name]). Passes that generate per-field
+        artifacts must therefore skip it. *)
+    field_alias : QualIdent.t option;
+    field_loc : Loc.t
   }
 
   type module_decl = {
