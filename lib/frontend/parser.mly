@@ -102,10 +102,21 @@ module_def:
           "A module with parameters cannot be defined with '=' (module instantiation syntax); give it a body in '{ ... }' instead"
       else
         let mod_inst_type =
+          (* A module *instance* stands for exactly one interface: [mod_inst_type]
+             is a single unparameterised name. Listing several parents, or
+             applying one, is only meaningful for a module *definition*. *)
           match decl.mod_decl_returns, ma.mod_inst_def with
-        | Some mod_inst_type, _
-        | None, Some (mod_inst_type, _) -> mod_inst_type
-        | None, None ->
+        | [ (_, (_ :: _)) ], _ ->
+            Error.syntax_error (Loc.make $startpos(decl) $endpos(decl))
+              (Printf.sprintf !"Module %{Ident} has no body, so the interface it stands for cannot take arguments"
+                 decl.mod_decl_name)
+        | _ :: _ :: _, _ ->
+            Error.syntax_error (Loc.make $startpos(decl) $endpos(decl))
+              (Printf.sprintf !"Module %{Ident} has no body, so it can name at most one interface"
+                 decl.mod_decl_name)
+        | [ (mod_inst_type, []) ], _
+        | [], Some (mod_inst_type, _) -> mod_inst_type
+        | [], None ->
             Error.syntax_error (Loc.make $endpos(decl) $endpos(decl))
               (Printf.sprintf !"Module %{Ident} has no body and no interface: write 'module %{Ident} : I' naming the interface it stands for"
                  decl.mod_decl_name decl.mod_decl_name)
@@ -133,9 +144,16 @@ module_header:
   decl
 }
 
+(* Interfaces implemented by this module. Several may be listed, and each may be
+   a functor application: `module M[A: I] : Base[A], Other`. *)
 return_type_opt:
-| COLON; t = mod_ident { Some t }
-| (* empty *) { None }
+| COLON; ts = separated_nonempty_list(COMMA, parent_spec) { ts }
+| (* empty *) { [] }
+
+parent_spec:
+(* [mod_inst_args] already admits the empty case, so this covers both `Base` and
+   `Base[A]`. *)
+| t = mod_ident; args = mod_inst_args { (t, args) }
 
 module_inst_or_impl_or_decl:
 | LBRACE; ms = member_def_list_opt; RBRACE {

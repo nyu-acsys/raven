@@ -556,45 +556,76 @@ let find_call_by_name (mdef : Module.t) (name : Ident.t) : Callable.t option =
 let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
   match n.mod_decl.mod_decl_returns with
-  | None -> Rewriter.return ()
-  | Some iface_qual_ident ->
-      let* iface = Rewriter.find_and_reify_module iface_qual_ident in
-      let owned_names = owned_invariant_names iface in
-      let candidate_names = abstract_pred_or_inv_names iface in
-      let* owned =
-        let+ owned_qual_idents =
-          Rewriter.List.map owned_names ~f:(fun name ->
-              Rewriter.resolve (QualIdent.from_ident name))
-        in
-        Set.of_list (module QualIdent) owned_qual_idents
+  | [] -> Rewriter.return ()
+  | parents ->
+      let* ifaces =
+        Rewriter.List.map parents ~f:(fun (iface_qual_ident, _args) ->
+            let+ iface = Rewriter.find_and_reify_module iface_qual_ident in
+            (iface_qual_ident, iface))
       in
-      Rewriter.List.iter candidate_names ~f:(fun name ->
-          match find_call_by_name n name with
-          | None -> Rewriter.return ()
-          | Some call when Callable.is_abstract call -> Rewriter.return ()
-          | Some call ->
-              let* self_qual_ident =
-                Rewriter.resolve (QualIdent.from_ident name)
-              in
-              let mask_names =
-                Option.value call.call_decl.call_decl_needs_mask ~default:[]
-                |> List.map ~f:fst
-                |> Set.of_list (module QualIdent)
-              in
-              let reach_back =
-                Set.remove (Set.inter mask_names owned) self_qual_ident
-              in
-              if Set.is_empty reach_back then Rewriter.return ()
-              else
-                Error.type_error call.call_decl.call_decl_loc
-                  (Stdlib.Format.asprintf
-                     "%s %a implements interface %a's abstract %a, but its \
-                      definition depends on %a, which %a also declares"
-                     (Symbol.kind (Module.CallDef call))
-                     Ident.pr name QualIdent.pr iface_qual_ident Ident.pr name
-                     (Util.Print.pr_list_comma QualIdent.pr)
-                     (Set.elements reach_back)
-                     QualIdent.pr iface_qual_ident))
+      (* Invariants owned by *any* parent, each tagged with the interface that
+         declares it. With several parents a fresh concrete body can reach into
+         an invariant declared by a different parent -- which neither parent's
+         abstract view could anticipate, so it is the same hazard and must be
+         rejected the same way. *)
+      let* owned_by =
+        let+ entries =
+          Rewriter.List.map ifaces ~f:(fun (iface_qual_ident, iface) ->
+              Rewriter.List.map (owned_invariant_names iface) ~f:(fun name ->
+                  let+ qual_ident =
+                    Rewriter.resolve (QualIdent.from_ident name)
+                  in
+                  (qual_ident, iface_qual_ident)))
+        in
+        Map.of_alist_reduce
+          (module QualIdent)
+          (List.concat entries)
+          ~f:(fun first _ -> first)
+      in
+      let owned = Set.of_list (module QualIdent) (Map.keys owned_by) in
+      Rewriter.List.iter ifaces ~f:(fun (iface_qual_ident, iface) ->
+          Rewriter.List.iter (abstract_pred_or_inv_names iface) ~f:(fun name ->
+              match find_call_by_name n name with
+              | None -> Rewriter.return ()
+              | Some call when Callable.is_abstract call -> Rewriter.return ()
+              | Some call ->
+                  let* self_qual_ident =
+                    Rewriter.resolve (QualIdent.from_ident name)
+                  in
+                  let mask_names =
+                    Option.value call.call_decl.call_decl_needs_mask ~default:[]
+                    |> List.map ~f:fst
+                    |> Set.of_list (module QualIdent)
+                  in
+                  let reach_back =
+                    Set.remove (Set.inter mask_names owned) self_qual_ident
+                  in
+                  if Set.is_empty reach_back then Rewriter.return ()
+                  else
+                    (* With several parents the reached invariant need not belong
+                       to the interface being implemented, so name its declarer
+                       rather than assuming it is the same one. *)
+                    let declarers =
+                      Set.elements reach_back
+                      |> List.filter_map ~f:(Map.find owned_by)
+                      |> List.dedup_and_sort ~compare:QualIdent.compare
+                    in
+                    let same_interface =
+                      match declarers with
+                      | [ declarer ] -> QualIdent.equal declarer iface_qual_ident
+                      | _ -> false
+                    in
+                    Error.type_error call.call_decl.call_decl_loc
+                      (Stdlib.Format.asprintf
+                         "%s %a implements interface %a's abstract %a, but its \
+                          definition depends on %a, which %a %s"
+                         (Symbol.kind (Module.CallDef call))
+                         Ident.pr name QualIdent.pr iface_qual_ident Ident.pr name
+                         (Util.Print.pr_list_comma QualIdent.pr)
+                         (Set.elements reach_back)
+                         (Util.Print.pr_list_comma QualIdent.pr)
+                         declarers
+                         (if same_interface then "also declares" else "declares"))))
 
 let rec check_module_reach_back (m : Module.t) : (unit, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in

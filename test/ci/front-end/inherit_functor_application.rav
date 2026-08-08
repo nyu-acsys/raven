@@ -1,0 +1,38 @@
+// A module may inherit from a functor application, `module M[A: I] : Base[A]`.
+//
+// The pre-existing implicit mechanism -- listing an unapplied parameterised
+// parent and repeating its formals -- requires the child's parameters to match
+// the parent's exactly, so it cannot express the refinement below, where the
+// child constrains its parameter more tightly than the parent does.
+
+interface I { rep type T }
+
+interface J : I {
+  func extra(x: T) returns (y: T)
+}
+
+interface Base[A: I] {
+  func g(x: A) returns (y: A)
+}
+
+// A refines the parent's parameter: J rather than I.
+module Derived[A: J] : Base[A] {
+  func g(x: A) returns (y: A) { x }
+
+  // Both the inherited member and the refined parameter's extra operation.
+  func h(x: A) returns (y: A) { A.extra(g(x)) }
+}
+
+module IntJ : J {
+  rep type T = Int
+  func extra(x: T) returns (y: T) { x + 1 }
+}
+
+module D = Derived[IntJ]
+
+module Client {
+  proc p() returns (r: Int) {
+    r := D.h(3);
+    assert r == 4;
+  }
+}

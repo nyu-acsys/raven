@@ -1848,7 +1848,17 @@ module Module = struct
         ~init:(Set.empty (module QualIdent))
         ~f:(fun interfaces id -> Set.add interfaces (f id))
     in
-    let mod_decl_returns = Base.Option.map ~f mdef1.mod_decl.mod_decl_returns in
+    let mod_decl_returns =
+      Base.List.map mdef1.mod_decl.mod_decl_returns ~f:(fun (qi, args) ->
+          let args =
+            Base.List.map args ~f:(function
+              | Module.ModArg qi -> Module.ModArg (f qi)
+              (* [TypeArg]s in a parent clause are resolved to modules during
+                 type-checking, so any surviving here needs no requalification. *)
+              | Module.TypeArg _ as arg -> arg)
+          in
+          (f qi, args))
+    in
     let mod_decl =
       { mdef1.mod_decl with mod_decl_interfaces; mod_decl_returns }
     in

@@ -1,0 +1,22 @@
+// A module may implement several interfaces at once, provided they share no
+// ancestor (see fail/inherit_shared_ancestor.rav).
+
+interface Show {
+  func show(x: Int) returns (s: Int)
+}
+
+interface Eq {
+  func eq(x: Int, y: Int) returns (b: Bool)
+}
+
+module Both : Show, Eq {
+  func show(x: Int) returns (s: Int) { x }
+  func eq(x: Int, y: Int) returns (b: Bool) { x == y }
+}
+
+module Client {
+  proc p() returns (r: Bool) {
+    r := Both.eq(Both.show(1), 1);
+    assert r;
+  }
+}

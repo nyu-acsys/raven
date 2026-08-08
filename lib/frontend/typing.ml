@@ -3002,25 +3002,21 @@ module ProcessModule = struct
                ident interface_ident)
         else
           let _ =
-            match
-              (mod_def.mod_decl.mod_decl_returns, orig_mod_inst.mod_inst_type)
-            with
-            | Some mod_typ, orig_mod_typ
-              when QualIdent.(mod_typ <> orig_mod_typ) ->
-                Error.type_error loc
-                  (Printf.sprintf
-                     !"%s %{Ident} must implement interface %{QualIdent} \
-                       according to interface %{QualIdent}"
-                     (Symbol.kind symbol |> String.capitalize)
-                     ident orig_mod_inst.mod_inst_type interface_ident)
-            | None, _ ->
-                Error.type_error loc
-                  (Printf.sprintf
-                     !"%s %{Ident} must implement interface %{QualIdent} \
-                       according to interface %{QualIdent}"
-                     (Symbol.kind symbol |> String.capitalize)
-                     ident orig_mod_inst.mod_inst_type interface_ident)
-            | _ -> ()
+            (* The redeclaring module may list several parents; it satisfies the
+               interface's expectation if any one of them is the required
+               interface. *)
+            let orig_mod_typ = orig_mod_inst.mod_inst_type in
+            let implements_required =
+              List.exists mod_def.mod_decl.mod_decl_returns
+                ~f:(fun (mod_typ, _) -> QualIdent.equal mod_typ orig_mod_typ)
+            in
+            if not implements_required then
+              Error.type_error loc
+                (Printf.sprintf
+                   !"%s %{Ident} must implement interface %{QualIdent} \
+                     according to interface %{QualIdent}"
+                   (Symbol.kind symbol |> String.capitalize)
+                   ident orig_mod_typ interface_ident)
           in
           if not @@ List.is_empty mod_def.mod_decl.mod_decl_formals then
             Error.type_error loc
@@ -3150,6 +3146,30 @@ module ProcessModule = struct
            (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
            mod_ident int_ident)
       
+
+  (** A module may implement several interfaces only when those interfaces share
+      no ancestor. Raven identifies module types by path, not by identity, so two
+      routes to the same declaration yield types it will not unify (see
+      [test/ci/front-end/fail/diamond_modules.rav]); merging both would also
+      deliver two copies of the shared ancestor's members. Rejecting the overlap
+      keeps the error at the declaration rather than at a confusing use site. *)
+  let check_parents_disjoint ~loc parent_ancestors =
+    let rec go = function
+      | [] | [ _ ] -> ()
+      | (p_mid, p_ancestors) :: rest ->
+          List.iter rest ~f:(fun (q_mid, q_ancestors) ->
+              let shared = Set.inter p_ancestors q_ancestors in
+              match Set.min_elt shared with
+              | None -> ()
+              | Some common ->
+                  Error.type_error loc
+                    (Printf.sprintf
+                       !"Interfaces %{QualIdent} and %{QualIdent} cannot both be \
+                         implemented here: they share the ancestor %{QualIdent}"
+                       p_mid q_mid common));
+          go rest
+    in
+    go parent_ancestors
 
   let rec process_module (m : Module.t) : Module.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -3507,8 +3527,29 @@ module ProcessModule = struct
            interface_ident,
            interface_formals,
            (merged_symbols, symbols_to_check) ) =
-      let+ interface_opt =
-        Rewriter.Option.map m.mod_decl.mod_decl_returns ~f:(fun mid ->
+      (* Disjointness is decided on the parents as declared, *before* the
+         self-renaming substitution below rewrites each parent's own name to this
+         module -- after it, every parent appears to share this module as an
+         ancestor. *)
+      let* () =
+        match m.mod_decl.mod_decl_returns with
+        | [] | [ _ ] -> Rewriter.return ()
+        | returns ->
+            let+ parent_ancestors =
+              Rewriter.List.map returns ~f:(fun (mid, _args) ->
+                  let* qual_ident, symbol = Rewriter.resolve_and_find mid in
+                  let+ symbol = Rewriter.Symbol.reify symbol in
+                  match symbol with
+                  | Module.ModDef interface ->
+                      ( mid,
+                        Set.add interface.mod_decl.mod_decl_interfaces qual_ident
+                      )
+                  | _ -> (mid, Set.singleton (module QualIdent) qual_ident))
+            in
+            check_parents_disjoint ~loc:m.mod_decl.mod_decl_loc parent_ancestors
+      in
+      let* parents =
+        Rewriter.List.map m.mod_decl.mod_decl_returns ~f:(fun (mid, args) ->
             Logs.debug (fun mm ->
                 mm
                   !"Typing.process_module: module %{Ident}: checking return \
@@ -3517,6 +3558,58 @@ module ProcessModule = struct
                   mid);
             let* qual_interface_ident, interface_symbol =
               Rewriter.resolve_and_find mid
+            in
+            (* Formals of a parameterised parent are substituted by its
+               arguments; then the parent's own name is rewritten to this
+               module. Order matters: once `Base` has been rewritten to `M`, a
+               later `Base.A -> Arg` mapping would no longer match. *)
+            let* arg_subst =
+              Rewriter.List.map args ~f:(function
+                | Module.ModArg qi ->
+                    let base = QualIdent.unqualify qi in
+                    if
+                      QualIdent.is_local qi
+                      && List.exists m.mod_decl.mod_decl_formals
+                           ~f:(fun formal ->
+                             Ident.equal formal.mod_inst_name base)
+                    then
+                      (* Argument naming one of this module's own formals, the
+                         usual case. Formals are not in the symbol table yet
+                         here, and the merged members end up in this module's
+                         scope, so point at the formal directly. *)
+                      Rewriter.return (QualIdent.append mod_qual_ident base)
+                    else
+                      let+ qi = Rewriter.resolve qi in
+                      qi
+                | Module.TypeArg tp ->
+                    Error.type_error (Type.to_loc tp)
+                      "An inherited interface must be applied to modules, not \
+                       to bare types; name a module implementing the \
+                       parameter's interface instead")
+            in
+            let interface_symbol =
+              match interface_symbol with
+              | _ when List.is_empty arg_subst -> interface_symbol
+              | _ ->
+                  let formals =
+                    Rewriter.Symbol.extract interface_symbol
+                      ~f:(fun _is_instance _subst -> function
+                      | Ast.Module.ModDef mod_def ->
+                          mod_def.mod_decl.mod_decl_formals
+                      | _ -> [])
+                  in
+                  (match List.zip formals arg_subst with
+                  | Ok pairs ->
+                      List.fold pairs ~init:interface_symbol
+                        ~f:(fun sym (formal, arg_qi) ->
+                          Rewriter.Symbol.extend_subst
+                            ( QualIdent.append qual_interface_ident
+                                formal.mod_inst_name,
+                              QualIdent.to_list arg_qi )
+                            sym)
+                  | Unequal_lengths ->
+                      arg_mismatch_error "Interface" (QualIdent.to_loc mid)
+                        (Type.Var mid) (List.length formals))
             in
             let interface_symbol =
               Rewriter.Symbol.extend_subst
@@ -3533,23 +3626,82 @@ module ProcessModule = struct
                    \ mid: %{QualIdent}"
                   (Symbol.to_name (ModDef m))
                   printers.pr_symbol interface_symbol qual_interface_ident mid) in
-            Rewriter.return (qual_interface_ident, mid, interface_symbol))
+            Rewriter.return
+              (qual_interface_ident, mid, arg_subst, interface_symbol))
       in
-      match interface_opt with
-      | Some (qual_interface_ident, interface_ident, ModDef interface) ->
-        ( Some qual_interface_ident,
-          Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident,
-          interface_ident,
-          Some interface.mod_decl.mod_decl_formals,
-          merge_defs ~parent_status:interface.mod_decl.mod_decl_status
-            qual_interface_ident interface.mod_def m.mod_def )
-      | _ ->
+      let parent_defs =
+        List.filter_map parents ~f:(function
+          | qual_interface_ident, mid, args, ModDef interface ->
+              Some (qual_interface_ident, mid, args, interface)
+          | _ -> None)
+      in
+      match parent_defs with
+      | [] ->
           let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
           let interfaces =
             if is_root then m.mod_decl.mod_decl_interfaces
             else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
           in
-          (None, interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident)))
+          Rewriter.return
+            ([], interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident)))
+      | first_parent :: _ ->
+          (* Merge each parent in turn, threading the accumulated definition, so
+             a later parent sees earlier parents' members as already defined. *)
+          let returns, interfaces, formals, merged, to_check =
+            List.fold parent_defs
+              ~init:
+                ( [],
+                  Set.empty (module QualIdent),
+                  None,
+                  m.mod_def,
+                  Map.empty (module Ident) )
+              ~f:(fun (returns, interfaces, formals, mod_def, to_check)
+                      (qual_interface_ident, _mid, args, interface) ->
+                let merged, to_check' =
+                  merge_defs ~parent_status:interface.mod_decl.mod_decl_status
+                    qual_interface_ident interface.mod_def mod_def
+                in
+                let to_check =
+                  Map.fold to_check' ~init:to_check
+                    ~f:(fun ~key ~data acc ->
+                      match Map.add acc ~key ~data:(qual_interface_ident, data) with
+                      | `Ok acc -> acc
+                      | `Duplicate ->
+                          Error.type_error m.mod_decl.mod_decl_loc
+                            (Printf.sprintf
+                               !"Member %{Ident} is declared by more than one \
+                                 of the interfaces %s implements; a module \
+                                 cannot inherit two declarations of the same \
+                                 name"
+                               key
+                               (Ident.to_string m.mod_decl.mod_decl_name)))
+                in
+                (* Only an unapplied parameterised parent imposes its formals on
+                   this module; an applied one supplied them as arguments. *)
+                let formals =
+                  match formals, args with
+                  | Some _, _ | None, _ :: _ -> formals
+                  | None, [] ->
+                      if List.is_empty interface.mod_decl.mod_decl_formals then
+                        None
+                      else Some interface.mod_decl.mod_decl_formals
+                in
+                ( (qual_interface_ident, List.map args ~f:(fun qi -> Module.ModArg qi))
+                  :: returns,
+                  Set.union interfaces
+                    (Set.add interface.mod_decl.mod_decl_interfaces
+                       qual_interface_ident),
+                  formals,
+                  merged,
+                  to_check ))
+          in
+          let qual_first, _, _, _ = first_parent in
+          Rewriter.return
+            ( List.rev returns,
+              interfaces,
+              qual_first,
+              formals,
+              (merged, to_check) )
     in
 
     (*let inherited_symbols = List.rev inherited_symbols in*)
@@ -3656,8 +3808,8 @@ module ProcessModule = struct
         | SymbolDef symbol ->
             let ident = Symbol.to_name symbol in
             Map.find symbols_to_check ident
-            |> Rewriter.Option.iter ~f:(fun orig_symbol ->
-                check_implements_symbol interface_ident symbol orig_symbol)
+            |> Rewriter.Option.iter ~f:(fun (owning_interface, orig_symbol) ->
+                check_implements_symbol owning_interface symbol orig_symbol)
         | _ -> Rewriter.return ())
     in
 

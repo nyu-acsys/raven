@@ -1,0 +1,10 @@
+// Two unrelated parents may still declare the same member name. There is no
+// rule for which declaration a single definition would be checked against, so
+// this is rejected rather than resolved silently.
+
+interface P1 { func foo(x: Int) returns (y: Int) }
+interface P2 { func foo(x: Int) returns (y: Int) }
+
+module Clash : P1, P2 {
+  func foo(x: Int) returns (y: Int) { x }
+}

@@ -1,0 +1,10 @@
+// Multiple inheritance is restricted to parents with disjoint ancestors: Raven
+// identifies module types by path rather than by identity (see
+// diamond_modules.rav), so two routes to Root's members would yield two copies
+// that the type checker will not unify. Rejected at the declaration.
+
+interface Root { func base(x: Int) returns (y: Int) }
+interface L : Root { func l(x: Int) returns (y: Int) }
+interface R : Root { func r(x: Int) returns (y: Int) }
+
+module Diamond : L, R { }

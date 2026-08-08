@@ -1,0 +1,54 @@
+// How arguments in a parent clause resolve.
+//
+// A module's own formals are not yet in the symbol table when its parent clause
+// is processed, so an argument naming one of them is turned into a path
+// directly rather than resolved. Everything else resolves normally. These are
+// the cases that distinguish the two paths.
+
+interface I { rep type T }
+interface Base[A: I] { func g(x: A) returns (y: A) }
+
+module IntI : I { rep type T = Int }
+module BoolI : I { rep type T = Bool }
+
+// 1. The child's formal may be named differently from the parent's. This is the
+//    case the implicit mechanism (unapplied parent, formals repeated by name)
+//    cannot express.
+module Renamed[B: I] : Base[B] {
+  func g(x: B) returns (y: B) { x }
+  func h(x: B) returns (y: B) { g(x) }
+}
+
+// 2. A formal shadows an outer module of the same name, as it does everywhere
+//    else in the body. Below, D2.g must take Bool, not the outer A's Int.
+module A : I { rep type T = Int }
+
+module Shadowing[A: I] : Base[A] {
+  func g(x: A) returns (y: A) { x }
+}
+
+// 3. An argument that is not a formal at all resolves as an ordinary name.
+module Fixed : Base[IntI] {
+  func g(x: IntI) returns (y: IntI) { x }
+}
+
+// 4. An argument naming an *enclosing* functor's formal, where the inheriting
+//    module has no formals of its own.
+module Mk[A: I] {
+  module Inner : Base[A] {
+    func g(x: A) returns (y: A) { x }
+  }
+}
+
+module D1 = Renamed[IntI]
+module D2 = Shadowing[BoolI]
+module D4 = Mk[IntI]
+
+module Client {
+  proc p() returns (r: Int, b: Bool, s: Int, t: Int) {
+    r := D1.h(3);
+    b := D2.g(true);
+    s := Fixed.g(4);
+    t := D4.Inner.g(5);
+  }
+}

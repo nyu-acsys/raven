@@ -831,7 +831,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     {
       Module.mod_decl_name = mod_ident;
       mod_decl_formals = [];
-      mod_decl_returns = None;
+      mod_decl_returns = [];
       mod_decl_interfaces = Set.empty (module QualIdent);
       mod_decl_rep = None;
       mod_decl_is_ra = false;
@@ -1241,7 +1241,7 @@ let generate_unit_pred_ra ~loc (mod_ident : ident) : Module.symbol Rewriter.t =
     {
       Module.mod_decl_name = mod_ident;
       mod_decl_formals = [];
-      mod_decl_returns = None;
+      mod_decl_returns = [];
       mod_decl_interfaces = Set.empty (module QualIdent);
       mod_decl_rep = None;
       mod_decl_is_ra = false;

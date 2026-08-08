@@ -1,0 +1,65 @@
+// Cross-parent reach-back: with several parents, a concrete body can reach into
+// an invariant declared by a *different* parent. Neither parent's abstract view
+// can anticipate that -- M1 does not know test exists, M2 does not know i does --
+// so it is the same hazard as abstract_invariant_reach_back.rav and must be
+// rejected the same way.
+//
+// The exploit is realized at a client that sees both interfaces (see Client
+// below): it opens test directly, then calls helper, whose precondition i is
+// concretely test -- so test ends up open twice, and the two views disagree
+// about x.f. helper's mask says {i}, the client holds {test}, and those are
+// different names, so nothing downstream catches it. Rejecting N's definition of
+// i is what prevents that.
+
+field f: Int
+
+interface M1 {
+  inv i(x: Ref)
+
+  proc helper(x: Ref)
+    requires i(x)
+    atomic requires own(x.f, 1)
+    atomic ensures false
+}
+
+interface M2 {
+  inv test(x: Ref) {
+    own(x.f, 1)
+  }
+}
+
+module N : M1, M2 {
+  inv i(x: Ref) {
+    test(x)
+  }
+
+  proc helper(x: Ref)
+    requires i(x)
+    atomic requires own(x.f, 1)
+    atomic ensures false
+  {
+    ghost val phi := bindAU;
+    openAU(phi)
+    unfold i(x)
+    unfold test(x)
+    x.f := 1
+    assert false
+    fold test(x)
+    fold i(x)
+    commitAU(phi, ())
+  }
+}
+
+module Client {
+  proc exploit(x: Ref)
+    requires N.i(x) && N.test(x)
+    atomic requires true
+  {
+    ghost var phi := bindAU
+    openAU(phi)
+    unfold N.test(x)
+    N.helper(x)
+    fold N.test(x)
+    commitAU(phi, ())
+  }
+}

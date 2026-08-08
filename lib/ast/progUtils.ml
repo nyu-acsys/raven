@@ -182,7 +182,7 @@ let intros_type_module ~(loc : location) ?scope
     {
       AstDef.Module.mod_decl_name = mod_name;
       mod_decl_formals = [];
-      mod_decl_returns = Some Predefs.lib_type_mod_qual_ident;
+      mod_decl_returns = [ (Predefs.lib_type_mod_qual_ident, []) ];
       mod_decl_interfaces = Set.empty (module QualIdent);
       mod_decl_rep = Some Predefs.lib_type_rep_type_ident;
       mod_decl_is_ra = false;
@@ -839,7 +839,7 @@ let intros_rep_module ~(loc : location) ?scope
     {
       AstDef.Module.mod_decl_name = mod_name;
       mod_decl_formals = [];
-      mod_decl_returns = Some interface_qual_ident;
+      mod_decl_returns = [ (interface_qual_ident, []) ];
       mod_decl_interfaces = Set.empty (module QualIdent);
       mod_decl_rep = Some rep_ident;
       mod_decl_is_ra = false;

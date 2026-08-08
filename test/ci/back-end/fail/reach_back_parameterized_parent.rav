@@ -1,0 +1,59 @@
+// The abstract-invariant reach-back check must survive a parameterised parent.
+//
+// Same hazard as abstract_invariant_reach_back.rav: bar is verified once against
+// M's abstract i, so if a later concrete i nests test -- another invariant M
+// itself declares -- helper could reopen test while bar still holds it open,
+// without bar ever being re-checked. Inheriting from an *application* of M
+// rather than from M directly must not let that through.
+
+field f: Int
+
+interface Dummy { rep type T }
+
+interface M[A: Dummy] {
+
+  inv test(x: Ref) {
+    own(x.f, 1)
+  }
+
+  inv i(x: Ref)
+
+  proc helper(x: Ref)
+    requires i(x)
+    atomic requires own(x.f, 1)
+    atomic ensures false
+
+  proc bar(x: Ref)
+    atomic requires true
+    requires i(x) && test(x)
+  {
+    ghost var phi := bindAU
+    openAU(phi)
+    unfold test(x)
+    helper(x)
+    fold test(x)
+    commitAU(phi, ())
+  }
+}
+
+module N[A: Dummy] : M[A] {
+  inv i(x: Ref) {
+    test(x)
+  }
+
+  proc helper(x: Ref)
+    requires i(x)
+    atomic requires own(x.f, 1)
+    atomic ensures false
+  {
+    ghost val phi := bindAU;
+    openAU(phi)
+    unfold i(x)
+    unfold test(x)
+    x.f := 1
+    assert false
+    fold test(x)
+    fold i(x)
+    commitAU(phi, ())
+  }
+}
