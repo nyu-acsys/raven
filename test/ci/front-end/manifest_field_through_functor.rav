@@ -1,0 +1,44 @@
+// The case manifest fields exist for: handing a client's own field to a functor.
+//
+// The client declares `count` the ordinary way and hands it to `Uses` through a
+// manifest field, so the functor operates on the client's real field. Ownership
+// crosses the call under the client's own name: `use` holds `own(x.count, ...)`
+// and `get`'s precondition asks for `own(x.Adapt.f, ...)`.
+//
+// The per-field resource-algebra modules are named after the field and live
+// beside it, so this only works because those names are derived from the field
+// *after* resolving it. A callee's contract arrives at elaboration with the
+// instantiation substitution already applied syntactically (`H.f` -> `Adapt.f`),
+// having never been put back through the symbol table -- so without resolving
+// first, a manifest field looks for an RA module and a heap beside the alias
+// rather than beside the field it stands for.
+
+interface HasField {
+  module E : Library.Type
+  field f : E
+}
+
+module Uses[H: HasField] {
+  proc get(x: Ref, ghost w: H.E) returns (v: H.E)
+    requires own(x.H.f, w, 1.0)
+    ensures  own(x.H.f, w, 1.0) && v == w
+  { v := x.H.f; }
+}
+
+module IntT : Library.Type { rep type T = Int }
+
+module Client {
+  field count: Int
+
+  module Adapt : HasField {
+    module E = IntT
+    field f = Client.count
+  }
+
+  module U = Uses[Adapt]
+
+  proc use(x: Ref, ghost w: Int) returns (v: Int)
+    requires own(x.count, w, 1.0)
+    ensures  own(x.count, w, 1.0) && v == w
+  { v := U.get(x, w); }
+}

@@ -2454,7 +2454,11 @@ module TrnslInhale = struct
           | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
         in
 
-        let field_name = Expr.to_qual_ident e2 in
+        (* Resolve before deriving the heap's name: a callee's contract arrives
+           here with the instantiation substitution already applied
+           syntactically, so a manifest field would otherwise get a heap beside
+           the alias rather than beside the field it stands for. *)
+        let* field_name = Rewriter.resolve (Expr.to_qual_ident e2) in
         let field_heap_name = field_heap_name field_name in
         let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
         let field_heap_expr =
@@ -3282,7 +3286,11 @@ module TrnslInhale = struct
           | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
         in
 
-        let field_name = Expr.to_qual_ident e2 in
+        (* Resolve before deriving the heap's name: a callee's contract arrives
+           here with the instantiation substitution already applied
+           syntactically, so a manifest field would otherwise get a heap beside
+           the alias rather than beside the field it stands for. *)
+        let* field_name = Rewriter.resolve (Expr.to_qual_ident e2) in
         let field_heap_name = field_heap_name field_name in
         let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
         let field_heap_expr =
@@ -4673,7 +4681,11 @@ module TrnslExhale = struct
           | _ -> Error.type_error (Expr.to_loc e2) "Expected field identifier."
         in
 
-        let field_name = Expr.to_qual_ident e2 in
+        (* Resolve before deriving the heap's name: a callee's contract arrives
+           here with the instantiation substitution already applied
+           syntactically, so a manifest field would otherwise get a heap beside
+           the alias rather than beside the field it stands for. *)
+        let* field_name = Rewriter.resolve (Expr.to_qual_ident e2) in
         let field_heap_name = field_heap_name field_name in
         let field_heap_qual_ident = QualIdent.from_ident field_heap_name in
         let field_heap_expr =

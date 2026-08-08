@@ -1841,9 +1841,14 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
   | ModDef _ | ModInst _ | TypeDef _ | ConstrDef _ | DestrDef _ | VarDef _
   | CallDef _ ->
       Rewriter.return symbol
-  (* See [HeapsExplicitTrnsl.rewrite_add_field_utils]: a manifest field takes
-     the target's already-rewritten type, so it must not be wrapped again. *)
-  | FieldDef { field_alias = Some _; _ } -> Rewriter.return symbol
+  (* A manifest field shares the target's resource algebra: it takes the
+     target's type as already rewritten rather than being wrapped in a Frac of
+     its own, which would be a distinct RA over one heap. The field's type feeds
+     the Frac module's name (see [rewrite_own_expr_4_arg]), so leaving it as the
+     pre-rewrite type derives the wrong name. *)
+  | FieldDef ({ field_alias = Some target; _ } as f) ->
+      let+ target_field = Rewriter.find_and_reify_field target in
+      Module.FieldDef { f with field_type = target_field.field_type }
   | FieldDef f ->
       let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 
@@ -1958,8 +1963,15 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
                  ~loc:(Expr.to_loc expr) field_name field_type))) in
 
         let* frac_mod_name =
-          let frac_mod_name = 
-            ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) (Expr.to_qual_ident expr2) field_type
+          (* Resolve the field before deriving its Frac module's name. A callee's
+             contract reaches here with the instantiation substitution already
+             applied syntactically (`H.f` -> `Adapt.f`), so the name was never put
+             through the symbol table; without this a manifest field would look
+             for an RA module beside the alias rather than beside the field it
+             stands for. *)
+          let* field_qual_ident = Rewriter.resolve (Expr.to_qual_ident expr2) in
+          let frac_mod_name =
+            ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:(Expr.to_loc expr) field_qual_ident field_type
           in
 
           Logs.debug (fun m -> m
