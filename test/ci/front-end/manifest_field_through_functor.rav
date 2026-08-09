@@ -23,6 +23,15 @@ module Uses[H: HasField] {
     requires own(x.H.f, w, 1.0)
     ensures  own(x.H.f, w, 1.0) && v == w
   { v := x.H.f; }
+
+  // An *implicit* ghost has its witness computed from the field's heap, which is
+  // a fourth place the name is derived and so a fourth place the alias has to be
+  // resolved through first. Computed against the alias's own heap the witness is
+  // computed against an empty one, and the call's precondition then fails.
+  proc get_implicit(x: Ref, implicit ghost w: H.E) returns (v: H.E)
+    requires own(x.H.f, w, 1.0)
+    ensures  own(x.H.f, w, 1.0) && v == w
+  { v := x.H.f; }
 }
 
 module IntT : Library.Type { rep type T = Int }
@@ -41,4 +50,9 @@ module Client {
     requires own(x.count, w, 1.0)
     ensures  own(x.count, w, 1.0) && v == w
   { v := U.get(x, w); }
+
+  proc use_implicit(x: Ref, ghost w: Int) returns (v: Int)
+    requires own(x.count, w, 1.0)
+    ensures  own(x.count, w, 1.0) && v == w
+  { v := U.get_implicit(x); }
 }

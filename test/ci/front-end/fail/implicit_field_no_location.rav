@@ -1,0 +1,23 @@
+// A field parameter is solved from the field a location argument names, so a
+// bare Ref leaves nothing to solve it with. Writing `x` here is legal against an
+// explicit instantiation -- see location_parameter.rav -- but not when the
+// instance is the thing being inferred.
+
+interface AtomicField { module E : Library.Type  field f : E }
+
+module Ops[A: AtomicField] {
+  proc get(x.A.f, implicit ghost w: A.E) returns (v: A.E)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, w, 1.0) && v == w
+  { v := x.A.f; }
+}
+
+module Client {
+  import Ops._
+
+  field bit: Bool
+
+  proc use(x: Ref, ghost a: Bool) returns (p: Bool)
+    requires own(x.bit, a, 1.0)
+  { p := get(x); }
+}

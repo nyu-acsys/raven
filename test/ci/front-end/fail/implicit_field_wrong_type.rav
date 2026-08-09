@@ -1,0 +1,25 @@
+// The synthesized implementor is checked against the interface like any other,
+// so a field whose type the interface has already fixed is rejected there. This
+// is the honest outcome rather than a wart: an increment on a Bool field is
+// meaningless, and refusing it is the point of splitting the hierarchy.
+
+interface WordSized : Library.Type { rep type T }
+interface AtomicField { module E : WordSized  field f : E }
+interface IntField : AtomicField { module E : WordSized { rep type T = Int } }
+
+module IntOps[A: IntField] {
+  proc incr(x.A.f, implicit ghost w: Int)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, w + 1, 1.0)
+  { val c: Int := x.A.f; x.A.f := c + 1; }
+}
+
+module Client {
+  import IntOps._
+
+  field bit: Bool
+
+  proc use(x: Ref, ghost a: Bool)
+    requires own(x.bit, a, 1.0)
+  { incr(x.bit); }
+}

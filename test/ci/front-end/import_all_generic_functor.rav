@@ -33,6 +33,25 @@ module TwoInstantiations {
   }
 }
 
+module Box[T: Library.Type] {
+  proc id(x: T) returns (y: T) { y := x; }
+  func pick(x: T, implicit ghost y: T) returns (z: T) { x }
+}
+
+// A *procedure* is called through the assignment path, which has to consult the
+// import too -- the expression path finds the member but rejects it as a proc.
+module Procedures {
+  import Box._
+
+  proc p() returns (r: Int) { r := id(3); }
+}
+
+// Trailing implicit ghost formals may be omitted while the instantiation is
+// still being inferred, just as they may once it is known.
+module OmittedImplicits {
+  proc p() returns (r: Int) { r := Box.pick(3); }
+}
+
 // The qualified form still works, both for a plain import of the module and for
 // a fully qualified reference.
 import Library.Option

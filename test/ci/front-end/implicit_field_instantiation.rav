@@ -1,0 +1,154 @@
+// Implicit instantiation of a *field*-parameterised functor: the client writes
+// `get(x.bit, ...)` and never names an instance.
+//
+// The unification variable here ranges over symbol identity rather than over
+// types. `bit` and `other` below both have type Fld[Bool], so nothing in the
+// types could pick between them; what solves the parameter is the field the
+// location argument names. The instantiation is then built around a synthesized
+// module whose field is *manifest* -- it stands for the client's field rather
+// than declaring one of its own, so both key on the same heap.
+//
+// Those synthesized modules are deliberately not nameable, exactly as the
+// per-field Frac and FieldUtils modules are not. A client who wants a named
+// instance declares the field inside an implementor and instantiates by hand;
+// see manifest_field_through_functor.rav.
+
+interface WordSized : Library.Type { rep type T }
+
+interface AtomicField {
+  module E : WordSized
+  field f : E
+}
+
+// Refining the module member fixes the field's type, so the functor below may
+// use arithmetic that AtomicField alone does not support.
+interface IntField : AtomicField {
+  module E : WordSized { rep type T = Int }
+}
+
+module Ops[A: AtomicField] {
+  proc get(x.A.f, implicit ghost w: A.E) returns (v: A.E)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, w, 1.0) && v == w
+  { v := x.A.f; }
+
+  proc put(x.A.f, n: A.E, implicit ghost w: A.E)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, n, 1.0)
+  { x.A.f := n; }
+}
+
+module IntOps[A: IntField] : Ops[A] {
+  proc incr(x.A.f, implicit ghost w: Int)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, w + 1, 1.0)
+  { val c: Int := x.A.f; x.A.f := c + 1; }
+}
+
+module Client {
+  import Ops._
+
+  field bit: Bool
+  field other: Bool
+
+  // Two fields of the same type, so two different instantiations.
+  proc two(x: Ref, ghost a: Bool, ghost b: Bool) returns (p: Bool, q: Bool)
+    requires own(x.bit, a, 1.0) && own(x.other, b, 1.0)
+    ensures  own(x.bit, a, 1.0) && own(x.other, b, 1.0) && p == a && q == b
+  {
+    p := get(x.bit);
+    q := get(x.other);
+  }
+
+  // The same field twice reuses one instantiation.
+  proc twice(x: Ref, ghost a: Bool) returns (p: Bool, q: Bool)
+    requires own(x.bit, a, 1.0)
+    ensures  own(x.bit, a, 1.0) && p == a && q == a
+  {
+    p := get(x.bit);
+    q := get(x.bit);
+  }
+
+  proc set(x: Ref, ghost a: Bool)
+    requires own(x.bit, a, 1.0)
+    ensures  own(x.bit, true, 1.0)
+  { put(x.bit, true); }
+}
+
+// One import, three primitives: `incr` from IntOps itself, `get`/`put`
+// inherited from Ops[A]. Inheritance from a functor application is what lets
+// the arithmetic live in a module whose parameter is strong enough for it.
+module IntClient {
+  import IntOps._
+
+  field n: Int
+
+  proc bump(x: Ref, ghost a: Int)
+    requires own(x.n, a, 1.0)
+    ensures  own(x.n, a + 1, 1.0)
+  { incr(x.n); }
+
+  proc peek(x: Ref, ghost a: Int) returns (v: Int)
+    requires own(x.n, a, 1.0)
+    ensures  own(x.n, a, 1.0) && v == a
+  { v := get(x.n); }
+}
+
+// The field need not be declared where it is used.
+module Store { field flag: Bool }
+
+module Elsewhere {
+  import Ops._
+
+  proc use(x: Ref, ghost a: Bool) returns (p: Bool)
+    requires own(x.Store.flag, a, 1.0)
+    ensures  own(x.Store.flag, a, 1.0) && p == a
+  { p := get(x.Store.flag); }
+}
+
+// The qualified form works too -- naming the functor without instantiating it.
+module Qualified {
+  field mark: Bool
+
+  proc use(x: Ref, ghost a: Bool) returns (p: Bool)
+    requires own(x.mark, a, 1.0)
+    ensures  own(x.mark, a, 1.0) && p == a
+  { p := Ops.get(x.mark); }
+}
+
+// A field parameter and an ordinary type parameter in one functor.
+module Mixed[A: AtomicField, B: Library.Type] {
+  proc tag(x.A.f, b: B, implicit ghost w: A.E) returns (v: A.E, c: B)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, w, 1.0) && v == w && c == b
+  { v := x.A.f; c := b; }
+}
+
+// The field's type need not *be* the interface's module member; it need only
+// determine it.
+interface MapField { module E : Library.Type  field g : Map[Int, E] }
+
+module MapOps[A: MapField] {
+  proc lookup(x.A.g, k: Int, implicit ghost w: Map[Int, A.E]) returns (v: A.E)
+    requires own(x.A.g, w, 1.0)
+    ensures  own(x.A.g, w, 1.0) && v == w[k]
+  { val m: Map[Int, A.E] := x.A.g; v := m[k]; }
+}
+
+module Structural {
+  import Mixed._
+  import MapOps._
+
+  field bit: Bool
+  field table: Map[Int, Int]
+
+  proc use(x: Ref, ghost a: Bool) returns (p: Bool, s: Int)
+    requires own(x.bit, a, 1.0)
+    ensures  own(x.bit, a, 1.0) && p == a && s == 5
+  { p, s := tag(x.bit, 5); }
+
+  proc look(x: Ref, ghost m: Map[Int, Int]) returns (v: Int)
+    requires own(x.table, m, 1.0)
+    ensures  own(x.table, m, 1.0) && v == m[3]
+  { v := lookup(x.table, 3); }
+}

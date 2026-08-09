@@ -1,0 +1,233 @@
+// User-definable atomic commands: cas/faa/xchg/cmpxchg as ordinary library
+// procedures rather than built-in statements.
+//
+// Three pieces carry it. Each contract is *logically* atomic, so callers may
+// open an invariant around the call and commit at the linearization point. Each
+// body is *physically* atomic -- a read plus a conditional write, which the
+// hardware collapses into one instruction -- and the `atomic { ... }` block is
+// what lets the second discharge the first; without it the body takes several
+// steps and cannot commit an atomic update. The field the primitive operates on
+// arrives through the functor parameter, and the client never names an instance:
+// the parameter is solved from the field the call site's location argument
+// names.
+//
+// The names below are spelled out because `cas`, `faa`, `xchg` and `cmpxchg` are
+// reserved tokens for as long as the atomics extension defines them; retiring it
+// is a cutover rather than a migration.
+
+interface WordSized : Library.Type {
+  rep type T
+}
+
+// A single field of word-sized type, supplied by the client. `f` is inherited by
+// implementors rather than redeclared, which is what lets the functors below be
+// verified once against an abstract field.
+interface AtomicField {
+  module E : WordSized
+  field f : E
+}
+
+interface IntField : AtomicField {
+  module E : WordSized { rep type T = Int }
+}
+
+// Everything that needs only equality on the field's type.
+module Atomics[A: AtomicField] {
+
+  proc compare_and_set(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E)
+    returns (b: Bool)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, v == old_val ? new_val : v, 1.0)
+                 && b == (v == old_val)
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      val cur: A.E := x.A.f;
+      if (cur == old_val) {
+        x.A.f := new_val;
+        b := true;
+      } else {
+        b := false;
+      }
+
+      commitAU(phi, b);
+    }
+  }
+
+  // As compare_and_set, but also reports the value it found.
+  proc compare_and_exchange(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E)
+    returns (seen: A.E, b: Bool)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, v == old_val ? new_val : v, 1.0)
+                 && seen == v && b == (v == old_val)
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      seen := x.A.f;
+      if (seen == old_val) {
+        x.A.f := new_val;
+        b := true;
+      } else {
+        b := false;
+      }
+
+      commitAU(phi, (seen, b));
+    }
+  }
+
+  proc exchange(x.A.f, new_val: A.E, implicit ghost v: A.E)
+    returns (old_val: A.E)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, new_val, 1.0) && old_val == v
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      old_val := x.A.f;
+      x.A.f := new_val;
+
+      commitAU(phi, old_val);
+    }
+  }
+}
+
+// The one primitive that needs arithmetic. Inheriting from `Atomics[A]` means an
+// Int-field client imports this module alone and gets all four, and the spec
+// below can write `v + n` rather than an encoding, because the parameter is
+// strong enough to say so.
+module IntAtomics[A: IntField] : Atomics[A] {
+
+  proc fetch_and_add(x.A.f, n: Int, implicit ghost v: Int)
+    returns (old_val: Int)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, v + n, 1.0) && old_val == v
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      old_val := x.A.f;
+      x.A.f := old_val + n;
+
+      commitAU(phi, old_val);
+    }
+  }
+}
+
+module SpinLock {
+  import Atomics._
+
+  field bit: Bool
+  field content: Int
+
+  pred protected(l: Ref) {
+    exists d: Int :: own(l.content, d, 1.0)
+  }
+
+  inv lock_inv(l: Ref) {
+    exists b: Bool :: own(l.bit, b, 1.0) && (b ? true : protected(l))
+  }
+
+  proc create() returns (l: Ref)
+    ensures lock_inv(l)
+  {
+    l := new (bit: false, content: 0);
+    fold protected(l);
+    fold lock_inv(l)[ b := false ];
+  }
+
+  // Busy-wait. Each iteration opens the invariant, takes exactly one atomic step
+  // and closes it, so the loop never holds the invariant open across an
+  // interference point.
+  proc acquire(l: Ref)
+    requires lock_inv(l)
+    ensures  protected(l)
+  {
+    var got: Bool := false;
+
+    while (!got)
+      invariant lock_inv(l)
+      invariant got ==> protected(l)
+    {
+      ghost var was: Bool;
+      unfold lock_inv(l)[ was := b ];
+
+      // No instance named: `bit` solves the parameter.
+      got := compare_and_set(l.bit, false, true);
+
+      // Sound either way: the call fails only if the bit was already true, and
+      // succeeds only by setting it to true.
+      fold lock_inv(l)[ b := true ];
+    }
+  }
+
+  // Releasing by exchange rather than by a plain write, to exercise a second
+  // primitive against the same field and so the same instantiation.
+  proc release(l: Ref)
+    requires lock_inv(l) && protected(l)
+  {
+    ghost var was: Bool;
+    unfold lock_inv(l)[ was := b ];
+    val prev: Bool := exchange(l.bit, false);
+    fold lock_inv(l)[ b := false ];
+  }
+}
+
+// One import, four primitives: `fetch_and_add` from IntAtomics itself, the rest
+// inherited from Atomics[A].
+module Counter {
+  import IntAtomics._
+
+  field hits: Int
+
+  inv counter_inv(c: Ref) {
+    exists n: Int :: own(c.hits, n, 1.0) && n >= 0
+  }
+
+  proc bump(c: Ref)
+    requires counter_inv(c)
+  {
+    ghost var n0: Int;
+    unfold counter_inv(c)[ n0 := n ];
+    val prev: Int := fetch_and_add(c.hits, 1);
+    fold counter_inv(c)[ n := n0 + 1 ];
+  }
+
+  proc reset(c: Ref) returns (seen: Int, ok: Bool)
+    requires counter_inv(c)
+  {
+    ghost var n0: Int;
+    unfold counter_inv(c)[ n0 := n ];
+    seen, ok := compare_and_exchange(c.hits, 0, 0);
+    fold counter_inv(c)[ n := n0 ];
+  }
+}
+
+// The escape hatch, and the only way to get a *named* instance: declare the
+// field inside an AtomicField implementor and instantiate by hand. The choice is
+// made at field-declaration time -- a field declared the ordinary way, as in
+// Counter above, can only ever be used implicitly.
+module MyCounter {
+  // Both members come from the interface: IntField fixes E, and the field is
+  // inherited rather than redeclared.
+  module CF : IntField {}
+  module CA = IntAtomics[CF]
+
+  inv c_inv(c: Ref) {
+    exists n: Int :: own(c.CF.f, n, 1.0) && n >= 0
+  }
+
+  proc bump(c: Ref)
+    requires c_inv(c)
+  {
+    ghost var n0: Int;
+    unfold c_inv(c)[ n0 := n ];
+    val prev: Int := CA.fetch_and_add(c.CF.f, 1);
+    fold c_inv(c)[ n := n0 + 1 ];
+  }
+}

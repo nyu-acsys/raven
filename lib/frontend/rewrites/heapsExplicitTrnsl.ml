@@ -4218,6 +4218,10 @@ module TrnslExhale = struct
 
           let field_elem_type = field_expr |> Expr.to_type |> Type.field_val in
 
+          (* Resolve before deriving the heap's name, as at the three Own sites
+             above: a witness computed against a manifest field's own heap would
+             be computed against an empty one. *)
+          let* field_name = Rewriter.resolve field_name in
           let field_heap_name = field_heap_name field_name in
           let field_heap_type =
             Type.mk_map (Expr.to_loc expr) Type.ref field_elem_type

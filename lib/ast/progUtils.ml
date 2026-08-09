@@ -786,15 +786,105 @@ let resolve_rep_ident (interface_qi : qual_ident) : (qual_ident * ident) option 
       | _ -> None)
   | None -> None
 
-(** True iff every formal of [mod_decl] is constrained by a rep-typed
-    module/interface, making the functor eligible for implicit instantiation. *)
+(** An interface's abstract members, as far as implicit instantiation is concerned:
+    [FieldMember] is the single field it declares, [ModMember] an abstract module
+    member. Any other abstract member makes the interface unusable as a field
+    parameter's constraint -- a location argument supplies a field and nothing else. *)
+type iface_member =
+  | FieldMember of AstDef.Module.field_def
+  | ModMember of AstDef.Module.module_inst
+  | OtherMember of string * ident
+
+let interface_members (interface_qi : qual_ident) : iface_member list t =
+  let open Rewriter.Syntax in
+  let+ resolved = Rewriter.resolve_and_find_opt interface_qi in
+  match resolved with
+  | Some (_, symbol) -> (
+      match Rewriter.Symbol.orig_symbol symbol with
+      | AstDef.Module.ModDef iface ->
+          Base.List.filter_map iface.mod_def ~f:(function
+            | AstDef.Module.SymbolDef (FieldDef ({ field_alias = None; _ } as fd)) ->
+                Some (FieldMember fd)
+            | SymbolDef (ModInst ({ mod_inst_def = None; _ } as mi)) ->
+                Some (ModMember mi)
+            | SymbolDef (FieldDef _ | ModInst _) -> None
+            | SymbolDef symbol -> (
+                (* Same notion of "must be supplied by an implementer" as
+                   [non_rep_abstract_members]; see its comment. *)
+                match AstDef.Symbol.free_status symbol with
+                | UserFree -> None
+                | NotFree | MachineFree -> (
+                    match symbol with
+                    | TypeDef { type_def_expr = None; _ }
+                    | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
+                    | CallDef
+                        {
+                          call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
+                          call_decl = { call_decl_kind = Proc | Func | Pred | Invariant; _ };
+                          _;
+                        } ->
+                        Some
+                          (OtherMember
+                             (AstDef.Symbol.kind symbol, AstDef.Symbol.to_name symbol))
+                    | _ -> None))
+            | _ -> None)
+      | _ -> [])
+  | None -> []
+
+(** If [interface_qi] declares exactly one field and no abstract member other than
+    module members, return that field together with those module members -- the shape
+    a location argument can solve (the field comes from the argument, the module
+    members from the field's value type). [None] otherwise. *)
+let resolve_field_interface (interface_qi : qual_ident) :
+    (AstDef.Module.field_def * AstDef.Module.module_inst list) option t =
+  let open Rewriter.Syntax in
+  let+ members = interface_members interface_qi in
+  let fields =
+    Base.List.filter_map members ~f:(function FieldMember fd -> Some fd | _ -> None)
+  in
+  let others =
+    Base.List.filter_map members ~f:(function
+      | OtherMember (kind, id) -> Some (kind, id)
+      | _ -> None)
+  in
+  match (fields, others) with
+  | [ field ], [] ->
+      Some
+        ( field,
+          Base.List.filter_map members ~f:(function
+            | ModMember mi -> Some mi
+            | _ -> None) )
+  | _ -> None
+
+(** How a functor formal can be solved during implicit instantiation: from the types of
+    the arguments, or from a field named by a location argument. *)
+type formal_solver =
+  | ByRepType of qual_ident * ident
+      (** the formal's interface and its rep type *)
+  | ByField of qual_ident * AstDef.Module.field_def * AstDef.Module.module_inst list
+      (** the formal's interface, its field, and its abstract module members *)
+
+let classify_formal (formal : AstDef.Module.module_inst) : formal_solver option t =
+  let open Rewriter.Syntax in
+  let* rep = resolve_rep_ident formal.mod_inst_type in
+  match rep with
+  | Some (interface_qi, rep_ident) -> return (Some (ByRepType (interface_qi, rep_ident)))
+  | None ->
+      let* resolved = Rewriter.resolve_opt formal.mod_inst_type in
+      let interface_qi = Base.Option.value resolved ~default:formal.mod_inst_type in
+      let+ field_iface = resolve_field_interface formal.mod_inst_type in
+      Base.Option.map field_iface ~f:(fun (field, mod_members) ->
+          ByField (interface_qi, field, mod_members))
+
+(** True iff every formal of [mod_decl] can be solved from a use site (see
+    [classify_formal]), making the functor eligible for implicit instantiation. *)
 let is_generic_functor (mod_decl : AstDef.Module.module_decl) : bool t =
   let open Rewriter.Syntax in
   if Base.List.is_empty mod_decl.mod_decl_formals then Rewriter.return false
   else
     Rewriter.List.for_all mod_decl.mod_decl_formals ~f:(fun formal ->
-        let+ rep = resolve_rep_ident formal.mod_inst_type in
-        Base.Option.is_some rep)
+        let+ solver = classify_formal formal in
+        Base.Option.is_some solver)
 
 (** Resolve [qi] and, if it names an uninstantiated generic functor (see
     [is_generic_functor]), return its fully qualified name together with its module
@@ -893,17 +983,12 @@ let largest_common_prefix_qi symbols =
         end
 
 (** Compute (insertion_scope, reference_scope) for the modules synthesized when
-    instantiating a functor with [tps]: where to introduce them, and how to reference
-    them from here. The two differ when [tps] are reached through an abstract
-    parameter. *)
-let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
+    instantiating a functor whose arguments mention [symbols]: where to introduce them,
+    and how to reference them from here. The two differ when [symbols] are reached
+    through an abstract parameter. *)
+let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
     (qual_ident * qual_ident) t =
   let open Rewriter.Syntax in
-  let symbols =
-    Base.List.fold tps
-      ~init:(Set.empty (module QualIdent))
-      ~f:(fun acc tp -> Set.union acc (AstDef.Type.symbols tp))
-  in
   let largest_prefix = largest_common_prefix_qi symbols in
   (* [qi] may sit behind several nested abstract parameters (e.g. [ForkJoin.R.Result]),
      so keep popping and re-resolving until we land on a concrete scope. *)
@@ -924,6 +1009,16 @@ let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
         else Rewriter.return (name, qi)
   in
   find_concrete_scope largest_prefix
+
+let type_symbols (tps : AstDef.type_expr list) : (qual_ident, _) Set.t =
+  Base.List.fold tps
+    ~init:(Set.empty (module QualIdent))
+    ~f:(fun acc tp -> Set.union acc (AstDef.Type.symbols tp))
+
+(** [find_insertion_scope_for_symbols] for a functor applied to bare types. *)
+let find_insertion_scope_for_types (tps : AstDef.type_expr list) :
+    (qual_ident * qual_ident) t =
+  find_insertion_scope_for_symbols (type_symbols tps)
 
 (** If [tp] is exactly `<M>.<rep_ident>` for some already-resolved module [M] that
     is fully instantiated and genuinely implements [interface_qual_ident] (not just
@@ -1062,16 +1157,136 @@ let get_or_intros_rep_module ~(loc : location)
           in
           intros_rep_module ~loc ~scope:insert_scope ~f ~interface_qual_ident ~rep_ident tp
 
-(** Get or create (and typecheck) the instantiation
-    [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
-    what [ListExt.rewrite_type_ext] does for `List[T]`. Every formal of
-    [functor_mod_decl] must be constrained by a rep-typed module/interface (see
-    [is_generic_functor]). Each argument type is wrapped via [intros_rep_module]
-    (deduplicated), the instantiation is named deterministically and introduced via
-    [Rewriter.introduce_typecheck_symbol_at_scope']. Returns its qualified name.
+(** Deterministic name for the module standing for [field_qi] as an implementation of
+    [interface_qual_ident]. Keyed on (interface, field) rather than on types: two
+    fields of the same type are different arguments. *)
+let field_module_name_string ~(interface_qual_ident : qual_ident)
+    (field_qi : qual_ident) : string =
+  "FieldMod$$" ^ QualIdent.to_string interface_qual_ident ^ "$$"
+  ^ QualIdent.to_string field_qi
+
+(** The field counterpart of [get_or_intros_rep_module]: get (or create) a module
+    implementing [interface_qual_ident] whose field stands for [field_qi]. The manifest
+    field is what makes this sound -- the adapter's field *is* the client's, so it keys
+    on the same heap rather than getting one of its own. [mod_bindings] supplies the
+    interface's abstract module members, solved by the caller from [field_qi]'s type. *)
+let get_or_intros_field_module ~(loc : location)
+    ~(insert_scope : qual_ident) ~(reference_scope : qual_ident)
+    ~(interface_qual_ident : qual_ident) ~(field : AstDef.Module.field_def)
+    ~(field_qi : qual_ident) ~(field_type : AstDef.type_expr)
+    (mod_bindings : (ident * qual_ident) list) : qual_ident t =
+  let open Rewriter.Syntax in
+  let mod_ident =
+    Ident.make loc
+      (serialize (field_module_name_string ~interface_qual_ident field_qi))
+      0
+  in
+  let canonical_qi = QualIdent.append reference_scope mod_ident in
+  let* resolve_result = Rewriter.resolve_opt canonical_qi in
+  match resolve_result with
+  | Some _ -> return canonical_qi
+  | None ->
+      let mod_decl =
+        {
+          AstDef.Module.mod_decl_name = mod_ident;
+          mod_decl_formals = [];
+          mod_decl_returns = [ (interface_qual_ident, []) ];
+          mod_decl_interfaces = Set.empty (module QualIdent);
+          mod_decl_rep = None;
+          mod_decl_is_ra = false;
+          mod_decl_is_interface = false;
+          mod_decl_status = MachineFree;
+          mod_decl_loc = loc;
+        }
+      in
+      let mod_defs =
+        Base.List.map mod_bindings ~f:(fun (member_ident, target) ->
+            AstDef.Module.SymbolDef
+              (ModInst
+                 {
+                   mod_inst_name = member_ident;
+                   mod_inst_type = target;
+                   mod_inst_def = Some (target, []);
+                   mod_inst_is_interface = false;
+                   mod_inst_is_free = false;
+                   mod_inst_loc = loc;
+                 }))
+        @ [
+            AstDef.Module.SymbolDef
+              (FieldDef
+                 {
+                   field with
+                   field_type;
+                   field_alias = Some field_qi;
+                   field_loc = loc;
+                 });
+          ]
+      in
+      let symbol = AstDef.Module.ModDef { mod_decl; mod_def = mod_defs } in
+      let+ _ =
+        Rewriter.introduce_typecheck_symbol_at_scope' ~loc symbol insert_scope
+      in
+      canonical_qi
+
+(** Get or create (and typecheck) the instantiation of [functor_qual_ident] at
+    [arg_module_qis]. [inst_key] distinguishes one instantiation from another and is
+    what the derived name is built from, so it must determine the arguments: the
+    argument types for the type-argument path, the argument fields for the field path.
+
+    Split out from [instantiate_type_functor] because the two paths differ only in how
+    they arrive at the argument modules and the key.
 
     [canonical_mod_ident], if given, overrides the derived name -- used by [ListExt] to
     keep its pre-existing `ListExtMod$$`-prefixed naming. *)
+let instantiate_functor_at_modules ~(loc : location)
+    ~(functor_qual_ident : qual_ident)
+    ~(functor_mod_decl : AstDef.Module.module_decl)
+    ?(canonical_mod_ident : ident option) ~(insert_scope : qual_ident)
+    ~(reference_scope : qual_ident) ~(inst_key : string)
+    (arg_module_qis : qual_ident list) : qual_ident t =
+  let open Rewriter.Syntax in
+  let inst_mod_ident =
+    match canonical_mod_ident with
+    | Some ident -> ident
+    | None ->
+        let mod_name_string =
+          inst_mod_ident_prefix
+          ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
+          ^ "$$" ^ inst_key
+        in
+        Ident.make loc (serialize mod_name_string) 0
+  in
+  let inst_qi = QualIdent.append reference_scope inst_mod_ident in
+  let* resolve_result = Rewriter.resolve_opt inst_qi in
+  match resolve_result with
+  | Some _ -> return inst_qi
+  | None ->
+      let functor_inst =
+        AstDef.Module.ModInst
+          {
+            mod_inst_name = inst_mod_ident;
+            mod_inst_type = functor_qual_ident;
+            mod_inst_def =
+              Some
+                ( functor_qual_ident,
+                  Base.List.map arg_module_qis ~f:(fun qi ->
+                      AstDef.Module.ModArg qi) );
+            mod_inst_is_interface = false;
+            mod_inst_is_free = false;
+            mod_inst_loc = loc;
+          }
+      in
+      let+ _ =
+        Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope
+      in
+      inst_qi
+
+(** Get or create (and typecheck) the instantiation
+    [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
+    what [ListExt.rewrite_type_ext] does for `List[T]`. Every formal of
+    [functor_mod_decl] must be constrained by a rep-typed module/interface. Each
+    argument type is wrapped via [intros_rep_module] (deduplicated), then handed to
+    [instantiate_functor_at_modules]. Returns the instantiation's qualified name. *)
 let instantiate_type_functor ~(loc : location)
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     ~(functor_qual_ident : qual_ident)
@@ -1110,36 +1325,8 @@ let instantiate_type_functor ~(loc : location)
               get_or_intros_rep_module ~loc ~f ~insert_scope ~reference_scope
                 ~interface_qual_ident ~rep_ident tp)
     in
-    let inst_mod_ident =
-      match canonical_mod_ident with
-      | Some ident -> ident
-      | None ->
-          let mod_name_string =
-            inst_mod_ident_prefix
-            ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
-            ^ "$$"
-            ^ String.concat ~sep:","
-                (Base.List.map arg_types ~f:AstDef.Type.to_string)
-          in
-          Ident.make loc (serialize mod_name_string) 0
+    let inst_key =
+      String.concat ~sep:"," (Base.List.map arg_types ~f:AstDef.Type.to_string)
     in
-    let inst_qi = QualIdent.append reference_scope inst_mod_ident in
-    let* resolve_result = Rewriter.resolve_opt inst_qi in
-    match resolve_result with
-    | Some _ -> return inst_qi
-    | None ->
-        let functor_inst =
-          AstDef.Module.ModInst
-            {
-              mod_inst_name = inst_mod_ident;
-              mod_inst_type = functor_qual_ident;
-              mod_inst_def = Some (functor_qual_ident, Base.List.map arg_module_qis ~f:(fun qi -> AstDef.Module.ModArg qi));
-              mod_inst_is_interface = false;
-              mod_inst_is_free = false;
-              mod_inst_loc = loc;
-            }
-        in
-        let+ _ =
-          Rewriter.introduce_typecheck_symbol_at_scope' ~loc functor_inst insert_scope
-        in
-        inst_qi
+    instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
+      ?canonical_mod_ident ~insert_scope ~reference_scope ~inst_key arg_module_qis

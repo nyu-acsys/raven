@@ -1,0 +1,23 @@
+// A field parameter is solvable only from a member that takes a location for it.
+// A member mentioning it nowhere leaves it genuinely ambiguous -- the same
+// criterion that applies to a type parameter appearing nowhere in a signature --
+// so it is rejected rather than guessed at.
+
+interface AtomicField { module E : Library.Type  field f : E }
+
+module Ops[A: AtomicField] {
+  proc get(x.A.f, implicit ghost w: A.E) returns (v: A.E)
+    requires own(x.A.f, w, 1.0)
+    ensures  own(x.A.f, w, 1.0) && v == w
+  { v := x.A.f; }
+
+  proc unrelated(n: Int) returns (m: Int) { m := n; }
+}
+
+module Client {
+  import Ops._
+
+  field bit: Bool
+
+  proc use() returns (m: Int) { m := unrelated(3); }
+}
