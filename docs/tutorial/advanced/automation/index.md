@@ -280,7 +280,8 @@ it forensically after the fact.
 
 You've now seen everything this tutorial set out to cover — Appendix A works through resource
 algebras' formal definition for readers who want the Part 4 constructions justified rather than
-motivated; Appendix B is a quick dictionary for readers coming from Viper, Dafny, or Iris;
-Appendix C points at the Extension API for readers who want to add new front-end syntax rather
-than just write proofs; Appendix D has pointers to more worked examples than this tutorial
-itself covers.
+motivated; Appendix B shows how to add an atomic hardware primitive the standard library
+doesn't provide, without touching the verifier; Appendix C is a quick dictionary for readers
+coming from Viper, Dafny, or Iris; Appendix D points at the Extension API for readers who want
+to add new front-end syntax rather than just write proofs; Appendix E has pointers to more
+worked examples than this tutorial itself covers.

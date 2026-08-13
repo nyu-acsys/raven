@@ -68,9 +68,11 @@ stubs with a deliberate gap for you to fill in; `solutions/` has checked answers
 ## Appendices
 
 - **[A. Resource Algebras, Formally](./appendix/resource-algebras.md)**
-- **[B. Coming From Viper, Dafny, or Iris](./appendix/from-other-tools.md)**
-- **[C. Beyond This Tutorial: the Extension API](./appendix/extension-api.md)**
-- **[D. Where to Go Next](./appendix/where-next.md)**
+- **[B. Adding a Hardware Primitive](./appendix/hardware-primitives/)** — writing an atomic
+  operation the standard library doesn't provide, in ordinary Raven.
+- **[C. Coming From Viper, Dafny, or Iris](./appendix/from-other-tools.md)**
+- **[D. Beyond This Tutorial: the Extension API](./appendix/extension-api.md)**
+- **[E. Where to Go Next](./appendix/where-next.md)**
 
 ## Prerequisites
 

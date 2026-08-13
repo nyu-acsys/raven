@@ -1,4 +1,4 @@
-# Appendix B: Coming From Viper, Dafny, or Iris
+# Appendix C: Coming From Viper, Dafny, or Iris
 
 A quick dictionary, not a full comparison — if you already know one of these tools, this is
 meant to shortcut your intuition to the nearest Raven concept.
@@ -23,7 +23,7 @@ plain type, which is what everything from Part 4 onward is built on.
 | quantified permissions | iterated separating conjunctions (Part 5.3) | Raven's ISC design is explicitly built on Viper's, generalized to arbitrary resource algebras rather than just permissions. |
 | magic wand (`A --* B`) | *(not currently supported)* | A magic wand asserts "give up `A` and you get `B` back" — handy for partially unfolding a recursive predicate (walk partway into a linked list, leave a wand behind that remembers how to fold it back up once you're done with the part you unfolded) without committing to the whole structure at once. Raven has no equivalent construct yet; the same traversals are instead written by carrying the "rest of the structure" explicitly as a separate resource, which is more verbose but doesn't need anything new. |
 | `decreases e1, ..., en` | `decreases e1, ..., en` | Same contract syntax, same lexicographic-tuple concept — but Viper has no equivalent of Raven's user-definable `WellFoundedOrder` instances (Part 3). |
-| no built-in concurrency | invariants, ghost fields/RAs, atomic contracts, prophecy variables | The actual gap Raven is designed to fill; see the Part 4/5 story in this tutorial, and Appendix D for prophecies specifically. |
+| no built-in concurrency | invariants, ghost fields/RAs, atomic contracts, prophecy variables | The actual gap Raven is designed to fill; see the Part 4/5 story in this tutorial, and Appendix E for prophecies specifically. |
 
 There is one other deeper design difference worth knowing about:
 Viper is built on *implicit dynamic frames*, a close cousin of separation logic where

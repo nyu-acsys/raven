@@ -419,7 +419,7 @@ lock-free set can have its own answer settled by a concurrent `insert` or `remov
 exactly the way `get` here can have its answer settled by a concurrent `incr`. Registering a
 helping cell in a shared invariant, and having every mutating operation check the registry after
 its own physical step, transfers almost one-to-one. `test/ext/prophecy/rdcss.rav` (mentioned again
-in Appendix D) applies the same two ingredients — prophecy and helping — to restricted
+in Appendix E) applies the same two ingredients — prophecy and helping — to restricted
 double-compare-single-swap, a real building block for software transactional memory, not just a
 teaching example. It isn't simply harder: it reaches for *multi-shot* prophecies, predicting the
 schedules of every interfering thread in advance, which this capstone's one-shot `Proph[Int, 1]`

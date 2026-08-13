@@ -13,7 +13,7 @@ Parts 1 through 5.
    is nothing else to install.
 
 (If you're following along with a local build of Raven from source instead — e.g. you're
-contributing to the tool itself — see [Appendix D](../appendix/where-next.md) for how to point
+contributing to the tool itself — see [Appendix E](../appendix/where-next.md) for how to point
 the extension at a dev build via the `ravenServer.executablePath` setting. Everyone else:
 ignore this and move on.)
 

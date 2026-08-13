@@ -1,4 +1,4 @@
-# Appendix D: Where to Go Next
+# Appendix E: Where to Go Next
 
 More worked examples than this tutorial covers, all in the main repository:
 

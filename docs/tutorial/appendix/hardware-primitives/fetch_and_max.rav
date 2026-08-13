@@ -1,0 +1,72 @@
+// fetch-and-max: write `n` if it is larger than what is there, and report what
+// was there before. Real hardware has it (it is one of the NVIDIA `atom.max`
+// family, among others); Raven's standard library does not.
+//
+// Everything here is ordinary Raven. Nothing was added to the verifier to make
+// this work, and nothing about `cas` or `faa` is more privileged than this.
+
+// `IntField` rather than `AtomicField`: comparing two values needs an ordering,
+// which the weaker interface does not give. This is the whole reason the library
+// splits into `Atomics` and `IntAtomics`.
+module MaxOps[A: Library.IntField] {
+
+  // Three things carry the encoding, and they are worth naming separately.
+  //
+  // 1. The parameter `x.A.f` is a *location*: it binds `x` as the `Ref` and
+  //    names the field being operated on. The declaration then reads the way the
+  //    call site does.
+  //
+  // 2. The contract is *logically* atomic (`atomic requires` / `atomic ensures`),
+  //    so a caller may hold an invariant open across the call and commit at the
+  //    linearization point.
+  //
+  // 3. The body is *physically* atomic (`atomic { ... }`), so the three
+  //    statements below count as the one machine step the contract promises.
+  //
+  // `v` is an implicit ghost: the caller never passes it, and the value in the
+  // field at the linearization point is solved for at the call site.
+  proc fetch_and_max(x.A.f, n: Int, implicit ghost v: Int)
+    returns (old_val: Int)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, v > n ? v : n, 1.0) && old_val == v
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      old_val := x.A.f;
+      if (old_val < n) { x.A.f := n; }
+
+      commitAU(phi, old_val);
+    }
+  }
+}
+
+// A high-water mark: a counter that only ever moves up.
+module HighWater {
+  // No instantiation named anywhere below. `import` makes the members usable
+  // unqualified, and each call solves `A` from the field its location argument
+  // names -- here, `high`.
+  import MaxOps._
+
+  field high: Int
+
+  inv water(c: Ref) {
+    exists n: Int :: own(c.high, n, 1.0) && n >= 0
+  }
+
+  proc offer(c: Ref, k: Int)
+    requires water(c) && k >= 0
+  {
+    unfold water(c);
+
+    // Exactly one atomic step while the invariant is open, so this is allowed.
+    // Add a second call here and the atomicity analysis rejects the procedure.
+    val prev: Int := fetch_and_max(c.high, k);
+
+    // No witness for `n` needed: the value to fold back is read off the heap by
+    // the witness computation. Your primitive gets that for free, like any
+    // other procedure with an `own` postcondition.
+    fold water(c);
+  }
+}

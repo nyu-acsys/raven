@@ -214,6 +214,13 @@ atomic `wait_loop` produce the *exact same* observable contract for `acquire` �
 requires`/`atomic ensures` pair, unchanged — despite one of them taking a visibly different,
 strictly more recursive, more multi-step path to get there internally.
 
+The opposite direction exists too, and is worth knowing about even if you never need it here:
+code that really does take several steps, which you want *treated* as one. That is
+`atomic { ... }`, and unlike everything in this section it is asserted rather than proved —
+Raven has no scheduler to check it against. It is how a hand-written atomic primitive discharges
+a contract like the one above, and more generally how any procedure stands in for something the
+target machine does indivisibly. {{ref sec:atomic-block-standalone}} covers it.
+
 ## Debugging Corner
 
 The atomicity-analysis vocabulary from Part 4 reappears here verbatim, just guarding

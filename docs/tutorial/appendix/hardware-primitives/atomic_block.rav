@@ -1,0 +1,57 @@
+// `atomic { ... }` is not tied to defining primitives. It is the general way to
+// say "treat this as one physical step", and it can be written anywhere a step
+// is being counted -- which is to say, anywhere an invariant is open or an
+// atomic update is in flight.
+//
+// The claim it makes is always the same, and is always trusted: Raven has no
+// model of your target machine and no scheduler, so it believes you.
+
+field left: Int
+field right: Int
+
+// The two fields are required to agree. Any state where they disagree is one
+// this invariant says cannot be observed.
+inv agreed(c: Ref) {
+  exists l: Int, r: Int ::
+    own(c.left, l, 1.0) && own(c.right, r, 1.0) && l == r
+}
+
+// Moving both, with no primitive, no functor, and no contract of its own --
+// just an assertion that on this target the pair moves together. That might be
+// a wide aligned store, an interrupt-masked region on a single-core device, or
+// a transactional-memory block; Raven does not care which, and cannot check any
+// of them. What it does is let the two writes count as one step, so the
+// invariant is never open across an observable intermediate state.
+//
+// Compare broken/no_atomic_block.rav, which is this procedure with the block
+// removed.
+proc advance(c: Ref)
+  requires agreed(c)
+{
+  unfold agreed(c);
+
+  atomic {
+    c.left := 1;
+    c.right := 1;
+  }
+
+  fold agreed(c);
+}
+
+// The body need not be writes, and need not be short. Here a value is read,
+// computed with, and written back -- three steps that a fused instruction would
+// perform as one.
+proc double_both(c: Ref)
+  requires agreed(c)
+{
+  unfold agreed(c);
+
+  atomic {
+    val cur: Int := c.left;
+    val next: Int := cur + cur;
+    c.left := next;
+    c.right := next;
+  }
+
+  fold agreed(c);
+}

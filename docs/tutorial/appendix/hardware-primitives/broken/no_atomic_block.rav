@@ -1,0 +1,29 @@
+// This is atomic_block.rav's `advance` with the `atomic { ... }` removed.
+//
+// It is *supposed* to fail. Two writes are two steps, and the invariant is open
+// across both -- so there is a state, between them, where `left` and `right`
+// disagree, which is exactly what `agreed` says cannot be observed. Another
+// thread holding the same invariant could see it.
+//
+// This is the check `atomic { ... }` suppresses, and it is worth seeing fail
+// once before relying on the block to silence it: what the block buys is not a
+// proof that the two writes are indivisible, only permission to assume it.
+
+field left: Int
+field right: Int
+
+inv agreed(c: Ref) {
+  exists l: Int, r: Int ::
+    own(c.left, l, 1.0) && own(c.right, r, 1.0) && l == r
+}
+
+proc advance(c: Ref)
+  requires agreed(c)
+{
+  unfold agreed(c);
+
+  c.left := 1;
+  c.right := 1;
+
+  fold agreed(c);
+}

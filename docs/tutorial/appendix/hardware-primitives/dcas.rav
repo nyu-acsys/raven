@@ -1,0 +1,73 @@
+// Double compare-and-swap: two *independent* locations, compared and written in
+// one indivisible step. Motorola 68k had it as `CAS2`; z/Architecture has `PLO`.
+//
+// This is the case that could not be written before the primitives became
+// library code. A built-in statement operates on the one field baked into it,
+// whereas a procedure takes as many location parameters as it needs -- here two,
+// each with its own field, solved independently at the call site.
+//
+// Note this is *not* the contiguous double-width family (`CMPXCHG16B`, ARM
+// `CASP`), which is one wider location and wants a single parameter over a
+// two-word type.
+
+// Two field parameters. They may be instantiated at the same field, and the
+// generic body below still verifies -- the clash shows up at the client as a
+// preconditon needing 2.0 permission on one field, so such a call is simply
+// unusable rather than unsound.
+module DCas[A: Library.AtomicField, B: Library.AtomicField] {
+
+  proc dcas(x.A.f, y.B.f, old_a: A.E, new_a: A.E, old_b: B.E, new_b: B.E,
+            implicit ghost va: A.E, implicit ghost vb: B.E)
+    returns (b: Bool)
+    atomic requires own(x.A.f, va, 1.0) && own(y.B.f, vb, 1.0)
+    atomic ensures  own(x.A.f, (va == old_a && vb == old_b) ? new_a : va, 1.0)
+                 && own(y.B.f, (va == old_a && vb == old_b) ? new_b : vb, 1.0)
+                 && b == (va == old_a && vb == old_b)
+  {
+    atomic {
+      ghost val phi := bindAU();
+      // Two implicit ghosts, so `openAU` hands back a tuple.
+      va, vb := openAU(phi);
+
+      val cur_a: A.E := x.A.f;
+      val cur_b: B.E := y.B.f;
+      if (cur_a == old_a && cur_b == old_b) {
+        x.A.f := new_a;
+        y.B.f := new_b;
+        b := true;
+      } else {
+        b := false;
+      }
+
+      commitAU(phi, b);
+    }
+  }
+}
+
+// Two fields an invariant keeps in step with each other. Without a two-location
+// primitive there is no way to move both without exposing a state where they
+// disagree -- which is exactly what the invariant forbids.
+module Paired {
+  import DCas._
+
+  field left: Int
+  field right: Int
+
+  inv agreed(c: Ref) {
+    exists l: Int, r: Int ::
+      own(c.left, l, 1.0) && own(c.right, r, 1.0) && l == r
+  }
+
+  proc advance(c: Ref) returns (ok: Bool)
+    requires agreed(c)
+  {
+    unfold agreed(c);
+
+    // One step, two locations. `A` is solved from `left` and `B` from `right`.
+    ok := dcas(c.left, c.right, 0, 1, 0, 1);
+
+    // Both witnesses are computed, including the fact that the two agree
+    // whichever way the compare went.
+    fold agreed(c);
+  }
+}

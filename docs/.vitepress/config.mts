@@ -90,6 +90,14 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:ra-interface': 'The interface a custom RA implements',
   'sec:ra-worked-examples': 'Worked examples: Excl and DisjSet',
 
+  'sec:what-the-library-gives': 'What the library gives you',
+  'sec:anatomy': 'Anatomy of a primitive',
+  'sec:fetch-and-max': 'Worked example: fetch-and-max',
+  'sec:dcas': 'Worked example: two locations at once',
+  'sec:atomic-block-standalone': 'atomic { } on its own',
+  'sec:trust-boundary': 'Where the trust boundary is',
+  'sec:when-extension-api': 'When you need the Extension API',
+
   'sec:from-viper': 'From Viper',
   'sec:from-dafny': 'From Dafny',
   'sec:from-iris': 'From Iris'
@@ -339,13 +347,19 @@ export default defineConfig({
             items: numberedItems('/tutorial/appendix/resource-algebras.html')
           },
           {
-            text: 'B. Coming From Viper, Dafny, or Iris',
+            text: 'B. Adding a Hardware Primitive',
+            link: '/tutorial/appendix/hardware-primitives/',
+            collapsed: true,
+            items: numberedItems('/tutorial/appendix/hardware-primitives/')
+          },
+          {
+            text: 'C. Coming From Viper, Dafny, or Iris',
             link: '/tutorial/appendix/from-other-tools',
             collapsed: true,
             items: numberedItems('/tutorial/appendix/from-other-tools.html')
           },
-          { text: 'C. The Extension API', link: '/tutorial/appendix/extension-api' },
-          { text: 'D. Where to Go Next', link: '/tutorial/appendix/where-next' }
+          { text: 'D. The Extension API', link: '/tutorial/appendix/extension-api' },
+          { text: 'E. Where to Go Next', link: '/tutorial/appendix/where-next' }
         ]
       }
       ]

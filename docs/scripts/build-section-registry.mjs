@@ -55,7 +55,8 @@ const PART_LABELS = {
   'tutorial/advanced/prophecies/': '5.4',
   'tutorial/advanced/automation/': '5.5',
   'tutorial/appendix/resource-algebras': 'A',
-  'tutorial/appendix/from-other-tools': 'B',
+  'tutorial/appendix/hardware-primitives/': 'B',
+  'tutorial/appendix/from-other-tools': 'C',
 }
 
 const HEADING_RE = /^##(?!#)[ \t]+(.+?)[ \t]*\{#(sec:[A-Za-z0-9-]+)\}[ \t]*$/gm
@@ -81,7 +82,7 @@ export function buildRegistry() {
     const isIndex = relPosix.endsWith('/index.md')
     const pageKey = isIndex ? relPosix.slice(0, -'index.md'.length) : relPosix.slice(0, -'.md'.length)
     const partLabel = PART_LABELS[pageKey]
-    if (!partLabel) continue // page has no numbered sections (overview pages, appendices C/D)
+    if (!partLabel) continue // page has no numbered sections (overview pages, appendices D/E)
 
     const urlPath = isIndex ? `/${pageKey}` : `/${pageKey}.html`
 
