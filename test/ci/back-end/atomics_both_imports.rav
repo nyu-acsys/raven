@@ -1,0 +1,41 @@
+// `IntAtomics` inherits cas/cmpxchg/xchg from `Atomics`, but at its own
+// parameter -- so `IntAtomics.cas` operates on an Int field only. A scope that
+// wants `faa` *and* one of the other three on a field that is not an Int
+// therefore needs both imports, and having both in scope resolves correctly:
+// each call picks the module whose parameter its field satisfies.
+//
+// The one artefact is that an Int field used with both gets two adapter modules
+// and two instantiations rather than one, since its `cas` resolves through
+// `Atomics` while its `faa` goes through `IntAtomics`. That costs a little SMT
+// and nothing else; importing `IntAtomics` alone avoids it when every field in
+// scope is an Int.
+
+import Library.Atomics._
+import Library.IntAtomics._
+
+field flag: Bool
+field n: Int
+
+// Not an Int field, so this can only come from `Atomics`.
+proc take(x: Ref, ghost a: Bool) returns (b: Bool)
+  requires own(x.flag, a, 1.0)
+  ensures  own(x.flag, a == false ? true : a, 1.0)
+{
+  b := cas(x.flag, false, true)
+}
+
+// Needs arithmetic, so this can only come from `IntAtomics`.
+proc bump(x: Ref, ghost a: Int) returns (prev: Int)
+  requires own(x.n, a, 1.0)
+  ensures  own(x.n, a + 1, 1.0)
+{
+  prev := faa(x.n, 1)
+}
+
+// Available from both; the field is what decides.
+proc claim(x: Ref, ghost a: Int) returns (b: Bool)
+  requires own(x.n, a, 1.0)
+  ensures  own(x.n, a == 0 ? 1 : a, 1.0)
+{
+  b := cas(x.n, 0, 1)
+}

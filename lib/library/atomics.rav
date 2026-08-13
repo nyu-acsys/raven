@@ -1,8 +1,7 @@
 // Hardware-provided atomic primitives, as ordinary Raven procedures.
 //
-// These were built-in statements until they became library code. Nothing here is
-// privileged: a user needing a primitive this file does not provide writes it the
-// same way, and nothing has to change in the verifier to accommodate it.
+// Nothing here is privileged: a user needing a primitive this file does not
+// provide writes it the same way, with nothing to change in the verifier.
 //
 // Three things carry the encoding. Each contract is *logically* atomic, so a caller
 // may open an invariant around the call and commit at the linearization point. Each
@@ -18,8 +17,13 @@
 //   import Library.Atomics._      // cas, cmpxchg, xchg -- any word-sized field
 //   import Library.IntAtomics._   // those three plus faa -- Int fields only
 //
-// Importing both in one scope is possible but pointless: IntAtomics inherits the
-// other three, so `import Library.IntAtomics._` alone gives all four.
+// IntAtomics inherits the other three, but at its own parameter: `IntAtomics.cas`
+// works on an Int field only. So if a scope needs `faa` *and* one of the other
+// three on a field that is not an Int, it wants both imports -- and that is fine.
+// The only thing to know is that an Int field used with both will then get two
+// adapter modules and two instantiations rather than one, since its `cas` resolves
+// through Atomics while its `faa` goes through IntAtomics. Harmless, and avoided by
+// importing IntAtomics alone when every field in scope is an Int.
 
 // A type with a machine-word representation. A marker: it declares nothing beyond
 // the representation type, and the substance is a structural check the front end
