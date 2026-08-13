@@ -64,7 +64,7 @@ physical steps it actually takes, has *one* atomic step (its *linearization poin
 abstract state visibly moves from something satisfying `P` to something satisfying `Q`; every
 other step is invisible to the outside". That's a strictly stronger, and strictly more useful,
 promise than an ordinary Hoare contract: from a logical perspective, a client can now treat
-`acquire` as a single step in its own reasoning, the same way it would treat a primitive `cas`.
+`acquire` as a single step in its own reasoning, the same way it would treat `cas` itself.
 
 ## The mechanics: `bindAU`/`openAU`/`abortAU`/`commitAU` {#sec:au-mechanics}
 

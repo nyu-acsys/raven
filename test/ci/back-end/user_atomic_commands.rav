@@ -11,9 +11,11 @@
 // the parameter is solved from the field the call site's location argument
 // names.
 //
-// The names below are spelled out because `cas`, `faa`, `xchg` and `cmpxchg` are
-// reserved tokens for as long as the atomics extension defines them; retiring it
-// is a cutover rather than a migration.
+// This file defines its own primitives rather than importing `Library.Atomics`,
+// which is what makes it a test of the *mechanism*: nothing here is privileged,
+// and a user needing something the library does not provide writes it exactly
+// this way. The names are spelled out so they cannot be confused with the
+// library's own.
 
 interface WordSized : Library.Type {
   rep type T
@@ -205,6 +207,33 @@ module Counter {
     unfold counter_inv(c)[ n0 := n ];
     seen, ok := compare_and_exchange(c.hits, 0, 0);
     fold counter_inv(c)[ n := n0 ];
+  }
+}
+
+// Word-sized is not only Int/Bool/Ref: a data type small enough to carry its tag
+// alongside a machine word qualifies too -- at most four constructors, each
+// taking at most one base-type argument. `Library.WordSized` declares nothing
+// but a representation type, so this is checked structurally by the front end;
+// see fail/atomics_not_word_sized.rav for one that does not qualify.
+type Tag = data {
+  case none;
+  case some(v: Int)
+}
+
+module Tagged {
+  import Atomics._
+
+  field t: Tag
+
+  inv tag_inv(x: Ref) { exists w: Tag :: own(x.t, w, 1.0) }
+
+  proc claim(x: Ref) returns (won: Bool)
+    requires tag_inv(x)
+  {
+    ghost var w0: Tag;
+    unfold tag_inv(x)[ w0 := w ];
+    won := compare_and_set(x.t, none(), some(1));
+    fold tag_inv(x)[ w := won ? some(1) : w0 ];
   }
 }
 

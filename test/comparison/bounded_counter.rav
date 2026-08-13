@@ -1,3 +1,5 @@
+import Library.Atomics._
+
 field c: Int
 
 inv counterInv(x: Ref, max: Int) {

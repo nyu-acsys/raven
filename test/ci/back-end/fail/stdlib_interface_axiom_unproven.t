@@ -7,10 +7,6 @@
   7 | module Fst : Library.ResourceAlgebra {
                 ^
   Verification Error: A postcondition may not hold at this return point.
-  [Error] File "./stdlib_interface_axiom_unproven.rav", line 7, columns 10-10:
-  7 | module Fst : Library.ResourceAlgebra {
-                ^
-  Verification Error: A postcondition may not hold at this return point.
   [Error] File "lib/library/resource_algebra.rav", line 17, columns 55-79:
   17 |     ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
                                                               ^^^^^^^^^^^^^^^^^^^^^^^^

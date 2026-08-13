@@ -1,5 +1,7 @@
 include "lock.rav"
 
+import Library.Atomics._
+
 module MCSLock[R: LockResource] {
   import R.resource
 

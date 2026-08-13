@@ -1,5 +1,6 @@
 let base_types = [%blob "base_types.rav"]
 let resource_algebra = [%blob "resource_algebra.rav"]
+let atomics = [%blob "atomics.rav"]
 
 (* Each source is named by its path relative to the repository root, not by its bare
    basename. That path is the source's identity everywhere downstream: it is what
@@ -9,4 +10,5 @@ let resource_algebra = [%blob "resource_algebra.rav"]
    would collide as soon as two extensions shipped a file with the same name. *)
 let sources =
   [ ("lib/library/base_types.rav", base_types);
-    ("lib/library/resource_algebra.rav", resource_algebra) ]
+    ("lib/library/resource_algebra.rav", resource_algebra);
+    ("lib/library/atomics.rav", atomics) ]

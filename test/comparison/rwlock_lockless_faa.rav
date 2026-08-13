@@ -1,5 +1,7 @@
 include "tokens.rav"
 
+import Library.IntAtomics._
+
 interface RWLockLocklessFAA[SharedPred: ShareablePredicate] {
     field ctr: Int
 

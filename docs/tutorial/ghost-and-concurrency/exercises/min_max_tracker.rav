@@ -13,6 +13,8 @@
 import Library.Auth
 import Library.MaxNat
 
+import Library.Atomics._
+
 module AuthMaxNat = Auth[MaxNat]
 import AuthMaxNat._
 

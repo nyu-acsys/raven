@@ -75,12 +75,6 @@ let _ =
       (* DecreasesExt *)
       ("decreases", DECREASES);
 
-      (* AtomicExt *)
-      ("cas", CAS);
-      ("faa", FAA);
-      ("xchg", XCHG);
-      ("cmpxchg", CMPXCHG);
-
       (* ErrorCreditsExt *)
       ("EC", EC);
       ("contra", ECCONTRA);

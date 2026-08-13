@@ -1,3 +1,5 @@
+import Library.Atomics._
+
 /* 
 Here is an implementation of the RDCSS (Restricted Double-Compare Single-Swap) data structure of Harris et al., 
 as described in "A Practical Multi-Word Compare-and-Swap Operation" (DISC 2002).

@@ -93,21 +93,38 @@ let rec warn_free_usage (md : Ast.Module.t) =
        | _ -> ())
     | Ast.Module.Import _ -> ())
 
-(** Type-checks and front-end-processes (rewrites) a single compilation unit. This is
-    kept separate from the actual backend/SMT checking ([backend_check_cu] below) so that
-    the full set of tuple sorts a program needs (see [Backend.TupleArities]) can be
-    computed from the fully elaborated symbol table -- of both the library and the main
-    program -- before any backend checking (and hence any tuple-sort declaration) begins.
-    Returns [None] in place of the processed module when there is nothing to backend-check
-    (`--typeonly`); the `--stats` short-circuit below exits the process directly, as
-    before. *)
-let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
+(** Type-checks a single compilation unit.
+
+    Kept separate from [rewrite_cu] so that *every* unit can be type-checked before any
+    is rewritten. Type-checking a unit against an already-rewritten one does not work in
+    general: the rewrite phase replaces a field's declared type with its resource
+    algebra and generates the artifacts that go with it, and those are not the surface
+    language. A module implementing an interface that declares a field would inherit the
+    rewritten declaration and be checked against it -- so `own(x.f, v, 1.0)` would be
+    rejected for passing a fraction for an RA-valued field, and a manifest field would be
+    compared against `Frac$f.T` rather than against the type the source wrote. Since the
+    standard library is a unit of its own, that ruled out a library interface declaring a
+    field at all. *)
+let type_cu ~ext_hooks config tbl md =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
   let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks ~cli_config md in
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
+  (tbl, processed_md)
+
+(** Front-end-processes (rewrites) a single, already type-checked compilation unit. This
+    is kept separate from the actual backend/SMT checking ([backend_check_cu] below) so
+    that the full set of tuple sorts a program needs (see [Backend.TupleArities]) can be
+    computed from the fully elaborated symbol table -- of both the library and the main
+    program -- before any backend checking (and hence any tuple-sort declaration) begins.
+    Returns [None] in place of the processed module when there is nothing to
+    backend-check (`--typeonly`); the `--stats` short-circuit below exits the process
+    directly, as before. *)
+let rewrite_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
+  let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
+  let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
   if config.typecheck_only then (tbl, None) else
 
@@ -115,9 +132,9 @@ let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
     && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library")
   then
     let _ =
-      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr processed_md.mod_decl.mod_decl_name)
+      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr md.mod_decl.mod_decl_name)
     in
-    let prog_stats = Rewrites.compute_stats ~ext_hooks tbl processed_md in
+    let prog_stats = Rewrites.compute_stats ~ext_hooks tbl md in
 
     Logs.app (fun m -> m
       "\nPROGRAM STATISTICS: \n%a"
@@ -126,16 +143,7 @@ let elaborate_cu ~ext_hooks config tbl md front_end_out_chan =
     Stdlib.exit 0
   else begin
 
-  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks ~cli_config processed_md in
-
-  (* Logs.debug (fun m ->
-      m "SymbolTbl Symbols: \n%a\n"
-        (Util.Print.pr_list_comma (fun ppf (k, v) ->
-             Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k
-               Module.pr_symbol v))
-        (Map.to_alist
-           (Map.filter_keys tbl.tbl_symbols ~f:(fun k ->
-                Poly.(QualIdent.to_string k = "$Program.pr"))))); *)
+  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks ~cli_config md in
 
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
@@ -193,7 +201,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
 
   (* Parse and check standard library *)
   let tbl = SymbolTbl.create () in
-  let tbl, lib_processed_md =
+  let tbl, lib_typed =
     if config.no_library then (tbl, None)
     else
       let lib_prog =
@@ -215,7 +223,8 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
             let md = Ast.Module.set_unit_free md in
             merge_prog md lib_prog)
       in
-      elaborate_cu ~ext_hooks config tbl lib_prog front_end_out_chan
+      let tbl, lib_typed = type_cu ~ext_hooks config tbl lib_prog in
+      (tbl, Some lib_typed)
   in
   
   (* Parse and check actual input program *)
@@ -271,7 +280,19 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
       empty_prog
   in
 
-  let tbl, prog_processed_md = elaborate_cu ~ext_hooks config tbl md front_end_out_chan in
+  let tbl, prog_typed = type_cu ~ext_hooks config tbl md in
+
+  (* Both units are type-checked before either is rewritten -- see [type_cu]. The
+     library is rewritten first all the same, since rewriting the program needs the
+     artifacts the library's own rewrite generates. *)
+  let tbl, lib_processed_md =
+    match lib_typed with
+    | None -> (tbl, None)
+    | Some lib_typed -> rewrite_cu ~ext_hooks config tbl lib_typed front_end_out_chan
+  in
+  let tbl, prog_processed_md =
+    rewrite_cu ~ext_hooks config tbl prog_typed front_end_out_chan
+  in
 
   begin
   (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)

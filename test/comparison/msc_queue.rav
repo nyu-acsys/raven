@@ -1,3 +1,4 @@
+import Library.Atomics._
 
 interface Queue {
 

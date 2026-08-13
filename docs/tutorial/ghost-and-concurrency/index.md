@@ -23,9 +23,12 @@ proc bumpTwice(c: Ref)
 
 The statement `spawn p(args)` calls procedure `p` running as a new, independent thread. The
 statement terminates immediately after the new thread has been created. It does not wait for
-`p` to terminate. The statement `faa` (fetch-and-add) is one of Raven's primitive *atomic* heap
-operations. The `faa` statement in the example is equivalent to `c.count := c.count + 2` but
-the read-and-increment of `c.count` happens as a single indivisible step. A data race, in
+`p` to terminate. `faa` (fetch-and-add) is one of the *atomic* heap operations the standard
+library provides, brought into scope by the `import Library.IntAtomics._` at the top of the
+file. The call in the example is equivalent to `c.count := c.count + 2` but the
+read-and-increment of `c.count` happens as a single indivisible step. Nothing about these
+operations is built into the language: they are ordinary procedures, and a hardware primitive
+the library does not provide can be written the same way. A data race, in
 Raven, isn't something a separate tool has to hunt for after the fact: it's a proof that fails
 to go through, for a reason that's about to become concrete.
 

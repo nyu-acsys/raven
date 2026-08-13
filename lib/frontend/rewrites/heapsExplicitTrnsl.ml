@@ -3756,23 +3756,24 @@ module TrnslExhale = struct
             )
           in
 
-          let* (raw_witnesses : (conditions * expr option) list ident_map) =
+          let compute_raw ?(fraction_fallback = false) (vars : var_decl list) =
             let init_map =
-              List.fold var_decls
+              List.fold vars
                 ~init:(Map.empty (module Ident))
                 ~f:(fun map var_decl ->
                   Map.add_exn map ~key:var_decl.var_name ~data:[])
             in
 
-            elim_a0 univ_vars var_decls (univ_conds, []) e init_map
+            elim_a0 ~fraction_fallback univ_vars vars (univ_conds, []) e init_map
           in
 
           (* Sanitizing witnesses:
           * a. getting rid of expr option; and
           * b. filtering empty lists [] from map *)
-          let witnesses : (conditions * expr) list ident_map =
+          let sanitize (raw : (conditions * expr option) list ident_map) :
+              (conditions * expr) list ident_map =
               let witnesses : (conditions * expr) list ident_map =
-                Map.map raw_witnesses ~f:(fun cnd_expr_optn_list ->
+                Map.map raw ~f:(fun cnd_expr_optn_list ->
                   List.filter_map cnd_expr_optn_list ~f:(fun (cnd, expr_optn) ->
                     match expr_optn with
                     | None -> None
@@ -3788,6 +3789,34 @@ module TrnslExhale = struct
               in
 
             witnesses
+          in
+
+          let* (raw_witnesses : (conditions * expr option) list ident_map) =
+            compute_raw var_decls
+          in
+
+          let witnesses : (conditions * expr) list ident_map = sanitize raw_witnesses in
+
+          (* Second pass, for existentials the first left unsolved. An existential in
+             the *fraction* position of an `own` is not determined by what the heap
+             holds -- the assertion asks for at most that much -- so the first pass
+             deliberately leaves it alone rather than guess. Once nothing else has
+             determined it, though, guessing is strictly better than the alternative
+             (an unconstrained value, which fails), and the total available fraction is
+             the guess to make: see [core_witness_comp]'s `Frac` case. *)
+          let* witnesses =
+            let unsolved =
+              List.filter var_decls ~f:(fun var_decl ->
+                  not (Map.mem witnesses var_decl.var_name))
+            in
+            if List.is_empty unsolved then Rewriter.return witnesses
+            else
+              let+ raw_fallback = compute_raw ~fraction_fallback:true unsolved in
+              Map.fold (sanitize raw_fallback) ~init:witnesses
+                ~f:(fun ~key ~data acc ->
+                  (* [unsolved] is exactly the keys missing from [witnesses], so this
+                     only ever adds. *)
+                  Map.set acc ~key ~data)
           in
 
           let witnesses_local_vars_ident_set = 
@@ -4172,11 +4201,13 @@ module TrnslExhale = struct
           (* No existentials found *)
           Rewriter.return (expr, [])
 
-    and elim_a0 (univ_vars : universal_quants) (exist_vars : var_decl list)
+    and elim_a0 ?(fraction_fallback = false) (univ_vars : universal_quants)
+        (exist_vars : var_decl list)
         ((univ_conds, exist_conds) : conditions * conditions) (expr : expr)
         (witness_map : (conditions * expr option) list ident_map) :
         (conditions * expr option) list ident_map Rewriter.t =
       let open Rewriter.Syntax in
+      let elim_a0 = elim_a0 ~fraction_fallback in
       match expr with
       | App (And, e_list, _) ->
           let* witness_map =
@@ -4255,8 +4286,8 @@ module TrnslExhale = struct
           in
 
           let* witnesses =
-            core_witness_comp ~ra_hint:field_ra_hint relevant_vars concrete_expr
-              val_expr false
+            core_witness_comp ~ra_hint:field_ra_hint ~fraction_fallback
+              relevant_vars concrete_expr val_expr false
           in
 
           let* () = Rewriter.Logs.debug (fun printers m ->
@@ -4399,8 +4430,9 @@ module TrnslExhale = struct
       | _ -> Rewriter.return witness_map
 
     and core_witness_comp ?(ra_hint : qual_ident option = None)
-        (exists : var_decl list) (concrete_expr : expr) (given_expr : expr)
-        (exact : bool) : expr ident_map Rewriter.t =
+        ?(fraction_fallback = false) (exists : var_decl list)
+        (concrete_expr : expr) (given_expr : expr) (exact : bool) :
+        expr ident_map Rewriter.t =
       let open Rewriter.Syntax in
       let* () = Rewriter.Logs.debug (fun printers m ->
           m
@@ -4423,6 +4455,12 @@ module TrnslExhale = struct
                     Error.type_error (Expr.to_loc given_expr)
                       ("Expected an RA type; found: " ^ Type.to_string tp))
           in
+
+          (* Resolve before the destructor names below are derived from it: the type
+             this came from can name the RA through a manifest field's module rather
+             than the module the RA was generated in, and the backend keys on the name
+             it is given, not on what that name resolves to. *)
+          let* ra_name = Rewriter.resolve ra_name in
 
           let* orig_name, ra_def, _ =
             Rewriter.find ra_name
@@ -4459,23 +4497,51 @@ module TrnslExhale = struct
                   "Expected a data constructor."
           else if QualIdent.(orig_name = Predefs.lib_frac_mod_qual_ident) then
             match given_expr with
-            | App (DataConstr constr_ident, exprs, _) ->
+            | App (DataConstr constr_ident, exprs, _) -> (
                 if
-                  Ident.(
-                    QualIdent.unqualify constr_ident
-                    = Predefs.lib_frac_chunk_constr_ident)
-                then
-                  let frac_chunk =
-                    Expr.mk_app
-                      ~typ:(Expr.to_type (List.hd_exn exprs))
-                      (Expr.DataDestr
-                         (QualIdent.append ra_name
-                            Predefs.lib_frac_chunk_destr1_ident))
-                      [ concrete_expr ]
-                  in
-                  core_witness_comp exists frac_chunk (List.hd_exn exprs) true
+                  not
+                    Ident.(
+                      QualIdent.unqualify constr_ident
+                      = Predefs.lib_frac_chunk_constr_ident)
+                then Rewriter.return (Map.empty (module Ident))
                 else
-                  Rewriter.return (Map.empty (module Ident))
+                  (* A `Frac` chunk is `frac_chunk(value, fraction)`, and the two
+                     components are determined to different degrees by what the heap
+                     holds. The *value* is pinned exactly: whatever fraction is held,
+                     `frac_proj1` of it is the value. The *fraction* is not -- the
+                     assertion being exhaled asks for at most what is held, so any
+                     amount up to `frac_proj2` would do, and picking one is a guess.
+
+                     Hence the fraction is only ever solved in [fraction_fallback]
+                     mode, which the caller reserves for existentials that nothing
+                     else determined (see [elim_a1]). The guess is then the total
+                     available: the largest amount that can possibly work, so it
+                     succeeds whenever any choice would for a lower-bound constraint
+                     such as `q > 0.0`, and it is the only choice for `q == 1.0`. A
+                     wrong guess costs a failed proof, never soundness -- the exhale
+                     still asserts the permission is there. *)
+                  match (fraction_fallback, exprs) with
+                  | false, _ ->
+                      let frac_chunk =
+                        Expr.mk_app
+                          ~typ:(Expr.to_type (List.hd_exn exprs))
+                          (Expr.DataDestr
+                             (QualIdent.append ra_name
+                                Predefs.lib_frac_chunk_destr1_ident))
+                          [ concrete_expr ]
+                      in
+                      core_witness_comp exists frac_chunk (List.hd_exn exprs) true
+                  | true, [ _; frac_expr ] ->
+                      let frac_amount =
+                        Expr.mk_app
+                          ~typ:(Expr.to_type frac_expr)
+                          (Expr.DataDestr
+                             (QualIdent.append ra_name
+                                Predefs.lib_frac_chunk_destr2_ident))
+                          [ concrete_expr ]
+                      in
+                      core_witness_comp exists frac_amount frac_expr true
+                  | true, _ -> Rewriter.return (Map.empty (module Ident)))
             | _ ->
                 Error.type_error (Expr.to_loc given_expr)
                   "Expected a data constructor."

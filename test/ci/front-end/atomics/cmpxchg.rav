@@ -1,3 +1,5 @@
+import Library.Atomics._
+
 field f: Int
 
 proc p() {

@@ -1,5 +1,7 @@
 include "tokens.rav"
 
+import Library.Atomics._
+
 interface NumThreads {
     val threads: Int
 

@@ -9,6 +9,9 @@
 // reported the same way: structurally it's the same discipline, since you
 // borrowed something that only exists while briefly open, and never gave it
 // back.
+
+import Library.IntAtomics._
+
 field count: Int
 
 inv evenCount(c: Ref) {

@@ -470,8 +470,19 @@ module ProphecyExt (Cont : ListApi) = struct
             let+ introd_type_module_qi =
               ProgUtils.intros_type_module ~loc ~scope:proph_module_insert_scope ~f:!(Rewriter.process_symbol_ref) rep_typ in
 
-            Logs.debug (fun m -> m "[EXT] ProphecyExt.initialize_prophecy_module: Type module successfully initialized. type_module_qi: %a" QualIdent.pr type_module_canonical_qi);
-            type_module_canonical_qi
+            (* Take the name [intros_type_module] actually gave it, not the canonical
+               one guessed above. That guess fixes the disambiguation counter at 0,
+               while [intros_type_module] names the module with [Ident.fresh] -- so as
+               soon as anything else has introduced a type module for this same type,
+               the two disagree and the guessed name denotes nothing. Only the ident is
+               taken: the module is introduced into the insert scope but has to be named
+               from the reference scope, which is not always the same one. *)
+            let type_module_qi =
+              QualIdent.append proph_module_reference_scope
+                (QualIdent.unqualify introd_type_module_qi)
+            in
+            Logs.debug (fun m -> m "[EXT] ProphecyExt.initialize_prophecy_module: Type module successfully initialized. type_module_qi: %a" QualIdent.pr type_module_qi);
+            type_module_qi
       in
 
       let* multi_type_module_qi = type_module_for (Cont.ListFns.mk_list_tp loc typ) in

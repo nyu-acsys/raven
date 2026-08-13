@@ -1,6 +1,8 @@
 include "shareable_predicates.rav"
 include "arc_ra.rav"
 
+import Library.Atomics._
+
 interface ARC[SharePred: ShareablePredicate] {
     field c: Int
     ghost field v: ArcRA

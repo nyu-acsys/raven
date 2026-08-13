@@ -2959,6 +2959,33 @@ module ProcessCallable = struct
 end
 
 module ProcessModule = struct
+  (** Whether [typ] compiles to a single machine word: a base type (Int, Bool, Ref), or
+      a data type small enough to carry a tag alongside one -- at most four constructors,
+      each taking at most one base-type argument. Two bits for the tag and the remaining
+      sixty-two for the value.
+
+      Kept as a front-end check rather than a declared interface member because there is
+      nothing an interface could declare that would say it. See its one caller,
+      the [Library.WordSized] check in [process_module]. *)
+  let is_type_word_sized (typ : type_expr) : bool Rewriter.t =
+    let open Rewriter.Syntax in
+    let* typ = ProcessTypeExpr.expand_type_expr typ in
+    match typ with
+    | _ when Type.is_base_type typ -> Rewriter.return true
+    | App (Var qual_ident, [], _) -> (
+        let* _, symbol = Rewriter.resolve_and_find qual_ident in
+        let+ type_def = Rewriter.Symbol.reify_type_def (Type.to_loc typ) symbol in
+        match type_def with
+        | Some (App (Data (_, variant_decls), [], _)) ->
+            List.length variant_decls <= 4
+            && List.for_all variant_decls ~f:(fun variant_decl ->
+                   match variant_decl.variant_args with
+                   | [] -> true
+                   | [ arg ] -> Type.is_base_type arg.var_type
+                   | _ -> false)
+        | _ -> false)
+    | _ -> Rewriter.return false
+
   let process_type_def (type_def : Module.type_def) : Module.symbol Rewriter.t =
     let open Rewriter.Syntax in
     Logs.debug (fun m ->
@@ -3712,7 +3739,7 @@ module ProcessModule = struct
     in
     (* merge symbol definitions from parent interface with those from current module
      * so that the dependency order between symbols is preserved *)
-    let merge_defs ~parent_status parent_ident parent_mod_def mod_def =
+    let merge_defs ~parent_status ~parent_is_interface parent_ident parent_mod_def mod_def =
       (* A member with no definition of its own. Mirrors the cases the abstract-member
          check below rejects in a non-interface module. *)
       let symbol_is_abstract = function
@@ -3734,11 +3761,22 @@ module ProcessModule = struct
          A `free` the user actually wrote stays [UserFree] and is left alone, so an
          interface may still declare a deliberately uninterpreted member that
          implementors inherit without defining (`free func`, `free val`, `free auto
-         axiom`). *)
+         axiom`).
+
+         Restricted to an *interface* parent, because only there does "abstract" mean
+         that the source declared no definition. A concrete module cannot have abstract
+         members at all -- the check below rejects that -- so a member of one that looks
+         abstract here only looks that way because machine-freeing the file dropped its
+         body ([Callable.set_status]). Demanding a definition for it would demand back
+         exactly what was discarded, and nothing new is assumed by inheriting it: the
+         parent's own members were already trusted, and the child re-exports them
+         unchanged. This is what lets a module in a machine-free file inherit from
+         another module in that same file. *)
       let un_free_inherited symbol =
         match parent_status, Symbol.free_status symbol with
         | MachineFree, (NotFree | MachineFree)
-          when (not m.mod_decl.mod_decl_is_interface) && symbol_is_abstract symbol ->
+          when parent_is_interface && (not m.mod_decl.mod_decl_is_interface)
+               && symbol_is_abstract symbol ->
             Module.set_symbol_status NotFree symbol
         | _ -> symbol
       in
@@ -3973,6 +4011,15 @@ module ProcessModule = struct
                 interface_symbol
             in
 
+            (* Whether the parent is an interface has to be read here, off the
+               symbol as resolved: reifying it below rebuilds the declaration and
+               does not carry the flag through, so the reified copy reports false
+               for every parent alike. *)
+            let parent_is_interface =
+              Rewriter.Symbol.extract interface_symbol ~f:(fun _ _ -> function
+                | Ast.Module.ModDef md -> md.mod_decl.mod_decl_is_interface
+                | _ -> false)
+            in
             let* interface_symbol = Rewriter.Symbol.reify interface_symbol in
             let* () = Rewriter.Logs.debug (fun printers mm ->
                 mm
@@ -3983,12 +4030,13 @@ module ProcessModule = struct
                   (Symbol.to_name (ModDef m))
                   printers.pr_symbol interface_symbol qual_interface_ident mid) in
             Rewriter.return
-              (qual_interface_ident, mid, arg_subst, interface_symbol))
+              (qual_interface_ident, mid, arg_subst, parent_is_interface,
+               interface_symbol))
       in
       let parent_defs =
         List.filter_map parents ~f:(function
-          | qual_interface_ident, mid, args, ModDef interface ->
-              Some (qual_interface_ident, mid, args, interface)
+          | qual_interface_ident, mid, args, parent_is_interface, ModDef interface ->
+              Some (qual_interface_ident, mid, args, parent_is_interface, interface)
           | _ -> None)
       in
       match parent_defs with
@@ -4012,9 +4060,10 @@ module ProcessModule = struct
                   m.mod_def,
                   Map.empty (module Ident) )
               ~f:(fun (returns, interfaces, formals, mod_def, to_check)
-                      (qual_interface_ident, _mid, args, interface) ->
+                      (qual_interface_ident, _mid, args, parent_is_interface, interface) ->
                 let merged, to_check' =
                   merge_defs ~parent_status:interface.mod_decl.mod_decl_status
+                    ~parent_is_interface
                     qual_interface_ident interface.mod_def mod_def
                 in
                 let to_check =
@@ -4051,7 +4100,7 @@ module ProcessModule = struct
                   merged,
                   to_check ))
           in
-          let qual_first, _, _, _ = first_parent in
+          let qual_first, _, _, _, _ = first_parent in
           Rewriter.return
             ( List.rev returns,
               interfaces,
@@ -4223,6 +4272,54 @@ module ProcessModule = struct
           | _ -> Rewriter.return ())
       else Rewriter.return ()
     in
+    (* [Library.WordSized] declares nothing but a representation type, so on its own it
+       would constrain nothing; what it means is checked here, structurally, on whatever
+       type an implementation supplies. This is the one interface the front end knows by
+       name, and it is deliberate: an atomic primitive compiles to a single instruction
+       over a single machine word, which is a claim about the representation that no
+       amount of declared members could express.
+
+       "Word-sized" is Int, Bool or Ref, or a sum of those small enough to carry a tag:
+       at most four constructors, each taking at most one base-type argument. It says
+       nothing about value ranges -- Raven's Int is the mathematical integers, so a bound
+       like `0 <= x < 2^62` would be unsatisfiable and would make the interface
+       unimplementable. Interfaces are exempt: their rep type is abstract, and it is the
+       implementation that has to answer for it.
+
+       Runs here, over the processed members, rather than beside the other declaration
+       checks above: the rep type is read off its own definition, which is only in its
+       final form once [process_instr] has been over it. *)
+    let* () =
+      let rep_def =
+        match mod_decl.mod_decl_rep with
+        | None -> None
+        | Some rep_ident ->
+            List.find_map mod_def ~f:(function
+              | Module.SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
+                when Ident.equal type_def_name rep_ident ->
+                  Some tp
+              | _ -> None)
+      in
+      match rep_def with
+      | Some rep_type
+        when (not mod_decl.mod_decl_is_interface)
+             && Set.mem mod_decl.mod_decl_interfaces
+                  Predefs.lib_word_sized_mod_qual_ident -> (
+          let* is_word_sized = is_type_word_sized rep_type in
+          if is_word_sized then Rewriter.return ()
+          else
+            let* printers = Rewriter.current_printers in
+            Error.type_error mod_decl.mod_decl_loc
+              (Printf.sprintf
+                 !"`%s` is not word-sized, so it cannot implement %{QualIdent}. An \
+                   atomic primitive operates on a single machine word: Int, Bool, Ref, \
+                   or a data type with at most four constructors each taking at most one \
+                   of those"
+                 (Print.string_of_format printers.pr_type rep_type)
+                 Predefs.lib_word_sized_mod_qual_ident))
+      | _ -> Rewriter.return ()
+    in
+
     let _ =
       Logs.debug (fun mm ->
           mm !"Done with processing module %{Ident}" (Symbol.to_name (ModDef m)))

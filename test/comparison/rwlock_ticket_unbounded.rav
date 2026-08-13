@@ -1,6 +1,8 @@
 include "../concurrent/lock/ticket-lock_atomics.rav"
 include "tokens.rav"
 
+import Library.IntAtomics._
+
 interface RWTicketLockUnbounded[SharedPred: ShareablePredicate] {
 
     // definitions

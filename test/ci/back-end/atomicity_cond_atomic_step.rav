@@ -3,6 +3,8 @@
 // whose arms each take a single atomic step is fine inside an open invariant
 // or an open atomic update.
 
+import Library.IntAtomics._
+
 field fa: Int
 field fb: Int
 

@@ -1,0 +1,20 @@
+// An atomic primitive compiles to a single instruction over a single machine
+// word, and `Library.WordSized` is where that claim is made. It declares nothing
+// but a representation type, so nothing it could declare would say it: the
+// substance is a structural check the front end runs on whatever type an
+// implementation supplies, which for an implicitly instantiated field parameter
+// is the field's own value type.
+//
+// This was checked when the primitives were built-in statements, and is checked
+// still now that they are library procedures. See user_atomic_commands.rav for
+// the data types that do qualify.
+
+import Library.Atomics._
+
+module BadClient {
+  field big: Map[Int, Int]
+
+  proc p(x: Ref, ghost m: Map[Int, Int]) returns (b: Bool)
+    requires own(x.big, m, 1.0)
+  { b := cas(x.big, m, m); }
+}

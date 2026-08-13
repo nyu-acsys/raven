@@ -1,6 +1,8 @@
 import Library.Type
 import Library.Option
 
+import Library.Atomics._
+
 module Stack[T: Type] {
 
   field top: Ref

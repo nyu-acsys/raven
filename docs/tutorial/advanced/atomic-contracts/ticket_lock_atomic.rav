@@ -6,6 +6,9 @@
 // directly from Raven's test suite
 // (test/concurrent/lock/ticket-lock_atomics.rav) -- see this directory's
 // README.md for a guided walkthrough.
+
+import Library.Atomics._
+
 interface LockResource : Library.Type {
   rep type T
 

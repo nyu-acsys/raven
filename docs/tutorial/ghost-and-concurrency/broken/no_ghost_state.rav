@@ -13,6 +13,9 @@
 // separate piece of bookkeeping, invisible at runtime, whose only job is to
 // let the proof track a fact about the *history* of `count` that the field
 // itself doesn't remember.
+
+import Library.Atomics._
+
 field count: Int
 
 inv countInv(c: Ref) {

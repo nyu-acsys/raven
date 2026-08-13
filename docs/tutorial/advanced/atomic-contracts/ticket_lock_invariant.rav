@@ -4,6 +4,9 @@
 // is Raven's own flagship example, taken directly from the test suite
 // (test/concurrent/lock/ticket-lock.rav) -- see ../../README.md and this
 // directory's README.md for a guided walkthrough.
+
+import Library.IntAtomics._
+
 interface LockResource : Library.Type {
   rep type T
   

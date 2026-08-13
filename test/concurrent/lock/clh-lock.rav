@@ -1,3 +1,5 @@
+import Library.Atomics._
+
 interface CLHLock {
   field locked: Bool
   field loc: Ref

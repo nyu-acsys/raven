@@ -844,6 +844,10 @@ let enter_callable callable =
 
 let declare_symbol symbol : unit t = update_table (SymbolTbl.add_symbol symbol)
 
+(* See [SymbolTbl.add_transparent]. *)
+let add_transparent ident target : unit t =
+  update_table (SymbolTbl.add_transparent ident target)
+
 let introduce_symbol symbol s =
   let _, scope_id = current_scope_id s in
   let state_new_symbols_tree = NewSymbolsTree.scope_add_symbols scope_id [symbol] s.state_new_symbols_tree in
@@ -1119,6 +1123,37 @@ module Expr = struct
         and+ inner_expr = rewrite_types ~f inner_expr
         and+ trgs =
           List.map trgs ~f:(fun exprs -> List.map exprs ~f:(rewrite_types ~f))
+        in
+        Expr.Binder (b, var_decls, trgs, inner_expr, expr_attr)
+
+  (** [rewrite_qual_idents], but with [f] in the monad, so it can consult the symbol
+      table. Type positions are left alone: only the constructor names are rewritten,
+      which is what a caller canonicalizing symbol identity needs. *)
+  let rec rewrite_qual_idents_m ~f (expr : Expr.t) : (Expr.t, 'a) t_ext =
+    let open Syntax in
+    match expr with
+    | App (constr, expr_list, expr_attr) ->
+        let* expr_list = List.map expr_list ~f:(rewrite_qual_idents_m ~f) in
+        let+ constr =
+          match constr with
+          | Expr.Var qual_ident ->
+              let+ qual_ident = f qual_ident in
+              Expr.Var qual_ident
+          | DataConstr qual_ident ->
+              let+ qual_ident = f qual_ident in
+              Expr.DataConstr qual_ident
+          | DataDestr qual_ident ->
+              let+ qual_ident = f qual_ident in
+              Expr.DataDestr qual_ident
+          | _ -> return constr
+        in
+        Expr.App (constr, expr_list, expr_attr)
+    | Binder (b, var_decls, trgs, inner_expr, expr_attr) ->
+        let* _ = add_locals var_decls in
+        let+ inner_expr = rewrite_qual_idents_m ~f inner_expr
+        and+ trgs =
+          List.map trgs ~f:(fun exprs ->
+              List.map exprs ~f:(rewrite_qual_idents_m ~f))
         in
         Expr.Binder (b, var_decls, trgs, inner_expr, expr_attr)
 

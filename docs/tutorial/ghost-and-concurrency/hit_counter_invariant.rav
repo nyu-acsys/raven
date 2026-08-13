@@ -3,6 +3,8 @@
 // (Ghost fields and resource algebras are §hit_counter_ghost.rav, the second
 // half of this part.)
 
+import Library.IntAtomics._
+
 field count: Int
 
 // A *shared invariant*: a global fact about `c.count` that must hold after

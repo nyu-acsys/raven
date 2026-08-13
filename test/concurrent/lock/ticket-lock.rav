@@ -1,5 +1,7 @@
 //include "lock.rav"
 
+import Library.IntAtomics._
+
 interface LockResource : Library.Type {
   rep type T
   

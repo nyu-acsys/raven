@@ -3152,6 +3152,12 @@ module Predefs = struct
 
   let lib_frac_mod_qual_ident = QualIdent.from_list [lib_ident; Ident.make Loc.dummy "Frac" 0]
 
+  (* [Library.WordSized] declares nothing but a representation type; what makes it mean
+     anything is a structural check the front end runs on whatever type an
+     implementation supplies. See [Typing.ProcessModule.check_word_sized]. *)
+  let lib_word_sized_mod_qual_ident =
+    QualIdent.from_list [lib_ident; Ident.make Loc.dummy "WordSized" 0]
+
   let lib_frac_chunk_constr_ident = Ident.make Loc.dummy "frac_chunk" 0
 
   let lib_frac_chunk_destr1_ident = Ident.make Loc.dummy "frac_proj1" 0

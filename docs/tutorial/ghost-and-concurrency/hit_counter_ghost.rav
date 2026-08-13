@@ -8,6 +8,8 @@
 import Library.Auth
 import Library.MaxNat
 
+import Library.Atomics._
+
 field count: Int
 
 // `Auth[MaxNat]` pairs an authoritative view of a monotonically-increasing

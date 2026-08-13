@@ -13,6 +13,9 @@
 // checks this as a genuine proof obligation, not a syntactic pattern match --
 // which is exactly why supplying an axiom that provides an explicit inverse
 // (`first`/`second`, as in `shelf_of_counters.rav`) is enough to satisfy it.
+
+import Library.IntAtomics._
+
 interface IBadShelf {
   rep type T
   func loc(s: T, i: Int) returns (r: Ref)

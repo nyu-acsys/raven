@@ -486,6 +486,17 @@ let rec import import_instr (tbl : t) : t =
   in
   tbl
 
+(** Register [ident] in the current scope as another name for [target], resolving
+    straight through to it. Used for the artifacts a manifest field shares with the
+    field it stands for: those are generated per field and named after it, so the alias
+    needs one of its own pointing at the target's, or a name derived from the alias
+    would denote a module that was never generated. *)
+let add_transparent ident target tbl =
+  add_to_map (get_scope_entries tbl.tbl_curr) (Ident.to_loc ident) ident
+    (Transparent target)
+    ~duplicate:(fun map key data -> Hashtbl.set map ~key ~data);
+  tbl
+
 (** Add [symbol] to the appropriate scope of [tbl]. Fails if [symbol] already exists in this scope. 
   Appropriate scope is equal to the current scope in most cases. Except if [symbol] is something other than a local variable definition and current scope is a callable scope (determined by scope.scope_is_local), then the parent scope is used instead.
 *)

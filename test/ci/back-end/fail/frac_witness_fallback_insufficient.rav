@@ -1,0 +1,15 @@
+// The counterpart to frac_witness_fallback.rav: defaulting the fraction to the
+// total available makes the guess as good as it can be, but it is still only a
+// guess feeding an exhale that is checked. Here the compare succeeds, so `cas`
+// needs the whole location, and only half of it is held -- so the call is
+// rejected rather than the guess being taken on trust.
+
+import Library.Atomics._
+
+field f: Int
+
+proc half_but_writes(x: Ref)
+  requires own(x.f, 1, 0.5)
+{
+  val b := cas(x.f, 1, 2)
+}

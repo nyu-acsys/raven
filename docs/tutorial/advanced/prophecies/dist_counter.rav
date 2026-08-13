@@ -19,6 +19,8 @@ import Library.Excl
 import Library.SetRA
 import Library.MaxNat
 
+import Library.IntAtomics._
+
 module DistCounter {
   // The counter object: two backing cells, plus a `shared` ref holding all of the ghost
   // bookkeeping described below.

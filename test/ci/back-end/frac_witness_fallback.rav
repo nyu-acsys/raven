@@ -1,0 +1,45 @@
+// An existential in the *fraction* position of an `own` is not determined by what
+// the heap holds: the assertion asks for at most that much, so any amount up to
+// the total would satisfy it and picking one is a guess. The witness computation
+// therefore leaves it alone -- until nothing else has determined it, at which
+// point guessing beats the alternative (an unconstrained value, which fails).
+//
+// The guess is the total available fraction, which is the right one to make: it
+// is the largest amount that can possibly work, so it succeeds whenever any
+// choice would for a lower-bound constraint, and it is the only choice when the
+// full location is required. A wrong guess costs a failed proof, never soundness
+// -- the exhale still asserts the permission is really there.
+//
+// `cas` exercises both, since its precondition asks for the whole location only
+// on the branch where it writes:
+//
+//   atomic requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
+
+import Library.Atomics._
+
+field f: Int
+
+// The compare fails, so any positive fraction will do and a partial one is held.
+proc partial(x: Ref)
+  requires own(x.f, 1, 0.5)
+  ensures  own(x.f, 1, 0.5)
+{
+  val b := cas(x.f, 2, 3)
+}
+
+// Still the failing branch, with a different fraction: the witness tracks what is
+// actually held rather than being pinned to any particular value.
+proc partial_quarter(x: Ref)
+  requires own(x.f, 1, 0.25)
+  ensures  own(x.f, 1, 0.25)
+{
+  val b := cas(x.f, 2, 3)
+}
+
+// The compare succeeds, so the whole location is required -- and held.
+proc full(x: Ref)
+  requires own(x.f, 1, 1.0)
+  ensures  own(x.f, 2, 1.0)
+{
+  val b := cas(x.f, 1, 2)
+}

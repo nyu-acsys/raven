@@ -13,13 +13,12 @@ let ext_map = [
 
 module DefaultExtInstance = DefaultExt.DefaultExt
 module ListExtInstance = ListExt.ListExt(DefaultExtInstance)
-module AtomicExtInstance = AtomicExt.AtomicExt(ListExtInstance)
 
-(* DecreasesExt is folded in unconditionally (like AtomicExt above), rather than being
-   one more mutually-exclusive `--extension` choice: termination checking via
-   `decreases` clauses is orthogonal to which resource-algebra extension is active, so
-   it must be available under `default` and `eris` alike. *)
-module DecreasesExtInstance = DecreasesExt.DecreasesExt(AtomicExtInstance)
+(* DecreasesExt is folded in unconditionally, rather than being one more
+   mutually-exclusive `--extension` choice: termination checking via `decreases` clauses
+   is orthogonal to which resource-algebra extension is active, so it must be available
+   under `default` and `eris` alike. *)
+module DecreasesExtInstance = DecreasesExt.DecreasesExt(ListExtInstance)
 
 (* AssertWithExt (`assert e with { ... }`) is folded in unconditionally too, for the
    same reason as DecreasesExt above: it's a core-language proof construct, orthogonal

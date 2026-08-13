@@ -9,6 +9,9 @@
 // `ticket_lock_atomic.rav`, where `wait_loop` instead gets its own,
 // separate atomic contract and its own token -- see the tutorial text for
 // what that buys you.
+
+import Library.Atomics._
+
 interface LockResource : Library.Type {
   rep type T
 

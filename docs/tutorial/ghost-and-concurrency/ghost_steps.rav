@@ -4,6 +4,8 @@
 // `bumpTwice` from `hit_counter_invariant.rav`, with a run of ghost
 // bookkeeping added on both sides of its one real atomic step.
 
+import Library.IntAtomics._
+
 field count: Int
 
 inv evenCount(c: Ref) {

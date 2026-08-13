@@ -1,5 +1,7 @@
 include "lock.rav"
 
+import Library.Atomics._
+
 module SpinLock[R: LockResource] : Lock {
   field bit: Bool
   

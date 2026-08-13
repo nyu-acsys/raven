@@ -7,6 +7,7 @@ library location; both produce exactly the bytes this binary verifies against.
   $ dune exec -- raven --shh --dump-library ./dumped
   ./dumped/lib/library/base_types.rav
   ./dumped/lib/library/resource_algebra.rav
+  ./dumped/lib/library/atomics.rav
   ./dumped/lib/ext/prophecyExt/prophecyLib.rav
   ./dumped/lib/ext/decreasesExt/well_founded_order.rav
 
@@ -15,6 +16,7 @@ The set follows the active extension, since that is what was verified against.
   $ dune exec -- raven --shh --extension eris --dump-library ./dumped-eris
   ./dumped-eris/lib/library/base_types.rav
   ./dumped-eris/lib/library/resource_algebra.rav
+  ./dumped-eris/lib/library/atomics.rav
   ./dumped-eris/lib/ext/errorCreditsExt/errorCreditsLib.rav
   ./dumped-eris/lib/ext/decreasesExt/well_founded_order.rav
 
@@ -33,4 +35,4 @@ Printing and dumping agree, and neither depends on the working directory.
 An unknown name is reported rather than silently producing nothing.
 
   $ dune exec -- raven --shh --print-library-source lib/library/nope.rav
-  [Error] No library source named 'lib/library/nope.rav'. Known sources: lib/library/base_types.rav, lib/library/resource_algebra.rav, lib/ext/prophecyExt/prophecyLib.rav, lib/ext/decreasesExt/well_founded_order.rav
+  [Error] No library source named 'lib/library/nope.rav'. Known sources: lib/library/base_types.rav, lib/library/resource_algebra.rav, lib/library/atomics.rav, lib/ext/prophecyExt/prophecyLib.rav, lib/ext/decreasesExt/well_founded_order.rav

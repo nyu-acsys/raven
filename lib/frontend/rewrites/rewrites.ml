@@ -1850,8 +1850,27 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
      the Frac module's name (see [rewrite_own_expr_4_arg]), so leaving it as the
      pre-rewrite type derives the wrong name. *)
   | FieldDef ({ field_alias = Some target; _ } as f) ->
-      let+ target_field = Rewriter.find_and_reify_field target in
-      Module.FieldDef { f with field_type = target_field.field_type }
+      let* target_field = Rewriter.find_and_reify_field target in
+      (* The alias generates no Frac module of its own, but a name derived from it can
+         still be asked for: a callee whose contract was rewritten before this module
+         existed carries `<A>.Frac$f` with `A` substituted to the alias's module, and
+         nothing re-derives it from the resolved field at that point. Register the name
+         as another spelling of the target's, the same way the field itself is
+         registered as another spelling of the target. *)
+      let* () =
+        let* is_field_an_ra =
+          ProgUtils.is_ra_type (Type.field_val target_field.field_type)
+        in
+        if is_field_an_ra then Rewriter.return ()
+        else
+          let* target = Rewriter.resolve target in
+          Rewriter.add_transparent
+            (ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc f.field_name
+               target_field.field_type)
+            (ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:f.field_loc target
+               target_field.field_type)
+      in
+      Rewriter.return (Module.FieldDef { f with field_type = target_field.field_type })
   | FieldDef f ->
       let* is_field_an_ra = ProgUtils.is_ra_type (Type.field_val f.field_type) in
 
@@ -1919,6 +1938,33 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
         in
 
         Rewriter.return (Module.FieldDef { f with field_type = frac_type })
+
+(** Settle how each symbol an expression names is spelled, now that the resource
+    algebras and heap utilities a field needs have been generated.
+
+    Those artifacts are generated per field and named after it, so they exist only under
+    the name of the field they belong to. A manifest field has none of its own -- it
+    shares the ones belonging to the field it stands for -- and reaches them through
+    aliases registered beside it. That is enough for the front end, which resolves; it is
+    not enough for the backend, which keys on the name it is handed. A contract reaching
+    a call site through a functor instantiated at a module with a manifest field is
+    exactly that case: reifying the callee substitutes its formal for the argument module
+    syntactically, so the contract comes out naming `Adapt.Frac$f` for a resource algebra
+    that only ever existed as `Client.Frac$bit`.
+
+    Only qualified names are touched -- an unqualified one is a formal or a local, which
+    resolution has no business rewriting -- and anything that does not resolve is left
+    exactly as it was. Types are left alone: they are canonical already, having been
+    expanded on the way here. *)
+let canonicalize_symbols (expr : Expr.t) : Expr.t Rewriter.t =
+  let open Rewriter.Syntax in
+  let canonicalize qual_ident =
+    if List.is_empty (QualIdent.path qual_ident) then Rewriter.return qual_ident
+    else
+      let+ resolved = Rewriter.resolve_opt qual_ident in
+      Option.value resolved ~default:qual_ident
+  in
+  Rewriter.Expr.rewrite_qual_idents_m ~f:canonicalize expr
 
 let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
   (* Rewrites expressions of the form `own(x, f, v, p)` to `own (x, f, Frac[f.type].frac_chunk(v, p))
@@ -3019,6 +3065,11 @@ let rec rewrites_phase_3 (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
       m1 "Rewrites.all_rewrites: Starting rewrite_frac_field_types on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rec_rewrite_symbols ~f:rewrite_frac_field_types m in
+
+  let* () = Rewriter.Logs.debug (fun _ m1 ->
+      m1 "Rewrites.all_rewrites: Starting canonicalize_symbols on module %a"
+        Ident.pr m.mod_decl.mod_decl_name) in
+  let* m = Rewriter.Module.rewrite_expressions ~f:canonicalize_symbols m in
 
   Logs.debug (fun m1 ->
       m1 "Rewrites.all_rewrites: Starting rewrite_own_expr_4_arg on module %a"

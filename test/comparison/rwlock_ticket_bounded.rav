@@ -8,6 +8,8 @@ import Library.MaxNat
 import Library.Excl
 import Library.IntType
 
+import Library.IntAtomics._
+
 interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
 
     // the implementation is parametric over the bound

@@ -1,5 +1,7 @@
 // Treiber Stack with the atomic commands manually rewritten.
 
+import Library.Atomics._
+
 type IntOption = data {
   case none;
   case some(i: Int)

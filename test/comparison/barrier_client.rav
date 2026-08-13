@@ -1,6 +1,8 @@
 include "fork_join.rav"
 include "barrier.rav"
 
+import Library.Atomics._
+
 module BarrierClient[N: NumThreads] {
     import N.threads
     import N.threads_gt_zero

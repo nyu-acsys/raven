@@ -1,6 +1,8 @@
 import Library.Auth
 import Library.MaxNat
 
+import Library.Atomics._
+
 field c: Int
 
 module AuthMaxNat = Auth[MaxNat]

@@ -16,6 +16,9 @@
 // injectivity of an incrementally-*constructed* family of locations is a
 // genuinely harder proof than the one this capstone is about, and not
 // needed to see what an ISC buys you.
+
+import Library.IntAtomics._
+
 interface IShelf {
   rep type T
 

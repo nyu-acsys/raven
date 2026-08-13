@@ -1,0 +1,139 @@
+// Hardware-provided atomic primitives, as ordinary Raven procedures.
+//
+// These were built-in statements until they became library code. Nothing here is
+// privileged: a user needing a primitive this file does not provide writes it the
+// same way, and nothing has to change in the verifier to accommodate it.
+//
+// Three things carry the encoding. Each contract is *logically* atomic, so a caller
+// may open an invariant around the call and commit at the linearization point. Each
+// body is *physically* atomic -- a read plus a conditional write, which the hardware
+// collapses into one instruction -- and the `atomic { ... }` block is what lets the
+// second discharge the first; without it the body takes several steps and could not
+// commit an atomic update. The field each primitive operates on arrives through the
+// module parameter, and a caller never names an instance: the parameter is solved
+// from the field its location argument names.
+//
+// Import what you need; nothing here is in scope by default.
+//
+//   import Library.Atomics._      // cas, cmpxchg, xchg -- any word-sized field
+//   import Library.IntAtomics._   // those three plus faa -- Int fields only
+//
+// Importing both in one scope is possible but pointless: IntAtomics inherits the
+// other three, so `import Library.IntAtomics._` alone gives all four.
+
+// A type with a machine-word representation. A marker: it declares nothing beyond
+// the representation type, and the substance is a structural check the front end
+// runs on whatever type an implementation supplies -- Int, Bool, Ref, or a small
+// sum of those. It deliberately says nothing about value ranges. Raven's Int is
+// the mathematical integers, so a bound such as `0 <= x < 2^62` would be
+// unsatisfiable for an Int field and would make the interface unimplementable.
+interface WordSized : Library.Type {
+  rep type T
+}
+
+// A single field of word-sized type, supplied by the client. `f` is inherited by
+// implementors rather than redeclared, which is what lets the modules below be
+// verified once against an abstract field rather than per instantiation.
+interface AtomicField {
+  module E : WordSized
+  field f : E
+}
+
+// A field whose values are machine integers, for the one primitive that needs
+// arithmetic.
+interface IntField : AtomicField {
+  module E : WordSized { rep type T = Int }
+}
+
+// Everything that needs only equality on the field's type.
+module Atomics[A: AtomicField] {
+
+  // Compare-and-swap: write `new_val` if the field holds `old_val`, and report
+  // whether it did.
+  proc cas(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E, implicit ghost q: Real)
+    returns (b: Bool)
+    atomic requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
+    atomic ensures  own(x.A.f, v == old_val ? new_val : v, q)
+                 && b == (v == old_val)
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v, q := openAU(phi);
+
+      val cur: A.E := x.A.f;
+      if (cur == old_val) {
+        x.A.f := new_val;
+        b := true;
+      } else {
+        b := false;
+      }
+
+      commitAU(phi, b);
+    }
+  }
+
+  // As `cas`, but also reports the value it found. That extra value is the only
+  // difference between the two.
+  proc cmpxchg(x.A.f, old_val: A.E, new_val: A.E, implicit ghost v: A.E, implicit ghost q: Real)
+    returns (res: (A.E, Bool))
+    atomic requires own(x.A.f, v, q) && (v == old_val ? q == 1.0 : q > 0)
+    atomic ensures  own(x.A.f, v == old_val ? new_val : v, q)
+                 && res == (v, v == old_val)
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v, q := openAU(phi);
+
+      val cur: A.E := x.A.f;
+      if (cur == old_val) {
+        x.A.f := new_val;
+        res := (cur, true);
+      } else {
+        res := (cur, false);
+      }
+
+      commitAU(phi, res);
+    }
+  }
+
+  // Unconditional swap, returning the value replaced.
+  proc xchg(x.A.f, new_val: A.E, implicit ghost v: A.E)
+    returns (old_val: A.E)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, new_val, 1.0) && old_val == v
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      old_val := x.A.f;
+      x.A.f := new_val;
+
+      commitAU(phi, old_val);
+    }
+  }
+}
+
+// Adds the one primitive that needs arithmetic. Inheriting from `Atomics[A]` means
+// an Int-field client imports this module alone and gets all four, and the spec
+// below writes plain `v + n` rather than an encoding, because the parameter is
+// strong enough to say so.
+module IntAtomics[A: IntField] : Atomics[A] {
+
+  // Fetch-and-add, returning the value before the addition.
+  proc faa(x.A.f, n: Int, implicit ghost v: Int)
+    returns (old_val: Int)
+    atomic requires own(x.A.f, v, 1.0)
+    atomic ensures  own(x.A.f, v + n, 1.0) && old_val == v
+  {
+    atomic {
+      ghost val phi := bindAU();
+      v := openAU(phi);
+
+      old_val := x.A.f;
+      x.A.f := old_val + n;
+
+      commitAU(phi, old_val);
+    }
+  }
+}
