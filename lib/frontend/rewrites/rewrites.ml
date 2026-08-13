@@ -1281,6 +1281,44 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
         
       let existential_var_idens_set = Expr.existential_vars new_body in
+
+      (* Resolve a name written in a `[x := e]` clause against the bound variables of
+         the predicate's body. Matching is by *base* name, since the user writes the
+         name as it appears in the source while the body carries disambiguated ones
+         (`vs^4`) -- but one base name can match several once an `auto` predicate has
+         been inlined into the body, bringing its own bound variables along (see
+         [rewrite_inline_preds_expr]). Those are invisible in the source the user is
+         looking at, so the clash is not their mistake, but neither is it something to
+         resolve by guessing: picking one arbitrarily substituted a variable of one type
+         where another was meant, and the result surfaced as malformed SMT and an
+         internal error rather than as any kind of diagnosis. *)
+      let resolve_existential (written : Ident.t) : Ident.t option =
+        match
+          Set.to_list existential_var_idens_set
+          |> List.filter ~f:(fun ex ->
+                 String.(ex.Ident.ident_name = written.ident_name))
+        with
+        | [] -> None
+        | [ v ] -> Some v
+        | several ->
+            let types = Expr.existential_vars_type new_body in
+            let described =
+              List.map several ~f:(fun v ->
+                  match Map.find types v with
+                  | Some tp -> Printf.sprintf !"one of type %{Type}" tp
+                  | None -> "one")
+              |> String.concat ~sep:", "
+            in
+            Error.type_error stmt.stmt_loc
+              (Printf.sprintf
+                 !"%{Ident} does not name a single bound variable of %{QualIdent}: \
+                   there are %d of that name in its body (%s), so this does not say \
+                   which one is meant. Either the body binds the name twice, or an \
+                   `auto` predicate inlined into it brings a bound variable of the same \
+                   name along -- which is not visible in the source. Rename so that the \
+                   name is unique"
+                 written use_desc.use_name (List.length several) described)
+      in
       
       let user_exist_binds, user_exist_witnesses =
         match use_desc.use_kind with
@@ -1294,10 +1332,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         ~init:(Map.empty (module QualIdent)) ~f:(
           fun mp (bd_iden, exis_expr) ->
             let exis_iden = Expr.to_qual_ident exis_expr |> QualIdent.unqualify in
-            match (Set.find existential_var_idens_set ~f:(
-                fun ex_var_iden ->
-                  String.(ex_var_iden.ident_name = exis_iden.ident_name)
-              )) with
+            match resolve_existential exis_iden with
             | None -> Rewriter.return mp
             | Some v -> 
               
@@ -1332,10 +1367,7 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         ~init:(Map.empty (module QualIdent)) ~f:(
           fun mp (iden, wtns_expr) ->
             
-          match (Set.find existential_var_idens_set ~f:(
-            fun ex_var_iden ->
-              String.(ex_var_iden.ident_name = iden.ident_name)
-          )) with
+          match resolve_existential iden with
           | None -> mp
           | Some v -> Map.set mp ~key:(QualIdent.from_ident v) ~data:wtns_expr
         )
