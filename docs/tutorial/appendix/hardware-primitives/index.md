@@ -296,7 +296,30 @@ than one inside a functor; it is the same claim, with less around it.
 Two practical consequences. Keep the block as small as the operation genuinely is: every extra
 statement inside is extra trust, and the block does not care whether the code inside is
 plausibly one instruction. And be wary of loops or recursion inside one, where "a single machine
-step" is least credible — Raven permits it and will not warn you.
+step" is least credible — Raven permits it without complaint.
+
+Because these are assumptions rather than results, `--strict` reports them:
+
+```
+$ raven --strict my_program.rav
+[Warning] File "my_program.rav", line 33, column 2 to line 36, column 3:
+33 |   atomic {
+       ^^^^^^^^
+this `atomic` block's body is assumed to be a single machine step, not checked;
+Raven has no model of the target machine to verify that against
+```
+
+That is the same flag that reports an explicit `free` and a missing `decreases`, and for the
+same reason: it enumerates everything a proof rests on that the proof did not establish. One
+warning per block, wherever it appears.
+
+A program that merely calls `cas` is not warned about a block it did not write — but not
+because of anything specific to `atomic { }`. The standard library is loaded once per run with
+every concrete procedure's body stripped before type-checking even begins, since it is trusted
+rather than reverified for each program; `cas`'s block is gone by the time this check runs, the
+same as everything else in its body. Check `lib/library/atomics.rav` itself as an ordinary
+program, rather than importing it, and its bodies are intact and its blocks are flagged like
+anyone else's (`lib/library/library.t` in the repository pins exactly that).
 
 ## When you need the Extension API instead {#sec:when-extension-api}
 

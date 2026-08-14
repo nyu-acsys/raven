@@ -391,8 +391,10 @@ let extension_mode =
   Arg.(value & opt (enum supported_exts) "default" & info [ "extension" ] ~doc)
 
 let strict =
-  let doc = "Warn about recursive lemmas/functions and loops in lemmas missing \
-             `decreases` clauses, and about explicit user use of `free`." in
+  let doc = "Warn about anything the verifier assumes rather than checks: recursive \
+             lemmas/functions and loops in lemmas missing `decreases` clauses, explicit \
+             user use of `free`, and `atomic { ... }` blocks, whose bodies are taken to \
+             be a single machine step on trust. Library sources are excluded." in
   Arg.(value & flag & info [ "strict" ] ~doc)
 
 let dump_library =

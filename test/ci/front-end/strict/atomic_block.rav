@@ -1,0 +1,29 @@
+// `--strict` flags every `atomic { ... }`, for the same reason it flags an
+// explicit `free`: the body's indivisibility is assumed, not checked. Raven has
+// no model of the target machine and no scheduler to check it against, so the
+// block is a claim about the world rather than a consequence of the program.
+
+field flag: Bool
+field other: Bool
+
+proc both(x: Ref, ghost a: Bool, ghost b: Bool)
+  requires own(x.flag, a, 1.0) && own(x.other, b, 1.0)
+  ensures  own(x.flag, true, 1.0) && own(x.other, true, 1.0)
+{
+  atomic {
+    x.flag := true;
+    x.other := true;
+  }
+}
+
+// One warning per block, not per statement inside it.
+proc again(x: Ref, ghost a: Bool)
+  requires own(x.flag, a, 1.0)
+  ensures  own(x.flag, false, 1.0)
+{
+  atomic {
+    val cur: Bool := x.flag;
+    x.flag := !cur;
+    x.flag := false;
+  }
+}

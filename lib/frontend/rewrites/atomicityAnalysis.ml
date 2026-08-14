@@ -1059,6 +1059,30 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
     | Block { block_kind = Atomic; _ } ->
+        (* `--strict`: the block is the one construct whose claim the verifier takes on
+           trust rather than checking -- there is no model of the target machine, and no
+           scheduler, to check it against. That puts it in the same class as an explicit
+           `free`, which `--strict` already flags, so flag it here too.
+
+           No library-source exclusion needed here, unlike the `free`/`decreases`
+           warnings: the standard library is loaded with [Ast.Module.set_unit_free],
+           which strips a concrete proc's body before type-checking even begins, so an
+           embedded primitive's `atomic` block never reaches this rewrite pass at all --
+           there is nothing here to warn about. (A file checked directly as an ordinary
+           program, library source or not, is never force-freed and is genuinely
+           reverified, so it warns like any other input -- as it should.) *)
+        let* () =
+          let* cli_config = Rewriter.current_cli_config in
+          if not cli_config.cli_strict then Rewriter.return ()
+          else begin
+            Logs.warn (fun m ->
+                m "%s%s" (Loc.to_string loc)
+                  "this `atomic` block's body is assumed to be a single machine \
+                   step, not checked; Raven has no model of the target machine to \
+                   verify that against");
+            Rewriter.return ()
+          end
+        in
         (* One step to the enclosing context, however many statements inside. *)
         let outer = take_atomic_step ~loc atomicity_state in
         let* _ =
