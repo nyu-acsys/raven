@@ -3992,8 +3992,11 @@ module TrnslExhale = struct
                        inside), its value can still affect what gets exhaled or what
                        later code can prove, so the warning stays. *)
                     if Set.mem e_local_vars var_decl.var_name then
+                      (* Point at the variable's own binder, `var_decl.var_loc`, rather
+                         than the whole existential's `expr` -- which can span many
+                         lines and puts the caret nowhere near the actual variable. *)
                       Logs.warn (fun m -> m "%s%s"
-                        (Loc.to_string (Expr.to_loc expr))
+                        (Loc.to_string var_decl.var_loc)
                         (Printf.sprintf
                            "No witness could be computed for %s -- it will be treated as an arbitrary unconstrained value, which may cause later assertions about it to fail."
                            (Ident.name var_decl.var_name)));
