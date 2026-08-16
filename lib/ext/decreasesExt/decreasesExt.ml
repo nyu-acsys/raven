@@ -40,11 +40,9 @@ open Util
     also all declare measures of the same lexicographic arity, using the same
     [WellFoundedOrder] instance at each position, checked by the same hook. *)
 
-(* DecreasesExt itself doesn't use lists, but sits below ProphecyExt/ErrorCreditsExt in
-   the stack (see lib/ext/ext.ml), both of which require a ListApi Cont. *)
-module DecreasesExt (Cont : ListApi) = struct
-  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
-     ones actually overridden below need a definition. *)
+module DecreasesExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
   include Cont
 
   let lib_source = Some ("lib/ext/decreasesExt/well_founded_order.rav", [%blob "well_founded_order.rav"])
@@ -266,9 +264,9 @@ module DecreasesExt (Cont : ListApi) = struct
          rep type either -- same reason [Int] needs the hardcoded case above rather
          than the generic [Var qi] walk below. Unlike [Int] though, [SetOrder] is
          itself generic (over the element type), so resolving to it means getting
-         or creating the right instantiation, the same way [ListExt.rewrite_type_ext]
-         turns surface [List[T]] into an instantiation of [Library.ListM] -- see
-         [ProgUtils.instantiate_type_functor]'s doc comment. *)
+         or creating the right instantiation via [ProgUtils.instantiate_type_functor]
+         -- the same, functor-agnostic primitive [ProphecyExt] uses to build its own
+         `Library.List[T]` instantiations; see its doc comment. *)
       let* set_order_mod = Rewriter.find_and_reify_module lib_set_order_qual_ident in
       let+ instance_qi =
         ProgUtils.instantiate_type_functor ~loc:(Type.to_loc tp) ~f:!(Rewriter.process_symbol_ref)

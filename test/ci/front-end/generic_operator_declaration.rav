@@ -1,0 +1,56 @@
+// User-declarable infix operators (Phase 1): a symbolic operator declared as a
+// `data` constructor, matched both prefix and infix, plus symbolic `func`
+// declarations at each of the other precedence tiers. Deliberately independent of
+// `Library.List` -- this is what proves the syntax is general, not `List`-shaped
+// sugar in disguise; see `lib/library/base_types.rav`'s own use of `::` for the
+// "real" application of this feature.
+
+module Seq[E: Library.Type] : Library.Type {
+  rep type T = data {
+    case >:(hd: E, tl: T)
+    case empty
+  }
+
+  func len(s: T) returns (r: Int)
+    ensures r >= 0
+    decreases s
+  {
+    match s {
+      case hd >: tl => 1 + len(tl)
+      case empty => 0
+    }
+  }
+}
+
+module IntSeq = Seq[Library.IntType]
+import IntSeq._
+
+// `+++`/`***`/`<+>` land on the add/mult/rel tiers by leading character; `>:`
+// above lands on the right-associative tier by trailing `:`, the same rule `::`
+// itself follows.
+func +++(x: Int, y: Int) returns (r: Int) { x + y }
+func ***(x: Int, y: Int) returns (r: Int) { x * y }
+func <+>(x: Int, y: Int) returns (r: Bool) { x < y }
+
+proc use_seq()
+{
+  var s: IntSeq.T := 1 >: 2 >: empty;
+  var n: Int := len(s);
+  assert n == 2;
+
+  // Prefix form: a constructor is an ordinary callable once parsed, like any
+  // other `App(Var qid, args)`.
+  var s2: IntSeq.T := >:(1, >:(2, empty));
+  assert s == s2;
+
+  // Infix pattern matching, `case hd >: tl => ...`, is the same one-level match
+  // `case >:(hd, tl) => ...` builds -- notation, not additional matching power.
+  assert (match s { case hd >: tl => hd; case empty => 0 }) == 1;
+
+  var a: Int := 1 +++ 2;
+  assert a == 3;
+  var b: Int := 3 *** 4;
+  assert b == 12;
+  var c: Bool := 1 <+> 2;
+  assert c;
+}

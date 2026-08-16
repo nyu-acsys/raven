@@ -18,9 +18,9 @@ This extension introduces:
 *)
 
 
-module ErrorCreditsExt (Cont : ListApi) = struct
-  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
-     ones actually overridden below need a definition. *)
+module ErrorCreditsExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
   include Cont
 
   (* Custom library to be included as part of this extension. The contents of this file are appended to Raven's `Library` module. *)
@@ -333,16 +333,10 @@ module ErrorCreditsExt (Cont : ListApi) = struct
               Rewriter.return ()
             else 
                 Error.type_error (Expr.to_loc ls_expr) "Expected an Integer list type for ECList"
-          else 
+          else
             Error.type_error (Expr.to_loc ls_expr) "Expected an integer List type for ECList"
 
-        (* This is the case we use the `List[.]` module. Using `Cons.ListFns.listTpConstr` to ensure it is a List. *)
-        | Type.App (TypeExt tp_constr, [elem_typ], _) when Type.compare_type_ext tp_constr (Cont.ListFns.listTpConstr ()) = 0 ->
-          if Type.(not (elem_typ = int)) then
-            type_check_stmt_functs.type_mismatch_error stmt_loc Type.int elem_typ
-          else
-            Rewriter.return ()
-        | _typ -> 
+        | _typ ->
           Error.type_error (Expr.to_loc ls_expr) ("Expected a integer list type for ECList; found: " ^ (Type.to_string _typ))
         in
         

@@ -23,9 +23,12 @@ The extension implements:
 *)
 
 
-module ProphecyExt (Cont : ListApi) = struct
-  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
-     ones actually overridden below need a definition. *)
+(* Parameterized over the plain `Ext` signature -- this extension builds/recognizes
+   its `Library.List[T]` values directly (see `list_module_of` and friends below,
+   and `ProgUtils.instantiate_type_functor`/`instantiation_arg`). *)
+module ProphecyExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
   include Cont
 
   (* Custom library to be included as part of this extension. The contents of `prophecyLib.rav` are appended to Raven's `Library` module. *)
@@ -53,10 +56,18 @@ module ProphecyExt (Cont : ListApi) = struct
     | ProphId of bool
 
   (* Prophecy resource: `Proph.proph(p, v)`. Whether `v` is expected to be a `T` or
-     a `List[T]` is determined at type-checking time from `p`'s own `Proph[...]`
-     type; the bool payload records that answer for the later rewrite. *)
+     a `Library.List[T].T` is determined at type-checking time from `p`'s own
+     `Proph[...]` type; the bool payload records that answer for the later rewrite.
+     The element type `T` is recorded too (unlike `NewProph`, which stores its own
+     type argument directly off the surface syntax, this one is discovered during
+     type-checking -- see `type_check_expr` below) rather than re-derived from `v`'s
+     type at rewrite time: for the multi-shot case, `v`'s type by then is the
+     already-*expanded* `Library.List[T]` instantiation, which no longer carries
+     which functor it came from (`ModInst`'s `mod_inst_def` provenance is gone once
+     type-checking has resolved it into the concrete `ModDef` stored in the symbol
+     table) -- so rewrite time is too late to recover `T` by inspecting `v` alone. *)
   type Expr.expr_ext +=
-    | ProphResource of bool
+    | ProphResource of bool * type_expr
 
   (* New statements:
       - generate new prophecies. bool represents whether it is a one-shot prophecy or a multi-shot prophecy.
@@ -157,6 +168,42 @@ module ProphecyExt (Cont : ListApi) = struct
     (* Construct the new qual_ident, by combining `module_scope` and `prophecy_module_ident` *)
     QualIdent.append module_scope (prophecy_module_ident ~loc typ)
 
+  (* A multi-shot prophecy's value is a sequence of predicted values, `Library.List[T]`
+     -- an ordinary generic-module instantiation like any other, built directly via
+     `ProgUtils.instantiate_type_functor`, the functor-agnostic primitive behind any
+     instantiation of a generic module. *)
+  let list_module_of ~loc (elem_typ : type_expr) : QualIdent.t Rewriter.t =
+    let open Rewriter.Syntax in
+    let* lib_list_module = Rewriter.find_and_reify_module Predefs.lib_list_mod_qual_ident in
+    ProgUtils.instantiate_type_functor ~loc ~f:!(Rewriter.process_symbol_ref)
+      ~functor_qual_ident:Predefs.lib_list_mod_qual_ident
+      ~functor_mod_decl:lib_list_module.mod_decl [elem_typ]
+
+  let list_type_of ~loc (elem_typ : type_expr) : type_expr Rewriter.t =
+    let open Rewriter.Syntax in
+    let+ list_module_qi = list_module_of ~loc elem_typ in
+    Type.mk_var ~loc (QualIdent.append list_module_qi Predefs.lib_type_rep_type_ident)
+
+  (* `hd`/`tl`/`len` of a `list_module_qi`-instantiated list value, built directly as
+     ordinary DataDestr/Var-headed applications against that instantiation's own
+     members, since this extension already knows exactly which instantiation is
+     meant at the point it builds these -- no extension-tag-then-rewrite round trip
+     needed. *)
+  let list_hd ~loc ~elem_typ list_module_qi ls_expr =
+    Expr.mk_app ~loc ~typ:elem_typ
+      (DataDestr (QualIdent.append list_module_qi Predefs.lib_list_head_destr_ident))
+      [ls_expr]
+
+  let list_tl ~loc ~list_typ list_module_qi ls_expr =
+    Expr.mk_app ~loc ~typ:list_typ
+      (DataDestr (QualIdent.append list_module_qi Predefs.lib_list_tail_destr_ident))
+      [ls_expr]
+
+  let list_len ~loc list_module_qi ls_expr =
+    Expr.mk_app ~loc ~typ:Type.int
+      (Var (QualIdent.append list_module_qi Predefs.lib_list_len_ident))
+      [ls_expr]
+
   (* We need to return the list of fields that this command depends on. Since we model prophecy resources using a field defined in `prophecyLib.rav`, that field gets updated. The qual_ident for this is built by combining  *)
   let basic_stmt_ext_fields_accessed stmt_ext exprs =
     match stmt_ext, exprs with
@@ -212,17 +259,25 @@ module ProphecyExt (Cont : ListApi) = struct
 
   (* Rewriter *)
 
-  (* These methods are used if our constructors contain _type_expr_'s.
+  (* These methods are used if our constructors contain _type_expr_'s: `NewProph`
+     stores its own type argument directly, and `ProphResource` now does too (see
+     its declaration above for why). ~f refers to a function which *rewrites*
+     types. This is part of Raven's internal infrastructure of rewrites.
 
-    In this rare case, the NewProph constructor contains a type expression.
-
-    ~f refers to a function which *rewrites* types. This is part of Raven's internal infrastructure of rewrites.
-
-    expr_ext_rewrite_types: neither ProphResource nor ResolveProph store a type_expr
-    of their own (their element type is always recoverable from their expr
-    arguments' types at rewrite time -- see [rewrite_expr_ext]/[rewrite_basic_stmt_ext]
-    below), so Cont's default is used.
+     ResolveProph stores no type_expr of its own -- its element type is always
+     recoverable from resolve_value's own type at rewrite time (see
+     [rewrite_basic_stmt_ext] below; unlike ProphResource's `v`, this one is never
+     the multi-shot List-instantiation case, so the ModInst-provenance problem
+     ProphResource has doesn't apply here) -- so Cont's default is used for it.
   *)
+  let expr_ext_rewrite_types ~f expr_ext =
+    let open Rewriter.Syntax in
+    match expr_ext with
+    | ProphResource (b, tp_expr) ->
+      let+ tp_expr = f tp_expr in
+      ProphResource (b, tp_expr)
+    | _ -> Cont.expr_ext_rewrite_types ~f expr_ext
+
   let basic_stmt_ext_rewrite_types ~f stmt_ext =
     let open Rewriter.Syntax in
     match stmt_ext with
@@ -279,15 +334,17 @@ module ProphecyExt (Cont : ListApi) = struct
         | tp -> Error.type_error loc ("Proph.proph(...) expects its first argument to be a Proph[...] value; found: " ^ (Type.to_string tp))
       in
 
-      let expected_value_typ =
-        if one_shot then elem_typ |> Type.set_ghost true
-        else Cont.ListFns.mk_list_tp loc elem_typ |> Type.set_ghost true
+      let* expected_value_typ =
+        if one_shot then Rewriter.return (elem_typ |> Type.set_ghost true)
+        else
+          let+ list_typ = list_type_of ~loc elem_typ in
+          list_typ |> Type.set_ghost true
       in
 
       (* Type-checking value_expr *)
       let* value_expr = type_check_expr_functs.process_expr value_expr expected_value_typ in
 
-      Rewriter.return @@ (Expr.mk_app ~loc ~typ:Type.perm (ExprExt (ProphResource one_shot)) [proph_id_expr; value_expr])
+      Rewriter.return @@ (Expr.mk_app ~loc ~typ:Type.perm (ExprExt (ProphResource (one_shot, elem_typ))) [proph_id_expr; value_expr])
 
     (* Incorrect number of arguments found; raise a type_error. *)
     | ProphResource _, _ ->
@@ -334,12 +391,13 @@ module ProphecyExt (Cont : ListApi) = struct
 
       in
 
-      let proph_val_typ = if oneshot_b then
+      let* proph_val_typ = if oneshot_b then
         (* If it is a one-shot prophecy, the type for `proph_val` is same as the type annotation on `new Proph[..., 1]`, ie `typ` *)
-        typ |> Type.set_ghost true
+        Rewriter.return (typ |> Type.set_ghost true)
       else
-        (* Else, the type for `proph_val` is `List[typ]`. We use `Cont.ListFns.mk_list_tp` to construct this List type. *)
-        Cont.ListFns.mk_list_tp stmt_loc typ |> Type.set_ghost true
+        (* Else, the type for `proph_val` is `Library.List[typ].T`. *)
+        let+ list_typ = list_type_of ~loc:stmt_loc typ in
+        list_typ |> Type.set_ghost true
       in
 
       begin match Expr.is_ident proph_val with
@@ -485,7 +543,8 @@ module ProphecyExt (Cont : ListApi) = struct
             type_module_qi
       in
 
-      let* multi_type_module_qi = type_module_for (Cont.ListFns.mk_list_tp loc typ) in
+      let* multi_value_typ = list_type_of ~loc typ in
+      let* multi_type_module_qi = type_module_for multi_value_typ in
       let* one_type_module_qi = type_module_for typ in
 
       (* Finally, we generate the name for the final Prophecy module. *)
@@ -533,23 +592,13 @@ module ProphecyExt (Cont : ListApi) = struct
     let open Rewriter.Syntax in
     let loc = expr_attr.expr_loc in
     match expr_ext, expr_list with
-    | ProphResource one_shot, [proph_id; value] ->
-      let* proph_type =
-        if one_shot then
-          (* `value`'s type already *is* the predicted element type. *)
-          !Rewriter.expand_type_expr_ref (Expr.to_type value)
-        else
-          (* Extracting element type from the List[.] type of `value`. *)
-          let elem_tp_opt = Cont.ListFns.list_tp_to_elem_typ (Expr.to_type value) in
-          begin match elem_tp_opt with
-          (* A `List[.]` type NOT found. That's an internal error -- already validated during type-checking. *)
-          | None -> Error.internal_error loc ("expected the prophecy resource's value to be a List (already validated during type-checking); found: " ^ (Type.to_string (Expr.to_type value)))
-          (* Okay, everything checks out. *)
-          | Some elem_typ ->
-            (* We call `Typing.expand_type_expr` (via the Rewriter.expand_type_expr_ref), to make sure we get uniform, fully expanded types. *)
-            !Rewriter.expand_type_expr_ref elem_typ
-          end
-      in
+    | ProphResource (one_shot, elem_typ), [proph_id; value] ->
+      (* `elem_typ` was recorded at type-checking time (see `ProphResource`'s
+         declaration above for why it has to be, rather than re-derived here from
+         `value`'s type as it used to be). `Typing.expand_type_expr` (via
+         `Rewriter.expand_type_expr_ref`) makes sure we get a uniform, fully
+         expanded type either way. *)
+      let* proph_type = !Rewriter.expand_type_expr_ref elem_typ in
 
       (* Initialize prophecy_module if it doesn't exist. No worries if it does. *)
       let* proph_module_qi = initialize_prophecy_module loc proph_type in
@@ -641,9 +690,9 @@ module ProphecyExt (Cont : ListApi) = struct
 
       let* prophecy_field = Rewriter.find_and_reify_field prophecy_field_qi in
 
-      (* The type of the prophecy field is `List[typ]` for a multi-shot prophecy, or
-         plain `typ` for a one-shot one. *)
-      let proph_read_tp = if one_shot then typ else Cont.ListFns.mk_list_tp loc typ in
+      (* The type of the prophecy field is `Library.List[typ].T` for a multi-shot
+         prophecy, or plain `typ` for a one-shot one. *)
+      let* proph_read_tp = if one_shot then Rewriter.return typ else list_type_of ~loc typ in
 
       (* Creating new local variable to store value of `proph_id.prophecy_field` *)
       let proph_read_var_def, proph_read_var_ident =
@@ -743,31 +792,33 @@ module ProphecyExt (Cont : ListApi) = struct
           [has_resource_check_stmt; field_read_stmt; prophetic_assertion; exhale_stmt])
       else
 
+      let* list_module_qi = list_module_of ~loc typ in
+
       (* Add assumption about the prophecy, as an `assume` stmt.
-        ```assume resolve_value = List.hd(proph_read_var)```
+        ```assume resolve_value = proph_read_var.hd```
       *)
       let prophetic_assertion =
         Stmt.mk_assume_expr ~loc
         ~cmnt:("[EXT] ProphecyExt: Prophecising Assertion")
         (Expr.mk_eq
           resolve_value
-          (Cont.ListFns.ls_hd loc (Expr.from_var_decl proph_read_var_def.var_decl))
+          (list_hd ~loc ~elem_typ:typ list_module_qi (Expr.from_var_decl proph_read_var_def.var_decl))
           )
       in
 
-      (* ```assume List.len(proph_read_var) > 2``` *)
+      (* ```assume len(proph_read_var) > 2``` *)
       let list_non_empty =
         Stmt.mk_assume_expr ~loc
         ~cmnt:("[EXT] ProphecyExt: Assuming remaining prophecy stream non-empty")
         (Expr.mk_app ~loc ~typ:Type.bool Gt
-          [(Cont.ListFns.ls_len loc (Expr.from_var_decl proph_read_var_def.var_decl));
+          [(list_len ~loc list_module_qi (Expr.from_var_decl proph_read_var_def.var_decl));
           Expr.mk_int 2]
         )
       in
 
-      (* ```List.tl(proph_read_var)``` *)
+      (* ```proph_read_var.tl``` *)
       let field_write_val =
-        Cont.ListFns.ls_tl loc (Expr.from_var_decl proph_read_var_def.var_decl)
+        list_tl ~loc ~list_typ:proph_read_tp list_module_qi (Expr.from_var_decl proph_read_var_def.var_decl)
       in
 
       (* ```proph_id.prophecy_field_qi := field_write_val;``` *)

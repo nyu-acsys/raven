@@ -20,9 +20,9 @@ open ExtApi
     proof computing a concrete witness is exactly how existential introduction works
     and needs no such restriction. This is a core Raven construct, enabled by default
     (folded into `RavenCore` in lib/ext/ext.ml), not one more `--extension` choice. *)
-module AssertWithExt (Cont : ListApi) = struct
-  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
-     ones actually overridden below need a definition. *)
+module AssertWithExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
   include Cont
 
   let lib_source = None

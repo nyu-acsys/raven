@@ -25,28 +25,28 @@ module Option[E: Type] : Type {
   }
 }
 
-module ListM[E: Type] : Type {
+module List[E: Type] : Type {
   rep type T = data {
     case nil
-    case cons(hd: E, tl: T) 
+    case ::(hd: E, tl: T)
   }
 
-  func len(ls:T) returns (ret: Int) 
+  func len(ls:T) returns (ret: Int)
     ensures ret >= 0
     decreases ls
  {
     match ls {
       case nil => 0
-      case cons(hd, tl) => 1 + len(tl)
+      case hd :: tl => 1 + len(tl)
     }
   }
 
-  func is_in(ls: T, e: E) returns (ret: Bool) 
+  func is_in(ls: T, e: E) returns (ret: Bool)
     decreases ls
   {
     match ls {
       case nil => false
-      case cons(hd, tl) => e == hd || is_in(tl, e)
+      case hd :: tl => e == hd || is_in(tl, e)
     }
   }
 }

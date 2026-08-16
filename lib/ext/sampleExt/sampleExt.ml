@@ -3,10 +3,10 @@ open Ast
 open ExtApi
 open Util
 
-module SampleExt (Cont : ListApi) = struct
+module SampleExt (Cont : Ext) = struct
 
-  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
-     ones actually overridden below need a definition. *)
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
   include Cont
 
   let lib_source = Some ("lib/ext/sampleExt/sampleExt_lib.rav", [%blob "sampleExt_lib.rav"])

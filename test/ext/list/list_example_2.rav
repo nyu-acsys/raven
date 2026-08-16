@@ -1,35 +1,53 @@
-type T = List[Bool]
-// type R = List[Int]
+module BoolList = Library.List[Library.BoolType]
+module RefList = Library.List[Library.RefType]
+module IntList = Library.List[Library.IntType]
+module BoolRefList = Library.List[(Bool, Ref)]
 
-proc p() {
-  var z: List[Ref];
-  var x: Ref;
+type T = BoolList.T
+// type R = IntList.T
 
-  z := List.cons(x, List.nil);
-  // List.len(z);
-  z := List.cons(x, z);
+module BoolOps {
+  import BoolList._
 
-  assert z == List.cons(x, List.cons(x, List.nil));  
-  assert List.cons(true, List.nil) == List.cons(true, List.nil);
-  assert forall x: List[Ref] :: x == List.nil || true;
-  var zz : List[(Bool, Ref)];
+  proc p() {
+    assert true :: nil == true :: nil;
+  }
+}
 
-  assert List.len(z) == 2;
-  var zzz := List.cons(1, List.nil);
+module RefOps {
+  import RefList._
 
-  var xx := List.cons(0, List.cons(5, List.nil));
+  proc p() {
+    var z: RefList.T;
+    var x: Ref;
 
-  assert List.len(xx) == 2;
-  assert List.is_in(xx, 0) && List.is_in(xx, 5);
-  assert !List.is_in(xx, 2);
+    z := x :: nil;
+    // len(z);
+    z := x :: z;
 
-  assert List.hd(xx) == 0;
-  assert List.hd(xx) != 5;
-  assert List.hd(List.tl(xx)) == 5;
-  assert List.hd(List.tl(xx)) != 0;
+    assert z == x :: x :: nil;
+    assert forall x: RefList.T :: x == nil || true;
+    var zz : BoolRefList.T;
 
-  // This is crashing because List[Int] not initialized, even though it should be.
-  // var zzz := List.cons((1,1), List.nil); // <--- without this, the following all crash.
-      // var b := List.cons((1,1), List.nil) == List.cons((1,1), List.nil); assert b; 
-      // assert List.cons((1,1), List.nil) == List.cons((1,1), List.nil);
+    assert len(z) == 2;
+  }
+}
+
+module IntOps {
+  import IntList._
+
+  proc p() {
+    var zzz := 1 :: nil;
+
+    var xx := 0 :: 5 :: nil;
+
+    assert len(xx) == 2;
+    assert is_in(xx, 0) && is_in(xx, 5);
+    assert !is_in(xx, 2);
+
+    assert xx.hd == 0;
+    assert xx.hd != 5;
+    assert xx.tl.hd == 5;
+    assert xx.tl.hd != 0;
+  }
 }

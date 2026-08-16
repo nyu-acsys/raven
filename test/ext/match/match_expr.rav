@@ -1,6 +1,10 @@
-// `match` expressions over a user-declared `data` type and over the stdlib `List[T]`.
-// Covers the shapes that exercise pattern-variable binding: wildcard arms, `_` pattern
-// variables, nesting, and an arm variable shadowing an enclosing local.
+// `match` expressions over a user-declared `data` type and over the stdlib
+// `Library.List[T]`. Covers the shapes that exercise pattern-variable binding:
+// wildcard arms, `_` pattern variables, nesting, and an arm variable shadowing an
+// enclosing local.
+module IntList = Library.List[Library.IntType]
+import IntList._
+
 type T1 = data {
   case nil;
   case one(a: Int);
@@ -93,10 +97,9 @@ proc test_same_names(e: Int, t: T1)
 {
 }
 
-// `match` on the stdlib `List[T]`, whose `data` type is reached through its own
-// `TypeExt` representation (see MatchExt.as_data_type).
-proc test_list(xs: List[Int])
-  requires xs is cons
+// `match` on the stdlib `Library.List[T]`.
+proc test_list(xs: IntList.T)
+  requires xs is ::
 {
-  assert (match xs { case nil => 0; case cons(h, t) => h }) == List.hd(xs);
+  assert (match xs { case nil => 0; case h :: t => h }) == xs.hd;
 }

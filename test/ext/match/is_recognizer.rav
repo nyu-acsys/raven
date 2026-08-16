@@ -1,6 +1,8 @@
 // Constructor-recognizer test `xs is cons` on a user-declared `data` type and on
-// the stdlib `List[T]` type (backed, under the hood, by `Library.ListM[T]`'s own
-// `data` type -- see MatchExt.as_data_type).
+// the stdlib `Library.List[T]` type.
+module IntList = Library.List[Library.IntType]
+import IntList._
+
 type T1 = data {
   case nil;
   case cons(elem: Int, tl: T1)
@@ -18,9 +20,9 @@ proc test_user_data_neg(x: T1)
 {
 }
 
-proc test_list(xs: List[Int])
-  requires xs is cons
-  ensures xs is cons
+proc test_list(xs: IntList.T)
+  requires xs is ::
+  ensures xs is ::
 {
 }
 

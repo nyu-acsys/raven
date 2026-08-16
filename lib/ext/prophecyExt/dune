@@ -1,6 +1,6 @@
 (library
  (name prophecyExt)
- (libraries base util ast extApi defaultExt listExt)
+ (libraries base util ast extApi defaultExt)
  (preprocessor_deps
   (file prophecyLib.rav))
  (preprocess

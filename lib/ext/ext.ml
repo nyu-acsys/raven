@@ -12,13 +12,12 @@ let ext_map = [
 ]
 
 module DefaultExtInstance = DefaultExt.DefaultExt
-module ListExtInstance = ListExt.ListExt(DefaultExtInstance)
 
 (* DecreasesExt is folded in unconditionally, rather than being one more
    mutually-exclusive `--extension` choice: termination checking via `decreases` clauses
    is orthogonal to which resource-algebra extension is active, so it must be available
    under `default` and `eris` alike. *)
-module DecreasesExtInstance = DecreasesExt.DecreasesExt(ListExtInstance)
+module DecreasesExtInstance = DecreasesExt.DecreasesExt(DefaultExtInstance)
 
 (* AssertWithExt (`assert e with { ... }`) is folded in unconditionally too, for the
    same reason as DecreasesExt above: it's a core-language proof construct, orthogonal
@@ -27,10 +26,7 @@ module AssertWithExtInstance = AssertWithExt.AssertWithExt(DecreasesExtInstance)
 
 (* MatchExt (ADT recognizer test / `match`) is folded in unconditionally too, for the
    same reason as DecreasesExt/AssertWithExt above: ADT ergonomics is orthogonal to
-   which resource-algebra extension is active. It sits above ListExtInstance in the
-   chain (like every other link here) so that its own generic `TypeExt` resolution
-   (see MatchExt.as_data_type) can delegate to ListExt's `rewrite_type_ext` case to
-   resolve `List[T]` scrutinees, without depending on ListExt's internals directly. *)
+   which resource-algebra extension is active. *)
 module MatchExtInstance = MatchExt.MatchExt(AssertWithExtInstance)
 
 (* Core Raven *)

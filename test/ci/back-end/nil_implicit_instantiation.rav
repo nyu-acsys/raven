@@ -1,0 +1,18 @@
+// Regression test: a bare, zero-argument constructor (`nil`) imported unqualified
+// from an uninstantiated generic functor must be able to infer its instantiation
+// from the expected type alone, including on the rhs of a plain assignment, where
+// the lhs's declared type is the only information available. This used to fail: the
+// `Assign` statement's own speculative "is this rhs a procedure/lemma call?" peek
+// tried to resolve `nil` too (with no expected type to unify against) and hard-erred
+// instead of falling through to ordinary expression processing.
+import Library._
+import Library.List._
+
+proc p() {
+  var xs: List[Int] := nil;
+  assert xs == nil;
+
+  var ys: List[Int];
+  ys := nil;
+  assert ys == nil;
+}

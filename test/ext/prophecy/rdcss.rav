@@ -1,3 +1,5 @@
+import Library._
+import Library.List._
 import Library.Atomics._
 
 /* 
@@ -314,7 +316,7 @@ proc complete(l_descr_ref: Ref, l_n: Ref,
   !}
 
   fold descr_inv(token, p, rdcss_ret, l_n, l_descr_ref, l_descr, tid_ghost_winner)[
-    vs := List.tl(vs),
+    vs := vs.tl,
     notDone := !(tid_ghost_winner == tid_ghost || !notDone) ,
     isPending := isPending
   ];
@@ -527,9 +529,10 @@ lemma update_value(l_n: Ref, n1: Int, n2: Int, m: Int)
 }
 
 func proph_extract_winner(pvs: List[(Bool, Proph[Int])]) returns (ret: Opt_Proph) {
-  (List.len(pvs) == 0) ?
-    Opt_Proph.none : 
-    Opt_Proph.some((List.hd(pvs))#1)
+  match pvs {
+    case hd :: tl => Opt_Proph.some(hd#1)
+    case nil => Opt_Proph.none
+  }
 }
 
 func state_to_val(s: AbstractState) returns (ret: NLocTp) {

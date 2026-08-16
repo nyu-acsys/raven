@@ -37,9 +37,10 @@ let lhs_list_loc ~fallback_loc es =
 
 %public unary_expr:
 | PROPH DOT PROPHPRED; LPAREN; e1=expr; COMMA; e2=expr; RPAREN {
-  (* `false` is a placeholder; type-checking replaces it once it knows, from `e1`'s
-     `Proph[...]` type, whether this is the one-shot or multi-shot resource. *)
-  Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (ProphResource false)) [e1; e2]
+  (* `false`/`Type.any` are placeholders; type-checking replaces both once it knows,
+     from `e1`'s `Proph[...]` type, whether this is the one-shot or multi-shot
+     resource, and its element type. *)
+  Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (ProphResource (false, Type.any))) [e1; e2]
 }
 
 %public assign_rhs:

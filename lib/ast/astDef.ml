@@ -3133,12 +3133,9 @@ module Predefs = struct
   let lib_type_mod_qual_ident = QualIdent.from_list [lib_ident; lib_type_mod_ident]
   let lib_type_rep_type_ident = Ident.make Loc.dummy "T" 0
 
-  let lib_list_mod_ident = Ident.make Loc.dummy "ListM" 0
+  let lib_list_mod_ident = Ident.make Loc.dummy "List" 0
   let lib_list_mod_qual_ident = QualIdent.from_list [lib_ident; lib_list_mod_ident]
-  
-  let lib_list_arg_mod_ident = Ident.make Loc.dummy "E" 0
-  let lib_list_cons_ident = Ident.make Loc.dummy "cons" 0
-  let lib_list_nil_ident = Ident.make Loc.dummy "nil" 0
+
   let lib_list_len_ident = Ident.make Loc.dummy "len" 0
   let lib_list_is_in_ident = Ident.make Loc.dummy "is_in" 0
   let lib_list_head_destr_ident = Ident.make Loc.dummy "hd" 0

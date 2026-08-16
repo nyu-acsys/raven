@@ -139,7 +139,7 @@ module LexOrder[A: WellFoundedOrder, B: WellFoundedOrder] : WellFoundedOrder {
 // lt_embed_mono is a tautology by construction rather than a fact requiring
 // its own proof -- the same trick Ordinal's trivial embedding above uses.
 module MultisetOrder : WellFoundedOrder {
-  // Deliberately not `ListM[IntType].T`: see Ordinal's doc comment above for
+  // Deliberately not `List[IntType].T`: see Ordinal's doc comment above for
   // why a `rep type` alias would lose this module's own identity here.
   rep type T = data {
     case bag_nil

@@ -42,7 +42,11 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token MINUS
-%token <Ast.Expr.constr> RABINOP
+(* User-declarable symbolic operators the lexer couldn't match against
+   Terminals.operator_table -- see lexer.mll's fallback classification. One
+   token per precedence tier; `right_assoc_binary_op_ident` below is also where
+   `::` itself lands. *)
+%token <Ast.Ident.t> MULTOPSYM ADDOPSYM RABINOPSYM RELOPSYM EQOPSYM ANDOPSYM OROPSYM
 %token EQ EQEQ NEQ LEQ GEQ LT GT IN NOTIN SUBSETEQ
 %token <Int64.t> HASH
 %token AND OR IMPLIES IFF NOT COMMA
@@ -63,7 +67,12 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token EOF
 
 %nonassoc IFF
-%nonassoc EQEQ NEQ 
+(* EQOPSYM joins EQEQ/NEQ's group: eq_expr is written bidirectionally recursive
+   (both operands recurse into eq_expr, not just the left), so without this a
+   user `=`/`!`-leading operator would be ambiguous with `==`/`!=` on chaining
+   the same way `a == b == c` already is -- this declaration is what makes both
+   non-chainable instead. *)
+%nonassoc EQEQ NEQ EQOPSYM
 
 %start main
 %type <(string * Loc.t) list * Ast.Module.t> main
@@ -249,7 +258,7 @@ type_def_expr:
 }
 
 variant_decl:
-| CASE; id = IDENT args = option(variant_args) {
+| CASE; id = decl_name args = option(variant_args) {
   let args = Base.Option.value args ~default:[] in
   Type.{ variant_name = id;
          variant_loc = Loc.make $startpos(id) $endpos(id);
@@ -382,7 +391,7 @@ func_decl:
 }
 
 callable_decl:
-  id = IDENT; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
+  id = decl_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
   let precond, postcond, contract_ext = cs in
   let call_decl_loc_params, formals = formals in
   let decl =
@@ -405,7 +414,7 @@ callable_decl:
 }
 
 callable_decl_out_vars:
-  id = IDENT; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
+  id = decl_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
   let precond, postcond, contract_ext = cs in
   let call_decl_loc_params, formals = formals in
   let decl =
@@ -999,8 +1008,28 @@ mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
 | x = mod_ident; DOT; y = MODIDENT { QualIdent.append x y}
 
-%public ident: 
-| x = IDENT {
+(* Any name a `func`/`pred`/`proc`/... or a `data` constructor can be declared
+   with: an ordinary identifier, or one of the operator-shaped tokens Phase 1
+   makes declarable, reached via `right_assoc_binary_op_ident` for `::` (a
+   *reserved* string in Terminals.operator_table, unlike the rest -- carved out
+   specifically because, unlike `+`/`==`/etc., it was never a closed Expr.constr
+   case with hardcoded builtin semantics; see Library.List's own `::` constructor,
+   lib/library/base_types.rav). No other reserved operator is made declarable at
+   all, that being the separate, larger "reserved-operator overloading" feature
+   this stops short of. *)
+%public decl_name:
+| x = IDENT { x }
+| x = MULTOPSYM { x }
+| x = ADDOPSYM { x }
+| x = right_assoc_binary_op_ident { x }
+| x = RELOPSYM { x }
+| x = EQOPSYM { x }
+| x = ANDOPSYM { x }
+| x = OROPSYM { x }
+;
+
+%public ident:
+| x = decl_name {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
 
@@ -1044,9 +1073,13 @@ unary_expr_not_plus_minus:
 | NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any Expr.Not [e] }
 ;
 
+mult_op:
+| op = MULTOP { op }
+| op = MULTOPSYM { Expr.Var (QualIdent.from_ident op) }
+
 mult_expr:
 | e = unary_expr { e }
-| e1 = mult_expr; op = MULTOP; e2 = unary_expr {
+| e1 = mult_expr; op = mult_op; e2 = unary_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
   }
 ;
@@ -1054,7 +1087,8 @@ mult_expr:
 add_op:
 | op = ADDOP { op }
 | MINUS { Expr.Minus }
-  
+| op = ADDOPSYM { Expr.Var (QualIdent.from_ident op) }
+
 add_expr:
 | e = mult_expr { e }
 | e1 = add_expr; op = add_op; e2 = mult_expr {
@@ -1062,9 +1096,19 @@ add_expr:
   }
 ;
 
+(* The bare identifier of a right-associative infix operator, as opposed to
+   [right_assoc_binary_op] below which wraps it into an [Expr.constr] ready to
+   apply. Exposed separately (and %public) so a match arm can name the same
+   constructor infix, `case hd :: tl => ...` -- see matchExt_parser.mly's
+   `match_arm_expr` -- without unwrapping a `Var` back out of a `constr`. `::`
+   is declared here directly, an ordinary alternative alongside RABINOPSYM. *)
+%public right_assoc_binary_op_ident:
+| op = RABINOPSYM { op }
+| COLONCOLON { Ident.make (Loc.make $startpos $endpos) "::" 0 }
+
 %public right_assoc_binary_op:
-| op = RABINOP { op }
-  
+| op = right_assoc_binary_op_ident { Expr.Var (QualIdent.from_ident op) }
+
 right_assoc_binary_op_expr:
 | e = add_expr { e }
 | e1 = add_expr; op = right_assoc_binary_op; e2 = right_assoc_binary_op_expr {
@@ -1091,6 +1135,7 @@ comp_op:
 | LEQ { Leq }
 | GEQ { Geq }
 | SUBSETEQ { Subseteq }
+| op = RELOPSYM { Expr.Var (QualIdent.from_ident op) }
 ;
 
 comp_seq:
@@ -1116,6 +1161,9 @@ comp_seq:
 | e1 = eq_expr; NEQ; e2 = eq_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Eq [e1; e2]])
   }
+| e1 = eq_expr; op = EQOPSYM; e2 = eq_expr {
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+  }
 ;
 
 and_expr:
@@ -1123,12 +1171,18 @@ and_expr:
 | e1 = and_expr; AND; e2 = eq_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) And [e1; e2])
   }
+| e1 = and_expr; op = ANDOPSYM; e2 = eq_expr {
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+  }
 ;
 
 or_expr:
 | e = and_expr { e }
 | e1 = or_expr; OR; e2 = and_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Or [e1; e2])
+  }
+| e1 = or_expr; op = OROPSYM; e2 = and_expr {
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
   }
 ;
 

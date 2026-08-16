@@ -64,9 +64,6 @@ let _ =
       ("with", WITH);
       ("while", WHILE);
 
-      (* ListExt *)
-      ("List", LIST);
-
       (* ProphecyExt *)
       ("Proph", PROPH);
       ("resolve", RESOLVE);

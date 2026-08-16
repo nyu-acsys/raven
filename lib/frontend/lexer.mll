@@ -277,7 +277,31 @@ rule token_lex st = parse
     { try
       emit st (Hashtbl.find Terminals.operator_table op)
     with Not_found ->
-      lexical_error lexbuf ("Unknown operator: " ^ op)
+      (* A user-declarable symbolic operator: not one of the reserved strings in
+         [Terminals.operator_table], but still a maximal run of [operator_char]s.
+         Classified into a token per Scala's rule (Scala Language Spec SS6.12.3) --
+         an operator ending in ':' is right-associative regardless of its leading
+         character (matching how `::` itself already behaves); otherwise the
+         leading character alone picks the tier, mirroring the tier cascade the
+         grammar already has (`*`/`%` -> mult_expr, `+`/`-` -> add_expr, `<`/`>`
+         -> the chainable comp_op tier, `=`/`!` -> eq_expr, `&` -> and_expr, `|`
+         -> or_expr). A leading `.`/`?`/`:' has no tier to classify into (`:` alone
+         is only reachable here for a single ':' followed immediately by another
+         `operator_char`, since a solitary `:` is itself already reserved) and is
+         rejected rather than guessed at. *)
+      let loc = Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p in
+      let ident = Ident.make loc op 0 in
+      let last = op.[String.length op - 1] in
+      if Char.equal last ':' then emit st (RABINOPSYM ident)
+      else
+        match op.[0] with
+        | '*' | '%' -> emit st (MULTOPSYM ident)
+        | '+' | '-' -> emit st (ADDOPSYM ident)
+        | '<' | '>' -> emit st (RELOPSYM ident)
+        | '=' | '!' -> emit st (EQOPSYM ident)
+        | '&' -> emit st (ANDOPSYM ident)
+        | '|' -> emit st (OROPSYM ident)
+        | _ -> lexical_error lexbuf ("Unknown operator: " ^ op)
   }
 | '#' (digit_char+ as num) { emit st (HASH(Int64.of_string num)) }
 | ident as name '^' (digit_char+ as num) { emit st (IDENT(Ident.make (Loc.make lexbuf.lex_start_p lexbuf.lex_curr_p) name (int_of_string num))) }

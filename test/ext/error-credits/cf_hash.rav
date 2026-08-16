@@ -17,6 +17,7 @@ This is not a tight bound, it is chosen to work nicely with powers of 2, so ther
 
 module CollFreeHash {
   import Hash._
+  import IntPairList._
   free val init_val_size: Int
   free val init_r: Int
 
@@ -151,8 +152,8 @@ module CollFreeHash {
             sval0 / vsval0
           ));
 
-          assert sval0 == List.len(mp);
-          assert List.len(mp) == List.len(proj2(mp));
+          assert sval0 == len(mp);
+          assert len(mp) == IntListOps.IntListT.len(IntListOps.proj2(mp));
 
         }
 
@@ -161,7 +162,7 @@ module CollFreeHash {
 
 
 
-      var b := EC.rand(vsval0; ECList: !in proj2(mp));
+      var b := EC.rand(vsval0; ECList: !in IntListOps.proj2(mp));
       var mp' := (v, b) :: mp;
 
       if (sval0 + 1 < rval0) {
@@ -274,7 +275,7 @@ module CollFreeHash {
 
 
   proc init_cf_hash_state() returns (ret: Ref)
-    ensures exists hf: CFHash :: own(ret.cf_hash_fld, hf, 1.0) && hf.hm == List.nil
+    ensures exists hf: CFHash :: own(ret.cf_hash_fld, hf, 1.0) && hf.hm == nil
   {
     var hm0 := init_hash_state();
     var vs0 := init_val_size;
@@ -292,7 +293,7 @@ module CollFreeHash {
     && r0 / vs0 == init_r / init_val_size
     && s0 < r0 <= vs0
     && 0 <= s0
-    && s0 == List.len(mp)
+    && s0 == len(mp)
     // && -*-(  
     //   ((sum_n_m(s0, r0-1)) / vs0)
     //   - ((r0 - s0) * amortized_error )

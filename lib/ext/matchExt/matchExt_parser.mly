@@ -23,7 +23,7 @@ open Ext.MatchExtInstance
    arbitrarily -- for an expression nobody means to write; this way it's a clean syntax
    error, and no precedence declaration has to be shared across fragment files. *)
 %public eq_expr:
-| e = rel_expr; IS; c = IDENT {
+| e = rel_expr; IS; c = decl_name {
     let ctor_qi = QualIdent.from_ident c in
     Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (Is ctor_qi)) [e]
   }
@@ -47,9 +47,22 @@ open Ext.MatchExtInstance
    `import_dir` in core parser.mly), it's an ordinary `IDENT` whose name is checked
    post-hoc. *)
 match_arm_expr:
-| CASE; ctor = IDENT; vars = option(delimited(LPAREN, separated_list(COMMA, IDENT), RPAREN));
+| CASE; ctor = decl_name; vars = option(delimited(LPAREN, separated_list(COMMA, IDENT), RPAREN));
   DARROW; body = expr {
     let arm_vars = match vars with Some vs -> vs | None -> [] in
     let arm_ctor = if String.equal (Ident.name ctor) "_" then None else Some ctor in
     ({ arm_ctor; arm_vars }, body)
+  }
+(* Infix constructor pattern, `case hd :: tl => ...` -- notation for the same
+   one-level match a prefix `case ::(hd, tl) => ...` arm builds; the record shape
+   is identical, so nothing downstream (MatchExt's type-checking/rewriting) needs
+   to know which spelling produced it. Restricted to right-associative-shaped
+   names (reusing [right_assoc_binary_op_ident] from core parser.mly) rather than
+   every operator tier: a constructor pattern like `case a + b => ...` has no
+   idiomatic use, and reuse here avoids five unused alternatives. This does not
+   enable chained/nested patterns (`case hd :: hd2 :: tl => ...`) -- arms bind one
+   constructor's fields flatly, with no recursive sub-pattern structure, regardless
+   of operator syntax. *)
+| CASE; v1 = IDENT; ctor = right_assoc_binary_op_ident; v2 = IDENT; DARROW; body = expr {
+    ({ arm_ctor = Some ctor; arm_vars = [v1; v2] }, body)
   }

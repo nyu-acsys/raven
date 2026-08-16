@@ -389,7 +389,7 @@ module ProcessExpr = struct
                     Base.Option.value imported ~default:qual_ident
                   in
                   try_resolve_implicit_instantiation ~loc:(Expr.to_loc expr)
-                    ~qual_ident:candidate ~arg_exprs:args_list ~expected_typ)
+                    ~qual_ident:candidate ~arg_exprs:args_list ~expected_typ ())
             in
             (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
             let* symbol = Rewriter.Symbol.reify symbol in
@@ -898,12 +898,21 @@ module ProcessExpr = struct
         | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
           let* qual_ident, symbol =
               (* `expr1.M.value` where `M` is an uninstantiated functor: infer from
-                 `expr1`'s peeked type, see try_resolve_implicit_instantiation_destr. *)
+                 `expr1`'s peeked type, see try_resolve_implicit_instantiation_destr.
+                 An unqualified destructor name imported from an uninstantiated
+                 generic functor (`import Library.List._` then `xs.hd`) carries no
+                 functor path of its own either, exactly like the `Var` case above --
+                 so recover the candidate from the import first, the same way, before
+                 falling back to resolving against expr1's own (peeked) type. *)
               resolve_or_implicit field_ident ~on_miss:(fun () ->
+                  let* imported = Rewriter.find_import_target field_ident in
+                  let candidate =
+                    Base.Option.value imported ~default:field_ident
+                  in
                   let* peeked_expr1 =
                     process_expr expr1 (Type.any |> Type.set_ghost_to expected_typ)
                   in
-                  try_resolve_implicit_instantiation_destr ~field_ident
+                  try_resolve_implicit_instantiation_destr ~field_ident:candidate
                     ~arg_typ:(Expr.to_type peeked_expr1))
             in
             let* symbol = Rewriter.Symbol.reify symbol in
@@ -1425,15 +1434,21 @@ module ProcessExpr = struct
       location arguments (see [solve_field_formals]): `l.bit` and `l.other` have the
       same type, so the variable ranges over symbol identity rather than over types. *)
   and try_resolve_implicit_instantiation ~(loc : location) ~(qual_ident : qual_ident)
-      ~(arg_exprs : expr list) ~(expected_typ : type_expr) : qual_ident option Rewriter.t
-      =
+      ~(arg_exprs : expr list) ?(only_calls = false) ~(expected_typ : type_expr) () :
+      qual_ident option Rewriter.t =
     let open Rewriter.Syntax in
     let* prefix = resolve_generic_functor_prefix qual_ident in
     match prefix with
     | None -> Rewriter.return None
     | Some (functor_qual_ident, m, member_ident) -> (
         (* The member can be an ordinary callable or a data constructor -- both are
-           addressable as `<module>.<member>(...)` and solved identically below. *)
+           addressable as `<module>.<member>(...)` and solved identically below, unless
+           [only_calls] restricts this to callables: a speculative "is this a call?"
+           peek (see the `Assign` statement's own peek in `process_basic_stmt`) must
+           not also attempt -- and, on failure, hard-error on -- a constructor that
+           was never going to become a `Stmt.Call` anyway; it should cleanly report
+           "no match" instead and let the caller fall through to ordinary expression
+           processing, where a correct [expected_typ] will actually be available. *)
         let member_info =
           List.find_map m.mod_def ~f:(function
             | SymbolDef (CallDef call_def)
@@ -1450,7 +1465,8 @@ module ProcessExpr = struct
                     return_type,
                     call_decl.call_decl_loc_params )
             | SymbolDef (ConstrDef constr_def)
-              when Ident.equal constr_def.constr_name member_ident ->
+              when (not only_calls) && Ident.equal constr_def.constr_name member_ident
+              ->
                 Some (constr_def.constr_args, Some constr_def.constr_return_type, [])
             | _ -> None)
         in
@@ -1810,8 +1826,28 @@ module ProcessCallable = struct
 
   let disambiguate_process_field_read ref field disam_tbl =
     let open Rewriter.Syntax in
+    let* resolved_opt = Rewriter.resolve_and_find_opt field in
     let* field, symbol =
-      Rewriter.resolve_and_find field
+      match resolved_opt with
+      | Some resolved -> Rewriter.return resolved
+      | None ->
+          (* `lhs := ref.field` is a dedicated statement (a heap read, not a pure
+             expression), resolved here rather than through ProcessExpr's own
+             `Read` case -- but an unqualified destructor/field name imported from
+             an uninstantiated generic functor needs exactly the same recovery
+             that case does: no functor path of its own to resolve by, so recover
+             the deferred-import candidate first, then peek `ref`'s type to solve
+             the functor's parameters against it. *)
+          let* imported = Rewriter.find_import_target field in
+          let candidate = Base.Option.value imported ~default:field in
+          let* peeked_ref = disambiguate_process_expr ref Type.any disam_tbl in
+          let* resolved_qi =
+            ProcessExpr.try_resolve_implicit_instantiation_destr
+              ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_ref)
+          in
+          (match resolved_qi with
+           | Some resolved_qi -> Rewriter.resolve_and_find resolved_qi
+           | None -> Rewriter.resolve_and_find field)
     in
     let* symbol = Rewriter.Symbol.reify symbol in
     match symbol with
@@ -2090,14 +2126,20 @@ module ProcessCallable = struct
           let field_qual_ident = Expr.to_qual_ident field_expr in
           let* _, symbol =
             (* `expr1.M.value` where `M` is an uninstantiated functor, see
-               ProcessExpr.try_resolve_implicit_instantiation_destr. *)
+               ProcessExpr.try_resolve_implicit_instantiation_destr. An unqualified
+               destructor/field name imported from an uninstantiated generic functor
+               carries no functor path of its own either -- same recovery as
+               ProcessExpr's own `Read` case: try the deferred-import candidate
+               first, then fall back to resolving against expr1's own (peeked) type. *)
             ProcessExpr.resolve_or_implicit field_qual_ident ~on_miss:(fun () ->
+                let* imported = Rewriter.find_import_target field_qual_ident in
+                let candidate = Base.Option.value imported ~default:field_qual_ident in
                 let* peeked_expr1 =
                   disambiguate_process_expr expr1 (Type.any |> Type.set_ghost var_ghost)
                     disam_tbl
                 in
                 ProcessExpr.try_resolve_implicit_instantiation_destr
-                  ~field_ident:field_qual_ident ~arg_typ:(Expr.to_type peeked_expr1))
+                  ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
           in
           let+ symbol = Rewriter.Symbol.reify symbol in
           begin match symbol with
@@ -2143,6 +2185,19 @@ module ProcessCallable = struct
             )
         in
 
+        (* The assignment is ghost if all lhs targets are ghost-typed, the same
+           way a ghost-typed local already forces its own initializer to be
+           ghost. An ambient ghost scope still forces it too, e.g. for a plain,
+           non-ghost lhs written inside a `{! ... !}` block. A mix of ghost and
+           non-ghost lhs targets is left non-ghost here, so the non-ghost
+           target(s) still get checked against a non-ghost expected type.
+           Used both to peek the rhs's ref-expr type below (for resolving a
+           field/destructor name against an uninstantiated generic import) and
+           as the expected type for the generic rhs case further down. *)
+        let is_ghost_assign =
+          is_ghost_scope || List.for_all var_decls_lhs ~f:(fun var -> var.var_ghost)
+        in
+
         match assign_desc.assign_rhs with
         (* Field read *)
         | App (Read, [ ref_expr; read_expr ], _) ->
@@ -2150,14 +2205,21 @@ module ProcessCallable = struct
 
           let* read_expr_qi, read_symbol =
             (* `ref_expr.M.value` where `M` is an uninstantiated functor, see
-               ProcessExpr.try_resolve_implicit_instantiation_destr. *)
+               ProcessExpr.try_resolve_implicit_instantiation_destr. An unqualified
+               destructor/field name imported from an uninstantiated generic functor
+               (`import Library.List._` then `xs.hd`) carries no functor path of its
+               own either -- same recovery as ProcessExpr's own `Read` case: try the
+               deferred-import candidate first, then fall back to resolving against
+               ref_expr's own (peeked) type. *)
             ProcessExpr.resolve_or_implicit read_expr_qi ~on_miss:(fun () ->
+                let* imported = Rewriter.find_import_target read_expr_qi in
+                let candidate = Base.Option.value imported ~default:read_expr_qi in
                 let* peeked_ref_expr =
-                  disambiguate_process_expr ref_expr (Type.any |> Type.set_ghost is_ghost_scope)
+                  disambiguate_process_expr ref_expr (Type.any |> Type.set_ghost is_ghost_assign)
                     disam_tbl
                 in
                 ProcessExpr.try_resolve_implicit_instantiation_destr
-                  ~field_ident:read_expr_qi ~arg_typ:(Expr.to_type peeked_ref_expr))
+                  ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_ref_expr))
           in
           let* read_symbol = Rewriter.Symbol.reify read_symbol in
 
@@ -2225,9 +2287,15 @@ module ProcessCallable = struct
                        uninstantiated functor carries no functor path of its own. *)
                     let* imported = Rewriter.find_import_target qual_ident in
                     let candidate = Base.Option.value imported ~default:qual_ident in
+                    (* Only a callable can become a `Stmt.Call` below; excluding
+                       constructors here also means a zero-arg one (`nil`) can't be
+                       hard-erred on for failing to infer its type argument from this
+                       peek's necessarily-blind `Any` expected type -- it instead
+                       falls through cleanly to ordinary expression processing, where
+                       the real expected type (from the lhs) is available. *)
                     ProcessExpr.try_resolve_implicit_instantiation ~loc:stmt_loc
-                      ~qual_ident:candidate ~arg_exprs:args
-                      ~expected_typ:(Type.any |> Type.set_ghost is_ghost_scope))
+                      ~qual_ident:candidate ~arg_exprs:args ~only_calls:true
+                      ~expected_typ:(Type.any |> Type.set_ghost is_ghost_scope) ())
               in
               match resolved with
               | None -> Rewriter.return None
@@ -2268,7 +2336,7 @@ module ProcessCallable = struct
               Type.mk_prod
                 (Expr.to_loc assign_desc.assign_rhs)
                 (List.map var_decls_lhs ~f:(fun var -> var.var_type))
-              |> fun ty -> if is_ghost_scope then ty |> Type.set_ghost true else ty
+              |> fun ty -> if is_ghost_assign then ty |> Type.set_ghost true else ty
             in
             let* assign_rhs =
               disambiguate_process_expr assign_desc.assign_rhs expected_type disam_tbl

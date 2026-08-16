@@ -9,7 +9,7 @@ clauses, without touching the core pipeline.
 That's what the **Extension API** (`docs/ext/README.md` in the repository, a much longer and more
 implementation-focused document than this tutorial) is for. The short version: an extension is a
 higher-order OCaml module, parameterized over another extension, so they stack —
-`DefaultExt -> ListExt -> DecreasesExt -> AssertWithExt -> MatchExt` composes into `RavenCore`,
+`DefaultExt -> DecreasesExt -> AssertWithExt -> MatchExt` composes into `RavenCore`,
 the language this entire tutorial has been using. `ProphecyExt` and `ErrorCreditsExt` are two separate stacks built
 on top of `RavenCore` independently (Iris-style prophecy variables and Eris-style error credits
 for reasoning about probabilistic programs aren't sound together, so they're never combined);

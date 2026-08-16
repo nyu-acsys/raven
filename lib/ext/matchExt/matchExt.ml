@@ -12,22 +12,22 @@ open Util
     ergonomics is orthogonal to which resource-algebra extension is active.
 
     `xs is cons` tests whether `xs` (of some `data` type) was built with the `cons`
-    constructor. Deliberately unqualified -- no `List.cons`/`MyType.cons` prefix --
-    for the same reason plain field access (`xs.hd`) never needs one either: the
+    constructor. Deliberately unqualified -- no `IntList.cons`/`MyType.cons` prefix
+    -- for the same reason plain field access (`xs.hd`) never needs one either: the
     constructor name is resolved against `xs`'s own (already known) type, exactly
     like `DataDestr` field resolution already works (see `typing.ml`'s `App (Read,
     [expr1; Var field_ident])` case). This also sidesteps a genuine grammar
-    constraint: `List[T]`'s constructors are not reachable through the generic
-    `qual_ident` grammar at all -- `ListExt`'s own parser fragment
-    (`listExt_parser.mly`) hooks `List.cons(...)` in as a dedicated `LIST; DOT;
-    IDENT` production on `unary_expr`, bypassing `qual_ident` entirely -- so a
-    qualified `is` syntax would need a second, `List`-specific grammar production
-    just to reach it. Resolving unqualified names against the scrutinee's own type
-    works uniformly for both plain `data` types and `List` with no such special
-    case. *)
-module MatchExt (Cont : ListApi) = struct
-  (* Every hook defaults to Cont's (including ListFns, since Cont : ListApi); only the
-     ones actually overridden below need a definition. *)
+    constraint: a symbolic constructor like `Library.List`'s `::` is not reachable
+    through the generic `qual_ident` grammar at all -- its `mod_ident DOT IDENT`
+    alternative only ever accepts a plain `IDENT` (see core `parser.mly`), not one
+    of the operator-shaped tokens a symbolic name can be declared with (see
+    `parser.mly`'s `decl_name`) -- so a qualified `is`/`match` syntax would need
+    that grammar extended just to reach it. Resolving unqualified names against the
+    scrutinee's own type works uniformly for both plain `data` types and `List`
+    with no such special case. *)
+module MatchExt (Cont : Ext) = struct
+  (* Every hook defaults to Cont's; only the ones actually overridden below need a
+     definition. *)
   include Cont
 
   let lib_source = None
@@ -48,7 +48,7 @@ module MatchExt (Cont : ListApi) = struct
   }
 
   (** Tag carries the resolved constructor's own qual_ident (e.g.
-      `Library.ListM$Int.cons`, or `MyModule.MyType.cons` for a user `data` type) --
+      `Library.List$Int.::`, or `MyModule.MyType.cons` for a user `data` type) --
       resolved once, at type-checking time, against the scrutinee's own type; by the
       time [rewrite_expr_ext] runs, no further name resolution is needed. *)
   type Expr.expr_ext +=
@@ -57,16 +57,15 @@ module MatchExt (Cont : ListApi) = struct
 
   (* Resolves [tp] to its own qual_ident and variant list if it's a `data` type,
      [None] otherwise. Mirrors [DecreasesExt.as_data_type] (lib/ext/decreasesExt/
-     decreasesExt.ml), extended with one more case: an extension-provided type (e.g.
-     `List[T]`, represented during type-checking as its own `Type.type_ext`, not yet
-     the real `data` type it's backed by -- see `ListExt.rewrite_type_ext`) is forced
-     through the active chain's own [rewrite_type_ext] once, to resolve it down to
-     the concrete, instantiated module type it's ultimately backed by, before retrying
-     the same `Data` check. This covers `List` -- and any future extension-provided
-     type backed by a real `data` type -- generically, with no dependency on
-     `ListExt`'s internals. Only one level of indirection is unwound (matching
-     `List[T]`'s own single-step resolution); an extension type backed by another,
-     further-nested extension type is out of scope for now. *)
+     decreasesExt.ml), extended with one more case: an extension-provided type
+     (e.g. `Proph[T]`, represented during type-checking as its own `Type.type_ext`,
+     not yet whatever it's ultimately backed by) is forced through the active
+     chain's own [rewrite_type_ext] once, to resolve it down to the concrete type
+     it elaborates to, before retrying the same `Data` check. This covers any
+     extension-provided type backed by a real `data` type generically, with no
+     dependency on any specific extension's internals. Only one level of
+     indirection is unwound; an extension type backed by another, further-nested
+     extension type is out of scope for now. *)
   let as_data_type (tp : type_expr) : (qual_ident * Type.variant_decl list) option Rewriter.t =
     let open Rewriter.Syntax in
     let data_type_of_var_type tp =

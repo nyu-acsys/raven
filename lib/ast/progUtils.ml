@@ -1234,27 +1234,20 @@ let get_or_intros_field_module ~(loc : location)
     argument types for the type-argument path, the argument fields for the field path.
 
     Split out from [instantiate_type_functor] because the two paths differ only in how
-    they arrive at the argument modules and the key.
-
-    [canonical_mod_ident], if given, overrides the derived name -- used by [ListExt] to
-    keep its pre-existing `ListExtMod$$`-prefixed naming. *)
+    they arrive at the argument modules and the key. *)
 let instantiate_functor_at_modules ~(loc : location)
     ~(functor_qual_ident : qual_ident)
-    ~(functor_mod_decl : AstDef.Module.module_decl)
-    ?(canonical_mod_ident : ident option) ~(insert_scope : qual_ident)
+    ~(functor_mod_decl : AstDef.Module.module_decl) ~(insert_scope : qual_ident)
     ~(reference_scope : qual_ident) ~(inst_key : string)
     (arg_module_qis : qual_ident list) : qual_ident t =
   let open Rewriter.Syntax in
   let inst_mod_ident =
-    match canonical_mod_ident with
-    | Some ident -> ident
-    | None ->
-        let mod_name_string =
-          inst_mod_ident_prefix
-          ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
-          ^ "$$" ^ inst_key
-        in
-        Ident.make loc (serialize mod_name_string) 0
+    let mod_name_string =
+      inst_mod_ident_prefix
+      ^ AstDef.Ident.to_string functor_mod_decl.mod_decl_name
+      ^ "$$" ^ inst_key
+    in
+    Ident.make loc (serialize mod_name_string) 0
   in
   let inst_qi = QualIdent.append reference_scope inst_mod_ident in
   let* resolve_result = Rewriter.resolve_opt inst_qi in
@@ -1282,16 +1275,18 @@ let instantiate_functor_at_modules ~(loc : location)
       inst_qi
 
 (** Get or create (and typecheck) the instantiation
-    [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic version of
-    what [ListExt.rewrite_type_ext] does for `List[T]`. Every formal of
-    [functor_mod_decl] must be constrained by a rep-typed module/interface. Each
-    argument type is wrapped via [intros_rep_module] (deduplicated), then handed to
+    [functor_qual_ident][arg_types...] -- the generalized, functor-agnostic
+    primitive behind any surface syntax that instantiates a generic module
+    (explicit `module M = F[args]`, `M[args]` written directly in type position,
+    or an extension building an instantiation of its own, e.g. `ProphecyExt`'s
+    `Library.List[T]`; see its doc comment). Every formal of [functor_mod_decl]
+    must be constrained by a rep-typed module/interface. Each argument type is
+    wrapped via [intros_rep_module] (deduplicated), then handed to
     [instantiate_functor_at_modules]. Returns the instantiation's qualified name. *)
 let instantiate_type_functor ~(loc : location)
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
     ~(functor_qual_ident : qual_ident)
     ~(functor_mod_decl : AstDef.Module.module_decl)
-    ?(canonical_mod_ident : ident option)
     (arg_types : AstDef.type_expr list) : qual_ident t =
   let open Rewriter.Syntax in
   if
@@ -1329,4 +1324,50 @@ let instantiate_type_functor ~(loc : location)
       String.concat ~sep:"," (Base.List.map arg_types ~f:AstDef.Type.to_string)
     in
     instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
-      ?canonical_mod_ident ~insert_scope ~reference_scope ~inst_key arg_module_qis
+      ~insert_scope ~reference_scope ~inst_key arg_module_qis
+
+(** The converse of [instantiate_type_functor] for a single-type-argument functor:
+    recognizes whether [tp] is the rep type of a module instantiated from
+    [functor_qual_ident] -- i.e. [tp] has the shape [M.T] where [M] is
+    `module M = functor_qual_ident[_]`, however [M] is named or wherever it was
+    introduced (by a user, or by [instantiate_type_functor] itself) -- and if so
+    returns that instantiation's own argument type. Checked structurally, off the
+    instantiation's own recorded [mod_inst_def], rather than by any naming
+    convention, so it recognizes any such module uniformly. Only handles a functor
+    with exactly one `[T: Type]`-shaped argument; extend the return type to a full
+    [module_inst_arg list] if a multi-argument caller ever needs this.
+
+    Type-checking-time use only: [find]/[Symbol.extract] hand back a [ModInst] with
+    [mod_inst_def] intact only while the declaration is still live as such. By the
+    rewrite phase, name resolution on an instantiation's own qual_ident answers with
+    the [ModDef] it was elaborated into instead (needed for ordinary member access,
+    but no longer carrying which functor produced it) -- so a rewrite-time caller
+    trying to recover a not-yet-known argument type this way will always get [None],
+    silently. Recover it from wherever it was already computed and thread it through
+    instead of trying to re-derive it at rewrite time in the first place; see
+    ProphecyExt.ProphResource's own doc comment for a worked example of exactly this
+    trap, and why. *)
+let instantiation_arg (functor_qual_ident : qual_ident) (tp : AstDef.type_expr) :
+    AstDef.type_expr option t =
+  let open Rewriter.Syntax in
+  match tp with
+  | AstDef.Type.App (Var rep_type_qi, [], _) -> (
+      let mod_qi = QualIdent.pop rep_type_qi in
+      (* [find], not [find_and_reify]/[find_and_reify_module]: those reify a
+         [ModInst] into the [ModDef] it expands to, which is what's wanted almost
+         everywhere else but loses exactly the [mod_inst_def] provenance this
+         needs. [Symbol.extract] is the primitive that hands back the raw,
+         unreified symbol -- the same one [DecreasesExt.does_module_implement_wf_order]
+         uses to walk a [ModInst] chain for the same reason. *)
+      let* symbol = Rewriter.find mod_qi in
+      Rewriter.Symbol.extract symbol ~f:(fun _ _ sym ->
+        match sym with
+        | AstDef.Module.ModInst
+            { mod_inst_def = Some (f_qi, [ AstDef.Module.ModArg arg_qi ]); _ }
+          when QualIdent.(f_qi = functor_qual_ident) ->
+            return
+              (Some
+                 (AstDef.Type.mk_var ~loc:(QualIdent.to_loc rep_type_qi)
+                    (QualIdent.append arg_qi AstDef.Predefs.lib_type_rep_type_ident)))
+        | _ -> return None))
+  | _ -> return None

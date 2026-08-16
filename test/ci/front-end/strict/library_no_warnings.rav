@@ -1,4 +1,4 @@
-module IntList = Library.ListM[Library.IntType]
+module IntList = Library.List[Library.IntType]
 
 proc use_list(l: IntList.T)
 {

@@ -1,6 +1,6 @@
 (library
  (name frontend)
- (libraries base ast ext defaultExt listExt prophecyExt)
+ (libraries base ast ext defaultExt prophecyExt)
  (preprocess
   (pps ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
 
@@ -11,11 +11,6 @@
 
 (ocamllex
  (modules lexer))
-
-(rule
- (target listExt_parser.mly)
- (deps ../ext/listExt/listExt_parser.mly)
- (action (copy %{deps} %{target})))
 
 (rule
  (target prophecyExt.mly)
@@ -48,6 +43,6 @@
  (action (copy %{deps} %{target})))
 
 (menhir
- (modules parser listExt_parser prophecyExt errorCreditsExt_parser sampleExt_parser decreasesExt_parser assertWithExt_parser matchExt_parser)
+ (modules parser prophecyExt errorCreditsExt_parser sampleExt_parser decreasesExt_parser assertWithExt_parser matchExt_parser)
  (merge_into parser)
  (flags --explain))

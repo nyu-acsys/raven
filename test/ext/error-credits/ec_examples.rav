@@ -1,4 +1,5 @@
-module IntList = Library.ListM[Library.IntType]
+module IntList = Library.List[Library.IntType]
+import IntList._
 
 proc p0() 
   returns (ret: Int)
@@ -84,7 +85,7 @@ proc toy() returns (ret: Bool)
 proc p4()
 {
   inhale -*-(0.4);
-  var n := IntList.cons(1, IntList.cons(2, IntList.nil));
+  var n := 1 :: 2 :: IntList.nil;
   var k := EC.rand(5; ECList: !in n);
   assert k != 1;
 }
@@ -92,5 +93,5 @@ proc p4()
 proc p5() {
   inhale -*-(0.4);
 
-  var k2 := EC.rand(5; ECList: !in (1 :: List.cons(5, List.nil)));
+  var k2 := EC.rand(5; ECList: !in (1 :: 5 :: IntList.nil));
 }

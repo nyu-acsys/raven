@@ -79,28 +79,51 @@ let mk_exit ?loc () = Exit loc
 
 open Stdlib.Format
 
-let pr_smt_ident ppf id = 
+(* SMT-LIB restricts unquoted (`simple_symbol`) tokens to letters, digits, and this
+   punctuation set; `:` is reserved to introduce keyword attributes (`:pattern`,
+   `:named`, ...) and is excluded even though it's part of Raven's own operator
+   alphabet -- a user-declared right-associative operator (`::`-shaped) is exactly
+   what forces this. `,` (also in Raven's operator_char) is excluded too. *)
+let is_smt_simple_symbol_char = function
+  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9'
+  | '~' | '!' | '@' | '$' | '%' | '^' | '&' | '*' | '_' | '-' | '+' | '=' | '<'
+  | '>' | '.' | '?' | '/' ->
+      true
+  | _ -> false
+
+let pr_smt_ident ppf id =
   let smt_ident_sanitize_map = (
-    function 
+    function
     | '\'' -> '_'
     | x -> x
   ) in
 
-  let sanitized_ident = 
-    if QualIdent.(id = QualIdent.from_ident (Ident.make Loc.dummy "_" 0)) then 
-      QualIdent.from_ident (Ident.make Loc.dummy "_0" 0) 
+  let sanitized_ident =
+    if QualIdent.(id = QualIdent.from_ident (Ident.make Loc.dummy "_" 0)) then
+      QualIdent.from_ident (Ident.make Loc.dummy "_0" 0)
     else QualIdent.sanitize smt_ident_sanitize_map id in
 
-  (* Logs.debug (fun m -> m 
-    "smtLibAST.pr_smt_ident: 
+  (* Logs.debug (fun m -> m
+    "smtLibAST.pr_smt_ident:
       Original Ident: %a
       Sanitized ident: %a"
       QualIdent.pr id
       QualIdent.pr sanitized_ident
   ); *)
 
-
-  QualIdent.pr ppf sanitized_ident
+  let printed = QualIdent.to_string sanitized_ident in
+  if String.for_all printed ~f:is_smt_simple_symbol_char then
+    fprintf ppf "%s" printed
+  else if String.exists printed ~f:(fun c -> Char.(c = '|' || c = '\\')) then
+    (* SMT-LIB's quoted-symbol syntax permits any character except these two, with
+       no escape mechanism for them -- an identifier containing either has no legal
+       SMT-LIB representation at all, quoted or not. *)
+    Error.internal_error (QualIdent.to_loc id)
+      (Printf.sprintf
+         "identifier `%s` cannot be represented in SMT-LIB output: contains '|' or \
+          '\\', which SMT-LIB's quoted-symbol syntax cannot escape"
+         printed)
+  else fprintf ppf "|%s|" printed
 
 let rec pr_smt_idents ppf = function
   | [] -> ()
