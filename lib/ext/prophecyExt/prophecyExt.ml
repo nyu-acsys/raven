@@ -71,11 +71,11 @@ module ProphecyExt (Cont : Ext) = struct
 
   (* New statements:
       - generate new prophecies. bool represents whether it is a one-shot prophecy or a multi-shot prophecy.
-      - resolve prophecies. bool likewise records one-shot vs multi-shot, determined during type-checking from the prophecy id's type.
+      - resolve prophecies. bool likewise records one-shot vs multi-shot, determined during type-checking from the prophecy id's type. The element type is recorded too, for the same reason `ProphResource`'s is (see above) -- it used to be re-derived at rewrite time from `resolve_value`'s own type, which works for recovering *that* `T` (resolve_value's type is always `T` itself, never the multi-shot `List[T]` instantiation, so the `ModInst`-provenance problem `ProphResource` has doesn't apply here), but not for naming the `List[...]`/`ProphecyMod$...` instantiation this `T` is itself used to build in `initialize_prophecy_module` when `T` nests another `Proph[T']`: by rewrite time, the whole-module type-lowering pass has already turned that nested `Proph[T']` into `Ref`, which would derive a different name than the type-checking-time instantiation of the same `T`.
   *)
   type Stmt.stmt_ext +=
     | NewProph of bool * type_expr
-    | ResolveProph of bool
+    | ResolveProph of bool * type_expr
 
   (* This is what type_expr in Raven look like.
       The arguments to Type.mk_app in order:
@@ -214,9 +214,10 @@ module ProphecyExt (Cont : Ext) = struct
       (* Append the fixed proph_field_ident (specified in prophecyLib.rav), to the specific instantiation of the prophecy module.  *)
       [QualIdent.append proph_mod_qi proph_field_ident]
 
-      (* Same field getting modified when resolving a prophecy. Resolve's second argument is always of the predicted element type T (never List[T], one-shot or not), so we can read it straight off `resolve_val`'s type -- same as before genericity. *)
-    | ResolveProph one_shot, [proph_id; resolve_val] ->
-      let typ = Expr.to_type resolve_val in
+      (* Same field getting modified when resolving a prophecy. `typ` here is the
+         predicted element type T, recorded at type-checking time (see
+         `ResolveProph`'s declaration above). *)
+    | ResolveProph (one_shot, typ), [_proph_id; _resolve_val] ->
       let proph_mod_qi = prophecy_module_from_type_qi ~loc:Loc.dummy typ in
       let proph_field_ident = ProphPredefs.field_ident one_shot in
 
@@ -260,31 +261,37 @@ module ProphecyExt (Cont : Ext) = struct
   (* Rewriter *)
 
   (* These methods are used if our constructors contain _type_expr_'s: `NewProph`
-     stores its own type argument directly, and `ProphResource` now does too (see
-     its declaration above for why). ~f refers to a function which *rewrites*
-     types. This is part of Raven's internal infrastructure of rewrites.
+     and `ResolveProph` store their element type directly, and `ProphResource` now
+     does too (see its declaration above for why). ~f refers to a function which
+     *rewrites* types. This is part of Raven's internal infrastructure of rewrites.
 
-     ResolveProph stores no type_expr of its own -- its element type is always
-     recoverable from resolve_value's own type at rewrite time (see
-     [rewrite_basic_stmt_ext] below; unlike ProphResource's `v`, this one is never
-     the multi-shot List-instantiation case, so the ModInst-provenance problem
-     ProphResource has doesn't apply here) -- so Cont's default is used for it.
-  *)
+     None of the three runs `f` over its stored type_expr, deliberately: that type
+     is used only to name/look up the canonical `List[...]`/`ProphecyMod$...`
+     instantiation via `initialize_prophecy_module`, which must stay the same
+     instantiation an ordinary reference to this type (e.g. a var declared at this
+     type) already resolved to at type-checking time. `f` here is the generic
+     type-lowering walk (`Rewrites.rewrites_type_ext`, run over the whole module
+     *before* `rewrite_basic_stmt_ext`/`rewrite_expr_ext` below), which turns any
+     `Proph[T']` nested inside the stored type into `Ref` -- so applying it here
+     would derive a *different* name than the type-checking-time instantiation
+     whenever the element type itself nests a prophecy type argument (e.g.
+     `Proph[(Bool, Proph[Int])]`), producing two distinct, mismatched
+     instantiations of what both are meant to denote as the same
+     `List[...]`/type module and, downstream, a raw "unknown constant" from Z3 (or
+     an unexplained permission-check failure, for a field derived from the wrong
+     instantiation) rather than anything diagnosable. The type was already fully
+     expanded once at type-checking time, and `rewrite_basic_stmt_ext`/
+     `rewrite_expr_ext` re-expand what they need locally right before calling
+     `initialize_prophecy_module`, so nothing legitimate is lost by leaving it
+     untouched here. *)
   let expr_ext_rewrite_types ~f expr_ext =
-    let open Rewriter.Syntax in
     match expr_ext with
-    | ProphResource (b, tp_expr) ->
-      let+ tp_expr = f tp_expr in
-      ProphResource (b, tp_expr)
+    | ProphResource _ -> Rewriter.return expr_ext
     | _ -> Cont.expr_ext_rewrite_types ~f expr_ext
 
   let basic_stmt_ext_rewrite_types ~f stmt_ext =
-    let open Rewriter.Syntax in
     match stmt_ext with
-    | NewProph (b, tp_expr) ->
-      (* We run `f` on the type_expr we contain, and re-build the stmt_ext constr. *)
-      let+ tp_expr = f tp_expr in
-      NewProph (b, tp_expr)
+    | NewProph _ | ResolveProph _ -> Rewriter.return stmt_ext
     |_ -> Cont.basic_stmt_ext_rewrite_types ~f stmt_ext
 
   (* stmt_ext_rewrite: no top-level StmtExt constructor here, so Cont's default is
@@ -435,7 +442,7 @@ module ProphecyExt (Cont : Ext) = struct
 
       (* Constructing final return `Stmt.basic_stmt_desc` *)
       (Stmt.BasicStmtExt (
-        ResolveProph one_shot, [proph_id; resolve_value]
+        ResolveProph (one_shot, elem_typ), [proph_id; resolve_value]
       ), disam_tbl) |> Rewriter.return
 
     | ResolveProph _, _ ->
@@ -679,10 +686,13 @@ module ProphecyExt (Cont : Ext) = struct
             Error.internal_error loc "unexpected argument count for new Proph(...) at rewrite time (already validated during type-checking)"
 
     (* For ```Proph.resolve(proph_id, resolve_value)``` statements *)
-    | ResolveProph one_shot, [proph_id; resolve_value] ->
-      (* Resolve's second argument is always of the predicted element type T (never
-         List[T], one-shot or not), so `typ` is read straight off it. *)
-      let typ = Expr.to_type resolve_value in
+    | ResolveProph (one_shot, typ), [proph_id; resolve_value] ->
+      (* `typ` (the predicted element type T -- resolve's second argument is
+         always of this type directly, never List[T], one-shot or not) was
+         recorded at type-checking time; see `ResolveProph`'s declaration above
+         for why it can no longer just be read off `resolve_value`'s own type
+         here. *)
+      let* typ = !Rewriter.expand_type_expr_ref typ in
       let* proph_module_qi = initialize_prophecy_module loc typ in
       let prophecy_field_qi = QualIdent.append proph_module_qi
         (Ident.set_loc loc (ProphPredefs.field_ident one_shot))

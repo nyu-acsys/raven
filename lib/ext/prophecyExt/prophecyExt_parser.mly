@@ -66,6 +66,6 @@ let lhs_list_loc ~fallback_loc es =
 
 %public stmt_ext:
 | PROPH DOT RESOLVE; LPAREN; e1=expr; COMMA; e2=expr; RPAREN SEMICOLON {
-  (* `false` is a placeholder; see the comment on `ProphResource` above. *)
-  [Stmt.Basic (BasicStmtExt (ResolveProph false, [e1; e2]))]
+  (* `false`/`Type.any` are placeholders; see the comment on `ProphResource` above. *)
+  [Stmt.Basic (BasicStmtExt (ResolveProph (false, Type.any), [e1; e2]))]
 }
