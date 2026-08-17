@@ -1,0 +1,30 @@
+// Regression test: a nullary constructor (`nil`) that appears as an *argument* to
+// another call into the same uninstantiated generic functor (e.g. `1 :: nil`) must
+// also be able to infer its instantiation, not just when it's the whole expression
+// (see nil_implicit_instantiation.rav). This used to fail: peeking `nil`'s own type
+// while peeking `::`'s arguments hard-erred immediately, before `::` ever got a
+// chance to combine `nil`'s sibling argument's type (or its own expected type) into
+// an instantiation. `nil`'s peek must instead defer, letting the enclosing call's
+// other information -- or the reprocess against its resolved instantiation once
+// found -- supply the answer.
+import Library._
+import Library.List._
+
+proc p() {
+  // The expected type comes from the declared variable, same as the `::` call's own
+  // return type -- the base case an explicit instantiation would also solve.
+  var xs: List[Int] := 1 :: nil;
+  assert xs == 1 :: nil;
+
+  // No expected type anywhere; only `1`'s own type pins `nil`'s instantiation, and
+  // only via reprocessing `nil` once `::`'s formal is resolved from its sibling
+  // argument.
+  var ys := 1 :: nil;
+  assert ys == xs;
+
+  // Nested: the inner `2 :: nil` must itself defer identically while being peeked as
+  // the outer `::`'s own argument.
+  var zs: List[Int] := 1 :: (2 :: nil);
+  assert zs == 1 :: (2 :: nil);
+  assert zs != nil;
+}

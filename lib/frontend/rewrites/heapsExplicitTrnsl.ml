@@ -340,8 +340,8 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
      Logs.debug (fun m -> m "arg_expr: %a" Expr.pr arg_expr);
      Logs.debug (fun m -> m "inv_expr_type: %a; arg_expr_type: %a" Type.pr (Expr.to_type inv_expr) Type.pr (Expr.to_type arg_expr)); *)
   let open Rewriter.Syntax in
-  let* tp1 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type inv_expr)
-  and* tp2 = Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type arg_expr) in
+  let* tp1 = !Rewriter.expand_type_expr_ref (Expr.to_type inv_expr)
+  and* tp2 = !Rewriter.expand_type_expr_ref (Expr.to_type arg_expr) in
 
   (* [inv_expr] and [arg_expr] need not be *exactly* the same type anymore now that
      `FinSet[T] <: Set[T]` exists: e.g. `inv_expr` can be `{||}` (typed `FinSet[K]`,
@@ -4356,7 +4356,7 @@ module TrnslExhale = struct
               in
 
               let* pred_heap_expanded_type =
-                Typing.ProcessTypeExpr.expand_type_expr
+                !Rewriter.expand_type_expr_ref
                   (Expr.to_type pred_heap_val)
               in
 

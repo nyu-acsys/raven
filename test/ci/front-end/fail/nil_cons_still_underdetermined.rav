@@ -1,0 +1,12 @@
+// `nil :: nil` has no source of information anywhere -- neither `nil` (the head)
+// nor `nil` (the tail) pins `List`'s formal, and there's no surrounding expected
+// type. This must still be rejected: peeking `nil` as an argument of `::` defers
+// rather than erring immediately (see nil_cons_implicit_instantiation.rav), but once
+// every pair has been gathered and the functor's formal is still unresolved, this is
+// the final word.
+import Library._
+import Library.List._
+
+proc p() {
+  assert nil :: nil == nil :: nil;
+}

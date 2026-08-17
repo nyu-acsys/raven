@@ -76,7 +76,7 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   Callable.{ call_decl; call_def }
 
 let rec rewrite_expand_types (tp_expr : type_expr) : type_expr Rewriter.t =
-  Typing.ProcessTypeExpr.expand_type_expr tp_expr
+  !Rewriter.expand_type_expr_ref tp_expr
 
 let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
@@ -1916,7 +1916,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
       if is_field_an_ra then Rewriter.return symbol
       else
         let* field_type =
-          Typing.ProcessTypeExpr.expand_type_expr f.field_type
+          !Rewriter.expand_type_expr_ref f.field_type
         in
         let field_underlying_tp =
           match field_type with
@@ -2023,7 +2023,7 @@ let rec rewrite_own_expr_4_arg (expr : Expr.t) : Expr.t Rewriter.t =
           printers.pr_type field_type
       ) in
 
-      let* field_type = Typing.ProcessTypeExpr.expand_type_expr field_type in
+      let* field_type = !Rewriter.expand_type_expr_ref field_type in
       let field_name = QualIdent.unqualify (Expr.to_qual_ident expr2) in
 
       let* () = Rewriter.Logs.debug (fun printers m -> m
@@ -2104,7 +2104,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
             | None -> Rewriter.return (field_name, expr_optn)
             | Some expr ->
                 let* expr_typ =
-                  Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type expr)
+                  !Rewriter.expand_type_expr_ref (Expr.to_type expr)
                 in
 
                 let* field_elem_type =
@@ -2123,7 +2123,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
                 in
 
                 let* field_elem_typ_expanded =
-                  Typing.ProcessTypeExpr.expand_type_expr field_elem_type
+                  !Rewriter.expand_type_expr_ref field_elem_type
                 in
 
                 if Type.(expr_typ = field_elem_typ_expanded) then
@@ -2159,7 +2159,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let compute_new_expr old_expr field_name =
         let loc = Expr.to_loc old_expr in
         let* expr_typ =
-          Typing.ProcessTypeExpr.expand_type_expr (Expr.to_type old_expr)
+          !Rewriter.expand_type_expr_ref (Expr.to_type old_expr)
         in
 
         let* field_elem_type =
@@ -2174,7 +2174,7 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
         in
 
         let* field_elem_typ_expanded =
-          Typing.ProcessTypeExpr.expand_type_expr field_elem_type
+          !Rewriter.expand_type_expr_ref field_elem_type
         in
 
         if Type.(expr_typ = field_elem_typ_expanded) then

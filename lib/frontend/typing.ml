@@ -3,6 +3,49 @@ open Ast
 open Util
 open Error
 
+(** The monadic type used throughout type-checking below. Type-checking needs one
+    piece of pass-local state beyond what [Rewriter.state] carries generically: a
+    depth counter, > 0 while [ProcessExpr.peek_arg] is speculatively probing an
+    argument that might itself be an under-determined implicit functor instantiation
+    (see [ProcessExpr.try_resolve_implicit_instantiation]). Rather than adding a
+    typing-only field to the shared [Rewriter.state] record -- which every other pass
+    (rewrites, atomicity analysis, masks, ...) also carries around for no reason of
+    their own -- this is carried in the generic per-pass slot ([state_user_data])
+    [Rewriter.t_ext] already reserves for exactly this. Every entry point into this
+    file that other files call directly ([process_module], [process_symbol],
+    [ProcessTypeExpr.expand_type_expr] via [Rewriter.expand_type_expr_ref], the
+    ext_hooks callback bundles, ...) still presents a plain unit-state [Rewriter.t] --
+    see [run_typing]/[lift] below and their uses at those boundaries. *)
+type 'a t = ('a, int) Rewriter.t_ext
+
+(** Bridge from this file's internal [t] (speculative-depth state) down to the
+    ambient unit-state [Rewriter.t], for use at every externally-visible entry point.
+    The depth always starts (and, if callers balance their [peek_arg] entries/exits,
+    ends) at 0. *)
+let run_typing (m : 'a t) : 'a Rewriter.t = Rewriter.eval_with_user_state ~init:0 m
+
+(** The opposite bridge: lift a foreign, unit-state computation (typically an
+    ext_hooks callback, which is deliberately kept ignorant of this file's private
+    speculative-depth bookkeeping) into [t], leaving the current depth untouched
+    around it. *)
+let lift (m : 'a Rewriter.t) : 'a t =
+ fun (s : int Rewriter.state) ->
+  let s', a = m { s with Rewriter.state_user_data = () } in
+  ({ s' with Rewriter.state_user_data = s.Rewriter.state_user_data }, a)
+
+(** True while inside a [speculatively]-wrapped computation -- see
+    [ProcessExpr.peek_arg]. *)
+let is_speculative : bool t = fun s -> (s, s.Rewriter.state_user_data > 0)
+
+(** Run [m] with the speculative-peek depth counter incremented for its duration,
+    restoring the enclosing depth on the way out regardless of nesting -- see
+    [ProcessExpr.peek_arg]. *)
+let speculatively (m : 'a t) : 'a t =
+ fun s ->
+  let s = { s with Rewriter.state_user_data = s.Rewriter.state_user_data + 1 } in
+  let s', a = m s in
+  ({ s' with Rewriter.state_user_data = s.Rewriter.state_user_data - 1 }, a)
+
 let type_mismatch_error loc exp_ty fnd_ty =
   Error.type_error loc
     (Printf.sprintf
@@ -114,7 +157,7 @@ let unexpected_functor_error loc =
     "A functor can only be instantiated as the definition of a module (e.g. 'module M = F[...]'), not used as a type or value here"
 
 module ProcessTypeExpr = struct
-  let rec process_type_expr (tp_expr : type_expr) : type_expr Rewriter.t =
+  let rec process_type_expr (tp_expr : type_expr) : type_expr t =
     let open Type in
     let open Rewriter.Syntax in
     match tp_expr with
@@ -158,7 +201,7 @@ module ProcessTypeExpr = struct
                       (App (Var rep_fully_qualified_qual_ident, [], tp_attr))
                 | None -> (
                     let* generic_functor =
-                      ProgUtils.resolve_generic_functor qual_ident
+                      lift (ProgUtils.resolve_generic_functor qual_ident)
                     in
                     match generic_functor with
                     | Some (_, gm) ->
@@ -174,7 +217,7 @@ module ProcessTypeExpr = struct
         (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, implicitly
            instantiate it (see `ProgUtils.instantiate_type_functor`) and resolve to the
            instantiation's rep type. Anything else is still rejected, as before. *)
-        let* generic_functor = ProgUtils.resolve_generic_functor qual_ident in
+        let* generic_functor = lift (ProgUtils.resolve_generic_functor qual_ident) in
         match generic_functor with
         | None ->
             (* `resolve_generic_functor` also returns `None` when `qual_ident` fails to
@@ -194,10 +237,11 @@ module ProcessTypeExpr = struct
             else
               let* tp_args = Rewriter.List.map tp_args ~f:process_type_expr in
               let* inst_qual_ident =
-                ProgUtils.instantiate_type_functor ~loc:tp_attr.type_loc
-                  ~f:!(Rewriter.process_symbol_ref)
-                  ~functor_qual_ident:fully_qualified_qual_ident
-                  ~functor_mod_decl:m.mod_decl tp_args
+                lift
+                  (ProgUtils.instantiate_type_functor ~loc:tp_attr.type_loc
+                     ~f:!(Rewriter.process_symbol_ref)
+                     ~functor_qual_ident:fully_qualified_qual_ident
+                     ~functor_mod_decl:m.mod_decl tp_args)
               in
               (match m.mod_decl.mod_decl_rep with
               | None ->
@@ -242,14 +286,20 @@ module ProcessTypeExpr = struct
       App (AtomicToken qid, [], tp_attr)
     | App (TypeExt type_ext, tp_args, tp_attr) ->
       let* ext_hooks = Rewriter.current_ext_hooks in
-      ext_hooks.type_check_type_expr type_ext tp_args tp_attr { process_type_expr }
+      (* ext_hooks is a fixed, unit-state interface extensions are written against --
+         see [Typing.t]'s doc comment -- so bridge both directions here: hand it a
+         unit-state wrapper of our own (recursive) [process_type_expr], and [lift] its
+         unit-state result back into [t]. *)
+      lift
+        (ext_hooks.type_check_type_expr type_ext tp_args tp_attr
+           { process_type_expr = (fun tp -> run_typing (process_type_expr tp)) })
     | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
     | App (constr, _tp_list, _tp_attr) ->
         (* The parser should prevent this from happening. *)
         Error.internal_error (Type.to_loc tp_expr)
           (Type.to_name constr ^ " types don't take arguments")
 
-  let rec expand_type_expr (tp_expr : type_expr) : Type.t Rewriter.t =
+  let rec expand_type_expr (tp_expr : type_expr) : Type.t t =
     let open Rewriter.Syntax in
     match tp_expr with
     | App (constr, tp_expr_list, tp_attr) -> (
@@ -289,7 +339,7 @@ module ProcessTypeExpr = struct
             in
             Type.App (constr, expanded_tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
 
-  let process_var_decl (var_decl : var_decl) : var_decl Rewriter.t =
+  let process_var_decl (var_decl : var_decl) : var_decl t =
     let open Rewriter.Syntax in
     let* var_type = process_type_expr var_decl.var_type in
     let+ var_type = expand_type_expr var_type in
@@ -299,7 +349,7 @@ end
 module ProcessExpr = struct
 (* module ProcessExpr = struct *)
   let check_and_set (expr : expr) (given_typ_lb : type_expr)
-      (given_typ_ub : type_expr) (expected_typ : type_expr) : expr Rewriter.t =
+      (given_typ_ub : type_expr) (expected_typ : type_expr) : expr t =
     let open Rewriter.Syntax in
     let expected_ghost = Type.is_ghost expected_typ in
     let+ given_typ_lb =
@@ -339,7 +389,7 @@ module ProcessExpr = struct
       assignment statement of the form [x1, ..., xn := p(e1, ..., em)] -- procedure/lemma calls are
       statements, not pure expressions, and cannot be embedded anywhere else (e.g. as an argument
       to another call, inside a return statement, or combined with other operators). *)
-  let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) : expr Rewriter.t
+  let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) : expr t
     =
     let open Rewriter.Syntax in
     let* () = Rewriter.Logs.debug (fun printers m -> m "process_expr: %a; expected: %a is ghost: %b" printers.pr_expr expr printers.pr_type expected_typ (Type.is_ghost expected_typ)) in
@@ -377,10 +427,10 @@ module ProcessExpr = struct
               (Expr.constr_to_string constr ^ " takes no arguments")
         (* Variables, fields, and call expressions *)
         | Var qual_ident, args_list ->
-          (let* qual_ident, symbol =
+          (let* resolved =
               (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
                  its type argument(s) from the call and rewrite to the instantiation. *)
-              resolve_or_implicit qual_ident ~on_miss:(fun () ->
+              resolve_or_implicit_opt qual_ident ~on_miss:(fun () ->
                   (* An unqualified name imported from an uninstantiated functor
                      carries no functor path of its own, so recover the candidate
                      from the import before trying to solve the parameters. *)
@@ -391,6 +441,26 @@ module ProcessExpr = struct
                   try_resolve_implicit_instantiation ~loc:(Expr.to_loc expr)
                     ~qual_ident:candidate ~arg_exprs:args_list ~expected_typ ())
             in
+            match resolved with
+            | None ->
+                (* Neither plain resolution nor implicit instantiation could pin this
+                   down. If this whole attempt is itself speculative -- [qual_ident] is
+                   being peeked as an argument of some enclosing, still-uninstantiated
+                   functor call (see [peek_arg]) -- defer instead of erring: report this
+                   sub-expression as uninformative (the same `Bot` signal an
+                   underdetermined literal like `{||}` already produces) and let the
+                   enclosing call's other information, or its reprocess of this very
+                   expression once resolved, supply the answer instead. Otherwise this
+                   is the final word, so fall through to the ordinary unknown-identifier
+                   error. *)
+                let* speculative = is_speculative in
+                if speculative then check_and_set expr Type.bot Type.bot expected_typ
+                else
+                  let* _ = Rewriter.resolve_and_find qual_ident in
+                  Error.internal_error (Expr.to_loc expr)
+                    "Rewriter.resolve_and_find unexpectedly succeeded after \
+                     resolve_or_implicit_opt failed"
+            | Some (qual_ident, symbol) ->
             (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
             let* symbol = Rewriter.Symbol.reify symbol in
             match symbol with
@@ -430,7 +500,7 @@ module ProcessExpr = struct
                       Rewriter.List.iter
                         (callable.call_decl.call_decl_precond @ callable.call_decl.call_decl_postcond)
                         ~f:(fun spec ->
-                            let+ is_pure = ProgUtils.is_expr_pure spec.spec_form in
+                            let+ is_pure = lift (ProgUtils.is_expr_pure spec.spec_form) in
                             if not is_pure then 
                               Error.type_error callable.call_decl.call_decl_loc
                                 (Printf.sprintf !"This specification of auto lemma %{Ident} is not pure" callable.call_decl.call_decl_name))
@@ -755,7 +825,7 @@ module ProcessExpr = struct
                   Error.type_error (Expr.to_loc expr2)
                     "Expected field identifier"
             in
-            let* is_ra_type = ProgUtils.is_ra_type field_type in
+            let* is_ra_type = lift (ProgUtils.is_ra_type field_type) in
             let* expr3 = process_expr expr3 field_type
 
             (* Implicitely case-split on heap RA vs. other RA *)
@@ -971,7 +1041,16 @@ module ProcessExpr = struct
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
         | ExprExt expr_ext, expr_list ->
           let* ext_hooks = Rewriter.current_ext_hooks in
-          ext_hooks.type_check_expr expr_ext expr_list expr_attr expected_typ {check_and_set; process_expr; type_mismatch_error; expand_type_expr = ProcessTypeExpr.expand_type_expr}
+          lift
+            (ext_hooks.type_check_expr expr_ext expr_list expr_attr expected_typ
+               {
+                 check_and_set =
+                   (fun e lb ub exp -> run_typing (check_and_set e lb ub exp));
+                 process_expr = (fun e exp -> run_typing (process_expr e exp));
+                 type_mismatch_error;
+                 expand_type_expr =
+                   (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
+               })
       )
 
     | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
@@ -1150,8 +1229,8 @@ module ProcessExpr = struct
       and, if it rewrites to a new qual_ident, resolve that instead. [None] if neither
       applies. *)
   and resolve_or_implicit_opt (qual_ident : qual_ident)
-      ~(on_miss : unit -> qual_ident option Rewriter.t) :
-      (qual_ident * Rewriter.Symbol.t) option Rewriter.t =
+      ~(on_miss : unit -> qual_ident option t) :
+      (qual_ident * Rewriter.Symbol.t) option t =
     let open Rewriter.Syntax in
     let* resolved = Rewriter.resolve_and_find_opt qual_ident in
     match resolved with
@@ -1165,8 +1244,8 @@ module ProcessExpr = struct
   (** [resolve_or_implicit_opt], but raising the ordinary "unknown identifier" error
       instead of returning [None] when [on_miss] doesn't apply either. *)
   and resolve_or_implicit (qual_ident : qual_ident)
-      ~(on_miss : unit -> qual_ident option Rewriter.t) :
-      (qual_ident * Rewriter.Symbol.t) Rewriter.t =
+      ~(on_miss : unit -> qual_ident option t) :
+      (qual_ident * Rewriter.Symbol.t) t =
     let open Rewriter.Syntax in
     let* resolved = resolve_or_implicit_opt qual_ident ~on_miss in
     match resolved with
@@ -1180,13 +1259,13 @@ module ProcessExpr = struct
       [try_resolve_implicit_instantiation] and
       [try_resolve_implicit_instantiation_destr]. *)
   and resolve_generic_functor_prefix (qi : qual_ident) :
-      (qual_ident * Module.t * ident) option Rewriter.t =
+      (qual_ident * Module.t * ident) option t =
     let open Rewriter.Syntax in
     if List.is_empty (QualIdent.path qi) then Rewriter.return None
     else
       let functor_qi_written = QualIdent.pop qi in
       let member_ident = QualIdent.unqualify qi in
-      let+ functor_resolved = ProgUtils.resolve_generic_functor functor_qi_written in
+      let+ functor_resolved = lift (ProgUtils.resolve_generic_functor functor_qi_written) in
       Option.map functor_resolved ~f:(fun (functor_qual_ident, m) ->
           (functor_qual_ident, m, member_ident))
 
@@ -1194,7 +1273,7 @@ module ProcessExpr = struct
       [functor_qual_ident]: an instantiation's alias resolves back to
       [functor_qual_ident] itself, via [Rewriter.Symbol.orig_qid]. *)
   and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
-      bool Rewriter.t =
+      bool t =
     let open Rewriter.Syntax in
     let+ resolved = Rewriter.resolve_and_find_opt qi in
     match resolved with
@@ -1205,7 +1284,7 @@ module ProcessExpr = struct
       it's a raw, self-referentially-read-back type) names an existing instantiation
       of functor [m]; return that instantiation's qualified name on success. *)
   and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Module.t)
-      (typ : type_expr) : qual_ident option Rewriter.t =
+      (typ : type_expr) : qual_ident option t =
     let open Rewriter.Syntax in
     match m.mod_decl.mod_decl_rep with
     | None -> Rewriter.return None
@@ -1226,11 +1305,11 @@ module ProcessExpr = struct
       ident). Used both for a functor's formals and for a field interface's own module
       members. *)
   and rep_vars_of_insts ~(scope_qi : qual_ident) (insts : Module.module_inst list) :
-      (qual_ident * ident * ident) list Rewriter.t =
+      (qual_ident * ident * ident) list t =
     let open Rewriter.Syntax in
     let+ vars =
       Rewriter.List.map insts ~f:(fun inst ->
-          let+ rep = ProgUtils.resolve_rep_ident inst.mod_inst_type in
+          let+ rep = lift (ProgUtils.resolve_rep_ident inst.mod_inst_type) in
           Base.Option.map rep ~f:(fun (_, rep_ident) ->
               ( QualIdent.append (QualIdent.append scope_qi inst.mod_inst_name) rep_ident,
                 inst.mod_inst_name,
@@ -1248,7 +1327,7 @@ module ProcessExpr = struct
   and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
       ~(formal_reps : (qual_ident * ident * ident) list)
       ~(m_rep_qi : qual_ident option) (u : (ident * type_expr) list)
-      (pairs : (type_expr * type_expr) list) : (ident * type_expr) list Rewriter.t =
+      (pairs : (type_expr * type_expr) list) : (ident * type_expr) list t =
     let open Rewriter.Syntax in
     (* Canonicalize via [expand_type_expr] before storing/comparing: two bindings for
        the same formal can be the same type reached through different alias chains
@@ -1344,7 +1423,7 @@ module ProcessExpr = struct
       stand for, and the indices of the arguments consumed. *)
   and solve_field_formals ~(loc : location) ~(functor_qual_ident : qual_ident)
       ~(loc_params : qual_ident list) ~(arg_exprs : expr list) :
-      ((ident * qual_ident) list * int list) Rewriter.t =
+      ((ident * qual_ident) list * int list) t =
     let open Rewriter.Syntax in
     let indexed = List.mapi loc_params ~f:(fun i field -> (i, field)) in
     let+ solved =
@@ -1378,7 +1457,7 @@ module ProcessExpr = struct
   and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
       ~(reference_scope : qual_ident) ~(interface_qi : qual_ident)
       ~(field : Module.field_def) ~(mod_members : Module.module_inst list)
-      ~(field_qi : qual_ident) ~(field_type : type_expr) : qual_ident Rewriter.t =
+      ~(field_qi : qual_ident) ~(field_type : type_expr) : qual_ident t =
     let open Rewriter.Syntax in
     let* formal_reps = rep_vars_of_insts ~scope_qi:interface_qi mod_members in
     let* bindings =
@@ -1402,7 +1481,7 @@ module ProcessExpr = struct
                      %{QualIdent}; write an explicit instantiation instead"
                    member.mod_inst_name interface_qi field_qi)
           | Some tp ->
-              let* rep = ProgUtils.resolve_rep_ident member.mod_inst_type in
+              let* rep = lift (ProgUtils.resolve_rep_ident member.mod_inst_type) in
               let interface_qual_ident, rep_ident =
                 match rep with
                 | Some r -> r
@@ -1413,14 +1492,16 @@ module ProcessExpr = struct
                          member.mod_inst_name member.mod_inst_type)
               in
               let+ mod_qi =
-                ProgUtils.get_or_intros_rep_module ~loc
-                  ~f:!(Rewriter.process_symbol_ref) ~insert_scope ~reference_scope
-                  ~interface_qual_ident ~rep_ident tp
+                lift
+                  (ProgUtils.get_or_intros_rep_module ~loc
+                     ~f:!(Rewriter.process_symbol_ref) ~insert_scope ~reference_scope
+                     ~interface_qual_ident ~rep_ident tp)
               in
               (member.mod_inst_name, mod_qi))
     in
-    ProgUtils.get_or_intros_field_module ~loc ~insert_scope ~reference_scope
-      ~interface_qual_ident:interface_qi ~field ~field_qi ~field_type mod_bindings
+    lift
+      (ProgUtils.get_or_intros_field_module ~loc ~insert_scope ~reference_scope
+         ~interface_qual_ident:interface_qi ~field ~field_qi ~field_type mod_bindings)
 
   (** Try to resolve [qual_ident] (e.g. `M.foo`, already failed plain resolution) as a
       call into a member of an uninstantiated generic functor, implicitly instantiating
@@ -1435,7 +1516,7 @@ module ProcessExpr = struct
       same type, so the variable ranges over symbol identity rather than over types. *)
   and try_resolve_implicit_instantiation ~(loc : location) ~(qual_ident : qual_ident)
       ~(arg_exprs : expr list) ?(only_calls = false) ~(expected_typ : type_expr) () :
-      qual_ident option Rewriter.t =
+      qual_ident option t =
     let open Rewriter.Syntax in
     let* prefix = resolve_generic_functor_prefix qual_ident in
     match prefix with
@@ -1489,7 +1570,8 @@ module ProcessExpr = struct
             else
               let member_formals = List.take member_formals (List.length arg_exprs) in
               let* solvers =
-                Rewriter.List.map m.mod_decl.mod_decl_formals ~f:ProgUtils.classify_formal
+                Rewriter.List.map m.mod_decl.mod_decl_formals
+                  ~f:(fun formal -> lift (ProgUtils.classify_formal formal))
               in
               let field_formals =
                 List.filter_map (List.zip_exn m.mod_decl.mod_decl_formals solvers)
@@ -1520,25 +1602,26 @@ module ProcessExpr = struct
               (* Peek each argument's type; the processed expr itself is discarded and
                  reprocessed once the instantiation is resolved. *)
               let peek_arg formal_var_decl arg_expr =
-                let+ arg_expr =
-                  process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ)
+                let* arg_expr =
+                  speculatively
+                    (process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ))
                 in
                 let arg_typ = Expr.to_type arg_expr in
-                (* An underdetermined literal (e.g. `{||}`) peeked with no expected type
-                   gives `Bot` for its missing type information -- that's not a real type
-                   argument to solve the instantiation with, so reject it here instead of
-                   letting it flow into a bogus instantiation. *)
-                if Type.contains_bot arg_typ then
-                  Error.type_error (Expr.to_loc arg_expr)
-                    (Printf.sprintf
-                       !"Cannot infer a type argument for %{QualIdent} from this \
-                         argument: the type of `%{String}` cannot be uniquely determined \
-                         here. Give it an explicit type annotation, or write an explicit \
-                         instantiation, e.g. `module M_X = %{QualIdent}[...]`"
-                       functor_qual_ident
-                       (Expr.to_source_string arg_expr)
-                       functor_qual_ident)
-                else Some (formal_var_decl.Type.var_type, arg_typ)
+                (* An underdetermined literal (e.g. `{||}`) peeked with no expected type,
+                   or an argument that is itself an unresolved implicit instantiation of
+                   some (possibly different) generic functor (e.g. `nil`, see
+                   [speculatively] above), gives `Bot` for its missing type information --
+                   that's not a real type argument to solve this instantiation with, but
+                   it isn't necessarily fatal either: treat it as uninformative and move
+                   on, the same way a [mentions_field_formal] argument already is below.
+                   Other pairs -- a sibling argument, the return type against
+                   [expected_typ] -- may still pin every formal; if they don't, the final
+                   check once all pairs are gathered is what reports the error (correctly
+                   deferred to speculative sub-attempts too, see
+                   [try_resolve_implicit_instantiation]'s own "some formal unresolved"
+                   check). *)
+                if Type.contains_bot arg_typ then Rewriter.return None
+                else Rewriter.return (Some (formal_var_decl.Type.var_type, arg_typ))
               in
               let* arg_pairs =
                 Rewriter.List.map
@@ -1577,19 +1660,34 @@ module ProcessExpr = struct
               | Some formal
                 when List.Assoc.mem field_formals formal.mod_inst_name
                        ~equal:Ident.equal ->
-                  Error.type_error loc
-                    (Printf.sprintf
-                       !"Cannot infer a field argument for parameter %{Ident} of \
-                         %{QualIdent}, since this call takes no location; write an \
-                         explicit instantiation, e.g. `module M_X = %{QualIdent}[...]`"
-                       formal.mod_inst_name functor_qual_ident functor_qual_ident)
+                  (* [formal] just isn't determined yet -- not a mistake at this call
+                     site. If this whole resolution attempt is itself happening
+                     speculatively (i.e. this call is being peeked as an argument of
+                     some enclosing, still-uninstantiated functor call, see
+                     [peek_arg]), defer to whatever information the enclosing call
+                     can supply instead of hard-erring here; the enclosing call
+                     reprocesses this expression from source once it resolves, giving
+                     this attempt a second, better-informed try. Only report the
+                     error once nothing else is going to help. *)
+                  let* speculative = is_speculative in
+                  if speculative then Rewriter.return None
+                  else
+                    Error.type_error loc
+                      (Printf.sprintf
+                         !"Cannot infer a field argument for parameter %{Ident} of \
+                           %{QualIdent}, since this call takes no location; write an \
+                           explicit instantiation, e.g. `module M_X = %{QualIdent}[...]`"
+                         formal.mod_inst_name functor_qual_ident functor_qual_ident)
               | Some formal ->
-                  Error.type_error loc
-                    (Printf.sprintf
-                       !"Cannot infer a type argument for parameter %{Ident} of \
-                         %{QualIdent}; write an explicit instantiation, e.g. `module \
-                         M_X = %{QualIdent}[...]`"
-                       formal.mod_inst_name functor_qual_ident functor_qual_ident)
+                  let* speculative = is_speculative in
+                  if speculative then Rewriter.return None
+                  else
+                    Error.type_error loc
+                      (Printf.sprintf
+                         !"Cannot infer a type argument for parameter %{Ident} of \
+                           %{QualIdent}; write an explicit instantiation, e.g. `module \
+                           M_X = %{QualIdent}[...]`"
+                         formal.mod_inst_name functor_qual_ident functor_qual_ident)
               | None ->
                   let+ inst_qual_ident =
                     if List.is_empty field_formals then
@@ -1598,9 +1696,10 @@ module ProcessExpr = struct
                             List.Assoc.find_exn bindings formal.mod_inst_name
                               ~equal:Ident.equal)
                       in
-                      ProgUtils.instantiate_type_functor ~loc
-                        ~f:!(Rewriter.process_symbol_ref) ~functor_qual_ident
-                        ~functor_mod_decl:m.mod_decl arg_types
+                      lift
+                        (ProgUtils.instantiate_type_functor ~loc
+                           ~f:!(Rewriter.process_symbol_ref) ~functor_qual_ident
+                           ~functor_mod_decl:m.mod_decl arg_types)
                     else
                       instantiate_mixed_functor ~loc ~functor_qual_ident
                         ~functor_mod_decl:m.mod_decl ~bindings ~field_bindings
@@ -1618,20 +1717,21 @@ module ProcessExpr = struct
       ~(field_bindings : (ident * qual_ident) list)
       ~(field_formals :
          (ident * (qual_ident * Module.field_def * Module.module_inst list)) list) :
-      qual_ident Rewriter.t =
+      qual_ident t =
     let open Rewriter.Syntax in
     let* bindings =
       Rewriter.List.map bindings ~f:(fun (formal_ident, tp) ->
-          let+ tp = !Rewriter.expand_type_expr_ref tp in
+          let+ tp = lift (!Rewriter.expand_type_expr_ref tp) in
           (formal_ident, tp))
     in
     (* The synthesized modules go beside whatever the arguments name: the solved types'
        own symbols, plus each argument field itself. *)
     let* insert_scope, reference_scope =
-      ProgUtils.find_insertion_scope_for_symbols
-        (Set.union
-           (ProgUtils.type_symbols (List.map bindings ~f:snd))
-           (Set.of_list (module QualIdent) (List.map field_bindings ~f:snd)))
+      lift
+        (ProgUtils.find_insertion_scope_for_symbols
+           (Set.union
+              (ProgUtils.type_symbols (List.map bindings ~f:snd))
+              (Set.of_list (module QualIdent) (List.map field_bindings ~f:snd))))
     in
     let* arg_module_qis =
       Rewriter.List.map functor_mod_decl.mod_decl_formals ~f:(fun formal ->
@@ -1658,7 +1758,7 @@ module ProcessExpr = struct
               let tp =
                 List.Assoc.find_exn bindings formal.mod_inst_name ~equal:Ident.equal
               in
-              let* rep = ProgUtils.resolve_rep_ident formal.mod_inst_type in
+              let* rep = lift (ProgUtils.resolve_rep_ident formal.mod_inst_type) in
               let interface_qual_ident, rep_ident =
                 match rep with
                 | Some r -> r
@@ -1668,8 +1768,9 @@ module ProcessExpr = struct
                          !"formal %{Ident}'s constraint %{QualIdent} has no rep type"
                          formal.mod_inst_name formal.mod_inst_type)
               in
-              ProgUtils.get_or_intros_rep_module ~loc ~f:!(Rewriter.process_symbol_ref)
-                ~insert_scope ~reference_scope ~interface_qual_ident ~rep_ident tp)
+              lift
+                (ProgUtils.get_or_intros_rep_module ~loc ~f:!(Rewriter.process_symbol_ref)
+                   ~insert_scope ~reference_scope ~interface_qual_ident ~rep_ident tp))
     in
     let inst_key =
       String.concat ~sep:","
@@ -1682,8 +1783,9 @@ module ProcessExpr = struct
                  Type.to_string
                    (List.Assoc.find_exn bindings formal.mod_inst_name ~equal:Ident.equal)))
     in
-    ProgUtils.instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
-      ~insert_scope ~reference_scope ~inst_key arg_module_qis
+    lift
+      (ProgUtils.instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
+         ~insert_scope ~reference_scope ~inst_key arg_module_qis)
 
   (** The `Read`-expression (`expr1.M.value`) counterpart of
       [try_resolve_implicit_instantiation]. A destructor has no arguments to infer a
@@ -1691,7 +1793,7 @@ module ProcessExpr = struct
       [arg_typ] already names an existing instantiation of `M`, rewriting to that
       instantiation's destructor. *)
   and try_resolve_implicit_instantiation_destr ~(field_ident : qual_ident)
-      ~(arg_typ : type_expr) : qual_ident option Rewriter.t =
+      ~(arg_typ : type_expr) : qual_ident option t =
     let open Rewriter.Syntax in
     let* prefix = resolve_generic_functor_prefix field_ident in
     match prefix with
@@ -1712,7 +1814,7 @@ end
 module ProcessCallable = struct
   open ProgUtils
   let disambiguate_ident (qual_ident : qual_ident)
-      (disam_tbl : DisambiguationTbl.t) : qual_ident Rewriter.t =
+      (disam_tbl : DisambiguationTbl.t) : qual_ident t =
     let open Rewriter.Syntax in
     if QualIdent.is_local qual_ident then
       let ident = qual_ident |> QualIdent.unqualify in
@@ -1737,7 +1839,7 @@ module ProcessCallable = struct
     else Rewriter.return qual_ident
 
   let rec disambiguate_expr (expr : expr) (disam_tbl : DisambiguationTbl.t) :
-      expr Rewriter.t =
+      expr t =
     let open Rewriter.Syntax in
     match expr with
     (* `e.f`'s second operand is a field/destructor *name*, not a variable reference:
@@ -1758,8 +1860,9 @@ module ProcessCallable = struct
     | App (ExprExt expr_ext, expr_list, expr_attr) ->
         let* ext_hooks = Rewriter.current_ext_hooks in
         let+ expr_ext, expr_list =
-          ext_hooks.disambiguate_expr_ext expr_ext expr_list expr_attr disam_tbl
-            { disambiguate_expr }
+          lift
+            (ext_hooks.disambiguate_expr_ext expr_ext expr_list expr_attr disam_tbl
+               { disambiguate_expr = (fun e d -> run_typing (disambiguate_expr e d)) })
         in
         Expr.App (ExprExt expr_ext, expr_list, expr_attr)
     | App (constr, expr_list, expr_attr) ->
@@ -1808,7 +1911,7 @@ module ProcessCallable = struct
             Binder (binder, var_decl_list, trgs, disambiguated_expr, expr_attr))
 
   let disambiguate_process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr)
-      (disam_tbl : DisambiguationTbl.t) : expr Rewriter.t =
+      (disam_tbl : DisambiguationTbl.t) : expr t =
     let open Rewriter.Syntax in
     let* expr = disambiguate_expr expr disam_tbl in
     let* printers = Rewriter.current_printers in
@@ -1861,7 +1964,7 @@ module ProcessCallable = struct
 
   
   let process_stmt_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) :
-      Stmt.spec Rewriter.t =
+      Stmt.spec t =
     let open Rewriter.Syntax in
     let* _ = Rewriter.enter_ghost true in
     let* spec_form =
@@ -1876,7 +1979,7 @@ module ProcessCallable = struct
 
   let process_au_action_stmt (call_decl: Callable.call_decl) (assign_lhs: qual_ident list) (var_decls_lhs: var_decl list) qual_ident args (loc : location)
       (disam_tbl : DisambiguationTbl.t) :
-      (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
+      (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
     let open Rewriter.Syntax in
     let _ = List.iter2_exn assign_lhs var_decls_lhs ~f:(fun qual_ident var_decl ->
         if var_decl.var_type |> Type.is_ghost then () else
@@ -2088,7 +2191,7 @@ module ProcessCallable = struct
         
   let rec process_basic_stmt call_decl
       (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc: Loc.t) (disam_tbl : DisambiguationTbl.t) :
-      (Stmt.basic_stmt_desc * DisambiguationTbl.t) Rewriter.t =
+      (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
     let open Rewriter.Syntax in
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let get_assign_lhs ~is_init ?(is_ghost_cmd=false) orig_qual_ident =
@@ -2379,7 +2482,7 @@ module ProcessCallable = struct
           else field_type
         | _ -> Error.type_error (QualIdent.to_loc fw_desc.field_write_field) "Expected field"
       in
-      let* is_field_an_ra = ProgUtils.is_ra_type field_type in
+      let* is_field_an_ra = lift (ProgUtils.is_ra_type field_type) in
       let _ = if is_field_an_ra then
           Error.type_error stmt_loc
             (Printf.sprintf !"Cannot assign directly to field %{QualIdent}, whose value is a resource algebra (RA) element; use a frame-preserving update ('fpu') instead" fw_desc.field_write_field)
@@ -2475,7 +2578,7 @@ module ProcessCallable = struct
         Option.value pred_def ~default:(Expr.mk_unit Loc.dummy)
         |> Expr.existential_vars_type
       in
-      let find_type ident : type_expr Rewriter.t =
+      let find_type ident : type_expr t =
         let ty_opt = Map.fold exists_vars ~init:None ~f:(fun ~key ~data acc ->
             if Option.is_none acc
             && String.(Ident.name ident = Ident.name key)
@@ -2662,20 +2765,25 @@ module ProcessCallable = struct
       disam_tbl )
     | BasicStmtExt (stmt_ext, expr_list)  ->
       let* ext_hooks = Rewriter.current_ext_hooks in
-        ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
-          {
-            ExtApi.get_assign_lhs = get_assign_lhs;
-            expand_type_expr = ProcessTypeExpr.expand_type_expr;
-            disambiguate_process_expr;
-            type_mismatch_error;
-            disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-            process_symbol = !Rewriter.process_symbol_ref;
-            process_stmt = !Rewriter.process_stmt_ref;
-          }
+        lift
+          (ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
+             {
+               ExtApi.get_assign_lhs =
+                 (fun ~is_init ?is_ghost_cmd qi ->
+                    run_typing (get_assign_lhs ~is_init ?is_ghost_cmd qi));
+               expand_type_expr =
+                 (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
+               disambiguate_process_expr =
+                 (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+               type_mismatch_error;
+               disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+               process_symbol = !Rewriter.process_symbol_ref;
+               process_stmt = !Rewriter.process_stmt_ref;
+             })
 
   let process_stmt ?(new_scope = true) call_decl
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
-    (Stmt.t * DisambiguationTbl.t) Rewriter.t =
+    (Stmt.t * DisambiguationTbl.t) t =
     let rec process_stmt ?(new_scope = true) stmt disam_tbl =
       let open Rewriter.Syntax in
       let* () = Rewriter.Logs.debug (fun printers m -> m "process_stmt: %a" printers.pr_stmt stmt) in
@@ -2716,22 +2824,25 @@ module ProcessCallable = struct
               let* ext_hooks = Rewriter.current_ext_hooks in
               Rewriter.List.map loop_desc.loop_contract_ext
                 ~f:(fun contract_ext ->
-                    ext_hooks.type_check_contract_ext call_decl contract_ext (Stmt.to_loc stmt) disam_tbl
-                      {
-                        ExtApi.get_assign_lhs =
-                          (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
-                             Error.internal_error (QualIdent.to_loc qi)
-                               "assignments are not permitted in a contract clause");
-                        expand_type_expr = ProcessTypeExpr.expand_type_expr;
-                        disambiguate_process_expr;
-                        type_mismatch_error;
-                        disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                        process_symbol = !Rewriter.process_symbol_ref;
-                        process_stmt =
-                          (fun _call_decl stmt _disam_tbl ->
-                             Error.internal_error (Stmt.to_loc stmt)
-                               "statements are not permitted in a contract clause");
-                      })
+                    lift
+                      (ext_hooks.type_check_contract_ext call_decl contract_ext (Stmt.to_loc stmt) disam_tbl
+                         {
+                           ExtApi.get_assign_lhs =
+                             (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                                Error.internal_error (QualIdent.to_loc qi)
+                                  "assignments are not permitted in a contract clause");
+                           expand_type_expr =
+                             (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
+                           disambiguate_process_expr =
+                             (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+                           type_mismatch_error;
+                           disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                           process_symbol = !Rewriter.process_symbol_ref;
+                           process_stmt =
+                             (fun _call_decl stmt _disam_tbl ->
+                                Error.internal_error (Stmt.to_loc stmt)
+                                  "statements are not permitted in a contract clause");
+                         }))
             in
 
             let disam_tbl = DisambiguationTbl.push disam_tbl in
@@ -2783,19 +2894,23 @@ module ProcessCallable = struct
             (Stmt.Cond cond_desc, disam_tbl)
         | StmtExt stmt_ext ->
             let* ext_hooks = Rewriter.current_ext_hooks in
-            ext_hooks.type_check_stmt_ext call_decl stmt_ext (Stmt.to_loc stmt) disam_tbl
-              {
-                ExtApi.get_assign_lhs =
-                  (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
-                     Error.internal_error (QualIdent.to_loc qi)
-                       "assignments are not permitted directly in a top-level statement extension");
-                expand_type_expr = ProcessTypeExpr.expand_type_expr;
-                disambiguate_process_expr;
-                type_mismatch_error;
-                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                process_symbol = !Rewriter.process_symbol_ref;
-                process_stmt = (fun _call_decl stmt disam_tbl -> process_stmt stmt disam_tbl);
-              }
+            lift
+              (ext_hooks.type_check_stmt_ext call_decl stmt_ext (Stmt.to_loc stmt) disam_tbl
+                 {
+                   ExtApi.get_assign_lhs =
+                     (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                        Error.internal_error (QualIdent.to_loc qi)
+                          "assignments are not permitted directly in a top-level statement extension");
+                   expand_type_expr =
+                     (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
+                   disambiguate_process_expr =
+                     (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+                   type_mismatch_error;
+                   disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                   process_symbol = !Rewriter.process_symbol_ref;
+                   process_stmt =
+                     (fun _call_decl stmt disam_tbl -> run_typing (process_stmt stmt disam_tbl));
+                 })
       in
 
       (Stmt.{ stmt_desc; stmt_loc = stmt.stmt_loc }, disam_tbl)
@@ -2803,7 +2918,7 @@ module ProcessCallable = struct
 
     process_stmt ~new_scope stmt disam_tbl
 
-  let process_callable (callable : Callable.t) : Module.symbol Rewriter.t =
+  let process_callable (callable : Callable.t) : Module.symbol t =
     let open Rewriter.Syntax in
     let* () = Rewriter.Logs.debug (fun printers m ->
         m "Typing.process_callable: Start Processing callable: %a" printers.pr_callable
@@ -2911,23 +3026,26 @@ module ProcessCallable = struct
     let* call_decl_contract_ext =
       Rewriter.List.map call_decl.call_decl_contract_ext
         ~f:(fun contract_ext ->
-            ext_hooks.type_check_contract_ext call_decl_for_ext contract_ext
-              call_decl.call_decl_loc disam_tbl
-              {
-                ExtApi.get_assign_lhs =
-                  (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
-                     Error.internal_error (QualIdent.to_loc qi)
-                       "assignments are not permitted in a contract clause");
-                expand_type_expr = ProcessTypeExpr.expand_type_expr;
-                disambiguate_process_expr;
-                type_mismatch_error;
-                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                process_symbol = !Rewriter.process_symbol_ref;
-                process_stmt =
-                  (fun _call_decl stmt _disam_tbl ->
-                     Error.internal_error (Stmt.to_loc stmt)
-                       "statements are not permitted in a contract clause");
-              })
+            lift
+              (ext_hooks.type_check_contract_ext call_decl_for_ext contract_ext
+                 call_decl.call_decl_loc disam_tbl
+                 {
+                   ExtApi.get_assign_lhs =
+                     (fun ~is_init:_ ?is_ghost_cmd:_ qi _state ->
+                        Error.internal_error (QualIdent.to_loc qi)
+                          "assignments are not permitted in a contract clause");
+                   expand_type_expr =
+                     (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
+                   disambiguate_process_expr =
+                     (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+                   type_mismatch_error;
+                   disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+                   process_symbol = !Rewriter.process_symbol_ref;
+                   process_stmt =
+                     (fun _call_decl stmt _disam_tbl ->
+                        Error.internal_error (Stmt.to_loc stmt)
+                          "statements are not permitted in a contract clause");
+                 }))
     in
 
     Logs.debug (fun m -> m "done processing pre/post cond");
@@ -3035,7 +3153,7 @@ module ProcessModule = struct
       Kept as a front-end check rather than a declared interface member because there is
       nothing an interface could declare that would say it. See its one caller,
       the [Library.WordSized] check in [process_module]. *)
-  let is_type_word_sized (typ : type_expr) : bool Rewriter.t =
+  let is_type_word_sized (typ : type_expr) : bool t =
     let open Rewriter.Syntax in
     let* typ = ProcessTypeExpr.expand_type_expr typ in
     match typ with
@@ -3054,7 +3172,7 @@ module ProcessModule = struct
         | _ -> false)
     | _ -> Rewriter.return false
 
-  let process_type_def (type_def : Module.type_def) : Module.symbol Rewriter.t =
+  let process_type_def (type_def : Module.type_def) : Module.symbol t =
     let open Rewriter.Syntax in
     Logs.debug (fun m ->
         m "Typing.process_type_def: Start processing type_def: %a" Ident.pr
@@ -3154,7 +3272,7 @@ module ProcessModule = struct
      than declaring one of its own; the ghost modifier, if written, must agree
      with the target's. *)
   let process_alias_field (field : Module.field_def) (target : qual_ident) :
-      Module.symbol Rewriter.t =
+      Module.symbol t =
     let open Rewriter.Syntax in
     let* target, symbol = Rewriter.resolve_and_find target in
     let* symbol = Rewriter.Symbol.reify symbol in
@@ -3186,7 +3304,7 @@ module ProcessModule = struct
            field_alias = Some target;
          })
 
-  let process_field (field : Module.field_def) : Module.symbol Rewriter.t =
+  let process_field (field : Module.field_def) : Module.symbol t =
     let open Rewriter.Syntax in
     match field.field_alias with
     | Some target -> process_alias_field field target
@@ -3208,7 +3326,7 @@ module ProcessModule = struct
     let field = { field with field_type = tp_expr } in
     Module.(FieldDef field)
 
-  let process_var (var : Stmt.var_def) : Module.symbol Rewriter.t =
+  let process_var (var : Stmt.var_def) : Module.symbol t =
     let open Rewriter.Syntax in
     let _ =
       if not var.var_decl.var_const
@@ -3239,7 +3357,7 @@ module ProcessModule = struct
      exact-match check below compares them syntactically. *)
   let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
       interface_ident (symbol : Symbol.t)
-      (orig_symbol : Symbol.t) : unit Rewriter.t =
+      (orig_symbol : Symbol.t) : unit t =
     let open Rewriter.Syntax in
     let loc = Symbol.to_loc symbol in
     let ident = Symbol.to_name symbol in
@@ -3637,7 +3755,7 @@ module ProcessModule = struct
     in
     go parent_ancestors
 
-  let rec process_module (m : Module.t) : Module.t Rewriter.t =
+  let rec process_module (m : Module.t) : Module.t t =
     let open Rewriter.Syntax in
     let _ =
       Logs.info (fun mm ->
@@ -3720,7 +3838,7 @@ module ProcessModule = struct
                             match arg with
                             | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
                             | Module.TypeArg tp -> (
-                                let* rep = ProgUtils.resolve_rep_ident formal_iface in
+                                let* rep = lift (ProgUtils.resolve_rep_ident formal_iface) in
                                 match rep with
                                 | None ->
                                     Error.type_error (Type.to_loc tp)
@@ -3731,14 +3849,15 @@ module ProcessModule = struct
                                          formal.mod_inst_name formal_iface)
                                 | Some (interface_qual_ident, rep_ident) ->
                                     let* insert_scope, reference_scope =
-                                      ProgUtils.find_insertion_scope_for_types [ tp ]
+                                      lift (ProgUtils.find_insertion_scope_for_types [ tp ])
                                     in
                                     let+ qi =
-                                      ProgUtils.get_or_intros_rep_module
-                                        ~loc:(Type.to_loc tp)
-                                        ~f:!(Rewriter.process_symbol_ref)
-                                        ~insert_scope ~reference_scope
-                                        ~interface_qual_ident ~rep_ident tp
+                                      lift
+                                        (ProgUtils.get_or_intros_rep_module
+                                           ~loc:(Type.to_loc tp)
+                                           ~f:!(Rewriter.process_symbol_ref)
+                                           ~insert_scope ~reference_scope
+                                           ~interface_qual_ident ~rep_ident tp)
                                     in
                                     (qi, formal_iface)))
                       in
@@ -3754,7 +3873,7 @@ module ProcessModule = struct
                 let* _ =
                   match mod_inst.mod_inst_def with
                   | None -> Rewriter.return ()
-                  | Some _ -> Rewriter.declare_symbol symbol
+                  | Some _ -> lift (Rewriter.declare_symbol symbol)
                 in
                 (* Check that `args` satisfy module types of formals *)
                 let+ _ =
@@ -4269,7 +4388,7 @@ module ProcessModule = struct
     let* _ =
       Rewriter.List.iter mod_def ~f:(function
         | Module.SymbolDef (ModInst { mod_inst_def = Some _; _ }) | Module.Import _ -> Rewriter.return ()
-        | Module.SymbolDef symbol -> Rewriter.declare_symbol symbol)
+        | Module.SymbolDef symbol -> lift (Rewriter.declare_symbol symbol))
     in
 
     (* Check and rewrite all symbols *)
@@ -4404,7 +4523,7 @@ let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Modu
     Rewriter.eval ?ext_hooks ?cli_config
       (fun st ->
         let st, _ = Rewriter.enter_module m st in
-        let st, m = ProcessModule.process_module m st in
+        let st, m = run_typing (ProcessModule.process_module m) st in
         let st, m = Rewriter.exit_module m st in
         (st, m))
       tbl
@@ -4414,22 +4533,23 @@ let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Modu
 let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
   let open Rewriter.Syntax in
   let* symbol =
-    match symbol with
-    | Module.TypeDef type_def -> ProcessModule.process_type_def type_def
-    | Module.VarDef var_def -> ProcessModule.process_var var_def
-    | Module.FieldDef field_def -> ProcessModule.process_field field_def
-    | Module.ConstrDef _ | Module.DestrDef _ ->
-        Rewriter.return
-          symbol (* These should not occur directly in a module definition *)
-    | Module.CallDef call_def -> ProcessCallable.process_callable call_def
-    | Module.ModDef mod_def ->
-        let* _ = Rewriter.enter_module mod_def
-        and* mod_def = ProcessModule.process_module mod_def in
-        let+ mod_def = Rewriter.exit_module mod_def in
-        Module.ModDef mod_def
-    | Module.ModInst mod_inst ->
+    run_typing
+      (match symbol with
+      | Module.TypeDef type_def -> ProcessModule.process_type_def type_def
+      | Module.VarDef var_def -> ProcessModule.process_var var_def
+      | Module.FieldDef field_def -> ProcessModule.process_field field_def
+      | Module.ConstrDef _ | Module.DestrDef _ ->
+          Rewriter.return
+            symbol (* These should not occur directly in a module definition *)
+      | Module.CallDef call_def -> ProcessCallable.process_callable call_def
+      | Module.ModDef mod_def ->
+          let* _ = Rewriter.enter_module mod_def
+          and* mod_def = ProcessModule.process_module mod_def in
+          let+ mod_def = Rewriter.exit_module mod_def in
+          Module.ModDef mod_def
+      | Module.ModInst mod_inst ->
         (* TODO: Implement checking for mod_inst too *)
-        Rewriter.return symbol
+        Rewriter.return symbol)
   in
 
   let+ _ = Rewriter.set_symbol symbol in
@@ -4437,6 +4557,8 @@ let process_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
 
 let _ =
   Rewriter.process_symbol_ref := process_symbol;
-  Rewriter.expand_type_expr_ref := ProcessTypeExpr.expand_type_expr;
+  Rewriter.expand_type_expr_ref :=
+    (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
   Rewriter.process_stmt_ref :=
-    (fun call_decl stmt disam_tbl -> ProcessCallable.process_stmt call_decl stmt disam_tbl);
+    (fun call_decl stmt disam_tbl ->
+       run_typing (ProcessCallable.process_stmt call_decl stmt disam_tbl));
