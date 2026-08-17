@@ -1199,11 +1199,20 @@ module Expr = struct
   (** Extends [acc] with the set of all symbols occuring free in expression [e]. *)
   let symbols ?(acc = Set.empty (module QualIdent)) e = 
     let rec symbols bv syms = function
-      | App (Var id, ts,  attr) -> 
+      | App (Var id, ts,  attr) ->
         let syms = List.fold_left ts ~f:(symbols bv) ~init:syms in
         if Set.mem bv id
         then syms
         else Set.add syms id
+      | App ((DataConstr id | DataDestr id | AUPred id | AUPredCommit id), ts, _) ->
+        (* Unlike [Var], never locally bound -- a data constructor/destructor or
+           atomic-update predicate name can't be shadowed by a binder -- so its own
+           [id] always counts, with no [bv] check. This is what makes e.g. a data
+           constructor's own datatype (and hence its declaration) discoverable from
+           an expression that merely calls the constructor, without also needing a
+           variable declared at that type to pull it in via [Type.symbols]. *)
+        let syms = List.fold_left ts ~f:(symbols bv) ~init:syms in
+        Set.add syms id
       | App (Own, [expr1; expr2; expr3], _) ->
         List.fold_left [expr1; expr3] ~f:(symbols bv) ~init:syms
       | App (_, ts, _) ->

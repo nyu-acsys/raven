@@ -123,9 +123,8 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (root_auto_g: Graph.t)
               let orig_auto_deps = Graph.succs root_auto_g orig_qid in
               let auto_deps = Set.map (module QualIdent) orig_auto_deps ~f:(QualIdent.requalify subst) in
               Callable.symbols call_def, auto_deps
-            | Pred | Invariant | Lemma ->
+            | Pred | Invariant | Lemma | Proc ->
               Callable.symbols call_def, Graph.empty_vertex_set
-            | _ -> Graph.empty_vertex_set, Graph.empty_vertex_set
           end
         | VarDef var_def ->
           Logs.debug (fun m -> m "Dependencies.analyze: Analyzing dependencies of variable %a" Symbol.pr reified_sym);
@@ -134,6 +133,17 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (root_auto_g: Graph.t)
           let deps = Option.map var_def.var_init ~f:Expr.symbols |> Option.value ~default:Graph.empty_vertex_set in
           let deps = Set.union deps (Type.symbols var_def.var_decl.var_type) in
           deps, auto_deps
+        | ConstrDef constr_def ->
+          (* A constructor is declared as part of its own datatype's
+             `declare-datatypes` ([Checker.declare_and_check_dep]'s [data_types]
+             extraction), not on its own -- [check_member] skips it -- so what a
+             reference to it actually needs pulled in is that datatype. Without this,
+             an expression that calls a constructor but never also names its type
+             (e.g. via a `var` declaration, whose own declared type is scanned
+             separately) would leave the datatype's declaration undiscovered. *)
+          Type.symbols constr_def.constr_return_type, Graph.empty_vertex_set
+        | DestrDef destr_def ->
+          Type.symbols destr_def.destr_arg, Graph.empty_vertex_set
         | _ -> Graph.empty_vertex_set, Graph.empty_vertex_set
       in
       Logs.debug (fun m -> m "Dependencies.analyze: Adding dependencies of %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));

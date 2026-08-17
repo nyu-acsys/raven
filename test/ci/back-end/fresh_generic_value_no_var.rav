@@ -1,0 +1,28 @@
+// Regression test: a generic functor's constructor called directly inside an
+// expression -- never bound to a variable anywhere -- must still get its
+// instantiation's SMT declarations emitted. This used to crash with an "unknown
+// constant" error from Z3, from two independent gaps:
+//
+//  - `Expr.symbols` only recorded the referenced name of an `App (Var id, ...)`
+//    node, silently dropping `DataConstr`/`DataDestr` (and `AUPred`/
+//    `AUPredCommit`) heads -- so a constructor call's own datatype was never
+//    discovered as a dependency unless some *other* expression (typically a `var`
+//    declaration's own declared type, scanned separately) happened to name it too.
+//  - `Dependencies.analyze` computed no dependencies at all for a `proc` (only
+//    `func`/`pred`/`invariant`/`lemma` were handled), so even a correctly
+//    discovered dependency of a `proc`'s own body was dropped on the floor.
+//
+// A `var` declaration masked both: its declared type independently pulls in the
+// datatype (and, since a datatype's constructors are declared together with it,
+// its constructors along the way). This test deliberately avoids ever writing the
+// generic instantiation's type down anywhere -- the constructor calls below are
+// the only trace of it -- so both gaps are exercised together.
+import Library._
+import Library.Option._
+import Library.List._
+
+proc p() {
+  assert Option.some(1) == Option.some(1);
+  assert Option.some(1) != Option.none();
+  assert (1 :: nil : List[Int]) == (1 :: nil : List[Int]);
+}

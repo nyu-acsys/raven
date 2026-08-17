@@ -357,6 +357,12 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (dep : QualIdent.t list) : unit t 
                  (Expr.mk_app ~typ:(Expr.to_type expr) (Var qual_name)
                     [])
                  expr))
+      (* A constructor/destructor is declared as part of its own datatype's
+         `declare-datatypes`, above in [data_types] -- see [Dependencies.analyze]'s
+         [ConstrDef]/[DestrDef] cases, which point a reference to one at that
+         datatype so it's discovered even when nothing else names the type. Nothing
+         further to do for the constructor/destructor symbol itself here. *)
+      | ConstrDef _ | DestrDef _ -> Rewriter.return ()
       | _ ->
         Error.unsupported_error Loc.dummy
           ("Unsupported symbol: " ^ Symbol.to_string symbol)
