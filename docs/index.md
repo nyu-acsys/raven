@@ -23,7 +23,7 @@ features:
   - title: Concurrency as a first-class citizen
     details: Shareable invariants, atomic specifications, and user-definable resource algebras — the reasoning principles of modern concurrent separation logic, available directly in the language rather than encoded into it.
   - title: Automated, but predictable
-    details: Verification conditions are discharged by Z3. The logic is deliberately restricted — no higher-order quantification, impredicativity, or step-indexing — so that automation stays robust and failures stay diagnosable.
+    details: Verification conditions are discharged by Z3. The logic is deliberately restricted (no higher-order quantification, impredicativity, or step-indexing) so that automation stays robust and failures stay diagnosable.
   - title: Proofs alongside code
     details: Ghost code, invariants, and proof steps are interleaved with the program they describe, so a program and its correctness argument are developed together rather than after the fact.
   - title: Built to be extended
@@ -33,23 +33,23 @@ features:
 ## What Raven is
 
 Raven is an **intermediate verification language** (IVL) and an SMT-based deductive verifier
-for it. It occupies the same layer as [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/),
-[Why3](https://www.why3.org/), and [Viper](https://www.pm.inf.ethz.ch/research/viper.html) — a
-target that front-end tools compile *to*, rather than a language you ship production code in —
-but it treats concurrency as a first-class concern rather than something layered on afterwards.
+for it. It occupies the same layer as tools such as [Boogie](https://www.microsoft.com/en-us/research/project/boogie-an-intermediate-verification-language/),
+[Why3](https://www.why3.org/), and [Viper](https://www.pm.inf.ethz.ch/research/viper.html), a
+target that front-end tools compile *to*, rather than a language you ship production code in.
+But unlike these tools, Raven treats concurrency as a first-class concern rather than something layered on afterwards.
 
-It is also usable directly, and is designed to be teachable: the [tutorial](/tutorial/) takes a
+Raven is also usable directly, and is designed to be teachable: the [tutorial](/tutorial/) takes a
 single running example from a plain integer to a lock-protected object shared across threads.
 
 Raven's metatheory is based on the [Iris](https://iris-project.org/) separation logic framework.
-Iris' more expressive features — higher-order quantification, impredicativity, step-indexing —
+Iris' more expressive features (e.g., higher-order quantification, impredicativity, step-indexing)
 are deliberately left out, and complementary features such as a higher-order module system are
 added to recover expressivity. The result is a logic strong enough for realistic concurrent
 algorithms while remaining amenable to SMT automation.
 
 ## A first look
 
-Two threads increment a shared counter, in an interleaving neither of them controls. A *shared
+The following Raven program spawns two threads that increment a shared counter, in an interleaving neither of them controls. A *shared
 invariant* is what makes that tractable: a fact about the counter that every thread agrees to
 restore after each atomic step, and that any of them may rely on:
 
@@ -86,15 +86,14 @@ proc client(c: Ref)
 }
 ```
 
-The final `assert` holds under *every* interleaving of the two spawned threads with this one, and
+The final `assert` holds under *every* interleaving of the two spawned threads with the thread executing `client`, and
 nothing in the proof mentions interleavings at all. Note also what the invariant is not: unlike a
-predicate, it is ambient and freely duplicable — both threads and the client hold it at once —
-and it may be opened for exactly one atomic step, which is why `faa` is allowed inside and an
-ordinary read would not be.
+predicate, it is ambient and freely duplicable (i.e., both threads and the client hold it at once),
+and it may be opened via `unfold/fold` for exactly one atomic step. This atomic step is fetch-and-add (`faa`) which both reads the current counter value and increments it, here, by 2. 
 
 Underneath this sits ownership: `own(c.count, v)` is a resource, not a fact, and the separating
 conjunction between two such assertions means *disjoint* ownership, ruling out aliasing by
-construction. The [tutorial](/tutorial/) builds all of it up from a single-threaded counter.
+construction. The [tutorial](/tutorial/) builds all of this reasoning machinery up from a single-threaded counter.
 
 ## For researchers
 
@@ -114,8 +113,7 @@ examples of the proof patterns Raven is meant to support.
 If you are building a verification tool of your own, the
 [extension API](https://github.com/nyu-acsys/raven/blob/main/docs/ext/README.md) is the intended
 entry point: it lets you add syntax and proof constructs without forking the pipeline, and ships
-with several extensions — termination checking via `decreases`, Iris-style prophecy variables,
-and Eris-style error credits for probabilistic reasoning — as worked references.
+with several extensions as worked references, including termination checking via `decreases`, Iris-style prophecy variables, and Eris-style error credits for probabilistic reasoning.
 
 ## Getting started
 
