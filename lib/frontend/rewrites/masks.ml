@@ -45,38 +45,17 @@ let substitute_and_truncate_mask ~(mentioned_formals : Type.var_decl list)
       (qi, truncate_to_formal_expressible caller_formal_idents args))
 
 (* ------------------------------------------------------------------ *)
-(* [call_decl_needs_mask] for [Proc]/[Lemma]: a *direct* part, scanned purely from
-   the callable's own [requires] clause (never its body, never [ensures]),
-   unioned with a *transitive* part -- whatever mask entries the callables
-   it directly calls need, substituted through the actual call-site
-   arguments -- when it has a concrete body to find those calls in. An
-   earlier version of this algorithm dropped the transitive part entirely,
-   reasoning that a value derived from a callable's *own* body can't be the
-   same for an interface's abstract (bodyless) declaration and a concrete
-   implementation (a real modularity hole). That's still true of the
-   *direct* part (hence it stays [requires]-only, identical on both sides
-   for free since [requires] is already exact-match-enforced) -- but
-   dropping the transitive part too broke a large, common pattern:
-   `p(l) { requires is_lock(l); ... acquire(l); ... }`, where `p` never
-   mentions `lock_inv` in its own `requires` at all, yet legitimately needs
-   it because it calls `acquire` (which does). Transitively unioning in
-   *callees'* already-[requires]-derived masks doesn't reintroduce the
-   original divergence for the callable doing the calling, since every
-   callee's mask is itself stable across abstraction; it only leaves the
-   *original* divergence exactly where it always was -- a callable that is
-   itself both an abstract interface member and a concrete realization,
-   where the realization's transitive calls need more than the abstract
-   declaration's bare [requires] promises. That residual gap is the same
-   one [check_interface_reach_back] below only partially covers (it
-   explicitly doesn't extend to functor instantiation) -- not newly
-   introduced here; the earlier assumption that [requires]-derivation closes
-   it "by construction" was too strong. Crucially, direct [Unfold]s are
-   *not* unconditionally scanned here (unlike the very first version of
-   this algorithm) -- a callable that only ever unfolds something it
-   locally [fold]ed itself, or received as still-credited from a callee's
-   grants set (see [call_decl_grants_mask] below), needs nothing added here
-   for that use; that's what makes `make_and_bump`/`pass_through`-style
-   self-sufficiency still work even with the transitive part restored. *)
+(* [call_decl_needs_mask] for [Proc]/[Lemma]: scanned purely from the
+   callable's own [requires] clause -- never its body, never [ensures].
+   This keeps mask computation modular: it never depends on inspecting any
+   other callable's implementation, and an interface's abstract (bodyless)
+   declaration and a concrete realization always agree, since [requires]
+   is itself exact-match-enforced between them. A call inside the body to
+   something that needs an invariant not already covered by this
+   callable's own [requires] (or granted by an earlier call, see
+   [call_decl_grants_mask] below) simply fails to verify at that call site
+   -- which is exactly where a missing invariant belongs caught, rather
+   than papered over by inferring it from the callee's mask. *)
 
 (* Walks an expression collecting every [Pred]/[Invariant] application
    (declaration, kind, and its own argument list) reachable through
@@ -100,35 +79,6 @@ let rec expr_inv_applications (expr : Expr.t) :
       let+ nested = Rewriter.List.map args ~f:expr_inv_applications in
       List.concat nested
   | Expr.Binder (_, _, _, body, _) -> expr_inv_applications body
-
-(* Walks a callable body collecting every direct [Call] occurrence (callee
-   name + actual arguments) -- deliberately *not* [Unfold] occurrences too
-   (see the module-level comment above). Mirrors the Block/Loop/Cond/Basic
-   recursion shape of [ProgUtils.stmt_preds_mentioned]; [Loop] is dead by
-   this point in the pipeline ([rewrite_loops], rewrites_phase_1, has
-   already turned every loop into a separate recursive proc/lemma call
-   before [Masks.compute_masks] ever runs). *)
-let rec body_calls (s : Stmt.t) :
-    ((QualIdent.t * Expr.t list) list, 'a) Rewriter.t_ext =
-  let open Rewriter.Syntax in
-  match s.stmt_desc with
-  | Block b ->
-      let* items = Rewriter.List.map b.block_body ~f:body_calls in
-      Rewriter.return (List.concat items)
-  | Loop _ -> Rewriter.return []
-  | Cond c ->
-      let* then_items = body_calls c.cond_then in
-      let* else_items = body_calls c.cond_else in
-      Rewriter.return (then_items @ else_items)
-  | Basic (Call call_desc) ->
-      Rewriter.return [ (call_desc.call_name, call_desc.call_args) ]
-  | Basic _ -> Rewriter.return []
-  (* Not yet lowered at this point in the pipeline (stmt_ext lowering runs after
-     Masks.compute_masks -- see Rewrites.process_module), but correctly so: an
-     `assert e with { ... }` proof block's calls are never part of the surviving
-     execution (the branch that runs it is always discarded via `assume false`), so
-     they must not be counted towards the enclosing callable's mask either. *)
-  | StmtExt _ -> Rewriter.return []
 
 let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ext
     =
@@ -187,16 +137,14 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
      it's expressed in terms of *[qi]'s own* formals (e.g. `queue`'s own
      mask names `is_queue`'s argument via whatever `queue`'s body calls
      it), not this callable's. It must be substituted through the actual
-     arguments used to mention [qi] here (exactly the same substitution
-     [transitive_entries] below does for an ordinary call), not pulled in
-     verbatim -- otherwise a specific nested reference degrades to a coarse,
+     arguments used to mention [qi] here, not pulled in verbatim --
+     otherwise a specific nested reference degrades to a coarse,
      argument-less fallback that can needlessly collide with a more precise
-     entry for the same declaration arriving via another path (e.g.
-     [transitive_entries] below, from calling something that itself needs
-     the nested declaration directly) -- exactly the redundant-entry
-     situation [Callable.mask_canon]'s subsumption-collapsing (astDef.ml)
-     exists to clean up when a coarse fallback is genuinely unavoidable, but
-     which is better avoided at the source when it isn't. *)
+     entry for the same declaration arriving via another directly-mentioned
+     path -- exactly the redundant-entry situation [Callable.mask_canon]'s
+     subsumption-collapsing (astDef.ml) exists to clean up when a coarse
+     fallback is genuinely unavoidable, but which is better avoided at the
+     source when it isn't. *)
   let* nested_entries =
     Rewriter.List.map direct_applications ~f:(fun (qi, _, args, spec_atomic) ->
         let* symbol = Rewriter.find_and_reify qi in
@@ -215,105 +163,59 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
             let expressible =
               if spec_atomic then non_implicit_formal_idents else formal_idents
             in
-            (* Exclude [qi]'s own self-baseline entry -- the [Invariant]
-               branch above already contributes a *specific* entry for [qi]
-               (or, for a [Pred], nothing, since preds aren't mask-tracked
-               at all) whenever [qi] is directly mentioned; re-pulling in
-               [qi]'s own self-entry here would only ever be redundant with
-               that. Only entries for *other* declarations -- genuinely
-               nested ones, e.g. `is_queue` reachable through `queue`'s own
-               body -- should be pulled in. *)
-            let nested_mask =
-              List.filter
-                (Option.value call_decl_needs_mask ~default:[])
-                ~f:(fun (entry_qi, _) -> not (QualIdent.equal entry_qi qi))
-            in
+            (* [qi]'s own [call_decl_needs_mask] never carries the trivial
+               "I need room for myself" baseline any more (see the doc
+               comment on [fixpoint_compute_masks]'s [Pred | Invariant]
+               branch) -- whatever's in it, including an entry naming [qi]
+               itself, is genuine information from further nesting (e.g.
+               `node`'s own mask entry `(is_queue, [])`, arrived at by
+               chasing through `is_queue` mentioning `node` mentioning
+               `is_queue` again under an existential -- see the module-level
+               comment above), so nothing here needs excluding: pull all of
+               it in. *)
+            let nested_mask = Option.value call_decl_needs_mask ~default:[] in
             Rewriter.return
               (substitute_and_truncate_mask ~mentioned_formals ~actual_args:args
                  ~caller_formal_idents:expressible nested_mask)
         | _ -> Rewriter.return [])
   in
   let direct_entries = direct_entries @ List.concat nested_entries in
-  let* transitive_entries =
-    match c.call_def with
-    | FuncDef _ -> assert false
-    | ProcDef { proc_body = None } -> Rewriter.return []
-    | ProcDef { proc_body = Some body } ->
-        let* calls = body_calls body in
-        let* per_call =
-          Rewriter.List.map calls ~f:(fun (callee_name, call_args) ->
-              let* symbol = Rewriter.find_and_reify callee_name in
-              match symbol with
-              | CallDef callee -> (
-                  match callee.call_decl.call_decl_needs_mask with
-                  | None ->
-                      (* Not yet computed by the fixpoint driver; treated as
-                         empty for this iteration -- once it becomes
-                         available, the driver's change-flag re-triggers
-                         this callable. *)
-                      Rewriter.return []
-                  | Some callee_mask ->
-                      (* See the matching comment in atomicityAnalysis.ml's
-                         Call handling: only attempt substitution when the
-                         callee's mask actually has a fine-grained entry,
-                         and fall back to no substitution (rather than
-                         aborting) on a formal/actual length mismatch. *)
-                      let needs_substitution =
-                        List.exists callee_mask ~f:(fun (_, args) ->
-                            not (List.is_empty args))
-                      in
-                      if not needs_substitution then Rewriter.return callee_mask
-                      else
-                        let renaming_map =
-                          match
-                            List.fold2 callee.call_decl.call_decl_formals call_args
-                              ~init:(Map.empty (module QualIdent))
-                              ~f:(fun acc formal actual ->
-                                Map.set acc
-                                  ~key:(QualIdent.from_ident formal.var_name)
-                                  ~data:actual)
-                          with
-                          | Ok m -> m
-                          | Unequal_lengths -> Map.empty (module QualIdent)
-                        in
-                        Rewriter.return
-                          (List.map callee_mask ~f:(fun (qi, args) ->
-                               let args =
-                                 List.map args ~f:(fun e ->
-                                     Expr.alpha_renaming e renaming_map)
-                               in
-                               (qi, truncate_to_formal_expressible formal_idents args))))
-              | _ -> Rewriter.return [])
-        in
-        Rewriter.return (List.concat per_call)
-  in
-  Rewriter.return (Callable.mask_canon (direct_entries @ transitive_entries))
+  Rewriter.return (Callable.mask_canon direct_entries)
 
 (* ------------------------------------------------------------------ *)
-(* Combined fixpoint driver for [call_decl_needs_mask]: [Pred]/[Invariant]'s own
-   mask (nested predicate/invariant dependencies, unchanged from before
-   this whole redesign) and [Proc]/[Lemma]'s (above) both transitively
-   depend on other callables' masks -- through nested predicate mentions
-   for the former, through calls for the latter -- so both need iterating
-   to a fixed point; [Func] is trivially mask-free (a pure expression can
-   never unfold an invariant). *)
+(* Combined fixpoint driver for [call_decl_needs_mask]: both [Pred]/[Invariant]'s
+   own mask and [Proc]/[Lemma]'s (above) can transitively depend on another
+   [Pred]/[Invariant]'s mask -- through nested predicate mentions in the
+   former's body, through a directly-[requires]-mentioned invariant's own
+   nested mentions in the latter -- so both need iterating to a fixed point;
+   [Func] is trivially mask-free (a pure expression can never unfold an
+   invariant). *)
 let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext =
   let open Rewriter.Syntax in
 
   let* new_mask =
     match c.call_decl.call_decl_kind with
     | Pred | Invariant -> (
-        let* fully_qual_iden =
-          Rewriter.resolve (QualIdent.from_ident c.call_decl.call_decl_name)
-        in
-
-        let self_entry =
-          match c.call_decl.call_decl_kind with
-          | Pred -> []
-          | Invariant -> [ (fully_qual_iden, []) ]
-          | _ -> assert false
-        in
-
+        (* No unconditional "I need room for myself" self-entry here (an
+           earlier version of this algorithm added [(qi, [])] for every
+           [Invariant] unconditionally): whoever mentions [qi] directly
+           already contributes its own entry for [qi] independently, from
+           its own [requires]/body text via [truncate_to_formal_expressible]
+           -- so a bare self-entry only ever duplicates that. Worse, once
+           merged via [Callable.mask_canon] a genuine, non-trivial widening
+           this declaration's own nested chase produces (e.g. `node`'s
+           `(is_queue, [])`, from mentioning `is_queue(nx)` under an
+           existential) becomes value-indistinguishable from that trivial
+           self-entry -- so keeping the self-entry around forced every
+           consumer to guess which one it was looking at, and the only safe
+           guess was "assume trivial and discard it", silently throwing the
+           genuine case away too (this is what made `get_tail`'s recursive
+           call to itself fail to verify: `is_queue`'s own correctly-widened
+           `(is_queue, [])` was discarded as if it were only the trivial
+           baseline). Omitting the self-entry entirely removes the ambiguity
+           at the source: [call_decl_needs_mask] now holds only genuine
+           nested information, so every consumer below can pull all of it in
+           unconditionally, no exclusion needed. *)
         let formal_idents =
           List.map c.call_decl.call_decl_formals ~f:(fun vd -> vd.var_name)
           |> Set.of_list (module Ident)
@@ -358,11 +260,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
                           };
                         _;
                       } ->
-                      let nested_mask =
-                        List.filter
-                          (Option.value call_decl_needs_mask ~default:[])
-                          ~f:(fun (entry_qi, _) -> not (QualIdent.equal entry_qi qi))
-                      in
+                      let nested_mask = Option.value call_decl_needs_mask ~default:[] in
                       Rewriter.return
                         (substitute_and_truncate_mask ~mentioned_formals
                            ~actual_args:args ~caller_formal_idents:formal_idents
@@ -370,9 +268,8 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
                   | _ -> Rewriter.return [])
             in
             Rewriter.return
-              (Callable.mask_canon
-                 (self_entry @ direct_entries @ List.concat nested_entries))
-        | FuncDef { func_body = None } -> Rewriter.return self_entry
+              (Callable.mask_canon (direct_entries @ List.concat nested_entries))
+        | FuncDef { func_body = None } -> Rewriter.return []
         | ProcDef _ -> assert false)
     | Lemma | Proc -> compute_proc_lemma_mask c
     | Func -> Rewriter.return []

@@ -129,6 +129,119 @@ let membership_conditions ~loc ~(candidate : Expr.t list) ~(target : Expr.t list
       (List.filter_map (List.zip_exn candidate target_prefix) ~f:(fun (c, t) ->
            if Expr.alpha_equal c t then None else Some (Expr.mk_eq ~loc c t)))
 
+(* Builds the formal -> actual-argument substitution for a call, accounting for
+   trailing implicit ghost formals that a caller may omit at the call site
+   (see [Typing.try_resolve_implicit_instantiation]'s "trailing implicit ghost
+   formals may be omitted" handling): if [call_args] has one entry per
+   [formals] (including any implicit ones the caller chose to supply
+   explicitly -- e.g. `acquire(l, r, b1)` in test/concurrent/lock/spin-lock.rav),
+   zip directly against [formals]; if it has one entry per *non-implicit*
+   formal only (the common case for an omitted trailing implicit), zip
+   against those instead, leaving implicit formals unmapped. Any other length
+   falls back to the empty map (no substitution), same as a genuine
+   formal/actual mismatch -- callers already treat that as "leave unsubstituted"
+   rather than aborting. Also returns the set of formal idents an actual was
+   actually found for, so callers can recognize a formal that was genuinely
+   never supplied (an omitted implicit) as opposed to one substituted to some
+   caller expression. *)
+let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Expr.t list) =
+  let build assoc =
+    let map =
+      List.fold assoc ~init:(Map.empty (module QualIdent)) ~f:(fun acc (formal, actual) ->
+          Map.set acc ~key:(QualIdent.from_ident formal.Type.var_name) ~data:actual)
+    in
+    let resolved =
+      List.map assoc ~f:(fun (formal, _) -> formal.Type.var_name)
+      |> Set.of_list (module Ident)
+    in
+    (map, resolved)
+  in
+  if List.length call_args = List.length formals then build (List.zip_exn formals call_args)
+  else
+    let non_implicit_formals =
+      List.filter formals ~f:(fun vd -> not vd.Type.var_implicit)
+    in
+    if List.length call_args = List.length non_implicit_formals then
+      build (List.zip_exn non_implicit_formals call_args)
+    else (Map.empty (module QualIdent), Set.empty (module Ident))
+
+let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t list) =
+  fst (call_formal_actual_alignment formals call_args)
+
+(* A call that omits a trailing implicit ghost formal (see
+   [call_formal_actual_alignment] above) leaves the callee's own mask entry
+   for it referring to the callee's own out-of-scope internal ident -- there
+   is no caller expression to substitute in for it from the call site alone.
+   Rather than leave that dangling (an out-of-scope ident must never reach
+   the caller's own checks, syntactic or SMT-backed alike), try, in order:
+   1. If the caller's ambient mask has a candidate entry for the same
+      declaration, of the same (untruncated) arity, whose already-resolved
+      prefix matches, and everything past that prefix falls entirely within
+      the declaration's own *output* (return) parameters, then that
+      candidate's remaining arguments are a sound stand-in for the omitted
+      implicit (e.g. `Lk.acquire(lk)` against an ambient `lock_inv(lk, l)`
+      unifies to exactly what `Lk.acquire(lk, l)` would give): [Rewrites]'s
+      `pred_valid$<qi>` lemma (generated for every [Pred]/[Invariant] with a
+      declared output -- see its own doc comment) proves two
+      simultaneously-held instances of [qi] agreeing on the inputs must also
+      agree on the outputs, checked or (for a [free] declaration) assumed
+      either way -- so if there's more than one such candidate, any of them
+      is as good as any other. An unresolved position within [qi]'s own
+      *inputs* gets no such guarantee (two candidates there could genuinely
+      describe different, unrelated instances), so this is skipped whenever
+      the resolved prefix doesn't reach past all of [qi]'s inputs.
+   2. Otherwise, truncate the entry down to just its resolved prefix -- the
+      same coarsening [Masks.truncate_to_formal_expressible] already applies
+      to an atomic spec's implicit formals: a position nothing at the call
+      site can name is safely dropped rather than left dangling, at the cost
+      of a coarser (but sound) requirement. This guarantees every entry this
+      function returns is fully expressible at the call site, so the
+      mask-availability check below can safely hand it to an SMT assert (or
+      to [call_reentrancy_asserts]) without ever leaking a callee-internal
+      ident into the caller's own scope. *)
+let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
+    ~(formals : Type.var_decl list) ~(call_args : Expr.t list) (mask : Callable.mask) :
+    (Callable.mask, 'a) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  let renaming_map, resolved = call_formal_actual_alignment formals call_args in
+  Rewriter.List.map mask ~f:(fun (qi, args) ->
+      let resolved_len =
+        List.length
+          (List.take_while args ~f:(fun arg ->
+               Set.is_subset (Expr.local_vars arg) ~of_:resolved))
+      in
+      let substituted =
+        List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map)
+      in
+      if resolved_len = List.length args then Rewriter.return (qi, substituted)
+      else
+        let known_prefix = List.take substituted resolved_len in
+        let truncated = (qi, known_prefix) in
+        let* symbol = Rewriter.find_and_reify qi in
+        let n_formals =
+          match symbol with
+          | CallDef { call_decl = { call_decl_formals; _ }; _ } ->
+              List.length call_decl_formals
+          | _ -> List.length args
+        in
+        if resolved_len < n_formals then Rewriter.return truncated
+        else
+          let candidates =
+            List.filter ambient_mask ~f:(fun (qi', cand_args) ->
+                QualIdent.equal qi' qi
+                && List.length cand_args = List.length args
+                &&
+                match
+                  List.for_all2 known_prefix (List.take cand_args resolved_len)
+                    ~f:Expr.alpha_equal
+                with
+                | Ok b -> b
+                | Unequal_lengths -> false)
+          in
+          match candidates with
+          | (_, cand_args) :: _ -> Rewriter.return (qi, cand_args)
+          | [] -> Rewriter.return truncated)
+
 (* [args1]/[args2] are both full argument lists for the same invariant
    declaration (hence the same length -- same formal arity). [Error ()]
    means every position is syntactically identical: definitely the same
@@ -533,12 +646,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
 
         (* The callee's mask entries are expressed in terms of its own
            formals; substitute the actual call arguments before comparing
-           against the caller's (locals-relative) mask. Kept purely
-           syntactic here (no SMT-backed matching, unlike [open_inv]): an
-           ordinary call never needs to splice in extra statements the way
-           [Unfold] does, and any mask entry [membership_conditions] would
-           need an assert for at a call site could instead just be written
-           more precisely by the caller.
+           against the caller's (locals-relative) mask.
 
            Substitution is only attempted when the callee's mask actually
            has a non-empty (fine-grained) entry -- the overwhelming common
@@ -547,152 +655,159 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
            `implicit`, which callers may or may not supply explicitly) isn't
            always simply "drop the implicit formals" -- see e.g.
            `acquire(l, r, b1)` explicitly supplying implicit formals in
-           test/concurrent/lock/spin-lock.rav. A length mismatch falls back
-           to no substitution rather than aborting, so a genuine alignment
-           gap surfaces as an ordinary (safe) mask-unavailability error
-           instead of crashing the compiler. *)
+           test/concurrent/lock/spin-lock.rav. [unify_omitted_implicit_mask]
+           below handles a length mismatch (including whatever it can't
+           itself resolve) rather than aborting, so a genuine alignment gap
+           surfaces as an ordinary (safe) mask-unavailability check instead
+           of crashing the compiler. *)
         let callee_mask = Option.value_exn call_decl.call_decl_needs_mask in
         let needs_substitution =
           List.exists callee_mask ~f:(fun (_, args) -> not (List.is_empty args))
         in
-        let required_at_call_site =
-          if not needs_substitution then callee_mask
+        let* required_at_call_site =
+          if not needs_substitution then Rewriter.return callee_mask
           else
-            let renaming_map =
-              match
-                List.fold2 call_decl.call_decl_formals call_desc.call_args
-                  ~init:(Map.empty (module QualIdent))
-                  ~f:(fun acc formal actual ->
-                    Map.set acc
-                      ~key:(QualIdent.from_ident formal.var_name)
-                      ~data:actual)
-              with
-              | Ok m -> m
-              | Unequal_lengths -> Map.empty (module QualIdent)
-            in
-            List.map callee_mask ~f:(fun (qi, args) ->
-                (qi, List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map)))
+            unify_omitted_implicit_mask ~ambient_mask:atomicity_state.mask
+              ~formals:call_decl.call_decl_formals ~call_args:call_desc.call_args callee_mask
         in
-        let missing =
-          List.find required_at_call_site ~f:(fun (qi, args) ->
+        (* A call doesn't remove anything from the mask -- it's a pure query,
+           "does the caller already have room for what the callee needs" --
+           so unlike [open_inv]/[Unfold], there's nothing to commit to if the
+           cheap syntactic check below doesn't immediately settle it. Try
+           that fast path first (covers the overwhelming common case, and
+           the coarse-[] entries in particular, for free); only fall back to
+           an SMT assert per still-unresolved required entry, disjoining
+           every same-declaration ambient candidate's positional equality
+           over their common (resolved-at-the-call-site) prefix. Zero
+           candidates collapses to the empty disjunction, i.e. `assert
+           false` -- proving the call site is semantically unreachable is
+           strictly more informative than the outright compiler rejection
+           this replaces, and no worse when it isn't: the assert just fails
+           like any other. [required_at_call_site] is guaranteed free of any
+           callee-internal ident by [unify_omitted_implicit_mask] above, so
+           every position here is safe to name in a caller-side assert. *)
+        let availability_asserts =
+          List.filter_map required_at_call_site ~f:(fun (qi, target_args) ->
               let candidates =
                 List.filter atomicity_state.mask ~f:(fun (qi', _) ->
                     QualIdent.equal qi' qi)
               in
-              not
-                (List.exists candidates ~f:(fun (_, cand_args) ->
-                     match
-                       membership_conditions ~loc ~candidate:cand_args
-                         ~target:args
-                     with
-                     | Some [] -> true
-                     | None | Some (_ :: _) -> false)))
+              let syntactically_available =
+                List.exists candidates ~f:(fun (_, cand_args) ->
+                    match
+                      membership_conditions ~loc ~candidate:cand_args
+                        ~target:target_args
+                    with
+                    | Some [] -> true
+                    | None | Some (_ :: _) -> false)
+              in
+              if syntactically_available then None
+              else
+                let disjuncts =
+                  List.map candidates ~f:(fun (_, cand_args) ->
+                      let k = min (List.length target_args) (List.length cand_args) in
+                      Expr.mk_and ~loc
+                        (List.map2_exn (List.take target_args k) (List.take cand_args k)
+                           ~f:(fun a b -> Expr.mk_eq ~loc a b)))
+                in
+                let cond = Expr.mk_or ~loc disjuncts in
+                let call_id = call_desc.call_name |> QualIdent.unqualify in
+                let error =
+                  ( Error.Verification, loc,
+                    Printf.sprintf
+                      !"Cannot call %{Ident}. The invariant %{Ident} required by \
+                        %{Ident} is not available in the current mask"
+                      call_id (qi |> QualIdent.unqualify) call_id )
+                in
+                Some
+                  (Stmt.mk_assert_expr ~loc
+                     ~spec_error:[ Stmt.mk_const_spec_error error ]
+                     cond))
+        in
+        let reentrancy_asserts =
+          call_reentrancy_asserts ~loc atomicity_state required_at_call_site
+        in
+        let* is_call_lhs_ghost =
+          Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
+              let* symbol = Rewriter.find_and_reify qual_iden in
+              match symbol with
+              | VarDef v -> Rewriter.return v.var_decl.var_ghost
+              | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
         in
 
-        if Option.is_some missing then
-          let msg =
-            let missing_inv, _ = Option.value_exn missing in
-            let call_id = call_desc.call_name |> QualIdent.unqualify in
-            Printf.sprintf
-              !"Cannot call %{Ident}. The invariant %{Ident} required by \
-                %{Ident} is not available in the current mask"
-              call_id (missing_inv |> QualIdent.unqualify) call_id
-          in
-          Error.verification_error stmt.stmt_loc msg
-        else
-          let reentrancy_asserts =
-            call_reentrancy_asserts ~loc atomicity_state required_at_call_site
-          in
-          let* is_call_lhs_ghost =
-            Rewriter.List.for_all call_desc.call_lhs ~f:(fun qual_iden ->
-                let* symbol = Rewriter.find_and_reify qual_iden in
-                match symbol with
-                | VarDef v -> Rewriter.return v.var_decl.var_ghost
-                | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
-          in
+        (* Drop any existing entry that mentions one of this call's own
+           lhs-bound variables *before* computing grants-set credit below
+           -- the call is about to overwrite those variables, so any
+           pre-existing mask entry mentioning them is now stale (see
+           [drop_mask_entries_mentioning]), while any *new* grants-set
+           entry computed below legitimately describes their post-call
+           value and must not be dropped by this same step. *)
+        let atomicity_state = drop_stale ~qis:call_desc.call_lhs atomicity_state in
 
-          (* Drop any existing entry that mentions one of this call's own
-             lhs-bound variables *before* computing grants-set credit below
-             -- the call is about to overwrite those variables, so any
-             pre-existing mask entry mentioning them is now stale (see
-             [drop_mask_entries_mentioning]), while any *new* grants-set
-             entry computed below legitimately describes their post-call
-             value and must not be dropped by this same step. *)
-          let atomicity_state = drop_stale ~qis:call_desc.call_lhs atomicity_state in
-
-          (* Grants-set credit: does calling this callee hand *this* caller
-             local mask credit, the same way a local [fold] would? (See
-             [Callable.call_decl_grants_mask]'s doc comment.) Applied
-             uniformly regardless of which branch below is taken --
-             including the ghost-lhs/[Lemma]
-             one, which otherwise never touches [atomicity_state] at all,
-             since a lemma can still fold a fresh invariant and hand its
-             credit onward exactly like a proc can. Substituted through both
-             the actual call arguments (the callee's own formals) and the
-             call's lhs bindings (the callee's own return variables), since
-             a grants-set entry -- unlike [call_decl_needs_mask] -- can be
-             expressed via either. *)
-          let* atomicity_state =
-            match Option.value call_decl.call_decl_grants_mask ~default:[] with
-            | [] -> Rewriter.return atomicity_state
-            | grants ->
-                let needs_substitution =
-                  List.exists grants ~f:(fun (_, args) -> not (List.is_empty args))
+        (* Grants-set credit: does calling this callee hand *this* caller
+           local mask credit, the same way a local [fold] would? (See
+           [Callable.call_decl_grants_mask]'s doc comment.) Applied
+           uniformly regardless of which branch below is taken --
+           including the ghost-lhs/[Lemma]
+           one, which otherwise never touches [atomicity_state] at all,
+           since a lemma can still fold a fresh invariant and hand its
+           credit onward exactly like a proc can. Substituted through both
+           the actual call arguments (the callee's own formals) and the
+           call's lhs bindings (the callee's own return variables), since
+           a grants-set entry -- unlike [call_decl_needs_mask] -- can be
+           expressed via either. *)
+        let* atomicity_state =
+          match Option.value call_decl.call_decl_grants_mask ~default:[] with
+          | [] -> Rewriter.return atomicity_state
+          | grants ->
+              let needs_substitution =
+                List.exists grants ~f:(fun (_, args) -> not (List.is_empty args))
+              in
+              if not needs_substitution then
+                Rewriter.return
+                  { atomicity_state with mask = Callable.mask_union atomicity_state.mask grants }
+              else
+                let formal_map =
+                  call_formal_actual_map call_decl.call_decl_formals call_desc.call_args
                 in
-                if not needs_substitution then
-                  Rewriter.return
-                    { atomicity_state with mask = Callable.mask_union atomicity_state.mask grants }
-                else
-                  let formal_map =
-                    match
-                      List.fold2 call_decl.call_decl_formals call_desc.call_args
-                        ~init:(Map.empty (module QualIdent))
-                        ~f:(fun acc formal actual ->
-                          Map.set acc
-                            ~key:(QualIdent.from_ident formal.var_name)
-                            ~data:actual)
-                    with
-                    | Ok m -> m
-                    | Unequal_lengths -> Map.empty (module QualIdent)
-                  in
-                  let renaming_map =
-                    match
-                      List.fold2 call_decl.call_decl_returns call_desc.call_lhs
-                        ~init:formal_map
-                        ~f:(fun acc ret lhs ->
-                          Map.set acc
-                            ~key:(QualIdent.from_ident ret.var_name)
-                            ~data:(Expr.mk_var ~typ:ret.var_type lhs))
-                    with
-                    | Ok m -> m
-                    | Unequal_lengths -> formal_map
-                  in
-                  let credited =
-                    List.map grants ~f:(fun (qi, args) ->
-                        ( qi,
-                          List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map) ))
-                  in
-                  Rewriter.return
-                    { atomicity_state with mask = Callable.mask_union atomicity_state.mask credited }
-          in
+                let renaming_map =
+                  match
+                    List.fold2 call_decl.call_decl_returns call_desc.call_lhs
+                      ~init:formal_map
+                      ~f:(fun acc ret lhs ->
+                        Map.set acc
+                          ~key:(QualIdent.from_ident ret.var_name)
+                          ~data:(Expr.mk_var ~typ:ret.var_type lhs))
+                  with
+                  | Ok m -> m
+                  | Unequal_lengths -> formal_map
+                in
+                let credited =
+                  List.map grants ~f:(fun (qi, args) ->
+                      ( qi,
+                        List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map) ))
+                in
+                Rewriter.return
+                  { atomicity_state with mask = Callable.mask_union atomicity_state.mask credited }
+        in
 
-          if
-            (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
-            || Poly.(call_decl.call_decl_kind = Lemma)
-          then
-            let* _ = Rewriter.set_user_state atomicity_state in
-            Rewriter.return
-              (Stmt.mk_block_stmt ~loc (reentrancy_asserts @ [ stmt ]))
-          else if Callable.is_atomic call_decl then
-            let atomicity_state = take_atomic_step ~loc atomicity_state in
-            let* _ = Rewriter.set_user_state atomicity_state in
-            Rewriter.return
-              (Stmt.mk_block_stmt ~loc (reentrancy_asserts @ [ stmt ]))
-          else
-            let atomicity_state = take_non_atomic_step ~loc atomicity_state in
-            let* _ = Rewriter.set_user_state atomicity_state in
-            Rewriter.return
-              (Stmt.mk_block_stmt ~loc (reentrancy_asserts @ [ stmt ]))
+        if
+          (is_call_lhs_ghost && not (List.is_empty call_desc.call_lhs))
+          || Poly.(call_decl.call_decl_kind = Lemma)
+        then
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return
+            (Stmt.mk_block_stmt ~loc (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+        else if Callable.is_atomic call_decl then
+          let atomicity_state = take_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return
+            (Stmt.mk_block_stmt ~loc (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+        else
+          let atomicity_state = take_non_atomic_step ~loc atomicity_state in
+          let* _ = Rewriter.set_user_state atomicity_state in
+          Rewriter.return
+            (Stmt.mk_block_stmt ~loc (availability_asserts @ reentrancy_asserts @ [ stmt ]))
     | Basic (BasicStmtExt (stmt_ext, args)) ->
         let* ext_hooks = Rewriter.current_ext_hooks in
         let atomicity_state =
