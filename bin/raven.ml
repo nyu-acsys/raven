@@ -164,23 +164,23 @@ let backend_check_cu tbl smt_env processed_mds =
   Backend.Checker.check_module processed_mds tbl smt_env
 
 
-(** Parse and check all compilation units in files [file_names] *)
-let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
-  (* Locations inside extension library sources (e.g. well_founded_order.rav) are
-     virtual -- there's no real file on disk for Loc.context to fall back to reading.
-     Register them so it can find the text the same way it already does for the core
-     standard library ([Library.sources]). *)
-  Loc.register_sources lib_sources;
-
+(** Parse and check all compilation units in files [file_names]. [extension_mode] picks
+    the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it
+    from the parsed program's own extension-specific syntax (see [Ext.detect_extension])
+    before the library -- whose sources the choice picks -- is parsed. That's why the
+    program is parsed here ahead of the library, the reverse of the order *type-checking*
+    needs (see [type_cu]'s doc comment): parsing has no dependency on the library's
+    symbol table, only type-checking does. *)
+let parse_and_check_all ~extension_mode config file_names =
   (* Start backend solver session *)
-  
-  (* Variable which controls whether the 
-    - `front_end_processed_output.log` 
+
+  (* Variable which controls whether the
+    - `front_end_processed_output.log`
     - `log.smt2`
-    files are created. 
+    files are created.
     At present create them only when in Debug mode and also not in lsp_mode.
    *)
-  let external_logging = 
+  let external_logging =
     match config.log_level with
     | Some Logs.Debug ->
       if config.lsp_mode then false else
@@ -195,38 +195,10 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
   let front_end_out_chan =
     if external_logging then
       Stdio.Out_channel.create front_end_processed_output_log
-    else 
+    else
       Util.Channel.null_channel ()
   in
 
-  (* Parse and check standard library *)
-  let tbl = SymbolTbl.create () in
-  let tbl, lib_typed =
-    if config.no_library then (tbl, None)
-    else
-      let lib_prog =
-        List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
-        ~f:(fun (lib_file_name, lib_source) lib_prog ->
-            let lib_source_lexbuf =
-              Lexing.from_string lib_source
-            in
-            let _ =
-              Lexer.set_file_name lib_source_lexbuf lib_file_name
-            in
-            let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
-            (* [set_unit_free], not [set_free]: the standard library is trusted by the
-               compiler so it isn't re-verified for every program, which is exactly what
-               [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
-               The two must stay distinguishable: a member inherited from here into a
-               user module still owes a definition and a proof, whereas one inherited
-               from a user's own `free` declaration does not (see [Typing.merge_defs]). *)
-            let md = Ast.Module.set_unit_free md in
-            merge_prog md lib_prog)
-      in
-      let tbl, lib_typed = type_cu ~ext_hooks config tbl lib_prog in
-      (tbl, Some lib_typed)
-  in
-  
   (* Parse and check actual input program *)
   let rec parse_prog parsed to_parse prog =
     match to_parse with
@@ -250,7 +222,7 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
             (* [is_free] here is set unconditionally for every `include`d file (see
                [parse_cu]) -- there is no `free include` syntax -- so this is the
                compiler's decision, not the user's, and uses [set_unit_free] for the
-               same reason the standard library above does. Marking it [UserFree]
+               same reason the standard library below does. Marking it [UserFree]
                instead used to let a module implementing an interface from an included
                file skip both halves of the conformance check. *)
             if is_free then Ast.Module.set_unit_free md else md
@@ -278,6 +250,54 @@ let parse_and_check_all ~ext_hooks ~lib_sources config file_names =
              in
              (file_dir, file_name, false)) file_names)
       empty_prog
+  in
+
+  (* [EXT] Resolve which extension is activated for this run and build the hooks the
+     rest of the pipeline dispatches through -- see lib/ext/ext.ml and
+     Ast.Rewriter.ext_hooks. Under [`Auto], this is the earliest point the choice can be
+     made: it needs [md], and needs to happen before the library (whose sources the
+     choice picks) is parsed below. *)
+  let chosen_ext =
+    match extension_mode with
+    | `Explicit ext -> ext
+    | `Auto -> Ext.detect_extension md
+  in
+  let (module ChosenExt) = Ext.module_map chosen_ext in
+  let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
+  let lib_sources = ChosenExt.lib_sources in
+
+  (* Locations inside extension library sources (e.g. well_founded_order.rav) are
+     virtual -- there's no real file on disk for Loc.context to fall back to reading.
+     Register them so it can find the text the same way it already does for the core
+     standard library ([Library.sources]). *)
+  Loc.register_sources lib_sources;
+
+  (* Parse and check standard library *)
+  let tbl = SymbolTbl.create () in
+  let tbl, lib_typed =
+    if config.no_library then (tbl, None)
+    else
+      let lib_prog =
+        List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
+        ~f:(fun (lib_file_name, lib_source) lib_prog ->
+            let lib_source_lexbuf =
+              Lexing.from_string lib_source
+            in
+            let _ =
+              Lexer.set_file_name lib_source_lexbuf lib_file_name
+            in
+            let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
+            (* [set_unit_free], not [set_free]: the standard library is trusted by the
+               compiler so it isn't re-verified for every program, which is exactly what
+               [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
+               The two must stay distinguishable: a member inherited from here into a
+               user module still owes a definition and a proof, whereas one inherited
+               from a user's own `free` declaration does not (see [Typing.merge_defs]). *)
+            let md = Ast.Module.set_unit_free md in
+            merge_prog md lib_prog)
+      in
+      let tbl, lib_typed = type_cu ~ext_hooks config tbl lib_prog in
+      (tbl, Some lib_typed)
   in
 
   let tbl, prog_typed = type_cu ~ext_hooks config tbl md in
@@ -386,8 +406,13 @@ let smt_timeout =
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
 let extension_mode =
-  let doc = "Extension mode: default, eris, or prophecy." in
-  let supported_exts = List.map ~f:(fun (e, _) -> (e, e)) Ext.ext_map in
+  let doc = "Extension mode: default, eris, or auto. \"auto\" detects the right one \
+             from the input program's own extension-specific syntax before the \
+             library, whose sources the choice picks, is parsed; a program using no \
+             extension-specific syntax falls back to \"default\"." in
+  let supported_exts =
+    ("auto", "auto") :: List.map ~f:(fun (e, _) -> (e, e)) Ext.ext_map
+  in
   Arg.(value & opt (enum supported_exts) "default" & info [ "extension" ] ~doc)
 
 let strict =
@@ -511,7 +536,7 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   in
   Option.is_some dumped || Option.is_some printed
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode strict dump_library print_library_source manifest =
+let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -531,19 +556,30 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     strict;
   }
   in
-  (* [EXT] Resolve which extension is activated for this run and build the hooks the
-     rest of the pipeline dispatches through -- see lib/ext/ext.ml and
-     Ast.Rewriter.ext_hooks. *)
-  let (module ChosenExt) =
-    Ext.module_map (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode)
+  (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
+     see [parse_and_check_all] -- since the choice also picks which extension's library
+     sources get parsed, and the program is parsed before the library.
+     [--dump-library]/[--print-library-source] below have no program to detect from, so
+     "auto" there just falls back to the plain "default" chain, same as a program using
+     no extension-specific syntax would. *)
+  let explicit_extension_mode =
+    if String.(extension_mode_arg = "auto") then None
+    else Some (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode_arg)
   in
-  let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
+  let (module LibraryExt) =
+    Ext.module_map (Option.value explicit_extension_mode ~default:Ext.ProphecyExt)
+  in
   if
-    serve_library_sources ~lib_sources:ChosenExt.lib_sources ~dump_library
+    serve_library_sources ~lib_sources:LibraryExt.lib_sources ~dump_library
       ~print_library_source
   then `Ok ()
   else
-  try `Ok (parse_and_check_all ~ext_hooks ~lib_sources:ChosenExt.lib_sources config input_files) with
+  let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =
+    match explicit_extension_mode with
+    | Some ext -> `Explicit ext
+    | None -> `Auto
+  in
+  try `Ok (parse_and_check_all ~extension_mode config input_files) with
   | Unix.Unix_error (err, _, prog) ->
     let msg =
       Printf.sprintf
