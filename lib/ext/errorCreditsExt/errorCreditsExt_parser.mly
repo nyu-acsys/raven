@@ -4,7 +4,7 @@ open Ext.ErrorCreditsExtInstance
 
 %}
 
-%token EC ERRORCRED RAND ECVAL ECFN ECLIST ECCONTRA
+%token EC ECERROR BACKSLASH RAND ECVAL ECFN ECLIST ECCONTRA
 
 %%
 
@@ -27,7 +27,7 @@ open Ext.ErrorCreditsExtInstance
     | e :: _, _ -> Error.syntax_error (Expr.to_loc e) "Expected a single local variable on the left-hand side of 'EC.rand(...)'"
     | [], _ -> assert false
 }
-| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECFN COLON ERRORCRED LPAREN ec_expr = expr RPAREN COMMA x = IDENT IMPLIES fn_body = expr RPAREN {
+| EC DOT RAND LPAREN n_expr = expr SEMICOLON ECFN COLON EC DOT ECERROR LPAREN ec_expr = expr RPAREN COMMA BACKSLASH x = IDENT COLONCOLON fn_body = expr RPAREN {
     function
     | [Expr.(App (Var qual_ident, [], _)) as e], is_init
       when QualIdent.is_local qual_ident ->
@@ -51,6 +51,6 @@ open Ext.ErrorCreditsExtInstance
 | EC DOT ECCONTRA; LPAREN RPAREN SEMICOLON { [Stmt.Basic (BasicStmtExt (EC_Contra, []))]}
 
 %public unary_expr:
-| ERRORCRED; LPAREN e = expr RPAREN {
+| EC DOT ECERROR; LPAREN e = expr RPAREN {
   Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt ErrorCreds) [e]
 }

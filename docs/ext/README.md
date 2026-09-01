@@ -135,7 +135,7 @@ This extension introduces:
   - `ErrorCreds` expression: these represent error credit resources
   - `lhs := EC.rand(n);` command: to generate a random number between `0` and `n-1`
   - `lhs := EC.rand(n; ECVal: !=k);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not equal to `k`
-  - `lhs := EC.rand(n; ECFn: EC.error(e), x ==> body(x));` command: to generate a random number between `0` and `n-1`; then it redistrbutes `e` error credits according to the function defined by `x ==> body(x)`.
+  - `lhs := EC.rand(n; ECFn: EC.error(e), \x :: body(x));` command: to generate a random number between `0` and `n-1`; then it redistrbutes `e` error credits according to the function defined by `\x :: body(x)`.
   - `lhs := EC.rand(n; ECList: !in ls);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not in the list `ls`.
   - `EC.contra()` command: to abort the proof when we get ownership of `EC.error(1.0)`.
 

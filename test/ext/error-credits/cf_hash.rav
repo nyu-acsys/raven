@@ -44,13 +44,13 @@ module CollFreeHash {
       // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
       true
       && 0 < hf.vsval
-      && -*-(amortized_error)
+      && EC.error(amortized_error)
     )
     requires (!OptInt.is_some(lookUpHashMap(hf.hm, v)) && hf.sval + 1 == hf.rval) ==> (
       // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
       true
       && 0 < hf.vsval
-      && -*-(amortized_error)
+      && EC.error(amortized_error)
     )
     requires (OptInt.is_some(lookUpHashMap(hf.hm, v))) ==> (
       // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
@@ -64,7 +64,7 @@ module CollFreeHash {
     ensures (!OptInt.is_some(lookUpHashMap(hf.hm, v)) && hf.sval + 1 < hf.rval) ==> (
       // cf_hashfun_raw(x, hf.hm, hf.vsval, hf.sval, hf.rval)
       true
-      // && -*-(amortized_error)
+      // && EC.error(amortized_error)
       && 0 <= hash < hf.vsval
       && hf'.hm == ((v, hash) :: hf.hm)
       && hf'.vsval == hf.vsval
@@ -114,19 +114,19 @@ module CollFreeHash {
               >
             ((rval0 - sval0) * amortized_error )  
           ) {
-            assert ( 2*sval0 > rval0 + 1 ) ? -*-(
+            assert ( 2*sval0 > rval0 + 1 ) ? EC.error(
               ((sum_n_m(sval0, rval0-1)) / vsval0)
               - ((rval0 - sval0) * amortized_error )
 
               + amortized_error
-            ) : -*-(
+            ) : EC.error(
               amortized_error
             );
 
           } else {
 
 
-            assert -*-( amortized_error );
+            assert EC.error( amortized_error );
 
             assert sval0 >= 0;
             // assume sval0 >= 0;
@@ -139,7 +139,7 @@ module CollFreeHash {
           assert sval0 + 1 == rval0;
           // (sval0 + 1 == rval0)
 
-          assert -*-(
+          assert EC.error(
             ((sum_n_m(sval0, rval0-1)) / vsval0)
             - ((rval0 - sval0) * amortized_error )
 
@@ -148,7 +148,7 @@ module CollFreeHash {
 
           cf_update_potential_resize(vsval0, sval0, rval0);
 
-          assert (-*-(
+          assert (EC.error(
             sval0 / vsval0
           ));
 
@@ -166,16 +166,16 @@ module CollFreeHash {
       var mp' := (v, b) :: mp;
 
       if (sval0 + 1 < rval0) {
-        // assert -*-(amortized_error)
+        // assert EC.error(amortized_error)
         
-        // && ((2 * sval0 > rval0 + 1) ==> -*-(
+        // && ((2 * sval0 > rval0 + 1) ==> EC.error(
         //   ((sum_n_m(sval0, rval0-1)) / vsval0)
         //   - ((rval0 - sval0) * amortized_error )
         // ));
 
         // cf_update_potential_aux(vsval0, sval0, rval0);
 
-        // assert (2 * sval0 > rval0 + 1) ==> -*-(  
+        // assert (2 * sval0 > rval0 + 1) ==> EC.error(  
         //   ((sum_n_m(sval0+1, rval0-1)) / vsval0)
         //   - ((rval0 - 1 - sval0) * amortized_error )
         // );
@@ -186,12 +186,12 @@ module CollFreeHash {
         // var temp0 := ((sum_n_m(sval0'+1, rval0-1)) / vsval0)
         //   - ((rval0 - 1 - sval0') * amortized_error );
 
-        // assert (2 * sval0' > rval0 + 1) ==> -*-(  
+        // assert (2 * sval0' > rval0 + 1) ==> EC.error(  
         //   ((sum_n_m(sval0'+1, rval0-1)) / vsval0)
         //   - ((rval0 - 1 - sval0') * amortized_error )
         // );
 
-        // assert (2 * sval0' > rval0 + 1) ==> -*-( temp0 );
+        // assert (2 * sval0' > rval0 + 1) ==> EC.error( temp0 );
 
         // assert sval0-1 == sval0';
 
@@ -209,14 +209,14 @@ module CollFreeHash {
 
         // assert temp0 == temp1;
 
-        // assert (2 * sval0' > rval0 + 1) ==> -*-( temp0 );
+        // assert (2 * sval0' > rval0 + 1) ==> EC.error( temp0 );
 
-        // assert (2 * (sval0-1) > rval0 + 1) ==> -*-( temp1 );
+        // assert (2 * (sval0-1) > rval0 + 1) ==> EC.error( temp1 );
 
         if (2 * sval0 > rval0 + 1 && 2 * (sval0-1) <= rval0 + 1) {
           extra_credits_math(vsval0, sval0, rval0);
 
-          assert -*-(0.0);
+          assert EC.error(0.0);
           // assume false;
         } else {
           if (2 * (sval0-1) <= rval0 + 1) {
@@ -224,7 +224,7 @@ module CollFreeHash {
           }
 
           if (2 * sval0 > rval0 + 1) {
-            assert  -*-(  
+            assert  EC.error(  
             ((sum_n_m(sval0, rval0-1)) / vsval0)
             - ((rval0 - sval0) * amortized_error )
             );
@@ -242,7 +242,7 @@ module CollFreeHash {
 
         // assert( 2*rval0 - rval0) * amortized_error >= sum_n_m(rval0, 2*rval0-1) / (2*vsval0);
 
-        assert -*-(0.0);
+        assert EC.error(0.0);
 
 
         sval0 := rval0;
@@ -294,14 +294,14 @@ module CollFreeHash {
     && s0 < r0 <= vs0
     && 0 <= s0
     && s0 == len(mp)
-    // && -*-(  
+    // && EC.error(  
     //   ((sum_n_m(s0, r0-1)) / vs0)
     //   - ((r0 - s0) * amortized_error )
     // )
     && (
       ( 2*s0 > r0 + 1 ) ==>
 
-        -*-(  
+        EC.error(  
           ((sum_n_m(s0, r0-1)) / vs0)
           - ((r0 - s0) * amortized_error )
         )
@@ -323,7 +323,7 @@ module CollFreeHash {
         && s0 + 1 < r0
         && 0 < vs0
         && cf_hashfun_raw(x, mp, vs0, s0, r0)
-        && -*-( amortized_error)
+        && EC.error( amortized_error)
 
     requires forall k: Int :: OptInt.is_some(lookUpHashMap(mp, k)) ==> 0 <= lookUpHashMap(mp, k).OptInt.value < vs0
     // requires 
@@ -340,26 +340,26 @@ module CollFreeHash {
       && 1 + s0 < r0
       && r0 / vs0 == init_r / init_val_size
       && ( (2 * s0 > r0 + 1) ?
-            -*-(
+            EC.error(
               (sum_n_m(s0, r0-1)) / vs0
               - (r0 - s0) * amortized_error
               + amortized_error
             ) : 
-            -*-(
+            EC.error(
               amortized_error
             )
       )
 
     ensures 
-      -*-((s0 / vs0))
+      EC.error((s0 / vs0))
       && ( (2 * s0 > r0 + 1) ?
-          -*-(
+          EC.error(
             ((sum_n_m(s0+1, r0-1)) / vs0)
             - (r0-1-s0) * amortized_error
           ) : true   
       )
 
-      // -*-(
+      // EC.error(
       //   ((sum_n_m(s0+1, r0-1)) / vs0)
       //   - (r0-1-s0) * amortized_error
       // )
@@ -382,18 +382,18 @@ module CollFreeHash {
     requires 1 + s0 < r0
     requires r0 / vs0 == init_r / init_val_size
       // && 2 * s0 > r0 + 1 // <- always true by the manner in which we resize; except maybe
-    requires (2 * s0 > r0 + 1) ==> -*-(
+    requires (2 * s0 > r0 + 1) ==> EC.error(
         (sum_n_m(s0, r0-1))/vs0 - (r0 - s0) * amortized_error
       )
-    requires -*-(
+    requires EC.error(
         amortized_error
       )
     
-    ensures (2 * s0 > r0 + 1) ==> -*- (
+    ensures (2 * s0 > r0 + 1) ==> EC.error (
         ((sum_n_m(s0+1, r0-1)) / vs0)
         - (r0 - ( 1 + s0)) * amortized_error
       )
-      && -*- (
+      && EC.error (
         s0 / vs0
       )
   {
@@ -407,11 +407,11 @@ module CollFreeHash {
     requires r0 > 0 && vs0 > 0
     requires s0 + 1 == r0
       && r0 / vs0 == init_r / init_val_size
-      && -*-(
+      && EC.error(
         (r0-1) / vs0 // - amortized_error
       )
-      // && -*-(amortized_error)
-    ensures -*-(
+      // && EC.error(amortized_error)
+    ensures EC.error(
         s0 / vs0
       )
       && ( 
@@ -489,7 +489,7 @@ module CollFreeHash {
         && s0 + 1 == r0
         && 0 < vs0
         && cf_hashfun_raw(x, mp, vs0, s0, r0)
-        && -*-( amortized_error)
+        && EC.error( amortized_error)
 
     requires forall k: Int :: OptInt.is_some(lookUpHashMap(mp, k)) ==> 0 <= lookUpHashMap(mp, k).OptInt.value < vs0
     // requires 

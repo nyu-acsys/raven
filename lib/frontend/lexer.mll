@@ -272,6 +272,7 @@ rule token_lex st = parse
 | ']' { emit st RBRACKET }
 | "{!" { emit st LGHOSTBRACE }
 | "!}" { emit st RGHOSTBRACE }
+| '\\' { emit st BACKSLASH }
 | "\"" (( ("\\" _) | [^ '"'] )* as str) "\"" { emit st (STRINGVAL (Scanf.unescaped str)) }
 | operator as op
     { try

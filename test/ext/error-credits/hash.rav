@@ -98,7 +98,7 @@ module Hash {
   proc compute_hash(x: Ref, v: Int, implicit ghost mp: HashMap) returns (mp': HashMap, ret: Int)
     requires coll_free_hashfun(x, mp)
     requires  !OptInt.is_some(lookUpHashMap(mp, v)) ==>
-      -*-(len(mp) / (1+val_size))
+      EC.error(len(mp) / (1+val_size))
 
     ensures OptInt.is_some(lookUpHashMap(mp, v)) ==> (
       mp == mp'
@@ -173,7 +173,7 @@ module Hash {
 
   proc wp_insert_no_coll(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
     requires !OptInt.is_some(lookUpHashMap(mp, n)) && coll_free_hashfun(x, mp)
-    requires -*-(len(mp) / (1+val_size))
+    requires EC.error(len(mp) / (1+val_size))
     ensures coll_free_hashfun(x, (n,hash) :: mp)
   {
     mp', hash := compute_hash(x, n);

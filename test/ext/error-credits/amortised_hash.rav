@@ -116,7 +116,7 @@ module Hash {
   proc compute_hash(x: Ref, v: Int, implicit ghost mp: HashMap) returns (mp': HashMap, ret: Int)
     requires coll_free_hashfun_amortized(x, mp)
     requires !OptInt.is_some(lookUpHashMap(mp, v)) ==> (
-      -*-(amortized_error)
+      EC.error(amortized_error)
       && len(mp) < max_hash_size
     )
 
@@ -210,13 +210,13 @@ module Hash {
   // auto pred hashfun_amortized(x: Ref, mp: HashMap) {
   //   hashfun(x, mp) && (exists k: Int, eps: Real :: (
   //     k == len(mp)
-  //     && eps == (((max_hash_size-1) * k)/2 - sum_n_m(0, k-1) ) / (val_size+1) && -*-(eps)
+  //     && eps == (((max_hash_size-1) * k)/2 - sum_n_m(0, k-1) ) / (val_size+1) && EC.error(eps)
   //   ))
   // }
 
   auto pred hashfun_amortized(x: Ref, mp: HashMap) {
     hashfun(x, mp) && ((
-      -*-(((((max_hash_size-1) * len(mp))/2 - sum_n_m(0, len(mp)-1) ) / (val_size+1)))
+      EC.error(((((max_hash_size-1) * len(mp))/2 - sum_n_m(0, len(mp)-1) ) / (val_size+1)))
     ))
   }
 
@@ -265,7 +265,7 @@ module Hash {
         && len(mp) < max_hash_size
         && coll_free_hashfun_amortized(x, mp)
 
-    requires -*-(amortized_error)
+    requires EC.error(amortized_error)
 
     ensures coll_free_hashfun_amortized(x, (n,hash) :: mp)
   {
@@ -275,7 +275,7 @@ module Hash {
   proc wp_insert_amortized(x: Ref, mp: HashMap, n: Int) returns (mp': HashMap, hash: Int)
     requires len(mp) < max_hash_size
       && coll_free_hashfun_amortized(x, mp)
-      && -*-(amortized_error)
+      && EC.error(amortized_error)
 
     ensures coll_free_hashfun_amortized(x, mp')
       && lookUpHashMap(mp', n) == OptInt.some(hash)

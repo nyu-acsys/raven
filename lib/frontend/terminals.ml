@@ -75,6 +75,7 @@ let _ =
       (* ErrorCreditsExt *)
       ("EC", EC);
       ("contra", ECCONTRA);
+      ("error", ECERROR);
       ("ECFn", ECFN);
       ("ECList", ECLIST);
       ("ECVal", ECVAL);
@@ -122,6 +123,5 @@ let _ =
      ".", DOT;
      "?", QMARK;
      ":|", COLONPIPE;
-     "-*-", ERRORCRED;
      "=>", DARROW;
      ]

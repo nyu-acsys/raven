@@ -23,7 +23,7 @@ module CollFreeHashMap {
 
   proc insert_elem(x: Ref, v: Int, implicit ghost hmf: CFHashMap, implicit ghost ns: Hash.IntListOps.IntListT.T) returns (hmf': CFHashMap)
     requires cf_hashmap_raw(x, hmf, ns)
-      && -*-( (3 * init_r) / (4 * init_val_size))
+      && EC.error( (3 * init_r) / (4 * init_val_size))
 
     ensures cf_hashmap_raw(x, hmf', v :: ns)
   {

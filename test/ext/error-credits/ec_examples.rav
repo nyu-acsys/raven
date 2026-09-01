@@ -3,7 +3,7 @@ import IntList._
 
 proc p0() 
   returns (ret: Int)
-  requires -*-(0.5)
+  requires EC.error(0.5)
   ensures ret == 0
 {
   var z: Int := EC.rand(2; ECVal: !=1);
@@ -12,10 +12,10 @@ proc p0()
 
 proc p1()
   returns (ret: Int)
-  requires -*-(0.25)
+  requires EC.error(0.25)
   ensures ret != 0
 {
-  var n := EC.rand(4; ECFn: -*-(0.25), i ==> (i == 0 ? 1.0 : 0.0));
+  var n := EC.rand(4; ECFn: EC.error(0.25), \i :: (i == 0 ? 1.0 : 0.0));
   
   if (n==0) {
     EC.contra();
@@ -25,15 +25,15 @@ proc p1()
 
 proc p2() 
     returns (ret: Bool)
-    requires -*-(0.25)
+    requires EC.error(0.25)
     ensures ret == true
 {
-    var n: Int := EC.rand(4; ECFn: -*-(0.25), i ==> (i <= 1 ? 0.0 : 0.5));
+    var n: Int := EC.rand(4; ECFn: EC.error(0.25), \i :: (i <= 1 ? 0.0 : 0.5));
 
     if (n <= 1) { return true; }
     else {
         var k: Int := EC.rand(2; 
-          ECFn: -*-(0.5), i ==> (i+n <= 2 ? 0 : (i+n == 3 ? 1.0 : 0)));
+          ECFn: EC.error(0.5), \i :: (i+n <= 2 ? 0 : (i+n == 3 ? 1.0 : 0)));
 
         if (n + k <= 2) { return true; }
         
@@ -46,7 +46,7 @@ proc p2()
 }
 
 proc p3(n: Int) returns (ret: Bool)
-  requires -*-(1.0/n)
+  requires EC.error(1.0/n)
   ensures ret == true
 {
   var q1: Int := EC.rand(n);
@@ -58,24 +58,24 @@ proc p3(n: Int) returns (ret: Bool)
 
 proc p3'(n: Int) returns (ret: Bool)
   requires 15 < n <= 18
-  requires -*-(1.0/n)
-  requires -*-(0.25)
+  requires EC.error(1.0/n)
+  requires EC.error(0.25)
   ensures ret == true
 {
-  var n0 := EC.rand(4; ECFn: -*-(0.25), i ==> (i == 0 ? 1.0 : 0.0));
+  var n0 := EC.rand(4; ECFn: EC.error(0.25), \i :: (i == 0 ? 1.0 : 0.0));
   var q1: Int := EC.rand(n);
-  var q2: Int := EC.rand(n; ECFn: -*-(1.0/n), x ==> (x == q1 ? 1.0 : 0.0));
+  var q2: Int := EC.rand(n; ECFn: EC.error(1.0/n), \x :: (x == q1 ? 1.0 : 0.0));
 
   if (q1 == q2) { EC.contra(); assert false; return false; }
   else return true;
 }
 
 proc toy() returns (ret: Bool)
-  requires -*-(0.1)
+  requires EC.error(0.1)
   ensures ret == true
 {
   var q1: Int := EC.rand(10);
-  var q2: Int := EC.rand(10; ECFn: -*-(0.1), x ==> (x == q1 ? 1.0 : 0.0));
+  var q2: Int := EC.rand(10; ECFn: EC.error(0.1), \x :: (x == q1 ? 1.0 : 0.0));
 
   if (q1 == q2) { EC.contra(); return false; }
   
@@ -84,14 +84,14 @@ proc toy() returns (ret: Bool)
 
 proc p4()
 {
-  inhale -*-(0.4);
+  inhale EC.error(0.4);
   var n := 1 :: 2 :: IntList.nil;
   var k := EC.rand(5; ECList: !in n);
   assert k != 1;
 }
 
 proc p5() {
-  inhale -*-(0.4);
+  inhale EC.error(0.4);
 
   var k2 := EC.rand(5; ECList: !in (1 :: 5 :: IntList.nil));
 }

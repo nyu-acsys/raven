@@ -11,7 +11,7 @@ This extension introduces:
   - `ErrorCreds` expression: these represent error credit resources
   - `lhs := EC.rand(n);` command: to generate a random number between `0` and `n-1`
   - `lhs := EC.rand(n; ECVal: !=k);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not equal to `k`
-  - `lhs := EC.rand(n; ECFn: EC.error(e), x ==> body(x));` command: to generate a random number between `0` and `n-1`; then it redistrbutes `e` error credits according to the function defined by `x ==> body(x)`.
+  - `lhs := EC.rand(n; ECFn: EC.error(e), \x :: body(x));` command: to generate a random number between `0` and `n-1`; then it redistrbutes `e` error credits according to the function defined by `\x :: body(x)`.
   - `lhs := EC.rand(n; ECList: !in ls);` command: to generate a random number between `0` and `n-1`; then it spends enough error credits and ensures that the generated number is not in the list `ls`.
   - `EC.contra()` command: to abort the proof when we get ownership of `EC.error(1.0)`.
 
@@ -85,7 +85,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | EC_RandVal _, [lhs_expr; n_expr; errorVal] ->
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s:≠%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr "ECVal" Expr.pr errorVal
     | EC_RandFn _, [lhs_expr; n_expr; ec_expr; errFn_arg; errFn_def] -> 
-      fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s:%s(%a), %a ==> %a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr "ECFn" "EC.error" Expr.pr ec_expr Expr.pr errFn_arg Expr.pr errFn_def
+      fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s:%s(%a), \\%a :: %a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr "ECFn" "EC.error" Expr.pr ec_expr Expr.pr errFn_arg Expr.pr errFn_def
     | EC_RandList _, [lhs_expr; n_expr; ls_expr] -> 
       fprintf ppf "@[<2>[EXT]%a@ :=@ %s(%a; %s: !in%a)@]" Expr.pr lhs_expr "Rand" Expr.pr n_expr "ECList" Expr.pr ls_expr
     | EC_Contra, [] -> 
@@ -179,7 +179,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
       (App (ExprExt ErrorCreds, [expr_arg], expr_attr)) Type.perm Type.perm Type.perm
 
     | ErrorCreds, _ ->
-      Error.type_error expr_attr.expr_loc "'-*-(...)' takes exactly one argument"
+      Error.type_error expr_attr.expr_loc "'EC.error(...)' takes exactly one argument"
 
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
@@ -248,7 +248,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | EC_RandVal _, _ ->
       Error.type_error stmt_loc "'EC.rand(...; ECVal: != ...)' called with incorrect number of arguments"
 
-    (* ```lhs_expr := EC.rand(n_expr; ECFn; ec_expr, errFn_arg ==> errFn_def)``` *)
+    (* ```lhs_expr := EC.rand(n_expr; ECFn; ec_expr, \errFn_arg :: errFn_def)``` *)
     | EC_RandFn is_init, [lhs_expr; n_expr; ec_expr; errFn_arg; errFn_def] ->
       let* lhs_qual_ident, var_decl = type_check_stmt_functs.get_assign_lhs (Expr.to_qual_ident lhs_expr) ~is_init in
 
@@ -483,7 +483,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
     (* ```
         lhs_expr := EC.rand(n_expr; 
-          ECFn: EC.error(ec_expr), errFn_arg ==> errFn_def
+          ECFn: EC.error(ec_expr), \errFn_arg :: errFn_def
         );
     ``` *)
     | EC_RandFn is_init, [lhs_expr; n_expr; ec_expr; errFn_arg; errFn_def] ->

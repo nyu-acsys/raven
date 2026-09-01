@@ -2,7 +2,7 @@ module Mixed {
   field p: Proph[Bool, 1]
 
   proc foo()
-    requires -*-(0.5)
+    requires EC.error(0.5)
   {
   }
 }
