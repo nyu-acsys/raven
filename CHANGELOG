@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+
+### Changed
+
+
+### Fixed
+
+
+## [1.4.0] - 2026-09-06
+
+### Added
+
 - A module or interface may now implement several interfaces at once, `module M : I1, I2`, instead of exactly one. The parents must have pairwise disjoint ancestors: Raven identifies module types by path rather than by identity, so two routes to a shared ancestor's members yield types the type checker will not unify (what `test/ci/front-end/fail/diamond_modules.rav` has always recorded), and merging both parents would deliver two copies of that ancestor's members to collide by name. Overlap is therefore rejected at the declaration, naming the shared ancestor, rather than surfacing later as a confusing mismatch at some use site; lifting the restriction needs a notion of module identity that does not yet exist. Two otherwise unrelated parents that happen to declare the same member name are rejected too, since there is no rule for which declaration a single definition would be checked against.
 
 - The interface a module implements may now be a functor application, `module M[A: I] : Base[A]`, so that a functor can layer on a parameterised base. A functor cannot impose different constraints on different members, so an operation needing a stronger parameter than its siblings previously had to move into a separate module -- forcing clients to import both -- or hide behind an encoding that fabricates the extra structure for every instantiation. This is *not* the same as the pre-existing implicit mechanism, where a parameterised parent is listed unapplied and the child repeats its formals by name; that requires the child's parameters to match the parent's exactly, and so cannot express a child that refines the parameter (`module Derived[A: J] : Base[A]` where `J : I`), which is what explicit application unlocks. A bare type argument is not yet accepted in this position (`module M : Base[Int]`), unlike in an ordinary functor application, which auto-wraps one; name a module implementing the parameter's interface instead.

@@ -10,10 +10,10 @@ should change only when an existing client would notice the difference -- re-pro
 this test is the moment to ask whether it has to.
 
   $ dune exec -- raven --manifest
-  {"version":"1.3.0","lsp_protocol":2,"min_z3":"4.13.0"}
+  {"version":"1.4.0","lsp_protocol":2,"min_z3":"4.13.0"}
 
 It is payload, not logging, so it survives `-q` and needs no `--shh`. A client asking
 what it is talking to gets one line of JSON and nothing else.
 
   $ dune exec -- raven -q --manifest
-  {"version":"1.3.0","lsp_protocol":2,"min_z3":"4.13.0"}
+  {"version":"1.4.0","lsp_protocol":2,"min_z3":"4.13.0"}
