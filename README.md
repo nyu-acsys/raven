@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img alt="Version 1.3.0" src="https://img.shields.io/badge/version-1.3.0-green.svg"/>
+  <img alt="Version 1.4.0" src="https://img.shields.io/badge/version-1.4.0-green.svg"/>
   <a href="https://nyu-acsys.github.io/raven/"><img alt="Project page" src="https://img.shields.io/badge/docs-nyu--acsys.github.io%2Fraven-blue.svg"/></a>
   <a href="https://raw.githubusercontent.com/nyu-acsys/raven/master/LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-blue.svg"/></a>
   <a href="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml"><img alt="Builds, tests &amp; co" src="https://github.com/nyu-acsys/raven/actions/workflows/ci.yml/badge.svg?branch=main"/></a>
