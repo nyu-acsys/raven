@@ -1,4 +1,4 @@
-include "../../test/arrays/array.rav"
+include "../../arrays/array.rav"
 
 interface FaultyVector[T: Library.Type] {
     module Array_T = Array[T]

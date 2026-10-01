@@ -5,21 +5,22 @@ RUNS=2
 
 # Array of extensions to count
 EXT_LIST=(
-  "lib/ext/atomicExt"
-  "lib/ext/errorCreditsExt"
   "lib/ext/prophecyExt"
-  "lib/ext/listExt"
+  "lib/ext/errorCreditsExt"
+  "lib/ext/decreasesExt"
+  "lib/ext/assertWithExt"
+  "lib/ext/matchExt"
 )
 
-# Format changed to "path:extension"
+# Format: "path:extension", with extension a value of raven's --extension flag
 EXAMPLES=(
-  "test/ext_error-credits/amortised_hash.rav:eris"
-  "test/ext_error-credits/cf_hashmap.rav:eris"
-  "test/ext_error-credits/ec_dynamic_vec.rav:eris"
-# 
-  "test/ext_prophecy/clairvoyant_coin.rav:prophecy"
-  "test/ext_prophecy/lazy_coin.rav:prophecy"
-  "test/ext_prophecy/rdcss.rav:prophecy"
+  "test/ext/error-credits/amortised_hash.rav:eris"
+  "test/ext/error-credits/cf_hashmap.rav:eris"
+  "test/ext/error-credits/ec_dynamic_vec.rav:eris"
+#
+  "test/ext/prophecy/clairvoyant_coin.rav:default"
+  "test/ext/prophecy/lazy_coin.rav:default"
+  "test/ext/prophecy/rdcss.rav:default"
 )
 
 
