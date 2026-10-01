@@ -283,19 +283,25 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
           | (_, cand_args) :: _ -> Rewriter.return (qi, cand_args)
           | [] -> Rewriter.return truncated)
 
-(* [args1]/[args2] are both full argument lists for the same invariant
-   declaration (hence the same length -- same formal arity). [Error ()]
-   means every position is syntactically identical: definitely the same
-   instance, not disjoint, no point asking Z3. [Ok cond] is the disjunction
-   of pairwise disequalities at positions that aren't already syntactically
-   identical -- discharging it proves the two instances are disjoint. This
-   is the disjointness half of the matching procedure. *)
-let disjointness_condition ~loc (args1 : Expr.t list) (args2 : Expr.t list) :
+(* [args] identifies an instance of [opened]'s declaration, possibly by a
+   prefix of its arguments only. [Error ()] means every position is
+   syntactically identical to [opened]'s: possibly the same instance, so
+   reject. [Ok cond] is the disjunction of disequalities at the remaining
+   positions -- discharging it proves the two instances are disjoint. The
+   disequalities are against [opened]'s snapshot, not its [inv_args]: a
+   variable in those may have been reassigned since the [unfold]. This is
+   the disjointness half of the matching procedure. *)
+let disjointness_condition ~loc (args : Expr.t list) (opened : invs) :
     (Expr.t, unit) Result.t =
+  let open_args = List.take opened.inv_args (List.length args) in
   let diffs =
-    List.filter_map (List.zip_exn args1 args2) ~f:(fun (a, b) ->
+    List.filter_mapi (List.zip_exn args open_args) ~f:(fun i (a, b) ->
         if Expr.alpha_equal a b then None
-        else Some (Expr.mk_not ~loc (Expr.mk_eq ~loc a b)))
+        else
+          Some
+            (Expr.mk_not ~loc
+               (Expr.mk_eq ~loc a
+                  (Expr.mk_tuple_lookup ~loc opened.inv_snapshot i))))
   in
   match diffs with [] -> Error () | _ -> Ok (Expr.mk_or ~loc diffs)
 
@@ -361,7 +367,7 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
   in
   let reentrancy_asserts =
     List.map same_name_open ~f:(fun inv ->
-        match disjointness_condition ~loc inv_args inv.inv_args with
+        match disjointness_condition ~loc inv_args inv with
         | Error () ->
             Error.verification_error loc
               (Printf.sprintf !"Invariant %{Ident} is already open"
@@ -465,12 +471,10 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
         List.filter atomicity_state.invs_opened ~f:(fun inv ->
             QualIdent.equal inv.inv_name qi)
       in
-      (* [args] may be a coarse prefix (e.g. a truncated implicit), so
-         compare only over its length; an empty or matching prefix is
-         rejected as possibly the same instance. *)
+      (* [args] may be a coarse prefix (e.g. a truncated implicit); an empty
+         or matching prefix is rejected as possibly the same instance. *)
       List.map same_name_open ~f:(fun inv ->
-          let open_prefix = List.take inv.inv_args (List.length args) in
-          match disjointness_condition ~loc args open_prefix with
+          match disjointness_condition ~loc args inv with
           | Error () ->
               Error.verification_error loc
                 (Printf.sprintf !"Invariant %{Ident} is already open"

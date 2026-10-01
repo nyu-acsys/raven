@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
 
 - An invariant with arguments that is left open by both arms of a conditional can now be folded after the join. Previously the fold always failed with "its arguments no longer match the instance that was opened", because the argument snapshot taken by the `unfold` in the then arm was not carried past the join.
 
+- Fix an unsoundness in the reentrancy check for invariants: it compared a newly opened instance against the argument expressions an already-open instance was unfolded with, rather than their values at the `unfold`. Reassigning a variable in between could make the two look distinct when they were the same instance, so it could be opened twice, e.g. `var u := x; unfold cell(u); u := z; unfold cell(y)` with `x == y`.
+
 ## [1.4.0] - 2026-09-06
 
 ### Added

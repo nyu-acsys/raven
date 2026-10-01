@@ -1,0 +1,35 @@
+// Regression test: the reentrancy guard must compare against the argument
+// values an open instance was unfolded with, not its argument expressions.
+// After `u := z`, the open cell(u) still denotes cell(x); checking `y != u`
+// against the current u would let cell(y) be opened twice when x == y, and
+// `p` could then prove x != y for arbitrary x and y.
+
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+proc p(x: Ref, y: Ref, z: Ref)
+  requires cell(x)
+  requires cell(y)
+  requires z != y
+  ensures x != y
+{
+  var u: Ref := x;
+  unfold cell(u);
+  u := z;
+  unfold cell(y);
+  assert x != y;
+  fold cell(y);
+  u := x;
+  fold cell(u);
+}
+
+proc bad(a: Ref, b: Ref)
+  requires cell(a)
+  requires a != b
+{
+  p(a, a, b);
+  assert false;
+}
