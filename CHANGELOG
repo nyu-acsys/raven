@@ -14,6 +14,8 @@ All notable changes to this project will be documented in this file.
 
 - The postcondition of a func from the standard library or an included file is now assumed. Such funcs are trusted rather than verified, and their `ensures` clauses were silently dropped instead of being assumed, e.g. `ensures ret >= 0` on `List.len`. This made programs fail that relied on such a fact, which for a recursive func cannot be derived from its definition without induction. Regression since 1.2.0.
 
+- A module implementing an interface reached through `include` now inherits the interface's concrete procedures and lemmas as defined. They were treated as abstract, so the module was rejected for not defining such a procedure ("The procedure copy is still abstract", which made `include "test/arrays/array.rav"` fail), and an inherited lemma was re-verified without its proof. Regression since 1.2.0.
+
 ## [1.4.1] - 2026-10-01
 
 ### Fixed

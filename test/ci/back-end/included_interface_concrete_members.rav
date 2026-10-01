@@ -1,0 +1,14 @@
+// Concrete members of an interface reached through `include` are inherited as
+// definitions, not as abstract members still owed by the implementing module.
+// Regression test: freeing the included file dropped the bodies of `count_id` and
+// `twice`, after which both looked abstract and were demanded back.
+include "included/count.rav"
+
+module MyCount : Count { }
+
+proc client() {
+  var r: Int := CountImpl.twice(3);
+  var s: Int := MyCount.twice(2);
+  MyCount.count_id(2);
+  assert s == 4;
+}

@@ -3007,7 +3007,10 @@ module Module = struct
   let rec set_symbol_unit_free = function
     | ModDef md -> ModDef (set_unit_free md)
     | CallDef cdef ->
-        if is_free cdef.call_decl.call_decl_status then CallDef cdef
+        (* An abstract callable stays [NotFree]: freeing drops a proc's body, after
+           which it would be indistinguishable from one the source left abstract. *)
+        if is_free cdef.call_decl.call_decl_status || Callable.is_abstract cdef
+        then CallDef cdef
         else CallDef (Callable.set_status MachineFree cdef)
     | VarDef vd ->
         if is_free vd.var_is_free then VarDef vd

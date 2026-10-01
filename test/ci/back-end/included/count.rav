@@ -1,0 +1,25 @@
+interface Count {
+  func count(n: Int) returns (r: Int)
+  {
+    n <= 0 ? 0 : count(n - 1) + 1
+  }
+
+  lemma count_id(n: Int)
+    requires n >= 0
+    ensures count(n) == n
+  {
+    if (n > 0) {
+      count_id(n - 1);
+    }
+  }
+
+  proc twice(n: Int) returns (r: Int)
+    requires n >= 0
+    ensures r == count(n) + count(n)
+  {
+    count_id(n);
+    r := n + n;
+  }
+}
+
+module CountImpl : Count { }

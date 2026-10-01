@@ -3927,13 +3927,14 @@ module ProcessModule = struct
     (* merge symbol definitions from parent interface with those from current module
      * so that the dependency order between symbols is preserved *)
     let merge_defs ~parent_status ~parent_is_interface parent_ident parent_mod_def mod_def =
-      (* A member with no definition of its own. Mirrors the cases the abstract-member
-         check below rejects in a non-interface module. *)
+      (* A non-callable member with no definition of its own. Mirrors the cases the
+         abstract-member check below rejects in a non-interface module. Callables are
+         left out: [Module.set_unit_free] never frees an abstract one, so a free
+         callable without a body is one whose body freeing dropped. *)
       let symbol_is_abstract = function
         | Module.TypeDef { type_def_expr = None; _ }
         | ModInst { mod_inst_def = None; _ }
-        | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
-        | CallDef { call_def = ProcDef { proc_body = None } | FuncDef { func_body = None }; _ } ->
+        | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ } ->
             true
         | _ -> false
       in
@@ -3950,15 +3951,10 @@ module ProcessModule = struct
          implementors inherit without defining (`free func`, `free val`, `free auto
          axiom`).
 
-         Restricted to an *interface* parent, because only there does "abstract" mean
-         that the source declared no definition. A concrete module cannot have abstract
-         members at all -- the check below rejects that -- so a member of one that looks
-         abstract here only looks that way because machine-freeing the file dropped its
-         body ([Callable.set_status]). Demanding a definition for it would demand back
-         exactly what was discarded, and nothing new is assumed by inheriting it: the
-         parent's own members were already trusted, and the child re-exports them
-         unchanged. This is what lets a module in a machine-free file inherit from
-         another module in that same file. *)
+         Abstract callables never arrive free in the first place ([Module.set_unit_free]
+         leaves them [NotFree]), so this only concerns types, values and module
+         instances. Restricted to an *interface* parent, since a concrete module has no
+         abstract members. *)
       let un_free_inherited symbol =
         match parent_status, Symbol.free_status symbol with
         | MachineFree, (NotFree | MachineFree)
