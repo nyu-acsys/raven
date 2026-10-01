@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
 
 - Fix an internal error (`length mismatch in zip_exn`) in the call-site reentrancy check when the callee requires only a prefix of an open invariant's arguments, e.g. `inner(x, _)` while `inner(x, w)` is open. The check now compares only the arguments in the prefix, and rejects the call unless one of them is provably distinct from the open instance's.
 
+- Fix two unsoundnesses in the atomicity check for `atomic { ... }` blocks. The block now has to leave open the same invariants and atomic updates that were open on entry, not just the same number, so it can no longer close one invariant and open another that stays open across the block's step. Closing an invariant inside the block also no longer clears the record that the block's step was taken, so an invariant closed and reopened inside the block can no longer have a second step taken under it after the block.
+
+- The two arms of a conditional may now leave the same invariants open in a different order; previously this was rejected with "Inconsistent atomicity states in then and else branches".
+
 ## [1.4.0] - 2026-09-06
 
 ### Added

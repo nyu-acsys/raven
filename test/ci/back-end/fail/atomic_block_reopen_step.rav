@@ -1,0 +1,24 @@
+// Regression test: closing an invariant inside an atomic block must not
+// clear the block's step. left_inv(x) is closed and reopened inside the
+// block, so the write after the block is a second step under it.
+
+field f: Int
+
+inv left_inv(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+proc two_steps(x: Ref)
+  requires left_inv(x)
+{
+  unfold left_inv(x)
+
+  atomic {
+    fold left_inv(x)
+    unfold left_inv(x)
+    x.f := 1
+  }
+
+  x.f := 2
+  fold left_inv(x)
+}

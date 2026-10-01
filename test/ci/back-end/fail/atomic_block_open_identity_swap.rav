@@ -1,0 +1,29 @@
+// Regression test: an atomic block must leave open exactly the invariant
+// instances that were open on entry, not merely as many. Here left_inv(x)
+// is closed and right_inv(y) opened inside the block, so right_inv(y) is
+// held across the block's step and the write after it.
+field f: Int
+
+inv left_inv(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv right_inv(y: Ref) {
+  exists n: Int :: own(y.f, n, 1.0)
+}
+
+proc two_steps(x: Ref, y: Ref)
+  requires left_inv(x)
+  requires right_inv(y)
+{
+  unfold left_inv(x)
+
+  atomic {
+    fold left_inv(x)
+    unfold right_inv(y)
+    y.f := 1
+  }
+
+  y.f := 2
+  fold right_inv(y)
+}

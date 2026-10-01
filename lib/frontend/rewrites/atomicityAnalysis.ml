@@ -93,6 +93,24 @@ let list_remove_first (lst : 'a list) ~(f : 'a -> bool) : 'a list =
   in
   go lst
 
+let same_open_au (au1 : au_token) (au2 : au_token) : bool =
+  Expr.alpha_equal au1.token au2.token
+  && QualIdent.equal au1.callable au2.callable
+  && List.equal Expr.alpha_equal au1.callable_args au2.callable_args
+  && List.equal Expr.alpha_equal au1.implicit_bound_vars au2.implicit_bound_vars
+
+(* Multiset equality of open instances; closes match by identity, so order is
+   irrelevant. [Expr.compare] is stricter than [alpha_equal] only on bound
+   variable names, which can merely cause a (sound) rejection. *)
+let same_open_invs (l1 : invs list) (l2 : invs list) : bool =
+  let sorted l =
+    List.map l ~f:(fun inv -> (inv.inv_name, inv.inv_args))
+    |> List.sort ~compare:Callable.compare_mask_entry
+  in
+  List.equal
+    (fun e1 e2 -> Callable.compare_mask_entry e1 e2 = 0)
+    (sorted l1) (sorted l2)
+
 (* A tracked mask entry's argument expressions are plain references to
    whatever program variables were in scope when the entry was established
    (the callable's own formals, seeded at entry; or a fresh local, added by
@@ -1211,20 +1229,29 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         let* inner = Rewriter.current_user_state in
         (* Anything opened inside must be closed inside: an invariant held across
            the block's boundary is held across a step boundary, which is what the
-           one-step rule exists to police. *)
+           one-step rule exists to police. The same instances must be open on
+           both sides, not merely as many. *)
         let* () =
+          (* At most one AU is open at a time (see [open_au]), so plain list
+             equality is order-insensitive there. *)
           if
-            List.length inner.invs_opened <> List.length outer.invs_opened
-            || List.length inner.au_opened <> List.length outer.au_opened
-          then
+            same_open_invs inner.invs_opened outer.invs_opened
+            && List.equal same_open_au inner.au_opened outer.au_opened
+          then Rewriter.return ()
+          else
             Error.verification_error loc
               "An invariant or atomic update opened inside an atomic block must \
                also be closed inside it"
-          else Rewriter.return ()
         in
+        (* A close inside the body clears the step flag, but the block's step
+           still counts against whatever is open after it. *)
         let* _ =
           Rewriter.set_user_state
-            { inner with in_atomic_block = outer.in_atomic_block }
+            {
+              inner with
+              in_atomic_block = outer.in_atomic_block;
+              atomic_step_taken = outer.atomic_step_taken;
+            }
         in
         Rewriter.return stmt
     | Block block_desc -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
@@ -1241,23 +1268,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         let* else_atomicity_state = Rewriter.current_user_state in
 
         let if_else_atomicity_states_equal =
-          List.length then_atomicity_state.invs_opened
-          = List.length else_atomicity_state.invs_opened
-          && List.length then_atomicity_state.au_opened
-             = List.length else_atomicity_state.au_opened
-          && List.for_all2_exn then_atomicity_state.invs_opened
-               else_atomicity_state.invs_opened ~f:(fun inv1 inv2 ->
-                 QualIdent.equal inv1.inv_name inv2.inv_name
-                 && List.for_all2_exn inv1.inv_args inv2.inv_args
-                      ~f:Expr.alpha_equal)
-          && List.for_all2_exn then_atomicity_state.au_opened
-               else_atomicity_state.au_opened ~f:(fun au1 au2 ->
-                 Expr.alpha_equal au1.token au2.token
-                 && QualIdent.equal au1.callable au2.callable
-                 && List.for_all2_exn au1.callable_args au2.callable_args
-                      ~f:Expr.alpha_equal
-                 && List.for_all2_exn au1.implicit_bound_vars
-                      au2.implicit_bound_vars ~f:Expr.alpha_equal)
+          same_open_invs then_atomicity_state.invs_opened
+            else_atomicity_state.invs_opened
+          && List.equal same_open_au then_atomicity_state.au_opened
+               else_atomicity_state.au_opened
         in
 
         if if_else_atomicity_states_equal then

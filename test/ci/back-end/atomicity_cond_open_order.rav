@@ -1,0 +1,25 @@
+// The two arms of a conditional may open the same invariants in a different
+// order: open instances are tracked as a set, not a stack.
+
+inv a_inv() {
+  true
+}
+
+inv b_inv() {
+  true
+}
+
+proc either_order(c: Bool)
+  requires a_inv()
+  requires b_inv()
+{
+  if (c) {
+    unfold a_inv();
+    unfold b_inv();
+  } else {
+    unfold b_inv();
+    unfold a_inv();
+  }
+  fold a_inv();
+  fold b_inv();
+}
