@@ -1,0 +1,23 @@
+// Regression test: an invariant left open by both arms of a conditional is
+// folded after the join, but one arm reassigned the variable naming it. The
+// fold must be checked against the snapshot taken on that arm.
+
+field f: Int
+
+inv a_inv(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+proc drift(x: Ref, z: Ref, c: Bool)
+  requires a_inv(x)
+  requires a_inv(z)
+{
+  var u: Ref := x;
+  if (c) {
+    unfold a_inv(u);
+    u := z;
+  } else {
+    unfold a_inv(u);
+  }
+  fold a_inv(u);
+}

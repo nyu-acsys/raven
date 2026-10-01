@@ -18,6 +18,8 @@ All notable changes to this project will be documented in this file.
 
 - The two arms of a conditional may now leave the same invariants open in a different order; previously this was rejected with "Inconsistent atomicity states in then and else branches".
 
+- An invariant with arguments that is left open by both arms of a conditional can now be folded after the join. Previously the fold always failed with "its arguments no longer match the instance that was opened", because the argument snapshot taken by the `unfold` in the then arm was not carried past the join.
+
 ## [1.4.0] - 2026-09-06
 
 ### Added

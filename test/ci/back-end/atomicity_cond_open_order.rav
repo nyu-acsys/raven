@@ -1,25 +1,28 @@
 // The two arms of a conditional may open the same invariants in a different
-// order: open instances are tracked as a set, not a stack.
+// order: open instances are tracked as a set, not a stack. Each arm freezes
+// its own argument snapshot, and the folds after the join must match both.
 
-inv a_inv() {
-  true
+field f: Int
+
+inv a_inv(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
 }
 
-inv b_inv() {
-  true
+inv b_inv(y: Ref) {
+  exists n: Int :: own(y.f, n, 1.0)
 }
 
-proc either_order(c: Bool)
-  requires a_inv()
-  requires b_inv()
+proc either_order(x: Ref, y: Ref, c: Bool)
+  requires a_inv(x)
+  requires b_inv(y)
 {
   if (c) {
-    unfold a_inv();
-    unfold b_inv();
+    unfold a_inv(x);
+    unfold b_inv(y);
   } else {
-    unfold b_inv();
-    unfold a_inv();
+    unfold b_inv(y);
+    unfold a_inv(x);
   }
-  fold a_inv();
-  fold b_inv();
+  fold a_inv(x);
+  fold b_inv(y);
 }

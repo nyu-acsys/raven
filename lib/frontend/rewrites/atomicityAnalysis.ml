@@ -111,6 +111,29 @@ let same_open_invs (l1 : invs list) (l2 : invs list) : bool =
     (fun e1 e2 -> Callable.compare_mask_entry e1 e2 = 0)
     (sorted l1) (sorted l2)
 
+(* At a join, [into]'s entries are carried forward, but each arm froze its own
+   snapshot. Assignments, for the end of [from]'s arm, that copy [from]'s
+   snapshots into [into]'s, so the kept snapshots are defined on both paths.
+   Assumes [same_open_invs from into]; the reentrancy guard keeps the sort
+   keys unique, so sorting pairs up matching instances. *)
+let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) :
+    Stmt.t list =
+  let sorted l =
+    List.sort l ~compare:(fun i1 i2 ->
+        Callable.compare_mask_entry (i1.inv_name, i1.inv_args)
+          (i2.inv_name, i2.inv_args))
+  in
+  List.filter_map (List.zip_exn (sorted from) (sorted into))
+    ~f:(fun (src, dst) ->
+      if List.is_empty dst.inv_args
+         || Expr.alpha_equal src.inv_snapshot dst.inv_snapshot
+      then None
+      else
+        Some
+          (Stmt.mk_assign ~loc ~is_init:true
+             [ Expr.to_qual_ident dst.inv_snapshot ]
+             src.inv_snapshot))
+
 (* A tracked mask entry's argument expressions are plain references to
    whatever program variables were in scope when the entry was established
    (the callable's own formals, seeded at entry; or a fresh local, added by
@@ -1275,6 +1298,14 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         in
 
         if if_else_atomicity_states_equal then
+          let then_stmt =
+            match
+              snapshot_sync_stmts ~loc ~from:then_atomicity_state.invs_opened
+                ~into:else_atomicity_state.invs_opened
+            with
+            | [] -> then_stmt
+            | sync -> Stmt.mk_block_stmt ~loc (then_stmt :: sync)
+          in
           let new_stmt =
             {
               stmt with
