@@ -9,3 +9,6 @@ front_end_processed_output.log
 benchmarks.csv
 CLAUDE.md
 local/
+/*.tar
+/raven-docker-*.tar.gz
+bench_results/

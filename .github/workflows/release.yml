@@ -106,8 +106,54 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  # The Docker image, as a `docker load`-able archive per architecture. Built natively
+  # on each runner rather than cross-built, which would run the whole OCaml build under
+  # emulation.
+  docker:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout tree
+        uses: actions/checkout@v4
+
+      - name: Build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ "${{ github.ref }}" == refs/tags/v* ]] || version=dev
+          docker build -t "raven:${version}" -t raven:latest .
+          echo "RAVEN_VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Smoke test image
+        run: |
+          docker run --rm raven:latest --shh test/ci/back-end/inhale_exhale.rav
+          docker run --rm raven:latest --shh test/concurrent/lock/ticket-lock.rav
+
+      - name: Save image
+        run: |
+          mkdir -p dist
+          docker save "raven:${RAVEN_VERSION}" raven:latest | gzip > "dist/raven-docker-${{ matrix.arch }}.tar.gz"
+          ls -la dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: raven-docker-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,7 +168,11 @@ jobs:
           mkdir -p release
           for dir in artifacts/*/; do
             name=$(basename "$dir")
-            tar -C "$dir" -czf "release/${name}.tar.gz" .
+            case "$name" in
+              # Already a gzipped `docker save` archive; `docker load` takes it as is.
+              raven-docker-*) cp "$dir/${name}.tar.gz" release/ ;;
+              *) tar -C "$dir" -czf "release/${name}.tar.gz" . ;;
+            esac
           done
           ls -la release
 

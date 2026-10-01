@@ -67,6 +67,7 @@ EXPERIMENT4=(
 
 # Initialize CSV file
 timestamp=$(date +"%Y%m%d_%H%M%S")
+mkdir -p ./bench_results
 CSV_FILE="./bench_results/bench_$timestamp.csv"
 echo "File, Program Length, Proof Declarations, Proof Instructions, Overhead, Runtime" > "$CSV_FILE"
 

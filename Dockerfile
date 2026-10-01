@@ -1,46 +1,56 @@
-# --- Stage 1: Build Stage ---
-FROM ocaml/opam:alpine AS build
+# Raven verifier image: the raven binary, Z3, the example suite under test/, and the
+# benchmark scripts (with the extension sources bench_ext.sh measures).
+#
+#   docker build -t raven .
+#   docker run --rm raven test/concurrent/lock/ticket-lock.rav
+#
+# Both stages use the same Alpine release, so the binary built in the first runs
+# against the libraries it was linked with.
+ARG ALPINE_VERSION=3.24
 
-# Install system dependencies (bash, m4, etc. required for many OCaml libs)
-USER root
-RUN apk add --no-cache bash m4 pkgconfig build-base gmp-dev jq hyperfine
+# --- Stage 1: build ---
+FROM ocaml/opam:alpine-${ALPINE_VERSION}-ocaml-5.2 AS build
 
-# Switch back to the opam user to manage OCaml packages
-USER opam
 WORKDIR /home/opam/app
 
-# Update opam and install the build tool (Dune)
-RUN opam update && opam install dune -y
+# Raven runs the z3 executable, which the runtime stage installs from Alpine; it does
+# not link the OCaml bindings. Satisfy opam's z3 dependency with an empty stand-in
+# package rather than compiling Z3 from source (same approach as release.yml).
+RUN mkdir -p /home/opam/z3-stub \
+ && printf '%s\n' \
+      'opam-version: "2.0"' \
+      'name: "z3"' \
+      'version: "4.13.0"' \
+      'synopsis: "Stand-in for z3: the build only needs the opam dependency satisfied"' \
+      'build: []' \
+      'install: []' \
+      > /home/opam/z3-stub/opam \
+ && opam pin add -y z3 /home/opam/z3-stub
 
-RUN opam install z3 ocamlformat base stdio logs fmt cmdliner ppx_custom_printf ppx_compare ppx_hash ppx_sexp_conv ppx_let ppx_blob yojson -y --jobs=8
+# Dependencies first, so this layer is reused when only the sources change.
+COPY --chown=opam:opam Raven.opam ./
+RUN opam install . --deps-only -y
 
-# Copy Raven's source code into the container
 COPY --chown=opam:opam . .
+RUN opam exec -- dune build bin/raven.exe
 
-# Build the project
-# 'opam exec --' ensures the OCaml environment variables are set
-RUN opam install . --deps -j 8
-RUN eval $(opam env)
-RUN opam exec -- dune build
+# --- Stage 2: runtime ---
+FROM alpine:${ALPINE_VERSION}
 
-# --- Stage 2: Runtime Stage ---
-# We use a fresh, tiny Alpine image for the final container
-FROM alpine:latest
-
-# 1. Install the C++ and Math libraries Z3 needs (found via ldd)
-RUN apk add --no-cache \
-    bash gmp \
-    libstdc++ libgcc z3 jq hyperfine findutils
+# z3 for verification; the rest is what the scripts under scripts/ use.
+RUN apk add --no-cache z3 bash bc cloc findutils hyperfine jq
 
 WORKDIR /app
 
-# Copy the compiled binary from the 'build' stage
 COPY --from=build /home/opam/app/_build/default/bin/raven.exe /usr/local/bin/raven
-
-# Copy repository of examples
 COPY --from=build /home/opam/app/test ./test
 COPY --from=build /home/opam/app/lib/ext ./lib/ext
 COPY --from=build /home/opam/app/scripts ./scripts
 
-# Set the command to run raven
+# Fail the build if Alpine's Z3 is older than the version raven requires.
+RUN min=$(raven --manifest | sed -n 's/.*"min_z3":"\([^"]*\)".*/\1/p') \
+ && have=$(z3 --version | sed -n 's/^Z3 version \([0-9.]*\).*/\1/p') \
+ && printf '%s\n%s\n' "$min" "$have" | sort -V -c 2>/dev/null \
+ || { echo "Z3 $have is older than the required $min" >&2; exit 1; }
+
 ENTRYPOINT ["raven"]

@@ -35,35 +35,37 @@ Raven's underlying meta-theory is based on the [Iris](https://iris-project.org/)
 
 
 ## Portable Usage (via Docker):
-We have made available a Docker image of Raven on DockerHub that can be directly executed without any installation, as follows:
+Each [release](https://github.com/nyu-acsys/raven/releases) comes with a Docker image of Raven that can be run without installing anything else. Download the archive for your architecture (`amd64`, or `arm64` for e.g. Apple Silicon) and load it:
 
 ```bash
-$ docker run --rm ekanshdeepgupta/raven
+$ curl -LO https://github.com/nyu-acsys/raven/releases/latest/download/raven-docker-amd64.tar.gz
+$ docker load -i raven-docker-amd64.tar.gz
+$ docker run --rm raven
 Raven version 1.x.y
 Verification successful.
 ```
 
-This image comes pre-loaded with Raven's existing suite of examples. For example, we can run some existing examples:
+The image comes pre-loaded with Raven's suite of examples. For example, we can run some of them:
 ```bash
-$ docker run --rm ekanshdeepgupta/raven test/concurrent/lock/ticket-lock.rav
+$ docker run --rm raven test/concurrent/lock/ticket-lock.rav
 Raven version 1.x.y
 Verification successful.
 
-$ docker run --rm ekanshdeepgupta/raven test/ext/prophecy/lazy_coin.rav
+$ docker run --rm raven test/ext/prophecy/lazy_coin.rav
 Raven version 1.x.y
 Verification successful.
 
-$ docker run --rm  ekanshdeepgupta/raven test/ci/front-end/fail/tuple.rav
+$ docker run --rm raven test/ci/front-end/fail/tuple.rav
 Raven version 1.x.y
 [Error] File "test/ci/front-end/fail/tuple.rav", line 7, columns 20-22:
 7 |     var zz: Int := x#2;
                         ^^
-Type Error: Index out of bounds.
+Type Error: Tuple index 2 is out of bounds; (Int, Bool) has 2 component(s).
 ```
 
 To examine these examples, we can run `cat` for example as follows:
 ```bash
-$ docker run --rm --entrypoint cat ekanshdeepgupta/raven test/ci/front-end/bool_perm_ite.rav
+$ docker run --rm --entrypoint cat raven test/ci/front-end/bool_perm_ite.rav
 field f: Int
 
 proc p(x: Ref) {
@@ -75,18 +77,17 @@ The complete suite of Raven's examples can be browsed at [test](./test) in this 
 
 To run Raven on your own example files, say ./my/local/prog.rav, you can run:
 ```bash
-$ docker run --rm -it -v $(pwd):/app/data -- ekanshdeepgupta/raven "/app/data/my/local/prog.rav"
+$ docker run --rm -it -v $(pwd):/app/data -- raven "/app/data/my/local/prog.rav"
 ```
 
 To get our hands dirty, we can even access a shell inside the Docker image by executing:
 ```bash
-$ docker run --rm -it --entrypoint /bin/bash ekanshdeepgupta/raven
+$ docker run --rm -it --entrypoint /bin/bash raven
 /app# raven --shh test/ci/back-end/inhale_exhale.rav
 Verification successful.
-
-/app# ls /usr/local/bin
-raven  z3
 ```
+
+The image can also be built from a checkout of this repository with `docker build -t raven .`.
 
 
 ## Installation
