@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fix an internal error (`length mismatch in zip_exn`) in the call-site reentrancy check when the callee requires only a prefix of an open invariant's arguments, e.g. `inner(x, _)` while `inner(x, w)` is open. The check now compares only the arguments in the prefix, and rejects the call unless one of them is provably distinct from the open instance's.
 
 ## [1.4.0] - 2026-09-06
 

@@ -424,8 +424,12 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
         List.filter atomicity_state.invs_opened ~f:(fun inv ->
             QualIdent.equal inv.inv_name qi)
       in
+      (* [args] may be a coarse prefix (e.g. a truncated implicit), so
+         compare only over its length; an empty or matching prefix is
+         rejected as possibly the same instance. *)
       List.map same_name_open ~f:(fun inv ->
-          match disjointness_condition ~loc args inv.inv_args with
+          let open_prefix = List.take inv.inv_args (List.length args) in
+          match disjointness_condition ~loc args open_prefix with
           | Error () ->
               Error.verification_error loc
                 (Printf.sprintf !"Invariant %{Ident} is already open"

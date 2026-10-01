@@ -1,0 +1,57 @@
+// Regression test: the call-site reentrancy guard must handle a callee
+// mask requirement that is only a prefix of the open instance's arguments.
+// `attempt` keeps inner(x, w) open while calling `atomic_witness`, which
+// transitively requires the coarse prefix inner(x, _) via outer(x). The
+// prefix [x] agrees with the open instance's [x, w] on every position, so
+// the call may reopen the same instance and must be rejected.
+import Library.Atomics._
+
+field f: Int
+
+inv inner(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+inv outer(x: Ref) {
+  exists y: Ref :: inner(x, y)
+}
+
+proc atomic_witness(x: Ref, implicit ghost y: Ref)
+  atomic requires outer(x) && own(y.f, 0, 1.0)
+  atomic ensures outer(x) && own(y.f, 0, 1.0)
+{
+  ghost var phi := bindAU();
+  ghost var y0: Ref := openAU(phi);
+  use_outer(x);
+  commitAU(phi, ());
+}
+
+lemma use_outer(x: Ref)
+  requires outer(x)
+  ensures outer(x)
+{
+  ghost var y: Ref;
+  unfold outer(x)[y := y];
+  unfold inner(x, y);
+  fold inner(x, y);
+  fold outer(x)[y := y];
+}
+
+lemma allocate_inner(x: Ref, z: Ref)
+  requires own(z.f, 0, 1.0)
+  ensures inner(x, z)
+{
+  fold inner(x, z);
+}
+
+proc attempt(x: Ref, w: Ref, z: Ref)
+  requires w != z
+  requires outer(x)
+  requires inner(x, w)
+  requires own(z.f, 0, 1.0)
+{
+  unfold inner(x, w);
+  allocate_inner(x, z);
+  atomic_witness(x);
+  fold inner(x, w);
+}
