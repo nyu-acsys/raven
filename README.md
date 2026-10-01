@@ -174,11 +174,12 @@ Other flags useful during development: `--typeonly` (type-check only), `--verbos
 
 ## Raven Verifier Manual
 Run `raven --help` for the full, authoritative option list. A few of the most commonly used flags:
-- `--extension=VAL` (`default`, `eris`, or `prophecy`) — select a front-end extension.
+- `--extension=VAL` (`default`, `eris`, or `auto`) — select a front-end extension; `auto` picks it from the extension-specific syntax the program uses.
 - `--typeonly` — type-check the input without running verification.
 - `--smt-timeout=VAL` (default `10000`) — timeout for the SMT solver, in ms.
 - `--nostdlib` — skip loading the standard library.
 - `--stats` — output only program stats (concrete/ghost instruction steps, number of specification formulae) instead of verifying.
+- `--strict` — warn about anything assumed rather than checked: missing `decreases` clauses, explicit `free`, and `atomic { ... }` blocks.
 
 ## Scientific Background
 
