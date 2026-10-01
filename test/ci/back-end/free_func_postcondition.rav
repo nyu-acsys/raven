@@ -1,0 +1,10 @@
+// The postcondition of a free func is assumed. `len` comes from the standard
+// library, whose funcs are trusted, and its `ensures ret >= 0` cannot be
+// derived from its definition without induction.
+
+module IntList = Library.List[Library.IntType]
+
+lemma len_non_neg(l: IntList.T)
+  ensures IntList.len(l) >= 0
+{
+}

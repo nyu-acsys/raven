@@ -2412,7 +2412,9 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
      own body is a pure expression with no call site of its own. Without the second
      disjunct, a func with e.g. a `decreases` clause but no `ensures` clause would
      never get a companion lemma, so its self-recursive calls would never be walked by
-     [gen_stmts] below, silently skipping the contract-extension check entirely. *)
+     [gen_stmts] below, silently skipping the contract-extension check entirely.
+     A free func (e.g. from the standard library) gets one only for its postcondition,
+     as an unproven axiom: otherwise that postcondition would never be assumed. *)
   let eligible =
     List.filter_map m.mod_def ~f:(function
       | Module.SymbolDef
@@ -2420,8 +2422,8 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
             ({ call_decl; call_def = FuncDef { func_body = Some body } } : Callable.t))
         when Poly.(call_decl.call_decl_kind = Func)
              && (not (List.is_empty call_decl.call_decl_postcond)
-                 || not (List.is_empty call_decl.call_decl_contract_ext))
-             && not (is_free call_decl.call_decl_status) ->
+                 || (not (List.is_empty call_decl.call_decl_contract_ext)
+                     && not (is_free call_decl.call_decl_status))) ->
           Some (call_decl, body)
       | _ -> None)
   in
@@ -2559,7 +2561,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                   call_decl_precond = [];
                   call_decl_postcond = lemma_postconds;
                   call_decl_contract_ext = [];
-                  call_decl_status = NotFree;
+                  call_decl_status = call_decl.call_decl_status;
                   call_decl_is_auto = true;
                   (* Created in `rewrites_phase_3`, after
                      `Masks.compute_masks`/atomicity analysis have already
@@ -2577,17 +2579,16 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                 }
             in
 
-            let+ lemma_body_stmts = gen_stmts call_decl body in
-            let lemma_body =
-              Stmt.mk_block_stmt ~loc:call_decl.call_decl_loc lemma_body_stmts
+            (* A free func's contract is trusted, so its lemma is an axiom. *)
+            let+ proc_body =
+              if is_free call_decl.call_decl_status then Rewriter.return None
+              else
+                let+ lemma_body_stmts = gen_stmts call_decl body in
+                Some (Stmt.mk_block_stmt ~loc:call_decl.call_decl_loc lemma_body_stmts)
             in
 
             Module.CallDef
-              Callable.
-                {
-                  call_decl = lemma_call_decl;
-                  call_def = ProcDef { proc_body = Some lemma_body };
-                })
+              Callable.{ call_decl = lemma_call_decl; call_def = ProcDef { proc_body } })
       in
 
       let* _ =
