@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 
 - Fix an unsoundness in the reentrancy check for invariants: it compared a newly opened instance against the argument expressions an already-open instance was unfolded with, rather than their values at the `unfold`. Reassigning a variable in between could make the two look distinct when they were the same instance, so it could be opened twice, e.g. `var u := x; unfold cell(u); u := z; unfold cell(y)` with `x == y`.
 
+- Fix an unsoundness in the mask check at calls: credit for a single invariant instance, e.g. `inner(x, w)`, could satisfy a callee's coarser requirement for any instance `inner(x, _)`, because the two were compared only on their common prefix. Such credit now covers a requirement only when the requirement already fixes every input argument of the invariant, so that the remaining arguments are outputs. Programs that relied on this are now rejected at the call; `test/comparison/lclist.rav` was adjusted accordingly.
+
 ## [1.4.0] - 2026-09-06
 
 ### Added

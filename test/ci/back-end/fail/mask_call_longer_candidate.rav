@@ -1,0 +1,33 @@
+// Regression test: credit for one instance of a declaration does not cover
+// a callee's coarser requirement. `use_outer` requires outer(x) and thus
+// inner(x, _): any instance of inner for x. `q` holds credit only for
+// inner(x, w), so the call must be rejected; `y` is an input of inner, not
+// an output determined by `x`.
+
+field f: Int
+
+inv inner(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+inv outer(x: Ref) {
+  exists y: Ref :: inner(x, y)
+}
+
+lemma use_outer(x: Ref)
+  requires outer(x)
+  ensures outer(x)
+{
+  ghost var y: Ref;
+  unfold outer(x)[y := y];
+  unfold inner(x, y);
+  fold inner(x, y);
+  fold outer(x)[y := y];
+}
+
+proc q(x: Ref, w: Ref)
+  requires inner(x, w)
+{
+  fold outer(x)[y := w];
+  use_outer(x);
+}

@@ -209,6 +209,16 @@ let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Exp
 let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t list) =
   fst (call_formal_actual_alignment formals call_args)
 
+(* Number of input (non-output) formals of the declaration [qi]; positions
+   past these in a mask entry are outputs, determined by the inputs. *)
+let input_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  let+ symbol = Rewriter.find_and_reify qi in
+  match symbol with
+  | CallDef { call_decl = { call_decl_formals; _ }; _ } ->
+      List.length call_decl_formals
+  | _ -> default
+
 (* A call that omits a trailing implicit ghost formal (see
    [call_formal_actual_alignment] above) leaves the callee's own mask entry
    for it referring to the callee's own out-of-scope internal ident -- there
@@ -258,13 +268,7 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
       else
         let known_prefix = List.take substituted resolved_len in
         let truncated = (qi, known_prefix) in
-        let* symbol = Rewriter.find_and_reify qi in
-        let n_formals =
-          match symbol with
-          | CallDef { call_decl = { call_decl_formals; _ }; _ } ->
-              List.length call_decl_formals
-          | _ -> List.length args
-        in
+        let* n_formals = input_arity qi ~default:(List.length args) in
         if resolved_len < n_formals then Rewriter.return truncated
         else
           let candidates =
@@ -726,8 +730,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
            that fast path first (covers the overwhelming common case, and
            the coarse-[] entries in particular, for free); only fall back to
            an SMT assert per still-unresolved required entry, disjoining
-           every same-declaration ambient candidate's positional equality
-           over their common (resolved-at-the-call-site) prefix. Zero
+           the positional equalities of every same-declaration ambient
+           candidate that covers the required entry. Zero
            candidates collapses to the empty disjunction, i.e. `assert
            false` -- proving the call site is semantically unreachable is
            strictly more informative than the outright compiler rejection
@@ -735,30 +739,31 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
            like any other. [required_at_call_site] is guaranteed free of any
            callee-internal ident by [unify_omitted_implicit_mask] above, so
            every position here is safe to name in a caller-side assert. *)
+        let* required_with_arity =
+          Rewriter.List.map required_at_call_site ~f:(fun (qi, args) ->
+              let+ n_inputs = input_arity qi ~default:(List.length args) in
+              (qi, args, n_inputs))
+        in
         let availability_asserts =
-          List.filter_map required_at_call_site ~f:(fun (qi, target_args) ->
-              let candidates =
-                List.filter atomicity_state.mask ~f:(fun (qi', _) ->
-                    QualIdent.equal qi' qi)
-              in
-              let syntactically_available =
-                List.exists candidates ~f:(fun (_, cand_args) ->
-                    match
-                      membership_conditions ~loc ~candidate:cand_args
-                        ~target:target_args
-                    with
-                    | Some [] -> true
-                    | None | Some (_ :: _) -> false)
-              in
-              if syntactically_available then None
-              else
-                let disjuncts =
-                  List.map candidates ~f:(fun (_, cand_args) ->
-                      let k = min (List.length target_args) (List.length cand_args) in
-                      Expr.mk_and ~loc
-                        (List.map2_exn (List.take target_args k) (List.take cand_args k)
-                           ~f:(fun a b -> Expr.mk_eq ~loc a b)))
+          List.filter_map required_with_arity ~f:(fun (qi, target_args, n_inputs) ->
+              (* A candidate longer than the requirement covers it only if the
+                 requirement already fixes every input: the extra positions
+                 are then outputs, determined by the inputs. *)
+              let covering_conditions cand_args =
+                let k = List.length target_args in
+                let cand_args =
+                  if k >= n_inputs then List.take cand_args k else cand_args
                 in
+                membership_conditions ~loc ~candidate:cand_args ~target:target_args
+              in
+              let candidates =
+                List.filter_map atomicity_state.mask ~f:(fun (qi', cand_args) ->
+                    if QualIdent.equal qi' qi then covering_conditions cand_args
+                    else None)
+              in
+              if List.exists candidates ~f:List.is_empty then None
+              else
+                let disjuncts = List.map candidates ~f:(Expr.mk_and ~loc) in
                 let cond = Expr.mk_or ~loc disjuncts in
                 let call_id = call_desc.call_name |> QualIdent.unqualify in
                 let error =
