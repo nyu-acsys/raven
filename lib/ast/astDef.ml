@@ -2478,6 +2478,7 @@ module Callable = struct
     call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
     call_decl_needs_mask : mask option; (** Invariant mask required from this callable's caller -- computed purely from [call_decl_precond] (see [masks.ml]); also the starting mask for checking this callable's own body. *)
     call_decl_grants_mask : mask option; (** Invariant mask entries a caller is guaranteed to gain by calling this callable, regardless of what it supplies -- computed purely from [call_decl_postcond]. Used only by other callables' checking passes at their own call sites into this one. *)
+    call_decl_opens : mask option; (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask] otherwise inferred from [call_decl_precond]. *)
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
         (** Fields of the formals written as *locations*, `x.A.f`, in order.
@@ -2581,12 +2582,24 @@ module Callable = struct
         | None -> ()
         | Some mask -> fprintf ppf "@\n/* grants mask: %a */" pr_mask_entries mask
       in
-      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a@]"
+      let pr_call_opens ppf = function
+        | None -> ()
+        | Some [] -> fprintf ppf "@\nopens {}"
+        | Some mask ->
+            let pr_entry ppf (qi, args) =
+              match args with
+              | [] -> QualIdent.pr ppf qi
+              | _ -> fprintf ppf "%a(%a)" QualIdent.pr qi (Print.pr_list_comma Expr.pr) args
+            in
+            fprintf ppf "@\nopens @[<0>%a@]" (Print.pr_list_comma pr_entry) mask
+      in
+      fprintf ppf "@[<2>%s %a(%a)@;%a%a%a%a%a%a@]"
         (free_modifier ^ auto_modifier ^ kind)
         Ident.pr call_decl.call_decl_name
         (Print.pr_list_comma Expr.pr_var_decl) call_decl.call_decl_formals
         pr_returns call_decl.call_decl_returns
         pr_call_decl_specs call_decl
+        pr_call_opens call_decl.call_decl_opens
         pr_call_locals call_decl.call_decl_locals
         pr_call_needs_mask call_decl.call_decl_needs_mask
         pr_call_grants_mask call_decl.call_decl_grants_mask

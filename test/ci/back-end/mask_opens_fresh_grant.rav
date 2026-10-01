@@ -1,0 +1,25 @@
+// An `opens` clause does not take away credit for an instance the callee
+// allocates: `requires` mentions no instance of `cell`, so the `cell(x)` its
+// `ensures` names is fresh, and the caller gains credit to open it.
+
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+proc alloc(x: Ref)
+  requires own(x.f, 0, 1.0)
+  ensures cell(x)
+  opens {}
+{
+  fold cell(x);
+}
+
+proc client(x: Ref)
+  requires own(x.f, 0, 1.0)
+{
+  alloc(x);
+  unfold cell(x);
+  fold cell(x);
+}

@@ -2918,6 +2918,87 @@ module ProcessCallable = struct
 
     process_stmt ~new_scope stmt disam_tbl
 
+  (* Checks an `opens` clause. Each entry names an invariant, with either no
+     arguments (any instance) or one per formal and output of the invariant, of
+     which a trailing run may be `_`; the `_`s are dropped, leaving the prefix a
+     mask entry records. Arguments may only mention the callable's formals --
+     except, for an atomic callable, its implicit ones, which [openAU] gives a
+     fresh value (see [Masks.compute_proc_lemma_mask]). *)
+  let process_opens_clause (call_decl : Callable.call_decl)
+      (formals : Type.var_decl list) (precond : Stmt.spec list)
+      (postcond : Stmt.spec list) (disam_tbl : DisambiguationTbl.t)
+      (mask : Callable.mask) : Callable.mask t =
+    let open Rewriter.Syntax in
+    let () =
+      match call_decl.call_decl_kind with
+      | Proc | Lemma -> ()
+      | Func | Pred | Invariant ->
+          Error.type_error call_decl.call_decl_loc
+            (Printf.sprintf
+               !"%{Ident} may not have an opens clause; only procedures and lemmas can"
+               call_decl.call_decl_name)
+    in
+    let is_atomic =
+      List.exists (precond @ postcond) ~f:(fun spec -> spec.Stmt.spec_atomic)
+    in
+    let allowed =
+      List.filter_map formals ~f:(fun vd ->
+          if is_atomic && vd.Type.var_implicit then None else Some vd.var_name)
+      |> Set.of_list (module Ident)
+    in
+    let is_wildcard e =
+      Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
+    in
+    Rewriter.List.map mask ~f:(fun (qi, args) ->
+        let loc = QualIdent.to_loc qi in
+        let* qi, symbol =
+          let* id = disambiguate_ident qi disam_tbl in
+          Rewriter.resolve_and_find id
+        in
+        let* symbol = Rewriter.Symbol.reify symbol in
+        let inv_decl =
+          match symbol with
+          | CallDef { call_decl = { call_decl_kind = Invariant; _ } as inv_decl; _ } ->
+              inv_decl
+          | _ ->
+              Error.type_error loc
+                (Printf.sprintf
+                   !"Expected an invariant in this opens clause, but found %s %{QualIdent}"
+                   (Symbol.kind symbol) qi)
+        in
+        let inv_params = inv_decl.call_decl_formals @ inv_decl.call_decl_returns in
+        let () =
+          if (not (List.is_empty args)) && List.length args <> List.length inv_params
+          then
+            Error.type_error loc
+              (Printf.sprintf
+                 !"Invariant %{Ident} takes %d argument(s), but %d are given here; \
+                   write `_` for an argument left unspecified"
+                 inv_decl.call_decl_name (List.length inv_params) (List.length args))
+        in
+        let prefix = List.take_while args ~f:(fun e -> not (is_wildcard e)) in
+        let+ prefix =
+          Rewriter.List.map2_exn prefix (List.take inv_params (List.length prefix))
+            ~f:(fun arg param ->
+              let+ arg =
+                disambiguate_process_expr arg (Type.set_ghost true param.Type.var_type)
+                  disam_tbl
+              in
+              let () =
+                match Set.choose (Set.diff (Expr.local_vars arg) allowed) with
+                | None -> ()
+                | Some ident ->
+                    Error.type_error (Expr.to_loc arg)
+                      (Printf.sprintf
+                         !"%{String} cannot be used in an opens clause; arguments may \
+                           only mention the callable's formals%s"
+                         (Ident.name ident)
+                         (if is_atomic then ", other than implicit ones" else ""))
+              in
+              arg)
+        in
+        (qi, prefix))
+
   let process_callable (callable : Callable.t) : Module.symbol t =
     let open Rewriter.Syntax in
     let* () = Rewriter.Logs.debug (fun printers m ->
@@ -3048,6 +3129,12 @@ module ProcessCallable = struct
                  }))
     in
 
+    let* call_decl_opens =
+      Rewriter.Option.map call_decl.call_decl_opens
+        ~f:(process_opens_clause call_decl call_decl_formals call_decl_precond
+              call_decl_postcond disam_tbl)
+    in
+
     Logs.debug (fun m -> m "done processing pre/post cond");
     let call_decl =
       {
@@ -3058,6 +3145,7 @@ module ProcessCallable = struct
         call_decl_precond;
         call_decl_postcond;
         call_decl_contract_ext;
+        call_decl_opens;
         call_decl_loc_params;
       }
     in
@@ -3540,6 +3628,27 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same postcondition as \
+                     %{Ident} in interface %{QualIdent}"
+                   (Symbol.kind symbol) ident ident interface_ident)
+          in
+          let opens_ok =
+            let entry_expr (qi, args) = Expr.mk_app ~typ:Type.bool (Var qi) args in
+            match call_def.call_decl.call_decl_opens, orig_call_def.call_decl.call_decl_opens with
+            | None, None -> true
+            | Some mask, Some orig_mask -> (
+                match
+                  List.for_all2 mask orig_mask ~f:(fun entry orig_entry ->
+                      Expr.alpha_equal ~sm (entry_expr entry) (entry_expr orig_entry))
+                with
+                | Ok res -> res
+                | Unequal_lengths -> false)
+            | _ -> false
+          in
+          let _ =
+            if not opens_ok then
+              Error.type_error loc
+                (Printf.sprintf
+                   !"%s %{Ident} does not have the same opens clause as \
                      %{Ident} in interface %{QualIdent}"
                    (Symbol.kind symbol) ident ident interface_ident)
           in

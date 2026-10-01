@@ -1,0 +1,38 @@
+// An `opens` clause that leaves out an invariant `requires` mentions must not
+// let `ensures` grant credit for it: `p` knows cell(x) without its caller having
+// provided credit, so restating cell(x) grants nothing. Otherwise `c`, called
+// while cell(x) is open, could open it a second time, and `outer` could prove
+// false.
+
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+lemma p(x: Ref)
+  requires cell(x)
+  ensures cell(x)
+  opens {}
+{
+}
+
+lemma c(x: Ref)
+  requires cell(x)
+  requires exists n: Int :: own(x.f, n, 1.0)
+  ensures false
+  opens {}
+{
+  p(x);
+  unfold cell(x);
+  fold cell(x);
+}
+
+proc outer(x: Ref)
+  requires cell(x)
+{
+  unfold cell(x);
+  c(x);
+  assert false;
+  fold cell(x);
+}

@@ -1,0 +1,17 @@
+// Arguments of an opens entry may only mention the callable's formals.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+proc q(x: Ref) returns (r: Ref)
+  requires cell(x)
+  opens cell(r)
+{
+  r := x;
+}

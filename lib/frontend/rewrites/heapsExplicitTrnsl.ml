@@ -413,6 +413,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
                call_decl_loc_params = [];
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
+        call_decl_opens = None;
       }
     in
 
@@ -583,6 +584,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
              call or unfold/fold of any kind. *)
           call_decl_needs_mask = Some [];
           call_decl_grants_mask = Some [];
+          call_decl_opens = None;
           call_decl_loc = loc;
                call_decl_loc_params = [];
         }
@@ -731,6 +733,7 @@ let generate_skolem_function (universal_quants : universal_quants)
       call_decl_is_auto = false;
       call_decl_needs_mask = Some [];
       call_decl_grants_mask = Some [];
+      call_decl_opens = None;
     }
   in
 
@@ -895,6 +898,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
                call_decl_loc_params = [];
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
+        call_decl_opens = None;
       }
     in
 
@@ -998,6 +1002,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
                call_decl_loc_params = [];
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
+        call_decl_opens = None;
       }
     in
 
@@ -1048,6 +1053,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_is_auto = false;
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
+        call_decl_opens = None;
         call_decl_loc = loc;
                call_decl_loc_params = [];
       }
@@ -1100,6 +1106,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_is_auto = false;
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
+        call_decl_opens = None;
         call_decl_loc = loc;
                call_decl_loc_params = [];
       }
@@ -1236,6 +1243,7 @@ let generate_unit_pred_ra ~loc (mod_ident : ident) : Module.symbol Rewriter.t =
                call_decl_loc_params = [];
           call_decl_needs_mask = Some [];
           call_decl_grants_mask = Some [];
+          call_decl_opens = None;
         };
       call_def = FuncDef { func_body = Some body };
     }

@@ -1,0 +1,44 @@
+// An `opens` clause replaces the mask inferred from `requires`. `touch_outer`
+// requires outer(x), so its inferred mask also covers inner(x, _), every inner
+// instance reachable from outer(x); but it only opens outer(x). Declaring that
+// lets `q` call it while holding credit for just one inner instance.
+
+field f: Int
+
+inv inner(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+inv outer(x: Ref) {
+  exists y: Ref :: inner(x, y)
+}
+
+lemma touch_outer(x: Ref)
+  requires outer(x)
+  ensures outer(x)
+  opens outer(x)
+{
+  ghost var y: Ref;
+  unfold outer(x)[y := y];
+  fold outer(x)[y := y];
+}
+
+// A coarse entry: `_` leaves the second argument unspecified.
+lemma use_outer(x: Ref)
+  requires outer(x)
+  ensures outer(x)
+  opens outer(x), inner(x, _)
+{
+  ghost var y: Ref;
+  unfold outer(x)[y := y];
+  unfold inner(x, y);
+  fold inner(x, y);
+  fold outer(x)[y := y];
+}
+
+proc q(x: Ref, w: Ref)
+  requires inner(x, w)
+{
+  fold outer(x)[y := w];
+  touch_outer(x);
+}

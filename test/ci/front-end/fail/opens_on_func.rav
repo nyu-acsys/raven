@@ -1,0 +1,16 @@
+// Only procedures and lemmas may have an opens clause.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+func g(x: Int) returns (r: Int)
+  opens {}
+{
+  x
+}

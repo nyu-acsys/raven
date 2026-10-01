@@ -234,6 +234,7 @@ module DecreasesExt (Cont : Ext) = struct
       call_decl_is_auto = false;
       call_decl_needs_mask = None;
       call_decl_grants_mask = None;
+      call_decl_opens = None;
       call_decl_loc = loc;
                call_decl_loc_params = [];
     } in

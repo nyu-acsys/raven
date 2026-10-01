@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Procedures and lemmas may declare the invariants they open with an `opens` clause, e.g. `opens {}`, `opens cell(x)` or `opens inner(x, _)`, where a trailing `_` leaves an argument unspecified. The clause replaces the mask otherwise inferred from `requires`, which covers every invariant reachable from it, including ones nested inside other invariants, whether or not the callable ever opens them. The body is checked against the clause, callers need credit only for what it lists, and an implementation must repeat its interface's clause. Credit that `ensures` would otherwise grant for an invariant `requires` mentions but the clause leaves out is withheld, since the caller never provided it. `test/comparison/lclist.rav` uses `opens {}` to call `create_node` from `create` again, which the stricter mask check in 1.4.1 had ruled out.
+
 
 ### Changed
 

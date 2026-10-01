@@ -1,0 +1,17 @@
+// An opens entry gives all of an invariant's arguments, writing `_` for
+// unspecified ones, or none at all.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+lemma l(x: Ref)
+  requires cell(x)
+  opens pair(x)
+{
+}

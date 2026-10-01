@@ -1,0 +1,16 @@
+// In an opens clause, `_` may only stand for trailing arguments.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+lemma l(y: Ref)
+  requires pair(y, y)
+  opens pair(_, y)
+{
+}

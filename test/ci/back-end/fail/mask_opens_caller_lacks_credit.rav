@@ -1,0 +1,23 @@
+// A caller must have credit for the instances a callee's `opens` clause names.
+
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+lemma peek(x: Ref)
+  requires cell(x)
+  opens cell(x)
+{
+  unfold cell(x);
+  fold cell(x);
+}
+
+lemma caller(x: Ref, y: Ref)
+  requires cell(x)
+  requires cell(y)
+  opens cell(x)
+{
+  peek(y);
+}

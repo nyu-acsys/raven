@@ -4,6 +4,13 @@ open Util
 open Ast
 (*open Base*)
 
+(* A callable has at most one `opens` clause. *)
+let single_opens_clause = function
+  | [] -> None
+  | [ (_, mask) ] -> Some mask
+  | _ :: (loc, _) :: _ ->
+      Error.syntax_error loc "A callable may have at most one opens clause"
+
 (* Shared by [local_var_def]'s two productions. They spell the `ghost` modifier
    out instead of taking it from the nullable [ghost_modifier], so that the
    production never starts with an empty symbol: menhir would otherwise report
@@ -63,7 +70,7 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token <bool> MODULE
 %token <string> STRINGVAL
 %token TYPE IMPORT INCLUDE
-%token RETURNS REQUIRES ENSURES INVARIANT
+%token RETURNS REQUIRES ENSURES INVARIANT OPENS
 %token EOF
 
 %nonassoc IFF
@@ -392,7 +399,8 @@ func_decl:
 
 callable_decl:
   id = decl_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
-  let precond, postcond, contract_ext = cs in
+  let precond, postcond, contract_ext, opens = cs in
+  let call_decl_opens = single_opens_clause opens in
   let call_decl_loc_params, formals = formals in
   let decl =
     Callable.{ call_decl_kind = Func;
@@ -407,6 +415,7 @@ callable_decl:
                call_decl_is_auto = false;
                call_decl_needs_mask = None;
                call_decl_grants_mask = None;
+               call_decl_opens;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
                call_decl_loc_params;
              }
@@ -415,7 +424,8 @@ callable_decl:
 
 callable_decl_out_vars:
   id = decl_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
-  let precond, postcond, contract_ext = cs in
+  let precond, postcond, contract_ext, opens = cs in
+  let call_decl_opens = single_opens_clause opens in
   let call_decl_loc_params, formals = formals in
   let decl =
     Callable.{ call_decl_kind = Func;
@@ -430,6 +440,7 @@ callable_decl_out_vars:
                call_decl_is_auto = false;
                call_decl_needs_mask = None;
                call_decl_grants_mask = None;
+               call_decl_opens;
                call_decl_loc = Loc.make $startpos(id) $endpos(id);
                call_decl_loc_params;
              }
@@ -507,10 +518,10 @@ var_decl_with_modifiers:
 
 contracts:
 | c = contract; cs = contracts {
-  let (pre1, post1, ext1) = c and (pre2, post2, ext2) = cs in
-  (pre1 @ pre2, post1 @ post2, ext1 @ ext2)
+  let (pre1, post1, ext1, opens1) = c and (pre2, post2, ext2, opens2) = cs in
+  (pre1 @ pre2, post1 @ post2, ext1 @ ext2, opens1 @ opens2)
 }
-| /* empty */ { [], [], [] }
+| /* empty */ { [], [], [], [] }
 ;
 
 contract:
@@ -523,7 +534,7 @@ contract:
            spec_source = None;
          }
   in
-  ([spec], [], [])
+  ([spec], [], [], [])
 }
 | m = contract_mods; ENSURES; e = expr {
   let spec =
@@ -534,10 +545,38 @@ contract:
            spec_source = None;
          }
   in
-  ([], [spec], [])
+  ([], [spec], [], [])
 }
 | ce = contract_ext {
-  ([], [], [ce])
+  ([], [], [ce], [])
+}
+| OPENS; LBRACE; RBRACE {
+  ([], [], [], [ (Loc.make $startpos $endpos, []) ])
+}
+| OPENS; es = separated_nonempty_list(COMMA, opens_entry) {
+  ([], [], [], [ (Loc.make $startpos $endpos, es) ])
+}
+;
+
+(* An entry of an `opens` clause: an invariant, optionally applied to arguments of
+   which a trailing run may be `_`. The `_`s are kept here and dropped by the type
+   checker, once it has checked the entry against the invariant's arity. *)
+opens_entry:
+| x = qual_ident; es = loption(delimited(LPAREN, separated_list(COMMA, expr), RPAREN)) {
+  let is_wildcard e =
+    Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
+  in
+  let rec check_trailing seen_wildcard = function
+    | [] -> ()
+    | e :: es ->
+        if is_wildcard e then check_trailing true es
+        else if seen_wildcard then
+          Error.syntax_error (Expr.to_loc e)
+            "In an opens clause, `_` may only stand for trailing arguments"
+        else check_trailing false es
+  in
+  check_trailing false es;
+  (Expr.to_qual_ident x, es)
 }
 ;
 

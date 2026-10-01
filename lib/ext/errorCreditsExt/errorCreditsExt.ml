@@ -555,6 +555,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
            never unfold an invariant. *)
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
+        call_decl_opens = None;
         call_decl_loc = loc;
                call_decl_loc_params = [];
       } in

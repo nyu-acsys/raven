@@ -43,6 +43,7 @@ let _ =
       ("module", MODULE false);
       ("new", NEW);
       ("null", CONSTVAL Expr.Null);
+      ("opens", OPENS);
       ("own", OWN);
       ("Perm", CONSTTYPE Type.Perm);
       ("pred", FUNC (Pred));

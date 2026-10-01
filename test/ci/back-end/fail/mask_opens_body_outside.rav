@@ -1,0 +1,15 @@
+// The body of a callable with an `opens` clause is checked against it.
+
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+lemma peek(x: Ref)
+  requires cell(x)
+  opens {}
+{
+  unfold cell(x);
+  fold cell(x);
+}

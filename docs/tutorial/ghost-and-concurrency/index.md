@@ -86,8 +86,8 @@ before any SMT solving even starts:
 **Masks, in a nutshell.** How does Raven know, at any given point in a proof, which invariants
 are even legal to open? It tracks a *mask*: the set of invariant instances available to unfold at
 that specific point. You never write a mask by hand in anything this tutorial covers — Raven
-infers a callable's mask automatically, from which invariants syntactically appear in its own
-body and contract, together with whatever the callables it calls need in turn. What the mask
+infers a callable's mask automatically, from the invariants its `requires` clause mentions,
+together with the invariants mentioned inside those invariants' own definitions. What the mask
 actually buys you is catching two very concrete mistakes, both purely structural (no solver call
 needed to catch either):
 
@@ -106,6 +106,13 @@ unfold) that's causing trouble, and re-open it afterward if you still need it. W
 still proves `count % 2 == 0` afterward, with no idea how the two threads actually interleaved
 with each other or with its own read — the invariant is what lets that uncertainty stay
 irrelevant to the proof.
+
+**Declaring what a callable opens.** The inferred mask covers every invariant reachable from
+`requires`, whether or not the body ever opens it, and callers must have room for all of it.
+When that is too much, a procedure or lemma can say what it opens with an `opens` clause, which
+replaces the inferred mask: `opens {}` for nothing, `opens evenCount(c)` for one instance, or
+`opens inner(x, _)` for every instance whose first argument is `x`. Raven checks the body
+against the clause, and callers only need room for what it lists.
 
 ## Ghost fields and resource algebras {#sec:ghost-fields-resource-algebras}
 

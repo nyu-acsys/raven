@@ -1656,6 +1656,13 @@ module Callable = struct
           let+ mask = rewrite_mask mask in
           Some mask
     in
+    let* call_decl_opens =
+      match callable.call_decl.call_decl_opens with
+      | None -> return None
+      | Some mask ->
+          let+ mask = rewrite_mask mask in
+          Some mask
+    in
     (* Location parameters name a field of the callable's own module, so a
        substitution has to reach them too -- otherwise a call through an instance
        would still see the functor's abstract field. *)
@@ -1669,6 +1676,7 @@ module Callable = struct
           { callable.call_decl with
             call_decl_needs_mask;
             call_decl_grants_mask;
+            call_decl_opens;
             call_decl_loc_params };
       }
     in

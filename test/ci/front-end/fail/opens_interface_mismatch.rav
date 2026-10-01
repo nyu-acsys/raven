@@ -1,0 +1,24 @@
+// An implementation repeats its interface's opens clause.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+interface I {
+  lemma touch(x: Ref)
+    requires cell(x)
+    opens {}
+}
+
+module M : I {
+  lemma touch(x: Ref)
+    requires cell(x)
+    opens cell(x)
+  {
+  }
+}

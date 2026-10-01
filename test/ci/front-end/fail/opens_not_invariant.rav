@@ -1,0 +1,20 @@
+// An opens clause names invariants, not predicates.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+pred p(x: Ref) {
+  own(x.f, 0, 1.0)
+}
+
+lemma l(x: Ref)
+  requires p(x)
+  opens p(x)
+{
+}

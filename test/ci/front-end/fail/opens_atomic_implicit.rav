@@ -1,0 +1,17 @@
+// For an atomic callable, an opens entry may not mention an implicit formal:
+// openAU gives it a fresh value.
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+inv pair(x: Ref, y: Ref) {
+  own(y.f, 0, 1.0)
+}
+
+proc a(x: Ref, implicit ghost y: Ref)
+  atomic requires pair(x, y)
+  atomic ensures pair(x, y)
+  opens pair(x, y)
+

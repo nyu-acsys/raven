@@ -271,7 +271,10 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
               (Callable.mask_canon (direct_entries @ List.concat nested_entries))
         | FuncDef { func_body = None } -> Rewriter.return []
         | ProcDef _ -> assert false)
-    | Lemma | Proc -> compute_proc_lemma_mask c
+    | Lemma | Proc -> (
+        match c.call_decl.call_decl_opens with
+        | Some opens -> Rewriter.return (Callable.mask_canon opens)
+        | None -> compute_proc_lemma_mask c)
     | Func -> Rewriter.return []
   in
 
@@ -350,6 +353,29 @@ let rec compute_iteration (m : Module.t) : (Module.t, bool) Rewriter.t_ext =
    Purely a function of this callable's own declaration -- no dependency
    on any other callable's mask -- so, unlike [call_decl_needs_mask], this
    needs no fixpoint: one pass over the module suffices. *)
+(* An [opens] clause can leave out invariants that [requires] mentions, so the
+   callable knows such an instance without its caller having provided credit for
+   it -- and an [ensures] restating it must not grant that credit. A grant is kept
+   if [opens] covers it (the caller had the credit already), or if the inferred
+   mask names no instance of its invariant at all (so it is freshly allocated, or
+   granted by a nested call). Comparing by invariant rather than by instance is
+   deliberate: two syntactically different instances may still be equal. *)
+let restrict_grants_to_opens (c : Callable.t) (grants : Callable.mask) :
+    (Callable.mask, 'a) Rewriter.t_ext =
+  let open Rewriter.Syntax in
+  match c.call_decl.call_decl_opens with
+  | None -> Rewriter.return grants
+  | Some opens ->
+      let covers entry grant =
+        match Callable.mask_entry_meet entry grant with
+        | Some meet -> Callable.compare_mask_entry meet grant = 0
+        | None -> false
+      in
+      let+ inferred = compute_proc_lemma_mask c in
+      List.filter grants ~f:(fun ((qi, _) as grant) ->
+          List.exists opens ~f:(fun entry -> covers entry grant)
+          || not (List.exists inferred ~f:(fun (qi', _) -> QualIdent.equal qi qi')))
+
 let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
   let* grants =
@@ -394,6 +420,7 @@ let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
         in
         Rewriter.return (Callable.mask_canon entries)
   in
+  let* grants = restrict_grants_to_opens c grants in
   Rewriter.return
     { c with call_decl = { c.call_decl with call_decl_grants_mask = Some grants } }
 

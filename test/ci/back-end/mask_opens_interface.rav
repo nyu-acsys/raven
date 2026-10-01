@@ -1,0 +1,31 @@
+// An `opens` clause is part of a callable's contract: an implementation repeats
+// it, and callers -- here through the implementing module -- are checked
+// against it.
+
+field f: Int
+
+inv cell(x: Ref) {
+  exists n: Int :: own(x.f, n, 1.0)
+}
+
+interface Reader {
+  lemma touch(x: Ref)
+    requires cell(x)
+    opens {}
+}
+
+module R : Reader {
+  lemma touch(x: Ref)
+    requires cell(x)
+    opens {}
+  {
+  }
+}
+
+proc client(x: Ref)
+  requires cell(x)
+{
+  unfold cell(x);
+  R.touch(x);
+  fold cell(x);
+}

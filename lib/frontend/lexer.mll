@@ -88,6 +88,10 @@ type lex_state = {
      looks like an unfinished comparison awaiting its right operand. *)
   next_lt_opens_atomic_token : bool;
   in_atomic_token_brackets : bool;
+  (* Set on [OPENS], consumed by the very next token: the braces of an empty `opens {}`
+     clause are a [Group], and must not claim the classification [next_brace_kind]
+     holds for the callable's body. *)
+  next_brace_is_opens : bool;
 }
 
 let initial_state =
@@ -97,6 +101,7 @@ let initial_state =
     next_paren_is_loop_cond = false;
     next_lt_opens_atomic_token = false;
     in_atomic_token_brackets = false;
+    next_brace_is_opens = false;
   }
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
@@ -115,6 +120,7 @@ let advance st (tok : Parser.token) =
          | [] -> [])
     | RBRACKET | RBRACEPIPE | RBRACKETPIPE | RGHOSTBRACE ->
         (match st.scopes with _ :: rest -> rest | [] -> [])
+    | LBRACE when st.next_brace_is_opens -> Group :: st.scopes
     | LBRACE ->
         (match st.scopes with
          | Loop_header :: rest when st.last_token_can_end_stmt ->
@@ -145,9 +151,11 @@ let advance st (tok : Parser.token) =
     | FUNC _ | DATA | MATCH -> Some Group
     | MODULE _ -> Some Module_list
     | PROC | LEMMA | AXIOM -> Some Stmt_list
+    | LBRACE when st.next_brace_is_opens -> st.next_brace_kind
     | LBRACE -> None (* consumed; the next one is classified afresh *)
     | _ -> st.next_brace_kind
   in
+  let next_brace_is_opens = match tok with OPENS -> true | _ -> false in
   let next_paren_is_loop_cond =
     match tok with
     | WHILE -> true
@@ -183,7 +191,7 @@ let advance st (tok : Parser.token) =
     | _ -> false
   in
   { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
-    next_lt_opens_atomic_token; in_atomic_token_brackets }
+    next_lt_opens_atomic_token; in_atomic_token_brackets; next_brace_is_opens }
 
 (* Produces [tok], pairing it with the state to carry forward after it, and no buffered
    follow-up token (see [on_newline] for the one case that needs one). *)
