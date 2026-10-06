@@ -3350,7 +3350,12 @@ let rewrites_stmt_ext (m: Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
+(** The rewrites up to and including the lowering of extension constructs. Every
+    compilation unit goes through these before any goes through [process_module_back]:
+    the back half rewrites the types of fields, and the front half of a later unit still
+    type-checks code that uses an earlier unit's fields, e.g. when it turns loops into
+    procedures. *)
+let process_module_front ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
 
   (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
@@ -3372,10 +3377,16 @@ let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Modu
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
 
+  (tbl, m, scc_map)
+
+(** The remaining rewrites, which elaborate calls, fields and heaps. Returns the module
+    together with its lemma call graph (see [CallGraph.lemma_calls]). *)
+let process_module_back ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config scc_map
+    (m : Module.t) =
+  assert (SymbolTbl.curr_is_root tbl);
   let tbl, (m, lemma_calls) =
     Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_3 scc_map m) tbl
   in
-
   (tbl, m, lemma_calls)
 
 module ProgStats = struct
