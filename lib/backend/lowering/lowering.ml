@@ -895,14 +895,21 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
         let* is_field_an_ra =
           ProgUtils.is_ra_type (Type.field_val target_field.field_type)
         in
-        if is_field_an_ra then Rewriter.return ()
+        let* target = Rewriter.resolve target in
+        let target_frac_mod =
+          ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:f.field_loc target
+            target_field.field_type
+        in
+        (* A target from a unit lowered earlier, such as the library, has already been
+           rewritten to its Frac module's type, so it has a Frac module despite looking
+           like a resource algebra. *)
+        let* already_rewritten = Rewriter.resolve_opt target_frac_mod in
+        if is_field_an_ra && Option.is_none already_rewritten then Rewriter.return ()
         else
-          let* target = Rewriter.resolve target in
           Rewriter.add_transparent
             (ProgUtils.frac_field_to_frac_mod_ident ~loc:f.field_loc f.field_name
                target_field.field_type)
-            (ProgUtils.frac_field_to_frac_mod_qual_ident ~loc:f.field_loc target
-               target_field.field_type)
+            target_frac_mod
       in
       Rewriter.return (Module.FieldDef { f with field_type = target_field.field_type })
   | FieldDef f ->

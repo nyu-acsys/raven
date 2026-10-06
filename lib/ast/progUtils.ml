@@ -992,6 +992,17 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
     (qual_ident * qual_ident) t =
   let open Rewriter.Syntax in
   let largest_prefix = largest_common_prefix_qi symbols in
+  let is_library qi =
+    String.equal (Ident.name (QualIdent.first_ident qi)) (Ident.name Predefs.lib_ident)
+  in
+  (* The nearest enclosing scope of [qi] that is a scope of its own rather than an
+     instance of a functor. *)
+  let rec own_scope (qi : qual_ident) : qual_ident t =
+    let* result = Rewriter.resolve_and_find_opt qi in
+    match result with
+    | Some (_, (declared, _, _)) when QualIdent.equal declared qi -> Rewriter.return qi
+    | _ -> own_scope (QualIdent.pop qi)
+  in
   (* [qi] may sit behind several nested abstract parameters (e.g. [ForkJoin.R.Result]),
      so keep popping and re-resolving until we land on a concrete scope. *)
   let rec find_concrete_scope (qi : qual_ident) : (qual_ident * qual_ident) t =
@@ -1008,6 +1019,11 @@ let find_insertion_scope_for_symbols (symbols : (qual_ident, _) Set.t) :
           | _ -> false
         in
         if resolves_through_abstract_param then find_concrete_scope (QualIdent.pop qi)
+        (* An instance of a library functor, used by the program: synthesized modules
+           belong to the program, since the library has already been processed. *)
+        else if is_library name && not (is_library qi) then
+          let+ scope = own_scope qi in
+          (scope, scope)
         else Rewriter.return (name, qi)
   in
   find_concrete_scope largest_prefix

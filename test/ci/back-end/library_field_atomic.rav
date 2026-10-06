@@ -1,0 +1,26 @@
+// Atomic operations work on a field declared in a standard-library functor, here the
+// `value` field of an instance of Library.Array, whether the instance is declared at
+// the top level or inside a module.
+
+import Library.IntAtomics._
+
+module Counts = Library.Array[Library.IntType]
+
+proc bump(a: Counts.T, implicit ghost v: Int)
+  requires Counts.length(a) > 0 && own(Counts.loc(a, 0).Counts.value, v, 1.0)
+  ensures own(Counts.loc(a, 0).Counts.value, v + 1, 1.0)
+{
+  val _x := faa(Counts.loc(a, 0).Counts.value, 1)
+}
+
+module Shelf {
+  module Cells = Library.Array[Library.IntType]
+  import Cells._
+
+  proc bump(a: Cells.T, i: Int, implicit ghost v: Int)
+    requires 0 <= i && i < length(a) && own(loc(a, i).value, v, 1.0)
+    ensures own(loc(a, i).value, v + 1, 1.0)
+  {
+    val _x := faa(loc(a, i).value, 1)
+  }
+}
