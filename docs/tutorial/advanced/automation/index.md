@@ -61,9 +61,10 @@ holds for it. Raven tries to work out that witness automatically rather than lea
 solver as an opaque quantifier. This is what allowed `bump` in `shelf_of_counters.rav` to write
 `fold shelfInv(s)[counts := counts[i := counts[i] + 1]]` and have the value at every *other*
 index inferred, rather than requiring you to spell out the whole map. The same heuristic also
-works for implicit arguments of invariants and predicates, since Raven ensures that those are
-uniquely determined by the non-implicit arguments. When no heuristic applies (most often because
-a witness isn't determined by anything else you already own), you supply it explicitly. For
+works for implicit arguments of invariants and predicates, since Raven ensures that two instances
+held at the same time agree on them if they agree on the explicit arguments. When no heuristic
+applies (most often because a witness isn't determined by anything else you already own), you
+supply it explicitly. For
 example, `fold lock_inv(l, r)[b := lockAcq]` in `ticket_lock_invariant.rav` supplies `b` by hand
 while leaving `n`/`c` to be inferred. In natural-deduction terms, this whole section is about
 automated **existential introduction**. You (usually implicitly) already have a specific witness

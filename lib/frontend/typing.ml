@@ -2979,9 +2979,9 @@ module ProcessCallable = struct
     process_stmt ~new_scope stmt disam_tbl
 
   (* Checks an `opens` clause. Each entry names an invariant, with either no
-     arguments (any instance) or one per formal and output of the invariant, of
-     which a trailing run may be `_`; the `_`s are dropped, leaving the prefix a
-     mask entry records. Arguments may only mention the callable's formals --
+     arguments (any instance) or one per parameter of the invariant, implicit
+     ones included, of which a trailing run may be `_`; the `_`s are dropped,
+     leaving the prefix a mask entry records. Arguments may only mention the callable's formals --
      except, for an atomic callable, its implicit ones, which [openAU] gives a
      fresh value (see [Masks.compute_proc_lemma_mask]). *)
   let process_opens_clause (call_decl : Callable.call_decl)

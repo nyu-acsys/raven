@@ -23,8 +23,14 @@ All notable changes to this project will be documented in this file.
 
 - Improved the wording and readability of the tutorial.
 
+- Error messages and documentation call the parameters of a predicate or invariant after the `;` implicit parameters, rather than output parameters.
+
 
 ### Fixed
+
+- Folding an invariant back with its implicit arguments left out no longer lets their values change, which could be used to prove `false`. Writing an invariant's implicit arguments at `unfold` but leaving them out at `fold`, or vice versa, no longer crashes the verifier.
+
+- The invariants a procedure needs are inferred from their explicit arguments only. Calls and `unfold`s no longer fail with `Invariant ... is not in the current mask` because a precondition writes an invariant's implicit arguments differently.
 
 - An implicitly instantiated functor call returning `Bool` can be used as an assertion, as in `assert List.is_in(xs, 1)`, instead of failing with `Cannot unify type Bool with type Perm`.
 

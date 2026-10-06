@@ -18,11 +18,11 @@ type invs = {
   inv_args : Expr.t list;
   (* Where the [unfold] was, so a never-folded instance can point back at it. *)
   inv_loc : location;
-  (* Snapshot of [inv_args]' values at the moment this instance was opened,
-     in a fresh ghost local. The matching [fold] must prove its own
-     arguments equal this snapshot, since a local variable in [inv_args] can
-     be reassigned between [unfold] and [fold] with no argument-value check
-     otherwise catching it (reassignment isn't an atomic step). *)
+  (* Snapshot of the values of all of the instance's arguments, implicit ones
+     included, at the moment it was opened, in a fresh ghost local. The
+     matching [fold] must restore exactly these: a local variable in
+     [inv_args] can be reassigned in between, and an invariant's implicit
+     arguments must never change. *)
   inv_snapshot : Expr.t;
   (* The mask entry consumed from [atomicity_check.mask] to open this
      instance (see [open_inv]); restored verbatim on the matching close (see
@@ -209,9 +209,10 @@ let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Exp
 let call_formal_actual_map (formals : Type.var_decl list) (call_args : Expr.t list) =
   fst (call_formal_actual_alignment formals call_args)
 
-(* Number of input (non-output) formals of the declaration [qi]; positions
-   past these in a mask entry are outputs, determined by the inputs. *)
-let input_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ext =
+(* Number of explicit parameters of the declaration [qi]; positions past these
+   in a mask entry are implicit parameters, on which two instances held at the
+   same time agree if they agree on the explicit ones. *)
+let explicit_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
   let+ symbol = Rewriter.find_and_reify qi in
   match symbol with
@@ -228,19 +229,20 @@ let input_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ext =
    1. If the caller's ambient mask has a candidate entry for the same
       declaration, of the same (untruncated) arity, whose already-resolved
       prefix matches, and everything past that prefix falls entirely within
-      the declaration's own *output* (return) parameters, then that
+      the declaration's own implicit parameters (those after the `;`), then that
       candidate's remaining arguments are a sound stand-in for the omitted
       implicit (e.g. `Lk.acquire(lk)` against an ambient `lock_inv(lk, l)`
-      unifies to exactly what `Lk.acquire(lk, l)` would give): [Rewrites]'s
-      `pred_valid$<qi>` lemma (generated for every [Pred]/[Invariant] with a
-      declared output -- see its own doc comment) proves two
-      simultaneously-held instances of [qi] agreeing on the inputs must also
-      agree on the outputs, checked or (for a [free] declaration) assumed
-      either way -- so if there's more than one such candidate, any of them
-      is as good as any other. An unresolved position within [qi]'s own
-      *inputs* gets no such guarantee (two candidates there could genuinely
-      describe different, unrelated instances), so this is skipped whenever
-      the resolved prefix doesn't reach past all of [qi]'s inputs.
+      unifies to exactly what `Lk.acquire(lk, l)` would give): [Lowering]'s
+      `pred_valid$<qi>` lemma (generated for every [Pred]/[Invariant] with
+      implicit parameters -- see its own doc comment) proves two
+      simultaneously-held instances of [qi] agreeing on the explicit
+      parameters must also agree on the implicit ones, checked or (for a
+      [free] declaration) assumed either way -- so if there's more than one
+      such candidate, any of them is as good as any other. An unresolved
+      position within [qi]'s own explicit parameters gets no such guarantee
+      (two candidates there could genuinely describe different, unrelated
+      instances), so this is skipped whenever the resolved prefix doesn't
+      reach past all of [qi]'s explicit parameters.
    2. Otherwise, truncate the entry down to just its resolved prefix -- the
       same coarsening [Masks.truncate_to_formal_expressible] already applies
       to an atomic spec's implicit formals: a position nothing at the call
@@ -268,7 +270,7 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
       else
         let known_prefix = List.take substituted resolved_len in
         let truncated = (qi, known_prefix) in
-        let* n_formals = input_arity qi ~default:(List.length args) in
+        let* n_formals = explicit_arity qi ~default:(List.length args) in
         if resolved_len < n_formals then Rewriter.return truncated
         else
           let candidates =
@@ -323,7 +325,7 @@ let find_matching_open_inv (atomicity_state : atomicity_check)
   in
   match
     List.find candidates ~f:(fun inv ->
-        List.for_all2_exn inv.inv_args use_args ~f:Expr.alpha_equal)
+        List.equal Expr.alpha_equal inv.inv_args use_args)
   with
   | Some inv -> Some inv
   | None -> List.hd candidates
@@ -527,7 +529,7 @@ let close_inv ~(inv_name : QualIdent.t) ~(inv_args : Expr.t list)
       let invs_opened =
         list_remove_first atomicity_state.invs_opened ~f:(fun i ->
             QualIdent.equal i.inv_name inv.inv_name
-            && List.for_all2_exn i.inv_args inv.inv_args ~f:Expr.alpha_equal)
+            && List.equal Expr.alpha_equal i.inv_args inv.inv_args)
       in
       let mask =
         Callable.mask_union atomicity_state.mask [ inv.inv_consumed_mask_entry ]
@@ -741,18 +743,19 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
            every position here is safe to name in a caller-side assert. *)
         let* required_with_arity =
           Rewriter.List.map required_at_call_site ~f:(fun (qi, args) ->
-              let+ n_inputs = input_arity qi ~default:(List.length args) in
-              (qi, args, n_inputs))
+              let+ n_explicit = explicit_arity qi ~default:(List.length args) in
+              (qi, args, n_explicit))
         in
         let availability_asserts =
-          List.filter_map required_with_arity ~f:(fun (qi, target_args, n_inputs) ->
+          List.filter_map required_with_arity ~f:(fun (qi, target_args, n_explicit) ->
               (* A candidate longer than the requirement covers it only if the
-                 requirement already fixes every input: the extra positions
-                 are then outputs, determined by the inputs. *)
+                 requirement already fixes every explicit parameter: the extra
+                 positions are then implicit parameters, on which instances
+                 held at the same time agree. *)
               let covering_conditions cand_args =
                 let k = List.length target_args in
                 let cand_args =
-                  if k >= n_inputs then List.take cand_args k else cand_args
+                  if k >= n_explicit then List.take cand_args k else cand_args
                 in
                 membership_conditions ~loc ~candidate:cand_args ~target:target_args
               in
@@ -886,13 +889,60 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             match c.call_decl.call_decl_kind with
             | Pred -> Rewriter.return stmt
             | Invariant -> (
+                let all_params =
+                  c.call_decl.call_decl_formals @ c.call_decl.call_decl_returns
+                in
                 match use_desc.use_kind with
                 | Unfold ->
+                    (* Implicit arguments left out here are bound to fresh
+                       ghost variables, so that the snapshot covers them. *)
+                    let omitted =
+                      List.drop all_params (List.length use_desc.use_args)
+                    in
+                    let* omitted_vars =
+                      Rewriter.List.map omitted ~f:(fun vd ->
+                          let var_decl =
+                            Type.mk_var_decl ~ghost:true ~loc
+                              (Ident.fresh loc vd.Type.var_name.ident_name)
+                              vd.var_type
+                          in
+                          let+ () =
+                            Rewriter.introduce_symbol
+                              (Module.VarDef
+                                 { var_decl; var_init = None; var_is_free = NotFree })
+                          in
+                          var_decl)
+                    in
+                    let full_args =
+                      use_desc.use_args @ List.map omitted_vars ~f:Expr.from_var_decl
+                    in
+                    let bind_stmts =
+                      match omitted_vars with
+                      | [] -> []
+                      | _ :: _ ->
+                          let spec_error =
+                            let error =
+                              ( Error.Verification,
+                                loc,
+                                "Failed to unfold predicate. The predicate may \
+                                 not hold at this point" )
+                            in
+                            [ Stmt.mk_const_spec_error error ]
+                          in
+                          [
+                            Stmt.mk_bind ~loc
+                              (List.map omitted_vars ~f:(fun vd ->
+                                   QualIdent.from_ident vd.var_name))
+                              (Stmt.mk_spec ~spec_error
+                                 (Expr.mk_app ~loc ~typ:Type.bool
+                                    (Expr.Var use_desc.use_name) full_args));
+                          ]
+                    in
                     (* See [invs.inv_snapshot]. Skip for 0-arity invariants
                        (e.g. [inv inv1() { ... }]): only one instance is
                        possible, so there's no identity to freeze. *)
                     let* snap_expr, snap_stmts =
-                      match use_desc.use_args with
+                      match full_args with
                       | [] -> Rewriter.return (Expr.mk_bool ~loc true, [])
                       | _ :: _ ->
                           let snap_ident =
@@ -902,8 +952,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                                   (QualIdent.unqualify use_desc.use_name))
                           in
                           let snap_type =
-                            Type.mk_prod loc
-                              (List.map use_desc.use_args ~f:Expr.to_type)
+                            Type.mk_prod loc (List.map full_args ~f:Expr.to_type)
                           in
                           let snap_var_decl =
                             Type.mk_var_decl ~ghost:true ~loc snap_ident
@@ -925,7 +974,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                           let snap_assign_stmt =
                             Stmt.mk_assign ~loc ~is_init:true
                               [ QualIdent.from_ident snap_ident ]
-                              (Expr.mk_tuple ~loc use_desc.use_args)
+                              (Expr.mk_tuple ~loc full_args)
                           in
                           (snap_expr, [ snap_assign_stmt ])
                     in
@@ -935,9 +984,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                         atomicity_state
                     in
                     let* _ = Rewriter.set_user_state atomicity_state in
+                    let stmt =
+                      {
+                        stmt with
+                        stmt_desc = Basic (Use { use_desc with use_args = full_args });
+                      }
+                    in
                     Rewriter.return
                       (Stmt.mk_block_stmt ~loc
-                         (open_asserts @ snap_stmts @ [ stmt ]))
+                         (bind_stmts @ open_asserts @ snap_stmts @ [ stmt ]))
                 | Fold ->
                     (* Multiple instances of the same declaration can be open
                        at once, so this needs to identify which one; see
@@ -954,29 +1009,53 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                         atomicity_state
                     in
                     let* _ = Rewriter.set_user_state atomicity_state in
-                    (match matching_open_inv, use_desc.use_args with
+                    (match matching_open_inv, all_params with
                     | None, _ | _, [] ->
                         (* Fresh allocation, or 0-arity (no snapshot exists). *)
                         Rewriter.return stmt
                     | Some inv, _ :: _ ->
+                        (* Implicit arguments left out here are restored from
+                           the snapshot: closing must not change them. *)
+                        let n_written = List.length use_desc.use_args in
+                        let full_args =
+                          use_desc.use_args
+                          @ List.mapi (List.drop all_params n_written) ~f:(fun i _ ->
+                                Expr.mk_tuple_lookup ~loc inv.inv_snapshot (n_written + i))
+                        in
                         let spec_error =
-                          let error =
-                            ( Error.Verification,
-                              loc,
+                          let inv_id = use_desc.use_name |> QualIdent.unqualify in
+                          let msg =
+                            if List.is_empty c.call_decl.call_decl_returns then
                               Printf.sprintf
-                                !"Cannot fold %{Ident}: its arguments no \
-                                  longer match the instance that was opened \
-                                  by the corresponding unfold (a variable \
-                                  used to identify the instance may have \
-                                  been reassigned in between)"
-                                (use_desc.use_name |> QualIdent.unqualify) )
+                                !"Cannot fold %{Ident}: its arguments no longer \
+                                  match the instance that was opened by the \
+                                  corresponding unfold (a variable used to \
+                                  identify the instance may have been \
+                                  reassigned in between)"
+                                inv_id
+                            else
+                              Printf.sprintf
+                                !"Cannot fold %{Ident}: its arguments may \
+                                  differ from those of the instance opened by \
+                                  the corresponding unfold. Either a variable \
+                                  used as an argument was reassigned in \
+                                  between, or an implicit argument changed, \
+                                  which an invariant does not allow"
+                                inv_id
                           in
+                          let error = (Error.Verification, loc, msg) in
                           [ Stmt.mk_const_spec_error error ]
                         in
                         let assert_stmt =
                           Stmt.mk_assert_expr ~loc ~spec_error
                             (Expr.mk_eq ~loc inv.inv_snapshot
-                               (Expr.mk_tuple ~loc use_desc.use_args))
+                               (Expr.mk_tuple ~loc full_args))
+                        in
+                        let stmt =
+                          {
+                            stmt with
+                            stmt_desc = Basic (Use { use_desc with use_args = full_args });
+                          }
                         in
                         Rewriter.return
                           (Stmt.mk_block_stmt ~loc [ assert_stmt; stmt ])))
