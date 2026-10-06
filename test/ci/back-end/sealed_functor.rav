@@ -1,0 +1,45 @@
+// Outside a sealed functor, its instances expose only the members of its interface.
+
+interface Stack[E: Library.Type] : Library.Type {
+  rep type T
+  val empty: T
+  func push(s: T, e: E) returns (ret: T)
+  func size(s: T) returns (ret: Int)
+
+  auto lemma size_empty()
+    ensures size(empty) == 0
+}
+
+module ListStack[E: Library.Type] :> Stack[E] {
+  rep type T = data { case nil case cons(hd: E, tl: T) }
+  val empty: T = nil
+  func push(s: T, e: E) returns (ret: T) { cons(e, s) }
+  func size(s: T) returns (ret: Int)
+    decreases s
+  { s == nil ? 0 : 1 + size(s.tl) }
+
+  lemma size_push(s: T, e: E)
+    ensures size(push(s, e)) == size(s) + 1
+  {}
+}
+
+module Client {
+  module S = ListStack[Library.IntType]
+  module L = Library.List[S]
+
+  lemma uses_interface(xs: L.T)
+  {
+    assert S.size(S.empty) == 0;
+    assert L.len(xs) >= 0;
+  }
+}
+
+module TypeClient {
+  type IntStack = ListStack[Int]
+
+  lemma uses_type(s: IntStack)
+  {
+    var n := ListStack.size(s);
+    var t := ListStack.push(s, 1);
+  }
+}

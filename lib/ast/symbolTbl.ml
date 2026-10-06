@@ -63,6 +63,14 @@ let get_scope_id { scope_id; _ } = scope_id
   | Local _ -> true
   | _ -> false*)
 
+(* An instance of a sealed functor, which outside the functor resolves to its interface. *)
+type sealed_view = {
+  sealed_functor : QualIdent.t;
+  sealed_interface : QualIdent.t;
+  (* The functor's formals, each paired with the module it is instantiated with *)
+  sealed_args : (Ident.t * QualIdent.t) list;
+}
+
 type t = {
   (* Root scope *)
   tbl_root : scope;
@@ -72,6 +80,8 @@ type t = {
   tbl_path : scope list;
   (* Mapping from fully qualified names to the symbols that they represent *)
   tbl_symbols : Module.symbol QualIdentMap.t;
+  (* Instances of sealed functors, by their fully qualified names *)
+  tbl_sealed : sealed_view QualIdentMap.t;
 }
 
 let entry_to_string = function
@@ -153,6 +163,7 @@ let create () =
     tbl_curr = root_scope;
     tbl_path = [];
     tbl_symbols = Map.empty (module QualIdent);
+    tbl_sealed = Map.empty (module QualIdent);
   }
 
 (** Reset table to the root scope *)
@@ -314,6 +325,52 @@ let resolve name (tbl : t) :
   |> Option.map ~f:(fun (alias_qual_ident, orig_qual_ident, subst) ->
       (alias_qual_ident, orig_qual_ident |> QualIdent.set_loc (QualIdent.to_loc name), subst))
 
+(** The sealed view that the module [name] resolves to, if any. *)
+let find_sealed_view name tbl : sealed_view option =
+  let open Option.Syntax in
+  let* _, qual_ident, _ = resolve name tbl in
+  Map.find tbl.tbl_sealed qual_ident
+
+(** Reports that [name] is unknown, explaining when it names a member hidden by sealing. *)
+let unknown_member_error loc (name : QualIdent.t) (tbl : t) =
+  let open Option.Syntax in
+  let hidden =
+    let* prefix = if QualIdent.is_qualified name then Some (QualIdent.pop name) else None in
+    let member = QualIdent.unqualify name in
+    let is_member functor_ident =
+      Map.mem tbl.tbl_symbols (QualIdent.append functor_ident member)
+    in
+    let instance_of_sealed =
+      let* { sealed_functor; sealed_interface; _ } = find_sealed_view prefix tbl in
+      if is_member sealed_functor then
+        Some
+          (Printf.sprintf
+             !"%{QualIdent} is an instance of the sealed module %{QualIdent}, which \
+               exposes only the members of interface %{QualIdent}"
+             prefix sealed_functor sealed_interface)
+      else None
+    in
+    let sealed_functor () =
+      let* _, functor_ident, _ = resolve prefix tbl in
+      match Map.find tbl.tbl_symbols functor_ident with
+      | Some (Module.ModDef { mod_decl = { mod_decl_is_sealed = true;
+                                           mod_decl_returns = [ (iface_ident, _) ]; _ }; _ })
+        when is_member functor_ident ->
+          Some
+            (Printf.sprintf
+               !"%{QualIdent} is a sealed module, which exposes only the members of \
+                 interface %{QualIdent}"
+               prefix iface_ident)
+      | _ -> None
+    in
+    let+ reason = Option.first_some instance_of_sealed (sealed_functor ()) in
+    (member, reason)
+  in
+  match hidden with
+  | Some (member, reason) ->
+      Error.error loc (Printf.sprintf !"%{Ident} is not accessible here: %s" member reason)
+  | None -> unknown_ident_error loc name
+
 (** Resolve [name] relative to the current scope in [tbl] and return:
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is declared
     - the fully qualified name of the associated symbol, relative to the scope where the symbol is used
@@ -345,7 +402,7 @@ let resolve_and_find_exn name (tbl : t) =
              m "SymbolTbl.resolve_and_find_exn: %a fail: tbl_curr: %a"
                QualIdent.pr name QualIdent.pr tbl.tbl_curr.scope_id);*)
          (* Logs.debug (fun m -> m "SymbolTbl.resolve_and_find_exn fail: tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys (tbl.tbl_symbols))); *)
-         unknown_ident_error (QualIdent.to_loc name) name)
+         unknown_member_error (QualIdent.to_loc name) name tbl)
 
 (** Find the symbol associated with [name] relative to the current scope in [tbl]. *)
 let find name tbl : (Module.symbol * subst) option =
@@ -357,7 +414,7 @@ let find name tbl : (Module.symbol * subst) option =
 (** Like [find] but throws an exception if [name] is not found in [tbl]. *)
 let find_exn loc name (tbl : t) =
   find name tbl
-  |> Option.lazy_value ~default:(fun () -> unknown_ident_error loc name)
+  |> Option.lazy_value ~default:(fun () -> unknown_member_error loc name tbl)
 
 (** Enter the scope [name] from the current scope in [tbl]. *)
 let enter name tbl : t option =
@@ -542,7 +599,7 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
           ~duplicate;
         tbl
     | ModInst mod_inst ->
-        let mod_inst_qual_ident, subst =
+        let mod_inst_qual_ident, subst, sealed =
           match mod_inst.mod_inst_def with
           | Some (mod_inst_func, mod_inst_args) -> (
               let _, mod_inst_func, mod_inst_symbol, subst1 =
@@ -575,8 +632,49 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                     (formal_id, QualIdent.to_list arg_qi))
               in
               match res with
-              | Ok subst ->
-                (mod_inst_func, subst)
+              | Ok subst -> (
+                  let inside_functor =
+                    List.exists (tbl.tbl_curr :: tbl.tbl_path) ~f:(fun scope ->
+                        QualIdent.(get_scope_id scope = mod_inst_func))
+                  in
+                  match mod_inst_symbol with
+                  | Module.ModDef
+                      { mod_decl = { mod_decl_is_sealed = true;
+                                     mod_decl_returns = [ (iface_ident, iface_args) ]; _ }; _ }
+                    when (not @@ is_instance subst1) && not inside_functor ->
+                      (* Outside a sealed functor, an instance is a view of its
+                         interface, applied to the functor's interface arguments. *)
+                      let _, iface_ident, iface_symbol, _ =
+                        resolve_and_find_exn iface_ident tbl
+                      in
+                      let iface_formals =
+                        match iface_symbol with
+                        | Module.ModDef idef -> idef.mod_decl.mod_decl_formals
+                        | _ -> []
+                      in
+                      let iface_subst =
+                        List.map2_exn iface_formals iface_args ~f:(fun formal arg ->
+                            let arg_qi =
+                              match arg with
+                              | Module.ModArg qi -> qi
+                              | Module.TypeArg tp ->
+                                  Error.internal_error (Type.to_loc tp)
+                                    "Interface argument of a sealed module was \
+                                     not resolved to a module"
+                            in
+                            ( QualIdent.append iface_ident formal.mod_inst_name,
+                              QualIdent.requalify subst arg_qi |> QualIdent.to_list ))
+                      in
+                      let sealed_args =
+                        List.map subst ~f:(fun (formal_id, arg_path) ->
+                            (QualIdent.unqualify formal_id, QualIdent.from_list arg_path))
+                      in
+                      ( iface_ident,
+                        iface_subst,
+                        Some { sealed_functor = mod_inst_func;
+                               sealed_interface = iface_ident;
+                               sealed_args } )
+                  | _ -> (mod_inst_func, subst, None))
               | Unequal_lengths ->
                   Error.type_error (QualIdent.to_loc mod_inst_func)
                     (Printf.sprintf
@@ -586,7 +684,7 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
               let _, mod_inst_type, _mod_inst_symbol, _ =
                 resolve_and_find_exn mod_inst.mod_inst_type tbl
               in
-              (mod_inst_type, [])
+              (mod_inst_type, [], None)
         in
         let is_abstract = mod_inst.mod_inst_is_interface in
         add_to_map
@@ -594,7 +692,11 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
           symbol_loc symbol_ident
           (Alias (is_abstract, mod_inst_qual_ident, subst))
           ~duplicate;
-        tbl
+        begin match sealed with
+        | Some data ->
+            { tbl with tbl_sealed = Map.set tbl.tbl_sealed ~key:symbol_qual_ident ~data }
+        | None -> tbl
+        end
     | _ -> (
         add_to_map
           (get_scope_entries appropriate_scope)

@@ -46,7 +46,7 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token <Ast.Type.constr * int> TYPECONSTR
 %token LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
 %token LBRACEPIPE RBRACEPIPE LBRACKETPIPE RBRACKETPIPE LGHOSTBRACE RGHOSTBRACE
-%token COLON COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
+%token COLON COLONGT COLONEQ COLONCOLON SEMICOLON DOT QMARK COLONPIPE
 %token <Ast.Expr.constr> ADDOP MULTOP
 %token MINUS
 (* User-declarable symbolic operators the lexer couldn't match against
@@ -116,6 +116,10 @@ module_def:
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def))
           "A module with parameters cannot be defined with '=' (module instantiation syntax); give it a body in '{ ... }' instead"
+      else if decl.mod_decl_is_sealed then
+        Error.syntax_error (Loc.make $startpos(decl) $endpos(decl))
+          (Printf.sprintf !"Module %{Ident} has no body, so it cannot be sealed with ':>'; seal the functor it instantiates instead"
+             decl.mod_decl_name)
       else
         let mod_inst_type =
           (* A module *instance* stands for exactly one interface: [mod_inst_type]
@@ -153,18 +157,21 @@ module_header:
     { empty_decl with
       mod_decl_name = id;
       mod_decl_formals = mod_formals;
-      mod_decl_returns = rt;
+      mod_decl_returns = fst rt;
+      mod_decl_is_sealed = snd rt;
       mod_decl_loc = Loc.make $startpos(id) $endpos(id);
     }
   in
   decl
 }
 
-(* Interfaces implemented by this module. Several may be listed, and each may be
-   a functor application: `module M[A: I] : Base[A], Other`. *)
+(* Interfaces implemented by this module, and whether it is sealed. Several may
+   be listed, and each may be a functor application: `module M[A: I] : Base[A],
+   Other`. A sealed module (`:>`) names exactly one. *)
 return_type_opt:
-| COLON; ts = separated_nonempty_list(COMMA, parent_spec) { ts }
-| (* empty *) { [] }
+| COLON; ts = separated_nonempty_list(COMMA, parent_spec) { (ts, false) }
+| COLONGT; t = parent_spec { ([ t ], true) }
+| (* empty *) { ([], false) }
 
 parent_spec:
 (* [mod_inst_args] already admits the empty case, so this covers both `Base` and

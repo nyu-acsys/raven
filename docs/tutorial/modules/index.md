@@ -59,8 +59,11 @@ module PlainCounter : Counter {
 `valid` is exactly the `counter` predicate from {{ref sec:bundling-pred}}. `PlainCounter` is the
 same running example, now supplying the body that its interface withheld. From this point on,
 `PlainCounter`'s own `create`/`increment`/`get` can `fold`/`unfold` `valid` exactly the way Part
-2's `make`/`bump` did. What has changed is that nothing *outside* `PlainCounter` can. In return,
-you get real information hiding, as {{ref sec:abstract-predicates}} explains.
+2's `make`/`bump` did. Note that `:` doesn't hide anything by itself. Code that names
+`PlainCounter` directly still sees the body of `valid` and could unfold it too. Information
+hiding comes from writing clients against the interface instead, as
+{{ref sec:abstract-predicates}} explains, or from sealing a functor, as
+{{ref sec:sealing}} explains.
 
 ## Abstract predicates as a specification boundary {#sec:abstract-predicates}
 
@@ -266,6 +269,77 @@ means preferring implicit instantiation until inference can't determine a type a
 call's own arguments. Only then should you introduce one explicit, named instantiation, and from
 that point on call through *that* instantiation consistently rather than mixing it with implicit
 calls.
+
+## Sealing a functor {#sec:sealing}
+
+Writing a client as a functor over an interface, as `UseCounter` does, keeps that client from
+depending on any implementation's internals. Sealing gives the same guarantee to *every* client of
+a functor, including ones that instantiate it directly. A functor declared with `:>` instead of
+`:` is sealed: outside its own definition, each of its instances shows only the members of its
+interface. The following code is [`sealing.rav`](./sealing.rav):
+
+```raven
+interface Stack[E: Library.Type] : Library.Type {
+  rep type T
+  val empty: T
+  func push(s: T, e: E) returns (ret: T)
+  func size(s: T) returns (ret: Int)
+
+  auto lemma size_empty()
+    ensures size(empty) == 0
+
+  auto lemma size_push()
+    ensures forall s: T, e: E :: {size(push(s, e))} size(push(s, e)) == size(s) + 1
+}
+
+module ListStack[E: Library.Type] :> Stack[E] {
+  rep type T = data {
+    case nil
+    case cons(hd: E, tl: T)
+  }
+
+  val empty: T = nil
+
+  func push(s: T, e: E) returns (ret: T) {
+    cons(e, s)
+  }
+
+  func size(s: T) returns (ret: Int)
+    decreases s
+  {
+    s == nil ? 0 : 1 + size(s.tl)
+  }
+}
+
+module Client {
+  module S = ListStack[Library.IntType]
+
+  lemma two_pushes()
+  {
+    assert S.size(S.push(S.push(S.empty, 1), 2)) == 2;
+  }
+}
+```
+
+Raven checks `ListStack` against `Stack` once, for every `E`, exactly as for `:`. Here, it proves
+both auto lemmas from the definitions on its own. To `Client`, however, `S.T` is an abstract type,
+and `push` and `size` have no bodies. `two_pushes` verifies using `size_empty` and `size_push`
+alone. The constructors are out of reach: writing `S.nil` fails with `nil is not accessible here:
+S is an instance of the sealed module ListStack, which exposes only the members of interface
+Stack`. So `Client` can't depend on the list representation, and `ListStack` can switch to a
+different one without breaking it, as long as it still proves `Stack`'s lemmas.
+
+Sealing also helps verification performance. With `:`, the body of every `func` reaches the
+SMT solver as a definition axiom in every proof that mentions the `func`. For recursive functions,
+such axioms can make the solver unfold definitions over and over. A sealed functor's clients see
+only the interface's lemmas, with the triggers its author chose for them.
+
+Every instance of a sealed functor is sealed, whether it is declared explicitly as above,
+inferred from a call ({{ref sec:implicit-functor-instantiation}}), or written as a type such as
+`ListStack[Int]`. Only the functor's own body sees through the seal. There are three
+restrictions. Only a functor (a module with parameters) can be sealed. It names exactly one
+interface. And the seal belongs to the functor's definition, so `module M :> I = F[A]` is
+rejected.
 
 ## `import` {#sec:import}
 

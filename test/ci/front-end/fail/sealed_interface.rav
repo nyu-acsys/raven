@@ -1,0 +1,8 @@
+// An interface cannot be sealed.
+
+interface I {
+  rep type T
+}
+
+interface J[E: Library.Type] :> I {
+}

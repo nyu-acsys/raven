@@ -1,0 +1,40 @@
+interface Stack[E: Library.Type] : Library.Type {
+  rep type T
+  val empty: T
+  func push(s: T, e: E) returns (ret: T)
+  func size(s: T) returns (ret: Int)
+
+  auto lemma size_empty()
+    ensures size(empty) == 0
+
+  auto lemma size_push()
+    ensures forall s: T, e: E :: {size(push(s, e))} size(push(s, e)) == size(s) + 1
+}
+
+module ListStack[E: Library.Type] :> Stack[E] {
+  rep type T = data {
+    case nil
+    case cons(hd: E, tl: T)
+  }
+
+  val empty: T = nil
+
+  func push(s: T, e: E) returns (ret: T) {
+    cons(e, s)
+  }
+
+  func size(s: T) returns (ret: Int)
+    decreases s
+  {
+    s == nil ? 0 : 1 + size(s.tl)
+  }
+}
+
+module Client {
+  module S = ListStack[Library.IntType]
+
+  lemma two_pushes()
+  {
+    assert S.size(S.push(S.push(S.empty, 1), 2)) == 2;
+  }
+}

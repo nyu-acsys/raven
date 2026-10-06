@@ -2783,6 +2783,9 @@ module Module = struct
         transitive closure. Parents are required to have pairwise disjoint
         ancestor sets -- see [Typing.check_parents_disjoint]. *)
     mod_decl_returns : (QualIdent.t * module_inst_arg list) list;
+    (** Declared with `:>`: outside the module, its instances expose only its
+        single parent interface. *)
+    mod_decl_is_sealed : bool;
     mod_decl_interfaces : QualIdentSet.t;
     mod_decl_rep : ident option;
     mod_decl_is_ra : bool;
@@ -2867,7 +2870,9 @@ module Module = struct
                   fprintf ppf "%a[@[%a@]]" QualIdent.pr qi
                     (Print.pr_list_comma pr_mod_inst_arg) args
               in
-              fprintf ppf "@ : %a" (Print.pr_list_comma pr_parent) vs)
+              fprintf ppf "@ %s %a"
+                (if md.mod_decl.mod_decl_is_sealed then ":>" else ":")
+                (Print.pr_list_comma pr_parent) vs)
         md.mod_decl.mod_decl_returns (* body *) pr_instr_list md.mod_def
 
     and pr_instr ppf =
@@ -2948,6 +2953,7 @@ module Module = struct
       mod_decl_name = Ident.make Loc.dummy "" 0;
       mod_decl_formals = [];
       mod_decl_returns = [];
+      mod_decl_is_sealed = false;
       mod_decl_interfaces = Set.empty (module QualIdent);
       mod_decl_rep = None;
       mod_decl_loc = Loc.dummy;
@@ -3246,6 +3252,7 @@ let merge_prog (prog1: Module.t) (prog2: Module.t) =
       Module.mod_decl_name = prog1.mod_decl.mod_decl_name;
       mod_decl_formals = prog1.mod_decl.mod_decl_formals @ prog2.mod_decl.mod_decl_formals;
       mod_decl_returns = prog2.mod_decl.mod_decl_returns;
+      mod_decl_is_sealed = prog2.mod_decl.mod_decl_is_sealed;
       mod_decl_interfaces = Set.union prog1.mod_decl.mod_decl_interfaces prog2.mod_decl.mod_decl_interfaces;
       mod_decl_rep = prog2.mod_decl.mod_decl_rep;
       mod_decl_is_ra = prog1.mod_decl.mod_decl_is_ra || prog2.mod_decl.mod_decl_is_ra;

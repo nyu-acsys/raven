@@ -119,6 +119,7 @@ let _ =
      ":=", COLONEQ;
      "::", COLONCOLON;
      ":", COLON;
+     ":>", COLONGT;
      ";", SEMICOLON;
      ",", COMMA;
      ".", DOT;

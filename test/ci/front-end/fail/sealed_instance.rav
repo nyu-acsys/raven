@@ -1,0 +1,11 @@
+// Sealing applies to a functor's definition, not to one of its instances.
+
+interface I[E: Library.Type] {
+  rep type T
+}
+
+module F[E: Library.Type] : I[E] {
+  rep type T = Int
+}
+
+module M :> I = F[Library.IntType]

@@ -2036,10 +2036,11 @@ let resolve_and_find_opt name: ((QualIdent.t * Symbol.t) option, 'a) t_ext =
 
 let resolve_and_find name : (QualIdent.t * Symbol.t, 'a) t_ext =
   let open Syntax in
-  let+ resolved = resolve_and_find_opt name in
+  let* resolved = resolve_and_find_opt name in
+  let+ tbl = get_table in
   match resolved with
   | Some resolved -> resolved
-  | None -> SymbolTbl.unknown_ident_error (QualIdent.to_loc name) name
+  | None -> SymbolTbl.unknown_member_error (QualIdent.to_loc name) name tbl
 
 let resolve name : (QualIdent.t, 'a) t_ext =
   let open Syntax in

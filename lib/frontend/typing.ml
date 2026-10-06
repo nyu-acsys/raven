@@ -1275,10 +1275,28 @@ module ProcessExpr = struct
   and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
       bool t =
     let open Rewriter.Syntax in
-    let+ resolved = Rewriter.resolve_and_find_opt qi in
-    match resolved with
-    | Some (_, symbol) -> QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident
-    | None -> false
+    let+ formal_module = instantiation_formal_module ~functor_qual_ident qi in
+    Option.is_some formal_module
+
+  (** If [qi] is an instantiation of the functor [functor_qual_ident], the module each of
+      the functor's formals is instantiated with. A sealed instance resolves to the
+      functor's interface rather than the functor, so its arguments are read off the
+      symbol table's record of it. *)
+  and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
+      (ident -> qual_ident) option t =
+    let open Rewriter.Syntax in
+    let* tbl = Rewriter.get_table in
+    match SymbolTbl.find_sealed_view qi tbl with
+    | Some view when QualIdent.equal view.sealed_functor functor_qual_ident ->
+        Rewriter.return
+          (Some (fun formal -> List.Assoc.find_exn view.sealed_args formal ~equal:Ident.equal))
+    | _ ->
+        let+ resolved = Rewriter.resolve_and_find_opt qi in
+        match resolved with
+        | Some (_, symbol)
+          when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) functor_qual_ident ->
+            Some (QualIdent.append qi)
+        | _ -> None
 
   (** Check whether [typ] (normalized via [ProcessTypeExpr.process_type_expr], in case
       it's a raw, self-referentially-read-back type) names an existing instantiation
@@ -1381,16 +1399,17 @@ module ProcessExpr = struct
                 match t2 with
                 | App (Var qi2, [], _) -> (
                     let inst_qi = QualIdent.pop qi2 in
-                    let* is_inst = resolves_to_instantiation_of ~functor_qual_ident inst_qi in
-                    if not is_inst then Rewriter.return u
-                    else
+                    let* formal_module =
+                      instantiation_formal_module ~functor_qual_ident inst_qi
+                    in
+                    match formal_module with
+                    | None -> Rewriter.return u
+                    | Some formal_module ->
                       Rewriter.List.fold_left formal_reps ~init:u
                         ~f:(fun u (_, formal_ident, rep_ident) ->
                           combine u formal_ident
                             (Type.mk_var
-                               (QualIdent.append
-                                  (QualIdent.append inst_qi formal_ident)
-                                  rep_ident))))
+                               (QualIdent.append (formal_module formal_ident) rep_ident))))
                 | _ -> Rewriter.return u)
             (* A formal declared `Set[_]` is satisfiable by a `FinSet[_]`-typed argument
                (FinSet[T] <: Set[T]) -- unify just the element position, same as the
@@ -3869,6 +3888,20 @@ module ProcessModule = struct
     let _ =
       Logs.info (fun mm ->
           mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
+    in
+    let () =
+      let decl = m.mod_decl in
+      if decl.mod_decl_is_sealed then
+        if decl.mod_decl_is_interface then
+          Error.type_error decl.mod_decl_loc
+            (Printf.sprintf !"Interface %{Ident} cannot be sealed with ':>'"
+               decl.mod_decl_name)
+        else if List.is_empty decl.mod_decl_formals then
+          Error.type_error decl.mod_decl_loc
+            (Printf.sprintf
+               !"Module %{Ident} cannot be sealed with ':>' because it has no \
+                 parameters; only functors can be sealed"
+               decl.mod_decl_name)
     in
 
     let* sc = Rewriter.current_scope_children in
