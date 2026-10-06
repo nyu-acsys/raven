@@ -208,9 +208,33 @@ jobs:
         working-directory: release
         run: sha256sum *.tar.gz | tee SHA256SUMS
 
+      - name: Checkout CHANGELOG
+        uses: actions/checkout@v4
+        with:
+          path: src
+          sparse-checkout: CHANGELOG
+          sparse-checkout-cone-mode: false
+
+      # The release description is this version's CHANGELOG section. Without one, GitHub
+      # falls back to showing the tagged commit's message.
+      - name: Extract release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          [[ "${{ github.ref }}" == refs/tags/v* ]] || version=Unreleased
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {f=1; next} f && /^## \[/ {exit} f' \
+            src/CHANGELOG | sed -e '/./,$!d' > NOTES.md
+          if ! grep -q '[^[:space:]]' NOTES.md; then
+            echo "CHANGELOG has no section for ${version}." >&2
+            exit 1
+          fi
+          cat NOTES.md
+
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: NOTES.md
           files: |
             release/*.tar.gz
             release/manifest.json
