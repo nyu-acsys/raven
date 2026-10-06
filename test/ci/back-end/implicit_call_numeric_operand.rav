@@ -1,0 +1,10 @@
+// An implicitly instantiated call can be the first operand of an arithmetic or
+// comparison operator, whose expected type does not fix the numeric type.
+
+lemma operands(xs: Library.List[Int])
+{
+  assert Library.List.len(xs) >= 0;
+  assert Library.List.len(xs) + 1 == 1 + Library.List.len(xs);
+  var n: Int := Library.List.len(xs) * 2;
+  assert -Library.List.len(xs) <= 0;
+}
