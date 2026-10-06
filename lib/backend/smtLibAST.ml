@@ -112,6 +112,17 @@ let pr_smt_ident ppf id =
   ); *)
 
   let printed = QualIdent.to_string sanitized_ident in
+  (* A name without a module path, number, or `$` is that of a declaration at the top
+     level of the program. Qualifying it with the program's root module keeps it from
+     coinciding with an SMT-LIB or Z3 symbol such as `union` or `select`, which would
+     silently give it that symbol's meaning instead. `null` is Raven's own constant. *)
+  let printed =
+    if
+      String.exists printed ~f:(fun c -> Char.(c = '$' || c = '.' || c = '^'))
+      || String.equal printed "null"
+    then printed
+    else "$Program." ^ printed
+  in
   if String.for_all printed ~f:is_smt_simple_symbol_char then
     fprintf ppf "%s" printed
   else if String.exists printed ~f:(fun c -> Char.(c = '|' || c = '\\')) then
