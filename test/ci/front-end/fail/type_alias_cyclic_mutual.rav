@@ -1,0 +1,5 @@
+// Type aliases that refer to each other are rejected.
+module M {
+  type A = B
+  type B = A
+}
