@@ -60,6 +60,16 @@ module Make (V : Vertex) = struct
   let targets (vs, es) : VertexSet.t =
     Map.fold es ~f:(fun ~key ~data -> Set.union data) ~init:empty_vertex_set
 
+  (** The vertices reachable from [roots], including [roots] themselves. *)
+  let reachable g (roots : VertexSet.t) : VertexSet.t =
+    let rec go seen = function
+      | [] -> seen
+      | v :: todo ->
+          let next = Set.diff (succs g v) seen in
+          go (Set.union seen next) (Set.fold next ~init:todo ~f:(fun todo w -> w :: todo))
+    in
+    go roots (Set.to_list roots)
+
   let pr pr_v ppf (vs, es) =
     let pr_es ppf (v, vs) = Stdlib.Format.fprintf ppf "%a -> %a" pr_v v (Print.pr_list_comma pr_v) (Set.elements vs) in
     Print.pr_list_nl pr_es ppf (Map.to_alist es)

@@ -99,11 +99,12 @@ let compute_placements (symbols: QualIdent.t list list) (g: Graph.t) (full_g: Gr
     (this is how the library and the program being checked actually relate: two separate
     top-level symbol-table entries, not one nested inside the other), together with each
     SCC's [compute_placements] scope, and the graph of explicit dependencies (without
-    auto-lemma edges). [tbl] is the symbol table shared by all of [mdefs]. [lemma_calls]
-    adds the lemma-to-callee edges that call elaboration removed from the AST. *)
+    auto-lemma edges). Only symbols that some proof obligation depends on are kept.
+    [tbl] is the symbol table shared by all of [mdefs]. [lemma_calls] adds the
+    lemma-to-callee edges that call elaboration removed from the AST. *)
 let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (lemma_calls: Graph.t) (root_auto_g: Graph.t)
   : (Ident.t list * QualIdent.t list) list * Graph.t * Graph.t =
-  let rec inst_dependencies todos covered g auto_g root_auto_g =
+  let rec inst_dependencies todos covered g auto_g obligations root_auto_g =
     let res =
       let open Option.Syntax in
       let+ qid = Set.choose todos in
@@ -157,11 +158,19 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (lemma_calls: Graph.t) (ro
       Logs.debug (fun m -> m "Dependencies.analyze: Adding dependencies of %a: %a" QualIdent.pr qid (Print.pr_list_comma QualIdent.pr) (Set.elements deps));
       let g1 = Graph.add_edges g qid deps in
       let auto_g1 = Graph.add_edges auto_g qid auto_deps in
+      (* Only bodies of non-free procs and lemmas are checked ([Checker.check_callable]). *)
+      let obligations1 =
+        match reified_sym with
+        | CallDef { call_def = ProcDef { proc_body = Some _ }; call_decl }
+          when not (is_free call_decl.call_decl_status) ->
+            Set.add obligations qid
+        | _ -> obligations
+      in
       let covered1 = Set.add covered qid in
       let todos1 = Set.union (Set.remove todos qid) (Set.diff (Set.union auto_deps deps) covered1) in
-      inst_dependencies todos1 covered1 g1 auto_g1 root_auto_g
+      inst_dependencies todos1 covered1 g1 auto_g1 obligations1 root_auto_g
     in
-    Option.value res ~default:(g, auto_g)
+    Option.value res ~default:(g, auto_g, obligations)
   in
   let root_g, root_auto_g1 =
     List.fold mdefs ~init:(Graph.empty, root_auto_g) ~f:(fun (root_g, ag) mdef ->
@@ -172,7 +181,10 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (lemma_calls: Graph.t) (ro
   let roots = Graph.vertices root_g in
   let targets = Graph.targets root_g in
   Logs.debug (fun m -> m "Dependencies.analyze: combined roots/targets: %a" (Print.pr_list_comma QualIdent.pr) (Set.elements (Set.union roots targets)));
-  let g, full_g = inst_dependencies (Set.union targets roots) Graph.empty_vertex_set root_g Graph.empty root_auto_g1 in
+  let g, full_g, obligations =
+    inst_dependencies (Set.union targets roots) Graph.empty_vertex_set root_g Graph.empty
+      Graph.empty_vertex_set root_auto_g1
+  in
   Logs.debug (fun m -> m "Graph: %a" (Graph.pr QualIdent.pr) g);
   let rank, _ =
     List.fold_left (Graph.topsort g) ~init:(Map.empty (module QualIdent), 0)
@@ -181,5 +193,13 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (lemma_calls: Graph.t) (ro
         )
   in
   let scs = Graph.topsort (Graph.union g full_g) in
+  (* Symbols that no proof obligation depends on would only be declared and assumed in
+     scopes where nothing is checked, so they are dropped. An SCC is either entirely
+     reachable or not at all. *)
+  let needed = Graph.reachable (Graph.union g full_g) obligations in
+  let scs = List.filter scs ~f:(List.exists ~f:(Set.mem needed)) in
+  Logs.debug (fun m -> m "Dependencies.analyze: %d obligations, %d of %d symbols needed"
+                 (Set.length obligations) (Set.length needed)
+                 (Set.length (Graph.vertices (Graph.union g full_g))));
   let symbols = List.map scs ~f:(List.sort ~compare:(fun v1 v2 -> compare (Map.find_exn rank v1) (Map.find_exn rank v2))) in
   compute_placements symbols g full_g, g, root_auto_g1
