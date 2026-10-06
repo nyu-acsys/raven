@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- An implicitly instantiated functor call can be the first operand of an arithmetic or comparison operator, as in `List.len(xs) + 1`, instead of failing with `Cannot unify type Int with type Int or Real`.
+
 - Fix an unsoundness where an auto lemma could be assumed while verifying a lemma that its own proof calls, so that the two proofs justified each other.
 
 - The postconditions of funcs from the standard library or an included file are assumed again; they were silently dropped. Regression since 1.2.0.
