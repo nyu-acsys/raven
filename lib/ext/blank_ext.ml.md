@@ -137,6 +137,17 @@ module ExtName (Cont : Ext) = struct
     match expr_ext, expr_list with
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ type_check_expr_functs
 
+  (* Only to give a meaning to core syntax the core rejects
+     (docs/ext/README.md #claiming-core-constructs-claim_expr-claim_basic_stmt): *)
+  let claim_expr (constr : Expr.constr) (expr_list : expr list) (expr_attr : Expr.expr_attr) =
+    let own = match constr, expr_list with _ -> None in
+    ExtApi.combine_claims expr_attr.expr_loc own (Cont.claim_expr constr expr_list expr_attr)
+
+  let claim_basic_stmt (stmt : Stmt.basic_stmt_desc) (loc : location)
+      (disam_tbl : ProgUtils.DisambiguationTbl.t) (functs : type_check_stmt_functs) =
+    let own = match stmt with _ -> None in
+    ExtApi.combine_claims loc own (Cont.claim_basic_stmt stmt loc disam_tbl functs)
+
   (* For a flat BasicStmtExt: *)
   let type_check_basic_stmt call_decl (stmt_ext : Stmt.stmt_ext) (expr_list : expr list)
       (stmt_loc : Loc.t) (disam_tbl : ProgUtils.DisambiguationTbl.t)

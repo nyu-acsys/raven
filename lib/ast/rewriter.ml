@@ -345,6 +345,27 @@ and ext_hooks = {
     disambiguate_expr_functs ->
     (Expr.expr_ext * expr list) t;
 
+  (** Offered a core expression node that the core type checker rejects at the node
+      itself, currently a map lookup or update whose map operand has a type other than a
+      map. The operands the core needed to reject the node are already type-checked;
+      the others are as parsed. An extension that takes responsibility for the node
+      returns a constructor of its own together with its operands, which are then
+      type-checked by its [type_check_expr], so that any further error comes from the
+      extension. [None] leaves the node to the core, which reports its own error. *)
+  claim_expr :
+    Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option t;
+
+  (** The statement-level counterpart of [claim_expr], offered an assignment whose
+      right-hand side is a map lookup or update whose map operand is not of map type.
+      This includes an indexed assignment [x[i] := v], which the parser turns into
+      [x := x[i := v]]. Unlike for [claim_expr], the
+      operands are as parsed, not yet disambiguated; the extension can type them with
+      [disambiguate_process_expr] to decide. A claimed statement is type-checked by the
+      extension's [type_check_basic_stmt]. *)
+  claim_basic_stmt :
+    Stmt.basic_stmt_desc -> location -> DisambiguationTbl.t -> type_check_stmt_functs ->
+    (Stmt.stmt_ext * expr list) option t;
+
   type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr t;
   type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr t;
   type_check_basic_stmt :
@@ -455,6 +476,8 @@ let default_ext_hooks : ext_hooks = {
     (fun ~f:_ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.contract_ext_rewrite_exprs: no extension configured");
   disambiguate_expr_ext =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.disambiguate_expr_ext: no extension configured");
+  claim_expr = (fun _ _ _ s -> (s, None));
+  claim_basic_stmt = (fun _ _ _ _ s -> (s, None));
   type_check_type_expr =
     (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
   type_check_expr =

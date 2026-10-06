@@ -11,6 +11,20 @@ let single_opens_clause = function
   | _ :: (loc, _) :: _ ->
       Error.syntax_error loc "A callable may have at most one opens clause"
 
+(* The indexed assignment `x[i] := v` is `x := x[i := v]`, and `x[i][j] := v` is
+   `x := x[i := x[i][j := v]]`. The type checker gives it its meaning: an update of a
+   map, or whatever an extension claims it to be. *)
+let rec index_assign base index value =
+  let loc = Loc.merge (Expr.to_loc base) (Expr.to_loc value) in
+  let update = Expr.mk_app ~typ:Type.any ~loc MapUpdate [ base; index; value ] in
+  match base with
+  | Expr.App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
+      Stmt.Assign { assign_lhs = [ qual_ident ]; assign_rhs = update; assign_is_init = false }
+  | Expr.App (MapLookUp, [ base'; index' ], _) -> index_assign base' index' update
+  | _ ->
+      Error.syntax_error (Expr.to_loc base)
+        "Expected a variable, possibly indexed, on the left-hand side of an indexed assignment"
+
 (* Shared by [local_var_def]'s two productions. They spell the `ghost` modifier
    out instead of taking it from the nullable [ghost_modifier], so that the
    production never starts with an empty symbol: menhir would otherwise report
@@ -750,11 +764,13 @@ with_clause:
   function 
     | [Expr.(App (Read, [field_write_ref; App (Var field_write_field, [], _)], _))], _ ->
         Basic (FieldWrite { field_write_ref; field_write_field; field_write_val = e }), None
+    | [Expr.(App (MapLookUp, [base; index], _))], _ ->
+        Basic (index_assign base index e), None
     | es, assign_is_init ->
         let vs = List.map (function
           | Expr.(App (Var qual_ident, [], _))
             when QualIdent.is_local qual_ident -> qual_ident
-          | e -> Error.syntax_error (Expr.to_loc e) "Expected single field location or local variables on left-hand side of assignment")
+          | e -> Error.syntax_error (Expr.to_loc e) "Expected a single field location, a single indexed location, or local variables on left-hand side of assignment")
             es 
         in
         Basic (Assign { assign_lhs = vs; assign_rhs = e; assign_is_init }), None

@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- An indexed assignment `m[k] := v` to a local map variable `m` assigns `m[k := v]` to it, also for nested maps as in `m[i][j] := v`.
+
+- Extensions can give a meaning to core syntax that the core type checker rejects, such as indexing into something other than a map, through the hooks `claim_expr` and `claim_basic_stmt`.
+
 - The standard library provides arrays, `Library.Array[E]`: families of heap cells addressed by index, with a predicate owning all cells of an array and a procedure allocating one.
 
 - The standard library provides immutable sequences, `Library.Seq[E]`. Their properties are stated as lemmas in the interface `Library.SeqSpec` and proved for the implementation as lists.

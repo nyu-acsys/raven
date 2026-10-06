@@ -48,6 +48,10 @@ func recordVisitor(seen: Set[Int], id: Int) returns (r: Set[Int])
 *comprehensions* (`{| k: Int :: k > 5 |}`) show up later once we need to describe unbounded
 families of values at once.
 
+A map `m` is read with `m[k]`, and `m[k := v]` is the map that agrees with `m` everywhere except
+at `k`, where it holds `v`. For a local variable `m`, the statement `m[k] := v` is short for
+`m := m[k := v]`: it gives `m` a new value, while the map `m` held before stays unchanged.
+
 A comprehension like that one can describe an infinite set, so `Set[T]` on its own doesn't
 promise finiteness. `FinSet[T]` is a built-in subtype of `Set[T]` for sets that are finite by
 construction. Union, intersection, difference, and enumeration literals (including `{|id|}`

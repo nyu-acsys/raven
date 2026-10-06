@@ -1,0 +1,8 @@
+// The base of an indexed assignment must be a variable, possibly indexed.
+field f: Map[Int, Int]
+
+proc p(x: Ref)
+  requires own(x.f, {| i: Int :: 0 |})
+{
+  x.f[0] := 1;
+}

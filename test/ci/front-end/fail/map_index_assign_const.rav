@@ -1,0 +1,5 @@
+// An indexed assignment assigns to the map variable, so it must not be constant.
+proc p() {
+  val m: Map[Int, Int] := {| i: Int :: 0 |};
+  m[0] := 1;
+}

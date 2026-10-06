@@ -75,6 +75,12 @@ module DefaultExt = struct
     let+ expr_list = Rewriter.List.map expr_list ~f:(fun e -> functs.disambiguate_expr e disam_tbl) in
     (expr_ext, expr_list)
 
+  (* Base of the chain: claims no core node. *)
+  let claim_expr (_: Expr.constr) (_: expr list) (_: Expr.expr_attr) = Rewriter.return None
+  let claim_basic_stmt (_: Stmt.basic_stmt_desc) (_: location)
+      (_: ProgUtils.DisambiguationTbl.t) (_: type_check_stmt_functs) =
+    Rewriter.return None
+
   let type_check_type_expr (type_ext: Type.type_ext) (type_args: type_expr list) (type_attr: Type.type_attr) (type_check_type_expr_functs: type_check_type_expr_functs) =
     let open Rewriter.Syntax in
     let* ext_hooks = Rewriter.current_ext_hooks in

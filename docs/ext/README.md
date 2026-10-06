@@ -481,6 +481,23 @@ Two things to get right. First, return the *renamed* binders inside your tag: th
 
 Unlike the other hooks, the base of the chain implements this one for real rather than raising: `DefaultExt`'s version recurses into every sub-expression under the unchanged table and leaves the tag alone. That is exactly right for a construct that binds nothing, which is nearly all of them -- so **only implement this hook if your construct binds variables**. [matchExt.ml](../../lib/ext/matchExt/matchExt.ml) is the reference implementation: each `match` arm pushes a scope, renames the arm's pattern variables into it (leaving `_` out, so it binds nothing and may repeat), and disambiguates that arm's body under it.
 
+#### Claiming core constructs (`claim_expr`, `claim_basic_stmt`)
+
+An extension can give a meaning to core syntax whose core meaning doesn't apply, such as indexing `a[i]` into something other than a map. The parser can't tell the two apart, so it produces the core construct, and the type checker decides:
+
+```ocaml
+  val claim_expr :
+    Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option Rewriter.t
+
+  val claim_basic_stmt :
+    Stmt.basic_stmt_desc -> location -> ProgUtils.DisambiguationTbl.t -> type_check_stmt_functs ->
+    (Stmt.stmt_ext * expr list) option Rewriter.t
+```
+
+The core offers a construct to these hooks only where its own rule rejects it: currently a map lookup `e1[e2]` or update `e1[e2 := e3]` whose `e1` is not of map type (`claim_expr`), and an assignment `x := e1[e2]` or `x := e1[e2 := e3]` whose `e1` is not of map type (`claim_basic_stmt`). The parser turns an indexed assignment `x[i] := v` into `x := x[i := v]`, so it reaches `claim_basic_stmt` in that form. An extension that takes responsibility returns a constructor of its own with its operands. From then on the construct is the extension's: it is type-checked by its `type_check_expr` or `type_check_basic_stmt`, so any further error is reported by the extension, and it is lowered by its `rewrite_*_ext` like any other construct of the extension. Returning `None` leaves the construct to the core, which reports its own error.
+
+Decide from what the construct is, for instance from the type of `e1`, without trying to type-check it. For `claim_expr`, the operands the core typed to reject the construct are passed typed, the others as parsed. For `claim_basic_stmt`, the operands are as parsed and not yet disambiguated; type the ones you need with `disambiguate_process_expr` against `Type.any`. An extension combines its own answer with that of the continuation extension `Cont` using `ExtApi.combine_claims`, which reports a construct that both claim, so that no extension silently shadows another. `DefaultExt` claims nothing.
+
 ### Rewrites
 
 This section contains functions that perform essential rewrites to reduce the newly extended front-end features into built-in Raven constructs.

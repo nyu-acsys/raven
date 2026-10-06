@@ -156,6 +156,27 @@ module type Ext = sig
     disambiguate_expr_functs ->
     (Expr.expr_ext * expr list) Rewriter.t
 
+  (** Offered a core expression node that the core type checker rejects at the node
+      itself, currently a map lookup or update whose map operand has a type other than a
+      map. The operands the core needed to reject the node are already type-checked;
+      the others are as parsed. An extension that takes responsibility for the node
+      returns a constructor of its own together with its operands, which are then
+      type-checked by its [type_check_expr], so that any further error comes from the
+      extension. [None] leaves the node to the core, which reports its own error. *)
+  val claim_expr :
+    Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option Rewriter.t
+
+  (** The statement-level counterpart of [claim_expr], offered an assignment whose
+      right-hand side is a map lookup or update whose map operand is not of map type.
+      This includes an indexed assignment [x[i] := v], which the parser turns into
+      [x := x[i := v]]. Unlike for [claim_expr], the
+      operands are as parsed, not yet disambiguated; the extension can type them with
+      [disambiguate_process_expr] to decide. A claimed statement is type-checked by the
+      extension's [type_check_basic_stmt]. *)
+  val claim_basic_stmt :
+    Stmt.basic_stmt_desc -> location -> ProgUtils.DisambiguationTbl.t -> type_check_stmt_functs ->
+    (Stmt.stmt_ext * expr list) option Rewriter.t
+
   val type_check_type_expr : Type.type_ext -> type_expr list -> Type.type_attr -> type_check_type_expr_functs -> type_expr Rewriter.t
 
   val type_check_expr : Expr.expr_ext -> expr list -> Expr.expr_attr -> type_expr -> type_check_expr_functs -> expr Rewriter.t
@@ -283,3 +304,15 @@ module type Ext = sig
 
   val lib_sources : (string * string) list
 end
+
+(** Combines an extension's own answer to [claim_expr] or [claim_basic_stmt] with that
+    of its continuation [cont], reporting a construct that both claim. *)
+let combine_claims (loc : location) (own : 'a option) (cont : 'a option Rewriter.t) :
+    'a option Rewriter.t =
+  let open Rewriter.Syntax in
+  let+ cont = cont in
+  match (own, cont) with
+  | Some _, Some _ ->
+      Util.Error.error loc "This construct is claimed by more than one active extension"
+  | Some claim, None | None, Some claim -> Some claim
+  | None, None -> None

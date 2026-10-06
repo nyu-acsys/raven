@@ -46,6 +46,12 @@ let speculatively (m : 'a t) : 'a t =
   let s', a = m s in
   ({ s' with Rewriter.state_user_data = s.Rewriter.state_user_data - 1 }, a)
 
+(** Whether the core's map lookup and update apply to an operand of type [typ]. *)
+let is_core_indexable (typ : type_expr) : bool =
+  match typ with
+  | Type.App ((Map | FinSet | Bot | Any), _, _) -> true
+  | _ -> false
+
 let type_mismatch_error loc exp_ty fnd_ty =
   Error.type_error loc
     (Printf.sprintf
@@ -427,6 +433,10 @@ module ProcessExpr = struct
     | None -> (
     match expr with
     | App (constr, expr_list, expr_attr) -> (
+        let* claimed = claim_core_app constr expr_list expr_attr expected_typ in
+        match claimed with
+        | Some expr -> Rewriter.return expr
+        | None ->
         match (constr, expr_list) with
         (* Constants *)
         | (Null | Real _ | Int _ | Bool _ | Empty), [] ->
@@ -1126,6 +1136,36 @@ module ProcessExpr = struct
             check_and_set expr expr_typ expr_typ expected_typ))
 
 (* end of process_expr *)
+
+  (* Offers a map lookup or update whose map operand has a type the core's rule does
+     not apply to, to the extensions. Only operands whose form admits a non-map type
+     are typed for this, which keeps chains such as `m[i := a][j := b]` from being
+     typed repeatedly. *)
+  and claim_core_app (constr : Expr.constr) (expr_list : expr list)
+      (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr option t =
+    let open Rewriter.Syntax in
+    let may_have_non_map_type (expr : expr) =
+      match expr with
+      | App ((Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _), _, _) ->
+          true
+      | _ -> false
+    in
+    match (constr, expr_list) with
+    | (MapLookUp | MapUpdate), expr1 :: rest when may_have_non_map_type expr1 -> (
+        let* expr1 =
+          speculatively (process_expr expr1 (Type.any |> Type.set_ghost_to expected_typ))
+        in
+        let* typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
+        if is_core_indexable typ1 then Rewriter.return None
+        else
+          let* ext_hooks = Rewriter.current_ext_hooks in
+          let* claim = lift (ext_hooks.claim_expr constr (expr1 :: rest) expr_attr) in
+          match claim with
+          | None -> Rewriter.return None
+          | Some (expr_ext, args) ->
+              let+ expr = process_expr (App (ExprExt expr_ext, args, expr_attr)) expected_typ in
+              Some expr)
+    | _ -> Rewriter.return None
 
   and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
     let open Rewriter.Syntax in
@@ -2290,6 +2330,42 @@ module ProcessCallable = struct
         Error.type_error (QualIdent.to_loc qual_ident)
           (Printf.sprintf !"Cannot assign to %s %{QualIdent}" (Symbol.kind symbol) orig_qual_ident)
     in
+    let ext_stmt_functs =
+      {
+        ExtApi.get_assign_lhs =
+          (fun ~is_init ?is_ghost_cmd qi ->
+             run_typing (get_assign_lhs ~is_init ?is_ghost_cmd qi));
+        expand_type_expr =
+          (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
+        disambiguate_process_expr =
+          (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+        type_mismatch_error;
+        disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
+        process_symbol = !Rewriter.process_symbol_ref;
+        process_stmt = !Rewriter.process_stmt_ref;
+      }
+    in
+    (* Whether the type of [expr], an operand the core indexes, is one the core's
+       lookup and update apply to. *)
+    let peek_core_indexable (expr : expr) : bool t =
+      let* expr =
+        disambiguate_process_expr expr (Type.any |> Type.set_ghost true) disam_tbl
+      in
+      let+ typ = ProcessTypeExpr.expand_type_expr (Expr.to_type expr) in
+      is_core_indexable typ
+    in
+    (* Offers [basic_stmt], which the core rejects, to the extensions. *)
+    let claim_stmt (basic_stmt : Stmt.basic_stmt_desc) =
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      let* claim =
+        lift (ext_hooks.claim_basic_stmt basic_stmt stmt_loc disam_tbl ext_stmt_functs)
+      in
+      match claim with
+      | None -> Rewriter.return None
+      | Some ext_stmt ->
+        let+ res = process_basic_stmt call_decl (BasicStmtExt ext_stmt) stmt_loc disam_tbl in
+        Some res
+    in
     match basic_stmt with
     | VarDef var_def ->
       let* var_decl =
@@ -2444,7 +2520,17 @@ module ProcessCallable = struct
         (* AU action *)
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
           process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
-        | _ -> 
+        | _ ->
+          let* claimed =
+            match assign_desc.assign_rhs with
+            | App ((MapLookUp | MapUpdate), base :: _, _) ->
+              let* core_indexable = peek_core_indexable base in
+              if core_indexable then Rewriter.return None else claim_stmt basic_stmt
+            | _ -> Rewriter.return None
+          in
+          match claimed with
+          | Some res -> Rewriter.return res
+          | None ->
           let* () = Rewriter.Logs.debug (fun printers m ->
               m "process_stmt: assign_desc: %a" printers.pr_stmt_basic
                 (Assign assign_desc)) in
@@ -2847,19 +2933,7 @@ module ProcessCallable = struct
       let* ext_hooks = Rewriter.current_ext_hooks in
         lift
           (ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
-             {
-               ExtApi.get_assign_lhs =
-                 (fun ~is_init ?is_ghost_cmd qi ->
-                    run_typing (get_assign_lhs ~is_init ?is_ghost_cmd qi));
-               expand_type_expr =
-                 (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
-               disambiguate_process_expr =
-                 (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
-               type_mismatch_error;
-               disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-               process_symbol = !Rewriter.process_symbol_ref;
-               process_stmt = !Rewriter.process_stmt_ref;
-             })
+             ext_stmt_functs)
 
   let process_stmt ?(new_scope = true) call_decl
       (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t) :
