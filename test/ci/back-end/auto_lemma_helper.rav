@@ -1,0 +1,49 @@
+// Auto lemmas proved via helper lemmas, including a mutually recursive one.
+
+module F {
+  rep type T = data { case nil case cons(hd: Int, tl: T) }
+
+  func length(s: T) returns (ret: Int)
+    decreases s
+  { s == nil ? 0 : 1 + length(s.tl) }
+
+  auto lemma length_nonneg()
+    ensures forall s: T :: {length(s)} 0 <= length(s)
+  {
+    assert forall s: T :: {length(s)} 0 <= length(s) with {
+      length_nonneg_rec(s);
+    }
+  }
+
+  lemma length_nonneg_rec(s: T)
+    ensures 0 <= length(s)
+    decreases s
+  { if (s != nil) { length_nonneg_rec(s.tl); } }
+
+  func f(n: Int) returns (r: Int)
+    decreases n
+  { n <= 0 ? 0 : f(n - 1) }
+
+  auto lemma f_nonneg(n: Int)
+    requires n >= 0
+    ensures f(n) >= 0
+    decreases n, 1
+  {
+    helper(n);
+  }
+
+  lemma helper(n: Int)
+    requires n >= 0
+    ensures f(n) >= 0
+    decreases n, 0
+  { if (n > 0) { f_nonneg(n - 1); } }
+}
+
+module Client {
+  lemma use_lemmas(s: F.T)
+  {
+    assert F.length(s) >= 0;
+    F.f_nonneg(3);
+    assert F.f(3) >= 0;
+  }
+}

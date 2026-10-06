@@ -3069,7 +3069,7 @@ let rec rewrites_phase_2 (m : Module.t) : Module.t Rewriter.t =
 
   Rewriter.return m
 
-let rec rewrites_phase_3 (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
+let rec rewrites_phase_3 (sm : scc_map) (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   let open Rewriter.Syntax in
 
   Logs.debug (fun m1 ->
@@ -3083,6 +3083,9 @@ let rec rewrites_phase_3 (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
         "Rewrites.all_rewrites: Starting rewrite_fold_unfold_stmts on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_fold_unfold_stmts m in
+
+  let* tbl = Rewriter.get_table in
+  let lemma_calls = CallGraph.lemma_calls tbl m in
 
   Logs.debug (fun m1 ->
       m1 "Rewrites.all_rewrites: Starting rewrite_call_stmts on module %a"
@@ -3283,7 +3286,7 @@ let rec rewrites_phase_3 (sm : scc_map) (m : Module.t) : Module.t Rewriter.t =
   let* tbl = Rewriter.get_table in
 
   (* Logs.debug (fun m -> m "Rewrites.all_rewrites: SymbolTbl Symbols: \n%a\n" (Util.Print.pr_list_comma (fun ppf (k,v) -> Stdlib.Format.fprintf ppf "%a -> %a" QualIdent.pr k Module.pr_symbol v)) (Map.to_alist (Map.filter_keys tbl.tbl_symbols ~f:(fun k -> Poly.((QualIdent.to_string k) = "$Program.pr"))))); *)
-  Rewriter.return m
+  Rewriter.return (m, lemma_calls)
 
 let rewrites_type_ext (m: Module.t) : Module.t Rewriter.t =
   Logs.debug (fun m1 ->
@@ -3369,9 +3372,11 @@ let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Modu
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_expr_ext m) tbl in
   let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_stmt_ext m) tbl in
 
-  let tbl, m = Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_3 scc_map m) tbl in
+  let tbl, (m, lemma_calls) =
+    Rewriter.eval ?ext_hooks ?cli_config (rewrites_phase_3 scc_map m) tbl
+  in
 
-  (tbl, m)
+  (tbl, m, lemma_calls)
 
 module ProgStats = struct
   type prog_stats = {
