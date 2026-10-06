@@ -1,0 +1,4 @@
+// A type alias that refers to itself is rejected.
+module M {
+  type K = K
+}

@@ -1,0 +1,5 @@
+// A type alias may not refer to itself inside another type either; only
+// data types can be recursive.
+module M {
+  type A = Map[Int, A]
+}

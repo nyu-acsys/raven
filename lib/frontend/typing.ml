@@ -300,7 +300,13 @@ module ProcessTypeExpr = struct
           (Type.to_name constr ^ " types don't take arguments")
 
   let rec expand_type_expr (tp_expr : type_expr) : Type.t t =
+    expand_type_expr_visiting (Set.empty (module QualIdent)) tp_expr
+
+  (* [visiting] holds the aliases being expanded, to reject cyclic ones. *)
+  and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr)
+      : Type.t t =
     let open Rewriter.Syntax in
+    let expand_type_expr = expand_type_expr_visiting visiting in
     match tp_expr with
     | App (constr, tp_expr_list, tp_attr) -> (
         match (constr, tp_expr_list) with
@@ -320,8 +326,22 @@ module ProcessTypeExpr = struct
                 Rewriter.return
                 @@ (Type.App (Var qual_ident, tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
             | Some tp_expr1 ->
-              let+ exp_typ = expand_type_expr tp_expr1 in
-              exp_typ |> Type.set_ghost_to tp_expr)
+              if Set.mem visiting qual_ident then
+                let loc =
+                  match symbol with
+                  | _, Module.TypeDef type_def, _ -> Ident.to_loc type_def.type_def_name
+                  | _ -> Type.to_loc tp_expr
+                in
+                Error.type_error loc
+                  (Printf.sprintf
+                     !"The definition of type %{Ident} refers to itself. Only data \
+                       types can be recursive"
+                     (QualIdent.unqualify qual_ident))
+              else
+                let+ exp_typ =
+                  expand_type_expr_visiting (Set.add visiting qual_ident) tp_expr1
+                in
+                exp_typ |> Type.set_ghost_to tp_expr)
         | Var _, (_ :: _) ->
             (* `M[T1,...,Tn]` can reach here un-normalized via a self-referential
                lookup (e.g. a recursive call reading back its own declared type).
