@@ -1,0 +1,6 @@
+// The error points at the second declaration of f, not at the end of the
+// preceding line.
+module M {
+  field f: Int
+  field f: Int
+}
