@@ -645,6 +645,18 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
 
       let* ext_hooks = Rewriter.current_ext_hooks in
 
+      (* A loop may open whatever its enclosing callable's [opens] clause allows. *)
+      let* loop_opens =
+        let* enclosing_qi = Rewriter.current_scope_id in
+        let+ enclosing = Rewriter.find_and_reify_callable enclosing_qi in
+        Option.map enclosing.call_decl.call_decl_opens ~f:(fun mask ->
+            Callable.mask_canon
+              (List.map mask ~f:(fun (qi, args) ->
+                   ( qi,
+                     List.map args ~f:(fun arg ->
+                         Expr.alpha_renaming arg loop_arg_renaming_map) ))))
+      in
+
       let new_proc_decl =
         let loop_precond =
           List.map loop.loop_contract ~f:(fun spec ->
@@ -704,7 +716,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_is_auto = false;
           call_decl_needs_mask = None;
           call_decl_grants_mask = None;
-          call_decl_opens = None;
+          call_decl_opens = loop_opens;
           call_decl_loc = stmt.stmt_loc;
                call_decl_loc_params = [];
         }

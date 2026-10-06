@@ -16,7 +16,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
     case uf_rep(par: Map[Int, Int], rnk: Map[Int, Int], len: Int)
   }
 
-  auto pred valid_rep(r: R) {
+  func valid_rep(r: R) returns (res: Bool) {
     0 <= r.len
     && (forall x: Int :: {r.par[x]} 0 <= x < r.len ==> 0 <= r.par[x] < r.len)
     && (forall x: Int :: {r.rnk[x]} 0 <= x < r.len ==> 0 <= r.rnk[x])
@@ -37,6 +37,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
   }
 
   lemma repr_contr_ind(r: R, x: Int)
+    requires valid_rep(r)
     ensures 0 <= x < r.len ==> 0 <= repr(r, x) < r.len && (x == repr(r, x) || r.rnk[x] < r.rnk[repr(r, x)]) 
   {
     if (0 <= x < r.len && r.par[x] != x) {
@@ -45,10 +46,10 @@ module UnionFind[PA: IntPArray] : Library.Type {
   }
 
   auto lemma repr_contr()
-    ensures forall r: R, x: Int ::{repr(r, x)} 0 <= x < r.len ==> 0 <= repr(r, x) < r.len && (x == repr(r, x) || r.rnk[x] < r.rnk[repr(r, x)])  
+    ensures forall r: R, x: Int ::{repr(r, x)} valid_rep(r) && 0 <= x < r.len ==> 0 <= repr(r, x) < r.len && (x == repr(r, x) || r.rnk[x] < r.rnk[repr(r, x)])  
   {
-    assert forall r: R, x: Int ::{repr(r, x)} 0 <= x < r.len ==> 0 <= repr(r, x) < r.len && (x == repr(r, x) || r.rnk[x] < r.rnk[repr(r, x)]) with {
-      repr_contr_ind(r, x);
+    assert forall r: R, x: Int ::{repr(r, x)} valid_rep(r) && 0 <= x < r.len ==> 0 <= repr(r, x) < r.len && (x == repr(r, x) || r.rnk[x] < r.rnk[repr(r, x)]) with {
+      if (valid_rep(r)) { repr_contr_ind(r, x); }
     }
   }
 
@@ -88,40 +89,49 @@ module UnionFind[PA: IntPArray] : Library.Type {
     }
   }
 
-  lemma repr_union_ind(r: R, x1: Int, x2: Int, y: Int)
-    requires valid_rep(r) && 0 <= x1 < r.len && 0 <= x2 < r.len 
+  // Linking the root x1 below the root x2, which then gets rank rnk, preserves validity.
+  lemma union_valid(r: R, x1: Int, x2: Int, rnk: Int)
+    requires valid_rep(r) && 0 <= x1 < r.len && 0 <= x2 < r.len
+    requires repr(r, x1) == x1 && repr(r, x2) == x2
+    requires rnk >= r.rnk[x2] && (x1 == x2 || r.rnk[x1] < rnk)
+    ensures valid_rep(uf_rep(r.par[x1 := x2], r.rnk[x2 := rnk], r.len))
+  {}
+
+  // Linking the root x1 below the root of x2, which then gets rank rnk.
+  lemma repr_union_ind(r: R, x1: Int, x2: Int, rnk: Int, y: Int)
+    requires valid_rep(r) && 0 <= x1 < r.len && 0 <= x2 < r.len
     requires repr(r, x1) == x1
-    ensures forall rep_x2_rnk: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)} 
-      rep_x2_rnk >= r.rnk[repr(r, x2)] && 0 <= y < r.len && repr(r, y) != repr(r, x1) ==> 
-        repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)
-    ensures forall rep_x2_rnk: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)} 
-      rep_x2_rnk >= r.rnk[repr(r, x2)] && 0 <= y < r.len && repr(r, y) == repr(r, x1) ==> 
-        repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)
+    requires rnk >= r.rnk[repr(r, x2)] && (x1 == repr(r, x2) || r.rnk[x1] < rnk)
+    ensures 0 <= y < r.len && repr(r, y) != repr(r, x1) ==>
+      repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)
+    ensures 0 <= y < r.len && repr(r, y) == repr(r, x1) ==>
+      repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)
   {
     if (0 <= y < r.len && r.par[y] != y) {
-      repr_union_ind(r, x1, x2, r.par[y]);
+      repr_union_ind(r, x1, x2, rnk, r.par[y]);
     }
   }
 
- lemma repr_union(r: R, x1: Int, x2: Int)
-    requires valid_rep(r) && 0 <= x1 < r.len && 0 <= x2 < r.len 
+  lemma repr_union(r: R, x1: Int, x2: Int, rnk: Int)
+    requires valid_rep(r) && 0 <= x1 < r.len && 0 <= x2 < r.len
     requires repr(r, x1) == x1
-    ensures forall y: Int, rep_x2_rnk: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)} 
-      rep_x2_rnk >= r.rnk[repr(r, x2)] && 0 <= y < r.len && repr(r, y) != repr(r, x1)  ==> 
-        repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)
-    ensures forall y: Int, rep_x2_rnk: Int  :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)} 
-      rep_x2_rnk >= r.rnk[repr(r, x2)] && 0 <= y < r.len && repr(r, y) == repr(r, x1) ==> 
-        repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)
+    requires rnk >= r.rnk[repr(r, x2)] && (x1 == repr(r, x2) || r.rnk[x1] < rnk)
+    ensures forall y: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)}
+      0 <= y < r.len && repr(r, y) != repr(r, x1) ==>
+        repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)
+    ensures forall y: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)}
+      0 <= y < r.len && repr(r, y) == repr(r, x1) ==>
+        repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)
   {
-    assert forall y: Int, rep_x2_rnk: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)} 
-      rep_x2_rnk >= r.rnk[repr(r, x2)] && 0 <= y < r.len && repr(r, y) != repr(r, x1) ==> 
-        repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y) with {
-      repr_union_ind(r, x1, x2, y);
+    assert forall y: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)}
+      0 <= y < r.len && repr(r, y) != repr(r, x1) ==>
+        repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y) with {
+      repr_union_ind(r, x1, x2, rnk, y);
     }
-    assert forall y: Int, rep_x2_rnk: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y)} 
-      rep_x2_rnk >= r.rnk[repr(r, x2)] && 0 <= y < r.len && repr(r, y) == repr(r, x1) ==> 
-        repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rep_x2_rnk], r.len), y) with {
-      repr_union_ind(r, x1, x2, y);
+    assert forall y: Int :: {repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)}
+      0 <= y < r.len && repr(r, y) == repr(r, x1) ==>
+        repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y) with {
+      repr_union_ind(r, x1, x2, rnk, y);
     }
   }
 
@@ -129,6 +139,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
     returns (u: T)
     requires 0 <= l
     ensures exists r: R :: valid(u, r) && (forall x: Int :: 0 <= x < r.len ==> repr(r, x) == x)
+    opens PA.parr(_, _, _, _)
   {
     var pa := PA.create(l, 0);
     var ra := PA.create(l, 1);
@@ -158,6 +169,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
     requires 0 <= x < r.len
     ensures exists r1: R :: valid(u1, r1) && rep_x == repr(r1, x) && r.len == r1.len 
               && (forall x: Int :: {repr(r1, x)} 0 <= x < r1.len ==> repr(r1, x) == repr(r, x))
+    opens PA.parr(_, _, _, _)
   {
     unfold valid(u, r);
     rep_x := PA.get(u.parent, x);
@@ -179,6 +191,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
       ghost val r1 := uf_rep(mp, mr, r.len);
       repr_compr(r0, x);
       assert repr(r0, x) == repr(r1, x);
+      assert forall y: Int :: {repr(r1, y)} 0 <= y < r.len ==> repr(r1, y) == repr(r, y);
       fold valid(u1, r1);
     }
   }
@@ -192,6 +205,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
                     0 <= x < r1.len && (repr(r, x) == repr(r, x1) || repr(r, x) == repr(r, x2)) ==> repr(r1, x) == repr(r1, x1))
               && (forall x: Int :: {repr(r1, x)} 
                     0 <= x < r1.len && repr(r, x) != repr(r, x1) && repr(r, x) != repr(r, x2) ==> repr(r1, x) == repr(r, x))
+    opens PA.parr(_, _, _, _)
   {
     var rep_x1: Int;
     var rep_x2: Int;
@@ -202,6 +216,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
     r0 :| valid(u1, r0);
     
     unfold valid(u1);
+    assert repr(r0, x1) == repr(r, x1) && repr(r0, x2) == repr(r, x2);
     val rnk_x1 := PA.get(u1.rank, rep_x1);
     val rnk_x2 := PA.get(u1.rank, rep_x2);
     if (rnk_x1 < rnk_x2) {
@@ -212,8 +227,13 @@ module UnionFind[PA: IntPArray] : Library.Type {
       mr :| PA.parr(u1.rank, r.len, mr);
       ghost val r1 := uf_rep(mp, mr[rep_x2 := mr[rep_x2]], r.len);
       u1 := uf(ap, u1.rank);
-      repr_union(r0, rep_x1, rep_x2);
-      assert r1 == uf_rep(r0.par[rep_x1 := repr(r0, x2)], r0.rnk[repr(r0, x2) := r0.rnk[rep_x2]], r0.len);
+      repr_union(r0, rep_x1, rep_x2, rnk_x2);
+      union_valid(r0, rep_x1, rep_x2, rnk_x2);
+      assert r1 == uf_rep(r0.par[rep_x1 := repr(r0, rep_x2)], r0.rnk[repr(r0, rep_x2) := rnk_x2], r0.len);
+      assert forall x: Int :: {repr(r1, x)}
+        0 <= x < r1.len && (repr(r, x) == repr(r, x1) || repr(r, x) == repr(r, x2)) ==> repr(r1, x) == repr(r1, x1);
+      assert forall x: Int :: {repr(r1, x)}
+        0 <= x < r1.len && repr(r, x) != repr(r, x1) && repr(r, x) != repr(r, x2) ==> repr(r1, x) == repr(r, x);
       fold valid(u1, r1);
       return u1;
     } else {      
@@ -225,7 +245,13 @@ module UnionFind[PA: IntPArray] : Library.Type {
       mr :| PA.parr(ar, r.len, mr);
       ghost val r1 := uf_rep(mp, mr, r.len);
       u1 := uf(ap, ar);
-      repr_union(r0, rep_x2, rep_x1);
+      repr_union(r0, rep_x2, rep_x1, rnk_x1 + 1);
+      union_valid(r0, rep_x2, rep_x1, rnk_x1 + 1);
+      assert r1 == uf_rep(r0.par[rep_x2 := repr(r0, rep_x1)], r0.rnk[repr(r0, rep_x1) := rnk_x1 + 1], r0.len);
+      assert forall x: Int :: {repr(r1, x)}
+        0 <= x < r1.len && (repr(r, x) == repr(r, x1) || repr(r, x) == repr(r, x2)) ==> repr(r1, x) == repr(r1, x1);
+      assert forall x: Int :: {repr(r1, x)}
+        0 <= x < r1.len && repr(r, x) != repr(r, x1) && repr(r, x) != repr(r, x2) ==> repr(r1, x) == repr(r, x);
       fold valid(u1, r1);
       return u1;
     }
