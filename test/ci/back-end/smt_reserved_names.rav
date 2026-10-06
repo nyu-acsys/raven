@@ -1,0 +1,28 @@
+// Top-level declarations named like SMT-LIB or Z3 symbols keep their own meaning,
+// and the built-in operations they are named after keep theirs.
+func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
+  s ** t
+}
+
+func select(m: Map[Int, Int], i: Int) returns (r: Int) {
+  m[i] + 1
+}
+
+func subset(s: Set[Int], t: Set[Int]) returns (r: Bool) {
+  s == t
+}
+
+type Seq = data {
+  case nil
+  case cons(hd: Int, tl: Seq)
+}
+
+lemma names()
+{
+  assert union({|1|}, {|2|}) == {||};
+  assert {|1|} ++ {|2|} == {|1, 2|};
+  assert select({| i: Int :: 0 |}, 3) == 1;
+  assert {| i: Int :: 0 |}[3] == 0;
+  assert !subset({|1|}, {|1, 2|}) && {|1|} subseteq {|1, 2|};
+  assert cons(1, nil).hd == 1;
+}

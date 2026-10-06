@@ -1,0 +1,10 @@
+// A top-level function named `union` must not change the meaning of `++`.
+func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
+  s ** t
+}
+
+lemma wrong()
+{
+  assert union({|1|}, {|1|}) == {|1|};
+  assert {|1|} ++ {|2|} == {||};
+}

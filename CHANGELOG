@@ -34,6 +34,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A top-level declaration named like an SMT-LIB or Z3 symbol, such as a function `union`, no longer takes that symbol's place in the solver. It used to change the meaning of built-in operations such as `++`, which could make false assertions verify.
+
 - Errors about a type or field declaration point at the declaration, instead of starting at the end of the line before it.
 
 - A type alias that refers to itself, directly or through other aliases, is reported as an error instead of making the type checker loop.
