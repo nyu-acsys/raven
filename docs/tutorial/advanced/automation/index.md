@@ -292,4 +292,6 @@ material:
 - Appendix C is a quick dictionary for readers coming from Viper, Dafny, or Iris.
 - Appendix D points to the Extension API, for readers who want to add new front-end syntax
   rather than just write proofs.
-- Appendix E has pointers to more worked examples than this tutorial covers.
+- Appendix E describes the data types of the standard library that the main tutorial doesn't
+  use: options, lists, and sequences.
+- Appendix F has pointers to more worked examples than this tutorial covers.

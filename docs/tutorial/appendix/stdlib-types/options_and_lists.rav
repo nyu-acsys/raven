@@ -1,0 +1,29 @@
+module IntList = Library.List[Library.IntType]
+module IntOption = Library.Option[Library.IntType]
+
+import IntList._
+
+// The first element of a list, if there is one.
+func first(l: IntList.T) returns (r: IntOption.T) {
+  l == nil ? IntOption.none : IntOption.some(l.hd)
+}
+
+// The sum of a list's elements, by pattern matching.
+func sum(l: IntList.T) returns (r: Int)
+  decreases l
+{
+  match l {
+    case nil => 0
+    case hd :: tl => hd + sum(tl)
+  }
+}
+
+lemma examples()
+{
+  val l: IntList.T := 1 :: 2 :: nil;
+  assert len(l) == 2;
+  assert is_in(l, 2) && !is_in(l, 3);
+  assert IntOption.is_some(first(l)) && first(l).IntOption.value == 1;
+  assert !IntOption.is_some(first(nil));
+  assert sum(l) == 3;
+}

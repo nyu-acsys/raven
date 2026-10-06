@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The standard library provides immutable sequences, `Library.Seq[E]`. Their properties are stated as lemmas in the interface `Library.SeqSpec` and proved for the implementation as lists.
+
 - Procedures and lemmas may declare the invariants they open with an `opens` clause, e.g. `opens {}`, `opens cell(x)` or `opens inner(x, _)`. The clause replaces the mask inferred from `requires`, and callers need credit only for what it lists.
 
 - A functor can be sealed with `:>` instead of `:`, as in `module F[E: Type] :> I[E] { ... }`. Outside the functor, its instances then expose only the members of `I`, so clients cannot depend on its representation or function definitions.

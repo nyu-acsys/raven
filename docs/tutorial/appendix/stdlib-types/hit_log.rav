@@ -1,0 +1,52 @@
+// A hit counter that keeps a log of its hits, numbered from 0, instead of a
+// number. Its value is the length of the log.
+module HitLog {
+  module Log = Library.Seq[Library.IntType]
+
+  field log: Log.T
+
+  pred valid(c: Ref, v: Int) {
+    exists l: Log.T :: own(c.log, l) && Log.length(l) == v &&
+      (forall i: Int :: {Log.index(l, i)} 0 <= i && i < v ==> Log.index(l, i) == i)
+  }
+
+  proc create() returns (c: Ref)
+    ensures valid(c, 0)
+  {
+    c := new (log: Log.empty)
+    fold valid(c, 0)
+  }
+
+  proc increment(c: Ref, ghost v: Int)
+    requires valid(c, v)
+    ensures valid(c, v + 1)
+  {
+    unfold valid(c, v)
+    var l := c.log
+    c.log := Log.append(l, Log.singleton(Log.length(l)))
+    fold valid(c, v + 1)
+  }
+
+  proc get(c: Ref, ghost v: Int) returns (r: Int)
+    requires valid(c, v)
+    ensures valid(c, v) && r == v
+  {
+    unfold valid(c, v)
+    var l := c.log
+    r := Log.length(l)
+    fold valid(c, v)
+  }
+}
+
+// Two sequences with the same length and the same entries are equal, but Raven only
+// compares them entry by entry when asked whether they are `equal`.
+module Split {
+  import Library._
+
+  lemma split(s: Seq[Int], n: Int)
+    requires 0 <= n && n <= Seq.length(s)
+    ensures Seq.append(Seq.take(s, n), Seq.drop(s, n)) == s
+  {
+    assert Seq.equal(Seq.append(Seq.take(s, n), Seq.drop(s, n)), s);
+  }
+}

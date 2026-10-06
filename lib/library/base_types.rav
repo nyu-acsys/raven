@@ -55,6 +55,815 @@ module List[E: Type] : Type {
   }
 }
 
+// Immutable indexed sequences, axiomatized after Viper's $Seq domain
+// (silicon/src/main/resources/dafny_axioms/sequences.vpr), keeping its triggers.
+interface SeqSpec[E: Type] : Type {
+  rep type T
+
+  // Basics
+
+  func length(s: T) returns (ret: Int)
+
+  auto lemma length_nonneg()
+    ensures forall s: T :: {length(s)} 0 <= length(s)
+
+  val empty: T
+
+  auto lemma empty_length()
+    ensures length(empty) == 0
+
+  auto lemma length_zero()
+    ensures forall s: T :: {length(s)} length(s) == 0 ==> s == empty
+
+  func singleton(e: E) returns (ret: T)
+
+  auto lemma singleton_length()
+    ensures forall e: E :: {singleton(e)} length(singleton(e)) == 1
+
+  func append(s1: T, s2: T) returns (ret: T)
+
+  auto lemma append_length()
+    ensures forall s0: T, s1: T :: {length(append(s0, s1))}
+      s0 != empty && s1 != empty ==>
+        length(append(s0, s1)) == length(s0) + length(s1)
+
+  auto lemma append_empty()
+    ensures forall s0: T, s1: T :: {append(s0, s1)}
+      (s0 == empty ==> append(s0, s1) == s1) &&
+      (s1 == empty ==> append(s0, s1) == s0)
+
+  func index(s: T, i: Int) returns (ret: E)
+
+  auto lemma singleton_index()
+    ensures forall e: E :: {singleton(e)} index(singleton(e), 0) == e
+
+  // Index, append, update
+
+  // Uninterpreted wrappers for + and - so that offset index terms can be matched.
+  func add(i0: Int, i1: Int) returns (ret: Int)
+
+  auto lemma add_def()
+    ensures forall i: Int, j: Int :: {add(i, j)} add(i, j) == i + j
+
+  func sub(i0: Int, i1: Int) returns (ret: Int)
+
+  auto lemma sub_def()
+    ensures forall i: Int, j: Int :: {sub(i, j)} sub(i, j) == i - j
+
+  auto lemma append_index1()
+    ensures forall s0: T, s1: T, n: Int ::
+      {index(append(s0, s1), n)} {index(s0, n), append(s0, s1)}
+      s0 != empty && s1 != empty && 0 <= n && n < length(s0) ==>
+        index(append(s0, s1), n) == index(s0, n)
+
+  auto lemma append_index2()
+    ensures forall s0: T, s1: T, n: Int :: {index(append(s0, s1), n)}
+      s0 != empty && s1 != empty && length(s0) <= n && n < length(append(s0, s1)) ==>
+        add(sub(n, length(s0)), length(s0)) == n &&
+        index(append(s0, s1), n) == index(s1, sub(n, length(s0)))
+
+  auto lemma append_index3()
+    ensures forall s0: T, s1: T, m: Int :: {index(s1, m), append(s0, s1)}
+      s0 != empty && s1 != empty && s0 != append(s0, s1) && s1 != append(s0, s1) &&
+      0 <= m && m < length(s1) ==>
+        sub(add(m, length(s0)), length(s0)) == m &&
+        index(append(s0, s1), add(m, length(s0))) == index(s1, m)
+
+  func update(s: T, i: Int, e: E) returns (ret: T)
+
+  auto lemma update_length()
+    ensures forall s: T, i: Int, v: E ::
+      {length(update(s, i, v))} {length(s), update(s, i, v)}
+      0 <= i && i < length(s) ==> length(update(s, i, v)) == length(s)
+
+  auto lemma update_index()
+    ensures forall s: T, i: Int, v: E, n: Int ::
+      {index(update(s, i, v), n)} {index(s, n), update(s, i, v)}
+      0 <= n && n < length(s) ==>
+        (i == n ==> index(update(s, i, v), n) == v) &&
+        (i != n ==> index(update(s, i, v), n) == index(s, n))
+
+  // Take and drop
+
+  func take(s: T, howMany: Int) returns (ret: T)
+
+  auto lemma take_length()
+    ensures forall s: T, n: Int :: {length(take(s, n))} {take(s, n), length(s)}
+      (0 <= n ==>
+        (n <= length(s) ==> length(take(s, n)) == n) &&
+        (length(s) < n ==> length(take(s, n)) == length(s))) &&
+      (n < 0 ==> length(take(s, n)) == 0)
+
+  auto lemma take_index()
+    ensures forall s: T, n: Int, j: Int :: {index(take(s, n), j)} {index(s, j), take(s, n)}
+      0 <= j && j < n && j < length(s) ==> index(take(s, n), j) == index(s, j)
+
+  func drop(s: T, howMany: Int) returns (ret: T)
+
+  auto lemma drop_length()
+    ensures forall s: T, n: Int :: {length(drop(s, n))} {length(s), drop(s, n)}
+      (0 <= n ==>
+        (n <= length(s) ==> length(drop(s, n)) == length(s) - n) &&
+        (length(s) < n ==> length(drop(s, n)) == 0)) &&
+      (n < 0 ==> length(drop(s, n)) == length(s))
+
+  auto lemma drop_index1()
+    ensures forall s: T, n: Int, j: Int :: {index(drop(s, n), j)}
+      0 < n && 0 <= j && j < length(s) - n ==>
+        sub(add(j, n), n) == j && index(drop(s, n), j) == index(s, add(j, n))
+
+  auto lemma drop_index2()
+    ensures forall s: T, n: Int, i: Int :: {drop(s, n), index(s, i)}
+      0 < n && n <= i && i < length(s) ==>
+        add(sub(i, n), n) == i && index(drop(s, n), sub(i, n)) == index(s, i)
+
+  auto lemma append_take1()
+    ensures forall s: T, t: T, n: Int :: {take(append(s, t), n)}
+      0 < n && n <= length(s) ==> take(append(s, t), n) == take(s, n)
+
+  auto lemma append_take2()
+    ensures forall s: T, t: T, n: Int :: {take(append(s, t), n)}
+      n > 0 && n > length(s) && n < length(append(s, t)) ==>
+        add(sub(n, length(s)), length(s)) == n &&
+        take(append(s, t), n) == append(s, take(t, sub(n, length(s))))
+
+  auto lemma append_drop1()
+    ensures forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
+      0 < n && n <= length(s) ==> drop(append(s, t), n) == append(drop(s, n), t)
+
+  auto lemma append_drop2()
+    ensures forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
+      n > 0 && n > length(s) && n < length(append(s, t)) ==>
+        add(sub(n, length(s)), length(s)) == n &&
+        drop(append(s, t), n) == drop(t, sub(n, length(s)))
+
+  // The following cut matching loops caused by the append axioms above.
+  auto lemma take_zero()
+    ensures forall s: T, n: Int :: {take(s, n)} n <= 0 ==> take(s, n) == empty
+
+  auto lemma drop_zero()
+    ensures forall s: T, n: Int :: {drop(s, n)} n <= 0 ==> drop(s, n) == s
+
+  auto lemma take_all()
+    ensures forall s: T, n: Int :: {take(s, n)} n >= length(s) ==> take(s, n) == s
+
+  auto lemma drop_all()
+    ensures forall s: T, n: Int :: {drop(s, n)} n >= length(s) ==> drop(s, n) == empty
+
+  // Contains
+
+  func contains(s: T, e: E) returns (ret: Bool)
+
+  // Viper substitutes this for `contains` when it occurs in user-written triggers.
+  func contains_trigger(s: T, e: E) returns (ret: Bool)
+
+  func skolem(s: T, e: E) returns (ret: Int)
+
+  auto lemma contains1()
+    ensures forall s: T, x: E :: {contains(s, x)}
+      contains(s, x) ==>
+        0 <= skolem(s, x) && skolem(s, x) < length(s) && index(s, skolem(s, x)) == x
+
+  auto lemma contains2()
+    ensures forall s: T, x: E, i: Int :: {contains(s, x), index(s, i)}
+      0 <= i && i < length(s) && index(s, i) == x ==> contains(s, x)
+
+  auto lemma contains_trigger_def()
+    ensures forall s: T, i: Int :: {index(s, i)}
+      0 <= i && i < length(s) ==> contains_trigger(s, index(s, i))
+
+  // Equality
+
+  func equal(s0: T, s1: T) returns (ret: Bool)
+
+  func skolem_diff(s0: T, s1: T) returns (ret: Int)
+
+  auto lemma equal_def()
+    ensures forall s0: T, s1: T :: {equal(s0, s1)}
+      (s0 == s1 && equal(s0, s1)) ||
+      (s0 != s1 && !equal(s0, s1) && length(s0) != length(s1)) ||
+      (s0 != s1 && !equal(s0, s1) && length(s0) == length(s1) &&
+        skolem_diff(s0, s1) == skolem_diff(s1, s0) &&
+        0 <= skolem_diff(s0, s1) && skolem_diff(s0, s1) < length(s0) &&
+        index(s0, skolem_diff(s0, s1)) != index(s1, skolem_diff(s0, s1)))
+
+  auto lemma equal_ext()
+    ensures forall a: T, b: T :: {equal(a, b)} equal(a, b) ==> a == b
+
+  // Extras
+
+  auto lemma singleton_contains()
+    ensures forall x: E, y: E :: {contains(singleton(x), y)}
+      contains(singleton(x), y) <=> x == y
+}
+
+// Sequences as lists. Sealed, so clients see only SeqSpec's lemmas.
+module Seq[E: Type] :> SeqSpec[E] {
+  module L = List[E]
+  import L._
+
+  rep type T = L.T
+
+  func length(s: T) returns (ret: Int)
+    decreases s
+  {
+    s == nil ? 0 : 1 + length(s.tl)
+  }
+
+  val empty: T = nil
+
+  func singleton(e: E) returns (ret: T) {
+    e :: nil
+  }
+
+  func append(s1: T, s2: T) returns (ret: T)
+    decreases s1
+  {
+    s1 == nil ? s2 : s1.hd :: append(s1.tl, s2)
+  }
+
+  func index(s: T, i: Int) returns (ret: E)
+    decreases s
+  {
+    s == nil ? E.default : (i == 0 ? s.hd : index(s.tl, i - 1))
+  }
+
+  func add(i0: Int, i1: Int) returns (ret: Int) {
+    i0 + i1
+  }
+
+  func sub(i0: Int, i1: Int) returns (ret: Int) {
+    i0 - i1
+  }
+
+  func update(s: T, i: Int, e: E) returns (ret: T)
+    decreases s
+  {
+    s == nil ? nil : (i == 0 ? e :: s.tl : s.hd :: update(s.tl, i - 1, e))
+  }
+
+  func take(s: T, howMany: Int) returns (ret: T)
+    decreases s
+  {
+    s == nil || howMany <= 0 ? nil : s.hd :: take(s.tl, howMany - 1)
+  }
+
+  func drop(s: T, howMany: Int) returns (ret: T)
+    decreases s
+  {
+    s == nil || howMany <= 0 ? s : drop(s.tl, howMany - 1)
+  }
+
+  func contains(s: T, e: E) returns (ret: Bool)
+    decreases s
+  {
+    s == nil ? false : (s.hd == e || contains(s.tl, e))
+  }
+
+  func contains_trigger(s: T, e: E) returns (ret: Bool) {
+    contains(s, e)
+  }
+
+  // The position of the first occurrence of e.
+  func skolem(s: T, e: E) returns (ret: Int)
+    decreases s
+  {
+    s == nil ? 0 : (s.hd == e ? 0 : 1 + skolem(s.tl, e))
+  }
+
+  func equal(s0: T, s1: T) returns (ret: Bool) {
+    s0 == s1
+  }
+
+  // The first position at which s0 and s1 differ.
+  func skolem_diff(s0: T, s1: T) returns (ret: Int)
+    decreases s0
+  {
+    s0 == nil || s1 == nil ? 0 : (s0.hd != s1.hd ? 0 : 1 + skolem_diff(s0.tl, s1.tl))
+  }
+
+  // Inductive facts from which the interface's lemmas follow
+
+  lemma length_nonneg_rec(s: T)
+    ensures 0 <= length(s)
+    decreases s
+  {
+    if (s != nil) { length_nonneg_rec(s.tl); }
+  }
+
+  lemma append_length_rec(s0: T, s1: T)
+    ensures length(append(s0, s1)) == length(s0) + length(s1)
+    decreases s0
+  {
+    if (s0 != nil) { append_length_rec(s0.tl, s1); }
+  }
+
+  lemma append_nil_rec(s0: T)
+    ensures append(s0, nil) == s0
+    decreases s0
+  {
+    if (s0 != nil) { append_nil_rec(s0.tl); }
+  }
+
+  lemma append_index_left_rec(s0: T, s1: T, n: Int)
+    requires 0 <= n && n < length(s0)
+    ensures index(append(s0, s1), n) == index(s0, n)
+    decreases s0
+  {
+    if (s0 != nil && n > 0) { append_index_left_rec(s0.tl, s1, n - 1); }
+  }
+
+  lemma append_index_right_rec(s0: T, s1: T, n: Int)
+    requires length(s0) <= n
+    ensures index(append(s0, s1), n) == index(s1, n - length(s0))
+    decreases s0
+  {
+    if (s0 != nil) {
+      length_nonneg_rec(s0.tl);
+      append_index_right_rec(s0.tl, s1, n - 1);
+    }
+  }
+
+  lemma update_length_rec(s: T, i: Int, v: E)
+    ensures length(update(s, i, v)) == length(s)
+    decreases s
+  {
+    if (s != nil) { update_length_rec(s.tl, i - 1, v); }
+  }
+
+  lemma update_index_rec(s: T, i: Int, v: E, n: Int)
+    requires 0 <= n && n < length(s)
+    ensures (i == n ==> index(update(s, i, v), n) == v)
+      && (i != n ==> index(update(s, i, v), n) == index(s, n))
+    decreases s
+  {
+    if (s != nil && n > 0 && i != 0) { update_index_rec(s.tl, i - 1, v, n - 1); }
+  }
+
+  lemma take_length_rec(s: T, n: Int)
+    ensures length(take(s, n)) == (n <= 0 ? 0 : (n <= length(s) ? n : length(s)))
+    decreases s
+  {
+    if (s != nil && n > 0) {
+      length_nonneg_rec(s.tl);
+      take_length_rec(s.tl, n - 1);
+    }
+  }
+
+  lemma take_index_rec(s: T, n: Int, j: Int)
+    requires 0 <= j && j < n && j < length(s)
+    ensures index(take(s, n), j) == index(s, j)
+    decreases s
+  {
+    if (s != nil && j > 0) { take_index_rec(s.tl, n - 1, j - 1); }
+  }
+
+  lemma drop_length_rec(s: T, n: Int)
+    ensures length(drop(s, n)) == (n <= 0 ? length(s) : (n <= length(s) ? length(s) - n : 0))
+    decreases s
+  {
+    if (s != nil && n > 0) {
+      length_nonneg_rec(s.tl);
+      drop_length_rec(s.tl, n - 1);
+    }
+  }
+
+  lemma drop_index_rec(s: T, n: Int, j: Int)
+    requires 0 <= n && 0 <= j
+    ensures index(drop(s, n), j) == index(s, j + n)
+    decreases s
+  {
+    if (s != nil && n > 0) { drop_index_rec(s.tl, n - 1, j); }
+  }
+
+  lemma append_take_left_rec(s: T, t: T, n: Int)
+    requires n <= length(s)
+    ensures take(append(s, t), n) == take(s, n)
+    decreases s
+  {
+    if (s != nil && n > 0) { append_take_left_rec(s.tl, t, n - 1); }
+  }
+
+  lemma append_take_right_rec(s: T, t: T, n: Int)
+    requires length(s) <= n
+    ensures take(append(s, t), n) == append(s, take(t, n - length(s)))
+    decreases s
+  {
+    if (s != nil) {
+      length_nonneg_rec(s.tl);
+      append_take_right_rec(s.tl, t, n - 1);
+    }
+  }
+
+  lemma append_drop_left_rec(s: T, t: T, n: Int)
+    requires n <= length(s)
+    ensures drop(append(s, t), n) == append(drop(s, n), t)
+    decreases s
+  {
+    if (s != nil && n > 0) { append_drop_left_rec(s.tl, t, n - 1); }
+  }
+
+  lemma append_drop_right_rec(s: T, t: T, n: Int)
+    requires length(s) <= n
+    ensures drop(append(s, t), n) == drop(t, n - length(s))
+    decreases s
+  {
+    if (s != nil) {
+      length_nonneg_rec(s.tl);
+      append_drop_right_rec(s.tl, t, n - 1);
+    }
+  }
+
+  lemma take_all_rec(s: T, n: Int)
+    requires length(s) <= n
+    ensures take(s, n) == s
+    decreases s
+  {
+    if (s != nil) {
+      length_nonneg_rec(s.tl);
+      take_all_rec(s.tl, n - 1);
+    }
+  }
+
+  lemma drop_all_rec(s: T, n: Int)
+    requires length(s) <= n
+    ensures drop(s, n) == nil
+    decreases s
+  {
+    if (s != nil) {
+      length_nonneg_rec(s.tl);
+      drop_all_rec(s.tl, n - 1);
+    }
+  }
+
+  lemma contains_skolem_rec(s: T, x: E)
+    requires contains(s, x)
+    ensures 0 <= skolem(s, x) && skolem(s, x) < length(s) && index(s, skolem(s, x)) == x
+    decreases s
+  {
+    if (s != nil) {
+      length_nonneg_rec(s.tl);
+      if (s.hd != x) { contains_skolem_rec(s.tl, x); }
+    }
+  }
+
+  lemma index_contains_rec(s: T, x: E, i: Int)
+    requires 0 <= i && i < length(s) && index(s, i) == x
+    ensures contains(s, x)
+    decreases s
+  {
+    if (s != nil && i > 0) { index_contains_rec(s.tl, x, i - 1); }
+  }
+
+  lemma skolem_diff_rec(s0: T, s1: T)
+    requires s0 != s1 && length(s0) == length(s1)
+    ensures skolem_diff(s0, s1) == skolem_diff(s1, s0)
+    ensures 0 <= skolem_diff(s0, s1) && skolem_diff(s0, s1) < length(s0)
+    ensures index(s0, skolem_diff(s0, s1)) != index(s1, skolem_diff(s0, s1))
+    decreases s0
+  {
+    if (s0 != nil) { length_nonneg_rec(s0.tl); }
+    if (s1 != nil) { length_nonneg_rec(s1.tl); }
+    if (s0 != nil && s1 != nil && s0.hd == s1.hd) { skolem_diff_rec(s0.tl, s1.tl); }
+  }
+
+  // The interface's lemmas, as plain lemmas so that they do not take part in
+  // the proofs above.
+
+  lemma length_nonneg()
+    ensures forall s: T :: {length(s)} 0 <= length(s)
+  {
+    assert forall s: T :: {length(s)} 0 <= length(s) with {
+      length_nonneg_rec(s);
+    }
+  }
+
+  lemma empty_length()
+    ensures length(empty) == 0
+  {}
+
+  lemma length_zero()
+    ensures forall s: T :: {length(s)} length(s) == 0 ==> s == empty
+  {
+    assert forall s: T :: {length(s)} length(s) == 0 ==> s == empty with {
+      if (s != nil) { length_nonneg_rec(s.tl); }
+    }
+  }
+
+  lemma singleton_length()
+    ensures forall e: E :: {singleton(e)} length(singleton(e)) == 1
+  {}
+
+  lemma append_length()
+    ensures forall s0: T, s1: T :: {length(append(s0, s1))}
+      s0 != empty && s1 != empty ==>
+        length(append(s0, s1)) == length(s0) + length(s1)
+  {
+    assert forall s0: T, s1: T :: {length(append(s0, s1))}
+      s0 != empty && s1 != empty ==>
+        length(append(s0, s1)) == length(s0) + length(s1) with {
+      append_length_rec(s0, s1);
+    }
+  }
+
+  lemma append_empty()
+    ensures forall s0: T, s1: T :: {append(s0, s1)}
+      (s0 == empty ==> append(s0, s1) == s1) &&
+      (s1 == empty ==> append(s0, s1) == s0)
+  {
+    assert forall s0: T, s1: T :: {append(s0, s1)}
+      (s0 == empty ==> append(s0, s1) == s1) &&
+      (s1 == empty ==> append(s0, s1) == s0) with {
+      append_nil_rec(s0);
+    }
+  }
+
+  lemma singleton_index()
+    ensures forall e: E :: {singleton(e)} index(singleton(e), 0) == e
+  {}
+
+  lemma add_def()
+    ensures forall i: Int, j: Int :: {add(i, j)} add(i, j) == i + j
+  {}
+
+  lemma sub_def()
+    ensures forall i: Int, j: Int :: {sub(i, j)} sub(i, j) == i - j
+  {}
+
+  lemma append_index1()
+    ensures forall s0: T, s1: T, n: Int ::
+      {index(append(s0, s1), n)} {index(s0, n), append(s0, s1)}
+      s0 != empty && s1 != empty && 0 <= n && n < length(s0) ==>
+        index(append(s0, s1), n) == index(s0, n)
+  {
+    assert forall s0: T, s1: T, n: Int ::
+      {index(append(s0, s1), n)} {index(s0, n), append(s0, s1)}
+      s0 != empty && s1 != empty && 0 <= n && n < length(s0) ==>
+        index(append(s0, s1), n) == index(s0, n) with {
+      if (0 <= n && n < length(s0)) { append_index_left_rec(s0, s1, n); }
+    }
+  }
+
+  lemma append_index2()
+    ensures forall s0: T, s1: T, n: Int :: {index(append(s0, s1), n)}
+      s0 != empty && s1 != empty && length(s0) <= n && n < length(append(s0, s1)) ==>
+        add(sub(n, length(s0)), length(s0)) == n &&
+        index(append(s0, s1), n) == index(s1, sub(n, length(s0)))
+  {
+    assert forall s0: T, s1: T, n: Int :: {index(append(s0, s1), n)}
+      s0 != empty && s1 != empty && length(s0) <= n && n < length(append(s0, s1)) ==>
+        add(sub(n, length(s0)), length(s0)) == n &&
+        index(append(s0, s1), n) == index(s1, sub(n, length(s0))) with {
+      if (length(s0) <= n) { append_index_right_rec(s0, s1, n); }
+    }
+  }
+
+  lemma append_index3()
+    ensures forall s0: T, s1: T, m: Int :: {index(s1, m), append(s0, s1)}
+      s0 != empty && s1 != empty && s0 != append(s0, s1) && s1 != append(s0, s1) &&
+      0 <= m && m < length(s1) ==>
+        sub(add(m, length(s0)), length(s0)) == m &&
+        index(append(s0, s1), add(m, length(s0))) == index(s1, m)
+  {
+    assert forall s0: T, s1: T, m: Int :: {index(s1, m), append(s0, s1)}
+      s0 != empty && s1 != empty && s0 != append(s0, s1) && s1 != append(s0, s1) &&
+      0 <= m && m < length(s1) ==>
+        sub(add(m, length(s0)), length(s0)) == m &&
+        index(append(s0, s1), add(m, length(s0))) == index(s1, m) with {
+      if (0 <= m) { length_nonneg_rec(s0); append_index_right_rec(s0, s1, m + length(s0)); }
+    }
+  }
+
+  lemma update_length()
+    ensures forall s: T, i: Int, v: E ::
+      {length(update(s, i, v))} {length(s), update(s, i, v)}
+      0 <= i && i < length(s) ==> length(update(s, i, v)) == length(s)
+  {
+    assert forall s: T, i: Int, v: E ::
+      {length(update(s, i, v))} {length(s), update(s, i, v)}
+      0 <= i && i < length(s) ==> length(update(s, i, v)) == length(s) with {
+      update_length_rec(s, i, v);
+    }
+  }
+
+  lemma update_index()
+    ensures forall s: T, i: Int, v: E, n: Int ::
+      {index(update(s, i, v), n)} {index(s, n), update(s, i, v)}
+      0 <= n && n < length(s) ==>
+        (i == n ==> index(update(s, i, v), n) == v) &&
+        (i != n ==> index(update(s, i, v), n) == index(s, n))
+  {
+    assert forall s: T, i: Int, v: E, n: Int ::
+      {index(update(s, i, v), n)} {index(s, n), update(s, i, v)}
+      0 <= n && n < length(s) ==>
+        (i == n ==> index(update(s, i, v), n) == v) &&
+        (i != n ==> index(update(s, i, v), n) == index(s, n)) with {
+      if (0 <= n && n < length(s)) { update_index_rec(s, i, v, n); }
+    }
+  }
+
+  lemma take_length()
+    ensures forall s: T, n: Int :: {length(take(s, n))} {take(s, n), length(s)}
+      (0 <= n ==>
+        (n <= length(s) ==> length(take(s, n)) == n) &&
+        (length(s) < n ==> length(take(s, n)) == length(s))) &&
+      (n < 0 ==> length(take(s, n)) == 0)
+  {
+    assert forall s: T, n: Int :: {length(take(s, n))} {take(s, n), length(s)}
+      (0 <= n ==>
+        (n <= length(s) ==> length(take(s, n)) == n) &&
+        (length(s) < n ==> length(take(s, n)) == length(s))) &&
+      (n < 0 ==> length(take(s, n)) == 0) with {
+      take_length_rec(s, n); length_nonneg_rec(s);
+    }
+  }
+
+  lemma take_index()
+    ensures forall s: T, n: Int, j: Int :: {index(take(s, n), j)} {index(s, j), take(s, n)}
+      0 <= j && j < n && j < length(s) ==> index(take(s, n), j) == index(s, j)
+  {
+    assert forall s: T, n: Int, j: Int :: {index(take(s, n), j)} {index(s, j), take(s, n)}
+      0 <= j && j < n && j < length(s) ==> index(take(s, n), j) == index(s, j) with {
+      if (0 <= j && j < n && j < length(s)) { take_index_rec(s, n, j); }
+    }
+  }
+
+  lemma drop_length()
+    ensures forall s: T, n: Int :: {length(drop(s, n))} {length(s), drop(s, n)}
+      (0 <= n ==>
+        (n <= length(s) ==> length(drop(s, n)) == length(s) - n) &&
+        (length(s) < n ==> length(drop(s, n)) == 0)) &&
+      (n < 0 ==> length(drop(s, n)) == length(s))
+  {
+    assert forall s: T, n: Int :: {length(drop(s, n))} {length(s), drop(s, n)}
+      (0 <= n ==>
+        (n <= length(s) ==> length(drop(s, n)) == length(s) - n) &&
+        (length(s) < n ==> length(drop(s, n)) == 0)) &&
+      (n < 0 ==> length(drop(s, n)) == length(s)) with {
+      drop_length_rec(s, n); length_nonneg_rec(s);
+    }
+  }
+
+  lemma drop_index1()
+    ensures forall s: T, n: Int, j: Int :: {index(drop(s, n), j)}
+      0 < n && 0 <= j && j < length(s) - n ==>
+        sub(add(j, n), n) == j && index(drop(s, n), j) == index(s, add(j, n))
+  {
+    assert forall s: T, n: Int, j: Int :: {index(drop(s, n), j)}
+      0 < n && 0 <= j && j < length(s) - n ==>
+        sub(add(j, n), n) == j && index(drop(s, n), j) == index(s, add(j, n)) with {
+      if (0 < n && 0 <= j) { drop_index_rec(s, n, j); }
+    }
+  }
+
+  lemma drop_index2()
+    ensures forall s: T, n: Int, i: Int :: {drop(s, n), index(s, i)}
+      0 < n && n <= i && i < length(s) ==>
+        add(sub(i, n), n) == i && index(drop(s, n), sub(i, n)) == index(s, i)
+  {
+    assert forall s: T, n: Int, i: Int :: {drop(s, n), index(s, i)}
+      0 < n && n <= i && i < length(s) ==>
+        add(sub(i, n), n) == i && index(drop(s, n), sub(i, n)) == index(s, i) with {
+      if (0 < n && n <= i) { drop_index_rec(s, n, i - n); }
+    }
+  }
+
+  lemma append_take1()
+    ensures forall s: T, t: T, n: Int :: {take(append(s, t), n)}
+      0 < n && n <= length(s) ==> take(append(s, t), n) == take(s, n)
+  {
+    assert forall s: T, t: T, n: Int :: {take(append(s, t), n)}
+      0 < n && n <= length(s) ==> take(append(s, t), n) == take(s, n) with {
+      if (n <= length(s)) { append_take_left_rec(s, t, n); }
+    }
+  }
+
+  lemma append_take2()
+    ensures forall s: T, t: T, n: Int :: {take(append(s, t), n)}
+      n > 0 && n > length(s) && n < length(append(s, t)) ==>
+        add(sub(n, length(s)), length(s)) == n &&
+        take(append(s, t), n) == append(s, take(t, sub(n, length(s))))
+  {
+    assert forall s: T, t: T, n: Int :: {take(append(s, t), n)}
+      n > 0 && n > length(s) && n < length(append(s, t)) ==>
+        add(sub(n, length(s)), length(s)) == n &&
+        take(append(s, t), n) == append(s, take(t, sub(n, length(s)))) with {
+      if (length(s) <= n) { append_take_right_rec(s, t, n); }
+    }
+  }
+
+  lemma append_drop1()
+    ensures forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
+      0 < n && n <= length(s) ==> drop(append(s, t), n) == append(drop(s, n), t)
+  {
+    assert forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
+      0 < n && n <= length(s) ==> drop(append(s, t), n) == append(drop(s, n), t) with {
+      if (n <= length(s)) { append_drop_left_rec(s, t, n); }
+    }
+  }
+
+  lemma append_drop2()
+    ensures forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
+      n > 0 && n > length(s) && n < length(append(s, t)) ==>
+        add(sub(n, length(s)), length(s)) == n &&
+        drop(append(s, t), n) == drop(t, sub(n, length(s)))
+  {
+    assert forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
+      n > 0 && n > length(s) && n < length(append(s, t)) ==>
+        add(sub(n, length(s)), length(s)) == n &&
+        drop(append(s, t), n) == drop(t, sub(n, length(s))) with {
+      if (length(s) <= n) { append_drop_right_rec(s, t, n); }
+    }
+  }
+
+  lemma take_zero()
+    ensures forall s: T, n: Int :: {take(s, n)} n <= 0 ==> take(s, n) == empty
+  {}
+
+  lemma drop_zero()
+    ensures forall s: T, n: Int :: {drop(s, n)} n <= 0 ==> drop(s, n) == s
+  {}
+
+  lemma take_all()
+    ensures forall s: T, n: Int :: {take(s, n)} n >= length(s) ==> take(s, n) == s
+  {
+    assert forall s: T, n: Int :: {take(s, n)} n >= length(s) ==> take(s, n) == s with {
+      if (length(s) <= n) { take_all_rec(s, n); }
+    }
+  }
+
+  lemma drop_all()
+    ensures forall s: T, n: Int :: {drop(s, n)} n >= length(s) ==> drop(s, n) == empty
+  {
+    assert forall s: T, n: Int :: {drop(s, n)} n >= length(s) ==> drop(s, n) == empty with {
+      if (length(s) <= n) { drop_all_rec(s, n); }
+    }
+  }
+
+  lemma contains1()
+    ensures forall s: T, x: E :: {contains(s, x)}
+      contains(s, x) ==>
+        0 <= skolem(s, x) && skolem(s, x) < length(s) && index(s, skolem(s, x)) == x
+  {
+    assert forall s: T, x: E :: {contains(s, x)}
+      contains(s, x) ==>
+        0 <= skolem(s, x) && skolem(s, x) < length(s) && index(s, skolem(s, x)) == x with {
+      if (contains(s, x)) { contains_skolem_rec(s, x); }
+    }
+  }
+
+  lemma contains2()
+    ensures forall s: T, x: E, i: Int :: {contains(s, x), index(s, i)}
+      0 <= i && i < length(s) && index(s, i) == x ==> contains(s, x)
+  {
+    assert forall s: T, x: E, i: Int :: {contains(s, x), index(s, i)}
+      0 <= i && i < length(s) && index(s, i) == x ==> contains(s, x) with {
+      if (0 <= i && i < length(s) && index(s, i) == x) { index_contains_rec(s, x, i); }
+    }
+  }
+
+  lemma contains_trigger_def()
+    ensures forall s: T, i: Int :: {index(s, i)}
+      0 <= i && i < length(s) ==> contains_trigger(s, index(s, i))
+  {
+    assert forall s: T, i: Int :: {index(s, i)}
+      0 <= i && i < length(s) ==> contains_trigger(s, index(s, i)) with {
+      if (0 <= i && i < length(s)) { index_contains_rec(s, index(s, i), i); }
+    }
+  }
+
+  lemma equal_def()
+    ensures forall s0: T, s1: T :: {equal(s0, s1)}
+      (s0 == s1 && equal(s0, s1)) ||
+      (s0 != s1 && !equal(s0, s1) && length(s0) != length(s1)) ||
+      (s0 != s1 && !equal(s0, s1) && length(s0) == length(s1) &&
+        skolem_diff(s0, s1) == skolem_diff(s1, s0) &&
+        0 <= skolem_diff(s0, s1) && skolem_diff(s0, s1) < length(s0) &&
+        index(s0, skolem_diff(s0, s1)) != index(s1, skolem_diff(s0, s1)))
+  {
+    // The extra triggers let this fact prove the postcondition even when Z3 does not
+    // consider equal(s0, s1) relevant there.
+    assert forall s0: T, s1: T :: {equal(s0, s1)} {skolem_diff(s0, s1)} {length(s0), length(s1)}
+      (s0 == s1 && equal(s0, s1)) ||
+      (s0 != s1 && !equal(s0, s1) && length(s0) != length(s1)) ||
+      (s0 != s1 && !equal(s0, s1) && length(s0) == length(s1) &&
+        skolem_diff(s0, s1) == skolem_diff(s1, s0) &&
+        0 <= skolem_diff(s0, s1) && skolem_diff(s0, s1) < length(s0) &&
+        index(s0, skolem_diff(s0, s1)) != index(s1, skolem_diff(s0, s1))) with {
+      if (s0 != s1 && length(s0) == length(s1)) { skolem_diff_rec(s0, s1); }
+    }
+  }
+
+  lemma equal_ext()
+    ensures forall a: T, b: T :: {equal(a, b)} equal(a, b) ==> a == b
+  {}
+
+  lemma singleton_contains()
+    ensures forall x: E, y: E :: {contains(singleton(x), y)}
+      contains(singleton(x), y) <=> x == y
+  {}
+}
+
 // An ordered type
 interface OrderedType : Type {
     

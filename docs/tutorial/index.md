@@ -73,7 +73,9 @@ checked answers.
   operation the standard library doesn't provide, in ordinary Raven.
 - **[C. Coming From Viper, Dafny, or Iris](./appendix/from-other-tools.md)**
 - **[D. Beyond This Tutorial: the Extension API](./appendix/extension-api.md)**
-- **[E. Where to Go Next](./appendix/where-next.md)**
+- **[E. Standard Library Data Types](./appendix/stdlib-types/)**: options, lists, and
+  sequences.
+- **[F. Where to Go Next](./appendix/where-next.md)**
 
 ## Prerequisites
 

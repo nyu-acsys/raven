@@ -96,6 +96,10 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:fetch-and-max': 'Worked example: fetch-and-max',
   'sec:dcas': 'Worked example: two locations at once',
   'sec:atomic-block-standalone': 'atomic { } on its own',
+  'sec:stdlib-instances': 'Getting an instance',
+  'sec:stdlib-option': 'Options',
+  'sec:stdlib-list': 'Lists',
+  'sec:stdlib-seq': 'Sequences',
   'sec:trust-boundary': 'Where the trust boundary is',
   'sec:when-extension-api': 'When you need the Extension API',
 
@@ -360,7 +364,13 @@ export default defineConfig({
             items: numberedItems('/tutorial/appendix/from-other-tools.html')
           },
           { text: 'D. The Extension API', link: '/tutorial/appendix/extension-api' },
-          { text: 'E. Where to Go Next', link: '/tutorial/appendix/where-next' }
+          {
+            text: 'E. Standard Library Data Types',
+            link: '/tutorial/appendix/stdlib-types/',
+            collapsed: true,
+            items: numberedItems('/tutorial/appendix/stdlib-types/')
+          },
+          { text: 'F. Where to Go Next', link: '/tutorial/appendix/where-next' }
         ]
       }
       ]

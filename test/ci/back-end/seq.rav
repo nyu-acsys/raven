@@ -1,0 +1,31 @@
+// Clients of Library.Seq reason about sequences through SeqSpec's lemmas.
+
+module IntSeq = Library.Seq[Library.IntType]
+
+lemma operations(x: Int, y: Int)
+{
+  val s: IntSeq.T := IntSeq.append(IntSeq.singleton(x), IntSeq.singleton(y));
+  assert IntSeq.length(s) == 2;
+  assert IntSeq.index(s, 0) == x;
+  assert IntSeq.index(s, 1) == y;
+  assert IntSeq.contains(s, y);
+
+  val t: IntSeq.T := IntSeq.update(s, 0, y);
+  assert IntSeq.index(t, 0) == y;
+  assert IntSeq.length(IntSeq.take(s, 1)) == 1;
+  assert IntSeq.index(IntSeq.drop(s, 1), 0) == y;
+}
+
+lemma extensionality(x: Int, y: Int)
+{
+  val s: IntSeq.T := IntSeq.append(IntSeq.singleton(x), IntSeq.singleton(y));
+  assert IntSeq.equal(IntSeq.take(s, 1), IntSeq.singleton(x));
+  assert IntSeq.take(s, 1) == IntSeq.singleton(x);
+}
+
+lemma as_type(s: Library.Seq[Int], t: Library.Seq[Int])
+  requires Library.Seq.length(s) == 3
+{
+  var u := Library.Seq.append(s, t);
+  assert Library.Seq.length(u) >= 3;
+}
