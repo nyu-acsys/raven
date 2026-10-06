@@ -169,7 +169,7 @@ If you've intentionally changed verifier output, accept the new output with:
 ```bash
 $ dune promote
 ```
-Other flags useful during development: `--typeonly` (type-check only), `--verbosity=debug` (also writes `front_end_processed_output.log`, the elaborated AST, and `log.smt2`, the SMT queries submitted to Z3, to the working directory).
+Other flags useful during development: `--typeonly` (type-check only), `--verbosity=debug` (also writes `front_end_output.log`, the elaborated program, `lowered_output.log`, the program lowered for the SMT encoding, and `log.smt2`, the SMT queries submitted to Z3, to the working directory).
 
 
 ## Raven Verifier Manual

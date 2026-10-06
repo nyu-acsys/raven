@@ -118,8 +118,9 @@ let type_cu ~ext_hooks config tbl md =
     (see [Rewrites.process_module_front]). Every unit goes through [elaborate_cu] before
     any goes through [lower_cu]. Returns [None] when there is nothing to backend-check
     (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
-let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) =
+let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
+  let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
   if config.typecheck_only then (tbl, None) else
 
@@ -138,6 +139,9 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) =
     Stdlib.exit 0
   else
     let tbl, md = Rewrites.process_module_front ~tbl ~ext_hooks ~cli_config md in
+    Stdlib.Format.fprintf
+      (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
+      "%a\n" printers.pr_module md;
     (tbl, Some md)
 
 (** Lowers an elaborated compilation unit (see [Lowering.lower_module]), returning it
@@ -146,7 +150,7 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) =
     (see [Backend.TupleArities]) can be computed from the fully lowered symbol table -- of
     both the library and the main program -- before any backend checking (and hence any
     tuple-sort declaration) begins. *)
-let lower_cu ~ext_hooks config tbl md front_end_out_chan =
+let lower_cu ~ext_hooks config tbl md lowered_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
@@ -158,7 +162,7 @@ let lower_cu ~ext_hooks config tbl md front_end_out_chan =
   Logs.info (fun m -> m "Front-end processing successful.");
 
   Stdlib.Format.fprintf
-    (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
+    (Stdlib.Format.formatter_of_out_channel lowered_out_chan)
     "%a\n" printers.pr_module processed_md;
 
   (tbl, (processed_md, lemma_calls))
@@ -187,7 +191,8 @@ let parse_and_check_all ~extension_mode config file_names =
   (* Start backend solver session *)
 
   (* Variable which controls whether the
-    - `front_end_processed_output.log`
+    - `front_end_output.log` (the elaborated program)
+    - `lowered_output.log` (the lowered program)
     - `log.smt2`
     files are created.
     At present create them only when in Debug mode and also not in lsp_mode.
@@ -203,13 +208,12 @@ let parse_and_check_all ~extension_mode config file_names =
   let smt_env = Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout in
   Stdlib.Fun.protect ~finally:(fun () -> Backend.Smt_solver.stop smt_env) @@ fun () ->
 
-  let front_end_processed_output_log = "front_end_processed_output.log" in
-  let front_end_out_chan =
-    if external_logging then
-      Stdio.Out_channel.create front_end_processed_output_log
-    else
-      Util.Channel.null_channel ()
+  let debug_out_chan file_name =
+    if external_logging then Stdio.Out_channel.create file_name
+    else Util.Channel.null_channel ()
   in
+  let front_end_out_chan = debug_out_chan "front_end_output.log" in
+  let lowered_out_chan = debug_out_chan "lowered_output.log" in
 
   (* Parse and check actual input program *)
   let rec parse_prog parsed to_parse prog =
@@ -320,11 +324,12 @@ let parse_and_check_all ~extension_mode config file_names =
      processing generates. *)
   let typed = List.filter_opt [ lib_typed; Some prog_typed ] in
   let tbl, elaborated =
-    List.fold_map typed ~init:tbl ~f:(fun tbl md -> elaborate_cu ~ext_hooks config tbl md)
+    List.fold_map typed ~init:tbl ~f:(fun tbl md ->
+        elaborate_cu ~ext_hooks config tbl md front_end_out_chan)
   in
   let tbl, processed =
     List.fold_map (List.filter_opt elaborated) ~init:tbl ~f:(fun tbl md ->
-        lower_cu ~ext_hooks config tbl md front_end_out_chan)
+        lower_cu ~ext_hooks config tbl md lowered_out_chan)
   in
 
   begin
