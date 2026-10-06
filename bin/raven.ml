@@ -114,16 +114,11 @@ let type_cu ~ext_hooks config tbl md =
   Logs.info (fun m -> m "Type-checking successful.");
   (tbl, processed_md)
 
-(** Front-end-processes (rewrites) a single, already type-checked compilation unit, in two
-    halves (see [Rewrites.process_module_front]): every unit goes through [rewrite_cu_front]
-    before any goes through [rewrite_cu_back]. This is kept separate from the actual
-    backend/SMT checking ([backend_check_cu] below) so that the full set of tuple sorts a
-    program needs (see [Backend.TupleArities]) can be computed from the fully elaborated
-    symbol table -- of both the library and the main program -- before any backend checking
-    (and hence any tuple-sort declaration) begins. Returns [None] when there is nothing to
-    backend-check (`--typeonly`); the `--stats` short-circuit below exits the process
-    directly. *)
-let rewrite_cu_front ~ext_hooks config tbl (md : Ast.Module.t) =
+(** Runs the front end's rewrites over a single, already type-checked compilation unit
+    (see [Rewrites.process_module_front]). Every unit goes through [elaborate_cu] before
+    any goes through [lower_cu]. Returns [None] when there is nothing to backend-check
+    (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
+let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
 
   if config.typecheck_only then (tbl, None) else
@@ -142,17 +137,21 @@ let rewrite_cu_front ~ext_hooks config tbl (md : Ast.Module.t) =
     );
     Stdlib.exit 0
   else
-    let tbl, md, scc_map = Rewrites.process_module_front ~tbl ~ext_hooks ~cli_config md in
-    (tbl, Some (md, scc_map))
+    let tbl, md = Rewrites.process_module_front ~tbl ~ext_hooks ~cli_config md in
+    (tbl, Some md)
 
-(** Returns the processed module together with its lemma call graph (see
-    [CallGraph.lemma_calls]). *)
-let rewrite_cu_back ~ext_hooks config tbl (md, scc_map) front_end_out_chan =
+(** Lowers an elaborated compilation unit (see [Lowering.lower_module]), returning it
+    together with its lemma call graph. This is kept separate from the actual backend/SMT
+    checking ([backend_check_cu] below) so that the full set of tuple sorts a program needs
+    (see [Backend.TupleArities]) can be computed from the fully lowered symbol table -- of
+    both the library and the main program -- before any backend checking (and hence any
+    tuple-sort declaration) begins. *)
+let lower_cu ~ext_hooks config tbl md front_end_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
   let tbl, processed_md, lemma_calls =
-    Rewrites.process_module_back ~tbl ~ext_hooks ~cli_config scc_map md
+    Lowering.lower_module ~tbl ~ext_hooks ~cli_config md
   in
 
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
@@ -315,17 +314,17 @@ let parse_and_check_all ~extension_mode config file_names =
 
   let tbl, prog_typed = type_cu ~ext_hooks config tbl md in
 
-  (* Both units are type-checked before either is rewritten -- see [type_cu]. The
-     library is rewritten first all the same, since rewriting the program needs the
-     artifacts the library's own rewrite generates. Both go through the front half of
-     the rewrites before either goes through the back half (see [rewrite_cu_front]). *)
+  (* Both units are type-checked before either is rewritten -- see [type_cu] -- and
+     elaborated before either is lowered -- see [elaborate_cu]. The library goes first
+     each time, since processing the program needs the artifacts the library's own
+     processing generates. *)
   let typed = List.filter_opt [ lib_typed; Some prog_typed ] in
-  let tbl, fronts =
-    List.fold_map typed ~init:tbl ~f:(fun tbl md -> rewrite_cu_front ~ext_hooks config tbl md)
+  let tbl, elaborated =
+    List.fold_map typed ~init:tbl ~f:(fun tbl md -> elaborate_cu ~ext_hooks config tbl md)
   in
   let tbl, processed =
-    List.fold_map (List.filter_opt fronts) ~init:tbl ~f:(fun tbl front ->
-        rewrite_cu_back ~ext_hooks config tbl front front_end_out_chan)
+    List.fold_map (List.filter_opt elaborated) ~init:tbl ~f:(fun tbl md ->
+        lower_cu ~ext_hooks config tbl md front_end_out_chan)
   in
 
   begin

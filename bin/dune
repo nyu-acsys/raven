@@ -16,6 +16,7 @@
   ast
   frontend
   rewrites
+  lowering
   backend
   library)
  (preprocess

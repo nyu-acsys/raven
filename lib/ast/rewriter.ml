@@ -565,7 +565,7 @@ type printers = {
 (** The extension-aware sibling of AstDef's default printers ([Type.pr], [Stmt.pr],
     etc.): built from the given extension hooks. Use this (rather than the bare
     [Type.pr]/[Stmt.pr]/...) in debug logging or error messages that might run over
-    an AST that can still contain [*_ext] nodes, i.e. before [Rewrites.process_module]
+    an AST that can still contain [*_ext] nodes, i.e. before [Rewrites.process_module_front]
     has rewritten them away. Most callers want [current_printers] below, which reads
     the hooks out of the active [Rewriter.t] state; this pure version exists for the
     handful of call sites (e.g. [bin/raven.ml]) that only have an [ext_hooks] value,
