@@ -64,9 +64,9 @@ const PART_LABELS = {
 const APPENDICES = [
   'tutorial/appendix/resource-algebras',
   'tutorial/appendix/hardware-primitives/',
+  'tutorial/appendix/stdlib-types/',
   'tutorial/appendix/from-other-tools',
   'tutorial/appendix/extension-api',
-  'tutorial/appendix/stdlib-types/',
   'tutorial/appendix/where-next',
 ]
 
