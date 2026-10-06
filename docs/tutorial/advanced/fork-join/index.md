@@ -133,7 +133,7 @@ like `Counter`'s `valid` in Part 3, and never at the top level of a module.
 `token_unique` isn't a law of nature. It has to come from *some* resource algebra whose
 composition rule makes two `token`s contradictory. This is a good point to name the general
 mechanism: any proof can define its own proof-specific resource algebra to use as a ghost field's
-type, simply by implementing the `Library.ResourceAlgebra` interface. Appendix A gives the full
+type, simply by implementing the `Library.ResourceAlgebra` interface. {{ref app:resource-algebras}} gives the full
 formal picture. `Excl` provides exactly what is needed in this proof, a token that can never be
 duplicated, because composing two non-`id` elements always produces the invalid `top`:
 
@@ -148,7 +148,7 @@ module Excl : Library.ResourceAlgebra {
 }
 ```
 
-Every `ResourceAlgebra` axiom (Appendix A) either follows immediately from this `case` split or,
+Every `ResourceAlgebra` axiom ({{ref app:resource-algebras}}) either follows immediately from this `case` split or,
 in the case of `fpuAllowed` (always `false` here), is vacuously satisfied, since an algebra that never allows an
 update trivially satisfies whatever soundness condition that update would have needed. With
 `ghost field ex: Excl` and `pred token(p: Ref) { own(p.ex, Excl.excl) }`, `token_unique` gets a
@@ -190,7 +190,7 @@ establish `ensures token(p)`, since nothing about `own(p.ex, Excl.excl)` is visi
 This call sits inside a `{! ... !}` ghost block (the syntax from
 {{ref sec:ghost-blocks-erasure}}), since its condition depends on a ghost variable and an
 ordinary `if` in a `proc` can't branch on ghost state. You'll see the same `{! !}` syntax again
-in Appendix A if you go looking for more resource-algebra examples. Every one of these steps is
+in {{ref app:resource-algebras}} if you go looking for more resource-algebra examples. Every one of these steps is
 mechanical. They are driven entirely by `Excl`'s composition rule and never require any
 case-by-case reasoning on your part. This is exactly the kind of bookkeeping that `auto`
 predicates are designed to eliminate. Mark `token` as `auto`:

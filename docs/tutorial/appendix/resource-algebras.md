@@ -1,4 +1,4 @@
-# Appendix A: Resource Algebras, Formally
+# Resource Algebras, Formally
 
 Part 4 introduced `Library.Frac`, `Library.Auth`, and `Library.MaxNat` by what problem each
 solves. This appendix gives the formal definition underneath them, for readers who want the

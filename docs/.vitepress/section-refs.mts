@@ -11,7 +11,9 @@
 //    recomputed from.
 // 2. Cross-references: `{{ref sec:some-id}}` anywhere in prose expands to a
 //    real hyperlink to that section, with its *current* number as the link
-//    text (`§1.1`). Referencing an id that doesn't exist in the registry
+//    text (`§1.1`), and `{{ref app:name}}` to one to an appendix, with its
+//    current letter (`Appendix A`). An appendix's title gets the same
+//    "Appendix A: " prefix. Referencing an id that doesn't exist in the registry
 //    (a typo, or a section that got renamed/removed) throws and fails the
 //    build -- a broken cross-reference should never silently render as
 //    dead or stale text.
@@ -43,6 +45,11 @@ export function installSectionRefs(md: any, { base }: { base: string }) {
   md.renderer.rules.heading_open = (tokens: any, idx: number, options: any, env: any, self: any) => {
     const token = tokens[idx]
     const rendered = defaultHeadingOpen(tokens, idx, options, env, self)
+    if (token.tag === 'h1') {
+      const { pages } = registryFor(env)
+      const page = Object.values(pages).find((p: any) => p.file === env.relativePath) as any
+      return page ? `${rendered}Appendix ${page.label}: ` : rendered
+    }
     if (token.tag !== 'h2') return rendered
     const { sections } = registryFor(env)
     const section = sections[token.attrGet('id')]
@@ -54,7 +61,25 @@ export function installSectionRefs(md: any, { base }: { base: string }) {
     const close = state.src.indexOf('}}', state.pos)
     if (close === -1) return false
     const id = state.src.slice(state.pos + REF_OPEN.length, close).trim()
-    const { sections } = registryFor(state.env)
+    const { sections, pages } = registryFor(state.env)
+    if (id.startsWith('app:')) {
+      const page = pages[id]
+      if (!page) {
+        throw new Error(
+          `{{ref ${id}}} does not match any appendix in the section registry ` +
+          `(near byte ${state.pos} of ${state.env?.relativePath ?? '(unknown file)'})`
+        )
+      }
+      if (!silent) {
+        const open = state.push('link_open', 'a', 1)
+        open.attrSet('href', `${base}${page.path.slice(1)}`)
+        const text = state.push('text', '', 0)
+        text.content = `Appendix ${page.label}`
+        state.push('link_close', 'a', -1)
+      }
+      state.pos = close + 2
+      return true
+    }
     const section = sections[id]
     if (!section) {
       throw new Error(

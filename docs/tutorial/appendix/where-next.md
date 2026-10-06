@@ -1,4 +1,4 @@
-# Appendix F: Where to Go Next
+# Where to Go Next
 
 The main repository contains many more worked examples than this tutorial covers:
 

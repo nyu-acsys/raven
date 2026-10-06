@@ -285,13 +285,13 @@ slowdown in detail after the fact.
 You've now seen everything this tutorial set out to cover. The appendices provide additional
 material:
 
-- Appendix A works through the formal definition of resource algebras, for readers who want the
+- {{ref app:resource-algebras}} works through the formal definition of resource algebras, for readers who want the
   Part 4 constructions justified rather than just motivated.
-- Appendix B shows how to add an atomic hardware primitive that the standard library doesn't
+- {{ref app:hardware-primitives}} shows how to add an atomic hardware primitive that the standard library doesn't
   provide, without touching the verifier.
-- Appendix C is a quick dictionary for readers coming from Viper, Dafny, or Iris.
-- Appendix D points to the Extension API, for readers who want to add new front-end syntax
+- {{ref app:from-other-tools}} is a quick dictionary for readers coming from Viper, Dafny, or Iris.
+- {{ref app:extension-api}} points to the Extension API, for readers who want to add new front-end syntax
   rather than just write proofs.
-- Appendix E describes the data types of the standard library that the main tutorial doesn't
+- {{ref app:stdlib-types}} describes the data types of the standard library that the main tutorial doesn't
   use: options, lists, and sequences.
-- Appendix F has pointers to more worked examples than this tutorial covers.
+- {{ref app:where-next}} has pointers to more worked examples than this tutorial covers.

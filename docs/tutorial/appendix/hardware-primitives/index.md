@@ -1,4 +1,4 @@
-# Appendix B: Adding a Hardware Primitive
+# Adding a Hardware Primitive
 
 *Assumes: {{ref sec:threads-and-atomics}} (atomic heap operations), Part 3 (interfaces and
 functors), and {{ref sec:au-mechanics}} (atomic contracts and `bindAU`/`openAU`/

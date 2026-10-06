@@ -13,7 +13,7 @@ import { installSectionRefs } from './section-refs.mts'
 // throws if a numbered section is missing one, so an added section can't
 // silently end up with no sidebar entry.
 const sectionRegistryPath = fileURLToPath(new URL('./section-registry.json', import.meta.url))
-const { sections, pagesOrder } = JSON.parse(readFileSync(sectionRegistryPath, 'utf-8'))
+const { sections, pagesOrder, pages } = JSON.parse(readFileSync(sectionRegistryPath, 'utf-8'))
 
 const SIDEBAR_LABELS: Record<string, string> = {
   'sec:install': 'Install',
@@ -108,6 +108,16 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:from-iris': 'From Iris'
 }
 
+// Short sidebar labels for the appendices, whose letters come from the registry.
+const APPENDIX_LABELS: Record<string, string> = {
+  'app:resource-algebras': 'Resource Algebras, Formally',
+  'app:hardware-primitives': 'Adding a Hardware Primitive',
+  'app:from-other-tools': 'Coming From Viper, Dafny, or Iris',
+  'app:extension-api': 'The Extension API',
+  'app:stdlib-types': 'Standard Library Data Types',
+  'app:where-next': 'Where to Go Next'
+}
+
 function numberedItems(pageKey: string) {
   const ids: string[] = pagesOrder[pageKey] ?? []
   return ids.map((id) => {
@@ -116,6 +126,18 @@ function numberedItems(pageKey: string) {
     if (!label) throw new Error(`No SIDEBAR_LABELS entry for ${id} (${pageKey}) -- add one in config.mts`)
     return { text: `${section.number}. ${label}`, link: `${pageKey}#${section.anchor}` }
   })
+}
+
+function appendixItems() {
+  return Object.entries(pages)
+    .sort(([, p1]: any, [, p2]: any) => p1.label.localeCompare(p2.label))
+    .map(([id, page]: [string, any]) => {
+      const label = APPENDIX_LABELS[id]
+      if (!label) throw new Error(`No APPENDIX_LABELS entry for ${id} -- add one in config.mts`)
+      const item = { text: `${page.label}. ${label}`, link: page.path.replace(/\.html$/, '') }
+      const items = numberedItems(page.path)
+      return items.length > 0 ? { ...item, collapsed: true, items } : item
+    })
 }
 
 // Without this, VitePress treats any relative link ending in an extension it
@@ -344,34 +366,7 @@ export default defineConfig({
       {
         text: 'Appendices',
         collapsed: true,
-        items: [
-          {
-            text: 'A. Resource Algebras, Formally',
-            link: '/tutorial/appendix/resource-algebras',
-            collapsed: true,
-            items: numberedItems('/tutorial/appendix/resource-algebras.html')
-          },
-          {
-            text: 'B. Adding a Hardware Primitive',
-            link: '/tutorial/appendix/hardware-primitives/',
-            collapsed: true,
-            items: numberedItems('/tutorial/appendix/hardware-primitives/')
-          },
-          {
-            text: 'C. Coming From Viper, Dafny, or Iris',
-            link: '/tutorial/appendix/from-other-tools',
-            collapsed: true,
-            items: numberedItems('/tutorial/appendix/from-other-tools.html')
-          },
-          { text: 'D. The Extension API', link: '/tutorial/appendix/extension-api' },
-          {
-            text: 'E. Standard Library Data Types',
-            link: '/tutorial/appendix/stdlib-types/',
-            collapsed: true,
-            items: numberedItems('/tutorial/appendix/stdlib-types/')
-          },
-          { text: 'F. Where to Go Next', link: '/tutorial/appendix/where-next' }
-        ]
+        items: appendixItems()
       }
       ]
     },

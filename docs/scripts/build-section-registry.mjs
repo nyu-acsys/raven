@@ -54,9 +54,28 @@ const PART_LABELS = {
   'tutorial/advanced/iterated-star/': '5.3',
   'tutorial/advanced/prophecies/': '5.4',
   'tutorial/advanced/automation/': '5.5',
-  'tutorial/appendix/resource-algebras': 'A',
-  'tutorial/appendix/hardware-primitives/': 'B',
-  'tutorial/appendix/from-other-tools': 'C',
+}
+
+// The appendices, in order. Each one's letter is its position in this list:
+// it numbers the appendix's sections, prefixes its title ("Appendix A: ..."),
+// and is the text of every `{{ref app:<name>}}` to it, where <name> is the
+// page's file or directory name. Reordering or inserting an appendix is a
+// change to this list alone.
+const APPENDICES = [
+  'tutorial/appendix/resource-algebras',
+  'tutorial/appendix/hardware-primitives/',
+  'tutorial/appendix/from-other-tools',
+  'tutorial/appendix/extension-api',
+  'tutorial/appendix/stdlib-types/',
+  'tutorial/appendix/where-next',
+]
+
+APPENDICES.forEach((pageKey, i) => {
+  PART_LABELS[pageKey] = String.fromCharCode('A'.charCodeAt(0) + i)
+})
+
+function appendixId(pageKey) {
+  return `app:${pageKey.replace(/\/$/, '').split('/').pop()}`
 }
 
 const HEADING_RE = /^##(?!#)[ \t]+(.+?)[ \t]*\{#(sec:[A-Za-z0-9-]+)\}[ \t]*$/gm
@@ -76,15 +95,19 @@ export function buildRegistry() {
 
   const sections = {}
   const pagesOrder = {}
+  const pages = {}
 
   for (const file of mdFiles) {
     const relPosix = relative(docsRoot, file).split(sep).join('/')
     const isIndex = relPosix.endsWith('/index.md')
     const pageKey = isIndex ? relPosix.slice(0, -'index.md'.length) : relPosix.slice(0, -'.md'.length)
     const partLabel = PART_LABELS[pageKey]
-    if (!partLabel) continue // page has no numbered sections (overview pages, appendices D/E)
+    if (!partLabel) continue // page has no numbered sections (overview pages)
 
     const urlPath = isIndex ? `/${pageKey}` : `/${pageKey}.html`
+    if (APPENDICES.includes(pageKey)) {
+      pages[appendixId(pageKey)] = { label: partLabel, path: urlPath, file: relPosix }
+    }
 
     const content = readFileSync(file, 'utf-8')
     const ids = []
@@ -104,13 +127,17 @@ export function buildRegistry() {
     pagesOrder[urlPath] = ids
   }
 
-  return { sections, pagesOrder }
+  for (const pageKey of APPENDICES) {
+    if (!pages[appendixId(pageKey)]) throw new Error(`No page for appendix ${pageKey}`)
+  }
+
+  return { sections, pagesOrder, pages }
 }
 
 // Only write the JSON snapshot when run directly as a script (the
 // `predev`/`prebuild` hooks), not when imported by `section-refs.mts`.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { sections, pagesOrder } = buildRegistry()
-  writeFileSync(outPath, JSON.stringify({ sections, pagesOrder }, null, 2) + '\n')
+  const { sections, pagesOrder, pages } = buildRegistry()
+  writeFileSync(outPath, JSON.stringify({ sections, pagesOrder, pages }, null, 2) + '\n')
   console.log(`section-registry: ${Object.keys(sections).length} numbered sections across ${Object.keys(pagesOrder).length} pages`)
 }

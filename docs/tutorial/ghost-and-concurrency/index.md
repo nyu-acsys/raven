@@ -156,7 +156,7 @@ Raven ships a small library of these constructions under `Library`:
 - `Auth`, an authoritative view plus distributable fragments,
 - monotone counters like `MaxNat`.
 
-You can also define your own. Part 5.1 does exactly that, and Appendix A gives the formal
+You can also define your own. Part 5.1 does exactly that, and {{ref app:resource-algebras}} gives the formal
 definition that every such algebra has to satisfy.
 
 ## Frame-preserving updates {#sec:frame-preserving-updates}

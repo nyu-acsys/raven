@@ -1,4 +1,4 @@
-# Appendix D: Beyond This Tutorial: the Extension API
+# Beyond This Tutorial: the Extension API
 
 Everything in this tutorial is about writing *proofs* in Raven's existing language. A different,
 more specialized audience instead wants to *extend* Raven's language itself, adding new types,
@@ -24,7 +24,7 @@ syntax compiles into one parser), and optionally a `.rav` library of definitions
 alongside the standard library.
 
 Note what is *not* on that list. New operations, including atomic hardware primitives, do not
-need an extension at all. They are ordinary procedures, and Appendix B works through one from
+need an extension at all. They are ordinary procedures, and {{ref app:hardware-primitives}} works through one from
 scratch. The Extension API is for new **syntax**: a form of type, expression, statement, or
 contract clause the parser does not have. Reach for it only once you have established that a
 procedure will not do.

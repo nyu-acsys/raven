@@ -429,7 +429,7 @@ linearization point is decided by a *different* thread's successful `cas`. For e
 or `remove`, just as `get` here can have its answer settled by a concurrent `incr`. Registering a
 helping cell in a shared invariant, and having every mutating operation check the registry after
 its own physical step, carries over almost one-to-one. `test/ext/prophecy/rdcss.rav` (mentioned
-again in Appendix F) applies the same two ingredients, prophecy and helping, to restricted
+again in {{ref app:where-next}}) applies the same two ingredients, prophecy and helping, to restricted
 double-compare-single-swap. This is a real building block for software transactional memory, not
 just a teaching example. It's more than just a harder version of this capstone. It uses
 *multi-shot* prophecies, predicting the schedules of every interfering thread in advance, which

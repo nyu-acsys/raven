@@ -68,14 +68,14 @@ checked answers.
 
 ## Appendices
 
-- **[A. Resource Algebras, Formally](./appendix/resource-algebras.md)**
-- **[B. Adding a Hardware Primitive](./appendix/hardware-primitives/)**: writing an atomic
+- **{{ref app:resource-algebras}}: Resource Algebras, Formally**
+- **{{ref app:hardware-primitives}}: Adding a Hardware Primitive**: writing an atomic
   operation the standard library doesn't provide, in ordinary Raven.
-- **[C. Coming From Viper, Dafny, or Iris](./appendix/from-other-tools.md)**
-- **[D. Beyond This Tutorial: the Extension API](./appendix/extension-api.md)**
-- **[E. Standard Library Data Types](./appendix/stdlib-types/)**: options, lists, and
+- **{{ref app:from-other-tools}}: Coming From Viper, Dafny, or Iris**
+- **{{ref app:extension-api}}: Beyond This Tutorial: the Extension API**
+- **{{ref app:stdlib-types}}: Standard Library Data Types**: options, lists, and
   sequences.
-- **[F. Where to Go Next](./appendix/where-next.md)**
+- **{{ref app:where-next}}: Where to Go Next**
 
 ## Prerequisites
 

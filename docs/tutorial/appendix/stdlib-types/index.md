@@ -1,4 +1,4 @@
-# Appendix E: Standard Library Data Types
+# Standard Library Data Types
 
 *Assumes: {{ref sec:algebraic-data-types}} (data types and `match`) and Part 3 (functors).*
 

@@ -341,7 +341,7 @@ restrictions. Only a functor (a module with parameters) can be sealed. It names 
 interface. And the seal belongs to the functor's definition, so `module M :> I = F[A]` is
 rejected.
 
-The standard library's sequences, `Library.Seq`, are a sealed functor as well. Appendix E
+The standard library's sequences, `Library.Seq`, are a sealed functor as well. {{ref app:stdlib-types}}
 describes them, along with the library's other data types.
 
 ## `import` {#sec:import}
