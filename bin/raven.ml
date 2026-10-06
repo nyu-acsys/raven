@@ -119,9 +119,9 @@ let type_cu ~ext_hooks config tbl md =
     that the full set of tuple sorts a program needs (see [Backend.TupleArities]) can be
     computed from the fully elaborated symbol table -- of both the library and the main
     program -- before any backend checking (and hence any tuple-sort declaration) begins.
-    Returns [None] in place of the processed module when there is nothing to
-    backend-check (`--typeonly`); the `--stats` short-circuit below exits the process
-    directly, as before. *)
+    Returns the processed module together with its lemma call graph (see
+    [CallGraph.lemma_calls]), or [None] when there is nothing to backend-check
+    (`--typeonly`); the `--stats` short-circuit below exits the process directly. *)
 let rewrite_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
@@ -143,7 +143,9 @@ let rewrite_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     Stdlib.exit 0
   else begin
 
-  let tbl, processed_md = Rewrites.process_module ~tbl ~ext_hooks ~cli_config md in
+  let tbl, processed_md, lemma_calls =
+    Rewrites.process_module ~tbl ~ext_hooks ~cli_config md
+  in
 
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
@@ -152,7 +154,7 @@ let rewrite_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     (Stdlib.Format.formatter_of_out_channel front_end_out_chan)
     "%a\n" printers.pr_module processed_md;
 
-  (tbl, Some processed_md)
+  (tbl, Some (processed_md, lemma_calls))
   end
 
 (** Runs backend/SMT checking over every already-elaborated compilation unit together (the
@@ -160,8 +162,12 @@ let rewrite_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     nested inside the other -- see [Backend.Dependencies.analyze]'s doc comment -- so they
     have to be checked as one combined call for [Backend.Checker.check_members]'s hierarchical
     scoping to see both sides of that sharing). *)
-let backend_check_cu tbl smt_env processed_mds =
-  Backend.Checker.check_module processed_mds tbl smt_env
+let backend_check_cu tbl smt_env processed =
+  let processed_mds, lemma_calls = List.unzip processed in
+  let lemma_calls =
+    List.fold lemma_calls ~init:Ast.CallGraph.Graph.empty ~f:Ast.CallGraph.Graph.union
+  in
+  Backend.Checker.check_module processed_mds lemma_calls tbl smt_env
 
 
 (** Parse and check all compilation units in files [file_names]. [extension_mode] picks

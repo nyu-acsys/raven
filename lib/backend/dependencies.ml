@@ -98,9 +98,11 @@ let compute_placements (symbols: QualIdent.t list list) (g: Graph.t) (full_g: Gr
     dependency graph of every module in [mdefs], treated as siblings under an implicit root
     (this is how the library and the program being checked actually relate: two separate
     top-level symbol-table entries, not one nested inside the other), together with each
-    SCC's [compute_placements] scope. [tbl] is the symbol table shared by all of [mdefs]. *)
-let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (root_auto_g: Graph.t)
-  : (Ident.t list * QualIdent.t list) list * Graph.t =
+    SCC's [compute_placements] scope, and the graph of explicit dependencies (without
+    auto-lemma edges). [tbl] is the symbol table shared by all of [mdefs]. [lemma_calls]
+    adds the lemma-to-callee edges that call elaboration removed from the AST. *)
+let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (lemma_calls: Graph.t) (root_auto_g: Graph.t)
+  : (Ident.t list * QualIdent.t list) list * Graph.t * Graph.t =
   let rec inst_dependencies todos covered g auto_g root_auto_g =
     let res =
       let open Option.Syntax in
@@ -123,7 +125,13 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (root_auto_g: Graph.t)
               let orig_auto_deps = Graph.succs root_auto_g orig_qid in
               let auto_deps = Set.map (module QualIdent) orig_auto_deps ~f:(QualIdent.requalify subst) in
               Callable.symbols call_def, auto_deps
-            | Pred | Invariant | Lemma | Proc ->
+            | Lemma ->
+              let callees =
+                Set.map (module QualIdent) (Graph.succs lemma_calls orig_qid)
+                  ~f:(QualIdent.requalify subst)
+              in
+              Set.union (Callable.symbols call_def) callees, Graph.empty_vertex_set
+            | Pred | Invariant | Proc ->
               Callable.symbols call_def, Graph.empty_vertex_set
           end
         | VarDef var_def ->
@@ -174,4 +182,4 @@ let analyze (tbl: SymbolTbl.t) (mdefs: Module.t list) (root_auto_g: Graph.t)
   in
   let scs = Graph.topsort (Graph.union g full_g) in
   let symbols = List.map scs ~f:(List.sort ~compare:(fun v1 v2 -> compare (Map.find_exn rank v1) (Map.find_exn rank v2))) in
-  compute_placements symbols g full_g, root_auto_g1
+  compute_placements symbols g full_g, g, root_auto_g1

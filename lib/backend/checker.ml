@@ -254,72 +254,67 @@ let check_callable (fully_qual_name : qual_ident) (callable : Ast.Callable.t) :
            (see [Rewrites.rewrite_add_func_contract_lemmas]), not here. *)
         assume_expr spec_expr)
   | ProcDef proc_def -> (
-      let* _ =
-        match proc_def.proc_body with
-        | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
-            let* _ = push in
-            let* _ =
-              write_comment
-                (Stdlib.Format.asprintf "Checking %a" QualIdent.pr
-                   fully_qual_name)
-            in
+      match proc_def.proc_body with
+      | Some stmt when not (is_free callable.call_decl.call_decl_status) ->
+          let* _ = push in
+          let* _ =
+            write_comment
+              (Stdlib.Format.asprintf "Checking %a" QualIdent.pr
+                 fully_qual_name)
+          in
 
-            let* _ =
-              State.List.iter
-                (call_decl.call_decl_formals @ call_decl.call_decl_returns
-               @ call_decl.call_decl_locals)
-                ~f:(fun local ->
-                  write
-                    (mk_declare_const
-                       (QualIdent.from_ident local.var_name)
-                       local.var_type))
-            in
+          let* _ =
+            State.List.iter
+              (call_decl.call_decl_formals @ call_decl.call_decl_returns
+             @ call_decl.call_decl_locals)
+              ~f:(fun local ->
+                write
+                  (mk_declare_const
+                     (QualIdent.from_ident local.var_name)
+                     local.var_type))
+          in
 
-            let* _ = check_stmt fully_qual_name stmt in
+          let* _ = check_stmt fully_qual_name stmt in
 
-            let* _ = pop in
+          pop
+      | _ ->
+        Logs.debug (fun m -> m "Skipping %b" (is_free callable.call_decl.call_decl_status));
+        State.return ())
 
-            State.return ()
-        | _ ->
-          Logs.debug (fun m -> m "Skipping %b" (is_free callable.call_decl.call_decl_status));
-          State.return ()
-      in
+let is_auto_lemma (callable : Ast.Callable.t) =
+  match callable with
+  | { call_def = ProcDef _; call_decl = { call_decl_kind = Lemma; call_decl_is_auto = true; _ } } ->
+      true
+  | _ -> false
 
-      (* State.return () *)
-      match (call_decl.call_decl_kind, call_decl.call_decl_is_auto) with
-      | Lemma, true ->
-        let* _ =
-          write_comment
-            (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr
-               fully_qual_name)
-        in
-        begin
-          match call_decl.call_decl_precond with
-          | [] ->
-            assume_expr
-              (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals
-                (Expr.mk_and
-                  (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                    spec.spec_form))))
-          | _ ->
-            assume_expr
-              (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals 
-                (Expr.mk_impl
-                  (Expr.mk_and
-                    (List.map call_decl.call_decl_precond ~f:(fun spec ->
-                      spec.spec_form)))
-                  (Expr.mk_and
-                    (List.map call_decl.call_decl_postcond ~f:(fun spec ->
-                      spec.spec_form)))))
-        end
-      | _ -> State.return ())
+(** Assumes the contract of the auto lemma [callable]. *)
+let assume_auto_lemma (fully_qual_name : qual_ident) (callable : Ast.Callable.t) : unit t =
+  let open State.Syntax in
+  let call_decl = callable.call_decl in
+  let* _ =
+    write_comment
+      (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr fully_qual_name)
+  in
+  let postcond =
+    Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form))
+  in
+  let body =
+    match call_decl.call_decl_precond with
+    | [] -> postcond
+    | precond ->
+        Expr.mk_impl
+          (Expr.mk_and (List.map precond ~f:(fun spec -> spec.spec_form)))
+          postcond
+  in
+  assume_expr
+    (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals body)
 
 (** Declares and checks a single SCC ([dep], as returned by [Dependencies.analyze]) at
     whatever scope is currently open -- the caller ([check_members]) is responsible for
     getting that scope right first. Function symbols get their [declare-fun] before anything
     in the group is checked (so mutually-recursive references resolve), likewise datatypes
     before their constructors/destructors are used; both match [check_member]'s own needs. *)
-let declare_and_check_dep (tbl : SymbolTbl.t) (dep : QualIdent.t list) : unit t =
+let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t) (dep : QualIdent.t list) : unit t =
   let open Rewriter.Syntax in
   let declare_fn (fully_qual_name: qual_ident) (sym: Module.symbol) : unit t =
     match sym with
@@ -398,7 +393,46 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (dep : QualIdent.t list) : unit t 
       ()
   in
 
-  State.List.iter dep_sym ~f:(fun (qual_name, sym) -> check_member qual_name sym)
+  (* An auto lemma is assumed only once every member of the SCC that its proof depends on
+     has been checked, so that no proof can rely on its own conclusion. *)
+  let members = Set.of_list (module QualIdent) dep in
+  let proof_deps qid =
+    let rec reach seen = function
+      | [] -> seen
+      | v :: todo ->
+          let next =
+            Set.filter (Dependencies.Graph.succs g v) ~f:(fun w ->
+              Set.mem members w && not (Set.mem seen w))
+          in
+          reach (Set.union seen next) (Set.to_list next @ todo)
+    in
+    reach (Set.singleton (module QualIdent) qid) [ qid ]
+  in
+  let auto_lemmas =
+    List.filter_map dep_sym ~f:(function
+      | qual_name, Module.CallDef callable when is_auto_lemma callable ->
+          Some (qual_name, callable, proof_deps qual_name)
+      | _ -> None)
+  in
+  let assume_ready checked pending =
+    let ready, pending =
+      List.partition_tf pending ~f:(fun (_, _, deps) -> Set.is_subset deps ~of_:checked)
+    in
+    let+ _ =
+      State.List.iter ready ~f:(fun (qual_name, callable, _) ->
+          assume_auto_lemma qual_name callable)
+    in
+    pending
+  in
+  let+ _ =
+    State.List.fold_left dep_sym ~init:(Set.empty (module QualIdent), auto_lemmas)
+      ~f:(fun (checked, pending) (qual_name, sym) ->
+        let* _ = check_member qual_name sym in
+        let checked = Set.add checked qual_name in
+        let+ pending = assume_ready checked pending in
+        (checked, pending))
+  in
+  ()
 
 (** A tree grouping the SCCs of [placed] by the module-path scope
     [Dependencies.compute_placements] assigned each one, mirroring the nesting those paths
@@ -447,14 +481,14 @@ end
     placement is always an ancestor of everywhere it's used, never a sibling or a descendant
     -- see [Dependencies.compute_placements]), so it's always safe to declare a node's own
     members first and only then open its children's scopes. *)
-let check_members (placed : (Ident.t list * QualIdent.t list) list) tbl =
+let check_members (placed : (Ident.t list * QualIdent.t list) list) (g : Dependencies.Graph.t) tbl =
   Logs.debug(fun m -> m "Checker.check_members: placed= %a"
       (Util.Print.pr_list_nl (fun ppf (path, dep) ->
            Stdlib.Format.fprintf ppf "@[%a@] : %a" (Util.Print.pr_list_comma Ident.pr) path (Util.Print.pr_list_comma QualIdent.pr) dep))
       placed );
   let open Rewriter.Syntax in
   let rec walk (node : PathTree.t) : unit t =
-    let* _ = State.List.iter (List.rev node.own_rev) ~f:(declare_and_check_dep tbl) in
+    let* _ = State.List.iter (List.rev node.own_rev) ~f:(declare_and_check_dep tbl g) in
     State.List.iter (List.rev node.child_order_rev) ~f:(fun id ->
       let child = Hashtbl.find_exn node.children id in
       let* _ = push in
@@ -464,9 +498,11 @@ let check_members (placed : (Ident.t list * QualIdent.t list) list) tbl =
   in
   walk (PathTree.of_placed placed)
 
-let check_module (module_defs : Ast.Module.t list) (tbl : SymbolTbl.t)
-    (smt_env : smt_env) : smt_env =
-  let dependencies, auto_dependencies = Dependencies.analyze tbl module_defs smt_env.auto_dependencies in
+let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.Graph.t)
+    (tbl : SymbolTbl.t) (smt_env : smt_env) : smt_env =
+  let dependencies, deps_graph, auto_dependencies =
+    Dependencies.analyze tbl module_defs lemma_calls smt_env.auto_dependencies
+  in
 
   Logs.debug (fun m ->
       m "Dependencies: %a"
@@ -478,6 +514,6 @@ let check_module (module_defs : Ast.Module.t list) (tbl : SymbolTbl.t)
 
   let smt_env, _ =
     State.eval
-      (check_members dependencies tbl) smt_env
+      (check_members dependencies deps_graph tbl) smt_env
   in
   smt_env

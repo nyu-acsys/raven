@@ -1,0 +1,30 @@
+// An auto lemma must not be assumed while proving the helper lemma that its own
+// proof calls. Here the helper is false for `nil`, so it must fail to verify.
+
+module F {
+  rep type T = data { case nil case cons(hd: Int, tl: T) }
+
+  func length(s: T) returns (ret: Int)
+    decreases s
+  { s == nil ? -1 : 1 + length(s.tl) }
+
+  auto lemma length_nonneg()
+    ensures forall s: T :: {length(s)} 0 <= length(s)
+  {
+    assert forall s: T :: {length(s)} 0 <= length(s) with {
+      length_nonneg_rec(s);
+    }
+  }
+
+  lemma length_nonneg_rec(s: T)
+    ensures 0 <= length(s)
+    decreases s
+  { if (s != nil) { length_nonneg_rec(s.tl); } }
+}
+
+module Client {
+  lemma use_length()
+  {
+    assert F.length(F.nil) >= 0;
+  }
+}

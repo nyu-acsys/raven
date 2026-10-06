@@ -1,0 +1,22 @@
+// An auto lemma that is mutually recursive with a helper must not be assumed while
+// proving the helper. Here both are false for 0, so the helper must fail to verify.
+
+module F {
+  func f(n: Int) returns (r: Int)
+    decreases n
+  { n <= 0 ? -1 : f(n - 1) }
+
+  auto lemma f_nonneg(n: Int)
+    requires n >= 0
+    ensures f(n) >= 0
+    decreases n, 1
+  {
+    helper(n);
+  }
+
+  lemma helper(n: Int)
+    requires n >= 0
+    ensures f(n) >= 0
+    decreases n, 0
+  { if (n > 0) { f_nonneg(n - 1); } }
+}

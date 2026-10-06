@@ -48,3 +48,40 @@ let build (tbl : SymbolTbl.t) (mdef : Module.t) : Graph.t =
   in
   let _, g = Rewriter.eval ~update:false (analyze_module Graph.empty mdef) tbl in
   g
+
+(** Edges from each lemma in [mdef] to the callables its body calls. Must run before
+    calls are elaborated into their callees' contracts, which erases these edges from
+    the AST although a lemma's proof still depends on its callees being proved first. *)
+let lemma_calls (tbl : SymbolTbl.t) (mdef : Module.t) : Graph.t =
+  let open Module in
+  let open Rewriter.Syntax in
+  let rec stmt_calls acc (s : Stmt.t) =
+    match s.stmt_desc with
+    | Block b -> List.fold b.block_body ~init:acc ~f:stmt_calls
+    | Basic (Call call_desc) -> call_desc.call_name :: acc
+    | Basic _ | StmtExt _ -> acc
+    | Loop l -> stmt_calls (stmt_calls acc l.loop_prebody) l.loop_postbody
+    | Cond c -> stmt_calls (stmt_calls acc c.cond_then) c.cond_else
+  in
+  let rec analyze_symbol (g : Graph.t) sym =
+    match sym with
+    | ModDef mod_def -> analyze_module g mod_def
+    | CallDef
+        { call_decl = { call_decl_kind = Lemma; _ };
+          call_def = ProcDef { proc_body = Some body } } ->
+      let* qid = Rewriter.resolve (Symbol.to_name sym |> QualIdent.from_ident) in
+      let+ callees = Rewriter.List.map (stmt_calls [] body) ~f:Rewriter.resolve in
+      Graph.add_edges g qid (Set.of_list (module QualIdent) callees)
+    | _ -> Rewriter.return g
+  and analyze_module g mdef =
+    let* _ = Rewriter.enter_module mdef in
+    let* g =
+      Rewriter.List.fold_left mdef.mod_def ~init:g ~f:(fun g -> function
+          | SymbolDef s -> analyze_symbol g s
+          | _ -> Rewriter.return g)
+    in
+    let+ _ = Rewriter.exit_module mdef in
+    g
+  in
+  let _, g = Rewriter.eval ~update:false (analyze_module Graph.empty mdef) tbl in
+  g
