@@ -1,0 +1,17 @@
+// As in inv_implicit_arg_change.rav, but the unfold writes the implicit
+// argument and the fold leaves it out.
+import Library.IntAtomics._
+
+field f: Int
+
+inv i(x: Ref; v: Int) {
+  own(x.f, v, 1.0)
+}
+
+proc bump(x: Ref, implicit ghost v: Int)
+  requires i(x, v)
+{
+  unfold i(x, v);
+  val y := faa(x.f, 1);
+  fold i(x);
+}

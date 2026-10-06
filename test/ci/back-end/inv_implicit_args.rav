@@ -1,0 +1,29 @@
+// An invariant's implicit arguments may be left out at unfold and fold, as
+// long as closing restores them.
+import Library.IntAtomics._
+
+field f: Int
+
+inv i(x: Ref; v: Int) {
+  own(x.f, v, 1.0)
+}
+
+proc read(x: Ref, implicit ghost v: Int)
+  returns (y: Int)
+  requires i(x, v)
+  ensures y == v
+{
+  unfold i(x);
+  y := x.f;
+  fold i(x);
+}
+
+proc read_mixed(x: Ref, implicit ghost v: Int)
+  returns (y: Int)
+  requires i(x, v)
+  ensures y == v
+{
+  unfold i(x);
+  y := x.f;
+  fold i(x, v);
+}

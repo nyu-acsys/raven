@@ -2226,6 +2226,9 @@ let rec rewrite_new_fpu_stmt_heap_arg (stmt : Stmt.t) : Stmt.t Rewriter.t =
       Rewriter.return { stmt with stmt_desc = Basic (Fpu new_fpu_desc) }
   | _ -> Rewriter.Stmt.descend stmt ~f:rewrite_new_fpu_stmt_heap_arg
 
+(* Adds a lemma checking that two instances of a predicate or invariant held at
+   the same time agree on their implicit parameters if they agree on the explicit
+   ones. *)
 let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
     Callable.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -2241,7 +2244,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
           in
 
           let formal_args, renaming_map1, renaming_map2, postconds =
-            let renamings, in_args =
+            let renamings, explicit_args =
               List.fold_map c.call_decl.call_decl_formals
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun acc_renamings var_decl ->
@@ -2261,7 +2264,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
                     new_var_decl ))
             in
 
-            let renamings1, out_args1 =
+            let renamings1, implicit_args1 =
               List.fold_map rets ~init:renamings
                 ~f:(fun acc_renamings var_decl ->
                   let new_var_decl =
@@ -2280,7 +2283,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
                     new_var_decl ))
             in
 
-            let renamings2, out_args2 =
+            let renamings2, implicit_args2 =
               List.fold_map rets ~init:renamings
                 ~f:(fun acc_renamings var_decl ->
                   let new_var_decl =
@@ -2300,21 +2303,21 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
             in
 
             let postconds =
-              List.map2_exn out_args1 out_args2 ~f:(fun out_arg1 out_arg2 ->
+              List.map2_exn implicit_args1 implicit_args2 ~f:(fun implicit_arg1 implicit_arg2 ->
                   let spec_expr =
                     (Expr.mk_eq ~loc:(Expr.to_loc body)
-                       (Expr.from_var_decl out_arg1)
-                       (Expr.from_var_decl out_arg2))
+                       (Expr.from_var_decl implicit_arg1)
+                       (Expr.from_var_decl implicit_arg2))
                   in
                   let error =
                     (Error.Verification,
-                     out_arg1.var_loc,
-                     "This output parameter may not be uniquely determined by the input parameter(s)")
+                     implicit_arg1.var_loc,
+                     "Two instances held at the same time that agree on the explicit parameters may disagree on this implicit parameter")
                   in
                   Stmt.mk_spec ~spec_error:[fun _ _ -> error] spec_expr)
             in
 
-            (in_args @ out_args1 @ out_args2, renamings1, renamings2, postconds)
+            (explicit_args @ implicit_args1 @ implicit_args2, renamings1, renamings2, postconds)
           in
 
           (*let postcond =

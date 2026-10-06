@@ -58,27 +58,37 @@ let substitute_and_truncate_mask ~(mentioned_formals : Type.var_decl list)
    than papered over by inferring it from the callee's mask. *)
 
 (* Walks an expression collecting every [Pred]/[Invariant] application
-   (declaration, kind, and its own argument list) reachable through
-   [App]/[Binder] nesting -- the same traversal shape (and same [Pred] |
+   (declaration, kind, arguments, and number of explicit parameters) reachable
+   through [App]/[Binder] nesting -- the same traversal shape (and same [Pred] |
    [Invariant] filter) as [ProgUtils.expr_preds_mentioned], just
    additionally keeping each application's kind and arguments. *)
-let rec expr_inv_applications (expr : Expr.t) :
-    ((QualIdent.t * Callable.call_kind * Expr.t list) list, 'a) Rewriter.t_ext
+let rec inv_applications (expr : Expr.t) :
+    ((QualIdent.t * Callable.call_kind * Expr.t list * int) list, 'a) Rewriter.t_ext
     =
   let open Rewriter.Syntax in
   match expr with
   | Expr.App (Expr.Var qual_ident, args, _) ->
       let* _, (_, symbol, _) = Rewriter.resolve_and_find qual_ident in
-      let* nested = Rewriter.List.map args ~f:expr_inv_applications in
+      let* nested = Rewriter.List.map args ~f:inv_applications in
       let nested = List.concat nested in
       (match symbol with
-      | Module.CallDef { call_decl = { call_decl_kind = (Pred | Invariant) as kind; _ }; _ } ->
-          Rewriter.return ((qual_ident, kind, args) :: nested)
+      | Module.CallDef
+          { call_decl = { call_decl_kind = (Pred | Invariant) as kind; call_decl_formals; _ }; _ } ->
+          Rewriter.return ((qual_ident, kind, args, List.length call_decl_formals) :: nested)
       | _ -> Rewriter.return nested)
   | Expr.App (_, args, _) ->
-      let+ nested = Rewriter.List.map args ~f:expr_inv_applications in
+      let+ nested = Rewriter.List.map args ~f:inv_applications in
       List.concat nested
-  | Expr.Binder (_, _, _, body, _) -> expr_inv_applications body
+  | Expr.Binder (_, _, _, body, _) -> inv_applications body
+
+(* With [~explicit_only], the implicit arguments (after the `;`) are dropped,
+   which widens an entry to all instances with the same explicit arguments.
+   That is only sound for masks a callable needs, not for masks it grants. *)
+let expr_inv_applications ~explicit_only (expr : Expr.t) =
+  let open Rewriter.Syntax in
+  let+ apps = inv_applications expr in
+  List.map apps ~f:(fun (qi, kind, args, n_explicit) ->
+      (qi, kind, (if explicit_only then List.take args n_explicit else args)))
 
 let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ext
     =
@@ -107,7 +117,7 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
   in
   let* direct_applications =
     Rewriter.List.map c.call_decl.call_decl_precond ~f:(fun spec ->
-        let+ apps = expr_inv_applications spec.spec_form in
+        let+ apps = expr_inv_applications ~explicit_only:true spec.spec_form in
         List.map apps ~f:(fun (qi, kind, args) -> (qi, kind, args, spec.spec_atomic)))
   in
   let direct_applications = List.concat direct_applications in
@@ -235,7 +245,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
                that can collide with a more precise entry for the same
                declaration arriving via a different path -- if it's
                skipped). *)
-            let* applications = expr_inv_applications body in
+            let* applications = expr_inv_applications ~explicit_only:true body in
             let direct_entries =
               applications
               |> List.filter_map ~f:(fun (qi, kind, args) ->
@@ -371,7 +381,7 @@ let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
         in
         let* ensures_applications =
           Rewriter.List.map c.call_decl.call_decl_postcond ~f:(fun spec ->
-              let+ apps = expr_inv_applications spec.spec_form in
+              let+ apps = expr_inv_applications ~explicit_only:false spec.spec_form in
               List.map apps ~f:(fun (qi, kind, args) ->
                   (qi, kind, args, spec.spec_atomic)))
         in

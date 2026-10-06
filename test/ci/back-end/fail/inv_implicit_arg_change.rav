@@ -1,0 +1,18 @@
+// Closing an invariant must not change its implicit arguments, even when
+// neither the unfold nor the fold writes them.
+import Library.IntAtomics._
+
+field f: Int
+
+inv i(x: Ref; v: Int) {
+  own(x.f, v, 1.0)
+}
+
+proc bump(x: Ref, implicit ghost v: Int)
+  requires i(x, v)
+  ensures i(x, v + 1)
+{
+  unfold i(x);
+  val y := faa(x.f, 1);
+  fold i(x);
+}
