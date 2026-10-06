@@ -27,12 +27,12 @@ let lhs_list_loc ~fallback_loc es =
    categories. *)
 %public type_expr:
 | PROPH LBRACKET t=type_expr RBRACKET {
-  Type.mk_app ~loc:(Loc.make $startpos $endpos) (TypeExt (ProphId false)) [t]
+  Type.mk_app ~loc:(Loc.make $symbolstartpos $endpos) (TypeExt (ProphId false)) [t]
 }
 | PROPH LBRACKET t=type_expr COMMA n=CONSTVAL RBRACKET {
   match n with
-  | Expr.Int 1L -> Type.mk_app ~loc:(Loc.make $startpos $endpos) (TypeExt (ProphId true)) [t]
-  | _ -> Error.syntax_error (Loc.make $startpos $endpos) "Proph[T, n] only supports n = 1 (one-shot); omit the second argument for a multi-shot prophecy"
+  | Expr.Int 1L -> Type.mk_app ~loc:(Loc.make $symbolstartpos $endpos) (TypeExt (ProphId true)) [t]
+  | _ -> Error.syntax_error (Loc.make $symbolstartpos $endpos) "Proph[T, n] only supports n = 1 (one-shot); omit the second argument for a multi-shot prophecy"
 }
 
 %public unary_expr:
@@ -40,7 +40,7 @@ let lhs_list_loc ~fallback_loc es =
   (* `false`/`Type.any` are placeholders; type-checking replaces both once it knows,
      from `e1`'s `Proph[...]` type, whether this is the one-shot or multi-shot
      resource, and its element type. *)
-  Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (ProphResource (false, Type.any))) [e1; e2]
+  Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt (ProphResource (false, Type.any))) [e1; e2]
 }
 
 %public assign_rhs:

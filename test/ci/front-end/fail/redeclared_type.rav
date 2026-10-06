@@ -1,0 +1,5 @@
+// The error points at the second declaration of K, not at the end of the
+// preceding line.
+module F[K: Library.Type] {
+  type K = K
+}

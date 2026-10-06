@@ -25,7 +25,7 @@ open Ext.MatchExtInstance
 %public eq_expr:
 | e = rel_expr; IS; c = decl_name {
     let ctor_qi = QualIdent.from_ident c in
-    Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (Is ctor_qi)) [e]
+    Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt (Is ctor_qi)) [e]
   }
 
 (* `match` is fully bracketed (leading `MATCH` keyword, trailing `RBRACE`), so it's an
@@ -40,7 +40,7 @@ open Ext.MatchExtInstance
 %public unary_expr:
 | MATCH; e = expr; LBRACE; arms = separated_list(option(SEMICOLON), match_arm_expr); RBRACE {
     let arm_list, bodies = List.split arms in
-    Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt (MatchExpr arm_list)) (e :: bodies)
+    Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt (MatchExpr arm_list)) (e :: bodies)
   }
 
 (* `_` is not a dedicated token -- like `import M._`'s own wildcard (see

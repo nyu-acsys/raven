@@ -225,7 +225,7 @@ field_def:
                field_type = Type.mk_fld (Loc.make $startpos(t) $endpos(t)) t |> Type.set_ghost g;
                field_is_ghost = g;
                field_alias = None;
-               field_loc = Loc.make $startpos $endpos
+               field_loc = Loc.make $symbolstartpos $endpos
            }
     in
     decl
@@ -239,7 +239,7 @@ field_def:
                field_type = Type.mk_fld (Loc.make $startpos(target) $endpos(target)) Type.any |> Type.set_ghost g;
                field_is_ghost = g;
                field_alias = Some (Expr.to_qual_ident target);
-               field_loc = Loc.make $startpos $endpos
+               field_loc = Loc.make $symbolstartpos $endpos
            }
     in
     decl
@@ -254,7 +254,7 @@ type_def:
 type_def_expr:
 | t = type_expr { t }
 | DATA; LBRACE; decls = separated_list(option(SEMICOLON), variant_decl) RBRACE {
-  Type.mk_data (QualIdent.from_ident (Ident.make Loc.dummy "" 0)) decls (Loc.make $startpos $endpos)
+  Type.mk_data (QualIdent.from_ident (Ident.make Loc.dummy "" 0)) decls (Loc.make $symbolstartpos $endpos)
 }
 
 variant_decl:
@@ -339,7 +339,7 @@ module_param:
              mod_inst_def = None;
              mod_inst_is_interface = false;
              mod_inst_is_free = false;
-             mod_inst_loc = Loc.make $startpos $endpos;
+             mod_inst_loc = Loc.make $symbolstartpos $endpos;
            }
   in
   decl
@@ -354,9 +354,9 @@ import_dir:
   let import_name =
     if import_all then QualIdent.pop ident else ident
   in
-  { import_name; import_all; import_loc = Loc.make $startpos $endpos }
+  { import_name; import_all; import_loc = Loc.make $symbolstartpos $endpos }
 }
-| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_loc = Loc.make $startpos $endpos } }
+| IMPORT; id = mod_ident { { import_name = id; import_all = false; import_loc = Loc.make $symbolstartpos $endpos } }
     
 type_decl:
 | m = type_mod; TYPE; id = MODIDENT {
@@ -365,7 +365,7 @@ type_decl:
              type_def_expr = None;
              type_def_rep = m;
              type_def_is_free = false;
-             type_def_loc = Loc.make $startpos $endpos }
+             type_def_loc = Loc.make $symbolstartpos $endpos }
   in
   ta
 }
@@ -462,7 +462,7 @@ formal_with_loc:
 | m = var_modifier; x = IDENT; DOT; f = qual_ident {
   let implicit, ghost = m in
   if implicit || ghost then
-    Error.syntax_error (Loc.make $startpos $endpos)
+    Error.syntax_error (Loc.make $symbolstartpos $endpos)
       "A location parameter such as 'x.f' cannot be ghost or implicit";
   `Loc (Expr.to_qual_ident f,
         Type.mk_var_decl ~loc:(Loc.make $startpos(x) $endpos(x)) x Type.ref)
@@ -482,7 +482,7 @@ formals_with_loc:
   in
   let locs, rest = leading [] fs in
   if List.exists (function `Loc _ -> true | `Var _ -> false) rest then
-    Error.syntax_error (Loc.make $startpos $endpos)
+    Error.syntax_error (Loc.make $symbolstartpos $endpos)
       "Location parameters such as 'x.f' must come before ordinary ones";
   let flds =
     List.map (function `Loc (fld, _) -> fld | `Var _ -> assert false) locs
@@ -549,7 +549,7 @@ contract_mods:
 (** Statements *)
 
 stmt:
-| ss = stmt_desc { List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos $endpos }) ss }
+| ss = stmt_desc { List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $symbolstartpos $endpos }) ss }
 
 stmt_desc:
 | s = stmt_wo_trailing_substmt { s }
@@ -562,8 +562,8 @@ stmt_desc:
 
 stmt_no_short_if:
 | ss = stmt_no_short_if_desc {
-  Stmt.mk_block_stmt ~loc:(Loc.make $startpos $endpos) @@
-    List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $startpos $endpos }) ss
+  Stmt.mk_block_stmt ~loc:(Loc.make $symbolstartpos $endpos) @@
+    List.map (fun s -> Stmt.{ stmt_desc = s; stmt_loc = Loc.make $symbolstartpos $endpos }) ss
 }
     
     
@@ -913,9 +913,9 @@ loop_contract:
 (** Expressions *)
 
 primary:
-| c = CONSTVAL { Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) c []) }
+| c = CONSTVAL { Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) c []) }
 | LPAREN; es = separated_list(COMMA, expr); RPAREN {
-  Expr.mk_tuple ~loc:(Loc.make $startpos $endpos) es
+  Expr.mk_tuple ~loc:(Loc.make $symbolstartpos $endpos) es
 }
 | LPAREN; e = expr; COLON; t = type_expr; RPAREN {
   Expr.set_type_annot e (Some t)
@@ -929,13 +929,13 @@ primary:
 
 compr_expr:
 | LBRACEPIPE; es = separated_list(COMMA, expr); RBRACEPIPE {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Setenum es)
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Setenum es)
   }
 | LBRACEPIPE; v = bound_var; COLONCOLON; e = expr; RBRACEPIPE {
-    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~typ:Type.(mk_set (Loc.make $startpos $endpos) bot) Compr [v] e)
+    Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.(mk_set (Loc.make $symbolstartpos $endpos) bot) Compr [v] e)
   }
 | LBRACKETPIPE; v = bound_var; COLONCOLON; e = expr; RBRACKETPIPE {
-    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~typ:Type.(mk_map (Loc.make $startpos $endpos) any bot) Compr [v] e)
+    Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.(mk_map (Loc.make $symbolstartpos $endpos) any bot) Compr [v] e)
   }
 ;
   
@@ -946,30 +946,30 @@ dot_expr:
 
 own_expr:
 | OWN; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Own es)
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Own es)
 }
 
 choose_expr:
 | CHOOSE; LPAREN; e = expr; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Choose [e])
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Choose [e])
 }
 
 (*cas_expr:
 | CAS; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Cas es)
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Cas es)
 }*)
 
 au_expr:
 | AU; LT; qid = qual_ident; GT; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $startpos $endpos) (AUPred (Expr.to_qual_ident qid)) es)
+  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $symbolstartpos $endpos) (AUPred (Expr.to_qual_ident qid)) es)
 }
 | AUCOMMIT LT qid=qual_ident GT LPAREN es=expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $startpos $endpos) (AUPredCommit (Expr.to_qual_ident qid)) es)
+  Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $symbolstartpos $endpos) (AUPredCommit (Expr.to_qual_ident qid)) es)
 }
 
 call_expr:
 | p = qual_ident_expr; es = call {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Expr.Var (Expr.to_qual_ident p)) es)
 }
   
 call:
@@ -985,23 +985,23 @@ call_opt:
 | es = call { 
   fun p ->
     let p_ident = Expr.to_qual_ident p in
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc p) (Loc.make $startpos $endpos)) (Var p_ident) es)
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc p) (Loc.make $symbolstartpos $endpos)) (Var p_ident) es)
 }
 | (* empty *) { fun e -> e }
   
 qual_ident_expr:
 | x = qual_ident { x }
 | p = primary DOT x = qual_ident {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Read [p; x])
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Read [p; x])
 }
 | p = primary DOT LPAREN x = qual_ident RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Read [p; x])
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Read [p; x])
 }
 
 %public qual_ident:
 | x = ident { x }
 | m = mod_ident; DOT; x = IDENT {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.append m x)) [])
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
 }
  
 mod_ident:
@@ -1030,7 +1030,7 @@ mod_ident:
 
 %public ident:
 | x = decl_name {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident x)) []) }
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident x)) []) }
 ;
 
 lookup_or_update_expr:
@@ -1046,18 +1046,18 @@ lookup_or_update_opt:
 | LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET cont = lookup_or_update_opt {
   fun e ->
     let e_upd =
-      Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc e) (Loc.make $startpos $endpos)) MapUpdate [e; e2; e3])
+      Expr.(mk_app ~typ:Type.any ~loc:(Loc.merge (to_loc e) (Loc.make $symbolstartpos $endpos)) MapUpdate [e; e2; e3])
     in
     cont e_upd
 }
 | LBRACKET; e2 = expr; RBRACKET cont = lookup_or_update_opt {
   fun e1 ->
-    let e1_lookup = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) MapLookUp [e1; e2]) in
+    let e1_lookup = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) MapLookUp [e1; e2]) in
     cont e1_lookup
 }
 | n = HASH {
   let e2 = Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos(n) $endpos(n)) (Expr.Int n) []) in
-  fun e1 -> Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) TupleLookUp [e1; e2])
+  fun e1 -> Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) TupleLookUp [e1; e2])
 }
 
   
@@ -1065,12 +1065,12 @@ lookup_or_update_opt:
 | e = lookup_or_update_expr { e }
 (*| e = ident { e }*)
 | MINUS; e = unary_expr {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Uminus [e]) }
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Uminus [e]) }
 | e = unary_expr_not_plus_minus { e }
 ;
 
 unary_expr_not_plus_minus:
-| NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any Expr.Not [e] }
+| NOT; e = unary_expr  { Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any Expr.Not [e] }
 ;
 
 mult_op:
@@ -1080,7 +1080,7 @@ mult_op:
 mult_expr:
 | e = unary_expr { e }
 | e1 = mult_expr; op = mult_op; e2 = unary_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) op [e1; e2])
   }
 ;
 
@@ -1092,7 +1092,7 @@ add_op:
 add_expr:
 | e = mult_expr { e }
 | e1 = add_expr; op = add_op; e2 = mult_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) op [e1; e2])
   }
 ;
 
@@ -1104,7 +1104,7 @@ add_expr:
    is declared here directly, an ordinary alternative alongside RABINOPSYM. *)
 %public right_assoc_binary_op_ident:
 | op = RABINOPSYM { op }
-| COLONCOLON { Ident.make (Loc.make $startpos $endpos) "::" 0 }
+| COLONCOLON { Ident.make (Loc.make $symbolstartpos $endpos) "::" 0 }
 
 %public right_assoc_binary_op:
 | op = right_assoc_binary_op_ident { Expr.Var (QualIdent.from_ident op) }
@@ -1112,7 +1112,7 @@ add_expr:
 right_assoc_binary_op_expr:
 | e = add_expr { e }
 | e1 = add_expr; op = right_assoc_binary_op; e2 = right_assoc_binary_op_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) op [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) op [e1; e2])
 }
     
 %public rel_expr:
@@ -1122,10 +1122,10 @@ right_assoc_binary_op_expr:
   | _, comps -> Base.List.reduce_exn comps ~f:(fun e1 e2 -> Expr.mk_and ~loc:(Loc.merge (Expr.to_loc e1) (Expr.to_loc e2)) [e1; e2])
 }
 | e1 = rel_expr; IN; e2 = right_assoc_binary_op_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Elem [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Elem [e1; e2])
   } 
 | e1 = rel_expr; NOTIN; e2 = right_assoc_binary_op_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Elem [e1; e2]]) 
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Elem [e1; e2]]) 
   }
 ;
 
@@ -1156,33 +1156,33 @@ comp_seq:
 %public eq_expr:
 | e = rel_expr { e }
 | e1 = eq_expr; EQEQ; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Eq [e1; e2])
   }
 | e1 = eq_expr; NEQ; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Eq [e1; e2]])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Not [mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Eq [e1; e2]])
   }
 | e1 = eq_expr; op = EQOPSYM; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
   }
 ;
 
 and_expr:
 | e = eq_expr { e }
 | e1 = and_expr; AND; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) And [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) And [e1; e2])
   }
 | e1 = and_expr; op = ANDOPSYM; e2 = eq_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
   }
 ;
 
 or_expr:
 | e = and_expr { e }
 | e1 = or_expr; OR; e2 = and_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Or [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Or [e1; e2])
   }
 | e1 = or_expr; op = OROPSYM; e2 = and_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.from_ident op)) [e1; e2])
   }
 ;
 
@@ -1191,21 +1191,21 @@ or_expr:
 impl_expr:
 | e = or_expr { e }
 | e1 = or_expr; IMPLIES; e2 = impl_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Impl [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Impl [e1; e2])
   }
 ;
 
 iff_expr:
 | e = impl_expr { e }
 | e1 = iff_expr IFF e2 = iff_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Eq [e1; e2])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Eq [e1; e2])
   }
 ;
 
 ite_expr:
 | e = iff_expr { e }
 | e1 = ite_expr; QMARK; e2 = iff_expr; COLON; e3 = iff_expr {
-    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $startpos $endpos) Ite [e1; e2; e3])
+    Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Ite [e1; e2; e3])
   }
 ;
     
@@ -1218,7 +1218,7 @@ bound_var:
     let decl =
       Type.{ var_name = x;
              var_type = t;
-             var_loc = Loc.make $startpos $endpos;
+             var_loc = Loc.make $symbolstartpos $endpos;
              var_const = false;
              var_ghost = false;
              var_implicit = false;
@@ -1233,7 +1233,7 @@ bound_var_opt_type:
   let decl =
     Type.{ var_name = x;
            var_type = Type.mk_any Loc.dummy;
-           var_loc = Loc.make $startpos $endpos;
+           var_loc = Loc.make $symbolstartpos $endpos;
            var_const = true;
            var_ghost = false;
            var_implicit = false;
@@ -1245,7 +1245,7 @@ bound_var_opt_type:
   let decl =
     Type.{ var_name = x;
            var_type = t;
-           var_loc = Loc.make $startpos $endpos;
+           var_loc = Loc.make $symbolstartpos $endpos;
            var_const = true;
            var_ghost = false;
            var_implicit = false;
@@ -1256,11 +1256,11 @@ bound_var_opt_type:
 ;
 
 %public type_expr:
-| ct = CONSTTYPE { Type.mk_app ~loc:(Loc.make $startpos $endpos) ct [] }
-| ATOMICTOKEN LT qid = qual_ident GT { Type.mk_atomic_token (Loc.make $startpos $endpos) (Expr.to_qual_ident qid) }
+| ct = CONSTTYPE { Type.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ct [] }
+| ATOMICTOKEN LT qid = qual_ident GT { Type.mk_atomic_token (Loc.make $symbolstartpos $endpos) (Expr.to_qual_ident qid) }
 //| x = IDENT { Type.mk_var (QualIdent.from_ident x) }
 | ct = TYPECONSTR LBRACKET ts = separated_list(COMMA, type_expr) RBRACKET {
-  let loc = Loc.make $startpos $endpos in
+  let loc = Loc.make $symbolstartpos $endpos in
   if List.length ts <> snd ct then
     Error.syntax_error loc (Printf.sprintf "This type constructor expects %d argument(s)" (snd ct))
   else begin
@@ -1271,9 +1271,9 @@ bound_var_opt_type:
   end
   }
 | x = mod_ident { Type.mk_var x }
-| LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $startpos $endpos) ts }
+| LPAREN ts = separated_list(COMMA, type_expr) RPAREN { Type.mk_prod (Loc.make $symbolstartpos $endpos) ts }
 | x = mod_ident LBRACKET; ts = type_expr_list; RBRACKET {
-  Type.(App(Var x, ts, Type.mk_attr (Loc.make $startpos $endpos))) }
+  Type.(App(Var x, ts, Type.mk_attr (Loc.make $symbolstartpos $endpos))) }
     
   
 type_expr_list:
@@ -1292,7 +1292,7 @@ quant_vars:
 quant_expr: 
 | e = ite_expr { e }
 | q = QUANT; vs = quant_vars; COLONCOLON; trigs = patterns; e = quant_expr {
-    Expr.(mk_binder ~loc:(Loc.make $startpos $endpos) ~trigs q vs e)
+    Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~trigs q vs e)
   }
 ;
 

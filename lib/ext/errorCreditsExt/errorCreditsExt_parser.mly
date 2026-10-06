@@ -52,5 +52,5 @@ open Ext.ErrorCreditsExtInstance
 
 %public unary_expr:
 | EC DOT ECERROR; LPAREN e = expr RPAREN {
-  Expr.mk_app ~loc:(Loc.make $startpos $endpos) ~typ:Type.any (ExprExt ErrorCreds) [e]
+  Expr.mk_app ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.any (ExprExt ErrorCreds) [e]
 }
