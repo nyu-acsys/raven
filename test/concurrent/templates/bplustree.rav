@@ -210,7 +210,7 @@ interface BPlusTree[Key: Library.OrderedType] : NodeImpl {
     ghost var chlds: Map[Int, Ref];
     chlds :| AN.A.arr(n_ptrs, chlds);
     unfold AN.A.arr(n_ptrs, chlds);
-    var chld0: Ref := AN.A.loc(n_ptrs, 0).AN.A.value;
+    var chld0: Ref := n_ptrs[0];
     
     if (chld0 == null) {  // Leaf node
       fold AN.A.arr(n_ptrs, chlds);
@@ -228,14 +228,14 @@ interface BPlusTree[Key: Library.OrderedType] : NodeImpl {
     kmap :| AK.sorted_array_with_content(n_keys, n_len, kmap);
     unfold AK.sorted_array_with_content(n_keys, n_len, kmap);
     unfold AK.AU.A.arr(n_keys, kmap);
-    var n_keys_i: K := AK.AU.A.loc(n_keys, i).AK.AU.A.value;
+    var n_keys_i: K := n_keys[i];
     fold AK.AU.A.arr(n_keys, kmap);
 
     if (i < n_len && k == n_keys_i) {  // arr_find finds upper bound, we want lower
       i := i + 1;
     }
 
-    n1 := AN.A.loc(n_ptrs, i).AN.A.value;
+    n1 := n_ptrs[i];
     ret := true;
 
     fold AN.A.arr(n_ptrs, chlds);

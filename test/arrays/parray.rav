@@ -161,7 +161,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       L.release(lck, av.adata);
       fold parr(av.adata);
       unfold AU.A.arr(b);
-      AU.A.loc(b, av.index).AU.A.value := av.value;
+      b[av.index] := av.value;
       fold AU.A.arr(b, m);      
     }
     fold R.resource(pa, (len, m))[m1 := m1];
@@ -188,7 +188,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
   {
     val b := rebase(pa);
     unfold AU.A.arr(b);
-    res := AU.A.loc(b, x).AU.A.value;
+    res := b[x];
     fold AU.A.arr(b, m);
     fold R.resource(pa, (len, m));
     unfold parr(pa);
@@ -212,7 +212,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     if (d == AU.A.length(a)) {
       val b := AU.copy(a);
       unfold AU.A.arr(b);
-      AU.A.loc(b, x).AU.A.value := e;
+      b[x] := e;
       fold AU.A.arr(b, m[x := e]);
       unfold parr(pa);
       var lck := pa.lock;
@@ -229,8 +229,8 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       return pb;
     } else {
       unfold AU.A.arr(a);
-      val v := AU.A.loc(a, x).AU.A.value;
-      AU.A.loc(a, x).AU.A.value := e;
+      val v := a[x];
+      a[x] := e;
       fold AU.A.arr(a, m[x := e]);
       pb := new (lock: null, desc: base(a), dist: d + 1);
       fold R.resource(pb, (len, m[x := e]));

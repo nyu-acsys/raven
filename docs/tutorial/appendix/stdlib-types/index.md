@@ -161,10 +161,11 @@ library, which you can rely on instead of stating it yourself.
 
 You access entries by indexing, as with maps. `x := a[i]` reads the entry at index `i`,
 `a[i] := v` writes it, and `own(a[i], v)` owns it. These are short for `x := loc(a, i).value`,
-`loc(a, i).value := v`, and `own(loc(a, i).value, v)`. Unlike a map lookup, though, `a[i]` is not
-an expression. Like a field, an entry can only be read by an assignment, as in `x := a[i]` or
-`var x := a[i]`, or named as a location in `own`. A trigger therefore mentions the cell, as in
-`{loc(a, j)}` below.
+`loc(a, i).value := v`, and `own(loc(a, i).value, v)`. The atomic operations of
+{{ref sec:threads-and-atomics}} work on entries too, as in `faa(a[i], 1)`. Unlike a map lookup,
+though, `a[i]` is not an expression. Like a field, an entry can only be read by an assignment, as
+in `x := a[i]` or `var x := a[i]`, or named as a location, as in `own` and the atomic
+operations. A trigger therefore mentions the cell, as in `{loc(a, j)}` below.
 
 [`arrays.rav`](./arrays.rav) sets all entries of an array to the same value:
 

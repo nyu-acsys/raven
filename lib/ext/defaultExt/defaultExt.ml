@@ -77,6 +77,7 @@ module DefaultExt = struct
 
   (* Base of the chain: claims no core node. *)
   let claim_expr (_: Expr.constr) (_: expr list) (_: Expr.expr_attr) = Rewriter.return None
+  let claim_location (_: expr) = Rewriter.return None
   let claim_basic_stmt (_: Stmt.basic_stmt_desc) (_: location)
       (_: ProgUtils.DisambiguationTbl.t) (_: type_check_stmt_functs) =
     Rewriter.return None

@@ -9,14 +9,16 @@ open Util
 
     - `x := a[i]` and `var x := a[i]` read it,
     - `a[i] := v` writes it, which the parser turns into `a := a[i := v]`,
-    - `own(a[i], v)` and `own(a[i], v, p)` own it.
+    - `own(a[i], v)` owns it, and `faa(a[i], n)` and the other atomic operations of
+      the standard library operate on it, as on any location `x.f`.
 
     Any other use of `a[i]` or `a[i := v]` is an error, as expressions are pure. The
     core type checker rejects these constructs, since `a` is not a map, and offers them
-    to [claim_expr]/[claim_basic_stmt]. Type-checking a claimed construct produces the
-    corresponding field read, field write or `own` of the core, so none of this
-    extension's constructs remains after type checking, and an array access is one
-    atomic step like any other field access. *)
+    to [claim_expr]/[claim_basic_stmt], or to [claim_location] where it expects a field
+    location. Type-checking a claimed construct produces the corresponding field read or
+    field write of the core, and a claimed location is `loc(a, i).value`, so none of
+    this extension's constructs remains after type checking, and an array access is
+    one atomic step like any other field access. *)
 module ArrayExt (Cont : Ext) = struct
   include Cont
 
@@ -25,7 +27,6 @@ module ArrayExt (Cont : Ext) = struct
   type Expr.expr_ext +=
     | ArrayEntry  (** `a[i]` in an expression *)
     | ArrayUpdate  (** `a[i := v]` in an expression *)
-    | ArrayOwn  (** `own(a[i], v)`, operands as for the core's `own` *)
 
   type Stmt.stmt_ext +=
     | ArrayRead of { lhs : qual_ident list; is_init : bool }
@@ -78,12 +79,11 @@ module ArrayExt (Cont : Ext) = struct
     match expr_ext with
     | ArrayEntry -> "array entry"
     | ArrayUpdate -> "array update"
-    | ArrayOwn -> "own"
     | other -> Cont.expr_ext_to_string other
 
   let expr_ext_is_recognized (expr_ext : Expr.expr_ext) : bool =
     match expr_ext with
-    | ArrayEntry | ArrayUpdate | ArrayOwn -> true
+    | ArrayEntry | ArrayUpdate -> true
     | other -> Cont.expr_ext_is_recognized other
 
   let pr_basic_stmt_ext ppf (stmt_ext : Stmt.stmt_ext) (expr_list : expr list) =
@@ -117,10 +117,22 @@ module ArrayExt (Cont : Ext) = struct
       match (constr, expr_list) with
       | MapLookUp, [ base; _ ] -> claim_if_array base ArrayEntry
       | MapUpdate, [ base; _; _ ] -> claim_if_array base ArrayUpdate
-      | Own, App (MapLookUp, [ base; _ ], _) :: _ -> claim_if_array base ArrayOwn
       | _ -> Rewriter.return None
     in
     combine_claims expr_attr.expr_loc own (Cont.claim_expr constr expr_list expr_attr)
+
+  let claim_location (expr : expr) =
+    let open Rewriter.Syntax in
+    let loc = Expr.to_loc expr in
+    let* own =
+      match expr with
+      | App (MapLookUp, [ base; index ], _) ->
+          let+ inst = typed_array_instance base in
+          Option.map inst ~f:(fun inst ->
+              (cell ~loc inst base index, member ~loc inst "value"))
+      | _ -> Rewriter.return None
+    in
+    combine_claims loc own (Cont.claim_location expr)
 
   let claim_basic_stmt (stmt : Stmt.basic_stmt_desc) (loc : location)
       (disam_tbl : ProgUtils.DisambiguationTbl.t) (functs : type_check_stmt_functs) =
@@ -152,7 +164,7 @@ module ArrayExt (Cont : Ext) = struct
   let not_pure_error loc =
     Error.type_error loc
       "An array entry can only be read by an assignment `x := a[i]`, or named as a \
-       location in `own(a[i], v)`"
+       location, as in `own(a[i], v)`"
 
   let not_a_value_error loc =
     Error.type_error loc
@@ -165,17 +177,6 @@ module ArrayExt (Cont : Ext) = struct
     match (expr_ext, expr_list) with
     | ArrayEntry, _ -> not_pure_error loc
     | ArrayUpdate, _ -> not_a_value_error loc
-    | ArrayOwn, App (MapLookUp, [ base; index ], lookup_attr) :: rest -> (
-        let* inst = typed_array_instance base in
-        match inst with
-        | None -> Error.internal_error loc "ArrayExt: own of a non-array"
-        | Some inst ->
-            let location = lookup_attr.expr_loc in
-            functs.process_expr
-              (Expr.mk_app ~loc ~typ:Type.perm Own
-                 (cell ~loc:location inst base index :: value_field ~loc:location inst :: rest))
-              expected_typ)
-    | ArrayOwn, _ -> Error.internal_error loc "ArrayExt: malformed own"
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ functs
 
   let type_check_basic_stmt (call_decl : Callable.call_decl) (stmt_ext : Stmt.stmt_ext)

@@ -2,13 +2,13 @@
   [Error] File "./array_index_expr.rav", line 8, columns 8-11:
   8 |   x := a[0] + 1;
               ^^^
-  Type Error: An array entry can only be read by an assignment `x := a[i]`, or named as a location in `own(a[i], v)`.
+  Type Error: An array entry can only be read by an assignment `x := a[i]`, or named as a location, as in `own(a[i], v)`.
   [1]
   $ dune exec -- raven --shh ./array_index_spec.rav
   [Error] File "./array_index_spec.rav", line 8, columns 10-13:
   8 |   assert a[0] == 1;
                 ^^^
-  Type Error: An array entry can only be read by an assignment `x := a[i]`, or named as a location in `own(a[i], v)`.
+  Type Error: An array entry can only be read by an assignment `x := a[i]`, or named as a location, as in `own(a[i], v)`.
   [1]
   $ dune exec -- raven --shh ./array_index_update.rav
   [Error] File "./array_index_update.rav", line 7, columns 2-17:
@@ -36,4 +36,10 @@
     Int
   but found an expression of type
     Bool.
+  [1]
+  $ dune exec -- raven --shh ./array_index_call_arg.rav
+  [Error] File "./array_index_call_arg.rav", line 7, columns 5-8:
+  7 |   q(a[0]);
+           ^^^
+  Type Error: An array entry can only be read by an assignment `x := a[i]`, or named as a location, as in `own(a[i], v)`.
   [1]

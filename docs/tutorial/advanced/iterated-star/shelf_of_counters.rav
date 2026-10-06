@@ -6,10 +6,10 @@
 // per value of the bound variable, all owned at once.
 //
 // The shelf is an array from the standard library: its counters are the
-// `value` fields of the array's cells, and `loc(s, i)` is the cell at index
-// `i`. The library's axiom `all_diff` makes `loc` injective, which is what
-// lets Raven derive that `loc(s, i) != loc(s, j)` whenever `i != j` -- the
-// injectivity side condition every ISC needs.
+// array's entries, and `s[i]`, the entry at index `i`, is the `value` field of
+// the cell `loc(s, i)`. The library's axiom `all_diff` makes `loc` injective,
+// which is what lets Raven derive that `loc(s, i) != loc(s, j)` whenever
+// `i != j` -- the injectivity side condition every ISC needs.
 
 import Library.IntAtomics._
 
@@ -19,12 +19,12 @@ module Shelf {
 
   // The ISC: `counts` is existentially quantified once, for the whole
   // shelf -- not once per index -- and the `forall` inside its scope owns
-  // one `value` field per valid index `i`, all at once. This single
+  // one entry per valid index `i`, all at once. This single
   // invariant declaration covers a shelf of any size; there is no
   // per-N unrolling, no matter how large `length(s)` turns out to be.
   inv shelfInv(s: Counts.T) {
     exists counts: Map[Int, Int] ::
-      forall i: Int :: {loc(s, i)} 0 <= i && i < length(s) ==> own(loc(s, i).value, counts[i], 1.0)
+      forall i: Int :: {loc(s, i)} 0 <= i && i < length(s) ==> own(s[i], counts[i], 1.0)
   }
 
   // Touching slot `i` still means unfolding the *whole* invariant -- there's
@@ -36,10 +36,9 @@ module Shelf {
     requires shelfInv(s) && 0 <= i && i < length(s)
     ensures shelfInv(s)
   {
-    val cell := loc(s, i)
     ghost var counts: Map[Int, Int]
     unfold shelfInv(s)[counts := counts]
-    val _x := faa(cell.value, 1)
+    val _x := faa(s[i], 1)
     fold shelfInv(s)[counts := counts[i := counts[i] + 1]]
   }
 
@@ -47,10 +46,9 @@ module Shelf {
     requires shelfInv(s) && 0 <= i && i < length(s)
     ensures shelfInv(s)
   {
-    val cell := loc(s, i)
     ghost var counts: Map[Int, Int]
     unfold shelfInv(s)[counts := counts]
-    v := cell.value
+    v := s[i]
     fold shelfInv(s)[counts := counts]
   }
 }

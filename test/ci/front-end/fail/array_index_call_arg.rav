@@ -1,0 +1,8 @@
+// An array entry is not an expression, so it cannot be passed as a value.
+module A = Library.Array[Library.IntType]
+import A._
+proc q(n: Int) {}
+proc p(a: A.T)
+{
+  q(a[0]);
+}

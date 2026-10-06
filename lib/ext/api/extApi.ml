@@ -166,6 +166,15 @@ module type Ext = sig
   val claim_expr :
     Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option Rewriter.t
 
+  (** Offered an expression that the core finds where it expects a field location
+      [x.f] -- the location argument of [own] or of a procedure's location parameter --
+      but that is not of that form, currently a map lookup whose map operand is not of
+      map type. The operands the core needed to reject the expression are already
+      type-checked. An extension that takes responsibility returns the reference and the
+      field of the location the expression denotes, and the core continues as for that
+      location. [None] leaves the expression to the core. *)
+  val claim_location : expr -> (expr * qual_ident) option Rewriter.t
+
   (** The statement-level counterpart of [claim_expr], offered an assignment whose
       right-hand side is a map lookup or update whose map operand is not of map type.
       This includes an indexed assignment [x[i] := v], which the parser turns into

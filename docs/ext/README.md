@@ -128,9 +128,9 @@ Pattern variables may be named after the fields they bind (`case cons(elem, tl) 
 
 ### Array Extension
 
-We implement this extension (`lib/ext/arrayExt/`) for indexing the arrays of the standard library, the instances of `Library.Array`: `x := a[i]` and `var x := a[i]` read the entry at index `i`, `a[i] := v` writes it, and `own(a[i], v)` owns it, standing for `loc(a, i).value`. It adds no syntax of its own and is the reference implementation of claiming core constructs -- see [Claiming core constructs](#claiming-core-constructs-claim_expr-claim_basic_stmt) below for how the API it uses works in general.
+We implement this extension (`lib/ext/arrayExt/`) for indexing the arrays of the standard library, the instances of `Library.Array`: `x := a[i]` and `var x := a[i]` read the entry at index `i`, `a[i] := v` writes it, and `a[i]` serves as a field location in `own(a[i], v)` and in the atomic operations of the standard library, as in `faa(a[i], 1)`, standing for `loc(a, i).value`. It adds no syntax of its own and is the reference implementation of claiming core constructs -- see [Claiming core constructs](#claiming-core-constructs-claim_expr-claim_basic_stmt-claim_location) below for how the API it uses works in general.
 
-The parser produces map lookups and updates for these, and turns `a[i] := v` into `a := a[i := v]`. The core type checker rejects them, as `a` is not a map, and the extension claims those whose `a` is an array. Type-checking a claimed construct produces the core field read, field write, or `own` it stands for, so nothing of the extension remains after type checking, and every access to an entry is one atomic step, like a field access. Like a field, an entry is not an expression: `a[i]` anywhere else, and `a[i := v]` other than as `a[i] := v`, is reported as an error by the extension.
+The parser produces map lookups and updates for these, and turns `a[i] := v` into `a := a[i := v]`. The core type checker rejects them, as `a` is not a map, and the extension claims those whose `a` is an array. Type-checking a claimed construct produces the core field read or field write it stands for, and a claimed location is `loc(a, i).value`, so nothing of the extension remains after type checking, and every access to an entry is one atomic step, like a field access. Like a field, an entry is not an expression: `a[i]` anywhere else, and `a[i := v]` other than as `a[i] := v`, is reported as an error by the extension.
 
 ```
 proc swap(a: A.T, i: Int, j: Int, implicit ghost vi: Int, implicit ghost vj: Int)
@@ -500,7 +500,7 @@ Two things to get right. First, return the *renamed* binders inside your tag: th
 
 Unlike the other hooks, the base of the chain implements this one for real rather than raising: `DefaultExt`'s version recurses into every sub-expression under the unchanged table and leaves the tag alone. That is exactly right for a construct that binds nothing, which is nearly all of them -- so **only implement this hook if your construct binds variables**. [matchExt.ml](../../lib/ext/matchExt/matchExt.ml) is the reference implementation: each `match` arm pushes a scope, renames the arm's pattern variables into it (leaving `_` out, so it binds nothing and may repeat), and disambiguates that arm's body under it.
 
-#### Claiming core constructs (`claim_expr`, `claim_basic_stmt`)
+#### Claiming core constructs (`claim_expr`, `claim_basic_stmt`, `claim_location`)
 
 An extension can give a meaning to core syntax whose core meaning doesn't apply, such as indexing `a[i]` into something other than a map. The parser can't tell the two apart, so it produces the core construct, and the type checker decides:
 
@@ -511,11 +511,15 @@ An extension can give a meaning to core syntax whose core meaning doesn't apply,
   val claim_basic_stmt :
     Stmt.basic_stmt_desc -> location -> ProgUtils.DisambiguationTbl.t -> type_check_stmt_functs ->
     (Stmt.stmt_ext * expr list) option Rewriter.t
+
+  val claim_location : expr -> (expr * qual_ident) option Rewriter.t
 ```
 
 The core offers a construct to these hooks only where its own rule rejects it: currently a map lookup `e1[e2]` or update `e1[e2 := e3]` whose `e1` is not of map type (`claim_expr`), and an assignment `x := e1[e2]` or `x := e1[e2 := e3]` whose `e1` is not of map type (`claim_basic_stmt`). The parser turns an indexed assignment `x[i] := v` into `x := x[i := v]`, so it reaches `claim_basic_stmt` in that form. An extension that takes responsibility returns a constructor of its own with its operands. From then on the construct is the extension's: it is type-checked by its `type_check_expr` or `type_check_basic_stmt`, so any further error is reported by the extension, and it is lowered by its `rewrite_*_ext` like any other construct of the extension. Returning `None` leaves the construct to the core, which reports its own error.
 
-Decide from what the construct is, for instance from the type of `e1`, without trying to type-check it. For `claim_expr`, the operands the core typed to reject the construct are passed typed, the others as parsed. For `claim_basic_stmt`, the operands are as parsed and not yet disambiguated; type the ones you need with `disambiguate_process_expr` against `Type.any`. An extension combines its own answer with that of the continuation extension `Cont` using `ExtApi.combine_claims`, which reports a construct that both claim, so that no extension silently shadows another. `DefaultExt` claims nothing.
+`claim_location` is different: it is offered an expression the core finds where it expects a field location `x.f` -- the location of an `own`, or the argument of a procedure's location parameter, such as that of `faa` -- currently a map lookup whose map operand is not of map type. An extension that takes responsibility answers with the reference and the field of the location the expression denotes, and the core continues exactly as if that location had been written, including solving the field argument of an implicitly instantiated functor such as the atomic operations'.
+
+Decide from what the construct is, for instance from the type of `e1`, without trying to type-check it. For `claim_expr` and `claim_location`, the operands the core typed to reject the construct are passed typed, the others as parsed. For `claim_basic_stmt`, the operands are as parsed and not yet disambiguated; type the ones you need with `disambiguate_process_expr` against `Type.any`. An extension combines its own answer with that of the continuation extension `Cont` using `ExtApi.combine_claims`, which reports a construct that both claim, so that no extension silently shadows another. `DefaultExt` claims nothing.
 
 ### Rewrites
 

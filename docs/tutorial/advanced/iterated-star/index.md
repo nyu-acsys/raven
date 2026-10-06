@@ -21,21 +21,22 @@ All code below is in [`shelf_of_counters.rav`](./shelf_of_counters.rav).
 ```raven
 inv shelfInv(s: Counts.T) {
   exists counts: Map[Int, Int] ::
-    forall i: Int :: {loc(s, i)} 0 <= i && i < length(s) ==> own(loc(s, i).value, counts[i], 1.0)
+    forall i: Int :: {loc(s, i)} 0 <= i && i < length(s) ==> own(s[i], counts[i], 1.0)
 }
 ```
 
-Read the `forall` as "for every valid index `i`, own the `value` field of the `i`-th cell,
-currently holding `counts[i]`." There is one `own` fact per `i`, all held simultaneously, and all
+Read the `forall` as "for every valid index `i`, own the `i`-th entry of `s`, currently holding
+`counts[i]`." There is one `own` fact per `i`, all held simultaneously, and all
 folded or unfolded together as a single unit. This one declaration covers a shelf of *any* size.
 Nothing here depends on how large `length(s)` turns out to be at run time.
 
 ## Addressing {#sec:addressing}
 
 The shelf is an array from the standard library, `Counts = Library.Array[Library.IntType]`
-({{ref app:stdlib-types}} describes arrays in more detail). Its counters are the `value` fields
-of the array's cells, `loc(s, i)` is the cell at index `i`, and `length(s)` is the number of
-cells. `loc` isn't defined in terms of anything else, since there's no way to construct a `Ref`
+({{ref app:stdlib-types}} describes arrays in more detail). Its counters are the array's entries,
+and `length(s)` is the number of entries. The entry `s[i]` at index `i` is the `value` field of a
+cell, a `Ref` written `loc(s, i)`. Since `s[i]` is not an expression, the trigger `{loc(s, i)}`
+in `shelfInv` names the cell instead. `loc` isn't defined in terms of anything else, since there's no way to construct a `Ref`
 in Raven. Instead, the library states an axiom:
 
 ```raven
@@ -77,10 +78,9 @@ proc bump(s: Counts.T, i: Int)
   requires shelfInv(s) && 0 <= i && i < length(s)
   ensures shelfInv(s)
 {
-  val cell := loc(s, i)
   ghost var counts: Map[Int, Int]
   unfold shelfInv(s)[counts := counts]
-  val _x := faa(cell.value, 1)
+  val _x := faa(s[i], 1)
   fold shelfInv(s)[counts := counts[i := counts[i] + 1]]
 }
 ```

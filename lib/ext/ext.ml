@@ -285,6 +285,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     contract_ext_rewrite_exprs = Ext.contract_ext_rewrite_exprs;
     disambiguate_expr_ext = Ext.disambiguate_expr_ext;
     claim_expr = Ext.claim_expr;
+    claim_location = Ext.claim_location;
     claim_basic_stmt = Ext.claim_basic_stmt;
     type_check_type_expr = Ext.type_check_type_expr;
     type_check_expr = Ext.type_check_expr;

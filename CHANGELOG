@@ -6,11 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Entries of arrays from `Library.Array` are accessed by indexing: `x := a[i]` reads an entry, `a[i] := v` writes it, and `own(a[i], v)` owns it, without mentioning the cell's `value` field.
+- Entries of arrays from `Library.Array` are accessed by indexing: `x := a[i]` reads an entry, `a[i] := v` writes it, and `a[i]` is a location for `own` and the atomic operations, as in `own(a[i], v)` and `faa(a[i], 1)`, without mentioning the cell's `value` field.
 
 - An indexed assignment `m[k] := v` to a local map variable `m` assigns `m[k := v]` to it, also for nested maps as in `m[i][j] := v`.
 
-- Extensions can give a meaning to core syntax that the core type checker rejects, such as indexing into something other than a map, through the hooks `claim_expr` and `claim_basic_stmt`.
+- Extensions can give a meaning to core syntax that the core type checker rejects, such as indexing into something other than a map, through the hooks `claim_expr`, `claim_basic_stmt`, and `claim_location`.
 
 - The standard library provides arrays, `Library.Array[E]`: families of heap cells addressed by index, with a predicate owning all cells of an array and a procedure allocating one.
 

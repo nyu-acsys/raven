@@ -1,0 +1,41 @@
+// Atomic operations on array entries, also inside an open invariant, where each is
+// one atomic step.
+import Library.IntAtomics._
+
+module M {
+  module A = Library.Array[Library.IntType]
+  import A._
+
+  proc bump(a: A.T, i: Int, implicit ghost v: Int) returns (old: Int)
+    requires 0 <= i < length(a) && own(a[i], v)
+    ensures own(a[i], v + 1) && old == v
+  {
+    old := faa(a[i], 1);
+  }
+
+  proc try_set(a: A.T, i: Int, implicit ghost v: Int) returns (ok: Bool)
+    requires 0 <= i < length(a) && own(a[i], v)
+    ensures own(a[i], v == 0 ? 5 : v) && ok == (v == 0)
+  {
+    ok := cas(a[i], 0, 5);
+  }
+
+  proc swap_in(a: A.T, i: Int, implicit ghost v: Int) returns (old: Int)
+    requires 0 <= i < length(a) && own(a[i], v)
+    ensures own(a[i], 9) && old == v
+  {
+    old := xchg(a[i], 9);
+  }
+
+  inv first(a: A.T) {
+    0 < length(a) && (exists v: Int :: own(a[0], v))
+  }
+
+  proc bump_shared(a: A.T)
+    requires first(a)
+  {
+    unfold first(a);
+    val _o := faa(a[0], 1);
+    fold first(a);
+  }
+}

@@ -52,6 +52,15 @@ let is_core_indexable (typ : type_expr) : bool =
   | Type.App ((Map | FinSet | Bot | Any), _, _) -> true
   | _ -> false
 
+(** Whether the form of [expr], an operand the core indexes, admits a type other than
+    a map. Only such operands are typed to decide whether to offer a construct to the
+    extensions, which keeps chains such as `m[i := a][j := b]` from being typed
+    repeatedly. *)
+let may_have_non_map_type (expr : expr) : bool =
+  match expr with
+  | App ((Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _), _, _) -> true
+  | _ -> false
+
 let type_mismatch_error loc exp_ty fnd_ty =
   Error.type_error loc
     (Printf.sprintf
@@ -819,6 +828,13 @@ module ProcessExpr = struct
               (Expr.constr_to_string constr ^ " takes exactly three arguments")
         (* Ownership predicates *)
         | ( Own, arg_list ) ->
+          let* arg_list =
+            match arg_list with
+            | location :: rest ->
+              let+ location = claimed_location location in
+              location :: rest
+            | [] -> Rewriter.return []
+          in
           let* expr1, expr2, expr3, expr4_opt =
             match arg_list with
             | App (Read, [expr1; (App (Var qual_ident, [], expr_attr') as expr2)], _) as expr12 :: expr3 :: expr4_opt ->
@@ -1137,28 +1153,46 @@ module ProcessExpr = struct
 
 (* end of process_expr *)
 
+  (* [expr1], an operand the core indexes, typed against [expected_typ] if its type is
+     one the core's lookup and update do not apply to. *)
+  and non_core_indexable (expr1 : expr) (expected_typ : type_expr) : expr option t =
+    let open Rewriter.Syntax in
+    if not (may_have_non_map_type expr1) then Rewriter.return None
+    else
+      let* expr1 = speculatively (process_expr expr1 expected_typ) in
+      let+ typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
+      if is_core_indexable typ1 then None else Some expr1
+
+  (* [expr], found where a field location `x.f` is expected, as the location an
+     extension claims it denotes; otherwise [expr] itself. *)
+  and claimed_location (expr : expr) : expr t =
+    let open Rewriter.Syntax in
+    match expr with
+    | App (MapLookUp, [ base; index ], expr_attr) -> (
+        let* base = non_core_indexable base (Type.any |> Type.set_ghost true) in
+        match base with
+        | None -> Rewriter.return expr
+        | Some base -> (
+            let* ext_hooks = Rewriter.current_ext_hooks in
+            let+ claim =
+              lift (ext_hooks.claim_location (App (MapLookUp, [ base; index ], expr_attr)))
+            in
+            match claim with
+            | None -> expr
+            | Some (ref_expr, field) ->
+                let field_expr =
+                  Expr.mk_app ~loc:(Expr.to_loc expr) ~typ:Type.any (Var field) []
+                in
+                Expr.App (Read, [ ref_expr; field_expr ], expr_attr)))
+    | _ -> Rewriter.return expr
+
   (* Offers to the extensions a map lookup or update whose map operand has a type the
-     core's rule does not apply to, and an `own` whose location is such a lookup. Only
-     operands whose form admits a non-map type are typed for this, which keeps chains
-     such as `m[i := a][j := b]` from being typed repeatedly. *)
+     core's rule does not apply to. *)
   and claim_core_app (constr : Expr.constr) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr option t =
     let open Rewriter.Syntax in
-    let may_have_non_map_type (expr : expr) =
-      match expr with
-      | App ((Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _), _, _) ->
-          true
-      | _ -> false
-    in
-    (* The map operand typed, if its type is one the core's rule does not apply to. *)
-    let non_core_indexable (expr1 : expr) : expr option t =
-      if not (may_have_non_map_type expr1) then Rewriter.return None
-      else
-        let* expr1 =
-          speculatively (process_expr expr1 (Type.any |> Type.set_ghost_to expected_typ))
-        in
-        let+ typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
-        if is_core_indexable typ1 then None else Some expr1
+    let non_core_indexable expr1 =
+      non_core_indexable expr1 (Type.any |> Type.set_ghost_to expected_typ)
     in
     let offer (args : expr list) : expr option t =
       let* ext_hooks = Rewriter.current_ext_hooks in
@@ -1175,11 +1209,6 @@ module ProcessExpr = struct
         match expr1 with
         | None -> Rewriter.return None
         | Some expr1 -> offer (expr1 :: rest))
-    | Own, App (MapLookUp, [ base; index ], lookup_attr) :: rest -> (
-        let* base = non_core_indexable base in
-        match base with
-        | None -> Rewriter.return None
-        | Some base -> offer (App (MapLookUp, [ base; index ], lookup_attr) :: rest))
     | _ -> Rewriter.return None
 
   and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
@@ -1223,6 +1252,7 @@ module ProcessExpr = struct
             match List.nth locs i with
             | None -> Rewriter.return arg
             | Some declared_field -> (
+                let* arg = claimed_location arg in
                 match arg with
                 | Expr.App (Read, [ ref_expr; App (Var field, [], _) ], _) ->
                     let* field = Rewriter.resolve field in
@@ -1545,7 +1575,14 @@ module ProcessExpr = struct
     let+ solved =
       Rewriter.List.map indexed ~f:(fun (i, declared_field) ->
           let formal_ident = QualIdent.unqualify (QualIdent.pop declared_field) in
-          match List.nth arg_exprs i with
+          let* arg =
+            match List.nth arg_exprs i with
+            | Some arg ->
+                let+ arg = claimed_location arg in
+                Some arg
+            | None -> Rewriter.return None
+          in
+          match arg with
           | Some (Expr.App (Read, [ _; App (Var field, [], _) ], _)) ->
               let+ field = Rewriter.resolve field in
               (formal_ident, field, i)

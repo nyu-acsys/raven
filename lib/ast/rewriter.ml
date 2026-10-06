@@ -355,6 +355,15 @@ and ext_hooks = {
   claim_expr :
     Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option t;
 
+  (** Offered an expression that the core finds where it expects a field location
+      [x.f] -- the location argument of [own] or of a procedure's location parameter --
+      but that is not of that form, currently a map lookup whose map operand is not of
+      map type. The operands the core needed to reject the expression are already
+      type-checked. An extension that takes responsibility returns the reference and the
+      field of the location the expression denotes, and the core continues as for that
+      location. [None] leaves the expression to the core. *)
+  claim_location : expr -> (expr * qual_ident) option t;
+
   (** The statement-level counterpart of [claim_expr], offered an assignment whose
       right-hand side is a map lookup or update whose map operand is not of map type.
       This includes an indexed assignment [x[i] := v], which the parser turns into
@@ -477,6 +486,7 @@ let default_ext_hooks : ext_hooks = {
   disambiguate_expr_ext =
     (fun _ _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.disambiguate_expr_ext: no extension configured");
   claim_expr = (fun _ _ _ s -> (s, None));
+  claim_location = (fun _ s -> (s, None));
   claim_basic_stmt = (fun _ _ _ _ s -> (s, None));
   type_check_type_expr =
     (fun _ _ _ _ -> Error.internal_error Loc.dummy "Rewriter.default_ext_hooks.type_check_type_expr: no extension configured");
