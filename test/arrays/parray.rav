@@ -1,4 +1,4 @@
-include "array.rav"
+include "array_utils.rav"
 
 // Lockable resources
 interface LockResource : Library.Type {

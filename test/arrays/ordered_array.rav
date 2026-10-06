@@ -1,9 +1,11 @@
-include "array.rav"
+include "array_utils.rav"
 
-interface OrderedArray[E: Library.OrderedType] : ArrayI {
-  // module E: Library.OrderedType
+module OrderedArray[E: Library.OrderedType] {
+  module AU = ArrayUtils[E]
+  import AU._
+  import AU.A._
+  import AU.Inv._
   import E.lt
-  import A._
 
   func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool) {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])

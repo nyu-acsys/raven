@@ -244,9 +244,9 @@ quantified fact that the rest of a proof can use without calling the lemma again
 could not prove this fact on its own. If you delete the `with` block (or just the
 `sumFormula(n);` call inside it), the `assert` fails. Proving a closed-form identity by induction
 is exactly the kind of reasoning that the solver can't discover by itself, which is why this
-construct exists. The real uses of it in `test/arrays/array_utils.rav` (cited in the comments of
-`automation.rav`) go a step further and extract a witness via `:|` (see above) partway through
-the `with` block, then reason from it directly.
+construct exists. `test/arrays/array_utils.rav` (cited in the comments of `automation.rav`) uses
+it in the same way: lemmas proved by induction establish facts about one map at a time, and
+`assert ... with` turns them into the quantified `auto` lemmas the rest of the file relies on.
 
 ## Debugging Corner: "my proof just hangs"
 

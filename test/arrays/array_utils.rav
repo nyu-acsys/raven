@@ -1,34 +1,142 @@
-// This file is just the concatenation of array.rav and ordered_array.rav, for benchmarking purposes
-
-interface Array {
-  module E: Library.Type
-  module A = Library.Array[E]
-  import A._
-
-  rep type T = A.T
-
-  val default_map: Map[Int, E] = {| i: Int :: E.default |}
-
+// Inverting a map over an index range, for maps that are injective there.
+interface InverseSpec[E: Library.Type] {
+  // m takes distinct values on [i, j).
   func injective(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
   {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 < i2 < j ==> m[i1] != m[i2]
   }
 
+  // An index in [i, j) at which m takes the value k, or i - 1 if there is none.
   func inverse(m: Map[Int, E], i: Int, j: Int, k: E) returns (res: Int)
 
   auto lemma invertable()
-    ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {inverse(m, i, j, m[i1])} 
+    ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {inverse(m, i, j, m[i1])}
       injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1
 
   auto lemma invertable2()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)} 
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)}
       (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
       (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1)
 
   auto lemma inverse_update()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m, i, j, k2), m[i1 := k]} {inverse(m[i1 := k], i, j, k2)} 
-      inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==> 
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m, i, j, k2), m[i1 := k]} {inverse(m[i1 := k], i, j, k2)}
+      inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==>
         inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2))
+}
+
+// Sealed, so that clients see only the lemmas and not the recursive definition.
+module Inverse[E: Library.Type] :> InverseSpec[E] {
+  // Searches [i, j) from the end.
+  func inverse(m: Map[Int, E], i: Int, j: Int, k: E) returns (res: Int)
+    decreases j - i
+  {
+    j <= i ? i - 1 : (m[j - 1] == k ? j - 1 : inverse(m, i, j - 1, k))
+  }
+
+  lemma invertable_rec(m: Map[Int, E], i: Int, j: Int, i1: Int)
+    requires injective(m, i, j) && i <= i1 < j
+    ensures inverse(m, i, j, m[i1]) == i1
+    decreases j - i
+  {
+    if (i1 < j - 1) {
+      assert m[i1] != m[j - 1];
+      invertable_rec(m, i, j - 1, i1);
+    }
+  }
+
+  lemma invertable2_rec(m: Map[Int, E], i: Int, j: Int, k: E)
+    ensures (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
+      (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1)
+    decreases j - i
+  {
+    if (i < j && m[j - 1] != k) { invertable2_rec(m, i, j - 1, k); }
+  }
+
+  lemma inverse_update_rec(m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E)
+    requires inverse(m, i, j, k2) < i || i1 < i || i1 >= j
+    ensures inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2))
+    decreases j - i
+  {
+    if (i < j) {
+      invertable2_rec(m, i, j, k2);
+      inverse_update_rec(m, i, j - 1, k, i1, k2);
+    }
+  }
+
+  lemma invertable()
+    ensures forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {inverse(m, i, j, m[i1])}
+      injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1
+  {
+    assert forall m: Map[Int, E], i: Int, j: Int, i1: Int :: {inverse(m, i, j, m[i1])}
+      injective(m, i, j) && i <= i1 < j ==> inverse(m, i, j, m[i1]) == i1 with {
+      if (injective(m, i, j) && i <= i1 < j) { invertable_rec(m, i, j, i1); }
+    }
+  }
+
+  lemma invertable2()
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)}
+      (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
+      (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1)
+  {
+    assert forall m: Map[Int, E], i: Int, j: Int, k: E :: {inverse(m, i, j, k)}
+      (i <= inverse(m, i, j, k) < j ==> m[inverse(m, i, j, k)] == k) &&
+      (i > inverse(m, i, j, k) || inverse(m, i, j, k) >= j ==> inverse(m, i, j, k) == i-1) with {
+      invertable2_rec(m, i, j, k);
+    }
+  }
+
+  lemma inverse_update()
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m, i, j, k2), m[i1 := k]} {inverse(m[i1 := k], i, j, k2)}
+      inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==>
+        inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2))
+  {
+    assert forall m: Map[Int, E], i: Int, j: Int, k: E, i1: Int, k2: E :: {inverse(m, i, j, k2), m[i1 := k]} {inverse(m[i1 := k], i, j, k2)}
+      inverse(m, i, j, k2) < i || i1 < i || i1 >= j ==>
+        inverse(m[i1 := k], i, j, k2) == (k == k2 && i <= i1 < j ? i1 : inverse(m, i, j, k2)) with {
+      if (inverse(m, i, j, k2) < i || i1 < i || i1 >= j) { inverse_update_rec(m, i, j, k, i1, k2); }
+    }
+  }
+}
+
+// Utilities for arrays from Library.Array.
+module ArrayUtils[E: Library.Type] {
+  module A = Library.Array[E]
+  import A._
+  module Inv = Inverse[E]
+  import Inv._
+
+  rep type T = A.T
+
+  val default_map: Map[Int, E] = {| i: Int :: E.default |}
+
+  proc copy(a: T, implicit ghost m: Map[Int, E]) 
+    returns (b: T)
+    requires arr(a, m)
+    ensures arr(a, m) && arr(b, m) && length(a) == length(b)
+  {
+    b := alloc(length(a), E.default);
+    assert length(b) == length(a);
+    unfold arr(b);
+
+    var i := 0;
+
+    while (i < length(a))
+      invariant 0 <= i <= length(a) && length(a) == length(b)
+      invariant arr(a, m)
+      invariant forall j: Int :: {m[j]} 0 <= j < i ==> own(loc(b, j).value, m[j])
+      invariant forall j: Int :: i <= j < length(b) ==> own(loc(b, j).value, E.default)
+    {
+      unfold arr(a);
+      var x := loc(a, i).value;
+      fold arr(a, m);
+      loc(b, i).value := x;
+      i := i + 1;
+    }
+    unfold arr(a);
+    fold arr(a, m);
+    assert length(a) == length(b);
+    fold arr(b, m);
+  }
 
   func set_of_map(m: Map[Int, E], i: Int, j: Int) returns (res: Set[E])
   {
@@ -152,232 +260,6 @@ interface Array {
       fold arr(b, m);
       i := i + 1;
     }
-  }
-
-}
-
-interface OrderedArray[E: Library.OrderedType] : Array {
-  import E.lt
-  import A._
-
-  func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool) {
-    forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])
-  }
-
-  pred sorted_array_with_content(a: T, len: Int; m: Map[Int, E]) {
-    0 <= len <= length(a) && arr(a, m) && sorted_map_seg(m, 0, len)
-  }
-
-  auto lemma sorted_injective()
-    ensures forall m: Map[Int, E], i: Int, j: Int :: {sorted_map_seg(m, i, j)}
-       sorted_map_seg(m, i, j) ==> injective(m, i, j)
-  { }
-
-  func map_find(m: Map[Int, E], i: Int, j: Int, k: E) returns (idx: Int)
-    decreases j - i
-  {
-    i < j && lt(m[i], k) ? map_find(m, i + 1, j, k) : i  
-  }
-
-  lemma map_find_spec(m: Map[Int, E], i: Int, j: Int, k: E)
-    ensures i <= j && sorted_map_seg(m, i, j) ==>
-        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
-    decreases j - i
-  {
-    if (i < j && sorted_map_seg(m, i, j)) {
-      map_find_spec(m, i+1, j, k);
-    }
-  }
-
-  auto lemma map_find_spec_auto()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
-        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
-  {
-    assert forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
-        i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
-        (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
-        (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k)) with {
-      map_find_spec(m, i, j, k);
-    }
-  }
-
-  auto lemma map_find_content_set()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {sorted_map_seg(m, i, j), map_find(m, i, j, k)}
-      i <= j && sorted_map_seg(m, i, j) ==> 
-        k !in set_of_map(m, i, map_find(m, i, j, k)) &&
-        k !in set_of_map(m, map_find(m, i, j, k) + 1, j)
-  { 
-    invertable2();
-  }
-
-  lemma map_insert_content_set(m: Map[Int, E], m1: Map[Int, E], idx: Int, k: E, len: Int, new_len: Int)
-    requires sorted_map_seg(m, 0, len)
-    requires idx == map_find(m, 0, len, k)
-    requires 0 <= idx <= len
-    requires k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    requires k !in set_of_map(m, 0, len) ==> new_len == len + 1 && m1 == map_shift(m, idx, idx + 1, len - idx)[idx := k]
-    ensures set_of_map(m1, 0, new_len) == set_of_map(m, 0, len) ++ {| k |}
-  {
-    if (m[idx] == k && idx < len) {
-      return;
-    }
-    var ms := map_shift(m, idx, idx + 1, len - idx);
-
-    // prove set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
-    set_of_map_split(m, 0, idx, len);
-    set_of_map_equal(m, ms, 0, 0, idx);
-    set_of_map_equal(m, ms, idx, idx + 1, len - idx);
-    assert set_of_map(m, 0, len) == set_of_map(ms, 0, idx) ++ set_of_map(ms, idx + 1, len + 1);
-    // prove set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1)
-    inverse_update();
-    frame_set_of_map(ms, 0, idx);
-    frame_set_of_map(ms, idx + 1, len + 1); 
-    set_of_map_split(m1, 0, idx, len + 1);
-    assert set_of_map(m1, 0, new_len) == set_of_map(ms, 0, idx) ++ {|k|} ++ set_of_map(ms, idx + 1, len + 1);
-  }
-
-  lemma map_delete_content_set(m: Map[Int, E], len: Int, idx: Int, k: E)
-    requires sorted_map_seg(m, 0, len)
-    requires idx == map_find(m, 0, len, k)
-    requires 0 <= idx <= len
-    ensures set_of_map((k in set_of_map(m, 0, len) ? map_shift(m, idx + 1, idx, len - (idx + 1)) : m), 0, 
-                       (k in set_of_map(m, 0, len) ? len - 1 : len)) == set_of_map(m, 0, len) -- {|k|}
-  {   
-    if (idx == len || m[idx] != k) {
-      return;
-    }
-    val m1: Map[Int, E] := map_shift(m, idx + 1, idx, len - (idx + 1));
-    // prove: set_of_map(m, 0, len) -- {k} == set_of_map(m1, 0, idx - 1) ++ set_of_map(m1, idx - 1, len - 1)
-    set_of_map_equal(m, m1, 0, 0, idx);
-    set_of_map_equal(m, m1, idx + 1, idx, len - (idx + 1));
-    set_of_map_split(m1, 0, idx, len - 1);
-  }
-
-  // Find key `k` in sorted array segment `a[0..len]` using binary search
-  proc arr_find(a: T, len: Int, k: E, implicit ghost m: Map[Int, E])
-    returns (found: Bool, idx: Int)
-    requires sorted_array_with_content(a, len, m)
-    requires 0 <= len <= length(a)
-    ensures sorted_array_with_content(a, len, m)
-    // what we actually care about
-    ensures idx == map_find(m, 0, len, k)
-    ensures found == (k in set_of_map(m, 0, len))
-  {
-    var lo := 0;
-    var hi := len;
-    
-    while (hi != lo)
-      invariant sorted_array_with_content(a, len, m)
-      // what we actually care about
-      invariant 0 <= lo <= hi <= len <= length(a)
-      invariant hi == len || m[lo] == k || lt(k, m[hi])
-      invariant 0 < lo ==> lt(m[lo - 1], k)
-      invariant hi < len - 1 ==> lt(k, m[hi + 1])
-    {
-      unfold sorted_array_with_content(a, len, m);
-      unfold arr(a, m);
-      var mid := (hi + lo) / 2;
-      var amid: E := loc(a, mid).value;
-      var cmp: Int := E.compare(k, amid);
-      if (cmp < 0) {
-        hi := mid;      // look in first half
-      } else if (cmp > 0) {
-        lo := mid + 1;    // look in second half
-      } else {
-        // found it
-        hi := mid;
-        lo := mid;
-      }
-      fold arr(a, m);
-      fold sorted_array_with_content(a, len, m);
-    }
-    
-    idx := lo;
-    
-    if (idx == len) {
-      found := false;
-    } else {
-      unfold sorted_array_with_content(a, len, m);
-      unfold arr(a, m);
-      var alo: E := loc(a, lo).value;
-      found := !lt(k, alo);
-      fold arr(a, m);
-      fold sorted_array_with_content(a, len, m);
-    }
-
-    unfold sorted_array_with_content(a, len, m);
-    fold sorted_array_with_content(a, len, m);
-  }
-
-  // Given a sorted array segment `a[0..len]`,
-  // insert `k` into `a[0..len+1]` while preserving sortedness.
-  // If `k` is already contained in `a[0..len]`, then do not modify `a`.
-  proc arr_insert(a: T, k: E, len: Int, implicit ghost m: Map[Int, E])
-    returns (idx: Int, new_len: Int, implicit ghost m1: Map[Int, E])
-    requires sorted_array_with_content(a, len, m)
-    requires 0 <= len < length(a)
-    ensures sorted_array_with_content(a, new_len, m1)
-    ensures idx == map_find(m, 0, len, k)
-    ensures k in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    ensures k !in set_of_map(m, 0, len) ==> new_len == len + 1 && m1 == map_shift(m, idx, idx + 1, len - idx)[idx := k]
-  {
-    // find position for insertion
-    var i: Int;
-    var found: Bool;
-    found, i := arr_find(a, len, k, m);
-
-    unfold sorted_array_with_content(a, len, m);
-    fold sorted_array_with_content(a, len, m);
-    
-    // k already in C?
-    if (found) return i, len, m;
-    
-    unfold sorted_array_with_content(a, len, m);
-    arr_shift(a, i, i + 1, len - i, m);
-
-    unfold arr(a, map_shift(m, i, i + 1, len - i));
-    loc(a, i).value := k;
-    m1 := map_shift(m, i, i + 1, len - i)[i := k];
-    fold arr(a, m1);
-    fold sorted_array_with_content(a, len + 1, m1);
-
-    return i, len + 1, m1;
-  }
-
-  // Given a sorted array segment `a[0..len]`,
-  // delete `k` from the segment while preserving sortedness.
-  // If `k` is already contained in `a[0..len]`, then do not modify `a`.
-  proc arr_delete(a: T, k: E, len: Int, implicit ghost m: Map[Int, E])
-    returns (new_len: Int, idx: Int, implicit ghost m1: Map[Int, E])
-    requires 0 <= len <= length(a)
-    requires sorted_array_with_content(a, len, m)
-    ensures sorted_array_with_content(a, new_len, m1)
-    ensures idx == map_find(m, 0, len, k)
-    ensures k !in set_of_map(m, 0, len) ==> new_len == len && m1 == m
-    ensures k in set_of_map(m, 0, len) ==> new_len == len - 1 && m1 == map_shift(m, idx + 1, idx, len - (idx + 1))
-  {
-    // find position for insertion
-    var found: Bool;
-    found, idx := arr_find(a, len, k, m);
-
-    unfold sorted_array_with_content(a, len, m);
-    fold sorted_array_with_content(a, len, m);
-    
-    // k !in C?
-    if (!found) {
-      return len, idx, m;
-    }
-    
-    // shift array entries a[i+1..len] by 1 entry to the left 
-    unfold sorted_array_with_content(a, len, m);
-    arr_shift(a, idx + 1, idx, len - (idx + 1), m);
-    m1 := map_shift(m, idx + 1, idx, len - (idx + 1));
-    fold sorted_array_with_content(a, len - 1, m1);
-    return len - 1, idx, m1;
   }
 
 }

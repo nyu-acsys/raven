@@ -271,7 +271,7 @@ let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal
    fresh application of the other's trigger, so E-matching can keep re-firing both
    without bound. Dropping the guard turns every instantiation into a genuine unit
    equality, which collapses the loop via congruence closure immediately. Measured on
-   `test/arrays/array_utils.rav`: Z3 quantifier instantiations dropped from ~98,551
+   the array benchmarks in `test/arrays`: Z3 quantifier instantiations dropped from ~98,551
    (guarded) to ~41,945 (unconditional, below even the ~51,956 baseline from before
    this ISC-sharing machinery existed at all); `test/ext/prophecy/dist_counter.rav`
    went from ~45s (and documented flakiness) to a stable ~2s. The entire `dune runtest`

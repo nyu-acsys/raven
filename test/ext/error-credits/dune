@@ -2,7 +2,5 @@
  (deps
   %{project_root}/bin/raven.exe
   %{project_root}/lib/library/resource_algebra.rav
-  ; ec_dynamic_vec.rav includes the array library
-  %{project_root}/test/arrays/array.rav
   (:rav
    (glob_files_rec *.rav))))
