@@ -1,17 +1,18 @@
-# 5.3. Iterated Separating Conjunctions — Capstone: A Shelf of Counters
+# 5.3. Iterated Separating Conjunctions (Capstone: A Shelf of Counters)
 
 *Assumes: Part 2's separating conjunction and frame rule ({{ref sec:separating-conjunction}},
 {{ref sec:proc-contracts-revisited}}), and Part 4's shared invariants ({{ref sec:shared-invariants}}).
-Not re-taught here — skim [Part 2](../../ownership/) and
+These are not re-taught here. Skim [Part 2](../../ownership/) and
 [Part 4](../../ghost-and-concurrency/) first if either feels shaky.*
 
-Every invariant so far has protected a fixed, small number of fields: one counter, two fields on
-a lock. What if you need to protect an *unbounded* family of them — an array of `n` independent
-counters, say, where `n` is only known at run time? Declaring `n` separate invariants isn't an
-option (you don't know `n` at the point you'd write the declaration, and even if you did, that's
-`n` copies of the same boilerplate). This is what an **iterated separating conjunction** (ISC)
-is for: a `forall` inside an assertion that isn't a boolean fact, but a whole *family* of `own`
-facts, one per value of the bound variable, all owned together.
+Every invariant so far has protected a small, fixed number of fields, such as one counter or two
+fields of a lock. What if you need to protect an *unbounded* family of them, say an array of `n`
+independent counters, where `n` is only known at run time? Declaring `n` separate invariants
+isn't an option. You don't know `n` at the point where you'd write the declaration, and even if
+you did, that would mean `n` copies of the same boilerplate. This is what an **iterated
+separating conjunction** (ISC) is for. It is a `forall` inside an assertion that denotes not a
+boolean fact, but a whole *family* of `own` facts, one per value of the bound variable, all owned
+together.
 
 All code below is in [`shelf_of_counters.rav`](./shelf_of_counters.rav).
 
@@ -25,14 +26,14 @@ inv shelfInv(s: S) {
 ```
 
 Read the `forall` as "for every valid index `i`, own the `count` field of the `i`-th cell,
-currently holding `counts[i]`" — one `own` fact per `i`, all held simultaneously, and all folded
-or unfolded together as a single unit. This one declaration covers a shelf of *any* size; nothing
-here depends on how large `S.size(s)` turns out to be at run time.
+currently holding `counts[i]`." There is one `own` fact per `i`, all held simultaneously, and all
+folded or unfolded together as a single unit. This one declaration covers a shelf of *any* size.
+Nothing here depends on how large `S.size(s)` turns out to be at run time.
 
 ## Addressing, and why it's abstract {#sec:addressing-abstract}
 
-`S.loc(s, i)` is an uninterpreted function from a shelf and an index to a `Ref` — there's no
-literal array-of-heap-cells underneath, just an axiom:
+`S.loc(s, i)` is an uninterpreted function from a shelf and an index to a `Ref`. There's no
+actual array of heap cells underneath, just an axiom:
 
 ```raven
 auto lemma all_diff()
@@ -41,37 +42,36 @@ auto lemma all_diff()
 
 `first`/`second` are left inverses of `loc`: given `loc(s, i)`, you can always recover the
 `s`/`i` that produced it. That's what lets Raven conclude `loc(s, i) != loc(s, j)` whenever `i !=
-j` — exactly the fact needed to make sense of "own `n` different cells at once" as anything
-other than nonsense.
+j`. This is exactly the fact needed for "own `n` different cells at once" to make sense.
 
-Two honest notes on why this tutorial reasons about addressing this way, rather than
-concretely allocating `n` cells in a loop and using a real `Map[Int, Ref]`: first, it's exactly
-what Raven's own array benchmarks do (`test/arrays/array_utils.rav`,
-`test/iterated-star/array-max.rav` — real, tested code, not a simplification invented for this
-tutorial). `test/arrays/array_utils.rav` itself is expected to eventually move onto
-`Library.Array`, an axiomatization of exactly this addressing scheme that's on its way into
-Raven's trusted base specifically to simplify array reasoning like this — worth watching for if
-you're writing this kind of proof yourself. Second, proving injectivity for a family of
-locations built up incrementally, one `new` at a time, turns out to be a meaningfully harder
-proof than this capstone is about — not just harder, but a *different kind* of proof: Raven
-checks an ISC's injectivity side condition once, as a property of the predicate's own
-definition, for arbitrary arguments, which a specific runtime `Map[Int, Ref]` value can't
-satisfy no matter what you know about it at a given call site. If you want to see this worked
-out anyway, [`exercises/shelf_growth.rav`](./exercises/shelf_growth.rav) is a real, if
-differently-shaped, stretch goal: a shelf built by prepending one cell at a time, the same way a
-Treiber stack grows, which sidesteps the injectivity question entirely by not using an ISC for
-the growing part at all.
+There are two reasons why this tutorial reasons about addressing in this way, rather than
+concretely allocating `n` cells in a loop and using a real `Map[Int, Ref]`. First, it's exactly
+what Raven's own array benchmarks do (`test/arrays/array_utils.rav` and
+`test/iterated-star/array-max.rav` are real, tested code, not a simplification invented for this
+tutorial). `test/arrays/array_utils.rav` itself is expected to eventually move to
+`Library.Array`, an axiomatization of exactly this addressing scheme that is being added to
+Raven's trusted base specifically to simplify array reasoning like this. Keep an eye out for it
+if you're writing this kind of proof yourself. Second, proving injectivity for a family of
+locations built up incrementally, one `new` at a time, is a considerably harder proof than what
+this capstone is about. It is also a *different kind* of proof. Raven checks an ISC's
+injectivity side condition once, as a property of the predicate's own definition, for arbitrary
+arguments. A specific runtime `Map[Int, Ref]` value can't satisfy that, no matter what you know
+about it at a given call site. If you want to see this worked out anyway,
+[`exercises/shelf_growth.rav`](./exercises/shelf_growth.rav) is a stretch goal that takes a
+different approach. It builds a shelf by prepending one cell at a time, the same way a Treiber
+stack grows, and avoids the injectivity question entirely by not using an ISC for the growing
+part at all.
 
 ## The injectivity side condition {#sec:injectivity-side-condition}
 
-This isn't decorative — try deleting `all_diff` and its axiom (kept as
-[`broken/no_injectivity.rav`](./broken/no_injectivity.rav)) and stating the same `forall`
-`own`: it fails immediately with `[Verification Error] Could not prove the injectivity of the
-index expression for this iterated separating conjunction`. This is the ISC's one silent side
-condition, checked as a genuine proof obligation every time: without it, two different values of
-the bound variable could describe the *same* `own` fact twice over, which is the family-sized
-version of Part 2's `badDup` — claiming to independently own a resource you actually only have
-one copy of.
+The axiom is essential. Try deleting `all_diff` and its axiom (this version is kept as
+[`broken/no_injectivity.rav`](./broken/no_injectivity.rav)) while stating the same `forall`
+`own`. It fails immediately with `[Verification Error] Could not prove the injectivity of the
+index expression for this iterated separating conjunction`. This is the ISC's one implicit side
+condition, and it is checked as a real proof obligation every time. Without it, two different
+values of the bound variable could describe the *same* `own` fact twice. That would be the
+family-sized version of Part 2's `badDup`, claiming to independently own two copies of a resource
+you actually only have one copy of.
 
 ## Touching one slot, without disturbing the rest {#sec:touching-one-slot}
 
@@ -89,46 +89,46 @@ proc bump(s: S, i: Int)
 }
 ```
 
-There's no syntax for "just open slot `i`" — `unfold`/`fold` always act on the whole invariant.
-But semantically, only `counts[i]` is ever read or changed here; every other slot's `own` fact
-passes through the unfold/fold pair completely undisturbed. That's the frame rule from Part 2
-again, at a larger scale: the same mechanism that let `distinctIncrement` leave `c2` untouched
+There's no syntax for "just open slot `i`", since `unfold`/`fold` always act on the whole
+invariant. Semantically, however, only `counts[i]` is ever read or changed here. Every other
+slot's `own` fact passes through the unfold/fold pair completely undisturbed. That's the frame
+rule from Part 2 again, at a larger scale. The same mechanism that let `distinctIncrement` leave `c2` untouched
 now lets `bump` leave every slot except `i` untouched, out of a family whose size isn't even
 fixed at verification time.
 
 `ShelfClient.client` spawns two `bump`s at (potentially different) indices `i` and `j`
-concurrently, then `peek`s one of them — safe regardless of which pair of indices gets picked,
-or how large the shelf actually is, because `shelfInv` was declared exactly once.
+concurrently, then `peek`s one of them. This is safe regardless of which pair of indices gets
+picked or how large the shelf actually is, because `shelfInv` was declared exactly once.
 
 ## Debugging Corner
 
-One new diagnostic this section introduces: `Could not prove the injectivity of the index
-expression for this iterated separating conjunction`, whenever an ISC's bound-variable-to-
-location mapping isn't provably one-to-one. Resist the urge to fix this by reaching for your own
-axiom, the way `all_diff` looks like a template for — every axiom you add is one more thing
-Raven trusts without proof, and an addressing scheme's injectivity is exactly the kind of fact
-that's easy to state wrong in a way that's hard to notice (an axiom that's actually inconsistent
-lets *anything* be proved, silently). If you need array-like addressing, reach for
-`Library.Array` instead: it gives you injective addressing for free, already proven correct once
-rather than assumed anew in every proof that needs it.
+This section introduces one new diagnostic, `Could not prove the injectivity of the index
+expression for this iterated separating conjunction`, which appears whenever an ISC's mapping
+from bound variable to location isn't provably one-to-one. Resist the temptation to fix this by
+writing your own axiom, using `all_diff` as a template. Every axiom you add is one more thing
+Raven trusts without proof, and the injectivity of an addressing scheme is exactly the kind of
+fact that's easy to state incorrectly in a way that's hard to notice (an inconsistent axiom
+silently lets *anything* be proved). If you need array-like addressing, use `Library.Array`
+instead. It gives you injective addressing for free, proven correct once rather than assumed
+anew in every proof that needs it.
 
 ## Exercise
 
 [`exercises/shelf_growth.rav`](./exercises/shelf_growth.rav): the "shelf grows by one cell"
-stretch goal from earlier — a shelf built by prepending one cell at a time rather than addressed
-via an ISC. `mkEmpty` is done for you; `grow` is missing one line, the `fold` that
+stretch goal from earlier, a shelf built by prepending one cell at a time rather than addressed
+via an ISC. `mkEmpty` is done for you. `grow` is missing one line, the `fold` that
 re-establishes the shelf one cell longer. A checked solution is in
 [`solutions/shelf_growth.rav`](./solutions/shelf_growth.rav), whose comments spell out the
-trade-off this representation makes against the ISC's: growing costs nothing extra, but
-reaching a specific cell to touch it costs an unfold/fold per link along the way there.
+trade-off this representation makes compared to the ISC. Growing costs nothing extra, but
+reaching a specific cell costs an unfold/fold for each link along the way.
 
 ## What's next
 
-[5.4](../prophecies/) is the next — and last — capstone: a distributed counter whose `get`
-operation doesn't always know its own linearization point without help from a concurrent `incr`,
-solved by combining prophecy variables with a "helping protocol" built from everything up to this
-point — one-shot handoffs from 5.1, atomic contracts from 5.2, and, in the counter's own invariant,
-an ISC over a *set* rather than an index range. [5.5](../automation/) then collects the smaller
-automation features — implicit parameters, witness computation, `auto` lemmas, triggers,
-`assert ... with` — that all four capstones have been quietly leaning on without calling out by
-name (the `{S.loc(s, i)}` triggers above, for instance).
+[5.4](../prophecies/) is the next and last capstone. It covers a distributed counter whose `get`
+operation doesn't always know its own linearization point without help from a concurrent `incr`.
+The solution combines prophecy variables with a "helping protocol" built from everything up to
+this point: one-shot handoffs from 5.1, atomic contracts from 5.2, and, in the counter's own
+invariant, an ISC over a *set* rather than an index range. [5.5](../automation/) then collects
+the smaller automation features (implicit parameters, witness computation, `auto` lemmas,
+triggers, `assert ... with`) that all four capstones have been relying on without discussing them
+explicitly, such as the `{S.loc(s, i)}` triggers above.

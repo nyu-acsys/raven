@@ -1,38 +1,38 @@
-# 5.2. Atomic Contracts — Capstone: The Ticket Lock
+# 5.2. Atomic Contracts (Capstone: The Ticket Lock)
 
 *Assumes: Part 3's interface/functor pattern (`LockResource`, a module parameterizing over an
 abstract protected resource) and Part 4's invariant fold/unfold discipline, ghost fields, and
-`fpu`. Not re-taught here — if either feels shaky, skim [Part 3](../../modules/) and
-[Part 4](../../ghost-and-concurrency/) first; [5.1](../fork-join/) exercises the same
-material end to end and is good warm-up if you haven't done it yet.*
+`fpu`. These are not re-taught here. If either feels shaky, skim [Part 3](../../modules/) and
+[Part 4](../../ghost-and-concurrency/) first. [5.1](../fork-join/) exercises the same
+material from start to finish and is a good warm-up if you haven't done it yet.*
 
 A **ticket lock**, also called the *bakery algorithm*, is a mutual-exclusion lock where waiting
 threads are served in first-come-first-served order, like a numbered queue at a bakery counter.
 A thread calling `acquire` atomically draws a ticket number and then spins, watching a shared
 "now serving" counter, until it's called.
 
-If 5.1's fork/join felt comfortable, most of the shape here should too: the same
-existentials-plus-boolean-flag invariant pattern, the same `LockResource`/`Lock`-as-functor
+If 5.1's fork/join felt comfortable, most of the structure here should too. It uses the same
+existentials-plus-boolean-flag invariant pattern, and the same `LockResource`/`Lock`-as-functor
 structure as `Instance`/`ForkJoin` there. What's new in this section is what happens once mutual
-exclusion (rather than a one-shot handoff) needs a *retry loop*, and the more ergonomic way —
-atomic contracts — of stating what that loop guarantees.
+exclusion (rather than a one-shot handoff) needs a *retry loop*, and atomic contracts, a more
+convenient way of stating what that loop guarantees.
 
 We'll look at three files that implement the same algorithm with the same underlying resources:
 
 - [`ticket_lock_invariant.rav`](./ticket_lock_invariant.rav) proves `acquire`/`release` correct
-  with a plain shared invariant, exactly Part 4's toolkit.
+  with a plain shared invariant, using exactly the toolkit from Part 4.
 - [`ticket_lock_atomic_direct.rav`](./ticket_lock_atomic_direct.rav) proves the *same*
   procedures correct using **atomic contracts** for the first time, in the most direct way
   possible: `acquire`'s retry loop, `wait_loop`, has no atomic contract of its own at all.
-- [`ticket_lock_atomic.rav`](./ticket_lock_atomic.rav) is the version Raven's own test suite
-  actually ships: the same algorithm again, but with `wait_loop` given its *own*, independent
+- [`ticket_lock_atomic.rav`](./ticket_lock_atomic.rav) is the version included in Raven's own
+  test suite. It is the same algorithm again, but with `wait_loop` given its *own*, independent
   atomic contract and token, **composed** into `acquire`'s.
 
-Reading all three side by side is the point of this section: nothing about the underlying
-reasoning changes from the first file to the second — only its ergonomics. Going from the second
-file to the third *does* change something, but not the reasoning either: it's a purely structural
-choice about where one atomic step's worth of bookkeeping is allowed to live, and it's the best
-concrete illustration this tutorial has of a claim worth taking seriously — an atomic
+This section is meant to be read with all three files side by side. Nothing about the
+underlying reasoning changes from the first file to the second, only how it is expressed. Going
+from the second file to the third *does* change something, but again not the reasoning. It's a
+purely structural choice about where the bookkeeping for one atomic step is allowed to live. It
+is also the best concrete illustration in this tutorial of an important point: an atomic
 specification describes something *logically* atomic, not something *physically* atomic.
 
 ## The problem: linearizability, stated to a client {#sec:linearizability-to-client}
@@ -45,9 +45,9 @@ proc acquire(l: Ref, implicit ghost r: R)
   ensures resource(r) && locked(l)
 ```
 
-This is true and useful, but notice what it *doesn't* say: nothing here describes *when*,
-relative to other threads, the lock actually got acquired — only that, by the time `acquire`
-returns, you have `locked(l)`. A client that wants to reason about the lock as a single atomic
+This is true and useful, but notice what it *doesn't* say. Nothing here describes *when*,
+relative to other threads, the lock was actually acquired. It only says that by the time
+`acquire` returns, you have `locked(l)`. A client that wants to reason about the lock as a single atomic
 step in a bigger proof (the way you'd reason about a hardware `cas`) has to somehow reconstruct
 that from `lock_inv`'s internals, which are supposed to be private to the lock's implementation.
 
@@ -59,12 +59,12 @@ proc acquire(l: Ref, implicit ghost r: R)
   atomic ensures is_lock(l, r) && locked(l) && resource(r)
 ```
 
-An **atomic triple** — `atomic requires P` / `atomic ensures Q` — says: "this call, however many
+An **atomic triple**, `atomic requires P` / `atomic ensures Q`, says: "this call, however many
 physical steps it actually takes, has *one* atomic step (its *linearization point*) at which the
-abstract state visibly moves from something satisfying `P` to something satisfying `Q`; every
-other step is invisible to the outside". That's a strictly stronger, and strictly more useful,
-promise than an ordinary Hoare contract: from a logical perspective, a client can now treat
-`acquire` as a single step in its own reasoning, the same way it would treat `cas` itself.
+abstract state visibly moves from something satisfying `P` to something satisfying `Q`. Every
+other step is invisible to the outside." This is a strictly stronger, and more useful, promise
+than an ordinary Hoare contract. From a logical perspective, a client can now treat `acquire` as
+a single step in its own reasoning, the same way it would treat `cas` itself.
 
 ## The mechanics: `bindAU`/`openAU`/`abortAU`/`commitAU` {#sec:au-mechanics}
 
@@ -89,36 +89,37 @@ proc acquire(l: Ref, implicit ghost r: R)
 Every call to an atomically-contracted procedure carries a ghost **atomic update token**,
 manipulated by four ghost statements:
 
-- **`bindAU()`** gets a handle on the token for *this* call — `phi` here. Its type is
-  `AtomicToken<acquire>`: a token is permanently tagged with *which* atomically-contracted
+- **`bindAU()`** gets a handle on the token for *this* call, here `phi`. Its type is
+  `AtomicToken<acquire>`. A token is permanently tagged with *which* atomically-contracted
   procedure (and, implicitly, which call to it) it belongs to, so passing `acquire`'s token where
   `release`'s was expected is a type error.
-- **`openAU(phi)`** exchanges it for the current atomic precondition's resources — `is_lock(l,
-  r)` here — for exactly one atomic step, the same one-step discipline Part 4's invariants
-  enforce. Its return value, when there is one, is `acquire`'s own *implicit* parameters — here,
-  just `r` — freshly rebound to whatever value currently makes the precondition hold. (`acquire`
-  has one implicit parameter, hence one variable on `openAU`'s left-hand side; a procedure with
-  none would write plain `openAU(phi);`, and one with several would list all of them.)
+- **`openAU(phi)`** exchanges it for the resources of the current atomic precondition (here,
+  `is_lock(l, r)`) for exactly one atomic step. This is the same one-step discipline that Part 4's
+  invariants enforce. Its return value, when there is one, consists of `acquire`'s own *implicit*
+  parameters (here, just `r`), freshly rebound to whatever value currently makes the precondition
+  hold. (`acquire` has one implicit parameter, hence one variable on `openAU`'s left-hand side. A
+  procedure with none would write plain `openAU(phi);`, and one with several would list all of
+  them.)
 - **`abortAU(phi)`** closes that step by re-establishing the same precondition and handing the
-  resources back unchanged — used here because drawing a ticket number via `cas` isn't yet the
-  actual linearization point of `acquire`; nothing observable has happened yet.
-- **`commitAU(phi, ...)`** closes the step at the actual linearization point, by establishing the
-  atomic postcondition instead. Its last argument is a tuple of `acquire`'s own *return values* —
-  here, `()`, since `acquire` has no `returns` clause at all; a procedure declared `returns (v:
-  Int)` would instead write `commitAU(phi, someValue)`. Raven checks, at every return point of an
-  atomically-contracted procedure, that its token was committed somewhere on the path to get
-  there — a return without a `commitAU` first is rejected, the same way an unfolded invariant
-  that's never folded back is.
+  resources back unchanged. It is used here because drawing a ticket number via `cas` isn't yet
+  the actual linearization point of `acquire`, so nothing observable has happened yet.
+- **`commitAU(phi, ...)`** closes the step at the actual linearization point by establishing the
+  atomic postcondition instead. Its last argument is a tuple of `acquire`'s own *return values*,
+  here `()`, since `acquire` has no `returns` clause at all. A procedure declared `returns (v:
+  Int)` would instead write `commitAU(phi, someValue)`. At every return point of an
+  atomically-contracted procedure, Raven checks that its token was committed somewhere on the path
+  leading there. A return without a preceding `commitAU` is rejected, just like an unfolded
+  invariant that's never folded back.
 
 ## Threading a token through a retry loop directly {#sec:token-direct}
 
-`acquire`'s retry loop is where it gets interesting: drawing a ticket via `cas` can fail (someone
-else drew first) or succeed-but-not-yet-be-served (someone else is still ahead in line), and
-either way `acquire` has to keep trying without ever pretending its *own* atomic step has
-happened more than once. The implementation
-in [`ticket_lock_atomic_direct.rav`](./ticket_lock_atomic_direct.rav) makes the most direct
-choice possible: give the retry loop, `wait_loop`, no atomic contract of its own, and instead
-hand it `acquire`'s own token straight through, still uncommitted:
+`acquire`'s retry loop is where things get interesting. Drawing a ticket via `cas` can fail
+(someone else drew first), or succeed while the thread is not yet served (someone else is still
+ahead in line). Either way, `acquire` has to keep trying without ever pretending its *own* atomic
+step has happened more than once. The implementation in
+[`ticket_lock_atomic_direct.rav`](./ticket_lock_atomic_direct.rav) makes the most direct choice
+possible. It gives the retry loop, `wait_loop`, no atomic contract of its own, and instead passes
+it `acquire`'s own token, still uncommitted:
 
 ```raven
 proc wait_loop(l: Ref, x: Int, ghost token: AtomicToken<acquire>, implicit ghost r: R)
@@ -143,29 +144,29 @@ proc wait_loop(l: Ref, x: Int, ghost token: AtomicToken<acquire>, implicit ghost
 }
 ```
 
-Two new assertion forms show up in `wait_loop`'s own (perfectly ordinary, non-atomic) contract:
-`au<acquire>(token, l)` is the resource-level fact "I am holding `acquire`'s atomic update
-obligation, still uncommitted, for a call `acquire(l)` represented by `token`" — the
-*precondition* side; `auCommit<acquire>(token, l, ())` is its counterpart once committed, naming
-the same call together with the return values it committed with. Both take the token, then the
-owning procedure's own concrete (non-implicit) arguments as a tuple — `l` alone here, since
-`acquire`'s only other parameter, `r`, is implicit.  `wait_loop` never calls `bindAU()` itself;
-there is exactly one token in this entire story, created once by `acquire`, and `wait_loop`'s job
-is entirely about eventually committing that same token, not creating one of its own.
+Two new assertion forms show up in `wait_loop`'s own (perfectly ordinary, non-atomic) contract.
+On the *precondition* side, `au<acquire>(token, l)` is the resource-level fact "I am holding
+`acquire`'s atomic update obligation, still uncommitted, for a call `acquire(l)` represented by
+`token`." Its counterpart once committed is `auCommit<acquire>(token, l, ())`, which names the
+same call together with the return values it committed with. Both take the token, followed by
+the owning procedure's own concrete (non-implicit) arguments as a tuple. Here that is just `l`,
+since `acquire`'s only other parameter, `r`, is implicit. `wait_loop` never calls `bindAU()`
+itself. There is exactly one token in this whole proof, created once by `acquire`, and
+`wait_loop`'s job is to eventually commit that same token, not to create one of its own.
 
-That's also why every `openAU`/`abortAU`/`commitAU` call on `token` inside `wait_loop` spells out
-`l` explicitly, unlike `acquire`'s own bare `openAU(phi)`/`abortAU(phi)`: those shortcuts only
-work when a procedure is manipulating a token that's *its own* — Raven can read the enclosing
-call's own arguments off the surrounding scope automatically. A token belonging to some *other*
-procedure — `acquire`'s, as far as `wait_loop` is concerned — always needs its owner's arguments
-supplied by hand, exactly the way `au`/`auCommit` do in the contract above. The overall shape is
-just open, read, then either abort-and-recurse or commit-and-return — the retry recursion is
-transparently just more of `acquire`'s own single step, which is precisely what it always was.
+This is also why every `openAU`/`abortAU`/`commitAU` call on `token` inside `wait_loop` spells
+out `l` explicitly, unlike `acquire`'s own bare `openAU(phi)`/`abortAU(phi)`. Those shortcuts
+only work when a procedure is manipulating a token that's *its own*, because then Raven can read
+the enclosing call's arguments off the surrounding scope automatically. A token belonging to some
+*other* procedure (`acquire`, from the perspective of `wait_loop`) always needs its owner's
+arguments supplied by hand, exactly as `au`/`auCommit` do in the contract above. The overall
+structure is simply open, read, and then either abort-and-recurse or commit-and-return. The retry
+recursion is just part of `acquire`'s own single step, which is what it always was.
 
 ## Composing atomic contracts {#sec:composing-atomic-contracts}
 
-[`ticket_lock_atomic.rav`](./ticket_lock_atomic.rav) — the version Raven's own test suite ships —
-makes a different structural choice: `wait_loop` gets an atomic contract of its own, and its own,
+[`ticket_lock_atomic.rav`](./ticket_lock_atomic.rav), the version in Raven's own test suite,
+makes a different structural choice. `wait_loop` gets an atomic contract of its own, and its own
 independent token:
 
 ```raven
@@ -194,49 +195,48 @@ proc wait_loop(l: Ref, x: Int, implicit ghost r: R)
 }
 ```
 
-`acquire` now calls it as an ordinary, atomically-specified procedure — `wait_loop(l, nxt)` —
-right after re-opening its own token, then closes with its own `commitAU(phi, ())` once
-`wait_loop` returns. That "re-open, call, commit" shape is the key thing to notice: calling an
+`acquire` now calls it as an ordinary, atomically-specified procedure, `wait_loop(l, nxt)`,
+right after re-opening its own token, and then closes with its own `commitAU(phi, ())` once
+`wait_loop` returns. This "re-open, call, commit" pattern is the key thing to notice. Calling an
 atomically-contracted procedure while your own token is open is legal, and it consumes *exactly*
-that one open step, no matter how many physical statements — or recursive calls — the callee
-actually takes to get there. `wait_loop` might retry an unbounded number of times before it
-commits; from `acquire`'s point of view, none of that is visible, because `wait_loop`'s own
-contract already guarantees the whole thing behaves as one atomic step. That's the payoff of
-having a *nested* atomic contract in the first place: `wait_loop` becomes an independently
-reusable, independently understandable atomic operation — usable anywhere a client needs exactly
-this ticket-serving step — rather than logic that only makes sense spliced into `acquire`'s own
-body.
+that one open step, no matter how many physical statements (or recursive calls) the callee
+actually takes. `wait_loop` might retry an unbounded number of times before it commits. From
+`acquire`'s point of view, none of that is visible, because `wait_loop`'s own contract already
+guarantees that the whole thing behaves as one atomic step. This is the benefit of a *nested*
+atomic contract. `wait_loop` becomes an atomic operation that can be reused and understood on
+its own, wherever a client needs exactly this ticket-serving step, rather than logic that only
+makes sense as part of `acquire`'s body.
 
-Compare the two versions side by side and the underlying lesson becomes concrete rather than
-just a slogan: **an atomic specification describes something logically atomic, not something
-physically atomic.** The direct version's retry loop and the composed version's separately
-atomic `wait_loop` produce the *exact same* observable contract for `acquire` — the same `atomic
-requires`/`atomic ensures` pair, unchanged — despite one of them taking a visibly different,
-strictly more recursive, more multi-step path to get there internally.
+Comparing the two versions side by side makes the underlying lesson concrete: **an atomic
+specification describes something logically atomic, not something physically atomic.** The
+retry loop of the direct version and the separately atomic `wait_loop` of the composed version
+produce *exactly the same* observable contract for `acquire`, with the same `atomic
+requires`/`atomic ensures` pair. This holds even though the second version takes a visibly
+different, more recursive, multi-step path internally.
 
-The opposite direction exists too, and is worth knowing about even if you never need it here:
-code that really does take several steps, which you want *treated* as one. That is
-`atomic { ... }`, and unlike everything in this section it is asserted rather than proved —
-Raven has no scheduler to check it against. It is how a hand-written atomic primitive discharges
+The opposite direction exists too, and is worth knowing about even though it isn't needed
+here: code that really does take several steps, which you want *treated* as one. This is
+`atomic { ... }`. Unlike everything else in this section, it is asserted rather than proved.
+By definition, Raven's semantics executes the block as a single step, and whether the target
+machine actually does so is up to you. It is how a hand-written atomic primitive discharges
 a contract like the one above, and more generally how any procedure stands in for something the
 target machine does indivisibly. {{ref sec:atomic-block-standalone}} covers it.
 
 ## Debugging Corner
 
-The atomicity-analysis vocabulary from Part 4 reappears here verbatim, just guarding
-`bindAU`/`openAU`/`abortAU`/`commitAU` instead of `fold`/`unfold`: `Atomic token %s is already
-open`, `Cannot commitAU: atomic token %s is not open` (and likewise for `abortAU`), and — when a
-path reaches the end of the body with the token still open — `Missing commitAU or abortAU for
-open atomic update phi`, reported at the closing brace with the `openAU` that opened it as a
-Related Location, exactly like Part 4's never-folded invariant. Recognizing these as *the same
-family* of error as Part 4's is the
-actual point — there's nothing new to learn here, just a new pair of statements that the same
-one-step discipline applies to.
+The atomicity-analysis messages from Part 4 reappear here almost verbatim, now guarding
+`bindAU`/`openAU`/`abortAU`/`commitAU` instead of `fold`/`unfold`. They are `Atomic token %s is
+already open`, `Cannot commitAU: atomic token %s is not open` (and likewise for `abortAU`), and,
+when a path reaches the end of the body with the token still open, `Missing commitAU or abortAU
+for open atomic update phi`. The last one is reported at the closing brace with the `openAU` that
+opened the token as a Related Location, exactly like Part 4's never-folded invariant. The main
+thing is to recognize these as *the same family* of errors as in Part 4. There's nothing new to
+learn here, just new statements to which the same one-step discipline applies.
 
 ## What's next
 
 [5.3](../iterated-star/) is the next capstone: an array of independently-lockable counters,
-which needs a way to own an entire *family* of resources — one per array slot — at once, rather
+which needs a way to own an entire *family* of resources (one per array slot) at once, rather
 than one at a time. [5.5](../automation/) then collects the smaller automation features
 (implicit parameters, witness computation, `auto` lemmas, triggers) that all four capstones
-lean on without calling out by name.
+rely on without discussing them explicitly.
