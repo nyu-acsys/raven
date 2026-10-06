@@ -71,8 +71,8 @@ checked answers.
 - **{{ref app:resource-algebras}}: Resource Algebras, Formally**
 - **{{ref app:hardware-primitives}}: Adding a Hardware Primitive**: writing an atomic
   operation the standard library doesn't provide, in ordinary Raven.
-- **{{ref app:stdlib-types}}: Standard Library Data Types**: options, lists, and
-  sequences.
+- **{{ref app:stdlib-types}}: Standard Library Data Types**: options, lists, sequences,
+  and arrays.
 - **{{ref app:from-other-tools}}: Coming From Viper, Dafny, or Iris**
 - **{{ref app:extension-api}}: Beyond This Tutorial: the Extension API**
 - **{{ref app:where-next}}: Where to Go Next**

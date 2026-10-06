@@ -48,10 +48,8 @@ There are two reasons why this tutorial reasons about addressing in this way, ra
 concretely allocating `n` cells in a loop and using a real `Map[Int, Ref]`. First, it's exactly
 what Raven's own array benchmarks do (`test/arrays/array_utils.rav` and
 `test/iterated-star/array-max.rav` are real, tested code, not a simplification invented for this
-tutorial). `test/arrays/array_utils.rav` itself is expected to eventually move to
-`Library.Array`, an axiomatization of exactly this addressing scheme that is being added to
-Raven's trusted base specifically to simplify array reasoning like this. Keep an eye out for it
-if you're writing this kind of proof yourself. Second, proving injectivity for a family of
+tutorial). The standard library's `Library.Array` ({{ref app:stdlib-types}}) axiomatizes exactly
+this addressing scheme, and `test/arrays/array_utils.rav` builds on it. Second, proving injectivity for a family of
 locations built up incrementally, one `new` at a time, is a considerably harder proof than what
 this capstone is about. It is also a *different kind* of proof. Raven checks an ISC's
 injectivity side condition once, as a property of the predicate's own definition, for arbitrary
@@ -109,8 +107,8 @@ writing your own axiom, using `all_diff` as a template. Every axiom you add is o
 Raven trusts without proof, and the injectivity of an addressing scheme is exactly the kind of
 fact that's easy to state incorrectly in a way that's hard to notice (an inconsistent axiom
 silently lets *anything* be proved). If you need array-like addressing, use `Library.Array`
-instead. It gives you injective addressing for free, proven correct once rather than assumed
-anew in every proof that needs it.
+instead. Its injective addressing is part of Raven's trusted base, stated once rather than anew
+in every proof that needs it.
 
 ## Exercise
 

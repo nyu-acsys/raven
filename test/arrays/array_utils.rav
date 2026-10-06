@@ -2,33 +2,12 @@
 
 interface Array {
   module E: Library.Type
-  rep type T
+  module A = Library.Array[E]
+  import A._
 
-  func loc(a: T, i: Int) returns (r: Ref)
-  func length(a: T) returns (l: Int)
-  func first(r: Ref) returns (a: T)
-  func second(r: Ref) returns (i: Int)
-  
-  auto axiom all_diff()
-    ensures forall a:T, i: Int :: {loc(a, i)} first(loc(a, i)) == a && second(loc(a, i)) == i
-    
-  auto axiom len_nonneg()
-    ensures forall a:T :: {length(a)} length(a) >= 0
+  rep type T = A.T
 
-  field value: E
-
-  val default: E
-
-  val default_map: Map[Int, E] = {| i: Int :: default |}
-
-  pred arr(a: T; m: Map[Int, E]) {
-    (forall j: Int :: {m[j]} 0 <= j < length(a) ==> own(loc(a, j).value, m[j], 1.0)) 
-    && (forall j: Int :: {m[j]} (0 > j || j >= length(a)) ==> m[j] == default)
-  }
-
-  proc alloc(len: Int, d: E) returns (a: T)
-    requires 0 <= len
-    ensures length(a) == len && arr(a, {| i: Int :: 0 <= i < len ? d : default |})
+  val default_map: Map[Int, E] = {| i: Int :: E.default |}
 
   func injective(m: Map[Int, E], i: Int, j: Int) returns (res: Bool)
   {
@@ -179,6 +158,7 @@ interface Array {
 
 interface OrderedArray[E: Library.OrderedType] : Array {
   import E.lt
+  import A._
 
   func sorted_map_seg(m: Map[Int, E], i: Int, j: Int) returns (res: Bool) {
     forall i1: Int, i2: Int :: {m[i1], m[i2]} i <= i1 && i1 < i2 && i2 < j ==> lt(m[i1], m[i2])

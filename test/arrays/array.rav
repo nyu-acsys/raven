@@ -1,39 +1,18 @@
 interface ArrayI {
   module E: Library.Type
-  rep type T = E
+  module A = Library.Array[E]
+  import A._
 
-  free func loc(a: T, i: Int) returns (r: Ref)
-  free func length(a: T) returns (l: Int)
-  free func first(r: Ref) returns (a: T)
-  free func second(r: Ref) returns (i: Int)
-  
-  free auto axiom all_diff()
-    ensures forall a:T, i: Int :: {loc(a, i)} first(loc(a, i)) == a && second(loc(a, i)) == i
-    
-  free auto axiom len_nonneg()
-    ensures forall a:T :: {length(a)} length(a) >= 0
+  rep type T = A.T
 
-  field value: E
-
-  free val default: E
-
-  val default_map: Map[Int, E] = {| i: Int :: default |}
-
-  pred arr(a: T; m: Map[Int, E]) {
-    (forall j: Int :: {m[j]} 0 <= j < length(a) ==> own(loc(a, j).value, m[j], 1.0)) 
-    && (forall j: Int :: {m[j]} (0 > j || j >= length(a)) ==> m[j] == default)
-  }
-
-  free proc alloc(len: Int, d: E) returns (a: T)
-    requires 0 <= len
-    ensures length(a) == len && arr(a, {| i: Int :: 0 <= i < len ? d : default |})
+  val default_map: Map[Int, E] = {| i: Int :: E.default |}
 
   proc copy(a: T, implicit ghost m: Map[Int, E]) 
     returns (b: T)
     requires arr(a, m)
     ensures arr(a, m) && arr(b, m) && length(a) == length(b)
   {
-    b := alloc(length(a), default);
+    b := alloc(length(a), E.default);
     assert length(b) == length(a);
     unfold arr(b);
 
@@ -43,7 +22,7 @@ interface ArrayI {
       invariant 0 <= i <= length(a) && length(a) == length(b)
       invariant arr(a, m)
       invariant forall j: Int :: {m[j]} 0 <= j < i ==> own(loc(b, j).value, m[j])
-      invariant forall j: Int :: i <= j < length(b) ==> own(loc(b, j).value, default)
+      invariant forall j: Int :: i <= j < length(b) ==> own(loc(b, j).value, E.default)
     {
       unfold arr(a);
       var x := loc(a, i).value;
@@ -204,4 +183,4 @@ interface ArrayI {
 
 }
 
-module Array[E: Library.Type] : ArrayI { }
+module ArrayUtils[E: Library.Type] : ArrayI { }

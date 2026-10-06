@@ -57,7 +57,7 @@ interface PArray : Library.Type {
 
   rep type T
 
-  module A = Array[E]
+  module AU = ArrayUtils[E]
 
   inv parr(pa: T; len: Int, m: Map[Int, E], lck: Ref)
 
@@ -78,14 +78,14 @@ interface PArray : Library.Type {
   proc create(len: Int, d: E)
     returns (pa: T)
     requires 0 <= len
-    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : A.default |})
+    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : E.default |})
 }
 
 module Make[E: Library.Type, LockF: Lock] : PArray {
   rep type T = Ref
 
   type Desc = data {
-    case base(elements: A.T)
+    case base(elements: AU.A.T)
     case diff(adata: T, index: Int, value: E)
   }
 
@@ -101,7 +101,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       exists av: Desc, d: Int ::
         own(pa.desc, av) && own(pa.dist, d) &&
         (av is base ? 
-        A.arr(av.elements, s#1) && s#0 == A.length(av.elements) :
+        AU.A.arr(av.elements, s#1) && s#0 == AU.A.length(av.elements) :
         (exists m1: Map[Int, E] :: parr(av.adata, s#0, m1) && 0 <= av.index < s#0 
           && s#1 == m1[av.index := av.value])
       ) 
@@ -120,11 +120,11 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
   proc create(len: Int, d: E)
     returns (pa: T)
     requires 0 <= len
-    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : A.default |})
+    ensures parr(pa, len, {| i: Int :: 0 <= i < len ? d : E.default |})
   {
-    val elems := A.alloc(len, d);
+    val elems := AU.A.alloc(len, d);
     pa := new(lock: null, desc: base(elems), dist: 0);
-    val m := {| i: Int :: 0 <= i < len ? d : A.default |};
+    val m := {| i: Int :: 0 <= i < len ? d : E.default |};
     fold R.resource(pa, (len, m));
     val l := L.create(pa);
     pa.lock := l;
@@ -132,9 +132,9 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
   }
 
   proc to_array(pa: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
-    returns (b: A.T)
+    returns (b: AU.A.T)
     requires parr(pa, len, m)
-    ensures R.resource(pa, (len, m)) && A.arr(b, m) && A.length(b) == len
+    ensures R.resource(pa, (len, m)) && AU.A.arr(b, m) && AU.A.length(b) == len
   {
     unfold parr(pa);
     var lck := pa.lock;
@@ -148,7 +148,7 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
 
     val av := pa.desc;
     if (av is base) {
-      b := A.copy(av.elements);
+      b := AU.copy(av.elements);
     } else {
       b := to_array(av.adata);
       unfold parr(av.adata);
@@ -157,18 +157,18 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       unfold parr(av.adata);
       L.release(lck, av.adata);
       fold parr(av.adata);
-      unfold A.arr(b);
-      A.loc(b, av.index).A.value := av.value;
-      fold A.arr(b, m);      
+      unfold AU.A.arr(b);
+      AU.A.loc(b, av.index).AU.A.value := av.value;
+      fold AU.A.arr(b, m);      
     }
     fold R.resource(pa, (len, m))[m1 := m1];
   }
 
   proc rebase(pa: T, implicit ghost m: Map[Int, E], implicit ghost len: Int)
-    returns (b: A.T)
+    returns (b: AU.A.T)
     requires parr(pa, len, m)
     ensures own(pa.desc, base(b)) && (exists d: Int :: own(pa.dist, d))
-    ensures A.arr(b, m) && len == A.length(b)
+    ensures AU.A.arr(b, m) && len == AU.A.length(b)
   {
     b := to_array(pa);
     unfold R.resource(pa);
@@ -182,9 +182,9 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
     ensures m[x] == res
   {
     val b := rebase(pa);
-    unfold A.arr(b);
-    res := A.loc(b, x).A.value;
-    fold A.arr(b, m);
+    unfold AU.A.arr(b);
+    res := AU.A.loc(b, x).AU.A.value;
+    fold AU.A.arr(b, m);
     fold R.resource(pa, (len, m));
     unfold parr(pa);
     var lck1 := pa.lock;
@@ -203,11 +203,11 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
   {
     val a := rebase(pa);
     val d := pa.dist;
-    if (d == A.length(a)) {
-      val b := A.copy(a);
-      unfold A.arr(b);
-      A.loc(b, x).A.value := e;
-      fold A.arr(b, m[x := e]);
+    if (d == AU.A.length(a)) {
+      val b := AU.copy(a);
+      unfold AU.A.arr(b);
+      AU.A.loc(b, x).AU.A.value := e;
+      fold AU.A.arr(b, m[x := e]);
       unfold parr(pa);
       var lck := pa.lock;
       fold parr(pa);
@@ -222,10 +222,10 @@ module Make[E: Library.Type, LockF: Lock] : PArray {
       fold parr(pb);
       return pb;
     } else {
-      unfold A.arr(a);
-      val v := A.loc(a, x).A.value;
-      A.loc(a, x).A.value := e;
-      fold A.arr(a, m[x := e]);
+      unfold AU.A.arr(a);
+      val v := AU.A.loc(a, x).AU.A.value;
+      AU.A.loc(a, x).AU.A.value := e;
+      fold AU.A.arr(a, m[x := e]);
       pb := new (lock: null, desc: base(a), dist: d + 1);
       fold R.resource(pb, (len, m[x := e]));
       var lck := L.create(pb);

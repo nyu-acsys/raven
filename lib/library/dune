@@ -3,7 +3,8 @@
  (preprocessor_deps
   (file base_types.rav)
   (file resource_algebra.rav)
-  (file atomics.rav))
+  (file atomics.rav)
+  (file array.rav))
  (preprocess
   (pps ppx_blob)))
 
@@ -13,5 +14,6 @@
   %{project_root}/lib/library/base_types.rav
   %{project_root}/lib/library/resource_algebra.rav
   %{project_root}/lib/library/atomics.rav
+  %{project_root}/lib/library/array.rav
   (:rav
    (glob_files_rec *.rav))))

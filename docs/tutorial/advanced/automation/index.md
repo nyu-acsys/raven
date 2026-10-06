@@ -290,7 +290,7 @@ material:
 - {{ref app:hardware-primitives}} shows how to add an atomic hardware primitive that the
   standard library doesn't provide, without touching the verifier.
 - {{ref app:stdlib-types}} describes the data types of the standard library that the main
-  tutorial doesn't use: options, lists, and sequences.
+  tutorial doesn't use: options, lists, sequences, and arrays.
 - {{ref app:from-other-tools}} is a quick dictionary for readers coming from Viper, Dafny, or
   Iris.
 - {{ref app:extension-api}} points to the Extension API, for readers who want to add new

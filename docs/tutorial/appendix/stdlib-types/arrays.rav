@@ -1,0 +1,30 @@
+module IntArray = Library.Array[Library.IntType]
+
+import IntArray._
+
+// Sets every entry of a to x.
+proc fill(a: IntArray.T, x: Int, implicit ghost m: Map[Int, Int])
+  requires arr(a, m)
+  ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
+{
+  unfold arr(a, m);
+  var i := 0;
+  while (i < length(a))
+    invariant 0 <= i && i <= length(a)
+    invariant forall j: Int :: {loc(a, j)} 0 <= j && j < i ==> own(loc(a, j).value, x)
+    invariant forall j: Int :: {loc(a, j)} i <= j && j < length(a) ==> own(loc(a, j).value, m[j])
+  {
+    loc(a, i).value := x;
+    i := i + 1;
+  }
+  fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
+}
+
+proc client()
+{
+  var a := alloc(3, 0);
+  fill(a, 7);
+  unfold arr(a);
+  var y := loc(a, 2).value;
+  assert y == 7;
+}

@@ -12,6 +12,11 @@ makes covering it here worth doing.
   $ dune exec -- raven --shh ./atomics.rav
   Verification successful.
 
+array.rav declares a field as well, so it is checked the same way.
+
+  $ dune exec -- raven --shh ./array.rav
+  Verification successful.
+
 Checked as an ordinary program rather than imported, its bodies are intact and
 genuinely reverified, so `--strict` warns about its four `atomic { ... }` blocks
 exactly as it would for any other input -- the four primitives are library code,

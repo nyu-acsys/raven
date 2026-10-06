@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The standard library provides arrays, `Library.Array[E]`: families of heap cells addressed by index, with a predicate owning all cells of an array and a procedure allocating one.
+
 - The standard library provides immutable sequences, `Library.Seq[E]`. Their properties are stated as lemmas in the interface `Library.SeqSpec` and proved for the implementation as lists.
 
 - Procedures and lemmas may declare the invariants they open with an `opens` clause, e.g. `opens {}`, `opens cell(x)` or `opens inner(x, _)`. The clause replaces the mask inferred from `requires`, and callers need credit only for what it lists.

@@ -4,7 +4,7 @@
 
 Besides the built-in types from {{ref sec:values-and-types}}, the standard library provides
 generic data types as functors in the module `Library`. This appendix describes the ones the
-main tutorial doesn't use: options, lists, and sequences.
+main tutorial doesn't use: options, lists, sequences, and arrays.
 
 ## Getting an instance {#sec:stdlib-instances}
 
@@ -140,3 +140,47 @@ the instance from the type of its argument ({{ref sec:implicit-functor-instantia
 
 Without the `assert`, the postcondition fails. The assertion makes Raven compare the two
 sequences entry by entry, and once it holds, the two are known to be equal.
+
+## Arrays {#sec:stdlib-array}
+
+Options, lists, and sequences are values. `Library.Array[E]` is different: an array is a family
+of heap cells, one per index, each holding an entry of type `E` in its field `value`:
+
+| Member | Meaning |
+|---|---|
+| `length(a)` | the number of cells of `a` |
+| `loc(a, i)` | the cell at index `i`, a `Ref` |
+| `arr(a, m)` | a predicate owning all cells of `a`, whose entries are given by the map `m` |
+| `alloc(n, d)` | a procedure creating an array of `n` cells, each holding `d` |
+
+`m` is `E.default` outside the bounds of `a`, so the entries determine it. Distinct indices, and
+distinct arrays, have distinct cells. This is what lets an iterated separating conjunction like
+the one in `arr` own all of them at once ({{ref sec:addressing-abstract}}). A `Ref` can't be
+constructed in Raven, so this fact can't be proved. Like `alloc`, it is an axiom of the standard
+library, which you can rely on instead of stating it yourself.
+
+[`arrays.rav`](./arrays.rav) sets all entries of an array to the same value:
+
+```raven
+proc fill(a: IntArray.T, x: Int, implicit ghost m: Map[Int, Int])
+  requires arr(a, m)
+  ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
+{
+  unfold arr(a, m);
+  var i := 0;
+  while (i < length(a))
+    invariant 0 <= i && i <= length(a)
+    invariant forall j: Int :: {loc(a, j)} 0 <= j && j < i ==> own(loc(a, j).value, x)
+    invariant forall j: Int :: {loc(a, j)} i <= j && j < length(a) ==> own(loc(a, j).value, m[j])
+  {
+    loc(a, i).value := x;
+    i := i + 1;
+  }
+  fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
+}
+```
+
+Inside the loop, `arr` is unfolded, so the invariants own the cells individually: those already
+written hold `x`, the others still hold their entries from `m`. After the loop, folding `arr`
+again packs them up into a single predicate with the new entries.
+

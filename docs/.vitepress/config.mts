@@ -100,6 +100,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:stdlib-option': 'Options',
   'sec:stdlib-list': 'Lists',
   'sec:stdlib-seq': 'Sequences',
+  'sec:stdlib-array': 'Arrays',
   'sec:trust-boundary': 'Where the trust boundary is',
   'sec:when-extension-api': 'When you need the Extension API',
 

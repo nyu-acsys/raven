@@ -1,7 +1,5 @@
-include "../../arrays/array.rav"
-
 interface FaultyVector[T: Library.Type] {
-    module Array_T = Array[T]
+    module Array_T = Library.Array[T]
 
     val epsilon : Real
 
