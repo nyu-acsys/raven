@@ -1,0 +1,19 @@
+// Implicit instantiation infers a functor's arguments from a value of its rep type
+// also when that rep type is defined as another module's type.
+
+module Stack[E: Library.Type] : Library.Type {
+  module L = Library.List[E]
+  import L._
+
+  rep type T = L.T
+
+  func size(s: T) returns (r: Int) {
+    len(s)
+  }
+}
+
+lemma sizes(s: Stack[Int])
+{
+  var n := Stack.size(s);
+  assert n >= 0;
+}

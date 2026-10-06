@@ -22,6 +22,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Implicit functor instantiation infers a functor's arguments from a value of its rep type also when the rep type is defined as the type of a nested module, as in `rep type T = L.T`.
+
 - An implicitly instantiated functor call can be the first operand of an arithmetic or comparison operator, as in `List.len(xs) + 1`, instead of failing with `Cannot unify type Int with type Int or Real`.
 
 - Fix an unsoundness where an auto lemma could be assumed while verifying a lemma that its own proof calls, so that the two proofs justified each other.

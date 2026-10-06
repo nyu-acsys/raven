@@ -1344,7 +1344,7 @@ module ProcessExpr = struct
       occurs check) -- see [unify_one] below for the three cases it distinguishes. *)
   and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
       ~(formal_reps : (qual_ident * ident * ident) list)
-      ~(m_rep_qi : qual_ident option) (u : (ident * type_expr) list)
+      ~(m_rep_suffixes : ident list list) (u : (ident * type_expr) list)
       (pairs : (type_expr * type_expr) list) : (ident * type_expr) list t =
     let open Rewriter.Syntax in
     (* Canonicalize via [expand_type_expr] before storing/comparing: two bindings for
@@ -1363,6 +1363,11 @@ module ProcessExpr = struct
       | Some _ -> Rewriter.return u
       | None -> Rewriter.return (List.Assoc.add u formal_ident t2 ~equal:Ident.equal)
     in
+    let is_rep_type qi =
+      List.exists m_rep_suffixes ~f:(fun suffix ->
+          List.equal Ident.equal (QualIdent.to_list qi)
+            (QualIdent.to_list functor_qual_ident @ suffix))
+    in
     let same_head c1 c2 =
       Type.equal
         (Type.App (c1, [], Type.dummy_attr) |> Type.set_ghost false)
@@ -1376,7 +1381,7 @@ module ProcessExpr = struct
     and unify_one u t1 t2 =
       (* Normalize only [t2]: [t1] names [m]'s own formals/rep, which are by design
          unreachable via ordinary resolution from outside [m] -- it's only ever
-         pattern-matched against [formal_reps]/[m_rep_qi] below, never resolved. *)
+         pattern-matched against [formal_reps]/[m_rep_suffixes] below, never resolved. *)
       let* t2 = ProcessTypeExpr.process_type_expr t2 in
       (* `Any` and the numeric placeholder `Num` (e.g. the expected type of an operand of
          `+`) say nothing about the formals. *)
@@ -1396,14 +1401,26 @@ module ProcessExpr = struct
         | Some (_, formal_ident, _) -> combine u formal_ident t2
         | None -> (
             match t1 with
-            | App (Var qi, [], _)
-              when (match m_rep_qi with Some r -> QualIdent.equal qi r | None -> false)
-              -> (
+            | App (Var qi, [], _) when is_rep_type qi -> (
                 match t2 with
                 | App (Var qi2, [], _) -> (
-                    let inst_qi = QualIdent.pop qi2 in
+                    (* An instantiation's rep is the instance followed by one of the
+                       rep's suffixes, depending on how far it has been expanded. *)
+                    let qi2 = QualIdent.to_list qi2 in
+                    let candidates =
+                      List.filter_map m_rep_suffixes ~f:(fun suffix ->
+                          let n = List.length qi2 - List.length suffix in
+                          if n > 0
+                             && List.equal Ident.equal (List.drop qi2 n) suffix
+                          then Some (QualIdent.from_list (List.take qi2 n))
+                          else None)
+                    in
                     let* formal_module =
-                      instantiation_formal_module ~functor_qual_ident inst_qi
+                      Rewriter.List.fold_left candidates ~init:None
+                        ~f:(fun found inst_qi ->
+                          match found with
+                          | Some _ -> Rewriter.return found
+                          | None -> instantiation_formal_module ~functor_qual_ident inst_qi)
                     in
                     match formal_module with
                     | None -> Rewriter.return u
@@ -1489,7 +1506,7 @@ module ProcessExpr = struct
       if List.is_empty mod_members then Rewriter.return []
       else
         unify_type_list ~loc ~functor_qual_ident:interface_qi ~formal_reps
-          ~m_rep_qi:None [] [ (field.field_type, field_type) ]
+          ~m_rep_suffixes:[] [] [ (field.field_type, field_type) ]
     in
     let* mod_bindings =
       Rewriter.List.map mod_members ~f:(fun member ->
@@ -1665,12 +1682,31 @@ module ProcessExpr = struct
               let* formal_reps =
                 rep_vars_of_insts ~scope_qi:functor_qual_ident m.mod_decl.mod_decl_formals
               in
-              let m_rep_qi =
-                Base.Option.map m.mod_decl.mod_decl_rep
-                  ~f:(QualIdent.append functor_qual_ident)
+              (* [m]'s rep, relative to [m], and the type of a nested module it
+                 aliases, if any (e.g. `rep type T = L.T`): member signatures may
+                 already refer to the latter. *)
+              let m_rep_suffixes =
+                match m.mod_decl.mod_decl_rep with
+                | None -> []
+                | Some rep_ident ->
+                    let functor_path = QualIdent.to_list functor_qual_ident in
+                    let aliased =
+                      List.find_map m.mod_def ~f:(function
+                        | Module.SymbolDef
+                            (TypeDef
+                              { type_def_name; type_def_expr = Some (App (Var qi, [], _)); _ })
+                          when Ident.equal type_def_name rep_ident ->
+                            let qi = QualIdent.to_list qi in
+                            if List.is_prefix qi ~prefix:functor_path ~equal:Ident.equal
+                            then Some (List.drop qi (List.length functor_path))
+                            else if List.length qi > 1 then Some qi
+                            else None
+                        | _ -> None)
+                    in
+                    [ rep_ident ] :: Option.to_list aliased
               in
               let* bindings =
-                unify_type_list ~loc ~functor_qual_ident ~formal_reps ~m_rep_qi [] pairs
+                unify_type_list ~loc ~functor_qual_ident ~formal_reps ~m_rep_suffixes [] pairs
               in
               (match
                  List.find m.mod_decl.mod_decl_formals ~f:(fun formal ->
