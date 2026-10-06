@@ -1,0 +1,9 @@
+// An implicitly instantiated call returning Bool can be used as an assertion.
+
+lemma assertions(xs: Library.List[Int])
+  requires Library.List.is_in(xs, 1)
+  ensures Library.List.is_in(xs, 1)
+{
+  assert Library.List.is_in(xs, 1);
+  assert true && Library.List.is_in(xs, 1);
+}

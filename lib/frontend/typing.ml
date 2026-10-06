@@ -1383,10 +1383,12 @@ module ProcessExpr = struct
          unreachable via ordinary resolution from outside [m] -- it's only ever
          pattern-matched against [formal_reps]/[m_rep_suffixes] below, never resolved. *)
       let* t2 = ProcessTypeExpr.process_type_expr t2 in
-      (* `Any` and the numeric placeholder `Num` (e.g. the expected type of an operand of
-         `+`) say nothing about the formals. *)
+      (* `Any`, the numeric placeholder `Num` (e.g. the expected type of an operand of
+         `+`), and `Perm` (the expected type of an assertion, which a `Bool` also
+         satisfies) say nothing about the formals. *)
       if Type.is_any (t1 |> Type.set_ghost false) || Type.is_any (t2 |> Type.set_ghost false)
          || Type.equal (t2 |> Type.set_ghost false) Type.num
+         || Type.equal (t2 |> Type.set_ghost false) Type.perm
       then Rewriter.return u
       else
         (* Three cases: `t1` is a formal's rep (bind/check it against `t2`); `t1` is
