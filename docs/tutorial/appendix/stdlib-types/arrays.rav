@@ -11,10 +11,10 @@ proc fill(a: IntArray.T, x: Int, implicit ghost m: Map[Int, Int])
   var i := 0;
   while (i < length(a))
     invariant 0 <= i && i <= length(a)
-    invariant forall j: Int :: {loc(a, j)} 0 <= j && j < i ==> own(loc(a, j).value, x)
-    invariant forall j: Int :: {loc(a, j)} i <= j && j < length(a) ==> own(loc(a, j).value, m[j])
+    invariant forall j: Int :: {loc(a, j)} 0 <= j && j < i ==> own(a[j], x)
+    invariant forall j: Int :: {loc(a, j)} i <= j && j < length(a) ==> own(a[j], m[j])
   {
-    loc(a, i).value := x;
+    a[i] := x;
     i := i + 1;
   }
   fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
@@ -25,6 +25,6 @@ proc client()
   var a := alloc(3, 0);
   fill(a, 7);
   unfold arr(a);
-  var y := loc(a, 2).value;
+  var y := a[2];
   assert y == 7;
 }

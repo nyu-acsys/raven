@@ -1,0 +1,16 @@
+// Each access to an array entry is an atomic step.
+module A = Library.Array[Library.IntType]
+import A._
+
+inv two(a: A.T) {
+  2 <= length(a) && (exists v: Int, w: Int :: own(a[0], v) && own(a[1], w))
+}
+
+proc p(a: A.T) returns (x: Int, y: Int)
+  requires two(a)
+{
+  unfold two(a);
+  x := a[0];
+  y := a[1];
+  fold two(a);
+}

@@ -1,0 +1,8 @@
+// The index of an array entry is an integer.
+module A = Library.Array[Library.IntType]
+import A._
+
+proc p(a: A.T) returns (x: Int)
+{
+  x := a[true];
+}

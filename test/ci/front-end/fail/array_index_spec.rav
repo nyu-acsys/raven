@@ -1,0 +1,9 @@
+// An array entry cannot be read in an assertion.
+module A = Library.Array[Library.IntType]
+import A._
+
+proc p(a: A.T)
+  requires 0 < length(a) && own(a[0], 1)
+{
+  assert a[0] == 1;
+}

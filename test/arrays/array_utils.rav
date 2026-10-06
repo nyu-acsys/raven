@@ -123,13 +123,13 @@ module ArrayUtils[E: Library.Type] {
     while (i < length(a))
       invariant 0 <= i <= length(a) && length(a) == length(b)
       invariant arr(a, m)
-      invariant forall j: Int :: {m[j]} 0 <= j < i ==> own(loc(b, j).value, m[j])
-      invariant forall j: Int :: i <= j < length(b) ==> own(loc(b, j).value, E.default)
+      invariant forall j: Int :: {m[j]} 0 <= j < i ==> own(b[j], m[j])
+      invariant forall j: Int :: i <= j < length(b) ==> own(b[j], E.default)
     {
       unfold arr(a);
-      var x := loc(a, i).value;
+      var x := a[i];
       fold arr(a, m);
-      loc(b, i).value := x;
+      b[i] := x;
       i := i + 1;
     }
     unfold arr(a);
@@ -206,8 +206,8 @@ module ArrayUtils[E: Library.Type] {
         invariant -1 <= i < len
       {
         unfold arr(a, map_shift(amap, src + i + 1, dst + i + 1, len - i - 1));
-        var tmp: E := loc(a, src + i).value;
-        loc(a, dst + i).value := tmp;
+        var tmp: E := a[src + i];
+        a[dst + i] := tmp;
         ghost var m : Map[Int, E] := map_shift(amap, src + i, dst + i, len - i);
         assert m == map_shift(amap, src + i + 1, dst + i + 1, len - i - 1)[dst + i := tmp];
         fold arr(a, m);
@@ -223,8 +223,8 @@ module ArrayUtils[E: Library.Type] {
         invariant 0 <= i <= len 
       {
         unfold arr(a, map_shift(amap, src, dst, i));
-        var tmp: E := loc(a, src + i).value;
-        loc(a, dst + i).value := tmp;
+        var tmp: E := a[src + i];
+        a[dst + i] := tmp;
         ghost var m : Map[Int, E] := map_shift(amap, src, dst, i + 1);
         assert m == map_shift(amap, src, dst, i)[dst + i := tmp];
         fold arr(a, m);
@@ -249,12 +249,12 @@ module ArrayUtils[E: Library.Type] {
       invariant 0 <= dst <= dst + len <= length(b)
     {
       unfold arr(a, amap);
-      var tmp: E := loc(a, src + i).value;
+      var tmp: E := a[src + i];
       fold arr(a, amap);
       unfold arr(b, map_copy(bmap, amap, src, dst, i));
       
       
-      loc(b, dst + i).value := tmp;
+      b[dst + i] := tmp;
       ghost var m: Map[Int, E] := map_copy(bmap, amap, src, dst, i + 1);
       assert m == map_copy(bmap, amap, src, dst, i)[dst + i := tmp];
       fold arr(b, m);

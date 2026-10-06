@@ -1,0 +1,9 @@
+// An array entry cannot be read in an expression.
+module A = Library.Array[Library.IntType]
+import A._
+
+proc p(a: A.T) returns (x: Int)
+  requires 0 < length(a) && own(a[0], 1)
+{
+  x := a[0] + 1;
+}

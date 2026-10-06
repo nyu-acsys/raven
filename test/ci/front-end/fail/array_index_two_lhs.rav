@@ -1,0 +1,8 @@
+// An array entry is read into a single variable.
+module A = Library.Array[Library.IntType]
+import A._
+
+proc p(a: A.T) returns (x: Int, y: Int)
+{
+  x, y := a[0];
+}

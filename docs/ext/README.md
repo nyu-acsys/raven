@@ -56,7 +56,7 @@ $ raven test/ext/prophecy/clairvoyant_coin.rav
 $ raven --extension eris test/ext/error-credits/ec_examples.rav
 ```
 
-There are also a Decreases extension, an AssertWith extension and a Match extension, all described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](../../lib/ext/ext.ml)) rather than being one more mutually-exclusive value the flag can take.
+There are also a Decreases extension, an AssertWith extension, a Match extension and an Array extension, all described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](../../lib/ext/ext.ml)) rather than being one more mutually-exclusive value the flag can take.
 
 ### Decreases Extension
 
@@ -125,6 +125,25 @@ Both forms also work on the stdlib `Library.List[T]`, an ordinary generic module
 `is` binds at exactly the level `==`/`!=` do -- tighter than `&&`/`||`/`==>`, looser than arithmetic -- so it composes into a larger formula without parentheses (`a is cons && b is cons`). It is non-associative with `==`, so `a == b is c` is a syntax error rather than an arbitrary grouping. Reaching that level from an extension's parser fragment is what `rel_expr`/`eq_expr` being `%public` in core `parser.mly` is for; see [Constructs that bind variables](#constructs-that-bind-variables-disambiguate_expr_ext) for the other core hook this extension drove.
 
 Pattern variables may be named after the fields they bind (`case cons(elem, tl) => ...` for `cons(elem: Int, tl: T)`) without shadowing those destructors for the rest of the callable -- the natural spelling is the safe one.
+
+### Array Extension
+
+We implement this extension (`lib/ext/arrayExt/`) for indexing the arrays of the standard library, the instances of `Library.Array`: `x := a[i]` and `var x := a[i]` read the entry at index `i`, `a[i] := v` writes it, and `own(a[i], v)` owns it, standing for `loc(a, i).value`. It adds no syntax of its own and is the reference implementation of claiming core constructs -- see [Claiming core constructs](#claiming-core-constructs-claim_expr-claim_basic_stmt) below for how the API it uses works in general.
+
+The parser produces map lookups and updates for these, and turns `a[i] := v` into `a := a[i := v]`. The core type checker rejects them, as `a` is not a map, and the extension claims those whose `a` is an array. Type-checking a claimed construct produces the core field read, field write, or `own` it stands for, so nothing of the extension remains after type checking, and every access to an entry is one atomic step, like a field access. Like a field, an entry is not an expression: `a[i]` anywhere else, and `a[i := v]` other than as `a[i] := v`, is reported as an error by the extension.
+
+```
+proc swap(a: A.T, i: Int, j: Int, implicit ghost vi: Int, implicit ghost vj: Int)
+  requires 0 <= i < length(a) && 0 <= j < length(a) && i != j
+  requires own(a[i], vi) && own(a[j], vj)
+  ensures own(a[i], vj) && own(a[j], vi)
+{
+  var x := a[i];
+  var y := a[j];
+  a[i] := y;
+  a[j] := x;
+}
+```
 
 ### ErrorCredits Extension (`eris`)
 We implement this extension to add support for reasoning about Error-credits, and probablistic programs. This extension can be enabled with the:

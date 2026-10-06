@@ -30,14 +30,18 @@ module AssertWithExtInstance = AssertWithExt.AssertWithExt(DecreasesExtInstance)
    which resource-algebra extension is active. *)
 module MatchExtInstance = MatchExt.MatchExt(AssertWithExtInstance)
 
+(* ArrayExt (indexing syntax for `Library.Array`) is folded in unconditionally too:
+   arrays are part of the standard library, whichever extension is active. *)
+module ArrayExtInstance = ArrayExt.ArrayExt(MatchExtInstance)
+
 (* Core Raven *)
-module RavenCore: ExtApi.Ext = MatchExtInstance
+module RavenCore: ExtApi.Ext = ArrayExtInstance
 
 (* ProphecyExt *)
-module ProphecyExtInstance = ProphecyExt.ProphecyExt(MatchExtInstance)
+module ProphecyExtInstance = ProphecyExt.ProphecyExt(ArrayExtInstance)
 
 (* ErrorCredits *)
-module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(MatchExtInstance)
+module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(ArrayExtInstance)
 module SampleExtInstance = SampleExt.SampleExt(ErrorCreditsExtInstance)
 
 let module_map ext = match ext with

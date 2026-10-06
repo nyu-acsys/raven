@@ -1,0 +1,9 @@
+// An array entry cannot be written in ghost code.
+module A = Library.Array[Library.IntType]
+import A._
+
+proc p(a: A.T)
+  requires 0 < length(a) && own(a[0], 1)
+{
+  {! a[0] := 2; !}
+}

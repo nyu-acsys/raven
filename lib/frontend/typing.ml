@@ -1137,10 +1137,10 @@ module ProcessExpr = struct
 
 (* end of process_expr *)
 
-  (* Offers a map lookup or update whose map operand has a type the core's rule does
-     not apply to, to the extensions. Only operands whose form admits a non-map type
-     are typed for this, which keeps chains such as `m[i := a][j := b]` from being
-     typed repeatedly. *)
+  (* Offers to the extensions a map lookup or update whose map operand has a type the
+     core's rule does not apply to, and an `own` whose location is such a lookup. Only
+     operands whose form admits a non-map type are typed for this, which keeps chains
+     such as `m[i := a][j := b]` from being typed repeatedly. *)
   and claim_core_app (constr : Expr.constr) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr option t =
     let open Rewriter.Syntax in
@@ -1150,21 +1150,36 @@ module ProcessExpr = struct
           true
       | _ -> false
     in
-    match (constr, expr_list) with
-    | (MapLookUp | MapUpdate), expr1 :: rest when may_have_non_map_type expr1 -> (
+    (* The map operand typed, if its type is one the core's rule does not apply to. *)
+    let non_core_indexable (expr1 : expr) : expr option t =
+      if not (may_have_non_map_type expr1) then Rewriter.return None
+      else
         let* expr1 =
           speculatively (process_expr expr1 (Type.any |> Type.set_ghost_to expected_typ))
         in
-        let* typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
-        if is_core_indexable typ1 then Rewriter.return None
-        else
-          let* ext_hooks = Rewriter.current_ext_hooks in
-          let* claim = lift (ext_hooks.claim_expr constr (expr1 :: rest) expr_attr) in
-          match claim with
-          | None -> Rewriter.return None
-          | Some (expr_ext, args) ->
-              let+ expr = process_expr (App (ExprExt expr_ext, args, expr_attr)) expected_typ in
-              Some expr)
+        let+ typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
+        if is_core_indexable typ1 then None else Some expr1
+    in
+    let offer (args : expr list) : expr option t =
+      let* ext_hooks = Rewriter.current_ext_hooks in
+      let* claim = lift (ext_hooks.claim_expr constr args expr_attr) in
+      match claim with
+      | None -> Rewriter.return None
+      | Some (expr_ext, args) ->
+          let+ expr = process_expr (App (ExprExt expr_ext, args, expr_attr)) expected_typ in
+          Some expr
+    in
+    match (constr, expr_list) with
+    | (MapLookUp | MapUpdate), expr1 :: rest -> (
+        let* expr1 = non_core_indexable expr1 in
+        match expr1 with
+        | None -> Rewriter.return None
+        | Some expr1 -> offer (expr1 :: rest))
+    | Own, App (MapLookUp, [ base; index ], lookup_attr) :: rest -> (
+        let* base = non_core_indexable base in
+        match base with
+        | None -> Rewriter.return None
+        | Some base -> offer (App (MapLookUp, [ base; index ], lookup_attr) :: rest))
     | _ -> Rewriter.return None
 
   and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =
@@ -2366,8 +2381,25 @@ module ProcessCallable = struct
         let+ res = process_basic_stmt call_decl (BasicStmtExt ext_stmt) stmt_loc disam_tbl in
         Some res
     in
+    (* Offers [basic_stmt] to the extensions if [expr], its right-hand side or
+       initializer, is a lookup or update whose map operand is not of map type. *)
+    let claim_if_not_core_indexed (expr : expr) =
+      match expr with
+      | App ((MapLookUp | MapUpdate), base :: _, _) ->
+        let* core_indexable = peek_core_indexable base in
+        if core_indexable then Rewriter.return None else claim_stmt basic_stmt
+      | _ -> Rewriter.return None
+    in
     match basic_stmt with
     | VarDef var_def ->
+      let* claimed =
+        match var_def.var_init with
+        | Some init -> claim_if_not_core_indexed init
+        | None -> Rewriter.return None
+      in
+      begin match claimed with
+      | Some res -> Rewriter.return res
+      | None ->
       let* var_decl =
         ProcessTypeExpr.process_var_decl var_def.var_decl
       in
@@ -2432,10 +2464,15 @@ module ProcessCallable = struct
       in
       let var = QualIdent.from_ident var_decl.var_name in
       Rewriter.return @@ (Stmt.Havoc { havoc_var = var; havoc_is_init = true }, disam_tbl')
+      end
     | Spec (sk, spec) ->
       let+ spec = process_stmt_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
     | Assign assign_desc -> begin
+        let* claimed = claim_if_not_core_indexed assign_desc.assign_rhs in
+        match claimed with
+        | Some res -> Rewriter.return res
+        | None ->
         let* assign_lhs, var_decls_lhs =
           Rewriter.List.fold_right assign_desc.assign_lhs ~init:([], [])
             ~f:(fun orig_qual_ident (assign_lhs, var_decls_lhs) ->
@@ -2521,16 +2558,6 @@ module ProcessCallable = struct
         | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
           process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc disam_tbl
         | _ ->
-          let* claimed =
-            match assign_desc.assign_rhs with
-            | App ((MapLookUp | MapUpdate), base :: _, _) ->
-              let* core_indexable = peek_core_indexable base in
-              if core_indexable then Rewriter.return None else claim_stmt basic_stmt
-            | _ -> Rewriter.return None
-          in
-          match claimed with
-          | Some res -> Rewriter.return res
-          | None ->
           let* () = Rewriter.Logs.debug (fun printers m ->
               m "process_stmt: assign_desc: %a" printers.pr_stmt_basic
                 (Assign assign_desc)) in

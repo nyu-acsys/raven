@@ -159,6 +159,13 @@ the one in `arr` own all of them at once ({{ref sec:addressing}}). A `Ref` can't
 constructed in Raven, so this fact can't be proved. Like `alloc`, it is an axiom of the standard
 library, which you can rely on instead of stating it yourself.
 
+You access entries by indexing, as with maps. `x := a[i]` reads the entry at index `i`,
+`a[i] := v` writes it, and `own(a[i], v)` owns it. These are short for `x := loc(a, i).value`,
+`loc(a, i).value := v`, and `own(loc(a, i).value, v)`. Unlike a map lookup, though, `a[i]` is not
+an expression. Like a field, an entry can only be read by an assignment, as in `x := a[i]` or
+`var x := a[i]`, or named as a location in `own`. A trigger therefore mentions the cell, as in
+`{loc(a, j)}` below.
+
 [`arrays.rav`](./arrays.rav) sets all entries of an array to the same value:
 
 ```raven
@@ -170,10 +177,10 @@ proc fill(a: IntArray.T, x: Int, implicit ghost m: Map[Int, Int])
   var i := 0;
   while (i < length(a))
     invariant 0 <= i && i <= length(a)
-    invariant forall j: Int :: {loc(a, j)} 0 <= j && j < i ==> own(loc(a, j).value, x)
-    invariant forall j: Int :: {loc(a, j)} i <= j && j < length(a) ==> own(loc(a, j).value, m[j])
+    invariant forall j: Int :: {loc(a, j)} 0 <= j && j < i ==> own(a[j], x)
+    invariant forall j: Int :: {loc(a, j)} i <= j && j < length(a) ==> own(a[j], m[j])
   {
-    loc(a, i).value := x;
+    a[i] := x;
     i := i + 1;
   }
   fold arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |});
