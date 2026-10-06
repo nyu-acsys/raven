@@ -1,0 +1,29 @@
+// Every implementation of Library.Type inherits an unspecified `default`
+// without defining it, unless it chooses to define it.
+
+module Color : Library.Type {
+  rep type T = data { case red case green }
+}
+
+module Answer : Library.Type {
+  rep type T = Int
+  val default: T = 42
+}
+
+module IntOption = Library.Option[Library.IntType]
+module PairList = Library.List[(Int, Bool)]
+
+lemma defaults_exist()
+{
+  val i: Int := Library.IntType.default;
+  val b: Bool := Library.BoolType.default;
+  val c: Color.T := Color.default;
+  val o: IntOption.T := IntOption.default;
+  val l: PairList.T := PairList.default;
+  val p: (Int, Bool) := PairList.E.default;
+}
+
+lemma defined_default()
+  ensures Answer.default == 42
+{
+}

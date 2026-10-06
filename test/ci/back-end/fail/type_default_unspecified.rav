@@ -1,0 +1,6 @@
+// An inherited `default` is unspecified, so nothing about its value is provable.
+
+lemma int_default_is_zero()
+  ensures Library.IntType.default == 0
+{
+}

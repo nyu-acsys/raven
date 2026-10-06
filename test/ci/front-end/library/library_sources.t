@@ -25,7 +25,7 @@ A single source, named as diagnostics report it, goes to stdout.
   $ dune exec -- raven --shh --print-library-source lib/library/base_types.rav | head -3
   interface Type {
     rep type T
-  }
+  
 
 Printing and dumping agree, and neither depends on the working directory.
 

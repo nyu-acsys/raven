@@ -1,5 +1,9 @@
 interface Type {
   rep type T
+
+  // An unspecified value of T. Declaring it `free` (so implementations need not
+  // define it) is sound because every type maps to a non-empty SMT sort.
+  free val default: T
 }
 
 module IntType: Type {

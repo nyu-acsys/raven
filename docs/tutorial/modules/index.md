@@ -196,6 +196,16 @@ against a plain argument, Raven reads the type argument directly off `b`'s infer
 same mechanism covers destructor syntax too. `b.Box.unwrap` resolves identically, without you
 ever having written down which instantiation of `Box` `b` belongs to.
 
+`Library.Type`, the standard library's interface for "any type", declares one more member
+besides `rep type T`: a value `default: T`. It gives generic code some value of `T` to fall back
+on, for instance as the result of a `func` on inputs where there is nothing meaningful to
+return. The value is deliberately unspecified. You can't prove anything about it beyond its
+type, so even `assert Library.IntType.default == 0` fails. `default` is declared `free`, which
+means an implementation of `Library.Type` doesn't have to define it and simply inherits it. A
+module that wants a specific value can still define `val default: T = ...` itself. Leaving it
+undefined is sound because every Raven type is backed by a non-empty SMT sort, so some value of
+`T` always exists.
+
 Calling `Box.mk(3)` a second time resolves to the *same* implicit instantiation as the first.
 Raven deduplicates by the inferred type argument, so the results of both calls share one type and
 can be compared with `==`. A call with a different inferred argument, like `Box.mk(true)`, gets

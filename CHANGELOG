@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - Procedures and lemmas may declare the invariants they open with an `opens` clause, e.g. `opens {}`, `opens cell(x)` or `opens inner(x, _)`. The clause replaces the mask inferred from `requires`, and callers need credit only for what it lists.
 
+- `Library.Type` provides `default`, an unspecified value of type `T` that every implementation inherits without having to define it. A module implementing `Type` that declares its own `default` must give it type `T`.
+
 
 ### Changed
 
