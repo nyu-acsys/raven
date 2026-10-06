@@ -2,7 +2,7 @@
 // and ISC-style triggers are demonstrated in-place, already, by the
 // fork-join, atomic-contracts, and iterated-star capstones (fork_join.rav's
 // `auto pred token`; ticket_lock_atomic.rav's `auto pred locked`; every
-// `{S.loc(s, i)}`-style trigger in shelf_of_counters.rav) -- see this
+// `{loc(s, i)}`-style trigger in shelf_of_counters.rav) -- see this
 // directory's README.md rather than duplicating them here.
 
 // --- Implicit predicate parameters -----------------------------------------

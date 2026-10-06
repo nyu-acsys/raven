@@ -67,7 +67,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:composing-atomic-contracts': 'Composing atomic contracts',
 
   'sec:the-isc': 'The ISC',
-  'sec:addressing-abstract': "Addressing, and why it's abstract",
+  'sec:addressing': 'Addressing',
   'sec:injectivity-side-condition': 'The injectivity side condition',
   'sec:touching-one-slot': 'Touching one slot, without disturbing the rest',
 

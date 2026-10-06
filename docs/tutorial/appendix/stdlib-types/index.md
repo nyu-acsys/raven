@@ -155,7 +155,7 @@ of heap cells, one per index, each holding an entry of type `E` in its field `va
 
 `m` is `E.default` outside the bounds of `a`, so the entries determine it. Distinct indices, and
 distinct arrays, have distinct cells. This is what lets an iterated separating conjunction like
-the one in `arr` own all of them at once ({{ref sec:addressing-abstract}}). A `Ref` can't be
+the one in `arr` own all of them at once ({{ref sec:addressing}}). A `Ref` can't be
 constructed in Raven, so this fact can't be proved. Like `alloc`, it is an axiom of the standard
 library, which you can rely on instead of stating it yourself.
 

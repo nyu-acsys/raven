@@ -1,6 +1,6 @@
 // DELIBERATELY BROKEN -- `IBadShelf` gives `loc` no injectivity axiom (compare
-// ../shelf_of_counters.rav's `IShelf`, which has `all_diff`). Trying to state
-// an ISC over it at all fails immediately:
+// `Library.Array`, used by ../shelf_of_counters.rav, which has `all_diff`).
+// Trying to state an ISC over it at all fails immediately:
 //
 //   [Verification Error] Could not prove the injectivity of the index
 //   expression for this iterated separating conjunction
@@ -12,7 +12,7 @@
 // have one copy of, the family-sized version of Part 2's `badDup`. Raven
 // checks this as a genuine proof obligation, not a syntactic pattern match --
 // which is exactly why supplying an axiom that provides an explicit inverse
-// (`first`/`second`, as in `shelf_of_counters.rav`) is enough to satisfy it.
+// (`first`/`second`, as in `Library.Array`) is enough to satisfy it.
 
 import Library.IntAtomics._
 

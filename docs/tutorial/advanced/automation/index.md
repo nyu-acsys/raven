@@ -139,8 +139,8 @@ There are two related but different uses of `auto`:
 
 - An **`auto lemma`/`auto axiom`** doesn't need to be invoked with an explicit ghost statement.
   Raven asserts it automatically wherever a term it mentions appears. `all_diff` in
-  `shelf_of_counters.rav` is one example (although this tutorial calls it explicitly anyway, as a
-  small defensive habit, not because it's required). Because it's asserted unconditionally
+  `Library.Array`, on which `shelf_of_counters.rav` relies, is one example. Because it's asserted
+  unconditionally
   wherever it applies, its entire `requires`/`ensures` has to be **pure**. That means no `own`, no
   calls to a `pred` or `proc`, and nothing that inspects or manipulates a resource. Raven rejects
   an `auto lemma` whose contract isn't pure (`This specification of auto lemma %s is not pure`).
@@ -167,7 +167,7 @@ There are two related but different uses of `auto`:
 Part 1 introduced trigger annotations `{...}` for quantifiers as "a hint for the SMT solver,
 don't worry about it yet." Now that you've written a few, here's a closer look. A trigger tells
 the SMT solver *which* terms should cause it to instantiate a quantified fact (a technique called
-E-matching). Every `{S.loc(s, i)}` in `shelf_of_counters.rav` does this. Without it, the solver
+E-matching). Every `{loc(s, i)}` in `shelf_of_counters.rav` does this. Without it, the solver
 has no principled way to decide *when* to bring the ISC's per-index fact into play. It would
 either instantiate it too rarely (so that proofs that should go through don't) or too eagerly
 (see the Debugging Corner below). ISCs are a natural place to encounter triggers for the first

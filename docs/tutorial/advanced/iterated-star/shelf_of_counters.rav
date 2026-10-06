@@ -5,46 +5,26 @@
 // isn't just a boolean fact here, it's a whole *family* of `own` facts, one
 // per value of the bound variable, all owned at once.
 //
-// Addressing is abstract, in the same style as Raven's own array benchmarks
-// (test/arrays/array_utils.rav, test/iterated-star/array-max.rav): `loc(s,
-// i)` is an uninterpreted function from a shelf and an index to a `Ref`,
-// and `all_diff` is an axiom giving it a left inverse (`first`/`second`),
-// which is what lets Raven derive that `loc(s, i) != loc(s, j)` whenever `i
-// != j` -- the injectivity side condition every ISC needs. We reason about
-// the shelf's addressing this way, rather than by concretely allocating `n`
-// cells in a loop, for the same reason Raven's own array benchmarks do: the
-// injectivity of an incrementally-*constructed* family of locations is a
-// genuinely harder proof than the one this capstone is about, and not
-// needed to see what an ISC buys you.
+// The shelf is an array from the standard library: its counters are the
+// `value` fields of the array's cells, and `loc(s, i)` is the cell at index
+// `i`. The library's axiom `all_diff` makes `loc` injective, which is what
+// lets Raven derive that `loc(s, i) != loc(s, j)` whenever `i != j` -- the
+// injectivity side condition every ISC needs.
 
 import Library.IntAtomics._
 
-interface IShelf {
-  rep type T
-
-  func loc(s: T, i: Int) returns (r: Ref)
-  func size(s: T) returns (n: Int)
-  func first(r: Ref) returns (s: T)
-  func second(r: Ref) returns (i: Int)
-
-  auto lemma all_diff()
-    ensures forall s: T, i: Int :: {loc(s, i)} first(loc(s, i)) == s && second(loc(s, i)) == i
-
-  auto lemma size_nonneg()
-    ensures forall s: T :: {size(s)} size(s) >= 0
-}
-
-module Shelf[S: IShelf] {
-  field count: Int
+module Shelf {
+  module Counts = Library.Array[Library.IntType]
+  import Counts._
 
   // The ISC: `counts` is existentially quantified once, for the whole
   // shelf -- not once per index -- and the `forall` inside its scope owns
-  // one `count` field per valid index `i`, all at once. This single
+  // one `value` field per valid index `i`, all at once. This single
   // invariant declaration covers a shelf of any size; there is no
-  // per-N unrolling, no matter how large `S.size(s)` turns out to be.
-  inv shelfInv(s: S) {
+  // per-N unrolling, no matter how large `length(s)` turns out to be.
+  inv shelfInv(s: Counts.T) {
     exists counts: Map[Int, Int] ::
-      forall i: Int :: {S.loc(s, i)} 0 <= i && i < S.size(s) ==> own(S.loc(s, i).count, counts[i], 1.0)
+      forall i: Int :: {loc(s, i)} 0 <= i && i < length(s) ==> own(loc(s, i).value, counts[i], 1.0)
   }
 
   // Touching slot `i` still means unfolding the *whole* invariant -- there's
@@ -52,27 +32,25 @@ module Shelf[S: IShelf] {
   // is actually read or changed; the frame rule (Part 2) is what silently
   // carries every other slot's resource through untouched, exactly the way
   // it carried `c2`'s resource through `distinctIncrement` back in Part 2.
-  proc bump(s: S, i: Int)
-    requires shelfInv(s) && 0 <= i && i < S.size(s)
+  proc bump(s: Counts.T, i: Int)
+    requires shelfInv(s) && 0 <= i && i < length(s)
     ensures shelfInv(s)
   {
-    S.all_diff()
-    val cell := S.loc(s, i)
+    val cell := loc(s, i)
     ghost var counts: Map[Int, Int]
     unfold shelfInv(s)[counts := counts]
-    val _x := faa(cell.count, 1)
+    val _x := faa(cell.value, 1)
     fold shelfInv(s)[counts := counts[i := counts[i] + 1]]
   }
 
-  proc peek(s: S, i: Int) returns (v: Int)
-    requires shelfInv(s) && 0 <= i && i < S.size(s)
+  proc peek(s: Counts.T, i: Int) returns (v: Int)
+    requires shelfInv(s) && 0 <= i && i < length(s)
     ensures shelfInv(s)
   {
-    S.all_diff()
-    val cell := S.loc(s, i)
+    val cell := loc(s, i)
     ghost var counts: Map[Int, Int]
     unfold shelfInv(s)[counts := counts]
-    v := cell.count
+    v := cell.value
     fold shelfInv(s)[counts := counts]
   }
 }
@@ -80,14 +58,14 @@ module Shelf[S: IShelf] {
 // Two threads bump *different* slots of the same shelf concurrently -- safe
 // regardless of which pair of indices they pick, or how many slots the
 // shelf actually has, because `shelfInv` was declared exactly once.
-module ShelfClient[S: IShelf] {
-  module TheShelf = Shelf[S]
-  import TheShelf.bump
-  import TheShelf.peek
-  import TheShelf.shelfInv
+module ShelfClient {
+  import Shelf.Counts._
+  import Shelf.bump
+  import Shelf.peek
+  import Shelf.shelfInv
 
-  proc client(s: S, i: Int, j: Int)
-    requires shelfInv(s) && 0 <= i && i < S.size(s) && 0 <= j && j < S.size(s)
+  proc client(s: Shelf.Counts.T, i: Int, j: Int)
+    requires shelfInv(s) && 0 <= i && i < length(s) && 0 <= j && j < length(s)
     ensures shelfInv(s)
   {
     spawn bump(s, i)

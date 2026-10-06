@@ -1,11 +1,12 @@
 // Exercise: the "shelf grows by one cell" stretch goal mentioned in
-// ../index.md. Rather than growing shelf_of_counters.rav's own
-// `Map[Int, Ref]`-addressed shelf directly (a genuinely harder proof --
-// Raven checks an ISC's injectivity as a property of the *predicate's own
-// definition*, for arbitrary arguments, not something a specific runtime
-// map value can satisfy), this uses a different representation: a shelf
-// built by prepending one cell at a time, following `next` pointers,
-// exactly like a Treiber stack's `is_list`.
+// ../index.md. An array, as in shelf_of_counters.rav, has a fixed length,
+// and growing a shelf of individually allocated cells addressed through a
+// `Map[Int, Ref]` instead would be a genuinely harder proof (Raven checks an
+// ISC's injectivity as a property of the *predicate's own definition*, for
+// arbitrary arguments, not something a specific runtime map value can
+// satisfy). So this uses a different representation: a shelf built by
+// prepending one cell at a time, following `next` pointers, exactly like a
+// Treiber stack's `is_list`.
 //
 // `mkEmpty` is done for you. `grow` is filled in except for its last line --
 // the `fold` that re-establishes `shelfList` one cell longer.

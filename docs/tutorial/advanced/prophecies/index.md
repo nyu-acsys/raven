@@ -293,8 +293,8 @@ from [5.3](../iterated-star/) again ({{ref sec:the-isc}}). There is one
 `own`/`helping_prot_state` fact per registered cell, all folded and unfolded together as a single
 unit, but now indexed by set membership instead of an integer range. It doesn't need the
 injectivity side condition from 5.3 ({{ref sec:injectivity-side-condition}}). That condition was
-needed there because `S.loc(s, i)` was an uninterpreted function that, without `all_diff`, could
-in principle map two different indices to the same location. Here there's no addressing function
+needed there because `loc(s, i)` is an uninterpreted function that, without the library's
+`all_diff`, could in principle map two different indices to the same location. Here there's no addressing function
 that could go wrong. Membership in a `FinSet[Ref]` already guarantees that each element is
 counted at most once, so there's nothing separate left to prove.
 

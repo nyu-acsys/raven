@@ -1,7 +1,6 @@
 // Checked solution. See ../exercises/shelf_growth.rav for the exercise
-// itself, and the parent README's "Debugging Corner" for why this file
-// deliberately does *not* reuse shelf_of_counters.rav's `Map[Int, Ref]`
-// addressing for the growing part.
+// itself, and for why this file deliberately does *not* address its cells
+// through a `Map[Int, Ref]` for the growing part.
 field count: Int
 field next: Ref
 
