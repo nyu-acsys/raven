@@ -37,12 +37,12 @@ module OrderedArray[E: Library.OrderedType] {
   }
 
   auto lemma map_find_spec_auto()
-    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
+    ensures forall m: Map[Int, E], i: Int, j: Int, k: E :: {map_find(m, i, j, k)} i <= j && sorted_map_seg(m, i, j) ==>
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
         (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
         (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k))
   {
-    assert forall m: Map[Int, E], i: Int, j: Int, k: E :: i <= j && sorted_map_seg(m, i, j) ==>
+    assert forall m: Map[Int, E], i: Int, j: Int, k: E :: {map_find(m, i, j, k)} i <= j && sorted_map_seg(m, i, j) ==>
         i <= map_find(m, i, j, k) && map_find(m, i, j, k) <= j &&
         (m[map_find(m, i, j, k)] == k || map_find(m, i, j, k) == j || lt(k, m[map_find(m, i, j, k)])) &&
         (i < map_find(m, i, j, k) ==> lt(m[map_find(m, i, j, k) - 1], k)) with {
