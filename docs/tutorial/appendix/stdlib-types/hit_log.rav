@@ -41,8 +41,6 @@ module HitLog {
 // Two sequences with the same length and the same entries are equal, but Raven only
 // compares them entry by entry when asked whether they are `equal`.
 module Split {
-  import Library._
-
   lemma split(s: Seq[Int], n: Int)
     requires 0 <= n && n <= Seq.length(s)
     ensures Seq.append(Seq.take(s, n), Seq.drop(s, n)) == s

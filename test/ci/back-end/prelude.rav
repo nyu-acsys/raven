@@ -1,0 +1,15 @@
+// The names Option, List, Seq and Array are available without importing them.
+lemma use(a: Array[Int], s: Seq[Int], o: Option[Int], xs: List[Int])
+  ensures Array.length(a) >= 0 && Seq.length(Seq.append(s, s)) == 2 * Seq.length(s)
+{}
+
+// A declaration of the same name takes precedence.
+module M {
+  module List {
+    func len() returns (r: Int) { 0 }
+  }
+
+  lemma shadowed()
+    ensures List.len() == 0
+  {}
+}

@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The names `Option`, `List`, `Seq` and `Array` of the standard library are available in every program without an import, so that types such as `Seq[Int]` and `Array[Int]` can be written directly. A program's own declaration of one of these names takes precedence.
+
 - A function can be declared `inline`, which makes its body a macro for the SMT solver instead of the subject of an axiom. The marker is ignored for a recursive function.
 
 - Entries of arrays from `Library.Array` are accessed by indexing: `x := a[i]` reads an entry, `a[i] := v` writes it, and `a[i]` is a location for `own` and the atomic operations, as in `own(a[i], v)` and `faa(a[i], 1)`, without mentioning the cell's `value` field.

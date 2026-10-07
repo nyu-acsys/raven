@@ -12,9 +12,13 @@ Each data type is a functor over `Library.Type`, the interface of all types, so 
 element type by instantiating it. You can declare an instance explicitly, as in
 `module IntList = Library.List[Library.IntType]`, where `Library.IntType`, `Library.BoolType` and
 `Library.RefType` stand for the built-in types `Int`, `Bool` and `Ref`. You can also write the
-instance as a type, as in `Library.List[Int]`, or let Raven infer it from a call
+instance as a type, as in `List[Int]`, or let Raven infer it from a call
 ({{ref sec:implicit-functor-instantiation}}). Each instance's type is called `T`, and
 `Library.Type` also gives every element type an unspecified value `default`.
+
+The names `Option`, `List`, `Seq` and `Array` are available in every program without an
+import, as if it started with `import Library.Option` and so on. A declaration of one of these
+names in your own program takes precedence.
 
 ## Options {#sec:stdlib-option}
 
@@ -125,8 +129,6 @@ the same entries are equal, but Raven doesn't compare sequences entry by entry o
 you ask whether they are `equal`. The lemma `split` at the end of `hit_log.rav` shows this:
 
 ```raven
-import Library._
-
 lemma split(s: Seq[Int], n: Int)
   requires 0 <= n && n <= Seq.length(s)
   ensures Seq.append(Seq.take(s, n), Seq.drop(s, n)) == s

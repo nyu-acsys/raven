@@ -316,6 +316,19 @@ let parse_and_check_all ~extension_mode config file_names =
       (tbl, Some lib_typed)
   in
 
+  let md =
+    if config.no_library then md
+    else
+      let import name =
+        Ast.Module.Import
+          {
+            import_name = QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy name 0 ];
+            import_all = false;
+            import_loc = Loc.dummy;
+          }
+      in
+      { md with mod_def = List.map Library.prelude ~f:import @ md.mod_def }
+  in
   let tbl, prog_typed = type_cu ~ext_hooks config tbl md in
 
   (* Both units are type-checked before either is rewritten -- see [type_cu] -- and

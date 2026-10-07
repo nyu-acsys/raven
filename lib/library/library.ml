@@ -9,6 +9,11 @@ let array = [%blob "array.rav"]
    reproduces on disk, and what lets a location be resolved back to a real file when the
    binary is running inside a checkout (see [Config.library_source_path]). Basenames
    would collide as soon as two extensions shipped a file with the same name. *)
+(* The modules of the library whose names every program can use without importing them,
+   as if it started with `import Library.Option` and so on. A program's own declaration of
+   one of these names shadows it. *)
+let prelude = [ "Option"; "List"; "Seq"; "Array" ]
+
 let sources =
   [ ("lib/library/base_types.rav", base_types);
     ("lib/library/resource_algebra.rav", resource_algebra);
