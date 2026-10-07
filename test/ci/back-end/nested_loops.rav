@@ -1,0 +1,17 @@
+// A loop nested in another loop, whose procedure the outer loop's body calls.
+proc p() {
+  var n: Int := 0;
+  var total: Int := 0;
+  while (n < 3)
+    invariant 0 <= n && 0 <= total
+  {
+    var i: Int := 0;
+    while (i < n)
+      invariant 0 <= i && 0 <= total
+    {
+      total := total + 1;
+      i := i + 1;
+    }
+    n := n + 1;
+  }
+}
