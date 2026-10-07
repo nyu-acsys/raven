@@ -232,6 +232,7 @@ module DecreasesExt (Cont : Ext) = struct
       call_decl_contract_ext = [];
       call_decl_status = NotFree;
       call_decl_is_auto = false;
+      call_decl_is_inline = false;
       call_decl_needs_mask = None;
       call_decl_grants_mask = None;
       call_decl_opens = None;

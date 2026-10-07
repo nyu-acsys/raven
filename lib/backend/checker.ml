@@ -309,6 +309,22 @@ let assume_auto_lemma (fully_qual_name : qual_ident) (callable : Ast.Callable.t)
   assume_expr
     (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals body)
 
+(** Whether the function [qual_name] is emitted as a macro (`define-fun`) rather than as
+    a declared function with a defining axiom: it is declared `inline`. The marker is a
+    hint, ignored for a function that is recursive. *)
+let is_macro (g : Dependencies.Graph.t) (qual_name : qual_ident) (callable : Ast.Callable.t) :
+    bool =
+  match callable with
+  | {
+   call_def = FuncDef { func_body = Some _ };
+   call_decl = { call_decl_kind = Func; call_decl_is_inline = true; call_decl_returns = [ _ ]; _ };
+  } ->
+      not
+        (Set.mem
+           (Dependencies.Graph.reachable g (Dependencies.Graph.succs g qual_name))
+           qual_name)
+  | _ -> false
+
 (** Declares and checks a single SCC ([dep], as returned by [Dependencies.analyze]) at
     whatever scope is currently open -- the caller ([check_members]) is responsible for
     getting that scope right first. Function symbols get their [declare-fun] before anything
@@ -370,8 +386,18 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t) (dep : 
       (qual_name, symbol))
   in
 
+  let macros =
+    List.filter_map dep_sym ~f:(function
+      | qual_name, Module.CallDef callable when is_macro g qual_name callable ->
+          Some (qual_name, callable)
+      | _ -> None)
+  in
+  let is_macro_name qual_name =
+    List.exists macros ~f:(fun (q, _) -> QualIdent.equal q qual_name)
+  in
+
   let dep_sym_fn = List.filter dep_sym ~f:(function
-    | _, Module.CallDef { call_def = FuncDef _; _ } -> true
+    | qual_name, Module.CallDef { call_def = FuncDef _; _ } -> not (is_macro_name qual_name)
     | _ -> false)
   in
 
@@ -392,6 +418,34 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t) (dep : 
       let+ _ = define_datatypes data_types in
       ()
   in
+
+  (* Macros of the same component are defined after those their bodies use, which is
+     possible as none of them is recursive. *)
+  let rec define_macros defined pending =
+    match
+      List.partition_tf pending ~f:(fun (qual_name, _) ->
+          Set.for_all (Dependencies.Graph.succs g qual_name) ~f:(fun q ->
+              Set.mem defined q || not (is_macro_name q)))
+    with
+    | [], [] -> Rewriter.return ()
+    | [], _ :: _ -> Error.internal_error Loc.dummy "Checker: cyclic macro definitions"
+    | ready, pending ->
+        let* _ =
+          State.List.iter ready ~f:(fun (qual_name, (callable : Ast.Callable.t)) ->
+              match (callable.call_def, callable.call_decl.call_decl_returns) with
+              | FuncDef { func_body = Some body }, [ ret ] ->
+                  write
+                    (SmtLibAST.mk_define_fun ~loc:callable.call_decl.call_decl_loc qual_name
+                       (List.map callable.call_decl.call_decl_formals ~f:(fun arg ->
+                            (QualIdent.from_ident arg.var_name, arg.var_type)))
+                       ret.var_type body)
+              | _ -> Error.internal_error Loc.dummy "Checker: macro without body")
+        in
+        define_macros
+          (List.fold ready ~init:defined ~f:(fun acc (q, _) -> Set.add acc q))
+          pending
+  in
+  let* _ = define_macros (Set.empty (module QualIdent)) macros in
 
   (* An auto lemma is assumed only once every member of the SCC that its proof depends on
      has been checked, so that no proof can rely on its own conclusion. *)
@@ -427,7 +481,10 @@ let declare_and_check_dep (tbl : SymbolTbl.t) (g : Dependencies.Graph.t) (dep : 
   let+ _ =
     State.List.fold_left dep_sym ~init:(Set.empty (module QualIdent), auto_lemmas)
       ~f:(fun (checked, pending) (qual_name, sym) ->
-        let* _ = check_member qual_name sym in
+        let* _ =
+          (* A macro's definition already says everything its axiom would. *)
+          if is_macro_name qual_name then Rewriter.return () else check_member qual_name sym
+        in
         let checked = Set.add checked qual_name in
         let+ pending = assume_ready checked pending in
         (checked, pending))

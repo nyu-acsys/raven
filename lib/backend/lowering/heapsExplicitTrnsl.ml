@@ -409,6 +409,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
         call_decl_contract_ext = [];
         call_decl_status = NotFree;
         call_decl_is_auto = false;
+        call_decl_is_inline = false;
         call_decl_loc = loc;
                call_decl_loc_params = [];
         call_decl_needs_mask = Some [];
@@ -575,6 +576,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants)
           call_decl_contract_ext = [];
           call_decl_status = NotFree;
           call_decl_is_auto = true;
+          call_decl_is_inline = false;
           (* Created in `rewrites_phase_3` (via TrnslInhale/TrnslExhale), after
              `Masks.compute_masks`/atomicity analysis have already run, so
              this never goes through the mask fixpoint and `call_decl_needs_mask`
@@ -731,6 +733,7 @@ let generate_skolem_function (universal_quants : universal_quants)
                call_decl_loc_params = [];
       call_decl_status = NotFree;
       call_decl_is_auto = false;
+      call_decl_is_inline = false;
       call_decl_needs_mask = Some [];
       call_decl_grants_mask = Some [];
       call_decl_opens = None;
@@ -895,6 +898,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_contract_ext = [];
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
+        call_decl_is_inline = false;
         call_decl_loc = loc;
                call_decl_loc_params = [];
         call_decl_needs_mask = Some [];
@@ -999,6 +1003,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_contract_ext = [];
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
+        call_decl_is_inline = false;
         call_decl_loc = loc;
                call_decl_loc_params = [];
         call_decl_needs_mask = Some [];
@@ -1052,6 +1057,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_contract_ext = [];
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
+        call_decl_is_inline = false;
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
         call_decl_opens = None;
@@ -1105,6 +1111,7 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         call_decl_contract_ext = [];
         call_decl_status = MachineFree;
         call_decl_is_auto = false;
+        call_decl_is_inline = false;
         call_decl_needs_mask = Some [];
         call_decl_grants_mask = Some [];
         call_decl_opens = None;
@@ -1240,6 +1247,7 @@ let generate_unit_pred_ra ~loc (mod_ident : ident) : Module.symbol Rewriter.t =
           call_decl_contract_ext = [];
           call_decl_status = MachineFree;
           call_decl_is_auto = false;
+          call_decl_is_inline = false;
           call_decl_loc = loc;
                call_decl_loc_params = [];
           call_decl_needs_mask = Some [];

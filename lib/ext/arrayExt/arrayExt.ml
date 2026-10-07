@@ -172,7 +172,6 @@ module ArrayExt (Cont : Ext) = struct
 
   let type_check_expr (expr_ext : Expr.expr_ext) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) (expected_typ : type_expr) (functs : type_check_expr_functs) =
-    let open Rewriter.Syntax in
     let loc = expr_attr.expr_loc in
     match (expr_ext, expr_list) with
     | ArrayEntry, _ -> not_pure_error loc

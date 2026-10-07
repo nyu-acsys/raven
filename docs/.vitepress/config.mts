@@ -85,6 +85,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:bind-statement': 'The bind statement',
   'sec:auto-lemmas-predicates': 'auto lemmas and predicates',
   'sec:triggers-revisited': 'Triggers, revisited',
+  'sec:inline-functions': 'Inline functions',
   'sec:assert-with': 'assert ... with',
 
   'sec:ra-definition': 'The definition',

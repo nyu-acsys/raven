@@ -79,7 +79,7 @@ let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
 %token <Ast.Callable.call_kind> FUNC
 %token PROC AXIOM LEMMA FREE
 %token CASE DATA ATOMICTOKEN FIELD
-%token ATOMIC GHOST IMPLICIT REP AUTO WITH
+%token ATOMIC GHOST IMPLICIT REP AUTO INLINE WITH
 %token <bool> VAR
 %token <bool> MODULE
 %token <string> STRINGVAL
@@ -411,12 +411,27 @@ proc_decl:
 }
 
 func_decl:
-| is_auto = option(AUTO); k = FUNC; decl = callable_decl {
-  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto <> None }; call_def = FuncDef { func_body = None } }
+| m = func_modifiers; k = FUNC; decl = callable_decl {
+  let is_auto, is_inline = m in
+  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto;
+                                     call_decl_is_inline = is_inline };
+             call_def = FuncDef { func_body = None } }
 }
-| is_auto = option(AUTO); k = FUNC; decl = callable_decl_out_vars {
-  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto <> None }; call_def = FuncDef { func_body = None } }
+| m = func_modifiers; k = FUNC; decl = callable_decl_out_vars {
+  let is_auto, is_inline = m in
+  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto;
+                                     call_decl_is_inline = is_inline };
+             call_def = FuncDef { func_body = None } }
 }
+
+(* `auto` and `inline` of a function, as a pair. Spelled out rather than as two
+   optional modifiers, so that a declaration starting with `auto` needn't decide
+   early whether an `inline` was left out. *)
+func_modifiers:
+| (* empty *) { (false, false) }
+| AUTO { (true, false) }
+| INLINE { (false, true) }
+| INLINE; AUTO { (true, true) }
 
 callable_decl:
   id = decl_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
@@ -434,6 +449,7 @@ callable_decl:
                call_decl_contract_ext = contract_ext;
                call_decl_status = NotFree;
                call_decl_is_auto = false;
+               call_decl_is_inline = false;
                call_decl_needs_mask = None;
                call_decl_grants_mask = None;
                call_decl_opens;
@@ -459,6 +475,7 @@ callable_decl_out_vars:
                call_decl_contract_ext = contract_ext;
                call_decl_status = NotFree;
                call_decl_is_auto = false;
+               call_decl_is_inline = false;
                call_decl_needs_mask = None;
                call_decl_grants_mask = None;
                call_decl_opens;

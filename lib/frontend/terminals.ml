@@ -12,6 +12,7 @@ let _ =
       ("axiom", AXIOM);
       ("AtomicToken", ATOMICTOKEN);
       ("auto", AUTO);
+      ("inline", INLINE);
       ("Bool", CONSTTYPE Type.Bool);
       ("case", CASE);
       ("choose", CHOOSE);

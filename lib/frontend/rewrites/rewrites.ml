@@ -247,6 +247,7 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
           call_decl_contract_ext = [];
           call_decl_status = MachineFree;
           call_decl_is_auto = false;
+          call_decl_is_inline = false;
           call_decl_needs_mask = None;
           call_decl_grants_mask = None;
           call_decl_opens = None;
@@ -314,6 +315,7 @@ let introduce_synthesized_set_op_fn ~(loc : location) ~(fn_ident : ident)
       call_decl_contract_ext = [];
       call_decl_status = MachineFree;
       call_decl_is_auto = false;
+      call_decl_is_inline = false;
       call_decl_needs_mask = None;
       call_decl_grants_mask = None;
       call_decl_opens = None;
@@ -719,6 +721,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           call_decl_contract_ext = loop_contract_ext;
           call_decl_status = NotFree;
           call_decl_is_auto = false;
+          call_decl_is_inline = false;
           call_decl_needs_mask = None;
           call_decl_grants_mask = None;
           call_decl_opens = loop_opens;
@@ -1207,6 +1210,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                   call_decl_contract_ext = [];
                   call_decl_status = call_decl.call_decl_status;
                   call_decl_is_auto = true;
+                  call_decl_is_inline = false;
                   (* Created at the end of `process_module_front`, after
                      `Masks.compute_masks`/atomicity analysis have already
                      run, so this never goes through the mask fixpoint and

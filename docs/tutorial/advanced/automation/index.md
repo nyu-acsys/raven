@@ -205,6 +205,31 @@ trigger term is `f(x,b)`, and the solver derives `c == b`, then `x` will be inst
 `g(a)`. So be aware that ground terms don't always need to match literally to trigger a
 quantifier instantiation.
 
+## Inline functions {#sec:inline-functions}
+
+A `func` with a body normally reaches the SMT solver as an uninterpreted function, together with
+an axiom saying that each application equals the body. The solver instantiates that axiom when an
+application turns up in the proof, much like the quantified facts above. Declaring the function
+`inline` instead makes its body a macro: every application is replaced by the body before the
+solver sees it.
+
+```raven
+inline func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
+  {| x: Int :: x in s || x in t |}
+}
+```
+
+This pays off when the solver can reason about the body directly. Here, the body combines `s` and
+`t` element by element, which Raven passes on as an operation on whole sets that the solver
+handles natively, so `unionAssoc` in [`automation.rav`](./automation.rav) needs no proof. In a
+large proof, unfolding every application through its axiom instead can be the difference between
+a quick result and a timeout.
+
+`inline` is only a hint. It is ignored for a recursive function, whose unfolding would never end.
+And since the body replaces every application, including those in triggers, don't use an inline
+function in a trigger: the trigger would consist of the body, which is generally not a term the
+solver can match.
+
 ## `assert ... with` {#sec:assert-with}
 
 For a universally quantified *pure* assertion `a`, the statement `assert a with { s }` lets you

@@ -1,0 +1,37 @@
+// An `inline` function is a macro for the SMT solver. Set operations defined as
+// pointwise comprehensions are then decided by the solver's array theory.
+inline func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) { {| x: Int :: x in s || x in t |} }
+inline func inter(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) { {| x: Int :: x in s && x in t |} }
+inline func diff(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) { {| x: Int :: x in s && !(x in t) |} }
+inline func subset(s: Set[Int], t: Set[Int]) returns (r: Bool) { inter(s, t) == s }
+
+lemma laws(a: Set[Int], b: Set[Int], c: Set[Int])
+  ensures union(union(a, b), c) == union(a, union(b, c))
+  ensures inter(a, union(b, c)) == union(inter(a, b), inter(a, c))
+  ensures subset(a, union(a, b))
+  ensures inter(a, b) == {||} ==> diff(union(a, b), b) == a
+  ensures union({|1|}, {|2|}) == {|1, 2|}
+  ensures union(a, b) == a ++ b && diff(a, b) == a -- b && subset(a, b) == (a subseteq b)
+{}
+
+// `inline` is ignored for a recursive function.
+inline func fac(n: Int) returns (r: Int) {
+  n <= 0 ? 1 : n * fac(n - 1)
+}
+
+lemma fac3()
+  ensures fac(3) == 6
+{}
+
+// An inline function may implement a function of an interface.
+interface I {
+  func g(x: Int) returns (r: Int)
+}
+
+module M : I {
+  inline func g(x: Int) returns (r: Int) { x + 1 }
+
+  lemma l()
+    ensures g(1) == 2
+  {}
+}

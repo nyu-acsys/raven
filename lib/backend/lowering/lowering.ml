@@ -1346,6 +1346,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) :
               call_decl_contract_ext = [];
               call_decl_status = NotFree;
               call_decl_is_auto = false;
+              call_decl_is_inline = false;
               (* This callable is created in `rewrites_phase_3`, after
                  `Masks.compute_masks`/atomicity analysis have already run, so
                  it never goes through the mask fixpoint and `call_decl_needs_mask`

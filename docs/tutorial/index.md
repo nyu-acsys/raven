@@ -63,8 +63,8 @@ checked answers.
     solution uses prophecy variables and a "helping protocol" that combines one-shot handoffs,
     atomic contracts, and an ISC over a set.
   - **[5.5. Automation Features](./advanced/automation/)**: implicit parameters, witness
-    computation, `auto` lemmas/predicates, triggers, `assert ... with`, and a checklist for
-    "my proof just hangs."
+    computation, `auto` lemmas/predicates, triggers, `inline` functions, `assert ... with`, and a
+    checklist for "my proof just hangs."
 
 ## Appendices
 
