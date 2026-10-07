@@ -364,17 +364,13 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
           |> Set.to_list
         in
         let+ curr_loop_arg_var_decls =
-          Rewriter.List.map curr_loop_args ~f:(fun var ->
-              let+ symbol =
-                Rewriter.find_and_reify (QualIdent.from_ident var)
-              in
-
-              match symbol with
-              | VarDef v -> v.var_decl
-              | _ ->
-                  Error.internal_error stmt.stmt_loc
-                    ("expected a variable; found " ^ Symbol.to_string symbol
-                   ^ " for var: " ^ Ident.to_string var))
+          (* Not the procedure of a nested loop, which the body calls unqualified. *)
+          let+ var_decls =
+            Rewriter.List.map curr_loop_args ~f:(fun var ->
+                let+ symbol = Rewriter.find_and_reify (QualIdent.from_ident var) in
+                match symbol with VarDef v -> Some v.var_decl | _ -> None)
+          in
+          List.filter_opt var_decls
         in
 
         (* redefined loop_args for uniqueness *)
