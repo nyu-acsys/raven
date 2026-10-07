@@ -1629,8 +1629,8 @@ module ProcessExpr = struct
     match prefix with
     | None -> Rewriter.return None
     | Some (functor_qual_ident, m, member_ident) -> (
-        (* The member can be an ordinary callable or a data constructor -- both are
-           addressable as `<module>.<member>(...)` and solved identically below, unless
+        (* The member can be an ordinary callable, a data constructor, or a value -- all
+           are addressable as `<module>.<member>(...)` and solved identically below, unless
            [only_calls] restricts this to callables: a speculative "is this a call?"
            peek (see the `Assign` statement's own peek in `process_basic_stmt`) must
            not also attempt -- and, on failure, hard-error on -- a constructor that
@@ -1656,6 +1656,11 @@ module ProcessExpr = struct
               when (not only_calls) && Ident.equal constr_def.constr_name member_ident
               ->
                 Some (constr_def.constr_args, Some constr_def.constr_return_type, [])
+            | SymbolDef (VarDef var_def)
+              when (not only_calls) && Ident.equal var_def.var_decl.var_name member_ident
+              ->
+                (* A value, such as `Seq.empty`, is solved from the expected type alone. *)
+                Some ([], Some var_def.var_decl.var_type, [])
             | _ -> None)
         in
         match member_info with

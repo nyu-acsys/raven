@@ -1,0 +1,6 @@
+// A value of an uninstantiated functor takes its instance from the expected type, as a
+// constructor does.
+lemma empty(s: Seq[Int])
+  ensures s == Seq.empty ==> Seq.length(s) == 0
+  ensures Seq.length((Seq.empty : Seq[Int])) == 0
+{}
