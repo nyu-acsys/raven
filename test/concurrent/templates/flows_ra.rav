@@ -83,7 +83,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
   }
 
   lemma frameReflexive()
-    ensures forall i: T :: {frame(i, i)} valid(i) ==> frame(i, i) == id
   {
     M.frameInv()
   }
@@ -144,12 +143,9 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     compFold(i12, i3, i)
   }
 
-  auto lemma compFrameInv()
-    ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
-  {}
+  auto lemma compFrameInv() {}
 
   auto lemma compAssoc()
-    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
   {
     assert forall i1:T, i2:T, i3:T :: {comp(comp(i1, i2), i3)} {comp(i1, comp(i2, i3))} (comp(comp(i1, i2), i3) == comp(i1, comp(i2, i3))) with {
       if (valid(comp(i1, comp(i2, i3)))) {
