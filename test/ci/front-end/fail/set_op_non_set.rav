@@ -1,0 +1,4 @@
+// The set operators apply to sets only.
+lemma l(x: Int)
+  ensures x ++ {|1|} == {|1|}
+{}

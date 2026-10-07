@@ -34,14 +34,18 @@ module MatchExtInstance = MatchExt.MatchExt(AssertWithExtInstance)
    arrays are part of the standard library, whichever extension is active. *)
 module ArrayExtInstance = ArrayExt.ArrayExt(MatchExtInstance)
 
+(* SetExt gives the set operators their meaning, as the operations of `Library.Sets`,
+   so it is folded in unconditionally as well. *)
+module SetExtInstance = SetExt.SetExt(ArrayExtInstance)
+
 (* Core Raven *)
-module RavenCore: ExtApi.Ext = ArrayExtInstance
+module RavenCore: ExtApi.Ext = SetExtInstance
 
 (* ProphecyExt *)
-module ProphecyExtInstance = ProphecyExt.ProphecyExt(ArrayExtInstance)
+module ProphecyExtInstance = ProphecyExt.ProphecyExt(SetExtInstance)
 
 (* ErrorCredits *)
-module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(ArrayExtInstance)
+module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(SetExtInstance)
 module SampleExtInstance = SampleExt.SampleExt(ErrorCreditsExtInstance)
 
 let module_map ext = match ext with

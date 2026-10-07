@@ -586,47 +586,19 @@ module ProcessExpr = struct
         | (Not | Uminus), _expr_list ->
             Error.type_error (Expr.to_loc expr)
               (Expr.constr_to_string constr ^ " takes exactly one argument")
-        | Choose, [ expr_arg ] ->
-            (* Works contravariantly on `FinSet[T]` too: `Type.set_typed bot` is the
-               same generic "some kind of set" placeholder `Subseteq` uses, and
-               `Type.set_elem`/`is_set` already treat `Map`/`FinSet` uniformly (see
-               astDef.ml), so a `FinSet[T]`-typed argument self-corrects here the same
-               way it does everywhere else a plain `Set[_]` hint is given. *)
-            let given_type_ub = Type.(set_typed bot) |> Type.set_ghost_to expected_typ in
-            let* expr_arg = process_expr expr_arg given_type_ub in
-            let ret_typ = Type.set_elem (Expr.to_type expr_arg) in
-            check_and_set
-              (App (Choose, [ expr_arg ], expr_attr))
-              ret_typ ret_typ expected_typ
-        | Choose, _expr_list ->
+        (* Set operators, given their meaning by an extension, see [claim_core_app] *)
+        | (Choose | Diff | Union | Inter | Subseteq), _ ->
             Error.type_error (Expr.to_loc expr)
-              (Expr.constr_to_string Choose ^ " takes exactly one argument")
+              (Expr.constr_to_string constr ^ " is missing its arguments")
         (* Binary expressions *)
-        | ( ( TupleLookUp | MapLookUp | Diff | Union | Inter | Plus | Minus | Mult
-            | Div | Mod | Gt | Lt | Geq | Leq | And | Or | Impl | Subseteq | Elem
-            | Eq ),
+        | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq
+            | Leq | And | Or | Impl | Elem | Eq ),
             [ expr1; expr2 ] ) ->
             (* infer and propagated expected type of expr1 *)
             let expected_typ1 =
               let ty = match constr with
               | TupleLookUp -> Type.(any)
               | MapLookUp -> Type.(map bot expected_typ)
-              | Diff | Union ->
-                  (* Result finiteness for `Union` needs both operands finite, and for
-                     `Diff` is exactly `expr1`'s -- either way, if the caller wants a
-                     `FinSet` result, `expr1` must itself be one, so the caller's
-                     finiteness expectation is safe to force down onto it. *)
-                  Type.meet expected_typ Type.(set_typed bot)
-              | Inter ->
-                  (* Unlike `Diff`/`Union`, `Inter` only needs *one* operand finite
-                     (rule: FinSet if at least one operand is), so forcing the
-                     caller's finiteness expectation onto `expr1` specifically would
-                     wrongly reject e.g. `some_set_var ** some_finset_var`. Leave
-                     `expr1`'s finiteness unconstrained here; the actual result
-                     finiteness is still correctly computed below from whichever of
-                     `typ1`/`typ2` actually turn out finite. *)
-                  Type.(set_typed bot)
-              | Subseteq -> Type.(set_typed bot)
               | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
               | And | Or -> Type.perm
               | Impl -> Type.bool (* antecedent must be pure *)
@@ -641,29 +613,13 @@ module ProcessExpr = struct
               let ty = match constr with
               | TupleLookUp -> Type.int
               | MapLookUp -> Type.map_dom typ1
-              | Diff | Inter ->
-                  (* Unlike `Union`, neither `Diff`'s nor `Inter`'s result finiteness
-                     depends on `expr2`'s finiteness (`Diff`: only `expr1`'s matters;
-                     `Inter`: either operand's suffices), so forcing `expr2` to match
-                     `typ1` exactly (including its finiteness) would wrongly reject
-                     e.g. `finset_var ** set_var` or `finset_var -- set_var`. Keep the
-                     element-type hint, drop the finiteness one. *)
-                  Type.set_typed (Type.set_elem typ1)
-              | Union ->
-                  (* `Union` does need both operands finite for a finite result, but
-                     that requirement should come from what the *caller* actually
-                     wants (`expected_typ`, still the outer/unshadowed one here), not
-                     from `typ1` -- `typ1` can end up `FinSet` merely because `expr1`
-                     itself happens to be one, even when the caller only asked for a
-                     plain `Set` (e.g. `finset_var ++ set_var : Set[Int]`), and forcing
-                     `expr2` to match that incidental finiteness would wrongly reject
-                     such cases. Only propagate a `FinSet` requirement onto `expr2`
-                     when the caller's own expected type is specifically `FinSet`. *)
-                  (if Type.is_finset expected_typ then Type.finset_typed else Type.set_typed)
-                    (Type.set_elem typ1)
-              | Plus | Minus | Mult | Div | Mod | Subseteq
-              | Eq | Gt | Lt | Geq | Leq ->
-                  typ1
+              | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> typ1
+              | Eq -> (
+                  (* Widened, so that either side may be the finite set: the two sides
+                     are then typed at their join below. *)
+                  match typ1 with
+                  | App (FinSet, [ elem ], _) -> Type.set_typed elem
+                  | _ -> typ1)
               | And | Or | Impl -> Type.perm
               | Elem -> Type.(set_typed typ1)
               | _ -> assert false
@@ -686,8 +642,7 @@ module ProcessExpr = struct
                       Error.type_error (Expr.to_loc expr1) (Printf.sprintf !"Expected product type, but found %{Type}" typ1)
                   end
               | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
-              | Diff | Union | Inter | Plus | Minus | Mult | Div | Mod | Subseteq
-              | Eq | Gt | Lt | Geq | Leq ->
+              | Plus | Minus | Mult | Div | Mod | Eq | Gt | Lt | Geq | Leq ->
                   Type.join typ1 typ2
               | And | Or | Impl -> Type.perm
               | Elem -> Type.set_elem typ2
@@ -706,16 +661,9 @@ module ProcessExpr = struct
                   match constr with
                   | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
                   | MapLookUp -> Type.map_codom typ1
-                  | Union -> Type.join typ1 typ2
-                  | Inter -> Type.meet typ1 typ2
-                  | Diff ->
-                      (* Result is FinSet iff `expr1` is -- `expr2`'s finiteness is
-                         irrelevant (s1 -- s2 is always a subset of s1). *)
-                      (if Type.is_finset typ1 then Type.finset_typed else Type.set_typed)
-                        (Type.set_elem typ1)
                   | Plus | Minus | Mult | Div | Mod -> Type.join typ1 typ2
                   | And | Or | Impl -> expected_typ
-                  | Subseteq | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
+                  | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
                   | _ -> assert false
               in ty |> Type.set_ghost_to expected_typ
             in
@@ -729,30 +677,21 @@ module ProcessExpr = struct
               | MapLookUp ->
                   let typ = expr1 |> Expr.to_type |> Type.map_codom in
                   (typ, typ)
-              | Diff | Union | Inter ->
-                  (* Lower bound must be a subtype of whatever the actual result
-                     ends up being, including when that's `FinSet[_]` -- `Set[Any]`
-                     is not a subtype of any `FinSet[T]` (that's the whole point of
-                     no-downcast), so it can't serve as a universal lower bound here
-                     anymore. `FinSet[Any]` is a subtype of both `Set[T]` and
-                     `FinSet[T]` for every `T`, so it still is. *)
-                  (Type.(finset_typed any), Type.(set_typed bot))
               | Plus | Minus | Mult | Div | Mod ->
                   let typ = expr1 |> Expr.to_type in
                   (typ, typ)
               | And | Or | Impl ->
                   let typ = expr1 |> Expr.to_type in
                   (Type.join typ typ2, Type.join typ typ2)
-              | Subseteq | Elem | Eq | Gt | Lt | Geq | Leq ->
+              | Elem | Eq | Gt | Lt | Geq | Leq ->
                   (Type.bool, Type.bool)
               | _ -> assert false
             in
             check_and_set
               (App (constr, [ expr1; expr2 ], expr_attr))
               given_typ_lb given_typ_ub expected_typ
-        | ( ( TupleLookUp | MapLookUp | Diff | Union | Inter | Plus | Minus | Mult
-            | Div | Mod | And | Or | Impl | Subseteq | Elem | Eq | Gt | Lt | Geq
-            | Leq ),
+        | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | And | Or | Impl
+            | Elem | Eq | Gt | Lt | Geq | Leq ),
             _expr_list ) ->
             Error.type_error (Expr.to_loc expr)
               (Expr.constr_to_string constr ^ " takes exactly two arguments")
@@ -1209,6 +1148,21 @@ module ProcessExpr = struct
         match expr1 with
         | None -> Rewriter.return None
         | Some expr1 -> offer (expr1 :: rest))
+    | (Union | Inter | Diff | Subseteq | Choose), _ :: _ -> (
+        (* The core gives the set operators no meaning of their own. *)
+        let* args =
+          Rewriter.List.map expr_list ~f:(fun e ->
+              speculatively (process_expr e (Type.any |> Type.set_ghost_to expected_typ)))
+        in
+        let* claimed = offer args in
+        match claimed with
+        | Some expr -> Rewriter.return (Some expr)
+        | None ->
+            let culprit =
+              List.find args ~f:(fun e -> not (Type.is_set (Expr.to_type e)))
+              |> Option.value ~default:(List.hd_exn args)
+            in
+            type_mismatch_error (Expr.to_loc culprit) Type.(set_typed bot) (Expr.to_type culprit))
     | _ -> Rewriter.return None
 
   and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl args_list =

@@ -1,0 +1,23 @@
+// The set operators stand for the operations of Library.Sets, which can also be called
+// directly. `choose` names a function when qualified. `S` is an instance of its own, so
+// its `choose` need not pick the same element as the operator.
+module S = Library.Sets[Library.IntType]
+
+lemma operators(a: Set[Int], b: Set[Int])
+  ensures S.union(a, b) == a ++ b && S.inter(a, b) == a ** b && S.diff(a, b) == a -- b
+  ensures S.subset(a, b) == (a subseteq b)
+  ensures a != {||} ==> choose(a) in a && S.choose(a) in a
+{}
+
+// Equality type-checks with the finite set on either side.
+lemma symmetric(f: FinSet[Int], s: Set[Int])
+  requires f == s
+  ensures s == f
+{}
+
+// Finite results stay finite.
+func finite(f: FinSet[Int], g: FinSet[Int], s: Set[Int]) returns (r: FinSet[Int])
+  ensures r == (f ++ g) ** s -- {|1|}
+{
+  (f ++ g) ** s -- {|1|}
+}

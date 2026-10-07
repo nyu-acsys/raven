@@ -442,7 +442,7 @@ func_modifiers:
 }
 
 callable_decl:
-  id = decl_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
+  id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
   let call_decl_opens = single_opens_clause opens in
   let call_decl_loc_params, formals = formals in
@@ -468,7 +468,7 @@ callable_decl:
 }
 
 callable_decl_out_vars:
-  id = decl_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
+  id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
   let call_decl_opens = single_opens_clause opens in
   let call_decl_loc_params, formals = formals in
@@ -1090,6 +1090,10 @@ qual_ident_expr:
 | m = mod_ident; DOT; x = IDENT {
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
 }
+| m = mod_ident; DOT; CHOOSE {
+  let x = Ident.make (Loc.make $startpos($3) $endpos($3)) "choose" 0 in
+  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) (Var (QualIdent.append m x)) [])
+}
  
 mod_ident:
 | x = MODIDENT { QualIdent.from_ident x}
@@ -1114,6 +1118,13 @@ mod_ident:
 | x = ANDOPSYM { x }
 | x = OROPSYM { x }
 ;
+
+(* The name of a function, predicate or procedure. `choose` is reserved for the `choose(e)`
+   expression, but may still name a callable, such as `Library.Sets.choose`, which is
+   then called qualified, as in `S.choose(s)`. *)
+callable_name:
+| x = decl_name { x }
+| CHOOSE { Ident.make (Loc.make $startpos $endpos) "choose" 0 }
 
 %public ident:
 | x = decl_name {

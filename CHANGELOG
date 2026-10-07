@@ -27,6 +27,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- The set operators `++`, `**`, `--`, `subseteq` and `choose` are now the operations of the standard library's `Library.Sets`, rather than built into the verifier. Programs using them are unaffected; `choose` may now also name a function, called qualified as in `S.choose(s)`.
+
 - `auto pred` is now written `inline pred`, matching `inline func`, and `auto` applies only to lemmas and axioms. `auto` on a predicate or function is an error, and so is a recursive inline predicate, which previously stayed partly unexpanded.
 
 - A comprehension that combines sets element by element, such as `{| x: T :: x in s || x in t |}`, is passed to the SMT solver as an operation on whole sets rather than as a function with a quantified axiom.
@@ -39,6 +41,8 @@ All notable changes to this project will be documented in this file.
 
 
 ### Fixed
+
+- Comparing a finite set with a set by `==` type-checks with the finite set on either side, not only on the right.
 
 - A top-level declaration named like an SMT-LIB or Z3 symbol, such as a function `union`, no longer takes that symbol's place in the solver. It used to change the meaning of built-in operations such as `++`, which could make false assertions verify.
 

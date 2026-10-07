@@ -190,10 +190,7 @@ let term_constr_to_string loc (constr : Expr.constr) : string =
   | MapLookUp -> "select"
   | MapUpdate -> "store"
   | Eq -> "="
-  | Union -> "union"
-  | Inter -> "intersection"
   | Elem -> "select"
-  | Subseteq -> "subset"
   | And -> "and"
   | Or -> "or"
   | Impl -> "=>"
@@ -209,7 +206,7 @@ let rec pr_term ppf (term : term) =
   | App (constr, expr_list, _) -> (
       match (constr, expr_list) with
       | ( (( Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt
-           | Lt | Geq | Leq | Union | Inter | Subseteq | And | Or | Plus | Minus
+           | Lt | Geq | Leq | And | Or | Plus | Minus
            | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _ ) as
            sym),
           ts ) -> (

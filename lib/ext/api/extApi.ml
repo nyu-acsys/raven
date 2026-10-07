@@ -157,8 +157,9 @@ module type Ext = sig
     (Expr.expr_ext * expr list) Rewriter.t
 
   (** Offered a core expression node that the core type checker rejects at the node
-      itself, currently a map lookup or update whose map operand has a type other than a
-      map. The operands the core needed to reject the node are already type-checked;
+      itself: a map lookup or update whose map operand has a type other than a map, and
+      a set operator, which the core gives no meaning at all. The operands the core
+      needed to reject the node are already type-checked;
       the others are as parsed. An extension that takes responsibility for the node
       returns a constructor of its own together with its operands, which are then
       type-checked by its [type_check_expr], so that any further error comes from the

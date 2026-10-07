@@ -56,7 +56,7 @@ $ raven test/ext/prophecy/clairvoyant_coin.rav
 $ raven --extension eris test/ext/error-credits/ec_examples.rav
 ```
 
-There are also a Decreases extension, an AssertWith extension, a Match extension and an Array extension, all described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](../../lib/ext/ext.ml)) rather than being one more mutually-exclusive value the flag can take.
+There are also a Decreases extension, an AssertWith extension, a Match extension, an Array extension and a Set extension, all described below; unlike Prophecy and ErrorCredits, each is stacked into *both* `--extension` choices unconditionally (see [`ext.ml`](../../lib/ext/ext.ml)) rather than being one more mutually-exclusive value the flag can take.
 
 ### Decreases Extension
 
@@ -144,6 +144,12 @@ proc swap(a: A.T, i: Int, j: Int, implicit ghost vi: Int, implicit ghost vj: Int
   a[j] := x;
 }
 ```
+
+### Set Extension
+
+We implement this extension (`lib/ext/setExt/`) to give the set operators `++`, `**`, `--`, `subseteq` and `choose` their meaning, as the operations of the standard library's `Library.Sets[E]`: union, intersection, difference and subset are `inline` functions over pointwise comprehensions, which the SMT solver handles with its theory of arrays, and `choose` is a function with an axiom. The core keeps the operators' syntax but gives them no meaning; it types their operands and offers them to `claim_expr`, and the extension claims them on sets.
+
+The extension types a claimed operation the way the core did, including when its result is a finite set (`FinSet`): a union of finite sets, an intersection with a finite set, and a difference from a finite set are finite. It keeps its construct until extension constructs are lowered, after type checking, since the front end may type a construct again, and a call of a library function is typed by the function's signature. For the same reason, a finite result is lowered to one of `Library.Sets`' `fin_union`, `fin_inter` or `fin_diff`, whose signatures say that it is finite.
 
 ### ErrorCredits Extension (`eris`)
 We implement this extension to add support for reasoning about Error-credits, and probablistic programs. This extension can be enabled with the:
@@ -515,7 +521,7 @@ An extension can give a meaning to core syntax whose core meaning doesn't apply,
   val claim_location : expr -> (expr * qual_ident) option Rewriter.t
 ```
 
-The core offers a construct to these hooks only where its own rule rejects it: currently a map lookup `e1[e2]` or update `e1[e2 := e3]` whose `e1` is not of map type (`claim_expr`), and an assignment `x := e1[e2]` or `x := e1[e2 := e3]` whose `e1` is not of map type (`claim_basic_stmt`). The parser turns an indexed assignment `x[i] := v` into `x := x[i := v]`, so it reaches `claim_basic_stmt` in that form. An extension that takes responsibility returns a constructor of its own with its operands. From then on the construct is the extension's: it is type-checked by its `type_check_expr` or `type_check_basic_stmt`, so any further error is reported by the extension, and it is lowered by its `rewrite_*_ext` like any other construct of the extension. Returning `None` leaves the construct to the core, which reports its own error.
+The core offers a construct to these hooks only where its own rule rejects it: a map lookup `e1[e2]` or update `e1[e2 := e3]` whose `e1` is not of map type, and the set operators `++`, `**`, `--`, `subseteq` and `choose`, which the core gives no meaning at all (`claim_expr`), and an assignment `x := e1[e2]` or `x := e1[e2 := e3]` whose `e1` is not of map type (`claim_basic_stmt`). The parser turns an indexed assignment `x[i] := v` into `x := x[i := v]`, so it reaches `claim_basic_stmt` in that form. An extension that takes responsibility returns a constructor of its own with its operands. From then on the construct is the extension's: it is type-checked by its `type_check_expr` or `type_check_basic_stmt`, so any further error is reported by the extension, and it is lowered by its `rewrite_*_ext` like any other construct of the extension. Returning `None` leaves the construct to the core, which reports its own error.
 
 `claim_location` is different: it is offered an expression the core finds where it expects a field location `x.f` -- the location of an `own`, or the argument of a procedure's location parameter, such as that of `faa` -- currently a map lookup whose map operand is not of map type. An extension that takes responsibility answers with the reference and the field of the location the expression denotes, and the core continues exactly as if that location had been written, including solving the field argument of an implicitly instantiated functor such as the atomic operations'.
 

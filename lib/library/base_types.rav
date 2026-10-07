@@ -18,6 +18,50 @@ module RefType: Type {
   rep type T = Ref
 }
 
+// The operations on sets of elements of E. The core's set operators stand for them:
+// `++`, `**`, `--` and `subseteq` for union, inter, diff and subset, and `choose` for
+// choose. Each is an `inline` function whose body combines its arguments element by
+// element, so that the SMT solver reasons about sets in its theory of arrays.
+module Sets[E: Type] {
+  type T = Set[E]
+
+  inline func union(s: T, t: T) returns (r: T) {
+    {| x: E :: x in s || x in t |}
+  }
+
+  inline func inter(s: T, t: T) returns (r: T) {
+    {| x: E :: x in s && x in t |}
+  }
+
+  inline func diff(s: T, t: T) returns (r: T) {
+    {| x: E :: x in s && !(x in t) |}
+  }
+
+  inline func subset(s: T, t: T) returns (r: Bool) {
+    inter(s, t) == s
+  }
+
+  // The operations whose result is finite: a union of finite sets, an intersection with
+  // a finite set, and a difference from a finite set. Their signatures say so, which the
+  // functions above cannot, as a comprehension is not known to be finite.
+  free func fin_union(s: FinSet[E], t: FinSet[E]) returns (r: FinSet[E])
+    ensures r == union(s, t)
+
+  free func fin_inter(s: FinSet[E], t: T) returns (r: FinSet[E])
+    ensures r == inter(s, t)
+
+  free func fin_diff(s: FinSet[E], t: T) returns (r: FinSet[E])
+    ensures r == diff(s, t)
+
+  // Some element of a nonempty set, the same one wherever it is chosen from the same set.
+  free func choose(s: T) returns (e: E)
+
+  // `Sets.choose`, as a bare `choose(s)` is the set operator, which stands for the
+  // function of another instance.
+  free auto axiom choose_in()
+    ensures forall s: T :: {Sets.choose(s)} s != {||} ==> Sets.choose(s) in s
+}
+
 module Option[E: Type] : Type {
   rep type T = data {
     case none
