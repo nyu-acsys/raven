@@ -24,6 +24,11 @@ type 'a t = ('a, int) Rewriter.t_ext
     ends) at 0. *)
 let run_typing (m : 'a t) : 'a Rewriter.t = Rewriter.eval_with_user_state ~init:0 m
 
+(** [run_typing] at the speculative depth [depth], for a callback given to an extension
+    while typing at that depth. *)
+let run_typing_at (depth : int) (m : 'a t) : 'a Rewriter.t =
+  Rewriter.eval_with_user_state ~init:depth m
+
 (** The opposite bridge: lift a foreign, unit-state computation (typically an
     ext_hooks callback, which is deliberately kept ignorant of this file's private
     speculative-depth bookkeeping) into [t], leaving the current depth untouched
@@ -36,6 +41,8 @@ let lift (m : 'a Rewriter.t) : 'a t =
 (** True while inside a [speculatively]-wrapped computation -- see
     [ProcessExpr.peek_arg]. *)
 let is_speculative : bool t = fun s -> (s, s.Rewriter.state_user_data > 0)
+
+let speculative_depth : int t = fun s -> (s, s.Rewriter.state_user_data)
 
 (** Run [m] with the speculative-peek depth counter incremented for its duration,
     restoring the enclosing depth on the way out regardless of nesting -- see
@@ -54,12 +61,21 @@ let is_core_indexable (typ : type_expr) : bool =
 
 (** Whether the form of [expr], an operand the core indexes, admits a type other than
     a map. Only such operands are typed to decide whether to offer a construct to the
-    extensions, which keeps chains such as `m[i := a][j := b]` from being typed
-    repeatedly. *)
+    extensions. An update has the type of the operand it updates, see
+    [ProcessExpr.non_core_indexable]. *)
 let may_have_non_map_type (expr : expr) : bool =
   match expr with
-  | App ((Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _), _, _) -> true
+  | App
+      ( ( Var _ | Read | DataDestr _ | TupleLookUp | MapLookUp | Ite | ExprExt _ | Union
+        | Inter | Diff ),
+        _,
+        _ ) ->
+      true
   | _ -> false
+
+(** The operand that the updates [expr] are applied to, as in `m` of `m[i := a][j := b]`. *)
+let rec update_root (expr : expr) : expr =
+  match expr with App (MapUpdate, base :: _, _) -> update_root base | _ -> expr
 
 let type_mismatch_error loc exp_ty fnd_ty =
   Error.type_error loc
@@ -1026,12 +1042,14 @@ module ProcessExpr = struct
         (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
         | ExprExt expr_ext, expr_list ->
           let* ext_hooks = Rewriter.current_ext_hooks in
+          (* The extension's own operands are typed as speculatively as the construct. *)
+          let* depth = speculative_depth in
           lift
             (ext_hooks.type_check_expr expr_ext expr_list expr_attr expected_typ
                {
                  check_and_set =
-                   (fun e lb ub exp -> run_typing (check_and_set e lb ub exp));
-                 process_expr = (fun e exp -> run_typing (process_expr e exp));
+                   (fun e lb ub exp -> run_typing_at depth (check_and_set e lb ub exp));
+                 process_expr = (fun e exp -> run_typing_at depth (process_expr e exp));
                  type_mismatch_error;
                  expand_type_expr =
                    (fun tp -> run_typing (ProcessTypeExpr.expand_type_expr tp));
@@ -1096,11 +1114,29 @@ module ProcessExpr = struct
      one the core's lookup and update do not apply to. *)
   and non_core_indexable (expr1 : expr) (expected_typ : type_expr) : expr option t =
     let open Rewriter.Syntax in
-    if not (may_have_non_map_type expr1) then Rewriter.return None
-    else
-      let* expr1 = speculatively (process_expr expr1 expected_typ) in
-      let+ typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
-      if is_core_indexable typ1 then None else Some expr1
+    let typed_if_not_core expr =
+      if not (may_have_non_map_type expr) then Rewriter.return None
+      else
+        let* expr = speculatively (process_expr expr expected_typ) in
+        let+ typ = ProcessTypeExpr.expand_type_expr (Expr.to_type expr) in
+        if is_core_indexable typ then None else Some expr
+    in
+    match expr1 with
+    | App (MapUpdate, _, _) -> (
+        (* The chain is typed only if the operand it updates is not a map, which keeps
+           chains such as `m[i := a][j := b]` from being typed at every link. *)
+        let* root = typed_if_not_core (update_root expr1) in
+        match root with
+        | None -> Rewriter.return None
+        | Some _ -> typed_if_not_core_update expr1 expected_typ)
+    | _ -> typed_if_not_core expr1
+
+  (* [expr1], an update chain on an operand that is not a map, typed. *)
+  and typed_if_not_core_update (expr1 : expr) (expected_typ : type_expr) : expr option t =
+    let open Rewriter.Syntax in
+    let* expr1 = speculatively (process_expr expr1 expected_typ) in
+    let+ typ1 = ProcessTypeExpr.expand_type_expr (Expr.to_type expr1) in
+    if is_core_indexable typ1 then None else Some expr1
 
   (* [expr], found where a field location `x.f` is expected, as the location an
      extension claims it denotes; otherwise [expr] itself. *)
@@ -1125,8 +1161,8 @@ module ProcessExpr = struct
                 Expr.App (Read, [ ref_expr; field_expr ], expr_attr)))
     | _ -> Rewriter.return expr
 
-  (* Offers to the extensions a map lookup or update whose map operand has a type the
-     core's rule does not apply to. *)
+  (* Offers to the extensions a map lookup or update, or a membership `e in c`, whose map
+     or set operand has a type the core's rule does not apply to, and the set operators. *)
   and claim_core_app (constr : Expr.constr) (expr_list : expr list)
       (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr option t =
     let open Rewriter.Syntax in
@@ -1148,6 +1184,11 @@ module ProcessExpr = struct
         match expr1 with
         | None -> Rewriter.return None
         | Some expr1 -> offer (expr1 :: rest))
+    | Elem, [ elem; container ] -> (
+        let* container = non_core_indexable container in
+        match container with
+        | None -> Rewriter.return None
+        | Some container -> offer [ elem; container ])
     | (Union | Inter | Diff | Subseteq | Choose), _ :: _ -> (
         (* The core gives the set operators no meaning of their own. *)
         let* args =

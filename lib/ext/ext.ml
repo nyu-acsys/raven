@@ -38,14 +38,17 @@ module ArrayExtInstance = ArrayExt.ArrayExt(MatchExtInstance)
    so it is folded in unconditionally as well. *)
 module SetExtInstance = SetExt.SetExt(ArrayExtInstance)
 
+(* SeqExt gives the core's operators their meaning on the sequences of `Library.Seq`. *)
+module SeqExtInstance = SeqExt.SeqExt(SetExtInstance)
+
 (* Core Raven *)
-module RavenCore: ExtApi.Ext = SetExtInstance
+module RavenCore: ExtApi.Ext = SeqExtInstance
 
 (* ProphecyExt *)
-module ProphecyExtInstance = ProphecyExt.ProphecyExt(SetExtInstance)
+module ProphecyExtInstance = ProphecyExt.ProphecyExt(SeqExtInstance)
 
 (* ErrorCredits *)
-module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(SetExtInstance)
+module ErrorCreditsExtInstance = ErrorCreditsExt.ErrorCreditsExt(SeqExtInstance)
 module SampleExtInstance = SampleExt.SampleExt(ErrorCreditsExtInstance)
 
 let module_map ext = match ext with

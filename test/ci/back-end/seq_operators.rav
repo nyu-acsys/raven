@@ -1,0 +1,49 @@
+// The operators on sequences: append, index, update and membership, in
+// specifications and code, also for an instance declared explicitly.
+lemma ops(s: Seq[Int], t: Seq[Int], i: Int, e: Int)
+  requires 0 <= i && i < Seq.length(s)
+  ensures (s ++ t)[i] == s[i]
+  ensures s[i := e][i] == e
+  ensures s[i] in s
+  ensures Seq.length(s ++ t) == Seq.length(s) + Seq.length(t)
+{}
+
+lemma notin(s: Seq[Int])
+  requires Seq.length(s) == 0
+  ensures !(1 in s)
+{}
+
+// Literals, with the instance of `[||]` taken from the expected type or the other operand.
+lemma literals(s: Seq[Int])
+  ensures Seq.length([|1, 2, 3|]) == 3 && [|1, 2, 3|][1] == 2
+  ensures 2 in [|1, 2|]
+  ensures s == [||] ==> Seq.length(s) == 0
+  ensures [||] ++ s == s && s ++ [||] == s
+  ensures [|[|1|]|][0] == [|1|]
+{}
+
+proc p(s: Seq[Int]) returns (r: Seq[Int])
+  requires 0 < Seq.length(s)
+  ensures Seq.length(r) == Seq.length(s) && r[0] == 5
+{
+  r := s;
+  r[0] := 5;
+  var x := r[0];
+  assert x == 5;
+}
+
+module M {
+  module IS = Library.Seq[Library.IntType]
+  lemma l(s: IS.T, t: IS.T)
+    ensures IS.length(s ++ t) == IS.length(s) + IS.length(t)
+  {}
+}
+
+// A literal takes the instance of the sequence type expected, also one declared explicitly.
+module N {
+  module IS = Library.Seq[Library.IntType]
+  lemma l(s: IS.T)
+    ensures IS.length(s ++ [|1|]) == IS.length(s) + 1
+    ensures IS.length(([||] : IS.T)) == 0
+  {}
+}

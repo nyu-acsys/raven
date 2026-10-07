@@ -69,20 +69,27 @@ such as `sum(1 :: 2 :: nil) == 3`, hold without further proof.
 
 ## Sequences {#sec:stdlib-seq}
 
-`Library.Seq[E]` provides immutable sequences with the following operations:
+`Library.Seq[E]` provides immutable sequences with the following operations, four of which can
+also be written with an operator:
 
-| Operation | Meaning |
-|---|---|
-| `empty`, `singleton(e)` | the empty sequence, and the sequence holding just `e` |
-| `length(s)` | the number of entries of `s` |
-| `index(s, i)` | the entry at position `i`, counting from 0 |
-| `append(s, t)` | `s` followed by `t` |
-| `update(s, i, e)` | `s` with the entry at position `i` replaced by `e` |
-| `take(s, n)`, `drop(s, n)` | the first `n` entries of `s`, and the remaining ones |
-| `contains(s, e)` | whether `e` is an entry of `s` |
-| `equal(s, t)` | whether `s` and `t` are equal |
+| Operation | Operator | Meaning |
+|---|---|---|
+| `empty`, `singleton(e)` | | the empty sequence, and the sequence holding just `e` |
+| `length(s)` | | the number of entries of `s` |
+| `index(s, i)` | `s[i]` | the entry at position `i`, counting from 0 |
+| `append(s, t)` | `s ++ t` | `s` followed by `t` |
+| `update(s, i, e)` | `s[i := e]` | `s` with the entry at position `i` replaced by `e` |
+| `take(s, n)`, `drop(s, n)` | | the first `n` entries of `s`, and the remaining ones |
+| `contains(s, e)` | `e in s` | whether `e` is an entry of `s` |
+| `equal(s, t)` | | whether `s` and `t` are equal |
 
-`index` is unspecified outside the range from 0 to `length(s) - 1`.
+`index` is unspecified outside the range from 0 to `length(s) - 1`. As with a map, the
+statement `s[i] := e` is short for `s := s[i := e]`.
+
+You can write a sequence as a literal, listing its entries between `[|` and `|]`, as in
+`[|1, 2, 3|]`, much as you write a set as `{|1, 2, 3|}`. The empty sequence `[||]`, like
+`Seq.empty`, takes its instance from the type expected where it appears, as in `s == [||]`, or
+from an annotation, as in `([||] : Seq[Int])`.
 
 Unlike `List`, `Seq` is sealed ({{ref sec:sealing}}). Its interface, `Library.SeqSpec[E]`, states
 the properties of these operations as `auto` lemmas, and those lemmas are all you see as a
@@ -100,7 +107,7 @@ module HitLog {
 
   pred valid(c: Ref, v: Int) {
     exists l: Log.T :: own(c.log, l) && Log.length(l) == v &&
-      (forall i: Int :: {Log.index(l, i)} 0 <= i && i < v ==> Log.index(l, i) == i)
+      (forall i: Int :: {l[i]} 0 <= i && i < v ==> l[i] == i)
   }
 
   proc increment(c: Ref, ghost v: Int)
@@ -109,7 +116,7 @@ module HitLog {
   {
     unfold valid(c, v)
     var l := c.log
-    c.log := Log.append(l, Log.singleton(Log.length(l)))
+    c.log := l ++ [|Log.length(l)|]
     fold valid(c, v + 1)
   }
 

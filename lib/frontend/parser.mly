@@ -1014,15 +1014,13 @@ primary:
 | e = choose_expr { e }
 ;
 
-compr_expr:
+(* %public so that an extension can add literals of its own, see seqExt_parser.mly. *)
+%public compr_expr:
 | LBRACEPIPE; es = separated_list(COMMA, expr); RBRACEPIPE {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Setenum es)
   }
 | LBRACEPIPE; v = bound_var; COLONCOLON; e = expr; RBRACEPIPE {
     Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.(mk_set (Loc.make $symbolstartpos $endpos) bot) Compr [v] e)
-  }
-| LBRACKETPIPE; v = bound_var; COLONCOLON; e = expr; RBRACKETPIPE {
-    Expr.(mk_binder ~loc:(Loc.make $symbolstartpos $endpos) ~typ:Type.(mk_map (Loc.make $symbolstartpos $endpos) any bot) Compr [v] e)
   }
 ;
   

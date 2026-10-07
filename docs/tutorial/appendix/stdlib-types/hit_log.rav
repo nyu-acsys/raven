@@ -7,7 +7,7 @@ module HitLog {
 
   pred valid(c: Ref, v: Int) {
     exists l: Log.T :: own(c.log, l) && Log.length(l) == v &&
-      (forall i: Int :: {Log.index(l, i)} 0 <= i && i < v ==> Log.index(l, i) == i)
+      (forall i: Int :: {l[i]} 0 <= i && i < v ==> l[i] == i)
   }
 
   proc create() returns (c: Ref)
@@ -23,7 +23,7 @@ module HitLog {
   {
     unfold valid(c, v)
     var l := c.log
-    c.log := Log.append(l, Log.singleton(Log.length(l)))
+    c.log := l ++ [|Log.length(l)|]
     fold valid(c, v + 1)
   }
 

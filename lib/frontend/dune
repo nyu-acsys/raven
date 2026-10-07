@@ -42,7 +42,12 @@
  (deps ../ext/matchExt/matchExt_parser.mly)
  (action (copy %{deps} %{target})))
 
+(rule
+ (target seqExt_parser.mly)
+ (deps ../ext/seqExt/seqExt_parser.mly)
+ (action (copy %{deps} %{target})))
+
 (menhir
- (modules parser prophecyExt errorCreditsExt_parser sampleExt_parser decreasesExt_parser assertWithExt_parser matchExt_parser)
+ (modules parser prophecyExt errorCreditsExt_parser sampleExt_parser decreasesExt_parser assertWithExt_parser matchExt_parser seqExt_parser)
  (merge_into parser)
  (flags --explain))

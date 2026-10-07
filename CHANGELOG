@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- The sequences of `Library.Seq` can be used with operators, as in Viper: `s ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, `e in s` says whether `e` is an entry, and `s[i] := e` assigns `s[i := e]` to `s`. Sequences can be written as literals, as in `[|1, 2, 3|]` and `[||]`.
+
 - The names `Option`, `List`, `Seq` and `Array` of the standard library are available in every program without an import, so that types such as `Seq[Int]` and `Array[Int]` can be written directly. A program's own declaration of one of these names takes precedence.
 
 - A function can be declared `inline`, which makes its body a macro for the SMT solver instead of the subject of an axiom. The marker is ignored for a recursive function.
@@ -28,6 +30,8 @@ All notable changes to this project will be documented in this file.
 
 
 ### Changed
+
+- The map comprehension `[| x: T :: e |]` is removed, as `{| x: T :: e |}` already denotes a map when `e` is not Boolean. The brackets `[| |]` now enclose sequence literals.
 
 - The set operators `++`, `**`, `--`, `subseteq` and `choose` are now the operations of the standard library's `Library.Sets`, rather than built into the verifier. Programs using them are unaffected; `choose` may now also name a function, called qualified as in `S.choose(s)`.
 

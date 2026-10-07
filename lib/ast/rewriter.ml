@@ -346,8 +346,9 @@ and ext_hooks = {
     (Expr.expr_ext * expr list) t;
 
   (** Offered a core expression node that the core type checker rejects at the node
-      itself: a map lookup or update whose map operand has a type other than a map, and
-      a set operator, which the core gives no meaning at all. The operands the core
+      itself: a map lookup or update whose map operand has a type other than a map, a
+      membership whose set operand has a type other than a set, and a set operator, which
+      the core gives no meaning at all. The operands the core
       needed to reject the node are already type-checked;
       the others are as parsed. An extension that takes responsibility for the node
       returns a constructor of its own together with its operands, which are then
