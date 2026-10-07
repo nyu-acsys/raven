@@ -33,6 +33,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Raven no longer passes facts to the SMT solver that are trivially true, such as a quantified implication whose conclusion is `true`.
+
 - Raven gives triggers to two kinds of quantified facts it generates: that the locations of an iterated separating conjunction are distinct, and the postcondition of a `func`, which applications of the function trigger. Distinctness that holds trivially is no longer checked or assumed.
 
 - The map comprehension `[| x: T :: e |]` is removed, as `{| x: T :: e |}` already denotes a map when `e` is not Boolean. The brackets `[| |]` now enclose sequence literals.

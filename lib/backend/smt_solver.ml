@@ -250,7 +250,7 @@ let assume_expr (expr : term) : unit t =
     | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
   in
 
-  let cmd = mk_assert expr in
+  let cmd = mk_assert (Ast.Expr.drop_trivially_true expr) in
   SmtSession.write smt_env.session cmd
 
 let check_valid (expr : term) : bool t =

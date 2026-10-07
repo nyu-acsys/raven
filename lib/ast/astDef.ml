@@ -1050,6 +1050,27 @@ module Expr = struct
 
     App (Impl, [ e1; e2 ], mk_attr loc (Type.join (to_type e1) (to_type e2)))
 
+  (** [e] with the parts of its Boolean structure that are trivially true removed:
+      `a ==> true`, a quantifier whose body is `true`, and `true` in a conjunction or
+      disjunction. *)
+  let rec drop_trivially_true (e : t) : t =
+    let is_true = function App (Bool true, [], _) -> true | _ -> false in
+    match e with
+    | App (Impl, [ e1; e2 ], a) ->
+        let e2 = drop_trivially_true e2 in
+        if is_true e2 then App (Bool true, [], a) else App (Impl, [ e1; e2 ], a)
+    | App (And, es, a) -> (
+        match List.filter (List.map es ~f:drop_trivially_true) ~f:(fun e -> not (is_true e)) with
+        | [] -> App (Bool true, [], a)
+        | [ e ] -> e
+        | es -> App (And, es, a))
+    | App (Or, es, a) ->
+        let es = List.map es ~f:drop_trivially_true in
+        if List.exists es ~f:is_true then App (Bool true, [], a) else App (Or, es, a)
+    | Binder ((Forall | Exists), _, _, body, a) when is_true (drop_trivially_true body) ->
+        App (Bool true, [], a)
+    | _ -> e
+
   let mk_ite ?(loc = Loc.dummy) e1 e2 e3 =
     assert (Type.equal (to_type e1) Type.bool);
     match e1 with
