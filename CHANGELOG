@@ -48,6 +48,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A trigger in the contract of a `func` no longer causes a syntax error in a body that spans several lines.
+
 - A conditional expression is right-associative, so `a ? b : c ? d : e` means `a ? b : (c ? d : e)`, as in other languages, rather than `(a ? b : c) ? d : e`.
 
 - A loop nested in another loop no longer causes an internal error.
