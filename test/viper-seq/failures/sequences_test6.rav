@@ -1,0 +1,4 @@
+// The assertion of test6 in Viper's test sequences.vpr that Viper expects to fail.
+proc test6() {
+  assert [|3, 4, 5, 6|][3] == 5;
+}

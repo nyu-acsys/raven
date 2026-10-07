@@ -1,0 +1,165 @@
+// Viper's test sequence_incompletenesses.vpr. Viper's `==` on sequences is `Seq.equal`
+// here. The array of solutions is a local map `count`, as the test is about sequences,
+// so an inner loop repeats the outer loop's invariant about the entries before `n`, for
+// which Viper frames the other cells. Silicon fails to verify `colourings0`,
+// `colourings2`, `test_extend_left` and `test_append_right`; Raven verifies them.
+// Without the assertion it omits, `colourings1` fails in both, see
+// failures/sequence_incompletenesses_colourings1.rav.
+
+// Sequences of "how many reds", "how many blacks", "how many reds", etc.
+func valid(s: Seq[Int], lenTiles: Int, isStart: Bool) returns (r: Bool)
+{
+  Seq.length(s) == 0 ? lenTiles == 0 :
+  Seq.length(s) == 1 ?
+    lenTiles == s[0] && (isStart ? s[0] == 0 || s[0] >= 3 : s[0] >= 3) :
+  (isStart ? s[0] == 0 || s[0] >= 3 : s[0] >= 3) && s[1] > 0 &&
+    valid(s[2..], lenTiles - s[1] - s[0], false)
+}
+
+proc colourings0() {
+  var count: Map[Int, Seq[Seq[Int]]];
+
+  count[0] := [|[||]|];
+
+  count[1] := [|[|0, 1|]|];
+  assert valid([||], 0, false);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[1]) ==>
+    Seq.equal(count[1][j], [|0, 1|]) && valid(count[1][j], 1, true);
+}
+
+proc colourings2() {
+  var count: Map[Int, Seq[Seq[Int]]];
+
+  count[0] := [|[||]|];
+
+  count[1] := [|[|0, 1|]|];
+  assert valid([||], 0, false);
+  assert Seq.equal([|0, 1|][2..], [||]);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[1]) ==>
+    Seq.equal(count[1][j], [|0, 1|]) && valid(count[1][j], 1, true);
+
+  count[2] := [|[|0, 2|]|];
+  assert Seq.equal([|0, 2|][2..], [||]);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[2]) ==>
+    valid(count[2][j], 2, true);
+
+  count[3] := [|[|0, 3|], [|3|]|];
+  assert Seq.equal([|0, 3|][2..], [||]);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[3]) ==>
+    valid(count[3][j], 3, true);
+
+  var n: Int := 4;
+  while (n <= 50)
+    invariant 4 <= n && n <= 51
+    invariant forall m: Int, j: Int :: 0 <= m && m < n && 0 <= j && j < Seq.length(count[m]) ==>
+      valid(count[m][j], m, true)
+  {
+    count[n] := [||];
+    var i: Int := 0;
+    while (i < Seq.length(count[n - 1]))
+      invariant 4 <= n && n <= 50
+      invariant forall m: Int, j: Int :: 0 <= m && m < n && 0 <= j && j < Seq.length(count[m]) ==>
+        valid(count[m][j], m, true)
+      invariant 0 <= i && i <= Seq.length(count[n - 1])
+      invariant Seq.length(count[n]) == i
+      invariant forall j: Int :: 0 <= j && j < Seq.length(count[n - 1]) ==>
+        valid(count[n - 1][j], n - 1, true)
+      invariant forall j: Int :: {count[n][j]} 0 <= j && j < i ==> valid(count[n][j], n, true)
+    {
+      var oldSoln: Seq[Int] := count[n - 1][i];
+      var soln: Seq[Int];
+      if (oldSoln[0] == 0) {
+        soln := oldSoln[1 := oldSoln[1] + 1];
+        assert Seq.equal(soln[2..], oldSoln[2..]);
+        assert valid(soln, n, true);
+      } else {
+        soln := [|0, 1|] ++ oldSoln;
+        assert valid(oldSoln, n - 1, false);
+        assert valid(soln, n, true);
+      }
+      count[n] := count[n] ++ [|soln|];
+      i := i + 1;
+    }
+
+    n := n + 1;
+  }
+}
+
+proc colourings() {
+  var count: Map[Int, Seq[Seq[Int]]];
+
+  count[0] := [|[||]|];
+
+  count[1] := [|[|0, 1|]|];
+  assert valid([||], 0, false);
+  assert Seq.equal([|0, 1|][2..], [||]);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[1]) ==>
+    Seq.equal(count[1][j], [|0, 1|]) && valid(count[1][j], 1, true);
+
+  count[2] := [|[|0, 2|]|];
+  assert Seq.equal([|0, 2|][2..], [||]);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[2]) ==>
+    valid(count[2][j], 2, true);
+
+  count[3] := [|[|0, 3|], [|3|]|];
+  assert Seq.equal([|0, 3|][2..], [||]);
+  assert forall j: Int :: 0 <= j && j < Seq.length(count[3]) ==>
+    valid(count[3][j], 3, true);
+
+  var n: Int := 4;
+  while (n <= 50)
+    invariant 4 <= n && n <= 51
+    invariant forall m: Int, j: Int :: 0 <= m && m < n && 0 <= j && j < Seq.length(count[m]) ==>
+      valid(count[m][j], m, true)
+  {
+    count[n] := [||];
+    var i: Int := 0;
+    while (i < Seq.length(count[n - 1]))
+      invariant 4 <= n && n <= 50
+      invariant forall m: Int, j: Int :: 0 <= m && m < n && 0 <= j && j < Seq.length(count[m]) ==>
+        valid(count[m][j], m, true)
+      invariant 0 <= i && i <= Seq.length(count[n - 1])
+      invariant Seq.length(count[n]) == i
+      invariant forall j: Int :: 0 <= j && j < Seq.length(count[n - 1]) ==>
+        valid(count[n - 1][j], n - 1, true)
+      invariant forall j: Int :: {count[n][j]} 0 <= j && j < i ==> valid(count[n][j], n, true)
+    {
+      var oldSoln: Seq[Int] := count[n - 1][i];
+      var soln: Seq[Int];
+      if (oldSoln[0] == 0) {
+        soln := oldSoln[1 := oldSoln[1] + 1];
+        assert Seq.equal(soln[2..], oldSoln[2..]);
+        assert valid(soln, n, true);
+      } else {
+        soln := [|0, 1|] ++ oldSoln;
+        assert Seq.equal(soln[2..], oldSoln);
+        assert valid(oldSoln, n - 1, false);
+        assert valid(soln, n, true);
+      }
+      count[n] := count[n] ++ [|soln|];
+      i := i + 1;
+    }
+
+    n := n + 1;
+  }
+}
+
+proc test_extend(s: Seq[Int]) {
+  var ss: Seq[Int] := s ++ [|42|];
+  assert forall i: Int :: i in s ==> i in ss[..Seq.length(ss) - 1];
+}
+
+proc test_extend_left(s: Seq[Int]) {
+  var ss: Seq[Int] := [|42|] ++ s;
+  assert forall i: Int :: i in s ==> i in ss[1..];
+}
+
+proc test_append_left(s: Seq[Int], t: Seq[Int]) {
+  var ss: Seq[Int] := s ++ t;
+  assert forall i: Int :: i in s ==> i in ss[..Seq.length(s)];
+}
+
+proc test_append_right(s: Seq[Int], t: Seq[Int]) {
+  var ss: Seq[Int] := s ++ t;
+  assert forall i: Int :: i in t ==> i in ss[Seq.length(s)..];
+}

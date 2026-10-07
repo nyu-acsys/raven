@@ -1,0 +1,4 @@
+// The assertion of t1 in Viper's test sequences.vpr that Viper expects to fail.
+proc t1() {
+  assert Seq.length([|0|]) == 0;
+}

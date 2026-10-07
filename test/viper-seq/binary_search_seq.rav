@@ -1,0 +1,33 @@
+// Viper's test binarySearchSeq.vpr. Raven verifies a loop knowing only its invariant, so
+// the loop repeats the precondition, which Viper keeps for a variable the loop does not
+// modify.
+
+proc binary_search(array: Seq[Int], key: Int) returns (index: Int)
+  requires forall i: Int, j: Int :: 0 <= i && j < Seq.length(array) && i < j ==> array[i] < array[j]
+  ensures -1 <= index && index < Seq.length(array)
+  ensures 0 <= index ==> array[index] == key
+  ensures -1 == index ==> (forall i: Int :: 0 <= i && i < Seq.length(array) ==> array[i] != key)
+{
+  var low: Int := 0;
+  var high: Int := Seq.length(array);
+  var mid: Int;
+
+  index := -1;
+  while (low < high)
+    invariant 0 <= low && low <= high && high <= Seq.length(array)
+    invariant forall i: Int, j: Int :: 0 <= i && j < Seq.length(array) && i < j ==> array[i] < array[j]
+    invariant forall i: Int :: (0 <= i && i < Seq.length(array) && !(low <= i && i < high)) ==> array[i] != key
+  {
+    mid := (low + high) / 2;
+    if (array[mid] < key) {
+      low := mid + 1;
+    } else {
+      if (key < array[mid]) {
+        high := mid;
+      } else {
+        index := mid;
+      }
+    }
+  }
+  index := -1;
+}

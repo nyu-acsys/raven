@@ -1,0 +1,5 @@
+// The assertion of t2 in Viper's test sequences.vpr that Viper expects to fail.
+proc t2() {
+  var a: Seq[Int] := [|0, 1, -11, 22|];
+  assert a[1 := 22][0] == 22;
+}
