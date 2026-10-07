@@ -171,8 +171,11 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
         Expr.alpha_renaming cond alpha_renaming_map)
   in
 
+  (* f(a', b') *)
+  let renamed_expr = Expr.alpha_renaming expr alpha_renaming_map in
+
   (* f(a, b) == f(a', b') *)
-  let expr_eq = Expr.mk_eq expr (Expr.alpha_renaming expr alpha_renaming_map) in
+  let expr_eq = Expr.mk_eq expr renamed_expr in
 
   (* [a == a'; b == b']  *)
   let vars_eq_list =
@@ -184,12 +187,23 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
              (QualIdent.from_ident new_var_decl.var_name)))
   in
 
+  (* Triggered by f(a, b) and f(a', b'), if they mention all bound variables. *)
+  let bound_vars = univ_vars @ dup_vars @ env_local_var_decls in
+  let trigs =
+    let mentioned = Expr.symbols ~acc:(Expr.symbols expr) renamed_expr in
+    if
+      List.for_all bound_vars ~f:(fun v ->
+          Set.mem mentioned (QualIdent.from_ident v.var_name))
+    then [ [ expr; renamed_expr ] ]
+    else []
+  in
+
   let assert_expr =
     (* forall a, b, a', b' ::
        f(a, b) == f(a', b') && p1(a, b) && p2(a, b) && p1(a', b') && p2(a', b')  ==>
         a == a' && b == b'
     *)
-    Expr.mk_binder ~loc ~typ:Type.bool Forall (univ_vars @ dup_vars @ env_local_var_decls)
+    Expr.mk_binder ~loc ~typ:Type.bool ~trigs Forall bound_vars
       (Expr.mk_impl
          (Expr.mk_chained_and ((expr_eq :: conditions) @ renamed_conditions))
          (Expr.mk_chained_and vars_eq_list))
@@ -214,7 +228,21 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
       assert_expr
   in
 
-  Rewriter.return assert_stmt
+  (* An expression that holds each of a, b as a component is injective. *)
+  let is_univ_var e =
+    match e with
+    | Expr.App (Var qi, [], _) ->
+        List.exists univ_vars ~f:(fun v -> QualIdent.equal qi (QualIdent.from_ident v.var_name))
+    | _ -> false
+  in
+  let components = match expr with Expr.App (Tuple, es, _) -> es | e -> [ e ] in
+  let trivially_injective =
+    List.for_all univ_vars ~f:(fun v ->
+        List.exists components ~f:(fun e ->
+            is_univ_var e
+            && Set.mem (Expr.symbols e) (QualIdent.from_ident v.var_name)))
+  in
+  Rewriter.return (if trivially_injective then Stmt.mk_skip ~loc else assert_stmt)
 
 let compute_env_local_var_decls ~loc (expr: expr) (conds: conditions) (universal_quants : universal_quants) : (var_decl list) Rewriter.t =
   let open Rewriter.Syntax in
@@ -803,6 +831,11 @@ let generate_skolem_functions (skolem_fns: skolem_function_def list) =
   ret_exprs
 
 
+
+(* `forall v :: heap[v] == id`: [heap] is the unit [id] everywhere. *)
+let empty_heap (heap : var_decl) (v : var_decl) (id : expr) : expr =
+  let entry = Expr.mk_maplookup (Expr.from_var_decl heap) (Expr.from_var_decl v) in
+  Expr.mk_binder Forall [ v ] (Expr.mk_eq entry id)
 
 (* This function generates a module which roughly looks like the following:
  *     module f$utils {
@@ -1522,15 +1555,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
               }
           in
 
-          let l_expr =
-            Expr.mk_var ~typ:l_var.var_type
-              (QualIdent.from_ident l_var.var_name)
-          in
-
-          Expr.mk_binder Forall [ l_var ]
-            (Expr.mk_eq
-               (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl) l_expr)
-               field_utils_id)
+          empty_heap heap_var_decl l_var field_utils_id
         in
 
         let _ = Ident.fresh loc (field_heap_name2 field_name).ident_name in
@@ -1558,15 +1583,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             }
           in
 
-          let l_expr =
-            Expr.mk_var ~typ:l_var.var_type
-              (QualIdent.from_ident l_var.var_name)
-          in
-
-          Expr.mk_binder Forall [ l_var ]
-            (Expr.mk_eq
-               (Expr.mk_maplookup (Expr.from_var_decl heap_var_decl2) l_expr)
-               field_utils_id)
+          empty_heap heap_var_decl2 l_var field_utils_id
         in
 
         Rewriter.return
@@ -1622,17 +1639,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             }
           in
 
-          let in_var_expr =
-            Expr.mk_var ~typ:in_var.var_type
-              (QualIdent.from_ident in_var.var_name)
-          in
-
-          Expr.mk_binder Forall [ in_var ]
-            (Expr.mk_eq
-               (Expr.mk_maplookup
-                  (Expr.from_var_decl heap_var_decl)
-                  in_var_expr)
-               pred_utils_id)
+          empty_heap heap_var_decl in_var pred_utils_id
         in
 
         let _ = Ident.fresh loc (pred_heap_name2 pred_name).ident_name in
@@ -1664,17 +1671,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             }
           in
 
-          let in_var_expr =
-            Expr.mk_var ~typ:in_var.var_type
-              (QualIdent.from_ident in_var.var_name)
-          in
-
-          Expr.mk_binder Forall [ in_var ]
-            (Expr.mk_eq
-               (Expr.mk_maplookup
-                  (Expr.from_var_decl heap_var_decl2)
-                  in_var_expr)
-               pred_utils_id)
+          empty_heap heap_var_decl2 in_var pred_utils_id
         in
 
         Rewriter.return
@@ -1720,17 +1717,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             }
           in
 
-          let in_var_expr =
-            Expr.mk_var ~typ:in_var.var_type
-              (QualIdent.from_ident in_var.var_name)
-          in
-
-          Expr.mk_binder Forall [ in_var ]
-            (Expr.mk_eq
-               (Expr.mk_maplookup
-                  (Expr.from_var_decl heap_var_decl)
-                  in_var_expr)
-               au_utils_id)
+          empty_heap heap_var_decl in_var au_utils_id
         in
 
         let _ = Ident.fresh loc (au_heap_name2 call_name).ident_name in
@@ -1758,17 +1745,7 @@ let introduce_heaps_in_stmts ~loc ~fields_list ~preds_list ~au_preds_list body :
             }
           in
 
-          let in_var_expr =
-            Expr.mk_var ~typ:in_var.var_type
-              (QualIdent.from_ident in_var.var_name)
-          in
-
-          Expr.mk_binder Forall [ in_var ]
-            (Expr.mk_eq
-               (Expr.mk_maplookup
-                  (Expr.from_var_decl heap_var_decl2)
-                  in_var_expr)
-               au_utils_id)
+          empty_heap heap_var_decl2 in_var au_utils_id
         in
 
         Rewriter.return

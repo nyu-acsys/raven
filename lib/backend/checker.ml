@@ -295,10 +295,7 @@ let assume_auto_lemma (fully_qual_name : qual_ident) (callable : Ast.Callable.t)
     write_comment
       (Stdlib.Format.asprintf "Auto lemma: %a" QualIdent.pr fully_qual_name)
   in
-  let postcond =
-    Expr.mk_and (List.map call_decl.call_decl_postcond ~f:(fun spec -> spec.spec_form))
-  in
-  let body =
+  let under_precond postcond =
     match call_decl.call_decl_precond with
     | [] -> postcond
     | precond ->
@@ -306,8 +303,20 @@ let assume_auto_lemma (fully_qual_name : qual_ident) (callable : Ast.Callable.t)
           (Expr.mk_and (List.map precond ~f:(fun spec -> spec.spec_form)))
           postcond
   in
-  assume_expr
-    (Expr.mk_binder ~loc:call_decl.call_decl_loc Forall call_decl.call_decl_formals body)
+  let quantified ?trigs postconds =
+    Expr.mk_binder ~loc:call_decl.call_decl_loc ?trigs Forall call_decl.call_decl_formals
+      (under_precond (Expr.mk_and (List.map postconds ~f:(fun spec -> spec.Stmt.spec_form))))
+  in
+  (* A postcondition with triggers is quantified on its own, with its triggers. *)
+  let triggered, untriggered =
+    List.partition_tf call_decl.call_decl_postcond ~f:(fun spec ->
+        not (List.is_empty spec.Stmt.spec_trigs))
+  in
+  let axioms =
+    (if List.is_empty untriggered then [] else [ quantified untriggered ])
+    @ List.map triggered ~f:(fun spec -> quantified ~trigs:spec.spec_trigs [ spec ])
+  in
+  State.List.iter axioms ~f:assume_expr
 
 (** Whether the function [qual_name] is emitted as a macro (`define-fun`) rather than as
     a declared function with a defining axiom: it is declared `inline`. The marker is a

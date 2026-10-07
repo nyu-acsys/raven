@@ -1420,6 +1420,8 @@ module Stmt = struct
        have their body at index 0). Lets ISC translation in [HeapsExplicitTrnsl] reuse an
        already-compiled inverse function instead of minting a fresh one per occurrence. *)
     spec_source : (qual_ident * int) option;
+    spec_trigs : expr list list;
+        (** The triggers of a postcondition of an auto lemma, for the lemma's parameters. *)
   }
 
   let mk_const_spec_error error = (fun _ _ -> error)
@@ -1688,19 +1690,22 @@ module Stmt = struct
 
     and pr_spec_list stype ppf =
       let open Stdlib.Format in
+      let pr_trgs ppf trgs =
+        List.iter trgs ~f:(fun trg -> fprintf ppf "{%a} " (Print.pr_list_comma Expr.pr) trg)
+      in
       function
       | [] -> ()
       | [ sf ] ->
-          fprintf ppf "%a%s%s %a"
+          fprintf ppf "%a%s%s %a%a"
             (fun ppf cmnt -> match sf.spec_comment with
             | Some c -> fprintf ppf "@\n /* %s */ @\n" c
             | None -> ()) sf.spec_comment
             (if sf.spec_atomic then "atomic " else "")
-            stype Expr.pr sf.spec_form
+            stype pr_trgs sf.spec_trigs Expr.pr sf.spec_form
       | sf :: sfs ->
-          fprintf ppf "@<0>%s%s %a@\n%a"
+          fprintf ppf "@<0>%s%s %a%a@\n%a"
             (if sf.spec_atomic then "atomic " else "")
-            stype Expr.pr sf.spec_form (pr_spec_list stype) sfs
+            stype pr_trgs sf.spec_trigs Expr.pr sf.spec_form (pr_spec_list stype) sfs
 
     and pr_basic_stmt ppf =
       let open Stdlib.Format in
@@ -1849,7 +1854,7 @@ module Stmt = struct
     { stmt_desc = mk_block ~kind stmts; stmt_loc = loc }
 
   let mk_assume_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source; spec_trigs = [] } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
   let mk_assume_spec ~loc ?cmnt spec : t = 
@@ -1863,7 +1868,7 @@ module Stmt = struct
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
   let mk_inhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source; spec_trigs = [] } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
   let mk_inhale_spec ~loc ?cmnt spec : t = 
@@ -1877,7 +1882,7 @@ module Stmt = struct
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
   let mk_exhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source; spec_trigs = [] } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
   let mk_exhale_spec ~loc ?cmnt spec : t = 
@@ -1891,7 +1896,7 @@ module Stmt = struct
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
   
   let mk_assert_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
-    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source } in
+    let spec = { spec_form = expr; spec_atomic = false; spec_comment = cmnt; spec_error = spec_error; spec_source; spec_trigs = [] } in
     { stmt_desc = Basic (Spec (Assert, spec)); stmt_loc = loc }
 
   let mk_assert_spec ~loc ?cmnt spec : t =
@@ -1945,6 +1950,7 @@ module Stmt = struct
       spec_comment = cmnt;
       spec_error;
       spec_source;
+      spec_trigs = [];
     }
 
   let to_loc s = s.stmt_loc

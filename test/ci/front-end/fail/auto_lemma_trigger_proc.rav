@@ -1,0 +1,6 @@
+// Triggers on the postcondition of a procedure.
+free func f(n: Int) returns (r: Int)
+
+proc p(n: Int)
+  ensures {f(n)} f(n) == f(n)
+{}

@@ -1,0 +1,6 @@
+// A trigger of an auto lemma that does not mention all its parameters.
+free func f(n: Int) returns (r: Int)
+
+auto lemma l(n: Int, m: Int)
+  ensures {f(n)} f(n) == f(m) ==> n == n
+{}

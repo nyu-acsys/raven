@@ -187,6 +187,21 @@ trigger term is `f(x,b)`, and the solver derives `c == b`, then `x` will be inst
 `g(a)`. So be aware that ground terms don't always need to match literally to trigger a
 quantifier instantiation.
 
+An `auto lemma` with parameters stands for a quantified fact over its parameters:
+`f_nonneg` below states `forall n: Int :: n >= 0 ==> f(n) >= 0`. You give its triggers on its
+postconditions, written as for a quantifier:
+
+```raven
+auto lemma f_nonneg(n: Int)
+  requires n >= 0
+  ensures {f(n)} f(n) >= 0
+```
+
+Each trigger has to mention every parameter. A postcondition with triggers becomes a quantified
+fact of its own, so two postconditions can have different triggers, and one without triggers
+leaves the choice to the solver. Only the postconditions of an `auto lemma` can have triggers.
+The postcondition of a `func` is triggered by applications of the function.
+
 ## Inline predicates and functions {#sec:inline}
 
 A predicate or function declared `inline` stands for its body wherever it is used.

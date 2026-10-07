@@ -577,18 +577,19 @@ contract:
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];
-           spec_source = None;
+           spec_source = None; spec_trigs = [];
          }
   in
   ([spec], [], [], [])
 }
-| m = contract_mods; ENSURES; e = expr {
+| m = contract_mods; ENSURES; trigs = patterns; e = expr {
   let spec =
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
            spec_error = [];
            spec_source = None;
+           spec_trigs = trigs;
          }
   in
   ([], [spec], [], [])
@@ -767,7 +768,7 @@ with_clause:
                  spec_atomic = false;
                  spec_comment = None;
                  spec_error = [];
-                 spec_source = None; }
+                 spec_source = None; spec_trigs = []; }
     in
     [Basic (Spec (sk, spec))]
 }
@@ -989,7 +990,7 @@ loop_contract:
            spec_atomic = false;
            spec_comment = None;
            spec_error = [];
-           spec_source = None;
+           spec_source = None; spec_trigs = [];
          }
   in
   `Invariant spec

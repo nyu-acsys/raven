@@ -1036,9 +1036,13 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) : Module.
                 "The postcondition of " ^ Ident.to_string call_decl.call_decl_name
                 ^ " may not hold" )
             in
+            (* Triggered by the call of the func. *)
             let lemma_postconds =
-              [ Stmt.mk_spec ~spec_error:[ postcond_error ]
-                  (Expr.mk_impl pre_conj post_conj) ]
+              if List.is_empty call_decl.call_decl_postcond then []
+              else
+                [ { (Stmt.mk_spec ~spec_error:[ postcond_error ]
+                       (Expr.mk_impl pre_conj post_conj))
+                    with spec_trigs = [ [ fn_call_expr ] ] } ]
             in
 
             let lemma_call_decl =

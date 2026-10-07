@@ -2142,8 +2142,13 @@ module ProcessCallable = struct
     let* spec_form =
       disambiguate_process_expr spec.spec_form Type.perm disam_tbl
     in
+    let* spec_trigs =
+      Rewriter.List.map spec.spec_trigs ~f:(fun trg ->
+          Rewriter.List.map trg ~f:(fun e ->
+              disambiguate_process_expr e (Type.any |> Type.set_ghost true) disam_tbl))
+    in
     let+ _ = Rewriter.exit_ghost in
-    { spec with spec_form }
+    { spec with spec_form; spec_trigs }
 
   (* let rec purify_expr (expr: expr) (tbl: SymbolTbl.t) : Stmt.var_def list * expr =
      (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
@@ -3289,6 +3294,29 @@ module ProcessCallable = struct
     and* call_decl_postcond =
       Rewriter.List.map call_decl.call_decl_postcond
         ~f:(process_stmt_spec disam_tbl)
+    in
+
+    let () =
+      (* Triggers on a postcondition are for the parameters of an auto lemma, each of
+         which every trigger must mention. *)
+      let is_auto_lemma =
+        Poly.(call_decl.call_decl_kind = Lemma) && call_decl.call_decl_is_auto
+      in
+      List.iter call_decl_postcond ~f:(fun spec ->
+          List.iter spec.spec_trigs ~f:(fun trg ->
+              let loc = Expr.to_loc (List.hd_exn trg) in
+              if not is_auto_lemma then
+                Error.type_error loc
+                  "Only the postcondition of an auto lemma can have triggers";
+              let mentioned =
+                List.fold trg ~init:(Set.empty (module QualIdent)) ~f:(fun acc e ->
+                    Expr.symbols ~acc e)
+              in
+              List.iter call_decl_formals ~f:(fun formal ->
+                  if not (Set.mem mentioned (QualIdent.from_ident formal.var_name)) then
+                    Error.type_error loc
+                      (Printf.sprintf "This trigger does not mention the parameter %s"
+                         (Ident.name formal.var_name)))))
     in
 
     let () =

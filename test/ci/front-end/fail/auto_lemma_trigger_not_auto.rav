@@ -1,0 +1,6 @@
+// Triggers on the postcondition of a lemma that is not auto.
+free func f(n: Int) returns (r: Int)
+
+lemma l(n: Int)
+  ensures {f(n)} f(n) == f(n)
+{}

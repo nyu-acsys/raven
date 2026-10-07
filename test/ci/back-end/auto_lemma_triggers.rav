@@ -1,0 +1,17 @@
+// Triggers on the postconditions of an auto lemma with parameters.
+free func f(n: Int) returns (r: Int)
+free func g(n: Int) returns (r: Int)
+
+free auto axiom f_nonneg(n: Int)
+  requires n >= 0
+  ensures {f(n)} f(n) >= 0
+  ensures {g(n)} g(n) == f(n)
+
+free auto axiom f_injective(x1: Int, x2: Int)
+  ensures {f(x1), f(x2)} f(x1) == f(x2) ==> x1 == x2
+
+lemma use(k: Int)
+  requires k >= 1
+  ensures g(k) >= 0
+  ensures f(k) != f(k + 1) || k == k + 1
+{}

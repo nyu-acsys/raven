@@ -19,7 +19,7 @@ open Ext.AssertWithExtInstance
              spec_atomic = false;
              spec_comment = None;
              spec_error = [];
-             spec_source = None; }
+             spec_source = None; spec_trigs = []; }
     in
     let proof : Stmt.t = { stmt_desc = b; stmt_loc = Loc.make $startpos(b) $endpos(b) } in
     [Stmt.StmtExt (AssertWith { spec; proof })]

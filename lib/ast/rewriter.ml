@@ -1573,8 +1573,9 @@ module Callable = struct
     let open AstDef.Stmt in
     let rewrite_specs specs =
       List.map specs ~f:(fun spec ->
-          let+ new_spec_form = fe spec.spec_form in
-          { spec with spec_form = new_spec_form })
+          let+ new_spec_form = fe spec.spec_form
+          and+ spec_trigs = List.map spec.spec_trigs ~f:(List.map ~f:fe) in
+          { spec with spec_form = new_spec_form; spec_trigs })
     in
     let call_decl = Callable.to_decl callable in
     (* [call_decl_contract_ext] is left as-is here, same as [stmt_ext] in the proc body
