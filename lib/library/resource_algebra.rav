@@ -57,7 +57,7 @@ interface CancellativeResourceAlgebra : ResourceAlgebra {
     lemma frameReflexive()
         ensures forall a:T :: {frame(a,a)} valid(a) ==> frame(a, a) == id
     {
-        assert forall a:T, b:T, c:T :: valid(a) ==> frame(a, a) == id with {
+        assert forall a:T :: {frame(a, a)} valid(a) ==> frame(a, a) == id with {
             if (valid(a)) {
                 assert valid(comp(id, a));
             }
@@ -696,9 +696,9 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     auto lemma compCommute()
         ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
     {
-        assert forall a:T, b:T :: a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
+        assert forall a:T, b:T :: {comp(a, b)} {comp(b, a)} a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
 
-        assert forall a:T, b:T :: a != au_null ==> b != au_null ==> comp(a, b) == comp(b, a) with {
+        assert forall a:T, b:T :: {comp(a, b)} {comp(b, a)} a != au_null ==> b != au_null ==> comp(a, b) == comp(b, a) with {
             if (a is au_committed) {
                 assert comp(a,b) == comp(b,a);
             }
@@ -708,8 +708,8 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     auto lemma compFrameInv()
         ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     {
-        assert forall a:T, b:T :: b == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
-        assert forall a:T, b:T :: a == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
+        assert forall a:T, b:T :: {comp(frame(a, b), b)} b == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
+        assert forall a:T, b:T :: {comp(frame(a, b), b)} a == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
 
         assert forall a:T, b:T :: {comp(frame(a, b), b)} a != au_null ==> b != au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a with {
             if (valid(frame(a,b)) && a != au_null && b != au_null) { 
