@@ -1,0 +1,58 @@
+// Members that omit their contracts inherit those of the interface they implement,
+// with the interface's parameters renamed to theirs, also in a functor.
+
+interface Counter {
+  rep type T
+  val zero: T
+  func inc(c: T) returns (ret: T)
+  func value(c: T) returns (ret: Int)
+    ensures ret >= 0
+
+  lemma inc_value(c: T, k: Int)
+    requires value(c) == k
+    ensures value(inc(c)) == k + 1
+
+  auto lemma value_zero(d: T)
+    requires d == zero
+    ensures {value(d)} value(d) == 0
+
+  proc next(c: T) returns (r: T)
+    requires value(c) >= 0
+    ensures value(r) == value(c) + 1
+}
+
+module IntCounter : Counter {
+  rep type T = Int
+  val zero: T = 0
+  func inc(x: T) returns (y: T) { x >= 0 ? x + 1 : 1 }
+  func value(x: T) returns (n: Int) { x >= 0 ? x : 0 }
+
+  lemma inc_value(x: T, m: Int) {}
+  auto lemma value_zero(e: T) {}
+  proc next(x: T) returns (z: T) { z := inc(x); inc_value(x, value(x)); }
+}
+
+lemma client(c: IntCounter.T)
+  ensures IntCounter.value(c) >= 0
+{}
+
+interface Box[E: Library.Type] {
+  rep type T
+  func mk(e: E) returns (b: T)
+  func get(b: T) returns (e: E)
+
+  lemma get_mk(x: E)
+    ensures get(mk(x)) == x
+}
+
+module PlainBox[A: Library.Type] : Box[A] {
+  rep type T = A
+  func mk(v: A) returns (w: T) { v }
+  func get(w: T) returns (v: A) { w }
+  lemma get_mk(y: A) {}
+}
+
+module BoxClient {
+  module B = PlainBox[Library.IntType]
+  lemma l() ensures B.get(B.mk(3)) == 3 { B.get_mk(3); }
+}

@@ -50,12 +50,15 @@ module PlainCounter : Counter {
   pred valid(c: T, v: Int) {
     own(c.count, v) && v >= 0
   }
-  // ... create/increment/get, matching Counter's contracts exactly
+  // ... create/increment/get, with Counter's contracts
 }
 ```
 
 `module M : I { ... }` is a promise that every abstract member of `I` gets a real definition in
-`M`. Raven checks that the contract of each one matches what `I` declared. Here, the body of
+`M`. A member of `M` can repeat the contract that `I` declared for it, and Raven then checks that
+the two match exactly. It can also omit its contract altogether, with no `requires`, `ensures` or
+`opens`, and inherit `I`'s, with `I`'s names for the parameters replaced by its own. This way, a
+change to a contract in `I` needs no change in `M`. Here, the body of
 `valid` is exactly the `counter` predicate from {{ref sec:bundling-pred}}. `PlainCounter` is the
 same running example, now supplying the body that its interface withheld. From this point on,
 `PlainCounter`'s own `create`/`increment`/`get` can `fold`/`unfold` `valid` exactly the way Part

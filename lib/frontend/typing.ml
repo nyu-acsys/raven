@@ -3859,7 +3859,8 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same precondition as \
-                     %{Ident} in interface %{QualIdent}"
+                     %{Ident} in interface %{QualIdent}. Repeat its contract \
+                     exactly, or omit it to inherit it"
                    (Symbol.kind symbol) ident ident interface_ident)
           in
           let* sm =
@@ -3884,7 +3885,8 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same postcondition as \
-                     %{Ident} in interface %{QualIdent}"
+                     %{Ident} in interface %{QualIdent}. Repeat its contract \
+                     exactly, or omit it to inherit it"
                    (Symbol.kind symbol) ident ident interface_ident)
           in
           let opens_ok =
@@ -3905,7 +3907,8 @@ module ProcessModule = struct
               Error.type_error loc
                 (Printf.sprintf
                    !"%s %{Ident} does not have the same opens clause as \
-                     %{Ident} in interface %{QualIdent}"
+                     %{Ident} in interface %{QualIdent}. Repeat its contract \
+                     exactly, or omit it to inherit it"
                    (Symbol.kind symbol) ident ident interface_ident)
           in
           match (call_def.call_def, orig_call_def.call_def) with
@@ -4664,7 +4667,57 @@ module ProcessModule = struct
               (merged, to_check) )
     in
 
-    (*let inherited_symbols = List.rev inherited_symbols in*)
+    (* A callable that omits its contract -- no `requires`, `ensures` or `opens` --
+       inherits the contract of the interface member it implements, with the
+       interface's parameters renamed to its own. *)
+    let inherit_contract = function
+      | Module.SymbolDef (CallDef ({ call_decl; _ } as call)) as instr
+        when List.is_empty call_decl.call_decl_precond
+             && List.is_empty call_decl.call_decl_postcond
+             && Option.is_none call_decl.call_decl_opens -> (
+          match Map.find symbols_to_check call_decl.call_decl_name with
+          | Some (interface_ident, (CallDef orig as orig_symbol)) -> (
+              let orig_decl = orig.call_decl in
+              let renaming =
+                List.zip
+                  (orig_decl.call_decl_formals @ orig_decl.call_decl_returns)
+                  (call_decl.call_decl_formals @ call_decl.call_decl_returns)
+              in
+              match renaming with
+              | Unequal_lengths -> instr
+              | Ok pairs ->
+                  let map =
+                    List.fold pairs ~init:(Map.empty (module QualIdent))
+                      ~f:(fun map ((orig_var : var_decl), (var : var_decl)) ->
+                        Map.set map ~key:(QualIdent.from_ident orig_var.var_name)
+                          ~data:(Expr.from_var_decl var))
+                  in
+                  let rename e = Expr.alpha_renaming e map in
+                  let inherited =
+                    ( Error.RelatedLoc,
+                      Symbol.to_loc orig_symbol,
+                      Printf.sprintf !"Contract inherited from %s %{QualIdent}.%{Ident}"
+                        (Symbol.kind orig_symbol) interface_ident call_decl.call_decl_name )
+                  in
+                  let inherit_spec (spec : Stmt.spec) =
+                    { spec with
+                      spec_form = rename spec.spec_form;
+                      spec_trigs = List.map spec.spec_trigs ~f:(List.map ~f:rename);
+                      spec_error = spec.spec_error @ [ Stmt.mk_const_spec_error inherited ] }
+                  in
+                  let call_decl =
+                    { call_decl with
+                      call_decl_precond = List.map orig_decl.call_decl_precond ~f:inherit_spec;
+                      call_decl_postcond = List.map orig_decl.call_decl_postcond ~f:inherit_spec;
+                      call_decl_opens =
+                        Option.map orig_decl.call_decl_opens
+                          ~f:(List.map ~f:(fun (qi, args) -> (qi, List.map args ~f:rename))) }
+                  in
+                  Module.SymbolDef (CallDef { call with call_decl }))
+          | _ -> instr)
+      | instr -> instr
+    in
+    let merged_symbols = List.map merged_symbols ~f:inherit_contract in
     let mod_def = mod_def_formals @ merged_symbols in
     let _ = Logs.info (fun mm -> mm !"Merged in %{Ident}" (Symbol.to_name (ModDef m))) in
     let _ = List.iter ~f:(function SymbolDef symbol -> Logs.info (fun m -> m !"%{Ident}" (Symbol.to_name symbol)) | _ -> ()) mod_def in

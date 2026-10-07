@@ -1,0 +1,22 @@
+// A member that writes part of its contract has to repeat all of the interface's.
+
+interface Box[E: Library.Type] {
+  rep type T
+  func mk(e: E) returns (b: T)
+  func get(b: T) returns (e: E)
+
+  lemma get_mk(x: E)
+    ensures get(mk(x)) == x
+}
+
+module PlainBox[A: Library.Type] : Box[A] {
+  rep type T = A
+  func mk(v: A) returns (w: T) { v }
+  func get(w: T) returns (v: A) { w }
+  lemma get_mk(y: A) ensures true {}
+}
+
+module Client {
+  module B = PlainBox[Library.IntType]
+  lemma l() ensures B.get(B.mk(3)) == 3 { B.get_mk(3); }
+}

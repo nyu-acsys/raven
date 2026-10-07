@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- A member of a module that omits its contract, with no `requires`, `ensures` or `opens`, inherits the contract that the interface the module implements declares for it.
+
 - The postconditions of an `auto lemma` with parameters can have triggers for the parameters, written as for a quantifier, as in `ensures {f(n)} f(n) >= 0`.
 
 - The sequences of `Library.Seq` can be used with operators, as in Viper: `s ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, `e in s` says whether `e` is an entry, `s[m..n]`, `s[..n]` and `s[n..]` are slices, and `s[i] := e` assigns `s[i := e]` to `s`. Sequences can be written as literals, as in `[|1, 2, 3|]` and `[||]`.
