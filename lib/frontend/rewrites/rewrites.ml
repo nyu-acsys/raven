@@ -137,6 +137,11 @@ let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
 let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
+  | Binder (Compr, [ v ], trgs, inner_expr, expr_attr)
+    when ProgUtils.is_pointwise_body v.var_name inner_expr ->
+      (* Encoded with array map combinators instead, see [SmtLibAST.pr_term]. *)
+      let+ inner_expr = rewrite_compr_expr inner_expr in
+      Expr.Binder (Compr, [ v ], trgs, inner_expr, expr_attr)
   | Binder (Compr, v_l, trgs, inner_expr, _expr_attr) ->
       let* _ = Rewriter.add_locals v_l
       and* inner_expr = rewrite_compr_expr inner_expr in

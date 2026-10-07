@@ -265,6 +265,8 @@ let rec pr_term ppf (term : term) =
       | Diff, _ | Read, _ | Own, _ | _ ->
           Error.internal_error (Expr.to_loc term)
             ("pr_term: unexpected term: " ^ Expr.to_string term))
+  | Binder (Compr, [ v ], _, body, _) when ProgUtils.is_pointwise_body v.var_name body ->
+      pr_pointwise v.var_name (Expr.to_type term) ppf body
   | Binder (b, vs, trgs, f, _) -> (
       let vs =
         List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type))
@@ -276,6 +278,25 @@ let rec pr_term ppf (term : term) =
       | _ ->
           fprintf ppf "@[(%s @[(%a)@,(! %a %a)@])@]" (Expr.binder_to_string b)
             pr_var_decls vs pr_term f pr_trgs trgs)
+
+(* The comprehension over [x] with pointwise [body] (see
+   [ProgUtils.is_pointwise_body]), of sort [srt], as array map combinators. *)
+and pr_pointwise (x : Ident.t) (srt : sort) ppf (body : term) =
+  let is_x = function
+    | Expr.App (Var y, [], _) -> QualIdent.equal y (QualIdent.from_ident x)
+    | _ -> false
+  in
+  let mentions_x e = Map.mem (Expr.signature e) (QualIdent.from_ident x) in
+  let pr_const ppf t = fprintf ppf "@[<2>((as const %a)@ %a)@]" pr_sort srt pr_term t in
+  match body with
+  | App ((And | Or), [ t ], _) -> pr_pointwise x srt ppf t
+  | App (((And | Or | Not | Impl) as constr), (_ :: _ as ts), _) when mentions_x body ->
+      let op = match constr with And -> "and" | Or -> "or" | Not -> "not" | _ -> "=>" in
+      fprintf ppf "@[<2>((_ map %s)@ %a)@]" op
+        (Util.Print.pr_list_sep " " (pr_pointwise x srt)) ts
+  | App (MapLookUp, [ m; index ], _) when is_x index -> pr_term ppf m
+  | App (Elem, [ elem; s ], _) when is_x elem -> pr_term ppf s
+  | t -> pr_const ppf t
 
 and pr_terms ppf = function
   | [] -> ()

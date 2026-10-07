@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- A comprehension that combines sets element by element, such as `{| x: T :: x in s || x in t |}`, is passed to the SMT solver as an operation on whole sets rather than as a function with a quantified axiom.
+
 - Definitions and lemmas that no proof obligation depends on, such as unused parts of the standard library, are no longer sent to the SMT solver. Small programs verify noticeably faster.
 
 - Improved the wording and readability of the tutorial.
