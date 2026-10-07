@@ -1,0 +1,8 @@
+// A conditional expression is right-associative: `a ? b : c ? d : e` is
+// `a ? b : (c ? d : e)`.
+lemma l()
+  ensures (false ? 1 : false ? 2 : 3) == 3
+  ensures (true ? 1 : false ? 2 : 3) == 1
+  ensures (false ? 1 : true ? 2 : 3) == 2
+  ensures (true ? false ? 1 : 2 : 3) == 2
+{}

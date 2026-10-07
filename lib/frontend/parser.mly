@@ -1299,9 +1299,10 @@ iff_expr:
   }
 ;
 
+(* Right-associative: `a ? b : c ? d : e` is `a ? b : (c ? d : e)`. *)
 ite_expr:
 | e = iff_expr { e }
-| e1 = ite_expr; QMARK; e2 = iff_expr; COLON; e3 = iff_expr {
+| e1 = iff_expr; QMARK; e2 = ite_expr; COLON; e3 = ite_expr {
     Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Ite [e1; e2; e3])
   }
 ;

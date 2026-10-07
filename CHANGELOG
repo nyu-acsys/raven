@@ -48,6 +48,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- A conditional expression is right-associative, so `a ? b : c ? d : e` means `a ? b : (c ? d : e)`, as in other languages, rather than `(a ? b : c) ? d : e`.
+
 - A loop nested in another loop no longer causes an internal error.
 
 - A value of an uninstantiated functor, such as `Seq.empty`, takes its instance from the expected type, as in `s == Seq.empty` or `(Seq.empty : Seq[Int])`, like a constructor such as `List.nil`.
