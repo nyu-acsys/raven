@@ -175,7 +175,7 @@ interface GiveUpTemplate[Node: NodeImpl] {
     rep type T = Ref
   }
   
-  auto pred inFP(r: Ref, n: Ref) {
+  inline pred inFP(r: Ref, n: Ref) {
     own(r.authSet, AuthSetRef.frag(SetRefRA.set({|n|})) )
   }
 

@@ -59,7 +59,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:why-it-fails': 'Why it fails',
   'sec:idea-a-token': 'The idea: a token',
   'sec:making-token-real': 'Making the token real',
-  'sec:auto-predicates': 'More automation with auto predicates',
+  'sec:inline-predicates': 'More automation with inline predicates',
 
   'sec:linearizability-to-client': 'Linearizability, stated to a client',
   'sec:au-mechanics': 'The mechanics: bindAU/openAU/abortAU/commitAU',
@@ -83,9 +83,9 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:implicit-ghost-parameters': 'Implicit ghost parameters',
   'sec:witness-computation': 'Witness computation',
   'sec:bind-statement': 'The bind statement',
-  'sec:auto-lemmas-predicates': 'auto lemmas and predicates',
+  'sec:auto-lemmas': 'auto lemmas',
   'sec:triggers-revisited': 'Triggers, revisited',
-  'sec:inline-functions': 'Inline functions',
+  'sec:inline': 'Inline predicates and functions',
   'sec:assert-with': 'assert ... with',
 
   'sec:ra-definition': 'The definition',

@@ -142,17 +142,17 @@ module Hash {
     return ret;
   }
 
-  auto pred coll_free(mp: HashMap) {
+  inline pred coll_free(mp: HashMap) {
     forall k1: Int, k2: Int ::
       (OptInt.is_some(lookUpHashMap(mp, k1)) && OptInt.is_some(lookUpHashMap(mp, k2)) && lookUpHashMap(mp, k1) == lookUpHashMap(mp, k2)) ==> k1 == k2
   }
 
-  auto pred hashfun(x:Ref, mp: HashMap) {
+  inline pred hashfun(x:Ref, mp: HashMap) {
     own(x.hash_map, mp, 1.0) &&
     (forall k: Int :: (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
   }
 
-  auto pred coll_free_hashfun(x: Ref, mp: HashMap) {
+  inline pred coll_free_hashfun(x: Ref, mp: HashMap) {
     hashfun(x, mp) && coll_free(mp)
   }
 

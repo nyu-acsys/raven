@@ -19,7 +19,7 @@ module CASCounter {
         CtrRA.frag(FracNat.frac_chunk(v, q))
     }
 
-    auto pred counter_contribution(l: Ref, q: Real, n: Int) {
+    inline pred counter_contribution(l: Ref, q: Real, n: Int) {
         own(l.gc, frac_auth_frag(q, n))
     }
 

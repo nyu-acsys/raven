@@ -1,9 +1,9 @@
 // Step 5 of this capstone's build-up: `token` is a real (but still plain,
-// non-`auto`) predicate, backed by the `Excl` resource algebra, with an
+// non-`inline`) predicate, backed by the `Excl` resource algebra, with an
 // explicit proof of `token_unique`. Everything works, but every place that
 // touches `token` needs an explicit `fold`/`unfold`, including a proof
 // step inside `join` that step 6 (../fork_join.rav) makes disappear
-// entirely once `token` becomes `auto`.
+// entirely once `token` becomes `inline`.
 module Excl : Library.ResourceAlgebra {
   rep type T = data {
     case bot;
@@ -46,7 +46,7 @@ module ForkJoin[I: Instance] {
   field value: Option[R]
   ghost field ex: Excl
 
-  // Not `auto` this time -- `token(p)` and `own(p.ex, Excl.excl)` are two
+  // Not `inline` this time -- `token(p)` and `own(p.ex, Excl.excl)` are two
   // different things as far as any proof is concerned, until something
   // explicitly folds or unfolds between them.
   pred token(p: Ref) {
@@ -84,7 +84,7 @@ module ForkJoin[I: Instance] {
     ensures is_forkjoin(p) && token(p)
   {
     p := new (value: Option.none, ex: Excl.excl)
-    // Step 6 doesn't need this: with `token` `auto`, `own(p.ex,
+    // Step 6 doesn't need this: with `token` `inline`, `own(p.ex,
     // Excl.excl)` *is* `token(p)` already, nothing to fold.
     fold token(p)
     fold is_forkjoin(p)[b := false]

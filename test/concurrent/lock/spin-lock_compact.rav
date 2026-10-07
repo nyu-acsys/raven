@@ -10,7 +10,7 @@ module SpinLock[R: LockResource] {
   module Agree = Library.Agree[R]
   ghost field agr: Agree
 
-  auto pred is_lock(l: Ref; r: R, b: Bool) {
+  inline pred is_lock(l: Ref; r: R, b: Bool) {
     own(l, agr, Agree.agree(r)) 
     && own(l, bit, b, 1.0)
     && (b ? true : resource(r))

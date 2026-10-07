@@ -1,4 +1,4 @@
-// Step 6 (final) of this capstone's build-up: `token` is now `auto`, which
+// Step 6 (final) of this capstone's build-up: `token` is now `inline`, which
 // trivializes `token_unique`'s proof to an empty body and removes the
 // explicit `fold token(p)` in `fork` and the explicit call to
 // `token_unique` in `join` that `fork_join_explicit.rav` (step 5) still
@@ -65,16 +65,16 @@ module ForkJoin[I: Instance] {
   // claim the result once it's ready.
   ghost field ex: Excl
 
-  // `auto` means `token(p)` and its definition are, as far as any proof is
+  // `inline` means `token(p)` and its definition are, as far as any proof is
   // concerned, simply two ways of writing the same assertion -- no `fold`/
   // `unfold` ever needed to move between them.
-  auto pred token(p: Ref) {
+  inline pred token(p: Ref) {
     own(p.ex, Excl.excl)
   }
 
   // Tokens really are non-duplicable -- this follows straight from `Excl`'s
   // `comp`, and isn't invoked anywhere below; the SMT solver already knows
-  // it whenever `token(p) && token(p)` appears, because `token` is `auto`.
+  // it whenever `token(p) && token(p)` appears, because `token` is `inline`.
   lemma token_unique(p: Ref)
     requires token(p) && token(p)
     ensures false

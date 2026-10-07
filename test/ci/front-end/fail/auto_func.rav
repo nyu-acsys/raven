@@ -1,0 +1,4 @@
+// `auto` applies only to lemmas and axioms.
+auto func f(x: Int) returns (r: Int) {
+  x
+}

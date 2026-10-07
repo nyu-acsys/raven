@@ -19,7 +19,7 @@ interface Queue {
         requires p(v)
         ensures p(v) && p(v)
 
-    auto pred node(n: Ref) {
+    inline pred node(n: Ref) {
         exists v: Library.Option[Int], nx: Ref :: 
             own(n.next, nx) && own(n.value, v) && p(v) && is_queue(nx)
     }

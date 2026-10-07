@@ -119,7 +119,7 @@ module CollFreeHashMap {
   //   requires Hash.lookUpHashMap(hm, val0) == Hash.OptInt.some(off)
   //   requires 
 
-  auto pred cf_hashmap_raw(x: Ref, hmf: CFHashMap, img: Hash.IntListOps.IntListT.T) {
+  inline pred cf_hashmap_raw(x: Ref, hmf: CFHashMap, img: Hash.IntListOps.IntListT.T) {
     // exists vs0: Int, s0: Int, r0: Int, hm: Hash.HashMap :: 
     // exists mp: Map[Int, In]
     true

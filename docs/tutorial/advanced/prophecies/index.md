@@ -473,5 +473,5 @@ or otherwise.
 [5.5](../automation/) collects the smaller automation features (implicit parameters, witness
 computation, `auto` lemmas, triggers, `assert ... with`) that all four capstones have been relying
 on without discussing them explicitly. This one is no exception, with `get`'s
-`implicit ghost n: Int`, `is_counter`/`counter_state` as `auto pred`s, and the guarded
+`implicit ghost n: Int`, `is_counter`/`counter_state` as `inline pred`s, and the guarded
 existential in `helping_prot_state`.

@@ -2475,8 +2475,8 @@ module Callable = struct
     call_decl_postcond : Stmt.spec list;  (** postcondition *)
     call_decl_contract_ext : Stmt.contract_ext list;  (** extension-defined contract clauses, e.g. [decreases]; see [Stmt.loop_desc.loop_contract_ext] *)
     call_decl_status : free_status; (** Whether this callable's correctness is checked, admitted, or established free by the compiler -- see [free_status] *)
-    call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma *)
-    call_decl_is_inline : bool; (** Whether this function is declared [inline]: its definition is a macro for the SMT solver, unless it is recursive *)
+    call_decl_is_auto : bool; (** Indicates whether this callable is an auto lemma or axiom *)
+    call_decl_is_inline : bool; (** Whether this function or predicate is declared [inline]: a function's definition is a macro for the SMT solver, unless it is recursive; a predicate is replaced by its body wherever it is used *)
     call_decl_needs_mask : mask option; (** Invariant mask required from this callable's caller -- computed purely from [call_decl_precond] (see [masks.ml]); also the starting mask for checking this callable's own body. *)
     call_decl_grants_mask : mask option; (** Invariant mask entries a caller is guaranteed to gain by calling this callable, regardless of what it supplies -- computed purely from [call_decl_postcond]. Used only by other callables' checking passes at their own call sites into this one. *)
     call_decl_opens : mask option; (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask] otherwise inferred from [call_decl_precond]. *)
@@ -2540,9 +2540,9 @@ module Callable = struct
     in
     let pr_call_decl has_body ppf call_decl =
       let open Stdlib.Format in
-      let auto_modifier = match call_decl.call_decl_is_auto with
-        | true -> "auto "
-        | false -> ""
+      let auto_modifier =
+        (if call_decl.call_decl_is_inline then "inline " else "")
+        ^ if call_decl.call_decl_is_auto then "auto " else ""
       in
       let free_modifier = match call_decl.call_decl_status with
         | NotFree -> ""

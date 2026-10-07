@@ -9,7 +9,7 @@ interface ARC {
 
     module SharePred: ShareablePredicate
 
-    auto pred noTokens(x: Ref) {
+    inline pred noTokens(x: Ref) {
         own(x.v, ArcRA.noToken)
     }
 

@@ -1,0 +1,6 @@
+// `auto` applies only to lemmas and axioms; a predicate replaced by its body is `inline`.
+field f: Int
+
+auto pred p(x: Ref) {
+  own(x.f, 1)
+}

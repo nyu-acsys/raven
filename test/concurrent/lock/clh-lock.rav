@@ -25,7 +25,7 @@ interface CLHLock {
       queued_loc(l)
   }
 
-  auto pred acquired_node(node: Ref) {
+  inline pred acquired_node(node: Ref) {
     exists ln: Ref, pn: Ref ::
       own(node, loc, ln, 1.0) &&
       queued_loc(ln) && own(ln, agr, (), 0.5) &&
@@ -36,7 +36,7 @@ interface CLHLock {
       resource()
   }
 
-  auto pred free_node(node: Ref) {
+  inline pred free_node(node: Ref) {
     exists ln: Ref, pn: Ref ::
       own(node, loc, ln, 1.0) &&
       own(ln, locked, false, 1.0) &&

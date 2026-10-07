@@ -46,7 +46,7 @@ module TicketLock[R: LockResource] : Lock {
 
   ghost field exclusive: Excl[()]
 
-  auto pred locked(l: Ref) {
+  inline pred locked(l: Ref) {
     own(l.exclusive, Excl.excl(()))
   }
 

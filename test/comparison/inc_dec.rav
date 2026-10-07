@@ -2,7 +2,7 @@ import Library.Atomics._
 
 field c: Int
 
-auto pred counter(x: Ref; v: Int) {
+inline pred counter(x: Ref; v: Int) {
   own(x.c, v, 1.0)
 }
 

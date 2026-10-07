@@ -75,13 +75,18 @@ let rewrite_callable_error_msg (call : Callable.t) : Callable.t Rewriter.t =
   in
   Callable.{ call_decl; call_def }
 
+(* Replaces each application of an inline predicate by its body. [seen] holds the inline
+   predicates being expanded, so that one met again is recursive. *)
 let rec rewrite_inline_preds_expr seen (expr : expr) : expr Rewriter.t =
   let open Rewriter.Syntax in
   match expr with
-  | App (Var qual_ident, args, _) when not @@ Set.mem seen qual_ident -> begin
+  | App (Var qual_ident, _, _) when Set.mem seen qual_ident ->
+      Error.type_error (Expr.to_loc expr)
+        (Printf.sprintf !"Inline predicate %{QualIdent} cannot be recursive" qual_ident)
+  | App (Var qual_ident, args, _) -> begin
     let* symbol = Rewriter.find qual_ident in
     match Rewriter.Symbol.orig_symbol symbol with
-    | CallDef { call_decl = { call_decl_kind = Pred; call_decl_is_auto = true; _ };
+    | CallDef { call_decl = { call_decl_kind = Pred; call_decl_is_inline = true; _ };
                 call_def = FuncDef {func_body = Some _} } ->
       let* pred_def = Rewriter.find_and_reify_callable qual_ident in
       let pred_decl = pred_def.call_decl in

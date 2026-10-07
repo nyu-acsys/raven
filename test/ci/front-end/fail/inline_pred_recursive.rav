@@ -1,0 +1,11 @@
+// An inline predicate is replaced by its body, so it cannot be recursive.
+field next: Ref
+
+inline pred list(x: Ref) {
+  x == null ? true : (exists y: Ref :: own(x.next, y) && list(y))
+}
+
+lemma l(x: Ref)
+  requires list(x)
+  ensures list(x)
+{}

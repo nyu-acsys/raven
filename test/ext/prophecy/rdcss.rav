@@ -541,11 +541,11 @@ func state_to_val(s: AbstractState) returns (ret: NLocTp) {
     pending(s.l_descr_ref_destr)
 }
 
-auto pred own_rdcss_token(l_descr_ref: Ref) {
+inline pred own_rdcss_token(l_descr_ref: Ref) {
   own(l_descr_ref.rdcss_token, Excl_Unit.excl(()))
 }
 
-auto pred own_descr_token(l_descr: Ref) {
+inline pred own_descr_token(l_descr: Ref) {
   own(l_descr.Descr.token, Excl_Unit.excl(()))
 }
 

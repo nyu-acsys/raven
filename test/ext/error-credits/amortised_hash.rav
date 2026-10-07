@@ -182,12 +182,12 @@ module Hash {
     return ret;
   }
 
-  auto pred coll_free(mp: HashMap) {
+  inline pred coll_free(mp: HashMap) {
     forall k1: Int, k2: Int ::
       (OptInt.is_some(lookUpHashMap(mp, k1)) && OptInt.is_some(lookUpHashMap(mp, k2)) && lookUpHashMap(mp, k1) == lookUpHashMap(mp, k2)) ==> k1 == k2
   }
 
-  auto pred hashfun(x:Ref, mp: HashMap) {
+  inline pred hashfun(x:Ref, mp: HashMap) {
     own(x.hash_map, mp, 1.0) &&
     (forall k: Int :: (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
   }
@@ -207,24 +207,24 @@ module Hash {
     }
   }
 
-  // auto pred hashfun_amortized(x: Ref, mp: HashMap) {
+  // inline pred hashfun_amortized(x: Ref, mp: HashMap) {
   //   hashfun(x, mp) && (exists k: Int, eps: Real :: (
   //     k == len(mp)
   //     && eps == (((max_hash_size-1) * k)/2 - sum_n_m(0, k-1) ) / (val_size+1) && EC.error(eps)
   //   ))
   // }
 
-  auto pred hashfun_amortized(x: Ref, mp: HashMap) {
+  inline pred hashfun_amortized(x: Ref, mp: HashMap) {
     hashfun(x, mp) && ((
       EC.error(((((max_hash_size-1) * len(mp))/2 - sum_n_m(0, len(mp)-1) ) / (val_size+1)))
     ))
   }
 
-  auto pred coll_free_hashfun(x: Ref, mp: HashMap) {
+  inline pred coll_free_hashfun(x: Ref, mp: HashMap) {
     hashfun(x, mp) && coll_free(mp)
   }
 
-  auto pred coll_free_hashfun_amortized(x: Ref, mp: HashMap) {
+  inline pred coll_free_hashfun_amortized(x: Ref, mp: HashMap) {
     hashfun_amortized(x, mp) && coll_free(mp)
   }
 

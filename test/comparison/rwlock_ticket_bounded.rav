@@ -64,7 +64,7 @@ interface RWTicketLockBounded[SharedPred: ShareablePredicate] {
             (b ? Lk.locked(lk_ref) : noTokens(l, 0.5) && SharedPred.p_chunk(l, 1.0))))
     }
 
-    auto pred is_rwlock(l: Ref; lk_ref: Ref) {
+    inline pred is_rwlock(l: Ref; lk_ref: Ref) {
         own(l.lk, lk_ref)
         && Lk.is_lock(lk_ref, l)
         && readers_inv(l, lk_ref)

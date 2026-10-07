@@ -11,6 +11,12 @@ let single_opens_clause = function
   | _ :: (loc, _) :: _ ->
       Error.syntax_error loc "A callable may have at most one opens clause"
 
+(* Checks that `inline`, if given, is applied to a function or predicate. *)
+let inline_modifier ~loc (kind : Callable.call_kind) (is_inline : bool) : bool =
+  match kind with
+  | Invariant when is_inline -> Error.syntax_error loc "An invariant cannot be inline"
+  | _ -> is_inline
+
 (* The indexed assignment `x[i] := v` is `x := x[i := v]`, and `x[i][j] := v` is
    `x := x[i := x[i][j := v]]`. The type checker gives it its meaning: an update of a
    map, or whatever an extension claims it to be. *)
@@ -411,27 +417,29 @@ proc_decl:
 }
 
 func_decl:
-| m = func_modifiers; k = FUNC; decl = callable_decl {
-  let is_auto, is_inline = m in
-  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto;
-                                     call_decl_is_inline = is_inline };
+| is_inline = func_modifiers; k = FUNC; decl = callable_decl {
+  let loc = Loc.make $startpos(k) $endpos(k) in
+  Callable.{ call_decl = { decl with call_decl_kind = k;
+                                     call_decl_is_inline = inline_modifier ~loc k is_inline };
              call_def = FuncDef { func_body = None } }
 }
-| m = func_modifiers; k = FUNC; decl = callable_decl_out_vars {
-  let is_auto, is_inline = m in
-  Callable.{ call_decl = { decl with call_decl_kind = k; call_decl_is_auto = is_auto;
-                                     call_decl_is_inline = is_inline };
+| is_inline = func_modifiers; k = FUNC; decl = callable_decl_out_vars {
+  let loc = Loc.make $startpos(k) $endpos(k) in
+  Callable.{ call_decl = { decl with call_decl_kind = k;
+                                     call_decl_is_inline = inline_modifier ~loc k is_inline };
              call_def = FuncDef { func_body = None } }
 }
 
-(* `auto` and `inline` of a function, as a pair. Spelled out rather than as two
-   optional modifiers, so that a declaration starting with `auto` needn't decide
-   early whether an `inline` was left out. *)
+(* Whether a function or predicate is declared `inline`. `auto` is accepted here only to
+   point to `inline`, which is what it used to mean for a predicate. *)
 func_modifiers:
-| (* empty *) { (false, false) }
-| AUTO { (true, false) }
-| INLINE { (false, true) }
-| INLINE; AUTO { (true, true) }
+| (* empty *) { false }
+| INLINE { true }
+| AUTO | INLINE; AUTO {
+  Error.syntax_error (Loc.make $symbolstartpos $endpos)
+    "`auto` applies only to lemmas and axioms. To have a predicate or function replaced by its \
+     body where it is used, declare it `inline`"
+}
 
 callable_decl:
   id = decl_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {

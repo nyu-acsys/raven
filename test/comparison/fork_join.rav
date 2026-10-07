@@ -24,7 +24,7 @@ module ForkJoin[R: ForkJoinResource] {
             : true)
     }
 
-    auto pred join_handle(l: Ref) {
+    inline pred join_handle(l: Ref) {
         own(l.excl, Excl.excl(()))
     }
 

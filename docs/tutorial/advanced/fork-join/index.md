@@ -170,7 +170,7 @@ This is [`fork_join_explicit.rav`](./fork_join_explicit.rav), a complete, workin
 `token` is a plain predicate. This means that every place that uses it needs an explicit
 `fold`/`unfold`.
 
-## More automation with `auto` predicates {#sec:auto-predicates}
+## More automation with inline predicates {#sec:inline-predicates}
 
 Look at how much pure bookkeeping the version from {{ref sec:making-token-real}} has to do
 because `token` is opaque. Procedure `fork` needs an explicit `fold token(p);` before it can
@@ -192,11 +192,11 @@ This call sits inside a `{! ... !}` ghost block (the syntax from
 ordinary `if` in a `proc` can't branch on ghost state. You'll see the same `{! !}` syntax again
 in {{ref app:resource-algebras}} if you go looking for more resource-algebra examples. Every one of these steps is
 mechanical. They are driven entirely by `Excl`'s composition rule and never require any
-case-by-case reasoning on your part. This is exactly the kind of bookkeeping that `auto`
-predicates are designed to eliminate. Mark `token` as `auto`:
+case-by-case reasoning on your part. This is exactly the kind of bookkeeping that inline
+predicates are designed to eliminate. Declare `token` `inline`:
 
 ```raven
-auto pred token(p: Ref) {
+inline pred token(p: Ref) {
   own(p.ex, Excl.excl)
 }
 ```
@@ -209,7 +209,7 @@ already expands to two copies of the same `Excl` ownership, which is contradicto
 Second, the explicit `fold token(p);` in `fork` disappears. Third, the explicit call to
 `token_unique` inside `join` disappears too. Raven now performs that reasoning automatically
 every time `token(p)` appears, without being asked. Compare `fork_join_explicit.rav` and
-`fork_join.rav` side by side. The difference shows the full benefit of `auto pred` in one worked
+`fork_join.rav` side by side. The difference shows the full benefit of `inline pred` in one worked
 example.
 
 ## Why this matters for concurrency

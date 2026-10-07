@@ -7,7 +7,7 @@ module SpinLock[R: LockResource] : Lock {
   
   import R.resource
   
-  auto pred lock_rep(l: Ref; b: Bool) {
+  inline pred lock_rep(l: Ref; b: Bool) {
     own(l.bit, b, 1.0)
   }
 

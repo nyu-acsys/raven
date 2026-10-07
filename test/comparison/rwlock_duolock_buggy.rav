@@ -42,7 +42,7 @@ module RWLockDuoLock[SharedPred: ShareablePredicate] {
 
   module LkB = TicketLock[LkBResource]
 
-  auto pred is_rwlock(l: Ref; lkA_ref: Ref, lkB_ref: Ref) {
+  inline pred is_rwlock(l: Ref; lkA_ref: Ref, lkB_ref: Ref) {
     own(l.lkA_fld, lkA_ref)
     && own(l.lkB_fld, lkB_ref)
     && LkA.lock_inv(lkA_ref, l)

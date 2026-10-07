@@ -77,14 +77,14 @@ module DistCounter {
   ghost field snap0: Int
 
   // The atomic update is still open: nobody has linearized this `get` call yet.
-  auto pred pending(c: Counter, token: AtomicToken<get>) {
+  inline pred pending(c: Counter, token: AtomicToken<get>) {
     au<get>(token, c)
   }
 
   // The atomic update has been committed with return value `np` -- either by `get` itself,
   // if it registered with a snapshot that already matched its own prediction, or later by
   // some `incr`'s `bump_all`, once the total caught up to it.
-  auto pred done(c: Counter, token: AtomicToken<get>, np: Int) {
+  inline pred done(c: Counter, token: AtomicToken<get>, np: Int) {
     auCommit<get>(token, c, np)
   }
 
@@ -155,11 +155,11 @@ module DistCounter {
     }
   }
 
-  auto pred is_counter(c: Counter) {
+  inline pred is_counter(c: Counter) {
     counter_inv(c)
   }
 
-  auto pred counter_state(c: Counter; n: Int) {
+  inline pred counter_state(c: Counter; n: Int) {
     own(c.shared.total, n, 0.5)
   }
 

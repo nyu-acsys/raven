@@ -1,0 +1,6 @@
+// An invariant cannot be inline.
+field f: Int
+
+inline inv i(x: Ref) {
+  own(x.f, 1)
+}

@@ -27,7 +27,7 @@ interface FaultyVector[T: Library.Type] {
         ensures Array_T.arr(l, contents)
         ensures ret == contents[offset]
 
-    auto pred vec_spec(l: Array_T, fill: Int, contents: Map[Int, T], x: Ref) {
+    inline pred vec_spec(l: Array_T, fill: Int, contents: Map[Int, T], x: Ref) {
         0<= fill < Array_T.length(l) &&
         EC.error(epsilon * ((2 * fill) - Array_T.length(l)))
         && 

@@ -2,7 +2,7 @@ field left: Ref
 field right: Ref
 field is_marked: Bool
 
-auto pred invar(nodes: Set[Ref], lMap: Map[Ref, Ref], rMap: Map[Ref, Ref], mMap: Map[Ref, Bool]) {
+inline pred invar(nodes: Set[Ref], lMap: Map[Ref, Ref], rMap: Map[Ref, Ref], mMap: Map[Ref, Bool]) {
 	!(null in nodes)
 	&& (forall n: Ref :: n in nodes ==> own(n.left, lMap[n]))
 	&& (forall n: Ref :: n in nodes ==> own(n.right, rMap[n]))

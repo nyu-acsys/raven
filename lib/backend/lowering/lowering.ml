@@ -263,12 +263,12 @@ let rec rewrite_fold_unfold_stmts (stmt : Stmt.t) : Stmt.t Rewriter.t =
         | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
       in
 
-      begin match pred_decl.call_decl_kind, pred_decl.call_decl_is_auto with
+      begin match pred_decl.call_decl_kind, pred_decl.call_decl_is_inline with
       | Pred, true -> 
         let error =
           ( Error.Generic,
             loc,
-            "Cannot (un)fold auto predicate: "
+            "Cannot (un)fold inline predicate: "
             ^ Ident.to_string pred_decl.call_decl_name )
         in
         Logs.warn (fun m -> m "%s" (Error.to_string error));

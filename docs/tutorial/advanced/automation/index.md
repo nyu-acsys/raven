@@ -134,34 +134,16 @@ into the same check that {{ref sec:ghost-blocks-erasure}} introduced for writing
 ghost code, `[Type Error] Cannot assign to non-ghost var x in ghost context`, because from the
 type checker's point of view, that's exactly what such a `:|` would be doing.
 
-## `auto` lemmas and predicates {#sec:auto-lemmas-predicates}
+## `auto` lemmas {#sec:auto-lemmas}
 
-There are two related but different uses of `auto`:
-
-- An **`auto lemma`/`auto axiom`** doesn't need to be invoked with an explicit ghost statement.
-  Raven asserts it automatically wherever a term it mentions appears. `all_diff` in
-  `Library.Array`, on which `shelf_of_counters.rav` relies, is one example. Because it's asserted
-  unconditionally
-  wherever it applies, its entire `requires`/`ensures` has to be **pure**. That means no `own`, no
-  calls to a `pred` or `proc`, and nothing that inspects or manipulates a resource. Raven rejects
-  an `auto lemma` whose contract isn't pure (`This specification of auto lemma %s is not pure`).
-  This is a hard rule, not just a style guideline. There's no such thing as an `auto` lemma about
-  ownership.
-- An **`auto pred`** is automatically inlined wherever it's used. Unlike every predicate you've
-  seen so far, it never needs a `fold`/`unfold`. 5.1's fork/join capstone is built around
-  demonstrating this. In `fork_join_explicit.rav`, the plain `pred token` needs an explicit
-  proof for `token_unique` and an explicit call to it inside `join`. Marking `token` as `auto` in
-  `fork_join.rav` is the *only* change needed to shrink the lemma's proof to an empty body and
-  remove the explicit call entirely, since `token(p) && token(p)` now expands to the same
-  contradiction on its own, without being asked. If {{ref sec:auto-predicates}} wasn't entirely
-  clear, it's worth a second look now with this framing in mind. `locked` in
-  [`ticket_lock_atomic.rav`](../atomic-contracts/ticket_lock_atomic.rav) uses exactly the same
-  trick, for the same reason, with a different `Excl`-like algebra.
-
-  There is a trade-off. An `auto pred` saves you the fold/unfold bookkeeping for something
-  simple, at the cost of handing the solver a bigger, unfolded formula every time it appears.
-  That's fine for a one-line body like `token` or `locked`, but potentially costly for something
-  bigger. Also, since `auto` predicates unfold automatically, they cannot be recursive.
+An **`auto lemma`** or **`auto axiom`** doesn't need to be invoked with an explicit ghost
+statement. Raven asserts it automatically wherever a term it mentions appears. `all_diff` in
+`Library.Array`, on which `shelf_of_counters.rav` relies, is one example. Because it's asserted
+unconditionally wherever it applies, its entire `requires`/`ensures` has to be **pure**. That
+means no `own`, no calls to a `pred` or `proc`, and nothing that inspects or manipulates a
+resource. Raven rejects an `auto lemma` whose contract isn't pure (`This specification of auto
+lemma %s is not pure`). This is a hard rule, not just a style guideline. There's no such thing as
+an `auto` lemma about ownership.
 
 ## Triggers, revisited {#sec:triggers-revisited}
 
@@ -205,13 +187,31 @@ trigger term is `f(x,b)`, and the solver derives `c == b`, then `x` will be inst
 `g(a)`. So be aware that ground terms don't always need to match literally to trigger a
 quantifier instantiation.
 
-## Inline functions {#sec:inline-functions}
+## Inline predicates and functions {#sec:inline}
 
-A `func` with a body normally reaches the SMT solver as an uninterpreted function, together with
-an axiom saying that each application equals the body. The solver instantiates that axiom when an
-application turns up in the proof, much like the quantified facts above. Declaring the function
-`inline` instead makes its body a macro: every application is replaced by the body before the
-solver sees it.
+A predicate or function declared `inline` stands for its body wherever it is used.
+
+An **`inline pred`** is replaced by its body wherever it appears, so unlike every predicate
+you've seen so far, it never needs a `fold`/`unfold`. 5.1's fork/join capstone is built around
+demonstrating this. In `fork_join_explicit.rav`, the plain `pred token` needs an explicit proof
+for `token_unique` and an explicit call to it inside `join`. Declaring `token` `inline` in
+`fork_join.rav` is the *only* change needed to shrink the lemma's proof to an empty body and
+remove the explicit call entirely, since `token(p) && token(p)` now expands to the same
+contradiction on its own, without being asked. If {{ref sec:inline-predicates}} wasn't entirely
+clear, it's worth a second look now with this framing in mind. `locked` in
+[`ticket_lock_atomic.rav`](../atomic-contracts/ticket_lock_atomic.rav) uses exactly the same
+trick, for the same reason, with a different `Excl`-like algebra.
+
+There is a trade-off. An `inline pred` saves you the fold/unfold bookkeeping for something
+simple, at the cost of handing the solver a bigger, unfolded formula every time it appears.
+That's fine for a one-line body like `token` or `locked`, but potentially costly for something
+bigger.
+
+An **`inline func`** works the same way, one level further down. A `func` with a body normally
+reaches the SMT solver as an uninterpreted function, together with an axiom saying that each
+application equals the body. The solver instantiates that axiom when an application turns up in
+the proof, much like the quantified facts above. Declaring the function `inline` instead makes its
+body a macro: every application is replaced by the body before the solver sees it.
 
 ```raven
 inline func union(s: Set[Int], t: Set[Int]) returns (r: Set[Int]) {
@@ -223,12 +223,15 @@ This pays off when the solver can reason about the body directly. Here, the body
 `t` element by element, which Raven passes on as an operation on whole sets that the solver
 handles natively, so `unionAssoc` in [`automation.rav`](./automation.rav) needs no proof. In a
 large proof, unfolding every application through its axiom instead can be the difference between
-a quick result and a timeout.
+a quick result and a timeout. Since the body replaces every application, including those in
+triggers, don't use an inline function in a trigger: the trigger would consist of the body, which
+is generally not a term the solver can match.
 
-`inline` is only a hint. It is ignored for a recursive function, whose unfolding would never end.
-And since the body replaces every application, including those in triggers, don't use an inline
-function in a trigger: the trigger would consist of the body, which is generally not a term the
-solver can match.
+Neither can be recursive, as its replacement would never end, but the two differ in what that
+means. For a function, `inline` changes only how the solver sees the definition, not what you
+write, so Raven simply ignores it for a recursive function. For a predicate, it changes what you
+write, since an inline predicate is never folded or unfolded, so a recursive inline predicate is
+an error.
 
 ## `assert ... with` {#sec:assert-with}
 
