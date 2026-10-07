@@ -114,7 +114,6 @@ module LexOrder[A: WellFoundedOrder, B: WellFoundedOrder] : WellFoundedOrder {
   }
 
   lemma lt_embed_mono()
-    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y))
   {
     A.lt_embed_mono();
     B.lt_embed_mono();
@@ -277,7 +276,6 @@ module SetOrder[E: Type] : WellFoundedOrder {
   }
 
   lemma lt_embed_mono()
-    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y))
   {
     assert forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y)) with {
       if (lt(x, y)) {

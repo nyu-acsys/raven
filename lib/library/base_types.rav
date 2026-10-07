@@ -583,33 +583,24 @@ module Seq[E: Type] :> SeqSpec[E] {
   // the proofs above.
 
   lemma length_nonneg()
-    ensures forall s: T :: {length(s)} 0 <= length(s)
   {
     assert forall s: T :: {length(s)} 0 <= length(s) with {
       length_nonneg_rec(s);
     }
   }
 
-  lemma empty_length()
-    ensures length(empty) == 0
-  {}
+  lemma empty_length() {}
 
   lemma length_zero()
-    ensures forall s: T :: {length(s)} length(s) == 0 ==> s == empty
   {
     assert forall s: T :: {length(s)} length(s) == 0 ==> s == empty with {
       if (s != nil) { length_nonneg_rec(s.tl); }
     }
   }
 
-  lemma singleton_length()
-    ensures forall e: E :: {singleton(e)} length(singleton(e)) == 1
-  {}
+  lemma singleton_length() {}
 
   lemma append_length()
-    ensures forall s0: T, s1: T :: {length(append(s0, s1))}
-      s0 != empty && s1 != empty ==>
-        length(append(s0, s1)) == length(s0) + length(s1)
   {
     assert forall s0: T, s1: T :: {length(append(s0, s1))}
       s0 != empty && s1 != empty ==>
@@ -619,9 +610,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_empty()
-    ensures forall s0: T, s1: T :: {append(s0, s1)}
-      (s0 == empty ==> append(s0, s1) == s1) &&
-      (s1 == empty ==> append(s0, s1) == s0)
   {
     assert forall s0: T, s1: T :: {append(s0, s1)}
       (s0 == empty ==> append(s0, s1) == s1) &&
@@ -630,23 +618,13 @@ module Seq[E: Type] :> SeqSpec[E] {
     }
   }
 
-  lemma singleton_index()
-    ensures forall e: E :: {singleton(e)} index(singleton(e), 0) == e
-  {}
+  lemma singleton_index() {}
 
-  lemma add_def()
-    ensures forall i: Int, j: Int :: {add(i, j)} add(i, j) == i + j
-  {}
+  lemma add_def() {}
 
-  lemma sub_def()
-    ensures forall i: Int, j: Int :: {sub(i, j)} sub(i, j) == i - j
-  {}
+  lemma sub_def() {}
 
   lemma append_index1()
-    ensures forall s0: T, s1: T, n: Int ::
-      {index(append(s0, s1), n)} {index(s0, n), append(s0, s1)}
-      s0 != empty && s1 != empty && 0 <= n && n < length(s0) ==>
-        index(append(s0, s1), n) == index(s0, n)
   {
     assert forall s0: T, s1: T, n: Int ::
       {index(append(s0, s1), n)} {index(s0, n), append(s0, s1)}
@@ -657,10 +635,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_index2()
-    ensures forall s0: T, s1: T, n: Int :: {index(append(s0, s1), n)}
-      s0 != empty && s1 != empty && length(s0) <= n && n < length(append(s0, s1)) ==>
-        add(sub(n, length(s0)), length(s0)) == n &&
-        index(append(s0, s1), n) == index(s1, sub(n, length(s0)))
   {
     assert forall s0: T, s1: T, n: Int :: {index(append(s0, s1), n)}
       s0 != empty && s1 != empty && length(s0) <= n && n < length(append(s0, s1)) ==>
@@ -671,11 +645,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_index3()
-    ensures forall s0: T, s1: T, m: Int :: {index(s1, m), append(s0, s1)}
-      s0 != empty && s1 != empty && s0 != append(s0, s1) && s1 != append(s0, s1) &&
-      0 <= m && m < length(s1) ==>
-        sub(add(m, length(s0)), length(s0)) == m &&
-        index(append(s0, s1), add(m, length(s0))) == index(s1, m)
   {
     assert forall s0: T, s1: T, m: Int :: {index(s1, m), append(s0, s1)}
       s0 != empty && s1 != empty && s0 != append(s0, s1) && s1 != append(s0, s1) &&
@@ -687,9 +656,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma update_length()
-    ensures forall s: T, i: Int, v: E ::
-      {length(update(s, i, v))} {length(s), update(s, i, v)}
-      0 <= i && i < length(s) ==> length(update(s, i, v)) == length(s)
   {
     assert forall s: T, i: Int, v: E ::
       {length(update(s, i, v))} {length(s), update(s, i, v)}
@@ -699,11 +665,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma update_index()
-    ensures forall s: T, i: Int, v: E, n: Int ::
-      {index(update(s, i, v), n)} {index(s, n), update(s, i, v)}
-      0 <= n && n < length(s) ==>
-        (i == n ==> index(update(s, i, v), n) == v) &&
-        (i != n ==> index(update(s, i, v), n) == index(s, n))
   {
     assert forall s: T, i: Int, v: E, n: Int ::
       {index(update(s, i, v), n)} {index(s, n), update(s, i, v)}
@@ -715,11 +676,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma take_length()
-    ensures forall s: T, n: Int :: {length(take(s, n))} {take(s, n), length(s)}
-      (0 <= n ==>
-        (n <= length(s) ==> length(take(s, n)) == n) &&
-        (length(s) < n ==> length(take(s, n)) == length(s))) &&
-      (n < 0 ==> length(take(s, n)) == 0)
   {
     assert forall s: T, n: Int :: {length(take(s, n))} {take(s, n), length(s)}
       (0 <= n ==>
@@ -731,8 +687,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma take_index()
-    ensures forall s: T, n: Int, j: Int :: {index(take(s, n), j)} {index(s, j), take(s, n)}
-      0 <= j && j < n && j < length(s) ==> index(take(s, n), j) == index(s, j)
   {
     assert forall s: T, n: Int, j: Int :: {index(take(s, n), j)} {index(s, j), take(s, n)}
       0 <= j && j < n && j < length(s) ==> index(take(s, n), j) == index(s, j) with {
@@ -741,11 +695,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma drop_length()
-    ensures forall s: T, n: Int :: {length(drop(s, n))} {length(s), drop(s, n)}
-      (0 <= n ==>
-        (n <= length(s) ==> length(drop(s, n)) == length(s) - n) &&
-        (length(s) < n ==> length(drop(s, n)) == 0)) &&
-      (n < 0 ==> length(drop(s, n)) == length(s))
   {
     assert forall s: T, n: Int :: {length(drop(s, n))} {length(s), drop(s, n)}
       (0 <= n ==>
@@ -757,9 +706,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma drop_index1()
-    ensures forall s: T, n: Int, j: Int :: {index(drop(s, n), j)}
-      0 < n && 0 <= j && j < length(s) - n ==>
-        sub(add(j, n), n) == j && index(drop(s, n), j) == index(s, add(j, n))
   {
     assert forall s: T, n: Int, j: Int :: {index(drop(s, n), j)}
       0 < n && 0 <= j && j < length(s) - n ==>
@@ -769,9 +715,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma drop_index2()
-    ensures forall s: T, n: Int, i: Int :: {drop(s, n), index(s, i)}
-      0 < n && n <= i && i < length(s) ==>
-        add(sub(i, n), n) == i && index(drop(s, n), sub(i, n)) == index(s, i)
   {
     assert forall s: T, n: Int, i: Int :: {drop(s, n), index(s, i)}
       0 < n && n <= i && i < length(s) ==>
@@ -781,8 +724,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_take1()
-    ensures forall s: T, t: T, n: Int :: {take(append(s, t), n)}
-      0 < n && n <= length(s) ==> take(append(s, t), n) == take(s, n)
   {
     assert forall s: T, t: T, n: Int :: {take(append(s, t), n)}
       0 < n && n <= length(s) ==> take(append(s, t), n) == take(s, n) with {
@@ -791,10 +732,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_take2()
-    ensures forall s: T, t: T, n: Int :: {take(append(s, t), n)}
-      n > 0 && n > length(s) && n < length(append(s, t)) ==>
-        add(sub(n, length(s)), length(s)) == n &&
-        take(append(s, t), n) == append(s, take(t, sub(n, length(s))))
   {
     assert forall s: T, t: T, n: Int :: {take(append(s, t), n)}
       n > 0 && n > length(s) && n < length(append(s, t)) ==>
@@ -805,8 +742,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_drop1()
-    ensures forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
-      0 < n && n <= length(s) ==> drop(append(s, t), n) == append(drop(s, n), t)
   {
     assert forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
       0 < n && n <= length(s) ==> drop(append(s, t), n) == append(drop(s, n), t) with {
@@ -815,10 +750,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma append_drop2()
-    ensures forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
-      n > 0 && n > length(s) && n < length(append(s, t)) ==>
-        add(sub(n, length(s)), length(s)) == n &&
-        drop(append(s, t), n) == drop(t, sub(n, length(s)))
   {
     assert forall s: T, t: T, n: Int :: {drop(append(s, t), n)}
       n > 0 && n > length(s) && n < length(append(s, t)) ==>
@@ -828,16 +759,11 @@ module Seq[E: Type] :> SeqSpec[E] {
     }
   }
 
-  lemma take_zero()
-    ensures forall s: T, n: Int :: {take(s, n)} n <= 0 ==> take(s, n) == empty
-  {}
+  lemma take_zero() {}
 
-  lemma drop_zero()
-    ensures forall s: T, n: Int :: {drop(s, n)} n <= 0 ==> drop(s, n) == s
-  {}
+  lemma drop_zero() {}
 
   lemma take_all()
-    ensures forall s: T, n: Int :: {take(s, n)} n >= length(s) ==> take(s, n) == s
   {
     assert forall s: T, n: Int :: {take(s, n)} n >= length(s) ==> take(s, n) == s with {
       if (length(s) <= n) { take_all_rec(s, n); }
@@ -845,7 +771,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma drop_all()
-    ensures forall s: T, n: Int :: {drop(s, n)} n >= length(s) ==> drop(s, n) == empty
   {
     assert forall s: T, n: Int :: {drop(s, n)} n >= length(s) ==> drop(s, n) == empty with {
       if (length(s) <= n) { drop_all_rec(s, n); }
@@ -853,9 +778,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma contains1()
-    ensures forall s: T, x: E :: {contains(s, x)}
-      contains(s, x) ==>
-        0 <= skolem(s, x) && skolem(s, x) < length(s) && index(s, skolem(s, x)) == x
   {
     assert forall s: T, x: E :: {contains(s, x)}
       contains(s, x) ==>
@@ -865,8 +787,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma contains2()
-    ensures forall s: T, x: E, i: Int :: {contains(s, x), index(s, i)}
-      0 <= i && i < length(s) && index(s, i) == x ==> contains(s, x)
   {
     assert forall s: T, x: E, i: Int :: {contains(s, x), index(s, i)}
       0 <= i && i < length(s) && index(s, i) == x ==> contains(s, x) with {
@@ -875,8 +795,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma contains_trigger_def()
-    ensures forall s: T, i: Int :: {index(s, i)}
-      0 <= i && i < length(s) ==> contains_trigger(s, index(s, i))
   {
     assert forall s: T, i: Int :: {index(s, i)}
       0 <= i && i < length(s) ==> contains_trigger(s, index(s, i)) with {
@@ -885,13 +803,6 @@ module Seq[E: Type] :> SeqSpec[E] {
   }
 
   lemma equal_def()
-    ensures forall s0: T, s1: T :: {equal(s0, s1)}
-      (s0 == s1 && equal(s0, s1)) ||
-      (s0 != s1 && !equal(s0, s1) && length(s0) != length(s1)) ||
-      (s0 != s1 && !equal(s0, s1) && length(s0) == length(s1) &&
-        skolem_diff(s0, s1) == skolem_diff(s1, s0) &&
-        0 <= skolem_diff(s0, s1) && skolem_diff(s0, s1) < length(s0) &&
-        index(s0, skolem_diff(s0, s1)) != index(s1, skolem_diff(s0, s1)))
   {
     // The extra triggers let this fact prove the postcondition even when Z3 does not
     // consider equal(s0, s1) relevant there.
@@ -906,14 +817,9 @@ module Seq[E: Type] :> SeqSpec[E] {
     }
   }
 
-  lemma equal_ext()
-    ensures forall a: T, b: T :: {equal(a, b)} equal(a, b) ==> a == b
-  {}
+  lemma equal_ext() {}
 
-  lemma singleton_contains()
-    ensures forall x: E, y: E :: {contains(singleton(x), y)}
-      contains(singleton(x), y) <=> x == y
-  {}
+  lemma singleton_contains() {}
 }
 
 // An ordered type

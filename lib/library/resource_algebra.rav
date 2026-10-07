@@ -330,14 +330,11 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     }
 
     auto lemma compValid()
-        ensures forall a:T, b:T :: {valid(comp(a,b))} valid(comp(a, b)) ==> valid(a) && valid(b)
     { 
         assert forall a: M, b: M :: {M.valid(M.frame(a,b))} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
     }
 
     auto lemma fpuValid()
-        ensures forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} {fpuAllowed(a,b), comp(b,c)} 
-            (fpuAllowed(a,b) && valid(a) && valid(comp(a,c))) ==> valid(comp(b,c))
     { 
         assert forall a: M, b: M :: {M.valid(M.frame(a,b))} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
         assert forall a:T, b:T, c:T :: {fpuAllowed(a,b), comp(a,c)} 
@@ -346,7 +343,6 @@ module Auth[M: ResourceAlgebra] : ResourceAlgebra {
     }
         
     auto lemma weak_frameCompInv()
-        ensures forall a:T, b:T:: {frame(comp(a,b), b)} valid(comp(a, b)) ==> valid(frame(comp(a, b), b))
     {
         assert forall a: M, b: M :: {M.frame(a,b)} M.valid(M.frame(a,b)) ==> M.comp(M.frame(a, b), b) == a;
     }
@@ -694,7 +690,6 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     }
 
     auto lemma compCommute()
-        ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
     {
         assert forall a:T, b:T :: {comp(a, b)} {comp(b, a)} a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
 
@@ -706,7 +701,6 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
     }
     
     auto lemma compFrameInv()
-        ensures forall a:T, b:T :: {comp(frame(a, b), b)} valid(frame(a, b)) ==> comp(frame(a, b), b) == a
     {
         assert forall a:T, b:T :: {comp(frame(a, b), b)} b == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
         assert forall a:T, b:T :: {comp(frame(a, b), b)} a == au_null ==> valid(frame(a, b)) ==> comp(frame(a, b), b) == a;
