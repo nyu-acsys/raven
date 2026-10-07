@@ -11,8 +11,8 @@ module CollFreeHashMap {
 
   free func offset(x: Ref, hash: Int) returns (ret: Ref)
 
-  free auto lemma offset_injective(x: Ref)
-    ensures forall h1: Int, h2: Int :: offset(x, h1) == offset(x, h2) ==> h1 == h2
+  free auto lemma offset_injective()
+    ensures forall x: Ref, h1: Int, h2: Int :: {offset(x, h1), offset(x, h2)} offset(x, h1) == offset(x, h2) ==> h1 == h2
 
 
   type CFHashMap = data {

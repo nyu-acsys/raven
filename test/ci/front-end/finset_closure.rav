@@ -32,7 +32,7 @@ module M {
   }
 
   func diff_inherits_first_operand(s1: FinSet[Int], s2: Set[Int]) returns (res: FinSet[Int])
-    ensures forall x: Int :: (x in res) == (x in s1 && !(x in s2))
+    ensures forall x: Int :: {x in res} (x in res) == (x in s1 && !(x in s2))
   {
     s1 -- s2
   }

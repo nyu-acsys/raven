@@ -26,7 +26,7 @@ module F {
 
   auto lemma f_nonneg(n: Int)
     requires n >= 0
-    ensures f(n) >= 0
+    ensures {f(n)} f(n) >= 0
     decreases n, 1
   {
     helper(n);

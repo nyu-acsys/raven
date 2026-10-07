@@ -9,7 +9,7 @@ interface Test {
     returns (ret: Ref)
 
   auto lemma all_diff()
-    ensures forall a:Ref, b:Ref, i1: Int, i2: Int :: lookup(a, i1) == lookup(b, i2) ==> a == b && i1 == i2
+    ensures forall a:Ref, b:Ref, i1: Int, i2: Int :: {lookup(a, i1), lookup(b, i2)} lookup(a, i1) == lookup(b, i2) ==> a == b && i1 == i2
 
   proc q() {
     inhale forall x: Ref, y: Int :: 0 <= y <= 10 ==> p(lookup(x, y), y);

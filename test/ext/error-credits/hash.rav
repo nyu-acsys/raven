@@ -51,7 +51,7 @@ module Hash {
   }
 
   auto lemma lookUpHashMapWorks(mp: HashMap, idx: Int)
-    ensures (
+    ensures {IntListOps.IntListT.is_in(IntListOps.proj1(mp), idx)} {lookUpHashMap(mp, idx)} (
       IntListOps.IntListT.is_in(IntListOps.proj1(mp), idx) ==> OptInt.is_some(lookUpHashMap(mp, idx))
     )
     decreases mp
@@ -70,7 +70,7 @@ module Hash {
   }
 
   auto lemma proj_2_preserves_len(mp: HashMap)
-    ensures IntListOps.IntListT.len(IntListOps.proj2(mp)) == len(mp)
+    ensures {len(mp)} {IntListOps.IntListT.len(IntListOps.proj2(mp))} IntListOps.IntListT.len(IntListOps.proj2(mp)) == len(mp)
     decreases mp
   {
     if (!(mp is nil)) {
@@ -79,7 +79,7 @@ module Hash {
   }
 
   auto lemma look_up_img_in_proj2(mp: HashMap, idx: Int)
-    ensures OptInt.is_some(lookUpHashMap(mp, idx)) ==> IntListOps.IntListT.is_in(IntListOps.proj2(mp), lookUpHashMap(mp, idx).OptInt.value)
+    ensures {lookUpHashMap(mp, idx)} OptInt.is_some(lookUpHashMap(mp, idx)) ==> IntListOps.IntListT.is_in(IntListOps.proj2(mp), lookUpHashMap(mp, idx).OptInt.value)
     decreases mp
   {
     if (!(mp is nil)) {

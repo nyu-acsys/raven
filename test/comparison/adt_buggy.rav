@@ -17,7 +17,7 @@ interface ListM {
     func is_cons(xs: T) returns (ret: Bool)
 
     auto axiom destruct_over_construct_cons()
-        ensures forall head: Int, tail: T :: 
+        ensures forall head: Int, tail: T :: {cons(head, tail)}
             head_cons(cons(head, tail)) == head &&
             tail_cons(cons(head, tail)) == tail
 
@@ -28,19 +28,19 @@ interface ListM {
         ensures tp(nil()) == tp_nil()
 
     auto axiom type_of_cons() 
-        ensures forall head: Int, tail: T :: tp(cons(head, tail)) == tp_cons()
+        ensures forall head: Int, tail: T :: {cons(head, tail)} tp(cons(head, tail)) == tp_cons()
     
     auto axiom type_existence()
-        ensures forall xs: T ::
+        ensures forall xs: T :: {tp(xs)}
             tp(xs) == tp_nil() || tp(xs) == tp_cons()
 
     auto axiom type_is_nil()
-        ensures forall xs: T ::
+        ensures forall xs: T :: {tp(xs)} {is_nil(xs)}
             (tp(xs) == tp_nil ==> is_nil(xs)) &&
             (is_nil(xs) ==> tp(xs) == tp_nil)
 
     auto axiom type_isElem()
-        ensures forall xs: T ::
+        ensures forall xs: T :: {tp(xs)} {is_cons(xs)}
             (tp(xs) == tp_cons() ==> is_cons(xs)) &&
             (is_cons(xs) ==> tp(xs) == tp_cons())
 }
