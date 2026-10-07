@@ -1137,7 +1137,8 @@ lookup_expr:
 | e1 = qual_ident_expr; e_fn = lookup; { e_fn e1 }
 | LPAREN; e1 = expr; RPAREN; e_fn = lookup; { e_fn e1 }*)
 
-lookup_or_update_opt:
+(* %public so that an extension can add forms of its own, see seqExt_parser.mly. *)
+%public lookup_or_update_opt:
 | (* empty *) { fun p -> p }
 | LBRACKET; e2 = expr; COLONEQ; e3 = expr; RBRACKET cont = lookup_or_update_opt {
   fun e ->

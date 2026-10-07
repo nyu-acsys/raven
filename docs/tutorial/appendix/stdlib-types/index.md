@@ -69,22 +69,23 @@ such as `sum(1 :: 2 :: nil) == 3`, hold without further proof.
 
 ## Sequences {#sec:stdlib-seq}
 
-`Library.Seq[E]` provides immutable sequences with the following operations, four of which can
-also be written with an operator:
+`Library.Seq[E]` provides immutable sequences with the following operations, most of which can
+also be written with a notation of their own:
 
-| Operation | Operator | Meaning |
+| Operation | Notation | Meaning |
 |---|---|---|
-| `empty`, `singleton(e)` | | the empty sequence, and the sequence holding just `e` |
+| `empty`, `singleton(e)` | `[\|\|]`, `[\|e\|]` | the empty sequence, and the sequence holding just `e` |
 | `length(s)` | | the number of entries of `s` |
 | `index(s, i)` | `s[i]` | the entry at position `i`, counting from 0 |
 | `append(s, t)` | `s ++ t` | `s` followed by `t` |
 | `update(s, i, e)` | `s[i := e]` | `s` with the entry at position `i` replaced by `e` |
-| `take(s, n)`, `drop(s, n)` | | the first `n` entries of `s`, and the remaining ones |
+| `take(s, n)`, `drop(s, n)` | `s[..n]`, `s[n..]` | the first `n` entries of `s`, and the remaining ones |
 | `contains(s, e)` | `e in s` | whether `e` is an entry of `s` |
 | `equal(s, t)` | | whether `s` and `t` are equal |
 
 `index` is unspecified outside the range from 0 to `length(s) - 1`. As with a map, the
-statement `s[i] := e` is short for `s := s[i := e]`.
+statement `s[i] := e` is short for `s := s[i := e]`. The slice `s[m..n]` holds the entries from
+position `m` up to, but excluding, position `n`, and is short for `s[..n][m..]`.
 
 You can write a sequence as a literal, listing its entries between `[|` and `|]`, as in
 `[|1, 2, 3|]`, much as you write a set as `{|1, 2, 3|}`. The empty sequence `[||]`, like
@@ -138,9 +139,9 @@ you ask whether they are `equal`. The lemma `split` at the end of `hit_log.rav` 
 ```raven
 lemma split(s: Seq[Int], n: Int)
   requires 0 <= n && n <= Seq.length(s)
-  ensures Seq.append(Seq.take(s, n), Seq.drop(s, n)) == s
+  ensures s[..n] ++ s[n..] == s
 {
-  assert Seq.equal(Seq.append(Seq.take(s, n), Seq.drop(s, n)), s);
+  assert Seq.equal(s[..n] ++ s[n..], s);
 }
 ```
 

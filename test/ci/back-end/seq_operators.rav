@@ -1,4 +1,4 @@
-// The operators on sequences: append, index, update and membership, in
+// The operators on sequences: append, index, update, membership and slices, in
 // specifications and code, also for an instance declared explicitly.
 lemma ops(s: Seq[Int], t: Seq[Int], i: Int, e: Int)
   requires 0 <= i && i < Seq.length(s)
@@ -21,6 +21,19 @@ lemma literals(s: Seq[Int])
   ensures [||] ++ s == s && s ++ [||] == s
   ensures [|[|1|]|][0] == [|1|]
 {}
+
+// Slices, also chained with an index and on a literal.
+lemma slices(s: Seq[Int], n: Int)
+  requires 0 <= n && n < Seq.length(s)
+  ensures Seq.length(s[..n]) == n && Seq.length(s[n..]) == Seq.length(s) - n
+  ensures s[..n] ++ s[n..] == s
+  ensures s[1..n] == s[..n][1..]
+  ensures s[n..][0] == s[n]
+  ensures [|1, 2, 3|][1..2] == [|2|]
+{
+  assert Seq.equal(s[..n] ++ s[n..], s);
+  assert Seq.equal([|1, 2, 3|][1..2], [|2|]);
+}
 
 proc p(s: Seq[Int]) returns (r: Seq[Int])
   requires 0 < Seq.length(s)

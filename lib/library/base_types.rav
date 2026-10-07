@@ -111,6 +111,7 @@ interface SeqSpec[E: Type] : Type {
   auto lemma length_nonneg()
     ensures forall s: T :: {length(s)} 0 <= length(s)
 
+  // Written `[||]`.
   val empty: T
 
   auto lemma empty_length()
@@ -119,11 +120,13 @@ interface SeqSpec[E: Type] : Type {
   auto lemma length_zero()
     ensures forall s: T :: {length(s)} length(s) == 0 ==> s == empty
 
+  // Written `[|e|]`.
   func singleton(e: E) returns (ret: T)
 
   auto lemma singleton_length()
     ensures forall e: E :: {singleton(e)} length(singleton(e)) == 1
 
+  // Written `s1 ++ s2`.
   func append(s1: T, s2: T) returns (ret: T)
 
   auto lemma append_length()
@@ -136,6 +139,7 @@ interface SeqSpec[E: Type] : Type {
       (s0 == empty ==> append(s0, s1) == s1) &&
       (s1 == empty ==> append(s0, s1) == s0)
 
+  // Written `s[i]`.
   func index(s: T, i: Int) returns (ret: E)
 
   auto lemma singleton_index()
@@ -173,6 +177,7 @@ interface SeqSpec[E: Type] : Type {
         sub(add(m, length(s0)), length(s0)) == m &&
         index(append(s0, s1), add(m, length(s0))) == index(s1, m)
 
+  // Written `s[i := e]`.
   func update(s: T, i: Int, e: E) returns (ret: T)
 
   auto lemma update_length()
@@ -189,6 +194,7 @@ interface SeqSpec[E: Type] : Type {
 
   // Take and drop
 
+  // Written `s[..howMany]`.
   func take(s: T, howMany: Int) returns (ret: T)
 
   auto lemma take_length()
@@ -202,6 +208,7 @@ interface SeqSpec[E: Type] : Type {
     ensures forall s: T, n: Int, j: Int :: {index(take(s, n), j)} {index(s, j), take(s, n)}
       0 <= j && j < n && j < length(s) ==> index(take(s, n), j) == index(s, j)
 
+  // Written `s[howMany..]`. `s[m..n]` is `drop(take(s, n), m)`.
   func drop(s: T, howMany: Int) returns (ret: T)
 
   auto lemma drop_length()
@@ -256,6 +263,7 @@ interface SeqSpec[E: Type] : Type {
 
   // Contains
 
+  // Written `e in s`.
   func contains(s: T, e: E) returns (ret: Bool)
 
   // Viper substitutes this for `contains` when it occurs in user-written triggers.

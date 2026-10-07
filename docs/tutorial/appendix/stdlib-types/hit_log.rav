@@ -43,8 +43,8 @@ module HitLog {
 module Split {
   lemma split(s: Seq[Int], n: Int)
     requires 0 <= n && n <= Seq.length(s)
-    ensures Seq.append(Seq.take(s, n), Seq.drop(s, n)) == s
+    ensures s[..n] ++ s[n..] == s
   {
-    assert Seq.equal(Seq.append(Seq.take(s, n), Seq.drop(s, n)), s);
+    assert Seq.equal(s[..n] ++ s[n..], s);
   }
 }

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- The sequences of `Library.Seq` can be used with operators, as in Viper: `s ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, `e in s` says whether `e` is an entry, and `s[i] := e` assigns `s[i := e]` to `s`. Sequences can be written as literals, as in `[|1, 2, 3|]` and `[||]`.
+- The sequences of `Library.Seq` can be used with operators, as in Viper: `s ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, `e in s` says whether `e` is an entry, `s[m..n]`, `s[..n]` and `s[n..]` are slices, and `s[i] := e` assigns `s[i := e]` to `s`. Sequences can be written as literals, as in `[|1, 2, 3|]` and `[||]`.
 
 - The names `Option`, `List`, `Seq` and `Array` of the standard library are available in every program without an import, so that types such as `Seq[Int]` and `Array[Int]` can be written directly. A program's own declaration of one of these names takes precedence.
 

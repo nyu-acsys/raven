@@ -127,4 +127,7 @@ let _ =
      "?", QMARK;
      ":|", COLONPIPE;
      "=>", DARROW;
+
+     (* SeqExt *)
+     "..", DOTDOT;
      ]

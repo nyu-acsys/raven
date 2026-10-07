@@ -13,7 +13,8 @@ open Util
     is a value, `s[i]` is an expression, unlike an array entry, and `s[i] := e` assigns
     `s[i := e]` to the variable `s`. The literal `[|e1, ..., en|]` is typed as the
     sequence built from `singleton` and `append`, and `[||]` as `empty`, of the instance
-    of the expected type, or else of the instance inferred from the entries. *)
+    of the expected type, or else of the instance inferred from the entries. The slices
+    `s[..n]` and `s[n..]` are `take` and `drop`, and `s[m..n]` is `s[..n][m..]`. *)
 module SeqExt (Cont : Ext) = struct
   include Cont
 
@@ -22,6 +23,8 @@ module SeqExt (Cont : Ext) = struct
   type Expr.expr_ext +=
     | SeqOp of Expr.constr  (** a core operator, applied to a sequence *)
     | SeqLit  (** a literal, its entries the operands *)
+    | SeqTake  (** `s[..n]`, the operands `s` and `n` *)
+    | SeqDrop  (** `s[n..]`, the operands `s` and `n` *)
 
   let seq_ident = Ident.make Loc.dummy "Seq" 0
 
@@ -95,11 +98,12 @@ module SeqExt (Cont : Ext) = struct
     match expr_ext with
     | SeqOp constr -> Expr.constr_to_string constr
     | SeqLit -> "[| |]"
+    | SeqTake | SeqDrop -> "[..]"
     | other -> Cont.expr_ext_to_string other
 
   let expr_ext_is_recognized (expr_ext : Expr.expr_ext) : bool =
     match expr_ext with
-    | SeqOp _ | SeqLit -> true
+    | SeqOp _ | SeqLit | SeqTake | SeqDrop -> true
     | other -> Cont.expr_ext_is_recognized other
 
   (* Typing *)
@@ -161,6 +165,22 @@ module SeqExt (Cont : Ext) = struct
                 functs.process_expr
                   (Expr.mk_app ~loc ~typ:Type.any (Var fn) args)
                   expected_typ))
+    | SeqTake | SeqDrop -> (
+        let* seq, n =
+          match expr_list with
+          | [ seq; n ] -> Rewriter.return (seq, n)
+          | _ -> Error.internal_error loc "SeqExt: wrong number of operands"
+        in
+        let* seq = functs.process_expr seq Type.any in
+        let* inst = seq_instance (Expr.to_type seq) in
+        match inst with
+        | None -> Error.type_error (Expr.to_loc seq) "Only a sequence can be sliced"
+        | Some inst ->
+            let name = match expr_ext with SeqTake -> "take" | _ -> "drop" in
+            let fn = QualIdent.append inst (Ident.make loc name 0) in
+            functs.process_expr
+              (Expr.mk_app ~loc ~typ:Type.any (Var fn) [ seq; n ])
+              expected_typ)
     | SeqLit -> (
         (* Typed as the members of the instance of the expected type, if it is a
            sequence type, as instances are generative. Otherwise, as the members of the
