@@ -187,7 +187,18 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
              (QualIdent.from_ident new_var_decl.var_name)))
   in
 
-  (* Triggered by f(a, b) and f(a', b'), if they mention all bound variables. *)
+  (* Triggered by f(a, b) and f(a', b'), if they mention all bound variables. The
+     surrounding locals are bound only if they occur. *)
+  let body =
+    Expr.mk_impl
+      (Expr.mk_chained_and ((expr_eq :: conditions) @ renamed_conditions))
+      (Expr.mk_chained_and vars_eq_list)
+  in
+  let occurring = Expr.symbols body in
+  let env_local_var_decls =
+    List.filter env_local_var_decls ~f:(fun v ->
+        Set.mem occurring (QualIdent.from_ident v.Type.var_name))
+  in
   let bound_vars = univ_vars @ dup_vars @ env_local_var_decls in
   let trigs =
     let mentioned = Expr.symbols ~acc:(Expr.symbols expr) renamed_expr in
@@ -203,10 +214,7 @@ let generate_injectivity_assertions ~loc (universal_quants : universal_quants)
        f(a, b) == f(a', b') && p1(a, b) && p2(a, b) && p1(a', b') && p2(a', b')  ==>
         a == a' && b == b'
     *)
-    Expr.mk_binder ~loc ~typ:Type.bool ~trigs Forall bound_vars
-      (Expr.mk_impl
-         (Expr.mk_chained_and ((expr_eq :: conditions) @ renamed_conditions))
-         (Expr.mk_chained_and vars_eq_list))
+    Expr.mk_binder ~loc ~typ:Type.bool ~trigs Forall bound_vars body
   in
 
   let assert_stmt =

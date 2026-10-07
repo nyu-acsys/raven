@@ -138,7 +138,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
   proc create(l: Int)
     returns (u: T)
     requires 0 <= l
-    ensures exists r: R :: valid(u, r) && (forall x: Int :: 0 <= x < r.len ==> repr(r, x) == x)
+    ensures exists r: R :: valid(u, r) && (forall x: Int :: {repr(r, x)} 0 <= x < r.len ==> repr(r, x) == x)
     opens PA.parr(_, _, _, _)
   {
     var pa := PA.create(l, 0);

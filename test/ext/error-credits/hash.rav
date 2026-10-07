@@ -143,13 +143,13 @@ module Hash {
   }
 
   inline pred coll_free(mp: HashMap) {
-    forall k1: Int, k2: Int ::
+    forall k1: Int, k2: Int :: {lookUpHashMap(mp, k1), lookUpHashMap(mp, k2)}
       (OptInt.is_some(lookUpHashMap(mp, k1)) && OptInt.is_some(lookUpHashMap(mp, k2)) && lookUpHashMap(mp, k1) == lookUpHashMap(mp, k2)) ==> k1 == k2
   }
 
   inline pred hashfun(x:Ref, mp: HashMap) {
     own(x.hash_map, mp, 1.0) &&
-    (forall k: Int :: (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
+    (forall k: Int :: {lookUpHashMap(mp, k)} (lookUpHashMap(mp, k) == OptInt.none || (lookUpHashMap(mp, k)).OptInt.value <= val_size))
   }
 
   inline pred coll_free_hashfun(x: Ref, mp: HashMap) {

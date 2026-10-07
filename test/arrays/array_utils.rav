@@ -173,7 +173,7 @@ module ArrayUtils[E: Library.Type] {
     requires injective(m1, i1, i1 + len) && injective(m2, i2, i2 + len)
     ensures set_of_map(m1, i1, i1 + len) == set_of_map(m2, i2, i2 + len)
   {
-    assert forall x: E ::  x in set_of_map(m2, i2, i2 + len) ==> x in set_of_map(m1, i1, i1 + len) with {
+    assert forall x: E :: {x in set_of_map(m2, i2, i2 + len)} x in set_of_map(m2, i2, i2 + len) ==> x in set_of_map(m1, i1, i1 + len) with {
       if (x in set_of_map(m2, i2, i2 + len)) {
         assert m1[inverse(m2, i2, i2 + len, x) - i2 + i1] == m2[inverse(m2, i2, i2 + len, x)];
       }
