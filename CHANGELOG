@@ -42,6 +42,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Implicit functor instantiation accepts a predicate's implicit arguments when they are written, as in `Array.arr(a, m)`, and also applies to `fold` and `unfold`, as in `unfold arr(a, m)` with `arr` imported from `Library.Array`.
+
 - Comparing a finite set with a set by `==` type-checks with the finite set on either side, not only on the right.
 
 - A top-level declaration named like an SMT-LIB or Z3 symbol, such as a function `union`, no longer takes that symbol's place in the solver. It used to change the meaning of built-in operations such as `++`, which could make false assertions verify.

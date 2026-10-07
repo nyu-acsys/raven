@@ -1643,15 +1643,15 @@ module ProcessExpr = struct
               when Ident.equal (Callable.to_decl call_def).call_decl_name member_ident
               ->
                 let call_decl = Callable.to_decl call_def in
-                let return_type =
-                  match call_decl.call_decl_returns with
-                  | [ r ] -> Some r.Type.var_type
-                  | _ -> None
+                (* The parameters of a predicate or invariant after the `;` are kept
+                   with the returns, but are arguments of an application. *)
+                let formals, return_type =
+                  match call_decl.call_decl_kind, call_decl.call_decl_returns with
+                  | (Pred | Invariant), returns -> (call_decl.call_decl_formals @ returns, None)
+                  | _, [ r ] -> (call_decl.call_decl_formals, Some r.Type.var_type)
+                  | _, _ -> (call_decl.call_decl_formals, None)
                 in
-                Some
-                  ( call_decl.call_decl_formals,
-                    return_type,
-                    call_decl.call_decl_loc_params )
+                Some (formals, return_type, call_decl.call_decl_loc_params)
             | SymbolDef (ConstrDef constr_def)
               when (not only_calls) && Ident.equal constr_def.constr_name member_ident
               ->
@@ -2731,7 +2731,17 @@ module ProcessCallable = struct
     | Use use_desc ->
       let* use_name, symbol =
         let* id = disambiguate_ident use_desc.use_name disam_tbl in
-        Rewriter.resolve_and_find id
+        (* `fold M.p(x)` where `M` is an uninstantiated functor, or `fold p(x)` with `p`
+           imported from one: the instance is inferred from the arguments, as for an
+           application of `M.p`. *)
+        ProcessExpr.resolve_or_implicit id ~on_miss:(fun () ->
+            let* args =
+              Rewriter.List.map use_desc.use_args ~f:(fun e -> disambiguate_expr e disam_tbl)
+            in
+            let* imported = Rewriter.find_import_target id in
+            let candidate = Base.Option.value imported ~default:id in
+            ProcessExpr.try_resolve_implicit_instantiation ~loc:stmt_loc ~qual_ident:candidate
+              ~arg_exprs:args ~only_calls:true ~expected_typ:(Type.perm |> Type.set_ghost true) ())
       in
       let* symbol = Rewriter.Symbol.reify symbol in
       

@@ -167,10 +167,12 @@ though, `a[i]` is not an expression. Like a field, an entry can only be read by 
 in `x := a[i]` or `var x := a[i]`, or named as a location, as in `own` and the atomic
 operations. A trigger therefore mentions the cell, as in `{loc(a, j)}` below.
 
-[`arrays.rav`](./arrays.rav) sets all entries of an array to the same value:
+[`arrays.rav`](./arrays.rav) sets all entries of an array to the same value. It imports the
+members of `Library.Array`, so that `arr`, `length` and `loc` apply to an `Array[Int]` directly,
+with the instance inferred from the argument ({{ref sec:implicit-functor-instantiation}}):
 
 ```raven
-proc fill(a: IntArray.T, x: Int, implicit ghost m: Map[Int, Int])
+proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
   requires arr(a, m)
   ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
 {

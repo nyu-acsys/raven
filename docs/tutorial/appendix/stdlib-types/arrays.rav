@@ -1,9 +1,8 @@
-module IntArray = Library.Array[Library.IntType]
-
-import IntArray._
+import Library._
+import Array._
 
 // Sets every entry of a to x.
-proc fill(a: IntArray.T, x: Int, implicit ghost m: Map[Int, Int])
+proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
   requires arr(a, m)
   ensures arr(a, {| i: Int :: 0 <= i && i < length(a) ? x : m[i] |})
 {

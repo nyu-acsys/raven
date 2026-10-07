@@ -1,0 +1,30 @@
+// A predicate of an uninstantiated functor, used qualified, with its implicit argument
+// written, and folded and unfolded: the instance is inferred from the arguments.
+import Library._
+
+// Sets every entry of a to x.
+proc fill(a: Array[Int], x: Int, implicit ghost m: Map[Int, Int])
+  requires Array.arr(a, m)
+  ensures Array.arr(a, {| i: Int :: 0 <= i && i < Array.length(a) ? x : m[i] |})
+{
+  unfold Array.arr(a, m);
+  var i := 0;
+  while (i < Array.length(a))
+    invariant 0 <= i && i <= Array.length(a)
+    invariant forall j: Int :: {Array.loc(a, j)} 0 <= j && j < i ==> own(a[j], x)
+    invariant forall j: Int :: {Array.loc(a, j)} i <= j && j < Array.length(a) ==> own(a[j], m[j])
+  {
+    a[i] := x;
+    i := i + 1;
+  }
+  fold Array.arr(a, {| i: Int :: 0 <= i && i < Array.length(a) ? x : m[i] |});
+}
+
+proc client()
+{
+  var a := Array.alloc(3, 0);
+  fill(a, 7);
+  unfold Array.arr(a);
+  var y := a[2];
+  assert y == 7;
+}
