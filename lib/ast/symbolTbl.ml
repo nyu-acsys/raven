@@ -342,13 +342,24 @@ let unknown_member_error loc (name : QualIdent.t) (tbl : t) =
     in
     let instance_of_sealed =
       let* { sealed_functor; sealed_interface; _ } = find_sealed_view prefix tbl in
-      if is_member sealed_functor then
+      let functor_is_sealed =
+        match Map.find tbl.tbl_symbols sealed_functor with
+        | Some (Module.ModDef { mod_decl = { mod_decl_is_sealed; _ }; _ }) -> mod_decl_is_sealed
+        | _ -> false
+      in
+      if not (is_member sealed_functor) then None
+      else if functor_is_sealed then
         Some
           (Printf.sprintf
              !"%{QualIdent} is an instance of the sealed module %{QualIdent}, which \
                exposes only the members of interface %{QualIdent}"
              prefix sealed_functor sealed_interface)
-      else None
+      else
+        Some
+          (Printf.sprintf
+             !"%{QualIdent} is sealed with interface %{QualIdent} and exposes only its \
+               members"
+             prefix sealed_interface)
     in
     let sealed_functor () =
       let* _, functor_ident, _ = resolve prefix tbl in
@@ -637,10 +648,33 @@ let add_symbol ?(scope : scope option = None) symbol tbl =
                     List.exists (tbl.tbl_curr :: tbl.tbl_path) ~f:(fun scope ->
                         QualIdent.(get_scope_id scope = mod_inst_func))
                   in
-                  match mod_inst_symbol with
-                  | Module.ModDef
-                      { mod_decl = { mod_decl_is_sealed = true;
-                                     mod_decl_returns = [ (iface_ident, iface_args) ]; _ }; _ }
+                  (* The interface the instance is a view of: that of a sealed functor,
+                     or the one a sealed instance names, among those its module implements. *)
+                  let sealed_iface =
+                    match mod_inst_symbol with
+                    | Module.ModDef
+                        { mod_decl = { mod_decl_is_sealed = true;
+                                       mod_decl_returns = [ iface ]; _ }; _ } ->
+                        Some iface
+                    | Module.ModDef { mod_decl = { mod_decl_returns; _ }; _ }
+                      when mod_inst.mod_inst_is_sealed ->
+                        let _, named, _, _ = resolve_and_find_exn mod_inst.mod_inst_type tbl in
+                        let found =
+                          List.find mod_decl_returns ~f:(fun (iface_ident, _) ->
+                              let _, iface_ident, _, _ = resolve_and_find_exn iface_ident tbl in
+                              QualIdent.equal iface_ident named)
+                        in
+                        if Option.is_none found then
+                          Error.type_error mod_inst.mod_inst_loc
+                            (Printf.sprintf
+                               !"Module %{QualIdent} does not declare that it implements \
+                                 interface %{QualIdent}, so %{Ident} cannot be sealed with it"
+                               mod_inst_func mod_inst.mod_inst_type mod_inst.mod_inst_name);
+                        found
+                    | _ -> None
+                  in
+                  match sealed_iface with
+                  | Some (iface_ident, iface_args)
                     when (not @@ is_instance subst1) && not inside_functor ->
                       (* Outside a sealed functor, an instance is a view of its
                          interface, applied to the functor's interface arguments. *)

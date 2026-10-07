@@ -948,7 +948,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) :
               mod_inst_def =
                 Some (Predefs.lib_frac_mod_qual_ident, [ Module.ModArg tp_module ]);
               mod_inst_is_interface = false;
-              mod_inst_is_free = false;
+              mod_inst_is_sealed = false; mod_inst_is_free = false;
               mod_inst_loc = f.field_loc;
             }
         in

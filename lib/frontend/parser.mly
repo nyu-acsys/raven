@@ -31,6 +31,37 @@ let rec index_assign base index value =
       Error.syntax_error (Expr.to_loc base)
         "Expected a variable, possibly indexed, on the left-hand side of an indexed assignment"
 
+(* A sealed module without parameters, `module M :> I { ... }`, as the module `M$Impl : I`
+   with its body and the sealed instance `module M :> I = M$Impl`. *)
+let expand_sealed_module (member : Module.module_instr) : Module.module_instr list =
+  let open Module in
+  match member with
+  | SymbolDef (ModDef ({ mod_decl = decl; _ } as mod_def))
+    when decl.mod_decl_is_sealed && List.is_empty decl.mod_decl_formals
+         && not decl.mod_decl_is_interface -> (
+      match decl.mod_decl_returns with
+      | [ (iface, _) ] ->
+          let loc = decl.mod_decl_loc in
+          let impl_name =
+            Ident.make loc (decl.mod_decl_name.ident_name ^ ProgUtils.sealed_impl_suffix) 0
+          in
+          let impl =
+            ModDef { mod_def with
+                     mod_decl = { decl with mod_decl_name = impl_name; mod_decl_is_sealed = false } }
+          in
+          let view =
+            ModInst { mod_inst_name = decl.mod_decl_name;
+                      mod_inst_type = iface;
+                      mod_inst_def = Some (QualIdent.from_ident impl_name, []);
+                      mod_inst_is_interface = false;
+                      mod_inst_is_free = false;
+                      mod_inst_is_sealed = true;
+                      mod_inst_loc = loc }
+          in
+          [ SymbolDef impl; SymbolDef view ]
+      | _ -> [ member ])
+  | _ -> [ member ]
+
 (* A local variable definition, followed by the assignment of its initial value, if any. *)
 let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
   let decl =
@@ -131,9 +162,9 @@ module_def:
       if decl.mod_decl_formals <> [] then
         Error.syntax_error (Loc.make $startpos(def) $startpos(def))
           "A module with parameters cannot be defined with '=' (module instantiation syntax); give it a body in '{ ... }' instead"
-      else if decl.mod_decl_is_sealed then
+      else if decl.mod_decl_is_sealed && Option.is_none ma.mod_inst_def then
         Error.syntax_error (Loc.make $startpos(decl) $endpos(decl))
-          (Printf.sprintf !"Module %{Ident} has no body, so it cannot be sealed with ':>'; seal the functor it instantiates instead"
+          (Printf.sprintf !"Module %{Ident} has no definition, so it cannot be sealed with ':>'"
              decl.mod_decl_name)
       else
         let mod_inst_type =
@@ -161,6 +192,7 @@ module_def:
                   mod_inst_name = decl.mod_decl_name;
                   mod_inst_is_interface = is_interface;
                   mod_inst_is_free = false;
+                  mod_inst_is_sealed = decl.mod_decl_is_sealed;
                   mod_inst_loc = decl.mod_decl_loc }
   | symbol -> symbol
 }
@@ -204,7 +236,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = Some (mod_name, args);
                      mod_inst_is_interface = false;
-                     mod_inst_is_free = false;
+                     mod_inst_is_sealed = false; mod_inst_is_free = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -213,7 +245,7 @@ module_inst_or_impl_or_decl:
                      mod_inst_type = QualIdent.make [] (Ident.make Loc.dummy "" 0); (* dummy *)
                      mod_inst_def = None;
                      mod_inst_is_interface = false;
-                     mod_inst_is_free = false;
+                     mod_inst_is_sealed = false; mod_inst_is_free = false;
                      mod_inst_loc = Loc.dummy;
                    } )
 }
@@ -227,7 +259,7 @@ mod_inst_args:
 | { [] }
     
 member_def_list_opt:
-| m = member_def_maybe_free; ms = member_def_list_opt { m :: ms }
+| m = member_def_maybe_free; ms = member_def_list_opt { expand_sealed_module m @ ms }
 | (* empty *) { [] }
 
 member_def_maybe_free:
@@ -367,7 +399,7 @@ module_param:
              mod_inst_type = t;
              mod_inst_def = None;
              mod_inst_is_interface = false;
-             mod_inst_is_free = false;
+             mod_inst_is_sealed = false; mod_inst_is_free = false;
              mod_inst_loc = Loc.make $symbolstartpos $endpos;
            }
   in

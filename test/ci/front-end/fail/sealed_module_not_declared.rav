@@ -1,0 +1,5 @@
+// A sealed instance of a module that does not declare that it implements the interface.
+
+interface J { rep type T }
+module N { rep type T = Int }
+module M :> J = N

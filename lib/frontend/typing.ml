@@ -4128,17 +4128,10 @@ module ProcessModule = struct
     in
     let () =
       let decl = m.mod_decl in
-      if decl.mod_decl_is_sealed then
-        if decl.mod_decl_is_interface then
-          Error.type_error decl.mod_decl_loc
-            (Printf.sprintf !"Interface %{Ident} cannot be sealed with ':>'"
-               decl.mod_decl_name)
-        else if List.is_empty decl.mod_decl_formals then
-          Error.type_error decl.mod_decl_loc
-            (Printf.sprintf
-               !"Module %{Ident} cannot be sealed with ':>' because it has no \
-                 parameters; only functors can be sealed"
-               decl.mod_decl_name)
+      if decl.mod_decl_is_sealed && decl.mod_decl_is_interface then
+        Error.type_error decl.mod_decl_loc
+          (Printf.sprintf !"Interface %{Ident} cannot be sealed with ':>'"
+             decl.mod_decl_name)
     in
 
     let* sc = Rewriter.current_scope_children in
@@ -4641,7 +4634,7 @@ module ProcessModule = struct
                                  cannot inherit two declarations of the same \
                                  name"
                                key
-                               (Ident.to_string m.mod_decl.mod_decl_name)))
+                               (Ident.to_string (ProgUtils.source_module_name m.mod_decl.mod_decl_name))))
                 in
                 (* Only an unapplied parameterised parent imposes its formals on
                    this module; an applied one supplied them as arguments. *)
@@ -4684,7 +4677,7 @@ module ProcessModule = struct
                 Error.syntax_error type_def.type_def_loc
                   (Printf.sprintf
                      !"Found more than one rep type in module %{Ident}"
-                     m.mod_decl.mod_decl_name))
+                     (ProgUtils.source_module_name m.mod_decl.mod_decl_name)))
               ~e:(fun () -> Some type_def.type_def_name)
               () rep_type
         | _ -> rep_type)
@@ -4815,7 +4808,7 @@ module ProcessModule = struct
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface. The \
                          %s %{Ident} is still abstract"
-                       mod_decl.mod_decl_name (Symbol.kind symbol)
+                       (ProgUtils.source_module_name mod_decl.mod_decl_name) (Symbol.kind symbol)
                        (Symbol.to_name symbol))
               | ModInst { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ } ->
                 let+ mod_inst_symbol =
@@ -4827,7 +4820,7 @@ module ProcessModule = struct
                   Error.type_error (Symbol.to_loc symbol)
                     (Printf.sprintf
                        !"Module %{Ident} must be declared as an interface"
-                       (Symbol.to_name symbol))
+                       (ProgUtils.source_module_name (Symbol.to_name symbol)))
                 | _ -> ())
               | _ -> Rewriter.return ())
 

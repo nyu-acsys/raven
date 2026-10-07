@@ -62,7 +62,7 @@ same running example, now supplying the body that its interface withheld. From t
 2's `make`/`bump` did. Note that `:` doesn't hide anything by itself. Code that names
 `PlainCounter` directly still sees the body of `valid` and could unfold it too. Information
 hiding comes from writing clients against the interface instead, as
-{{ref sec:abstract-predicates}} explains, or from sealing a functor, as
+{{ref sec:abstract-predicates}} explains, or from sealing a module, as
 {{ref sec:sealing}} explains.
 
 ## Abstract predicates as a specification boundary {#sec:abstract-predicates}
@@ -270,7 +270,7 @@ call's own arguments. Only then should you introduce one explicit, named instant
 that point on call through *that* instantiation consistently rather than mixing it with implicit
 calls.
 
-## Sealing a functor {#sec:sealing}
+## Sealing modules {#sec:sealing}
 
 Writing a client as a functor over an interface, as `UseCounter` does, keeps that client from
 depending on any implementation's internals. Sealing gives the same guarantee to *every* client of
@@ -336,10 +336,16 @@ only the interface's lemmas, with the triggers its author chose for them.
 
 Every instance of a sealed functor is sealed, whether it is declared explicitly as above,
 inferred from a call ({{ref sec:implicit-functor-instantiation}}), or written as a type such as
-`ListStack[Int]`. Only the functor's own body sees through the seal. There are three
-restrictions. Only a functor (a module with parameters) can be sealed. It names exactly one
-interface. And the seal belongs to the functor's definition, so `module M :> I = F[A]` is
-rejected.
+`ListStack[Int]`. Only the functor's own body sees through the seal. A sealed module names
+exactly one interface.
+
+A module without parameters can be sealed the same way. Outside its own body, `module M :> I {
+... }` shows only the members of `I`, and its abstract types are distinct from every other type.
+You can also seal a single instance of a module that implements an interface: `module V :> I = N`
+makes `V` a view of `N` through `I`, and `module V :> Stack = F[Library.IntType]` does the same
+for an instance of a functor `F`. `N` or `F` has to declare that it implements the interface, and Raven
+takes the interface's arguments from that declaration. Code that names `N` directly still sees
+its definitions, but to clients of `V`, `V.T` is an abstract type, distinct from `N.T`.
 
 The standard library's sequences, `Library.Seq`, are a sealed functor as well. {{ref app:stdlib-types}}
 describes them, along with the library's other data types.

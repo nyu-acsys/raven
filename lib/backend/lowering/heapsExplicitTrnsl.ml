@@ -1371,7 +1371,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
                 mod_inst_type = Predefs.lib_cancellative_ra_mod_qual_ident;
                 mod_inst_def = Some (Predefs.lib_nat_mod_qual_ident, []);
                 mod_inst_is_interface = false;
-                mod_inst_is_free = false;
+                mod_inst_is_sealed = false; mod_inst_is_free = false;
                 mod_inst_loc = loc;
               }
           in
@@ -1409,7 +1409,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
                 mod_inst_type;
                 mod_inst_def = Some (mod_inst_def_ra, [ Module.ModArg pred_ret_type_module ]);
                 mod_inst_is_interface = false;
-                mod_inst_is_free = false;
+                mod_inst_is_sealed = false; mod_inst_is_free = false;
                 mod_inst_loc = loc;
               }
           in
@@ -1484,7 +1484,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
                     [ Module.ModArg proc_conrete_args_type_module;
                       Module.ModArg proc_ret_type_module ] );
               mod_inst_is_interface = false;
-              mod_inst_is_free = false;
+              mod_inst_is_sealed = false; mod_inst_is_free = false;
               mod_inst_loc = loc;
             }
         in

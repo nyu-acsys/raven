@@ -1,0 +1,13 @@
+// A fact that follows from the definitions of a sealed module is not provable by clients.
+
+interface J : Library.Type {
+  rep type T
+  val zero: T
+  func inc(c: T) returns (ret: T)
+}
+module S :> J {
+  rep type T = Int
+  val zero: T = 0
+  func inc(c: T) returns (ret: T) { c + 1 }
+}
+lemma l() ensures S.inc(S.zero) != S.zero {}

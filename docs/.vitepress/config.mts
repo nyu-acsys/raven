@@ -43,7 +43,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:lemmas-and-axioms': 'Lemmas and axioms',
   'sec:functors': 'Functors',
   'sec:implicit-functor-instantiation': 'Implicit functor instantiation',
-  'sec:sealing': 'Sealing a functor',
+  'sec:sealing': 'Sealing modules',
   'sec:import': 'import',
   'sec:well-founded-order': 'Rolling your own well-founded order',
 

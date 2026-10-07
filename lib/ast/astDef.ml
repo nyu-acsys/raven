@@ -2782,6 +2782,8 @@ module Module = struct
     mod_inst_def : (QualIdent.t * module_inst_arg list) option;
     mod_inst_is_interface : bool;
     mod_inst_is_free : bool;
+    mod_inst_is_sealed : bool;
+        (** whether the instance is a view of its interface, `module M :> I = F[A]` *)
     mod_inst_loc : location;
   }
 

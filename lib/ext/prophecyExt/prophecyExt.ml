@@ -567,7 +567,7 @@ module ProphecyExt (Cont : Ext) = struct
         mod_inst_type = ProphPredefs.proph_mod_qi;
         mod_inst_def = Some (ProphPredefs.proph_mod_qi, [Module.ModArg multi_type_module_qi; Module.ModArg one_type_module_qi]);
         mod_inst_is_interface = false;
-        mod_inst_is_free = false;
+        mod_inst_is_sealed = false; mod_inst_is_free = false;
         mod_inst_loc = loc;
       } in
 

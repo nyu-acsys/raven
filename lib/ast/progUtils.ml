@@ -32,6 +32,18 @@ let rec is_pointwise_body (x : ident) (body : expr) : bool =
   | App (Elem, [ elem; s ], _) when is_x elem -> not (mentions_x s)
   | e -> is_bool e && not (mentions_x e)
 
+(** The suffix of the module holding the definitions of a sealed module without
+    parameters, `module M :> I { ... }`, which the parser expands to `M$Impl : I` and the
+    sealed instance `module M :> I = M$Impl`. *)
+let sealed_impl_suffix = "$Impl"
+
+(** The name of a module as written in the program: [M] for the module [M$Impl] holding
+    the definitions of a sealed module [M]. *)
+let source_module_name (name : ident) : ident =
+  match String.chop_suffix name.ident_name ~suffix:sealed_impl_suffix with
+  | Some base -> { name with ident_name = base }
+  | None -> name
+
 let serialize (s : string) : string =
   let s =
     String.map s ~f:(function
@@ -1245,7 +1257,7 @@ let get_or_intros_field_module ~(loc : location)
                    mod_inst_type = target;
                    mod_inst_def = Some (target, []);
                    mod_inst_is_interface = false;
-                   mod_inst_is_free = false;
+                   mod_inst_is_sealed = false; mod_inst_is_free = false;
                    mod_inst_loc = loc;
                  }))
         @ [
@@ -1302,7 +1314,7 @@ let instantiate_functor_at_modules ~(loc : location)
                   Base.List.map arg_module_qis ~f:(fun qi ->
                       AstDef.Module.ModArg qi) );
             mod_inst_is_interface = false;
-            mod_inst_is_free = false;
+            mod_inst_is_sealed = false; mod_inst_is_free = false;
             mod_inst_loc = loc;
           }
       in

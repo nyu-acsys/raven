@@ -1,0 +1,44 @@
+// A member of a sealed module that is not in its interface is hidden.
+
+interface Counter : Library.Type {
+  rep type T
+  val zero: T
+  func inc(c: T) returns (ret: T)
+  func value(c: T) returns (ret: Int)
+
+  auto lemma value_zero()
+    ensures value(zero) == 0
+  auto lemma value_inc()
+    ensures forall c: T :: {value(inc(c))} value(inc(c)) == value(c) + 1
+}
+
+module IntCounter : Counter {
+  rep type T = Int
+  val zero: T = 0
+  func inc(c: T) returns (ret: T) { c + 1 }
+  func value(c: T) returns (ret: Int) { c }
+
+  auto lemma value_zero() ensures value(zero) == 0 {}
+  auto lemma value_inc()
+    ensures forall c: T :: {value(inc(c))} value(inc(c)) == value(c) + 1
+  {}
+}
+
+// A sealed module without parameters.
+module Sealed :> Counter {
+  rep type T = Int
+  val zero: T = 0
+  func inc(c: T) returns (ret: T) { c + 1 }
+  func value(c: T) returns (ret: Int) { c }
+
+  auto lemma value_zero() ensures value(zero) == 0 {}
+  auto lemma value_inc()
+    ensures forall c: T :: {value(inc(c))} value(inc(c)) == value(c) + 1
+  {}
+  lemma inside() ensures zero == 0 {}
+}
+
+// A sealed instance of a module implementing the interface.
+module View :> Counter = IntCounter
+
+lemma l() { Sealed.inside(); }

@@ -1,0 +1,75 @@
+// Sealed modules without parameters, and sealed instances of a module or a functor
+// implementing an interface, used through their interface.
+
+interface Counter : Library.Type {
+  rep type T
+  val zero: T
+  func inc(c: T) returns (ret: T)
+  func value(c: T) returns (ret: Int)
+
+  auto lemma value_zero()
+    ensures value(zero) == 0
+  auto lemma value_inc()
+    ensures forall c: T :: {value(inc(c))} value(inc(c)) == value(c) + 1
+}
+
+module IntCounter : Counter {
+  rep type T = Int
+  val zero: T = 0
+  func inc(c: T) returns (ret: T) { c + 1 }
+  func value(c: T) returns (ret: Int) { c }
+
+  auto lemma value_zero() ensures value(zero) == 0 {}
+  auto lemma value_inc()
+    ensures forall c: T :: {value(inc(c))} value(inc(c)) == value(c) + 1
+  {}
+}
+
+// A sealed module without parameters.
+module Sealed :> Counter {
+  rep type T = Int
+  val zero: T = 0
+  func inc(c: T) returns (ret: T) { c + 1 }
+  func value(c: T) returns (ret: Int) { c }
+
+  auto lemma value_zero() ensures value(zero) == 0 {}
+  auto lemma value_inc()
+    ensures forall c: T :: {value(inc(c))} value(inc(c)) == value(c) + 1
+  {}
+  lemma inside() ensures zero == 0 {}
+}
+
+// A sealed instance of a module implementing the interface.
+module View :> Counter = IntCounter
+
+lemma client()
+  ensures Sealed.value(Sealed.inc(Sealed.zero)) == 1
+  ensures View.value(View.inc(View.inc(View.zero))) == 2
+{}
+
+// A sealed instance of a functor implementing a parameterized interface, whose arguments
+// come from the functor's declaration.
+interface Box[E: Library.Type] : Library.Type {
+  rep type T
+  func mk(e: E) returns (b: T)
+  func get(b: T) returns (e: E)
+
+  auto lemma get_mk()
+    ensures forall e: E :: {mk(e)} get(mk(e)) == e
+}
+
+module PlainBox[E: Library.Type] : Box[E] {
+  rep type T = E
+  func mk(e: E) returns (b: T) { e }
+  func get(b: T) returns (e: E) { b }
+
+  auto lemma get_mk()
+    ensures forall e: E :: {mk(e)} get(mk(e)) == e
+  {}
+}
+
+module IntBox :> Box = PlainBox[Library.IntType]
+
+lemma box_client()
+  ensures IntBox.get(IntBox.mk(3)) == 3
+{}

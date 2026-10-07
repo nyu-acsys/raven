@@ -1,9 +1,0 @@
-// Only functors can be sealed.
-
-interface I {
-  rep type T
-}
-
-module M :> I {
-  rep type T = Int
-}
