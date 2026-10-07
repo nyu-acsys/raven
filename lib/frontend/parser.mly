@@ -31,12 +31,7 @@ let rec index_assign base index value =
       Error.syntax_error (Expr.to_loc base)
         "Expected a variable, possibly indexed, on the left-hand side of an indexed assignment"
 
-(* Shared by [local_var_def]'s two productions. They spell the `ghost` modifier
-   out instead of taking it from the nullable [ghost_modifier], so that the
-   production never starts with an empty symbol: menhir would otherwise report
-   its [$startpos] -- and hence the whole statement's [stmt_loc], assigned from
-   it in [stmt] -- as the end of the *preceding* token, pointing every
-   statement-level diagnostic at the line above. *)
+(* A local variable definition, followed by the assignment of its initial value, if any. *)
 let mk_local_var_def ~ghost ~const decl rhs_opt ~rhs_loc =
   let decl =
     Type.{ decl with
@@ -248,7 +243,7 @@ member_def:
 | def = proc_def 
 | def = func_def { Module.CallDef def }
   
-free:
+%inline free:
 | FREE { true }
 | { false }
 
@@ -335,8 +330,8 @@ proc_def:
 
 proc_kind:
 | PROC { (Callable.Proc, false, false) }
-| is_auto = option(AUTO); LEMMA { (Callable.Lemma, false, is_auto <> None) }
-| is_auto = option(AUTO); AXIOM { (Callable.Lemma, true, is_auto <> None) }
+| is_auto = ioption(AUTO); LEMMA { (Callable.Lemma, false, is_auto <> None) }
+| is_auto = ioption(AUTO); AXIOM { (Callable.Lemma, true, is_auto <> None) }
     
 func_def:
 | def = func_decl; body = option(delimited(LBRACE, expr, RBRACE)) {
@@ -406,7 +401,7 @@ type_decl:
 
 
  
-type_mod:
+%inline type_mod:
 | REP { true }
 | (* empty *) { false }
 ;
@@ -432,7 +427,7 @@ func_decl:
 
 (* Whether a function or predicate is declared `inline`. `auto` is accepted here only to
    point to `inline`, which is what it used to mean for a predicate. *)
-func_modifiers:
+%inline func_modifiers:
 | (* empty *) { false }
 | INLINE { true }
 | AUTO | INLINE; AUTO {
@@ -627,7 +622,7 @@ opens_entry:
 }
 ;
 
-contract_mods:
+%inline contract_mods:
 | ATOMIC { true }
 | (* empty *) { false }
 ;
@@ -803,11 +798,8 @@ with_clause:
 }
 
 local_var_def:
-| GHOST; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
-  mk_local_var_def ~ghost:true ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
-}
-| v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
-  mk_local_var_def ~ghost:false ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
+| g = ghost_modifier; v = VAR; decl = bound_var_opt_type; e = option(preceded(COLONEQ, assign_rhs)) {
+  mk_local_var_def ~ghost:g ~const:v decl e ~rhs_loc:(Loc.make $startpos(e) $endpos(e))
 }
 
     
@@ -836,12 +828,12 @@ var_def:
 
 
     
-ghost_modifier:
+%inline ghost_modifier:
 | GHOST { true }
 | (* empty *) { false }
 ;
 
-var_modifier:
+%inline var_modifier:
 | IMPLICIT; GHOST { true, true }
 | g = ghost_modifier { false, g }
 ; 
