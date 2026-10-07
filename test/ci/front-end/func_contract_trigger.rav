@@ -1,0 +1,8 @@
+// A trigger in the contract of a func whose body spans several lines.
+free func f(x: Int) returns (r: Int)
+
+func g(s: Set[Int]) returns (res: Set[Int])
+  ensures forall x: Int :: {f(x)} {x in res} (x in res) == (x in s)
+{
+  s
+}

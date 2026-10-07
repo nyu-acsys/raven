@@ -71,7 +71,7 @@ let lexical_error lexbuf msg =
    mechanics of this lookahead (see their comments below); every other decision in this file
    remains a pure function of [lex_state] and the current token. *)
 
-type scope_kind = Group | Loop_header | Module_list | Stmt_list
+type scope_kind = Group | Loop_header | Module_list | Stmt_list | Trigger
 
 type lex_state = {
   scopes : scope_kind list;
@@ -88,6 +88,10 @@ type lex_state = {
      looks like an unfinished comparison awaiting its right operand. *)
   next_lt_opens_atomic_token : bool;
   in_atomic_token_brackets : bool;
+  (* Set on the tokens a trigger's braces follow -- [COLONCOLON], [ENSURES], and the closing
+     brace of a previous trigger -- and consumed by the next token. A trigger's braces are a
+     [Trigger] scope, which leaves [next_brace_kind] to the body. *)
+  next_brace_is_trigger : bool;
 }
 
 let initial_state =
@@ -97,6 +101,7 @@ let initial_state =
     next_paren_is_loop_cond = false;
     next_lt_opens_atomic_token = false;
     in_atomic_token_brackets = false;
+    next_brace_is_trigger = false;
   }
 
 (* Computes the state to carry forward after producing [tok], given the state [st] beforehand. *)
@@ -115,6 +120,7 @@ let advance st (tok : Parser.token) =
          | [] -> [])
     | RBRACKET | RBRACEPIPE | RBRACKETPIPE | RGHOSTBRACE ->
         (match st.scopes with _ :: rest -> rest | [] -> [])
+    | LBRACE when st.next_brace_is_trigger -> Trigger :: st.scopes
     | LBRACE ->
         (match st.scopes with
          | Loop_header :: rest when st.last_token_can_end_stmt ->
@@ -145,8 +151,14 @@ let advance st (tok : Parser.token) =
     | FUNC _ | DATA | MATCH -> Some Group
     | MODULE _ -> Some Module_list
     | PROC | LEMMA | AXIOM -> Some Stmt_list
+    | LBRACE when st.next_brace_is_trigger -> st.next_brace_kind
     | LBRACE -> None (* consumed; the next one is classified afresh *)
     | _ -> st.next_brace_kind
+  in
+  let next_brace_is_trigger =
+    match tok, st.scopes with
+    | (COLONCOLON | ENSURES), _ | RBRACE, Trigger :: _ -> true
+    | _ -> false
   in
   let next_paren_is_loop_cond =
     match tok with
@@ -183,7 +195,7 @@ let advance st (tok : Parser.token) =
     | _ -> false
   in
   { scopes; last_token_can_end_stmt; next_brace_kind; next_paren_is_loop_cond;
-    next_lt_opens_atomic_token; in_atomic_token_brackets }
+    next_lt_opens_atomic_token; in_atomic_token_brackets; next_brace_is_trigger }
 
 (* Produces [tok], pairing it with the state to carry forward after it, and no buffered
    follow-up token (see [on_newline] for the one case that needs one). *)
