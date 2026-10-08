@@ -8,6 +8,11 @@ on:
 
 permissions: read-all
 
+# The Z3 release the tests run against. Fixed rather than the latest, so that a new Z3
+# release cannot fail the tests without a change here.
+env:
+  Z3_VERSION: "4.16.0"
+
 jobs:
   # The ocamlformat version must match the one in .ocamlformat.
   format:
@@ -58,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir z3dl
-          gh release download --repo Z3Prover/z3 --pattern "${{ matrix.z3_glob }}" --dir z3dl
+          gh release download "z3-$Z3_VERSION" --repo Z3Prover/z3 --pattern "${{ matrix.z3_glob }}" --dir z3dl
           cd z3dl
           zipfile=$(ls *.zip)
           unzip -q "$zipfile"
