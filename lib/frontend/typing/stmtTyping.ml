@@ -420,12 +420,12 @@ let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Lo
         (fun ~is_init ?is_ghost_cmd qi ->
           run_typing (get_assign_lhs ~is_init ?is_ghost_cmd qi));
       expand_type_expr = (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
-      disambiguate_process_expr =
+      disambiguate_and_check_expr =
         (fun e exp d -> run_typing (disambiguate_and_check_expr e exp d));
       type_mismatch_error;
       disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-      process_symbol = !Rewriter.check_symbol_ref;
-      process_stmt = !Rewriter.check_stmt_ref;
+      check_symbol = !Rewriter.check_symbol_ref;
+      check_stmt = !Rewriter.check_stmt_ref;
     }
   in
   (* Whether the type of [expr], an operand the core indexes, is one the core's
@@ -1116,12 +1116,12 @@ let check ?(new_scope = true) call_decl (stmt : Stmt.t) (disam_tbl : Disambiguat
                              "assignments are not permitted in a contract clause");
                        expand_type_expr =
                          (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
-                       disambiguate_process_expr =
+                       disambiguate_and_check_expr =
                          (fun e exp d -> run_typing (disambiguate_and_check_expr e exp d));
                        type_mismatch_error;
                        disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                       process_symbol = !Rewriter.check_symbol_ref;
-                       process_stmt =
+                       check_symbol = !Rewriter.check_symbol_ref;
+                       check_stmt =
                          (fun _call_decl stmt _disam_tbl ->
                            Error.internal_error (Stmt.to_loc stmt)
                              "statements are not permitted in a contract clause");
@@ -1182,12 +1182,12 @@ let check ?(new_scope = true) call_decl (stmt : Stmt.t) (disam_tbl : Disambiguat
                        "assignments are not permitted directly in a top-level statement \
                         extension");
                  expand_type_expr = (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
-                 disambiguate_process_expr =
+                 disambiguate_and_check_expr =
                    (fun e exp d -> run_typing (disambiguate_and_check_expr e exp d));
                  type_mismatch_error;
                  disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                 process_symbol = !Rewriter.check_symbol_ref;
-                 process_stmt =
+                 check_symbol = !Rewriter.check_symbol_ref;
+                 check_stmt =
                    (fun _call_decl stmt disam_tbl -> run_typing (check stmt disam_tbl));
                })
     in

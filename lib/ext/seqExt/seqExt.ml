@@ -164,7 +164,7 @@ module SeqExt (Cont : Ext) = struct
                   match constr with Elem -> List.rev expr_list | _ -> expr_list
                 in
                 let fn = QualIdent.append inst (Ident.make loc name 0) in
-                functs.process_expr
+                functs.check_expr
                   (Expr.mk_app ~loc ~typ:Type.any (Var fn) args)
                   expected_typ))
     | SeqTake | SeqDrop -> (
@@ -173,14 +173,14 @@ module SeqExt (Cont : Ext) = struct
           | [ seq; n ] -> Rewriter.return (seq, n)
           | _ -> Error.internal_error loc "SeqExt: wrong number of operands"
         in
-        let* seq = functs.process_expr seq Type.any in
+        let* seq = functs.check_expr seq Type.any in
         let* inst = seq_instance (Expr.to_type seq) in
         match inst with
         | None -> Error.type_error (Expr.to_loc seq) "Only a sequence can be sliced"
         | Some inst ->
             let name = match expr_ext with SeqTake -> "take" | _ -> "drop" in
             let fn = QualIdent.append inst (Ident.make loc name 0) in
-            functs.process_expr
+            functs.check_expr
               (Expr.mk_app ~loc ~typ:Type.any (Var fn) [ seq; n ])
               expected_typ)
     | SeqLit -> (
@@ -196,12 +196,12 @@ module SeqExt (Cont : Ext) = struct
           | None -> seq_functor
         in
         let* typed =
-          functs.process_expr (build ~loc ~typ:Type.any module_qi expr_list) expected_typ
+          functs.check_expr (build ~loc ~typ:Type.any module_qi expr_list) expected_typ
         in
         match entries typed with
         | Some entries ->
             let typ = Expr.to_type typed in
-            functs.check_and_set
+            functs.set_checked_type
               (App (ExprExt SeqLit, entries, expr_attr))
               typ typ expected_typ
         | None -> Error.internal_error loc "SeqExt: unexpected form of a typed literal")

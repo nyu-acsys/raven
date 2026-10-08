@@ -441,7 +441,7 @@ module DecreasesExt (Cont : Ext) = struct
           (* [call_decl]'s own body/contract is a ghost scope precisely when
            [Callable.is_ghost_kind] says so (e.g. a [Lemma]); a measure expression
            referencing a value that's only meaningful there (e.g. a lemma-local
-           variable) needs the same ghost expectation, or [disambiguate_process_expr]
+           variable) needs the same ghost expectation, or [disambiguate_and_check_expr]
            rejects it as "reads ghost state" -- mirroring how ordinary expression
            processing derives its own expected ghost-ness (see [ExprTyping]'s repeated
            [Type.set_ghost var_ghost]/[Type.set_ghost is_ghost_scope] pattern). *)
@@ -451,7 +451,7 @@ module DecreasesExt (Cont : Ext) = struct
           let+ specs =
             Rewriter.List.map specs ~f:(fun spec ->
                 let* spec_form =
-                  type_check_stmt_functs.disambiguate_process_expr spec.Stmt.spec_form
+                  type_check_stmt_functs.disambiguate_and_check_expr spec.Stmt.spec_form
                     expected_typ disam_tbl
                 in
                 let* wf_order = is_wf_order_type (Expr.to_type spec_form) in

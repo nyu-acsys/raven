@@ -98,7 +98,7 @@ module SetExt (Cont : Ext) = struct
        against the sets of [elem]. Others keep their type, which may be finite. *)
     let settle elem (e : expr) =
       if Type.contains_bot (Expr.to_type e) then
-        functs.process_expr e (ghost (Type.set_typed elem))
+        functs.check_expr e (ghost (Type.set_typed elem))
       else Rewriter.return e
     in
     match (expr_ext, expr_list) with
@@ -122,13 +122,13 @@ module SetExt (Cont : Ext) = struct
           | _ -> Type.bool
         in
         let result = ghost result in
-        functs.check_and_set
+        functs.set_checked_type
           (App (ExprExt expr_ext, [ e1; e2 ], expr_attr))
           result result expected_typ
     | SetOp _, [ e ] ->
         let* e = settle (Type.set_elem (Expr.to_type e)) e in
         let elem = ghost (Type.set_elem (Expr.to_type e)) in
-        functs.check_and_set
+        functs.set_checked_type
           (App (ExprExt expr_ext, [ e ], expr_attr))
           elem elem expected_typ
     | SetOp _, _ -> Error.internal_error loc "SetExt: wrong number of operands"

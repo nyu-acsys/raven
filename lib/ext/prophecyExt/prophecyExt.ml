@@ -300,7 +300,7 @@ module ProphecyExt (Cont : Ext) = struct
     match (type_ext, type_args) with
     | ProphId one_shot, [ t ] ->
         (* Recursively type-check the element type argument, same as List[T]. Making sure to set Type.ghost. *)
-        let+ t = type_check_type_expr_functs.process_type_expr t in
+        let+ t = type_check_type_expr_functs.check_type_expr t in
         Type.App (TypeExt (ProphId one_shot), [ t ], type_attr) |> Type.set_ghost true
     | ProphId _, _ ->
         (* Raise type_error otherwise. *)
@@ -327,8 +327,7 @@ module ProphecyExt (Cont : Ext) = struct
          `Proph[T]`/`Proph[T, 1]`) tells us both the element type T and whether the
          second argument should be a `T` (one-shot) or a `List[T]` (multi-shot). *)
         let* proph_id_expr =
-          type_check_expr_functs.process_expr proph_id_expr
-            (Type.any |> Type.set_ghost true)
+          type_check_expr_functs.check_expr proph_id_expr (Type.any |> Type.set_ghost true)
         in
 
         let one_shot, elem_typ =
@@ -349,7 +348,7 @@ module ProphecyExt (Cont : Ext) = struct
 
         (* Type-checking value_expr *)
         let* value_expr =
-          type_check_expr_functs.process_expr value_expr expected_value_typ
+          type_check_expr_functs.check_expr value_expr expected_value_typ
         in
 
         Rewriter.return
@@ -395,9 +394,9 @@ module ProphecyExt (Cont : Ext) = struct
     | NewProph (oneshot_b, typ), [ proph_id; proph_val ] ->
         (* Type-check `proph_id` against the Proph[typ]/Proph[typ, 1] type -- this both
          checks/binds `proph_id` and, if it was already declared with a different
-         Proph[...] type, catches the mismatch here. From `type_check_basic_stmt`, we must call `disambiguate_process_expr, instead of `process_expr` to make sure we use `disam_tbl` consistently.  *)
+         Proph[...] type, catches the mismatch here. From `type_check_basic_stmt`, we must call `disambiguate_and_check_expr, instead of `check_expr` to make sure we use `disam_tbl` consistently.  *)
         let* proph_id =
-          type_check_stmt_functs.disambiguate_process_expr proph_id
+          type_check_stmt_functs.disambiguate_and_check_expr proph_id
             (proph_id_type ~loc:stmt_loc ~one_shot:oneshot_b typ)
             disam_tbl
         in
@@ -420,7 +419,7 @@ module ProphecyExt (Cont : Ext) = struct
         | true ->
             (* Type-checking proph_val. *)
             let* proph_val =
-              type_check_stmt_functs.disambiguate_process_expr proph_val proph_val_typ
+              type_check_stmt_functs.disambiguate_and_check_expr proph_val proph_val_typ
                 disam_tbl
             in
 
@@ -440,7 +439,7 @@ module ProphecyExt (Cont : Ext) = struct
          us the predicted element type T and whether this is a one-shot or multi-shot
          prophecy. *)
         let* proph_id =
-          type_check_stmt_functs.disambiguate_process_expr proph_id
+          type_check_stmt_functs.disambiguate_and_check_expr proph_id
             (Type.any |> Type.set_ghost true)
             disam_tbl
         in
@@ -455,7 +454,7 @@ module ProphecyExt (Cont : Ext) = struct
         in
 
         let* resolve_value =
-          type_check_stmt_functs.disambiguate_process_expr resolve_value
+          type_check_stmt_functs.disambiguate_and_check_expr resolve_value
             (elem_typ |> Type.set_ghost true)
             disam_tbl
         in

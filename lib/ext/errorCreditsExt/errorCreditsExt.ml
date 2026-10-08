@@ -173,13 +173,13 @@ module ErrorCreditsExt (Cont : Ext) = struct
     | ErrorCreds, [ ec_val ] ->
         (* Need to have this argument be a `Type.real` *)
         let* expr_arg =
-          type_check_expr_functs.process_expr ec_val
+          type_check_expr_functs.check_expr ec_val
             (Type.real |> Type.set_ghost_to expected_typ)
         in
-        (* That's it. Call `check_and_set` with:
+        (* That's it. Call `set_checked_type` with:
           `expr; given_typ_lb; given_typ_ub; expected_typ`  
       *)
-        type_check_expr_functs.check_and_set
+        type_check_expr_functs.set_checked_type
           (App (ExprExt ErrorCreds, [ expr_arg ], expr_attr))
           Type.perm Type.perm Type.perm
     | ErrorCreds, _ ->
@@ -230,7 +230,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
         else
           (* If so, then type-check this expression as a `Type.int` *)
           let* n_expr =
-            type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl
+            type_check_stmt_functs.disambiguate_and_check_expr n_expr Type.int disam_tbl
           in
 
           (* That's it. Rebuild the Stmt.basic_stmt_desc; make sure to use the updated and type-checked arguments and not stale copies. *)
@@ -255,10 +255,10 @@ module ErrorCreditsExt (Cont : Ext) = struct
         else
           (* type-check all arguments *)
           let* n_expr =
-            type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl
+            type_check_stmt_functs.disambiguate_and_check_expr n_expr Type.int disam_tbl
           in
           let* errorVal =
-            type_check_stmt_functs.disambiguate_process_expr errorVal
+            type_check_stmt_functs.disambiguate_and_check_expr errorVal
               (Type.int |> Type.set_ghost true)
               disam_tbl
           in
@@ -286,10 +286,10 @@ module ErrorCreditsExt (Cont : Ext) = struct
         else
           (* Type-check all arguments *)
           let* n_expr =
-            type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl
+            type_check_stmt_functs.disambiguate_and_check_expr n_expr Type.int disam_tbl
           in
           let* ec_expr =
-            type_check_stmt_functs.disambiguate_process_expr ec_expr
+            type_check_stmt_functs.disambiguate_and_check_expr ec_expr
               (Type.real |> Type.set_ghost true)
               disam_tbl
           in
@@ -331,7 +331,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
             (* After adding new variable to symbolTbl, we are finally ready to type-check the function definition expresion, `errFn_def` *)
             let* errFn_def =
-              type_check_stmt_functs.disambiguate_process_expr errFn_def Type.real
+              type_check_stmt_functs.disambiguate_and_check_expr errFn_def Type.real
                 disam_tbl
             in
 
@@ -367,11 +367,11 @@ module ErrorCreditsExt (Cont : Ext) = struct
           type_check_stmt_functs.type_mismatch_error stmt_loc Type.int var_decl.var_type
         else
           let* n_expr =
-            type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl
+            type_check_stmt_functs.disambiguate_and_check_expr n_expr Type.int disam_tbl
           in
 
           let* ls_expr =
-            type_check_stmt_functs.disambiguate_process_expr ls_expr
+            type_check_stmt_functs.disambiguate_and_check_expr ls_expr
               (Type.any |> Type.set_ghost true)
               disam_tbl
           in

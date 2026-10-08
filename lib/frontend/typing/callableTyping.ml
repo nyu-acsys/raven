@@ -208,13 +208,13 @@ let check (callable : Callable.t) : Module.symbol t =
                    Error.internal_error (QualIdent.to_loc qi)
                      "assignments are not permitted in a contract clause");
                expand_type_expr = (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
-               disambiguate_process_expr =
+               disambiguate_and_check_expr =
                  (fun e exp d ->
                    run_typing (StmtTyping.disambiguate_and_check_expr e exp d));
                type_mismatch_error;
                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-               process_symbol = !Rewriter.check_symbol_ref;
-               process_stmt =
+               check_symbol = !Rewriter.check_symbol_ref;
+               check_stmt =
                  (fun _call_decl stmt _disam_tbl ->
                    Error.internal_error (Stmt.to_loc stmt)
                      "statements are not permitted in a contract clause");

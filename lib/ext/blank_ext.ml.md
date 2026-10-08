@@ -162,7 +162,7 @@ module ExtName (Cont : Ext) = struct
 
   (* For a self-contained StmtExt instead (see AssertWithExt for a real example,
      including how to type-check a nested proof block via type_check_stmt_functs'
-     process_stmt): *)
+     check_stmt): *)
   let type_check_stmt_ext call_decl (stmt_ext : Stmt.stmt_ext) (loc : location)
       (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (type_check_stmt_functs : type_check_stmt_functs) :

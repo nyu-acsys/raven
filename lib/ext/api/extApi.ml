@@ -6,13 +6,13 @@ open Ast
    names -- and every extension's [type_check_*] signatures -- unchanged. *)
 
 type type_check_type_expr_functs = Rewriter.type_check_type_expr_functs = {
-  process_type_expr : type_expr -> type_expr Rewriter.t;
+  check_type_expr : type_expr -> type_expr Rewriter.t;
 }
 (** Set of functions of the type checker available for type checking `Type.type_ext` *)
 
 type type_check_expr_functs = Rewriter.type_check_expr_functs = {
-  check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
-  process_expr : expr -> type_expr -> expr Rewriter.t;
+  set_checked_type : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
+  check_expr : expr -> type_expr -> expr Rewriter.t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
 }
@@ -31,13 +31,13 @@ type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
     unit Rewriter.state ->
     unit Rewriter.state * (qual_ident * var_decl);
   expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
-  disambiguate_process_expr :
+  disambiguate_and_check_expr :
     expr -> type_expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   disam_tbl_add_var_decl :
     var_decl -> ProgUtils.DisambiguationTbl.t -> var_decl * ProgUtils.DisambiguationTbl.t;
-  process_symbol : Module.symbol -> Module.symbol Rewriter.t;
-  process_stmt :
+  check_symbol : Module.symbol -> Module.symbol Rewriter.t;
+  check_stmt :
     Callable.call_decl ->
     Stmt.t ->
     ProgUtils.DisambiguationTbl.t ->
@@ -179,7 +179,7 @@ module type Ext = sig
       right-hand side is a map lookup or update whose map operand is not of map type. This
       includes an indexed assignment [x[i] := v], which the parser turns into
       [x := x[i := v]]. Unlike for [claim_expr], the operands are as parsed, not yet
-      disambiguated; the extension can type them with [disambiguate_process_expr] to
+      disambiguated; the extension can type them with [disambiguate_and_check_expr] to
       decide. A claimed statement is type-checked by the extension's
       [type_check_basic_stmt]. *)
 

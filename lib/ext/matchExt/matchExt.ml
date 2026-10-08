@@ -253,7 +253,7 @@ module MatchExt (Cont : Ext) = struct
          wherever a ghost value already is (a ghost block, a spec). Passing a bare
          [Type.any] would instead reject every ghost scrutinee outright. *)
         let* scrutinee =
-          functs.process_expr scrutinee (Type.any |> Type.set_ghost_to expected_typ)
+          functs.check_expr scrutinee (Type.any |> Type.set_ghost_to expected_typ)
         in
         let* data_type = as_data_type (Expr.to_type scrutinee) in
         match data_type with
@@ -268,13 +268,13 @@ module MatchExt (Cont : Ext) = struct
                      (Ident.to_string ctor_ident))
             | Some (ctor_qi, _) ->
                 let bool_typ = Type.bool |> Type.set_ghost_to expected_typ in
-                functs.check_and_set
+                functs.set_checked_type
                   (Expr.App (ExprExt (Is ctor_qi), [ scrutinee ], expr_attr))
                   bool_typ bool_typ expected_typ))
     | MatchExpr arms, scrutinee :: bodies when List.length bodies = List.length arms -> (
         (* Ghostness propagates into the scrutinee exactly as for [Is] above. *)
         let* scrutinee =
-          functs.process_expr scrutinee (Type.any |> Type.set_ghost_to expected_typ)
+          functs.check_expr scrutinee (Type.any |> Type.set_ghost_to expected_typ)
         in
         let* data_type = as_data_type (Expr.to_type scrutinee) in
         match data_type with
@@ -294,7 +294,7 @@ module MatchExt (Cont : Ext) = struct
                       if not (List.is_empty arm.arm_vars) then
                         Error.type_error expr_attr.expr_loc
                           "a wildcard ('_') match arm cannot bind pattern variables"
-                      else functs.process_expr body expected_typ
+                      else functs.check_expr body expected_typ
                   | Some ctor_ident -> (
                       (* [check_arms_exhaustive] above already guarantees [ctor_ident]
                     names a real variant of this data type. *)
@@ -317,10 +317,10 @@ module MatchExt (Cont : Ext) = struct
                                   field_vd.var_type)
                           in
                           let* _ = Rewriter.add_locals pat_var_decls in
-                          functs.process_expr body expected_typ))
+                          functs.check_expr body expected_typ))
             in
             let result_typ = Expr.to_type (List.hd_exn checked_bodies) in
-            functs.check_and_set
+            functs.set_checked_type
               (Expr.App (ExprExt (MatchExpr arms), scrutinee :: checked_bodies, expr_attr))
               result_typ result_typ expected_typ)
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ functs

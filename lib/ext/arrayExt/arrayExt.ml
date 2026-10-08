@@ -65,7 +65,7 @@ module ArrayExt (Cont : Ext) = struct
       (functs : type_check_stmt_functs) =
     let open Rewriter.Syntax in
     let* base =
-      functs.disambiguate_process_expr base (Type.any |> Type.set_ghost true) disam_tbl
+      functs.disambiguate_and_check_expr base (Type.any |> Type.set_ghost true) disam_tbl
     in
     typed_array_instance base
 
@@ -202,7 +202,7 @@ module ArrayExt (Cont : Ext) = struct
     (* Type-checks [basic_stmt], a core statement. *)
     let process (basic_stmt : Stmt.basic_stmt_desc) =
       let+ stmt, disam_tbl =
-        functs.process_stmt call_decl
+        functs.check_stmt call_decl
           { stmt_desc = Basic basic_stmt; stmt_loc = loc }
           disam_tbl
       in

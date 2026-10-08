@@ -86,7 +86,7 @@ module SampleExt (Cont : Ext) = struct
           type_check_stmt_functs.type_mismatch_error stmt_loc Type.int var_decl.var_type
         else
           let* n_expr =
-            type_check_stmt_functs.disambiguate_process_expr n_expr Type.int disam_tbl
+            type_check_stmt_functs.disambiguate_and_check_expr n_expr Type.int disam_tbl
           in
 
           Rewriter.return

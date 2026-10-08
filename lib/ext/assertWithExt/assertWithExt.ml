@@ -186,12 +186,12 @@ module AssertWithExt (Cont : Ext) = struct
            (`Perm`-typed, e.g. predicate) goal is rejected here rather than silently
            accepted and then unsoundly `assume`d for free below. *)
         let* _ =
-          type_check_stmt_functs.disambiguate_process_expr spec.spec_form
+          type_check_stmt_functs.disambiguate_and_check_expr spec.spec_form
             (Type.bool |> Type.set_ghost true)
             disam_tbl
         in
         let+ whole_block, disam_tbl =
-          type_check_stmt_functs.process_stmt call_decl whole_block disam_tbl
+          type_check_stmt_functs.check_stmt call_decl whole_block disam_tbl
         in
         (whole_block.stmt_desc, disam_tbl)
     | _ ->

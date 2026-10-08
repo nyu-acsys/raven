@@ -121,7 +121,7 @@ let rec check (tp_expr : type_expr) : type_expr t =
          and lift the result. *)
       lift
         (ext_hooks.type_check_type_expr type_ext tp_args tp_attr
-           { process_type_expr = (fun tp -> run_typing (check tp)) })
+           { check_type_expr = (fun tp -> run_typing (check tp)) })
   | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
   | App (constr, _tp_list, _tp_attr) ->
       (* The parser should prevent this from happening. *)

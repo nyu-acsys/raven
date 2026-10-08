@@ -731,10 +731,10 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                   lift
                     (ext_hooks.type_check_expr expr_ext expr_list expr_attr expected_typ
                        {
-                         check_and_set =
+                         set_checked_type =
                            (fun e lb ub exp ->
                              run_typing_at depth (set_checked_type e lb ub exp));
-                         process_expr = (fun e exp -> run_typing_at depth (check e exp));
+                         check_expr = (fun e exp -> run_typing_at depth (check e exp));
                          type_mismatch_error;
                          expand_type_expr =
                            (fun tp -> run_typing (TypeExpr.expand_type_expr tp));

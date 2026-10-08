@@ -200,13 +200,13 @@ and cli_config = { cli_strict : bool }
 and ('a, 'b) t_ext = 'b state -> 'b state * 'a
 and 'a t = ('a, unit) t_ext
 
-and type_check_type_expr_functs = { process_type_expr : type_expr -> type_expr t }
+and type_check_type_expr_functs = { check_type_expr : type_expr -> type_expr t }
 (** Callback bundle the type checker hands to [ext_hooks.type_check_type_expr] so an
     extension can recursively process sub-type-expressions using the core type-checker. *)
 
 and type_check_expr_functs = {
-  check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr t;
-  process_expr : expr -> type_expr -> expr t;
+  set_checked_type : expr -> type_expr -> type_expr -> type_expr -> expr t;
+  check_expr : expr -> type_expr -> expr t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   expand_type_expr : type_expr -> (type_expr, unit) t_ext;
 }
@@ -227,11 +227,11 @@ and type_check_stmt_functs = {
     unit state ->
     unit state * (qual_ident * var_decl);
   expand_type_expr : type_expr -> (type_expr, unit) t_ext;
-  disambiguate_process_expr : expr -> type_expr -> DisambiguationTbl.t -> expr t;
+  disambiguate_and_check_expr : expr -> type_expr -> DisambiguationTbl.t -> expr t;
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   disam_tbl_add_var_decl :
     var_decl -> DisambiguationTbl.t -> var_decl * DisambiguationTbl.t;
-  process_symbol : Module.symbol -> Module.symbol t;
+  check_symbol : Module.symbol -> Module.symbol t;
       (** Recursively type-checks a nested statement (e.g. a proof block carried by a
           top-level [Stmt.StmtExt] node) in its own fresh scope, the same way
           [StmtTyping.check] type-checks an ordinary callable body statement. Needed
@@ -239,7 +239,7 @@ and type_check_stmt_functs = {
           other way to recurse: [Stmt.stmt_ext] is an opaque, extension-owned value, so
           only the type checker itself can drive type-checking of whatever [Stmt.t] an
           extension embeds in it. *)
-  process_stmt :
+  check_stmt :
     Callable.call_decl ->
     Stmt.t ->
     DisambiguationTbl.t ->
@@ -345,7 +345,7 @@ and ext_hooks = {
           right-hand side is a map lookup or update whose map operand is not of map type.
           This includes an indexed assignment [x[i] := v], which the parser turns into
           [x := x[i := v]]. Unlike for [claim_expr], the operands are as parsed, not yet
-          disambiguated; the extension can type them with [disambiguate_process_expr] to
+          disambiguated; the extension can type them with [disambiguate_and_check_expr] to
           decide. A claimed statement is type-checked by the extension's
           [type_check_basic_stmt]. *)
   claim_basic_stmt :
