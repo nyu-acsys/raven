@@ -57,6 +57,8 @@ All notable changes to this project will be documented in this file.
 
 - Proofs involving non-linear arithmetic verify faster and with less variable times.
 
+- Raven's tests run against Z3 5.1.0, and installing its dependencies with opam requires at least that version.
+
 - Improved the wording and readability of the tutorial.
 
 

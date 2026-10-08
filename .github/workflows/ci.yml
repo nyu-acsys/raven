@@ -11,7 +11,7 @@ permissions: read-all
 # The Z3 release the tests run against. Fixed rather than the latest, so that a new Z3
 # release cannot fail the tests without a change here.
 env:
-  Z3_VERSION: "4.16.0"
+  Z3_VERSION: "5.1.0"
 
 jobs:
   # The ocamlformat version must match the one in .ocamlformat.
