@@ -471,53 +471,19 @@ func_decl:
 callable_decl:
   id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
-  let call_decl_opens = single_opens_clause opens in
-  let call_decl_loc_params, formals = formals in
-  let decl =
-    Callable.{ call_decl_kind = Func;
-               call_decl_name = id;
-               call_decl_formals = formals;
-               call_decl_returns = returns;
-               call_decl_locals = [];
-               call_decl_precond = precond;
-               call_decl_postcond = postcond;
-               call_decl_contract_ext = contract_ext;
-               call_decl_status = NotFree;
-               call_decl_is_auto = false;
-               call_decl_is_inline = false;
-               call_decl_needs_mask = None;
-               call_decl_grants_mask = None;
-               call_decl_opens;
-               call_decl_loc = Loc.make $startpos(id) $endpos(id);
-               call_decl_loc_params;
-             }
-  in decl
+  let opens = single_opens_clause opens in
+  let loc_params, formals = formals in
+  Callable.mk_call_decl ~kind:Func ~name:id ~loc:(Loc.make $startpos(id) $endpos(id))
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params ()
 }
 
 callable_decl_out_vars:
   id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
-  let call_decl_opens = single_opens_clause opens in
-  let call_decl_loc_params, formals = formals in
-  let decl =
-    Callable.{ call_decl_kind = Func;
-               call_decl_name = id;
-               call_decl_formals = formals;
-               call_decl_returns = returns;
-               call_decl_locals = [];
-               call_decl_precond = precond;
-               call_decl_postcond = postcond;
-               call_decl_contract_ext = contract_ext;
-               call_decl_status = NotFree;
-               call_decl_is_auto = false;
-               call_decl_is_inline = false;
-               call_decl_needs_mask = None;
-               call_decl_grants_mask = None;
-               call_decl_opens;
-               call_decl_loc = Loc.make $startpos(id) $endpos(id);
-               call_decl_loc_params;
-             }
-  in decl
+  let opens = single_opens_clause opens in
+  let loc_params, formals = formals in
+  Callable.mk_call_decl ~kind:Func ~name:id ~loc:(Loc.make $startpos(id) $endpos(id))
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params ()
 }
 
 

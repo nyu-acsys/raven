@@ -2639,6 +2639,31 @@ module Callable = struct
   let to_loc (call : t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_loc
   let kind (call : t) = call |> to_decl |> fun call_decl -> call_decl.call_decl_kind
 
+  (** A declaration of a callable, with the fields not given empty, [NotFree], [false] or
+      [None]. *)
+  let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
+      ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
+      ?(status = NotFree) ?(is_auto = false) ?(is_inline = false) ?needs_mask ?grants_mask
+      ?opens ?(loc_params = []) () : call_decl =
+    {
+      call_decl_kind = kind;
+      call_decl_name = name;
+      call_decl_formals = formals;
+      call_decl_returns = returns;
+      call_decl_locals = locals;
+      call_decl_precond = precond;
+      call_decl_postcond = postcond;
+      call_decl_contract_ext = contract_ext;
+      call_decl_status = status;
+      call_decl_is_auto = is_auto;
+      call_decl_is_inline = is_inline;
+      call_decl_needs_mask = needs_mask;
+      call_decl_grants_mask = grants_mask;
+      call_decl_opens = opens;
+      call_decl_loc = loc;
+      call_decl_loc_params = loc_params;
+    }
+
   let is_abstract = function
     | { call_def = FuncDef { func_body = None; _ }; _ }
     | { call_def = ProcDef { proc_body = None; _ }; _ } ->

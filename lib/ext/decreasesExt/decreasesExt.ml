@@ -233,24 +233,8 @@ module DecreasesExt (Cont : Ext) = struct
     let y_vd = Type.mk_var_decl ~const:true (Ident.make loc "y" 0) measure_type in
     let res_vd = Type.mk_var_decl ~const:true (Ident.make loc "res" 0) Type.bool in
     let lt_call_decl : Callable.call_decl =
-      {
-        call_decl_kind = Func;
-        call_decl_name = Ident.make loc "lt" 0;
-        call_decl_formals = [ x_vd; y_vd ];
-        call_decl_returns = [ res_vd ];
-        call_decl_locals = [];
-        call_decl_precond = [];
-        call_decl_postcond = [];
-        call_decl_contract_ext = [];
-        call_decl_status = NotFree;
-        call_decl_is_auto = false;
-        call_decl_is_inline = false;
-        call_decl_needs_mask = None;
-        call_decl_grants_mask = None;
-        call_decl_opens = None;
-        call_decl_loc = loc;
-        call_decl_loc_params = [];
-      }
+      Callable.mk_call_decl ~kind:Func ~name:(Ident.make loc "lt" 0) ~loc
+        ~formals:[ x_vd; y_vd ] ~returns:[ res_vd ] ()
     in
     let lt_call_def =
       Callable.FuncDef

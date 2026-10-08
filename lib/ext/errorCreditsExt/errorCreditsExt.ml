@@ -630,30 +630,10 @@ module ErrorCreditsExt (Cont : Ext) = struct
 
         (* Define the function declaration for the `errFnSumToN` function *)
         let sum_func_decl =
-          {
-            Callable.call_decl_kind = Func;
-            call_decl_name = sum_func_name;
-            call_decl_formals = sum_func_arg_var_decls;
-            call_decl_returns =
-              [ Type.mk_var_decl ~loc (Ident.fresh loc "ret") Type.real ];
-            call_decl_locals = [];
-            call_decl_precond = [];
-            call_decl_postcond = [];
-            call_decl_contract_ext = [];
-            call_decl_status = NotFree;
-            call_decl_is_auto = false;
-            call_decl_is_inline = false;
-            (* Safe to seed directly rather than leave as `None` pending the mask
-           fixpoint: `masks.ml`'s `fixpoint_compute_masks` treats every `Func`
-           (this is one, per `call_decl_kind` above) as `[]` unconditionally,
-           regardless of body content -- funcs are pure expressions and can
-           never unfold an invariant. *)
-            call_decl_needs_mask = Some [];
-            call_decl_grants_mask = Some [];
-            call_decl_opens = None;
-            call_decl_loc = loc;
-            call_decl_loc_params = [];
-          }
+          Callable.mk_call_decl ~kind:Func ~name:sum_func_name ~loc
+            ~formals:sum_func_arg_var_decls
+            ~returns:[ Type.mk_var_decl ~loc (Ident.fresh loc "ret") Type.real ]
+            ~needs_mask:[] ~grants_mask:[] ()
         in
 
         (* Define function body *)

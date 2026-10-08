@@ -227,24 +227,9 @@ let rec rewrite_compr_expr (expr : expr) : expr Rewriter.t =
       in
 
       let call_decl =
-        {
-          Callable.call_decl_kind = Func;
-          call_decl_name = compr_fn_ident;
-          call_decl_formals = formal_var_decls;
-          call_decl_returns = [ ret_var_decl ];
-          call_decl_locals = [];
-          call_decl_precond = [];
-          call_decl_postcond = [ postcond ];
-          call_decl_contract_ext = [];
-          call_decl_status = MachineFree;
-          call_decl_is_auto = false;
-          call_decl_is_inline = false;
-          call_decl_needs_mask = None;
-          call_decl_grants_mask = None;
-          call_decl_opens = None;
-          call_decl_loc = Expr.to_loc expr;
-          call_decl_loc_params = [];
-        }
+        Callable.mk_call_decl ~kind:Func ~name:compr_fn_ident ~loc:(Expr.to_loc expr)
+          ~formals:formal_var_decls ~returns:[ ret_var_decl ] ~postcond:[ postcond ]
+          ~status:MachineFree ()
       in
 
       let* current_module_name = Rewriter.current_module_name in
@@ -533,24 +518,11 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
                    Expr.alpha_renaming e loop_arg_renaming_map))
         in
 
-        {
-          Callable.call_decl_kind = (if is_ghost_scope then Lemma else Proc);
-          call_decl_name = loop_proc_name;
-          call_decl_formals = loop_arg_var_decls;
-          call_decl_returns = loop_ret_var_decls;
-          call_decl_locals = loop_local_var_decls;
-          call_decl_precond = loop_precond;
-          call_decl_postcond = loop_postcond;
-          call_decl_contract_ext = loop_contract_ext;
-          call_decl_status = NotFree;
-          call_decl_is_auto = false;
-          call_decl_is_inline = false;
-          call_decl_needs_mask = None;
-          call_decl_grants_mask = None;
-          call_decl_opens = loop_opens;
-          call_decl_loc = stmt.stmt_loc;
-          call_decl_loc_params = [];
-        }
+        Callable.mk_call_decl
+          ~kind:(if is_ghost_scope then Lemma else Proc)
+          ~name:loop_proc_name ~loc:stmt.stmt_loc ~formals:loop_arg_var_decls
+          ~returns:loop_ret_var_decls ~locals:loop_local_var_decls ~precond:loop_precond
+          ~postcond:loop_postcond ~contract_ext:loop_contract_ext ?opens:loop_opens ()
       in
 
       let* loop_body =
@@ -1040,34 +1012,10 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) :
             in
 
             let lemma_call_decl =
-              Callable.
-                {
-                  call_decl_kind = Lemma;
-                  call_decl_name = lemma_ident;
-                  call_decl_formals = call_decl.call_decl_formals;
-                  call_decl_returns = [];
-                  call_decl_locals = [];
-                  call_decl_precond = [];
-                  call_decl_postcond = lemma_postconds;
-                  call_decl_contract_ext = [];
-                  call_decl_status = call_decl.call_decl_status;
-                  call_decl_is_auto = true;
-                  call_decl_is_inline = false;
-                  (* Created at the end of `process_module_front`, after
-                     `Masks.compute_masks`/atomicity analysis have already
-                     run, so this never goes through the mask fixpoint and
-                     `call_decl_needs_mask` would otherwise be stuck at `None`
-                     forever. Safe to seed it as `Some []` directly: this
-                     lemma's body only ever mirrors a `func`'s (pure
-                     expression) body and calls other such auto-lemmas (see
-                     the doc comment above), so, transitively, it can never
-                     unfold an invariant or need a real mask requirement. *)
-                  call_decl_needs_mask = Some [];
-                  call_decl_grants_mask = Some [];
-                  call_decl_opens = None;
-                  call_decl_loc = call_decl.call_decl_loc;
-                  call_decl_loc_params = [];
-                }
+              Callable.mk_call_decl ~kind:Lemma ~name:lemma_ident
+                ~loc:call_decl.call_decl_loc ~formals:call_decl.call_decl_formals
+                ~postcond:lemma_postconds ~status:call_decl.call_decl_status ~is_auto:true
+                ~needs_mask:[] ~grants_mask:[] ()
             in
 
             (* A free func's contract is trusted, so its lemma is an axiom. *)

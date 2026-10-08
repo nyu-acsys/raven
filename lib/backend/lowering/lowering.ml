@@ -1291,31 +1291,9 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) : Callable.t Rewriter
              (Expr.mk_bool ~loc:(Expr.to_loc body) false)
           in*)
             let call_decl =
-              {
-                Callable.call_decl_kind = Lemma;
-                call_decl_name = pred_valid_lemma_ident;
-                call_decl_formals = formal_args;
-                call_decl_returns = [];
-                call_decl_locals = [];
-                call_decl_precond = [];
-                call_decl_postcond = postconds;
-                call_decl_contract_ext = [];
-                call_decl_status = NotFree;
-                call_decl_is_auto = false;
-                call_decl_is_inline = false;
-                (* This callable is created in `rewrites_phase_3`, after
-                 `Masks.compute_masks`/atomicity analysis have already run, so
-                 it never goes through the mask fixpoint and `call_decl_needs_mask`
-                 would otherwise be stuck at `None` forever. Safe to seed it
-                 as `Some []` directly: the body below is just two `inhale`s
-                 -- structurally impossible to unfold an invariant, so it can
-                 never have a real mask requirement. *)
-                call_decl_needs_mask = Some [];
-                call_decl_grants_mask = Some [];
-                call_decl_opens = None;
-                call_decl_loc = c.call_decl.call_decl_loc;
-                call_decl_loc_params = [];
-              }
+              Callable.mk_call_decl ~kind:Lemma ~name:pred_valid_lemma_ident
+                ~loc:c.call_decl.call_decl_loc ~formals:formal_args ~postcond:postconds
+                ~needs_mask:[] ~grants_mask:[] ()
             in
 
             let* pred_qual_ident = Rewriter.current_scope_id in

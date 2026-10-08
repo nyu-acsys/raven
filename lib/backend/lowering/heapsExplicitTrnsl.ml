@@ -400,24 +400,8 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
     in
 
     let call_decl =
-      {
-        Callable.call_decl_kind = Func;
-        call_decl_name = inv_fn_ident;
-        call_decl_formals = formal_var_decls;
-        call_decl_returns = [ ret_var_decl ];
-        call_decl_locals = [];
-        call_decl_precond = [ (* precond *) ];
-        call_decl_postcond = [ (* postcond *) ];
-        call_decl_contract_ext = [];
-        call_decl_status = NotFree;
-        call_decl_is_auto = false;
-        call_decl_is_inline = false;
-        call_decl_loc = loc;
-        call_decl_loc_params = [];
-        call_decl_needs_mask = Some [];
-        call_decl_grants_mask = Some [];
-        call_decl_opens = None;
-      }
+      Callable.mk_call_decl ~kind:Func ~name:inv_fn_ident ~loc ~formals:formal_var_decls
+        ~returns:[ ret_var_decl ] ~needs_mask:[] ~grants_mask:[] ()
     in
 
     let* inv_fn_qual_ident =
@@ -572,31 +556,8 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
       in
 
       let call_decl =
-        {
-          Callable.call_decl_kind = Lemma;
-          call_decl_name = inv_fn_lemma_ident;
-          call_decl_formals = [];
-          call_decl_returns = [];
-          call_decl_locals = [];
-          call_decl_precond = preconds;
-          call_decl_postcond = postconds;
-          call_decl_contract_ext = [];
-          call_decl_status = NotFree;
-          call_decl_is_auto = true;
-          call_decl_is_inline = false;
-          (* Created in `rewrites_phase_3` (via TrnslInhale/TrnslExhale), after
-             `Masks.compute_masks`/atomicity analysis have already run, so
-             this never goes through the mask fixpoint and `call_decl_needs_mask`
-             would otherwise be stuck at `None` forever. Safe to seed it as
-             `Some []` directly: the body below is just an assert followed by
-             `assume false` (see `generate_injectivity_assertions`), with no
-             call or unfold/fold of any kind. *)
-          call_decl_needs_mask = Some [];
-          call_decl_grants_mask = Some [];
-          call_decl_opens = None;
-          call_decl_loc = loc;
-          call_decl_loc_params = [];
-        }
+        Callable.mk_call_decl ~kind:Lemma ~name:inv_fn_lemma_ident ~loc ~precond:preconds
+          ~postcond:postconds ~is_auto:true ~needs_mask:[] ~grants_mask:[] ()
       in
 
       let lemma_body =
@@ -725,24 +686,8 @@ let generate_skolem_function (universal_quants : universal_quants) (var_decl : v
   in
 
   let call_decl =
-    {
-      Callable.call_decl_kind = Func;
-      call_decl_name = skolem_fn_ident;
-      call_decl_formals = formal_var_decls;
-      call_decl_returns = [ ret_var_decl ];
-      call_decl_locals = [];
-      call_decl_precond = [];
-      call_decl_postcond = postconds;
-      call_decl_contract_ext = [];
-      call_decl_loc = loc;
-      call_decl_loc_params = [];
-      call_decl_status = NotFree;
-      call_decl_is_auto = false;
-      call_decl_is_inline = false;
-      call_decl_needs_mask = Some [];
-      call_decl_grants_mask = Some [];
-      call_decl_opens = None;
-    }
+    Callable.mk_call_decl ~kind:Func ~name:skolem_fn_ident ~loc ~formals:formal_var_decls
+      ~returns:[ ret_var_decl ] ~postcond:postconds ~needs_mask:[] ~grants_mask:[] ()
   in
 
   let* skolem_fn_qual_ident =
@@ -888,25 +833,11 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
         (Type.mk_map loc in_arg_typ type_tp_expr)
     in
     let heap_valid_fn_decl =
-      {
-        Callable.call_decl_kind = Func;
-        call_decl_name = ProgUtils.heap_utils_valid_ident loc;
-        call_decl_formals = [ heap_formal_arg ];
-        call_decl_returns =
-          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool ];
-        call_decl_locals = [];
-        call_decl_precond = [];
-        call_decl_postcond = [];
-        call_decl_contract_ext = [];
-        call_decl_status = MachineFree;
-        call_decl_is_auto = false;
-        call_decl_is_inline = false;
-        call_decl_loc = loc;
-        call_decl_loc_params = [];
-        call_decl_needs_mask = Some [];
-        call_decl_grants_mask = Some [];
-        call_decl_opens = None;
-      }
+      Callable.mk_call_decl ~kind:Func
+        ~name:(ProgUtils.heap_utils_valid_ident loc)
+        ~loc ~formals:[ heap_formal_arg ]
+        ~returns:[ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool ]
+        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
     in
 
     let l_var_decl = Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "l") in_arg_typ in
@@ -972,29 +903,17 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     in
 
     let heap_add_chunk_fn_decl =
-      {
-        Callable.call_decl_kind = Func;
-        call_decl_name = ProgUtils.heap_utils_comp_chunk_ident loc;
-        call_decl_formals =
+      Callable.mk_call_decl ~kind:Func
+        ~name:(ProgUtils.heap_utils_comp_chunk_ident loc)
+        ~loc
+        ~formals:
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
-          ];
-        call_decl_returns =
-          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr ];
-        call_decl_locals = [];
-        call_decl_precond = [];
-        call_decl_postcond = [];
-        call_decl_contract_ext = [];
-        call_decl_status = MachineFree;
-        call_decl_is_auto = false;
-        call_decl_is_inline = false;
-        call_decl_loc = loc;
-        call_decl_loc_params = [];
-        call_decl_needs_mask = Some [];
-        call_decl_grants_mask = Some [];
-        call_decl_opens = None;
-      }
+          ]
+        ~returns:
+          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr ]
+        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
     in
 
     let heap_add_chunk_fn =
@@ -1018,29 +937,17 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     in
 
     let heap_sub_chunk_fn_decl =
-      {
-        Callable.call_decl_kind = Func;
-        call_decl_name = ProgUtils.heap_utils_frame_chunk_ident loc;
-        call_decl_formals =
+      Callable.mk_call_decl ~kind:Func
+        ~name:(ProgUtils.heap_utils_frame_chunk_ident loc)
+        ~loc
+        ~formals:
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
-          ];
-        call_decl_returns =
-          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr ];
-        call_decl_locals = [];
-        call_decl_precond = [];
-        call_decl_postcond = [];
-        call_decl_contract_ext = [];
-        call_decl_status = MachineFree;
-        call_decl_is_auto = false;
-        call_decl_is_inline = false;
-        call_decl_needs_mask = Some [];
-        call_decl_grants_mask = Some [];
-        call_decl_opens = None;
-        call_decl_loc = loc;
-        call_decl_loc_params = [];
-      }
+          ]
+        ~returns:
+          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") type_tp_expr ]
+        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
     in
 
     let heap_sub_chunk_fn =
@@ -1064,29 +971,16 @@ let generate_utils_module ~(is_field : bool) ?(is_frac_field = false) (mod_ident
     in
 
     let heapchunk_compare_fn_decl =
-      {
-        Callable.call_decl_kind = Func;
-        call_decl_name = ProgUtils.heap_utils_heapchunk_compare_ident loc;
-        call_decl_formals =
+      Callable.mk_call_decl ~kind:Func
+        ~name:(ProgUtils.heap_utils_heapchunk_compare_ident loc)
+        ~loc
+        ~formals:
           [
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x1") type_tp_expr;
             Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "x2") type_tp_expr;
-          ];
-        call_decl_returns =
-          [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool ];
-        call_decl_locals = [];
-        call_decl_precond = [];
-        call_decl_postcond = [];
-        call_decl_contract_ext = [];
-        call_decl_status = MachineFree;
-        call_decl_is_auto = false;
-        call_decl_is_inline = false;
-        call_decl_needs_mask = Some [];
-        call_decl_grants_mask = Some [];
-        call_decl_opens = None;
-        call_decl_loc = loc;
-        call_decl_loc_params = [];
-      }
+          ]
+        ~returns:[ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") Type.bool ]
+        ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ()
     in
 
     let heapchunk_compare_fn =
@@ -1199,25 +1093,9 @@ let generate_unit_pred_ra ~loc (mod_ident : ident) : Module.symbol Rewriter.t =
     in
     {
       Callable.call_decl =
-        {
-          call_decl_kind = Func;
-          call_decl_name = Ident.make loc name 0;
-          call_decl_formals = formals;
-          call_decl_returns =
-            [ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") ret_type ];
-          call_decl_locals = [];
-          call_decl_precond = [];
-          call_decl_postcond = [];
-          call_decl_contract_ext = [];
-          call_decl_status = MachineFree;
-          call_decl_is_auto = false;
-          call_decl_is_inline = false;
-          call_decl_loc = loc;
-          call_decl_loc_params = [];
-          call_decl_needs_mask = Some [];
-          call_decl_grants_mask = Some [];
-          call_decl_opens = None;
-        };
+        Callable.mk_call_decl ~kind:Func ~name:(Ident.make loc name 0) ~loc ~formals
+          ~returns:[ Type.mk_var_decl ~loc ~const:true (Ident.fresh loc "ret") ret_type ]
+          ~status:MachineFree ~needs_mask:[] ~grants_mask:[] ();
       call_def = FuncDef { func_body = Some body };
     }
   in
