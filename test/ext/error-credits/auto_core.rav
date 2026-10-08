@@ -1,0 +1,20 @@
+// Constructs of the core, which every --extension chain has (here a match), do not
+// keep --extension auto from picking the error credits extension.
+module UsesCore {
+  type Opt = data {
+    case none
+    case some(v: Int)
+  }
+
+  func get(o: Opt) returns (r: Int) {
+    match o {
+      case none => 0
+      case some(v) => v
+    }
+  }
+
+  proc foo()
+    requires EC.error(0.5)
+  {
+  }
+}

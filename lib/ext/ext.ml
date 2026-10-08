@@ -246,43 +246,60 @@ let collect_ext_tags (m : Module.t) : ext_tag list =
   let (_ : SymbolTbl.t), (_ : unit) = Rewriter.eval pass (SymbolTbl.create ()) in
   List.rev !tags
 
+(** The names of the `--extension` chains that recognize the construct [tag]. *)
+let chains_recognizing (tag : ext_tag) : string list =
+  List.filter_map known_extensions ~f:(fun (name, (module M : ExtApi.Ext)) ->
+      let recognized =
+        match tag with
+        | TypeTag (t, _) -> M.type_ext_is_recognized t
+        | ExprTag (e, _) -> M.expr_ext_is_recognized e
+        | StmtTag (s, _) -> M.stmt_ext_is_recognized s
+      in
+      Option.some_if recognized name)
+
 (** Given the tags [collect_ext_tags] found, decides which `--extension` chain the program
-    needs. [None] when it uses no extension-specific syntax at all -- the same fallback as
-    today's implicit default when no `--extension` flag is given at all. Raises when the
-    tags don't all belong to one chain (e.g. a file mixing prophecy and eris syntax),
-    naming both and pointing at the second one found -- the same "belongs to the X
-    extension" phrasing [DefaultExt.extension_mismatch_error] uses for the
-    single-extension case. *)
+    needs: the first, in [ext_map] order, of the chains that recognize each of them. A
+    construct that every chain recognizes, such as one of [RavenCore], leaves the choice
+    open. [None] when no construct narrows it, the same fallback as when no `--extension`
+    flag is given at all. Raises when no chain recognizes all tags (e.g. a file mixing
+    prophecy and eris syntax), pointing at the tag that rules out the last chains and at
+    the one that narrowed them to those. *)
 let resolve_extension (tags : ext_tag list) : string option =
-  let name_loc_construct = function
-    | TypeTag (t, loc) -> (suggest_extension_for_type_ext t, loc, "type")
-    | ExprTag (e, loc) -> (suggest_extension_for_expr_ext e, loc, "expression")
-    | StmtTag (s, loc) -> (suggest_extension_for_stmt_ext s, loc, "statement")
+  let loc_construct = function
+    | TypeTag (_, loc) -> (loc, "type")
+    | ExprTag (_, loc) -> (loc, "expression")
+    | StmtTag (_, loc) -> (loc, "statement")
   in
-  List.fold tags ~init:None ~f:(fun acc tag ->
-      match name_loc_construct tag with
-      | None, _, _ -> acc
-      | Some name, loc, construct -> (
-          match acc with
-          | None -> Some (name, loc, construct)
-          | Some (name', loc', construct') ->
-              if String.(name' = name) then acc
-              else
-                Error.fail_with
-                  [
-                    ( Error.Generic,
-                      loc,
-                      Printf.sprintf
-                        "this %s belongs to the %s extension, but this file also uses a \
-                         %s belonging to the %s extension; --extension auto cannot pick \
-                         a single mode for it, re-run with an explicit --extension flag"
-                        construct name construct' name' );
-                    ( Error.RelatedLoc,
-                      loc',
-                      Printf.sprintf "this %s belongs to the %s extension" construct'
-                        name' );
-                  ]))
-  |> Option.map ~f:(fun (name, _, _) -> name)
+  let all_chains = List.map known_extensions ~f:fst in
+  let names chains = String.concat ~sep:" or " chains in
+  let possible, narrowed_by =
+    List.fold tags ~init:(all_chains, None) ~f:(fun (possible, narrowed_by) tag ->
+        let chains = chains_recognizing tag in
+        if List.is_empty chains || List.length chains = List.length all_chains then
+          (possible, narrowed_by)
+        else
+          let possible' = List.filter possible ~f:(List.mem chains ~equal:String.equal) in
+          match (possible', narrowed_by) with
+          | [], Some (tag', chains') ->
+              let loc, construct = loc_construct tag in
+              let loc', construct' = loc_construct tag' in
+              Error.fail_with
+                [
+                  ( Error.Generic,
+                    loc,
+                    Printf.sprintf
+                      "this %s belongs to the %s extension, but this file also uses a %s \
+                       belonging to the %s extension; --extension auto cannot pick a \
+                       single mode for it, re-run with an explicit --extension flag"
+                      construct (names chains) construct' (names chains') );
+                  ( Error.RelatedLoc,
+                    loc',
+                    Printf.sprintf "this %s belongs to the %s extension" construct'
+                      (names chains') );
+                ]
+          | _ -> (possible', Some (tag, chains)))
+  in
+  Option.bind narrowed_by ~f:(fun _ -> List.hd possible)
 
 (** Auto-detects the `--extension` chain for the already-parsed program [m]. Falls back to
     [ProphecyExt] (the "default" chain) when [m] uses no extension-specific syntax --

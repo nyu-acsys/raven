@@ -68,6 +68,8 @@ All notable changes to this project will be documented in this file.
 
 - A set literal takes its element type from the expected type, so that `{| {||} |}` type-checks where a `Set[Set[Int]]` is expected.
 
+- `--extension auto` no longer takes a program that uses error credits or prophecies together with a construct every extension has, such as `match`, for a mix of extensions.
+
 - A loop may open the invariants listed in the `opens` clause of the procedure it is in.
 
 - Implicit functor instantiation infers a functor's arguments from a value of its rep type also when the rep type is defined as the type of a nested module, as in `rep type T = L.T`.
