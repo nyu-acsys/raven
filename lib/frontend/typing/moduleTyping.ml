@@ -189,6 +189,88 @@ let check_var (var : Stmt.var_def) : Module.symbol t =
   in
   Module.(VarDef var)
 
+(** A module that is not an interface may not have abstract members, nor instances of an
+    interface. *)
+let check_no_abstract_members (mod_decl : Module.module_decl)
+    (mod_def : Module.module_instr list) : unit t =
+  let open Rewriter.Syntax in
+  if not mod_decl.mod_decl_is_interface then
+    Rewriter.List.iter mod_def ~f:(function
+      | Import _ -> Rewriter.return ()
+      | SymbolDef symbol when not (Symbol.is_free symbol) -> (
+          match symbol with
+          | TypeDef { type_def_expr = None; _ }
+          | ModInst { mod_inst_def = None; _ }
+          | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
+          | CallDef
+              {
+                call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
+                call_decl = { call_decl_status = NotFree; _ };
+              } ->
+              if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
+                Error.type_error (Symbol.to_loc symbol)
+                  (Printf.sprintf
+                     !"The %s %{Ident} cannot be abstract here. An abstract member can \
+                       only be declared in an interface"
+                     (Symbol.kind symbol) (Symbol.to_name symbol))
+              else
+                Error.type_error mod_decl.mod_decl_loc
+                  (Printf.sprintf
+                     !"Module %{Ident} must be declared as an interface. The %s %{Ident} \
+                       is still abstract"
+                     (ProgUtils.source_module_name mod_decl.mod_decl_name)
+                     (Symbol.kind symbol) (Symbol.to_name symbol))
+          | ModInst
+              { mod_inst_def = Some (mod_inst_func, _); mod_inst_is_interface = false; _ }
+            -> (
+              let+ mod_inst_symbol = Rewriter.find_and_reify mod_inst_func in
+              match mod_inst_symbol with
+              | Module.ModDef mdef ->
+                  if mdef.mod_decl.mod_decl_is_interface then
+                    Error.type_error (Symbol.to_loc symbol)
+                      (Printf.sprintf
+                         !"Module %{Ident} must be declared as an interface"
+                         (ProgUtils.source_module_name (Symbol.to_name symbol)))
+              | _ -> ())
+          | _ -> Rewriter.return ())
+      | _ -> Rewriter.return ())
+  else Rewriter.return ()
+
+(** What [Library.WordSized] means is checked here, on the implementation's rep type: an
+    atomic primitive works on a single machine word, which no declared member can express.
+    The check concerns the representation, not value ranges, since Int is unbounded.
+    Interfaces are exempt, as their rep type is abstract. It runs after [check_instr],
+    which brings the rep type into its final form. *)
+let check_word_sized (mod_decl : Module.module_decl) (mod_def : Module.module_instr list)
+    : unit t =
+  let open Rewriter.Syntax in
+  let rep_def =
+    match mod_decl.mod_decl_rep with
+    | None -> None
+    | Some rep_ident ->
+        List.find_map mod_def ~f:(function
+          | Module.SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
+            when Ident.equal type_def_name rep_ident ->
+              Some tp
+          | _ -> None)
+  in
+  match rep_def with
+  | Some rep_type
+    when (not mod_decl.mod_decl_is_interface)
+         && Set.mem mod_decl.mod_decl_interfaces Predefs.lib_word_sized_mod_qual_ident ->
+      let* is_word_sized = is_type_word_sized rep_type in
+      if is_word_sized then Rewriter.return ()
+      else
+        let* printers = Rewriter.current_printers in
+        Error.type_error mod_decl.mod_decl_loc
+          (Printf.sprintf
+             !"`%s` is not word-sized, so it cannot implement %{QualIdent}. An atomic \
+               primitive operates on a single machine word: Int, Bool, Ref, or a data \
+               type with at most four constructors each taking at most one of those"
+             (Print.string_of_format printers.pr_type rep_type)
+             Predefs.lib_word_sized_mod_qual_ident)
+  | _ -> Rewriter.return ()
+
 let rec check (m : Module.t) : Module.t t =
   let open Rewriter.Syntax in
   let _ =
@@ -216,119 +298,6 @@ let rec check (m : Module.t) : Module.t t =
     Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl))
   in
 
-  let check_instr = function
-    | Module.SymbolDef symbol ->
-        let* symbol_def =
-          match symbol with
-          | TypeDef type_def -> check_type_def type_def
-          | VarDef var_def -> check_var var_def
-          | FieldDef field_def -> check_field field_def
-          | ConstrDef _ | DestrDef _ ->
-              Rewriter.return symbol
-              (* These should not occur directly in a module definition *)
-          | CallDef call_def -> CallableTyping.check call_def
-          | ModDef mod_def ->
-              let* _ = Rewriter.enter_module mod_def and* mod_def = check mod_def in
-              let+ mod_def = Rewriter.exit_module mod_def in
-              Module.ModDef mod_def
-          | ModInst mod_inst ->
-              (* A functor application `module M : I = F[args]` *)
-              (* Get symbol of I *)
-              let* mod_inst_type = Rewriter.resolve mod_inst.mod_inst_type in
-              (* Resolves the functor `F` and pairs its formals with `args`, wrapping a
-                 bare type argument (e.g. `M[Int]`) into a rep module (see
-                 [ProgUtils.intros_rep_module]). This precedes [declare_symbol], as
-                 [SymbolTbl.add_symbol] needs the argument modules. *)
-              let* mod_inst_def, to_check =
-                match mod_inst.mod_inst_def with
-                | None -> Rewriter.return (None, [])
-                | Some (mod_inst_func, mod_inst_args) ->
-                    (* Get qualified name of F and its symbol *)
-                    let* qual_functor_ident, functor_symbol =
-                      Rewriter.resolve_and_find mod_inst_func
-                    in
-                    (* Get formal parameters of F *)
-                    let formals =
-                      Rewriter.Symbol.extract functor_symbol
-                        ~f:(fun is_instance subst -> function
-                        | Ast.Module.ModDef mod_def when not is_instance ->
-                            List.map mod_def.mod_decl.mod_decl_formals ~f:(fun formal ->
-                                (formal, subst formal.mod_inst_type))
-                        | _ -> [])
-                    in
-                    (* Pair up `args` and formals *)
-                    let* args_and_formals =
-                      match List.zip mod_inst_args formals with
-                      | Ok res -> Rewriter.return res
-                      | Unequal_lengths ->
-                          arg_mismatch_error "Module"
-                            (QualIdent.to_loc mod_inst_func)
-                            (Type.Var mod_inst_func) (List.length formals)
-                    in
-                    let+ resolved_args =
-                      Rewriter.List.map args_and_formals
-                        ~f:(fun (arg, (formal, formal_iface)) ->
-                          match arg with
-                          | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
-                          | Module.TypeArg tp -> (
-                              let* rep =
-                                lift (ProgUtils.resolve_rep_ident formal_iface)
-                              in
-                              match rep with
-                              | None ->
-                                  Error.type_error (Type.to_loc tp)
-                                    (Printf.sprintf
-                                       !"Cannot pass a type as argument for parameter \
-                                         %{Ident}: interface %{QualIdent} does not \
-                                         declare a rep type"
-                                       formal.mod_inst_name formal_iface)
-                              | Some (interface_qual_ident, rep_ident) ->
-                                  let* insert_scope, reference_scope =
-                                    lift (ProgUtils.find_insertion_scope_for_types [ tp ])
-                                  in
-                                  let+ qi =
-                                    lift
-                                      (ProgUtils.get_or_intros_rep_module
-                                         ~loc:(Type.to_loc tp)
-                                         ~f:!Rewriter.check_symbol_ref ~insert_scope
-                                         ~reference_scope ~interface_qual_ident ~rep_ident
-                                         tp)
-                                  in
-                                  (qi, formal_iface)))
-                    in
-                    ( Some
-                        ( qual_functor_ident,
-                          List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi) ),
-                      (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
-              in
-              let symbol = Module.ModInst { mod_inst with mod_inst_type; mod_inst_def } in
-              (* Only instances are declared here; abstract module parameters are declared
-                 by the pass above. *)
-              let* _ =
-                match mod_inst.mod_inst_def with
-                | None -> Rewriter.return ()
-                | Some _ -> lift (Rewriter.declare_symbol symbol)
-              in
-              (* Check that `args` satisfy module types of formals *)
-              let+ _ =
-                Rewriter.List.iter to_check ~f:(fun (m, i) ->
-                    Interfaces.check_module_type m i)
-              in
-              symbol
-        in
-        let* () =
-          Rewriter.Logs.debug (fun printers mm ->
-              mm "Processing module %a: symbol: %a" Ident.pr (Symbol.to_name (ModDef m))
-                printers.pr_symbol symbol_def)
-        in
-        let+ _ = Rewriter.set_symbol symbol_def in
-        Module.SymbolDef symbol_def
-    | Import import ->
-        (* Handled by symbol table *)
-        let* _ = Rewriter.import import in
-        Rewriter.return (Module.Import import)
-  in
-
   (* Add formal parameters to module definitions *)
   let mod_def_formals =
     List.map m.mod_decl.mod_decl_formals ~f:(fun mod_def_formal ->
@@ -354,179 +323,8 @@ let rec check (m : Module.t) : Module.t t =
 
       Rewriter.resolve (QualIdent.from_ident (Symbol.to_name (ModDef m)))
   in
-  (* merge symbol definitions from parent interface with those from current module
-     * so that the dependency order between symbols is preserved *)
   (* The members inherited from interfaces, for [EditorAnnotations.record_inherited_members]. *)
   let inherited_members = ref [] in
-
-  let merge_defs ~parent_status ~parent_is_interface parent_ident parent_mod_def mod_def =
-    (* A non-callable member without a definition, like those the check below rejects in a
-       non-interface module. Callables are left out: a free callable without a body had
-       its body dropped when it was freed. *)
-    let symbol_is_abstract = function
-      | Module.TypeDef { type_def_expr = None; _ }
-      | ModInst { mod_inst_def = None; _ }
-      | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ } ->
-          true
-      | _ -> false
-    in
-    (* Included files, the standard library among them, are marked [MachineFree] so that
-       they are not verified again. An abstract member that a concrete module inherits
-       from one of their interfaces must not arrive free, or the module would owe neither
-       its definition nor, for an axiom, its proof. A [free] written by the user stays
-       [UserFree]. Abstract callables are never freed, so this concerns types, values and
-       module instances. *)
-    let un_free_inherited symbol =
-      match (parent_status, Symbol.free_status symbol) with
-      | MachineFree, (NotFree | MachineFree)
-        when parent_is_interface
-             && (not m.mod_decl.mod_decl_is_interface)
-             && symbol_is_abstract symbol ->
-          Module.set_symbol_status NotFree symbol
-      | _ -> symbol
-    in
-    let formals =
-      List.fold_left
-        ~init:(Set.empty (module Ident))
-        ~f:(fun acc -> function
-          | SymbolDef (ModInst mod_inst) -> Set.add acc mod_inst.mod_inst_name | _ -> acc)
-        mod_def_formals
-    in
-    let rec merge_defs (merged, to_check, seen) = function
-      | [], mod_def -> (List.rev_append merged mod_def, to_check)
-      | Module.Import _ :: parent_mod_def, mod_def ->
-          merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
-      | Module.SymbolDef (ConstrDef _ | DestrDef _) :: parent_mod_def, mod_def
-      | parent_mod_def, Module.SymbolDef (ConstrDef _ | DestrDef _) :: mod_def ->
-          merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
-      | Module.SymbolDef parent_symbol :: parent_mod_def, mod_def -> (
-          let parent_symbol_ident = Symbol.to_name parent_symbol in
-          let annotate_error_msg = function
-            | Module.CallDef ({ call_decl; _ } as call) as symbol ->
-                let annotate_spec spec =
-                  let error =
-                    ( Error.RelatedLoc,
-                      Symbol.to_loc parent_symbol,
-                      Printf.sprintf
-                        !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
-                        (Symbol.kind symbol |> String.capitalize)
-                        parent_symbol_ident (Symbol.kind parent_symbol) parent_ident
-                        parent_symbol_ident )
-                  in
-                  {
-                    spec with
-                    Stmt.spec_error =
-                      Stmt.mk_const_spec_error error :: spec.Stmt.spec_error;
-                  }
-                in
-                let call_decl_postcond =
-                  List.map ~f:annotate_spec call_decl.call_decl_postcond
-                in
-                let call_decl_precond =
-                  List.map ~f:annotate_spec call_decl.call_decl_precond
-                in
-                let call_decl =
-                  {
-                    call_decl with
-                    call_decl_precond;
-                    call_decl_postcond;
-                    call_decl_loc = m.mod_decl.mod_decl_loc;
-                  }
-                in
-                Module.CallDef { call with call_decl }
-            | symbol -> symbol
-          in
-          if Set.mem formals parent_symbol_ident then
-            (* case: parent_symbol is being abstracted over *)
-            merge_defs
-              ( merged,
-                Map.add_exn to_check ~key:parent_symbol_ident ~data:parent_symbol,
-                seen )
-              (parent_mod_def, mod_def)
-          else if
-            (not (Set.mem defined_symbols parent_symbol_ident))
-            && (Set.is_empty seen || List.is_empty mod_def)
-          then (
-            (* case: parent_symbol should be inherited now *)
-            let _ =
-              Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident)
-            in
-            inherited_members := (parent_ident, parent_symbol) :: !inherited_members;
-            let parent_symbol = un_free_inherited parent_symbol in
-            let parent_symbol =
-              match parent_symbol with
-              | CallDef call when not @@ Callable.is_abstract call ->
-                  Logs.debug (fun m ->
-                      m !"Making %{Ident} free." (Callable.to_ident call));
-                  Module.CallDef (Callable.set_machine_free call)
-              | CallDef ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
-                when Callable.is_abstract call && not m.mod_decl.mod_decl_is_interface ->
-                  let loc = m.mod_decl.mod_decl_loc in
-                  (* Keep 'auto' flag for everything but RA associativity axioms *)
-                  let auto =
-                    call.call_decl.call_decl_is_auto
-                    && String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc")
-                  in
-                  let call =
-                    {
-                      Callable.call_decl =
-                        { call.call_decl with call_decl_is_auto = auto };
-                      call_def = ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
-                    }
-                  in
-                  let call =
-                    if is_free m.mod_decl.mod_decl_status then
-                      Callable.set_machine_free call
-                    else call
-                  in
-                  annotate_error_msg (CallDef call)
-              | ModDef mod_def -> ModDef (Module.set_machine_free mod_def)
-              | _ -> annotate_error_msg parent_symbol
-            in
-
-            merge_defs
-              (Module.SymbolDef parent_symbol :: merged, to_check, seen)
-              (parent_mod_def, mod_def))
-          else
-            match mod_def with
-            | Module.SymbolDef symbol :: mod_def ->
-                let symbol_ident = Symbol.to_name symbol in
-                if Set.mem seen symbol_ident then
-                  (* case: symbol provides definition of another symbol that has already been seen earlier *)
-                  merge_defs
-                    ( Module.SymbolDef symbol :: merged,
-                      to_check,
-                      Set.remove seen symbol_ident )
-                    (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-                else if Ident.(parent_symbol_ident = symbol_ident) then
-                  (* case: symbol provides definition of parent_symbol *)
-                  merge_defs
-                    ( Module.SymbolDef symbol :: merged,
-                      Map.add_exn to_check ~key:symbol_ident ~data:parent_symbol,
-                      seen )
-                    (parent_mod_def, mod_def)
-                else if Set.mem defined_symbols parent_symbol_ident then
-                  (* case: parent_symbol is defined later in mod_def *)
-                  merge_defs
-                    ( merged,
-                      Map.add_exn to_check ~key:parent_symbol_ident ~data:parent_symbol,
-                      Set.add seen parent_symbol_ident )
-                    (parent_mod_def, Module.SymbolDef symbol :: mod_def)
-                else
-                  (* case: symbol is newly declared symbol *)
-                  merge_defs
-                    (Module.SymbolDef symbol :: merged, to_check, seen)
-                    (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-            | def :: mod_def ->
-                merge_defs
-                  (def :: merged, to_check, seen)
-                  (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-            | [] -> assert false)
-    in
-    merge_defs
-      ([], Map.empty (module Ident), Set.empty (module Ident))
-      (parent_mod_def, mod_def)
-  in
 
   (* Compute symbols that are inherited from parent interface, respectively, that need to be checked against the parent interface *)
   let* ( mod_decl_returns,
@@ -534,232 +332,13 @@ let rec check (m : Module.t) : Module.t t =
          interface_ident,
          interface_formals,
          (merged_symbols, symbols_to_check) ) =
-    (* Disjointness is checked on the parents as declared, before the substitution below
-       renames each parent to this module. *)
-    let* () =
-      match m.mod_decl.mod_decl_returns with
-      | [] | [ _ ] -> Rewriter.return ()
-      | returns ->
-          let+ parent_ancestors =
-            Rewriter.List.map returns ~f:(fun (mid, _args) ->
-                let* qual_ident, symbol = Rewriter.resolve_and_find mid in
-                let+ symbol = Rewriter.Symbol.reify symbol in
-                match symbol with
-                | Module.ModDef interface ->
-                    (mid, Set.add interface.mod_decl.mod_decl_interfaces qual_ident)
-                | _ -> (mid, Set.singleton (module QualIdent) qual_ident))
-          in
-          Interfaces.check_parents_disjoint ~loc:m.mod_decl.mod_decl_loc parent_ancestors
-    in
-    let* parents =
-      Rewriter.List.map m.mod_decl.mod_decl_returns ~f:(fun (mid, args) ->
-          Logs.debug (fun mm ->
-              mm
-                !"ModuleTyping.check: module %{Ident}: checking return type %{QualIdent}"
-                (Symbol.to_name (ModDef m)) mid);
-          let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find mid in
-          (* A parameterized parent's formals are substituted by its arguments first, then
-             its name by this module's; in the other order, a mapping for `Base.A` would
-             no longer match. *)
-          let* arg_subst =
-            Rewriter.List.map args ~f:(function
-              | Module.ModArg qi ->
-                  let base = QualIdent.unqualify qi in
-                  if
-                    QualIdent.is_local qi
-                    && List.exists m.mod_decl.mod_decl_formals ~f:(fun formal ->
-                        Ident.equal formal.mod_inst_name base)
-                  then
-                    (* An argument naming one of this module's formals: these are not in
-                       the symbol table yet, so point at the formal directly. *)
-                    Rewriter.return (QualIdent.append mod_qual_ident base)
-                  else
-                    let+ qi = Rewriter.resolve qi in
-                    qi
-              | Module.TypeArg tp ->
-                  Error.type_error (Type.to_loc tp)
-                    "An inherited interface must be applied to modules, not to bare \
-                     types; name a module implementing the parameter's interface instead")
-          in
-          let interface_symbol =
-            match interface_symbol with
-            | _ when List.is_empty arg_subst -> interface_symbol
-            | _ -> (
-                let formals =
-                  Rewriter.Symbol.extract interface_symbol
-                    ~f:(fun _is_instance _subst -> function
-                    | Ast.Module.ModDef mod_def -> mod_def.mod_decl.mod_decl_formals
-                    | _ -> [])
-                in
-                match List.zip formals arg_subst with
-                | Ok pairs ->
-                    List.fold pairs ~init:interface_symbol ~f:(fun sym (formal, arg_qi) ->
-                        Rewriter.Symbol.extend_subst
-                          ( QualIdent.append qual_interface_ident formal.mod_inst_name,
-                            QualIdent.to_list arg_qi )
-                          sym)
-                | Unequal_lengths ->
-                    arg_mismatch_error "Interface" (QualIdent.to_loc mid) (Type.Var mid)
-                      (List.length formals))
-          in
-          let interface_symbol =
-            Rewriter.Symbol.extend_subst
-              (qual_interface_ident, QualIdent.to_list mod_qual_ident)
-              interface_symbol
-          in
-
-          (* Read off the symbol as resolved: the reified declaration below does not carry
-             the flag. *)
-          let parent_is_interface =
-            Rewriter.Symbol.extract interface_symbol ~f:(fun _ _ -> function
-              | Ast.Module.ModDef md -> md.mod_decl.mod_decl_is_interface
-              | _ -> false)
-          in
-          let* interface_symbol = Rewriter.Symbol.reify interface_symbol in
-          let* () =
-            Rewriter.Logs.debug (fun printers mm ->
-                mm
-                  !"ModuleTyping.check: %{Ident}: checking return type %a: reified; \n\
-                   \ qual_interface_ident: %{QualIdent} \n\
-                   \ mid: %{QualIdent}"
-                  (Symbol.to_name (ModDef m)) printers.pr_symbol interface_symbol
-                  qual_interface_ident mid)
-          in
-          Rewriter.return
-            (qual_interface_ident, mid, arg_subst, parent_is_interface, interface_symbol))
-    in
-    let parent_defs =
-      List.filter_map parents ~f:(function
-        | qual_interface_ident, mid, args, parent_is_interface, ModDef interface ->
-            Some (qual_interface_ident, mid, args, parent_is_interface, interface)
-        | _ -> None)
-    in
-    match parent_defs with
-    | [] ->
-        let mod_ident = QualIdent.from_ident m.mod_decl.mod_decl_name in
-        let interfaces =
-          if is_root then m.mod_decl.mod_decl_interfaces
-          else Set.add m.mod_decl.mod_decl_interfaces mod_qual_ident
-        in
-        Rewriter.return
-          ([], interfaces, mod_ident, None, (m.mod_def, Map.empty (module Ident)))
-    | first_parent :: _ ->
-        (* Merge each parent in turn, threading the accumulated definition, so
-             a later parent sees earlier parents' members as already defined. *)
-        let returns, interfaces, formals, merged, to_check =
-          List.fold parent_defs
-            ~init:
-              ([], Set.empty (module QualIdent), None, m.mod_def, Map.empty (module Ident))
-            ~f:(fun
-                (returns, interfaces, formals, mod_def, to_check)
-                (qual_interface_ident, _mid, args, parent_is_interface, interface)
-              ->
-              let merged, to_check' =
-                merge_defs ~parent_status:interface.mod_decl.mod_decl_status
-                  ~parent_is_interface qual_interface_ident interface.mod_def mod_def
-              in
-              let to_check =
-                Map.fold to_check' ~init:to_check ~f:(fun ~key ~data acc ->
-                    match Map.add acc ~key ~data:(qual_interface_ident, data) with
-                    | `Ok acc -> acc
-                    | `Duplicate ->
-                        Error.type_error m.mod_decl.mod_decl_loc
-                          (Printf.sprintf
-                             !"Member %{Ident} is declared by more than one of the \
-                               interfaces %s implements; a module cannot inherit two \
-                               declarations of the same name"
-                             key
-                             (Ident.to_string
-                                (ProgUtils.source_module_name m.mod_decl.mod_decl_name))))
-              in
-              (* Only an unapplied parameterised parent imposes its formals on
-                   this module; an applied one supplied them as arguments. *)
-              let formals =
-                match (formals, args) with
-                | Some _, _ | None, _ :: _ -> formals
-                | None, [] ->
-                    if List.is_empty interface.mod_decl.mod_decl_formals then None
-                    else Some interface.mod_decl.mod_decl_formals
-              in
-              ( (qual_interface_ident, List.map args ~f:(fun qi -> Module.ModArg qi))
-                :: returns,
-                Set.union interfaces
-                  (Set.add interface.mod_decl.mod_decl_interfaces qual_interface_ident),
-                formals,
-                merged,
-                to_check ))
-        in
-        let qual_first, _, _, _, _ = first_parent in
-        Rewriter.return
-          (List.rev returns, interfaces, qual_first, formals, (merged, to_check))
+    Interfaces.merge_parents ~m ~is_root ~mod_qual_ident ~mod_def ~mod_def_formals
+      ~defined_symbols ~inherited_members
   in
 
-  (* A callable that omits its contract -- no `requires`, `ensures` or `opens` --
-       inherits the contract of the interface member it implements, with the
-       interface's parameters renamed to its own. *)
-  let inherit_contract = function
-    | Module.SymbolDef (CallDef ({ call_decl; _ } as call)) as instr
-      when List.is_empty call_decl.call_decl_precond
-           && List.is_empty call_decl.call_decl_postcond
-           && Option.is_none call_decl.call_decl_opens -> (
-        match Map.find symbols_to_check call_decl.call_decl_name with
-        | Some (interface_ident, (CallDef orig as orig_symbol)) -> (
-            let orig_decl = orig.call_decl in
-            let renaming =
-              List.zip
-                (orig_decl.call_decl_formals @ orig_decl.call_decl_returns)
-                (call_decl.call_decl_formals @ call_decl.call_decl_returns)
-            in
-            match renaming with
-            | Unequal_lengths -> instr
-            | Ok pairs ->
-                let map =
-                  List.fold pairs
-                    ~init:(Map.empty (module QualIdent))
-                    ~f:(fun map ((orig_var : var_decl), (var : var_decl)) ->
-                      Map.set map
-                        ~key:(QualIdent.from_ident orig_var.var_name)
-                        ~data:(Expr.from_var_decl var))
-                in
-                let rename e = Expr.alpha_renaming e map in
-                let inherited =
-                  ( Error.RelatedLoc,
-                    Symbol.to_loc orig_symbol,
-                    Printf.sprintf
-                      !"Contract inherited from %s %{QualIdent}.%{Ident}"
-                      (Symbol.kind orig_symbol) interface_ident call_decl.call_decl_name
-                  )
-                in
-                let inherit_spec (spec : Stmt.spec) =
-                  {
-                    spec with
-                    spec_form = rename spec.spec_form;
-                    spec_trigs = List.map spec.spec_trigs ~f:(List.map ~f:rename);
-                    spec_error = spec.spec_error @ [ Stmt.mk_const_spec_error inherited ];
-                  }
-                in
-                let call_decl =
-                  {
-                    call_decl with
-                    call_decl_precond =
-                      List.map orig_decl.call_decl_precond ~f:inherit_spec;
-                    call_decl_postcond =
-                      List.map orig_decl.call_decl_postcond ~f:inherit_spec;
-                    call_decl_opens =
-                      Option.map orig_decl.call_decl_opens
-                        ~f:(List.map ~f:(fun (qi, args) -> (qi, List.map args ~f:rename)));
-                  }
-                in
-                let () =
-                  EditorAnnotations.record_inherited_contract
-                    ~member:call_decl.call_decl_name ~source:interface_ident
-                    ~source_loc:(Symbol.to_loc orig_symbol) ~renaming:pairs orig_decl
-                in
-                Module.SymbolDef (CallDef { call with call_decl }))
-        | _ -> instr)
-    | instr -> instr
+  let merged_symbols =
+    List.map merged_symbols ~f:(Interfaces.inherit_contract symbols_to_check)
   in
-  let merged_symbols = List.map merged_symbols ~f:inherit_contract in
   let () =
     EditorAnnotations.record_inherited_members ~module_ident:mod_qual_ident
       ~module_loc:m.mod_decl.mod_decl_loc !inherited_members
@@ -856,7 +435,7 @@ let rec check (m : Module.t) : Module.t t =
   in
 
   (* Check and rewrite all symbols *)
-  let* mod_def = Rewriter.List.map merged_symbols ~f:check_instr in
+  let* mod_def = Rewriter.List.map merged_symbols ~f:(check_instr m) in
 
   (* Check symbols against what is specified in the interface *)
   let manifest_subst =
@@ -878,87 +457,8 @@ let rec check (m : Module.t) : Module.t t =
       | _ -> Rewriter.return ())
   in
 
-  (* Check whether modules are indeed modules *)
-  let* _ =
-    if not mod_decl.mod_decl_is_interface then
-      Rewriter.List.iter mod_def ~f:(function
-        | Import _ -> Rewriter.return ()
-        | SymbolDef symbol when not (Symbol.is_free symbol) -> (
-            match symbol with
-            | TypeDef { type_def_expr = None; _ }
-            | ModInst { mod_inst_def = None; _ }
-            | VarDef { var_decl = { var_const = true; _ }; var_init = None; _ }
-            | CallDef
-                {
-                  call_def = ProcDef { proc_body = None } | FuncDef { func_body = None };
-                  call_decl = { call_decl_status = NotFree; _ };
-                } ->
-                if Ident.(mod_decl.mod_decl_name = Predefs.prog_ident) then
-                  Error.type_error (Symbol.to_loc symbol)
-                    (Printf.sprintf
-                       !"The %s %{Ident} cannot be abstract here. An abstract member can \
-                         only be declared in an interface"
-                       (Symbol.kind symbol) (Symbol.to_name symbol))
-                else
-                  Error.type_error mod_decl.mod_decl_loc
-                    (Printf.sprintf
-                       !"Module %{Ident} must be declared as an interface. The %s \
-                         %{Ident} is still abstract"
-                       (ProgUtils.source_module_name mod_decl.mod_decl_name)
-                       (Symbol.kind symbol) (Symbol.to_name symbol))
-            | ModInst
-                {
-                  mod_inst_def = Some (mod_inst_func, _);
-                  mod_inst_is_interface = false;
-                  _;
-                } -> (
-                let+ mod_inst_symbol = Rewriter.find_and_reify mod_inst_func in
-                match mod_inst_symbol with
-                | Module.ModDef mdef ->
-                    if mdef.mod_decl.mod_decl_is_interface then
-                      Error.type_error (Symbol.to_loc symbol)
-                        (Printf.sprintf
-                           !"Module %{Ident} must be declared as an interface"
-                           (ProgUtils.source_module_name (Symbol.to_name symbol)))
-                | _ -> ())
-            | _ -> Rewriter.return ())
-        | _ -> Rewriter.return ())
-    else Rewriter.return ()
-  in
-  (* What [Library.WordSized] means is checked here, on the implementation's rep type: an
-     atomic primitive works on a single machine word, which no declared member can
-     express. The check concerns the representation, not value ranges, since Int is
-     unbounded. Interfaces are exempt, as their rep type is abstract. It runs after
-     [check_instr], which brings the rep type into its final form. *)
-  let* () =
-    let rep_def =
-      match mod_decl.mod_decl_rep with
-      | None -> None
-      | Some rep_ident ->
-          List.find_map mod_def ~f:(function
-            | Module.SymbolDef (TypeDef { type_def_name; type_def_expr = Some tp; _ })
-              when Ident.equal type_def_name rep_ident ->
-                Some tp
-            | _ -> None)
-    in
-    match rep_def with
-    | Some rep_type
-      when (not mod_decl.mod_decl_is_interface)
-           && Set.mem mod_decl.mod_decl_interfaces Predefs.lib_word_sized_mod_qual_ident
-      ->
-        let* is_word_sized = is_type_word_sized rep_type in
-        if is_word_sized then Rewriter.return ()
-        else
-          let* printers = Rewriter.current_printers in
-          Error.type_error mod_decl.mod_decl_loc
-            (Printf.sprintf
-               !"`%s` is not word-sized, so it cannot implement %{QualIdent}. An atomic \
-                 primitive operates on a single machine word: Int, Bool, Ref, or a data \
-                 type with at most four constructors each taking at most one of those"
-               (Print.string_of_format printers.pr_type rep_type)
-               Predefs.lib_word_sized_mod_qual_ident)
-    | _ -> Rewriter.return ()
-  in
+  let* () = check_no_abstract_members mod_decl mod_def in
+  let* () = check_word_sized mod_decl mod_def in
 
   let _ =
     Logs.debug (fun mm ->
@@ -969,3 +469,115 @@ let rec check (m : Module.t) : Module.t t =
         mm "%a" printers.pr_symbol (ModDef Module.{ mod_decl; mod_def }))
   in
   Rewriter.return Module.{ mod_decl; mod_def }
+
+(** Checks the member [instr] of [m]. *)
+and check_instr (m : Module.t) (instr : Module.module_instr) : Module.module_instr t =
+  let open Rewriter.Syntax in
+  match instr with
+  | Module.SymbolDef symbol ->
+      let* symbol_def =
+        match symbol with
+        | TypeDef type_def -> check_type_def type_def
+        | VarDef var_def -> check_var var_def
+        | FieldDef field_def -> check_field field_def
+        | ConstrDef _ | DestrDef _ ->
+            Rewriter.return symbol
+            (* These should not occur directly in a module definition *)
+        | CallDef call_def -> CallableTyping.check call_def
+        | ModDef mod_def ->
+            let* _ = Rewriter.enter_module mod_def and* mod_def = check mod_def in
+            let+ mod_def = Rewriter.exit_module mod_def in
+            Module.ModDef mod_def
+        | ModInst mod_inst ->
+            (* A functor application `module M : I = F[args]` *)
+            (* Get symbol of I *)
+            let* mod_inst_type = Rewriter.resolve mod_inst.mod_inst_type in
+            (* Resolves the functor `F` and pairs its formals with `args`, wrapping a
+                 bare type argument (e.g. `M[Int]`) into a rep module (see
+                 [ProgUtils.intros_rep_module]). This precedes [declare_symbol], as
+                 [SymbolTbl.add_symbol] needs the argument modules. *)
+            let* mod_inst_def, to_check =
+              match mod_inst.mod_inst_def with
+              | None -> Rewriter.return (None, [])
+              | Some (mod_inst_func, mod_inst_args) ->
+                  (* Get qualified name of F and its symbol *)
+                  let* qual_functor_ident, functor_symbol =
+                    Rewriter.resolve_and_find mod_inst_func
+                  in
+                  (* Get formal parameters of F *)
+                  let formals =
+                    Rewriter.Symbol.extract functor_symbol
+                      ~f:(fun is_instance subst -> function
+                      | Ast.Module.ModDef mod_def when not is_instance ->
+                          List.map mod_def.mod_decl.mod_decl_formals ~f:(fun formal ->
+                              (formal, subst formal.mod_inst_type))
+                      | _ -> [])
+                  in
+                  (* Pair up `args` and formals *)
+                  let* args_and_formals =
+                    match List.zip mod_inst_args formals with
+                    | Ok res -> Rewriter.return res
+                    | Unequal_lengths ->
+                        arg_mismatch_error "Module"
+                          (QualIdent.to_loc mod_inst_func)
+                          (Type.Var mod_inst_func) (List.length formals)
+                  in
+                  let+ resolved_args =
+                    Rewriter.List.map args_and_formals
+                      ~f:(fun (arg, (formal, formal_iface)) ->
+                        match arg with
+                        | Module.ModArg qi -> Rewriter.return (qi, formal_iface)
+                        | Module.TypeArg tp -> (
+                            let* rep = lift (ProgUtils.resolve_rep_ident formal_iface) in
+                            match rep with
+                            | None ->
+                                Error.type_error (Type.to_loc tp)
+                                  (Printf.sprintf
+                                     !"Cannot pass a type as argument for parameter \
+                                       %{Ident}: interface %{QualIdent} does not declare \
+                                       a rep type"
+                                     formal.mod_inst_name formal_iface)
+                            | Some (interface_qual_ident, rep_ident) ->
+                                let* insert_scope, reference_scope =
+                                  lift (ProgUtils.find_insertion_scope_for_types [ tp ])
+                                in
+                                let+ qi =
+                                  lift
+                                    (ProgUtils.get_or_intros_rep_module
+                                       ~loc:(Type.to_loc tp) ~f:!Rewriter.check_symbol_ref
+                                       ~insert_scope ~reference_scope
+                                       ~interface_qual_ident ~rep_ident tp)
+                                in
+                                (qi, formal_iface)))
+                  in
+                  ( Some
+                      ( qual_functor_ident,
+                        List.map resolved_args ~f:(fun (qi, _) -> Module.ModArg qi) ),
+                    (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
+            in
+            let symbol = Module.ModInst { mod_inst with mod_inst_type; mod_inst_def } in
+            (* Only instances are declared here; abstract module parameters are declared
+                 by the pass above. *)
+            let* _ =
+              match mod_inst.mod_inst_def with
+              | None -> Rewriter.return ()
+              | Some _ -> lift (Rewriter.declare_symbol symbol)
+            in
+            (* Check that `args` satisfy module types of formals *)
+            let+ _ =
+              Rewriter.List.iter to_check ~f:(fun (m, i) ->
+                  Interfaces.check_module_type m i)
+            in
+            symbol
+      in
+      let* () =
+        Rewriter.Logs.debug (fun printers mm ->
+            mm "Processing module %a: symbol: %a" Ident.pr (Symbol.to_name (ModDef m))
+              printers.pr_symbol symbol_def)
+      in
+      let+ _ = Rewriter.set_symbol symbol_def in
+      Module.SymbolDef symbol_def
+  | Import import ->
+      (* Handled by symbol table *)
+      let* _ = Rewriter.import import in
+      Rewriter.return (Module.Import import)
