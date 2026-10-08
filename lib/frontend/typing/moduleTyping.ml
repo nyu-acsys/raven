@@ -434,7 +434,10 @@ let rec check (m : Module.t) : Module.t t =
       | Module.SymbolDef symbol -> lift (Rewriter.declare_symbol symbol))
   in
 
-  (* Check and rewrite all symbols *)
+  (* Members are checked in order. A module's own members, and a module instance, become
+     known only once it is checked, so a module must be defined before it is used. This
+     rules out mutually recursive modules, which would complicate the semantics of the
+     module system. *)
   let* mod_def = Rewriter.List.map merged_symbols ~f:(check_instr m) in
 
   (* Check symbols against what is specified in the interface *)

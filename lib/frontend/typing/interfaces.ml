@@ -409,14 +409,181 @@ let check_parents_disjoint ~loc parent_ancestors =
   in
   go parent_ancestors
 
-(** Merges the members of the interface [parent_ident] into [mod_def], the members of [m],
-    preserving the dependency order between them. *)
-let merge_defs ~(m : Module.t) ~(mod_def_formals : Module.module_instr list)
-    ~(defined_symbols : Set.M(Ident).t) ~inherited_members ~parent_status
-    ~parent_is_interface parent_ident parent_mod_def mod_def =
+(** The names that [symbol] mentions. A nested module's mentions of its own members are
+    left out. *)
+let rec mentioned_names (symbol : Module.symbol) : Set.M(QualIdent).t =
+  let empty = Set.empty (module QualIdent) in
+  let arg_names acc = function
+    | Module.ModArg qi -> Set.add acc qi
+    | Module.TypeArg tp -> Type.symbols ~acc tp
+  in
+  let inst_names acc (inst : Module.module_inst) =
+    let acc = Set.add acc inst.mod_inst_type in
+    match inst.mod_inst_def with
+    | None -> acc
+    | Some (qi, args) -> List.fold args ~init:(Set.add acc qi) ~f:arg_names
+  in
+  match symbol with
+  | TypeDef { type_def_expr; _ } ->
+      Option.fold type_def_expr ~init:empty ~f:(fun acc tp -> Type.symbols ~acc tp)
+  | FieldDef { field_type; field_alias; _ } ->
+      let acc = Type.symbols field_type in
+      Option.fold field_alias ~init:acc ~f:Set.add
+  | VarDef { var_decl; var_init; _ } ->
+      let acc = Type.symbols var_decl.var_type in
+      Option.fold var_init ~init:acc ~f:(fun acc e -> Expr.symbols ~acc e)
+  | CallDef { call_decl; call_def } ->
+      (* A procedure's body is left out: callables may be used before their definition. *)
+      let acc =
+        List.fold (call_decl.call_decl_formals @ call_decl.call_decl_returns) ~init:empty
+          ~f:(fun acc var_decl -> Type.symbols ~acc var_decl.var_type)
+      in
+      let acc =
+        List.fold (call_decl.call_decl_precond @ call_decl.call_decl_postcond) ~init:acc
+          ~f:(fun acc spec -> Expr.symbols ~acc spec.spec_form)
+      in
+      begin match call_def with
+      | FuncDef { func_body = Some e } -> Expr.symbols ~acc e
+      | _ -> acc
+      end
+  | ModInst inst -> inst_names empty inst
+  | ModDef md ->
+      let own =
+        List.fold md.mod_def
+          ~init:(Set.empty (module Ident))
+          ~f:(fun acc -> function
+            | Module.SymbolDef s -> Set.add acc (Symbol.to_name s) | Import _ -> acc)
+      in
+      let acc =
+        List.fold md.mod_decl.mod_decl_returns ~init:empty ~f:(fun acc (qi, args) ->
+            List.fold args ~init:(Set.add acc qi) ~f:arg_names)
+      in
+      let acc = List.fold md.mod_decl.mod_decl_formals ~init:acc ~f:inst_names in
+      let acc =
+        List.fold md.mod_def ~init:acc ~f:(fun acc -> function
+          | Module.SymbolDef s -> Set.union acc (mentioned_names s)
+          | Import _ -> acc)
+      in
+      Set.filter acc ~f:(fun qi ->
+          match QualIdent.to_list qi with
+          | first :: _ -> not (Set.mem own first)
+          | [] -> true)
+  | ConstrDef _ | DestrDef _ -> empty
+
+(** The member of the module [mod_qual_ident] that [qi] names, if [qi] is relative to the
+    module or qualified by it. *)
+let member_of ~(mod_qual_ident : qual_ident) (qi : qual_ident) : ident option =
+  let prefix = QualIdent.to_list mod_qual_ident in
+  let comps = QualIdent.to_list qi in
+  let comps =
+    if List.is_prefix comps ~prefix ~equal:Ident.equal then
+      List.drop comps (List.length prefix)
+    else comps
+  in
+  List.hd comps
+
+module IntGraph = Graph.Make (Int)
+
+(** Orders the members [fixed] and [others] of the module [mod_qual_ident]. The members in
+    [fixed] keep their order, as a module must be defined before it is used (see
+    [ModuleTyping.check]), and each member comes after the members it mentions. Of the
+    members ready to come next, those in [others] come first, in their order. Members that
+    mention each other keep the order of [fixed] followed by [others]. *)
+let order_members ~(mod_qual_ident : qual_ident) ~(fixed : Module.module_instr list)
+    ~(others : Module.module_instr list) : Module.module_instr list =
+  let members = Array.of_list (fixed @ others) in
+  let num_fixed = List.length fixed in
+  let index_of_name =
+    Array.foldi members
+      ~init:(Map.empty (module Ident))
+      ~f:(fun i acc -> function
+        | Module.SymbolDef s -> (
+            match Map.add acc ~key:(Symbol.to_name s) ~data:i with
+            | `Ok acc -> acc
+            | `Duplicate -> acc)
+        | Import _ -> acc)
+  in
+  let deps i =
+    let mentioned =
+      match members.(i) with
+      | Module.SymbolDef s ->
+          Set.fold (mentioned_names s) ~init:[] ~f:(fun acc qi ->
+              match
+                Option.bind (member_of ~mod_qual_ident qi) ~f:(Map.find index_of_name)
+              with
+              | Some j when j <> i -> j :: acc
+              | _ -> acc)
+      | Import _ -> []
+    in
+    if i > 0 && i < num_fixed then (i - 1) :: mentioned else mentioned
+  in
+  let graph =
+    List.fold
+      (List.range 0 (Array.length members))
+      ~init:IntGraph.empty
+      ~f:(fun g i ->
+        IntGraph.add_edges (IntGraph.add_vertex g i) i (Set.of_list (module Int) (deps i)))
+  in
+  (* Of two members ready to come next, the one in [others] comes first. *)
+  let compare_priority i j =
+    let in_others k = k >= num_fixed in
+    match (in_others i, in_others j) with
+    | true, false -> -1
+    | false, true -> 1
+    | _ -> Int.compare i j
+  in
+  let sccs = List.map (IntGraph.topsort graph) ~f:(List.sort ~compare:Int.compare) in
+  let scc_of =
+    List.foldi sccs
+      ~init:(Map.empty (module Int))
+      ~f:(fun c acc scc ->
+        List.fold scc ~init:acc ~f:(fun acc i -> Map.set acc ~key:i ~data:c))
+  in
+  let scc_deps =
+    List.map sccs ~f:(fun scc ->
+        List.fold scc
+          ~init:(Set.empty (module Int))
+          ~f:(fun acc i ->
+            List.fold (deps i) ~init:acc ~f:(fun acc j ->
+                Set.add acc (Map.find_exn scc_of j))))
+    |> Array.of_list
+  in
+  let sccs = Array.of_list sccs in
+  let scc_priority c =
+    List.min_elt sccs.(c) ~compare:compare_priority |> Option.value_exn
+  in
+  let rec emit done_sccs acc remaining =
+    if Set.is_empty remaining then List.rev acc
+    else
+      let ready =
+        Set.filter remaining ~f:(fun c ->
+            Set.for_all scc_deps.(c) ~f:(fun d -> d = c || Set.mem done_sccs d))
+      in
+      let next =
+        Set.to_list ready
+        |> List.min_elt ~compare:(fun c d ->
+            compare_priority (scc_priority c) (scc_priority d))
+        |> Option.value_exn
+      in
+      let acc = List.fold sccs.(next) ~init:acc ~f:(fun acc i -> members.(i) :: acc) in
+      emit (Set.add done_sccs next) acc (Set.remove remaining next)
+  in
+  emit
+    (Set.empty (module Int))
+    []
+    (Set.of_list (module Int) (List.range 0 (Array.length sccs)))
+
+(** Merges the members of the interface [parent_ident] into [mod_def], the members of [m]:
+    a member of the interface that [m] neither defines nor has as a formal is inherited.
+    Returns the merged members, ordered by [order_members], and the members of the
+    interface that [m] defines, to be checked against it. *)
+let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
+    ~(mod_def_formals : Module.module_instr list) ~(defined_symbols : Set.M(Ident).t)
+    ~inherited_members ~parent_status ~parent_is_interface parent_ident parent_mod_def
+    mod_def =
   (* A non-callable member without a definition, like those the check below rejects in a
-       non-interface module. Callables are left out: a free callable without a body had
-       its body dropped when it was freed. *)
+     non-interface module. Callables are left out: a free callable without a body had
+     its body dropped when it was freed. *)
   let symbol_is_abstract = function
     | Module.TypeDef { type_def_expr = None; _ }
     | ModInst { mod_inst_def = None; _ }
@@ -425,11 +592,11 @@ let merge_defs ~(m : Module.t) ~(mod_def_formals : Module.module_instr list)
     | _ -> false
   in
   (* Included files, the standard library among them, are marked [MachineFree] so that
-       they are not verified again. An abstract member that a concrete module inherits
-       from one of their interfaces must not arrive free, or the module would owe neither
-       its definition nor, for an axiom, its proof. A [free] written by the user stays
-       [UserFree]. Abstract callables are never freed, so this concerns types, values and
-       module instances. *)
+     they are not verified again. An abstract member that a concrete module inherits
+     from one of their interfaces must not arrive free, or the module would owe neither
+     its definition nor, for an axiom, its proof. A [free] written by the user stays
+     [UserFree]. Abstract callables are never freed, so this concerns types, values and
+     module instances. *)
   let un_free_inherited symbol =
     match (parent_status, Symbol.free_status symbol) with
     | MachineFree, (NotFree | MachineFree)
@@ -443,140 +610,91 @@ let merge_defs ~(m : Module.t) ~(mod_def_formals : Module.module_instr list)
     List.fold_left
       ~init:(Set.empty (module Ident))
       ~f:(fun acc -> function
-        | SymbolDef (ModInst mod_inst) -> Set.add acc mod_inst.mod_inst_name | _ -> acc)
+        | Module.SymbolDef (ModInst mod_inst) -> Set.add acc mod_inst.mod_inst_name
+        | _ -> acc)
       mod_def_formals
   in
-  let rec merge_defs (merged, to_check, seen) = function
-    | [], mod_def -> (List.rev_append merged mod_def, to_check)
-    | Module.Import _ :: parent_mod_def, mod_def ->
-        merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
-    | Module.SymbolDef (ConstrDef _ | DestrDef _) :: parent_mod_def, mod_def
-    | parent_mod_def, Module.SymbolDef (ConstrDef _ | DestrDef _) :: mod_def ->
-        merge_defs (merged, to_check, seen) (parent_mod_def, mod_def)
-    | Module.SymbolDef parent_symbol :: parent_mod_def, mod_def -> (
-        let parent_symbol_ident = Symbol.to_name parent_symbol in
-        let annotate_error_msg = function
-          | Module.CallDef ({ call_decl; _ } as call) as symbol ->
-              let annotate_spec spec =
-                let error =
-                  ( Error.RelatedLoc,
-                    Symbol.to_loc parent_symbol,
-                    Printf.sprintf
-                      !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
-                      (Symbol.kind symbol |> String.capitalize)
-                      parent_symbol_ident (Symbol.kind parent_symbol) parent_ident
-                      parent_symbol_ident )
-                in
-                {
-                  spec with
-                  Stmt.spec_error = Stmt.mk_const_spec_error error :: spec.Stmt.spec_error;
-                }
-              in
-              let call_decl_postcond =
-                List.map ~f:annotate_spec call_decl.call_decl_postcond
-              in
-              let call_decl_precond =
-                List.map ~f:annotate_spec call_decl.call_decl_precond
-              in
-              let call_decl =
-                {
-                  call_decl with
-                  call_decl_precond;
-                  call_decl_postcond;
-                  call_decl_loc = m.mod_decl.mod_decl_loc;
-                }
-              in
-              Module.CallDef { call with call_decl }
-          | symbol -> symbol
+  (* The member of the interface [parent_symbol] as inherited by [m]. *)
+  let inherit_member parent_symbol =
+    let parent_symbol_ident = Symbol.to_name parent_symbol in
+    let annotate_error_msg = function
+      | Module.CallDef ({ call_decl; _ } as call) as symbol ->
+          let annotate_spec spec =
+            let error =
+              ( Error.RelatedLoc,
+                Symbol.to_loc parent_symbol,
+                Printf.sprintf
+                  !"%s %{Ident} inherited from %s %{QualIdent}.%{Ident}"
+                  (Symbol.kind symbol |> String.capitalize)
+                  parent_symbol_ident (Symbol.kind parent_symbol) parent_ident
+                  parent_symbol_ident )
+            in
+            {
+              spec with
+              Stmt.spec_error = Stmt.mk_const_spec_error error :: spec.Stmt.spec_error;
+            }
+          in
+          let call_decl =
+            {
+              call_decl with
+              call_decl_precond = List.map ~f:annotate_spec call_decl.call_decl_precond;
+              call_decl_postcond = List.map ~f:annotate_spec call_decl.call_decl_postcond;
+              call_decl_loc = m.mod_decl.mod_decl_loc;
+            }
+          in
+          Module.CallDef { call with call_decl }
+      | symbol -> symbol
+    in
+    Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident);
+    match un_free_inherited parent_symbol with
+    | CallDef call when not @@ Callable.is_abstract call ->
+        Module.CallDef (Callable.set_machine_free call)
+    | CallDef ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
+      when Callable.is_abstract call && not m.mod_decl.mod_decl_is_interface ->
+        let loc = m.mod_decl.mod_decl_loc in
+        (* Keep 'auto' flag for everything but RA associativity axioms *)
+        let auto =
+          call.call_decl.call_decl_is_auto
+          && String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc")
         in
-        if Set.mem formals parent_symbol_ident then
-          (* case: parent_symbol is being abstracted over *)
-          merge_defs
-            ( merged,
-              Map.add_exn to_check ~key:parent_symbol_ident ~data:parent_symbol,
-              seen )
-            (parent_mod_def, mod_def)
-        else if
-          (not (Set.mem defined_symbols parent_symbol_ident))
-          && (Set.is_empty seen || List.is_empty mod_def)
-        then (
-          (* case: parent_symbol should be inherited now *)
-          let _ =
-            Logs.debug (fun m -> m !"Inheriting symbol %{Ident}" parent_symbol_ident)
-          in
-          inherited_members := (parent_ident, parent_symbol) :: !inherited_members;
-          let parent_symbol = un_free_inherited parent_symbol in
-          let parent_symbol =
-            match parent_symbol with
-            | CallDef call when not @@ Callable.is_abstract call ->
-                Logs.debug (fun m -> m !"Making %{Ident} free." (Callable.to_ident call));
-                Module.CallDef (Callable.set_machine_free call)
-            | CallDef ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
-              when Callable.is_abstract call && not m.mod_decl.mod_decl_is_interface ->
-                let loc = m.mod_decl.mod_decl_loc in
-                (* Keep 'auto' flag for everything but RA associativity axioms *)
-                let auto =
-                  call.call_decl.call_decl_is_auto
-                  && String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc")
-                in
-                let call =
-                  {
-                    Callable.call_decl = { call.call_decl with call_decl_is_auto = auto };
-                    call_def = ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
-                  }
-                in
-                let call =
-                  if is_free m.mod_decl.mod_decl_status then
-                    Callable.set_machine_free call
-                  else call
-                in
-                annotate_error_msg (CallDef call)
-            | ModDef mod_def -> ModDef (Module.set_machine_free mod_def)
-            | _ -> annotate_error_msg parent_symbol
-          in
-
-          merge_defs
-            (Module.SymbolDef parent_symbol :: merged, to_check, seen)
-            (parent_mod_def, mod_def))
-        else
-          match mod_def with
-          | Module.SymbolDef symbol :: mod_def ->
-              let symbol_ident = Symbol.to_name symbol in
-              if Set.mem seen symbol_ident then
-                (* case: symbol provides definition of another symbol that has already been seen earlier *)
-                merge_defs
-                  ( Module.SymbolDef symbol :: merged,
-                    to_check,
-                    Set.remove seen symbol_ident )
-                  (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-              else if Ident.(parent_symbol_ident = symbol_ident) then
-                (* case: symbol provides definition of parent_symbol *)
-                merge_defs
-                  ( Module.SymbolDef symbol :: merged,
-                    Map.add_exn to_check ~key:symbol_ident ~data:parent_symbol,
-                    seen )
-                  (parent_mod_def, mod_def)
-              else if Set.mem defined_symbols parent_symbol_ident then
-                (* case: parent_symbol is defined later in mod_def *)
-                merge_defs
-                  ( merged,
-                    Map.add_exn to_check ~key:parent_symbol_ident ~data:parent_symbol,
-                    Set.add seen parent_symbol_ident )
-                  (parent_mod_def, Module.SymbolDef symbol :: mod_def)
-              else
-                (* case: symbol is newly declared symbol *)
-                merge_defs
-                  (Module.SymbolDef symbol :: merged, to_check, seen)
-                  (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-          | def :: mod_def ->
-              merge_defs
-                (def :: merged, to_check, seen)
-                (Module.SymbolDef parent_symbol :: parent_mod_def, mod_def)
-          | [] -> assert false)
+        let call =
+          {
+            Callable.call_decl = { call.call_decl with call_decl_is_auto = auto };
+            call_def = ProcDef { proc_body = Some (Stmt.mk_skip ~loc) };
+          }
+        in
+        let call =
+          if is_free m.mod_decl.mod_decl_status then Callable.set_machine_free call
+          else call
+        in
+        annotate_error_msg (CallDef call)
+    | ModDef mod_def -> ModDef (Module.set_machine_free mod_def)
+    | symbol -> annotate_error_msg symbol
   in
-  merge_defs
-    ([], Map.empty (module Ident), Set.empty (module Ident))
-    (parent_mod_def, mod_def)
+  let is_member = function
+    | Module.SymbolDef (ConstrDef _ | DestrDef _) -> false
+    | SymbolDef _ -> true
+    | Import _ -> false
+  in
+  let to_check, inherited =
+    List.fold parent_mod_def
+      ~init:(Map.empty (module Ident), [])
+      ~f:(fun (to_check, inherited) -> function
+        | Module.SymbolDef parent_symbol as instr when is_member instr ->
+            let name = Symbol.to_name parent_symbol in
+            if Set.mem formals name || Set.mem defined_symbols name then
+              (Map.add_exn to_check ~key:name ~data:parent_symbol, inherited)
+            else (
+              inherited_members := (parent_ident, parent_symbol) :: !inherited_members;
+              (to_check, Module.SymbolDef (inherit_member parent_symbol) :: inherited))
+        | _ -> (to_check, inherited))
+  in
+  let fixed =
+    List.filter mod_def ~f:(function
+      | Module.SymbolDef (ConstrDef _ | DestrDef _) -> false
+      | _ -> true)
+  in
+  (order_members ~mod_qual_ident ~fixed ~others:(List.rev inherited), to_check)
 
 (** The parents of [m]: its return types, the interfaces it implements, its first parent
     and that parent's formals, and its members merged with theirs, with those to check
@@ -706,9 +824,9 @@ let merge_parents ~(m : Module.t) ~(is_root : bool) ~(mod_qual_ident : qual_iden
               (qual_interface_ident, _mid, args, parent_is_interface, interface)
             ->
             let merged, to_check' =
-              merge_defs ~m ~mod_def_formals ~defined_symbols ~inherited_members
-                ~parent_status:interface.mod_decl.mod_decl_status ~parent_is_interface
-                qual_interface_ident interface.mod_def mod_def
+              merge_defs ~m ~mod_qual_ident ~mod_def_formals ~defined_symbols
+                ~inherited_members ~parent_status:interface.mod_decl.mod_decl_status
+                ~parent_is_interface qual_interface_ident interface.mod_def mod_def
             in
             let to_check =
               Map.fold to_check' ~init:to_check ~f:(fun ~key ~data acc ->
