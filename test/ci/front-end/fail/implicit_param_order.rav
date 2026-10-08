@@ -1,0 +1,3 @@
+// Implicit parameters come last, so that a call can omit them.
+proc p(implicit ghost x: Int, y: Int)
+{}

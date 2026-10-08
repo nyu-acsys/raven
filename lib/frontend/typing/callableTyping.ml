@@ -116,7 +116,6 @@ let check (callable : Callable.t) : Module.symbol t =
                    %{QualIdent}"
                  call_decl.call_decl_name (Symbol.kind symbol) field))
   in
-  (* TODO: Add a check to make sure that all the implicit ghost variables are declared at the end. *)
   let* disam_tbl, call_decl_formals = check_decls call_decl.call_decl_formals disam_tbl in
   let* disam_tbl, call_decl_returns = check_decls call_decl.call_decl_returns disam_tbl in
   let* disam_tbl, call_decl_locals = check_decls call_decl.call_decl_locals disam_tbl in

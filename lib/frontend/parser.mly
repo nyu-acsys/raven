@@ -555,8 +555,9 @@ formal_with_loc:
 
 (* Formals, of which any number of *leading* ones may be locations -- more than
    one for a primitive that touches several locations in a single step, such as
-   68k `CAS2` or z/Architecture `PLO`. Kept as one list so the grammar stays
-   unambiguous; the ordering rule is enforced here, where it can be reported
+   68k `CAS2` or z/Architecture `PLO` -- and any number of trailing ones implicit,
+   so that a call can omit them. Kept as one list so the grammar stays
+   unambiguous; the ordering rules are enforced here, where they can be reported
    properly. *)
 formals_with_loc:
 | fs = separated_list(COMMA, formal_with_loc) {
@@ -568,6 +569,18 @@ formals_with_loc:
   if List.exists (function `Loc _ -> true | `Var _ -> false) rest then
     Error.syntax_error (Loc.make $symbolstartpos $endpos)
       "Location parameters such as 'x.f' must come before ordinary ones";
+  let _ =
+    List.fold_left (fun after_implicit -> function
+      | `Var (d : Type.var_decl) ->
+          if after_implicit && not d.var_implicit then
+            Error.syntax_error d.var_loc
+              (Printf.sprintf
+                 "Implicit parameters must come last, but the explicit parameter %s \
+                  follows one"
+                 (Ident.name d.var_name));
+          after_implicit || d.var_implicit
+      | `Loc _ -> after_implicit) false rest
+  in
   let flds =
     List.map (function `Loc (fld, _) -> fld | `Var _ -> assert false) locs
   in
