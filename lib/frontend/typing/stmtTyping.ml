@@ -237,7 +237,6 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
           let* token = Rewriter.find_and_reify_var token_qual_ident in
           let token_expr = Expr.mk_var ~typ:token.var_decl.var_type token_qual_ident in
           let+ _ = ExprTyping.check token_expr (Type.atomic_token proc_qual_ident) in
-          (* TODO: check type Type.atomic_token *)
           (Stmt.AUAction { auaction_kind = BindAU token_qual_ident }, disam_tbl)
       | _ -> Error.type_error loc "bindAU takes no arguments"
       end
