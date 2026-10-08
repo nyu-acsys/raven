@@ -89,6 +89,12 @@ module UnionFind[PA: IntPArray] : Library.Type {
     }
   }
 
+  // Pointing x directly at its root preserves validity.
+  lemma compress_valid(r: R, x: Int)
+    requires valid_rep(r) && 0 <= x < r.len
+    ensures valid_rep(uf_rep(r.par[x := repr(r, x)], r.rnk, r.len))
+  {}
+
   // Linking the root x1 below the root x2, which then gets rank rnk, preserves validity.
   lemma union_valid(r: R, x1: Int, x2: Int, rnk: Int)
     requires valid_rep(r) && 0 <= x1 < r.len && 0 <= x2 < r.len
@@ -190,6 +196,8 @@ module UnionFind[PA: IntPArray] : Library.Type {
       mr :| PA.parr(u1.rank, r.len, mr);
       ghost val r1 := uf_rep(mp, mr, r.len);
       repr_compr(r0, x);
+      compress_valid(r0, x);
+      assert r1 == uf_rep(r0.par[x := repr(r0, x)], r0.rnk, r0.len);
       assert repr(r0, x) == repr(r1, x);
       assert forall y: Int :: {repr(r1, y)} 0 <= y < r.len ==> repr(r1, y) == repr(r, y);
       fold valid(u1, r1);
