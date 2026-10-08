@@ -1,0 +1,5 @@
+# Formatting-only commits, skipped by `git blame` (git config blame.ignoreRevsFile
+# .git-blame-ignore-revs) and by GitHub's blame view.
+
+# Format the code base with ocamlformat, at a margin of 90
+ca2519d897c1a38b4ca72357421a825d72388e71
