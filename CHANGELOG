@@ -62,6 +62,8 @@ All notable changes to this project will be documented in this file.
 
 - Comparing a finite set with a set by `==` type-checks with the finite set on either side, not only on the right.
 
+- A set literal takes its element type from the expected type, so that `{| {||} |}` type-checks where a `Set[Set[Int]]` is expected.
+
 - A loop may open the invariants listed in the `opens` clause of the procedure it is in.
 
 - Implicit functor instantiation infers a functor's arguments from a value of its rep type also when the rep type is defined as the type of a nested module, as in `rep type T = L.T`.

@@ -1,0 +1,7 @@
+// A set literal takes its element type from the expected type, if that is a set.
+
+proc p() {
+  var s: Set[Set[Int]] := {| {||} |};
+  var t: FinSet[FinSet[Int]] := {| {||}, {| 1 |} |};
+  var u := {| 1, 2 |};
+}

@@ -205,7 +205,15 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
               (* Set enumeration expressions *)
               | Setenum, [] -> check (App (Empty, [], expr_attr)) expected_typ
               | Setenum, member_expr_list ->
-                  (* TODO: make type inference for member_expr_list more precise by using expected_typ *)
+                  (* If the expected type is a set, the elements are checked against its
+                     element type, which is then the literal's. *)
+                  let expected_elem_typ =
+                    match expected_typ with
+                    | App (FinSet, [ elem_typ ], _)
+                    | App (Map, [ elem_typ; App (Bool, [], _) ], _) ->
+                        elem_typ
+                    | _ -> Type.any
+                  in
                   let* member_expr_list, elem_typ =
                     Rewriter.List.fold_right member_expr_list
                       ~f:(fun mexpr (member_expr_list, elem_typ) ->
@@ -213,7 +221,11 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                           check mexpr (elem_typ |> Type.set_ghost_to expected_typ)
                         in
                         (mexpr :: member_expr_list, Expr.to_type mexpr))
-                      ~init:([], Type.any)
+                      ~init:([], expected_elem_typ)
+                  in
+                  let elem_typ =
+                    if Type.equal expected_elem_typ Type.any then elem_typ
+                    else expected_elem_typ
                   in
                   let given_typ = Type.finset_typed elem_typ in
                   let expr = Expr.App (Setenum, member_expr_list, expr_attr) in
