@@ -3,7 +3,7 @@ open Ast
 open ExtApi
 open Util
 
-(** Implements ADT ergonomics for `data { case ... }` types: a constructor-recognizer
+(** Implements ADT ergonomics for [data { case ... }] types: a constructor-recognizer
     test, `xs is cons`, and `match` expressions. (A `match` *statement* -- arms whose
     bodies are statement blocks rather than expressions -- would be a separate
     construct on the `stmt_ext` extension point; it isn't implemented.) These are core

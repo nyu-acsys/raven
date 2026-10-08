@@ -4222,7 +4222,7 @@ module ProcessModule = struct
                  Ident.name o.var_name ^ " is " ^ Ident.name v.var_name))
 
   (** The declaration of [symbol] as written in its source: from the beginning of the line
-      of its name to the end of its header, with `{ … }` in place of a body. Whether there
+      of its name to the end of its header, with [{ … }] in place of a body. Whether there
       is a body is read off the source, as the standard library's are dropped. *)
   let declaration_text (symbol : Module.symbol) : string option =
     let name_loc, end_locs, has_body =

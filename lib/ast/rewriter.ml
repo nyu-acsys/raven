@@ -253,7 +253,6 @@ and type_check_stmt_functs = {
   disam_tbl_add_var_decl : var_decl -> DisambiguationTbl.t -> var_decl * DisambiguationTbl.t;
 
   process_symbol : Module.symbol -> Module.symbol t;
-
   (** Recursively type-checks a nested statement (e.g. a proof block carried by a
       top-level [Stmt.StmtExt] node) in its own fresh scope, the same way [Typing.ml]'s
       [process_stmt] type-checks an ordinary callable body statement. Needed because
@@ -277,7 +276,6 @@ and ext_hooks = {
   basic_stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
   basic_stmt_ext_local_vars_modified : Stmt.stmt_ext -> expr list -> ident list;
   basic_stmt_ext_fields_accessed : Stmt.stmt_ext -> expr list -> qual_ident list;
-
   (** The [stmt_desc]-level sibling of the [pr_basic_stmt_ext]/[basic_stmt_ext_*]
       family above, for [Stmt.StmtExt] (a self-contained [stmt_ext] value, like
       [contract_ext], used by extension statements that need a nested [Stmt.t] of
@@ -287,12 +285,10 @@ and ext_hooks = {
   stmt_ext_symbols : Stmt.stmt_ext -> QualIdentSet.t;
   stmt_ext_local_vars_modified : Stmt.stmt_ext -> ident list;
   stmt_ext_fields_accessed : Stmt.stmt_ext -> qual_ident list;
-
   (** What one extension statement costs the atomicity analysis -- see
       [Stmt.stmt_atomicity]. Covers both extension points, since the analysis
       meets a [BasicStmtExt] and a [StmtExt] alike as an opaque tag. *)
   stmt_ext_atomicity : Stmt.stmt_ext -> Stmt.stmt_atomicity;
-
   (** Best-effort "did you mean" lookup: given a [*_ext] tag the *active* extension
       chain didn't recognize, checks whether some *other* known [--extension] choice
       would have, and if so returns that flag's name. [None] means no known extension
@@ -308,7 +304,6 @@ and ext_hooks = {
 
   expr_ext_rewrite_types : f:(type_expr -> type_expr t) -> Expr.expr_ext -> Expr.expr_ext t;
   basic_stmt_ext_rewrite_types : f:(type_expr -> type_expr t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
-
   (** Generic substitution for the top-level [Stmt.StmtExt] extension point, applying
       [f] to every expression and [c] to every nested [Stmt.t] a [stmt_ext] value
       carries -- used uniformly by [Rewriter.Stmt.rewrite_expressions]/[rewrite_types]/
@@ -316,14 +311,12 @@ and ext_hooks = {
       [f] the identity), so an extension recurses into its own embedded statements the
       same way [Cond]/[Loop] do, without core code needing to know [stmt_ext]'s shape. *)
   stmt_ext_rewrite : f:(expr -> expr t) -> c:(Stmt.t -> Stmt.t t) -> Stmt.stmt_ext -> Stmt.stmt_ext t;
-
   (** Applies [f] to every expression a [contract_ext] value carries (e.g. each
       measure's [spec_form] for [decreases]), for the same reason
       [basic_stmt_ext_rewrite_types] exists: generic substitution during things like
       module instantiation, where core code needs to rewrite every expression in a
       callable's contract uniformly without knowing what a given [contract_ext] means. *)
   contract_ext_rewrite_exprs : f:(expr -> expr t) -> Stmt.contract_ext -> Stmt.contract_ext t;
-
   (** Called for every [Expr.ExprExt] node met by [Typing.ProcessCallable]'s
       disambiguation pass, which alpha-renames a callable body's local variables to
       fresh names and rejects unbound ones -- and which runs *before* any
@@ -344,7 +337,6 @@ and ext_hooks = {
     DisambiguationTbl.t ->
     disambiguate_expr_functs ->
     (Expr.expr_ext * expr list) t;
-
   (** Offered a core expression node that the core type checker rejects at the node
       itself: a map lookup or update whose map operand has a type other than a map, a
       membership whose set operand has a type other than a set, and a set operator, which
@@ -356,7 +348,6 @@ and ext_hooks = {
       extension. [None] leaves the node to the core, which reports its own error. *)
   claim_expr :
     Expr.constr -> expr list -> Expr.expr_attr -> (Expr.expr_ext * expr list) option t;
-
   (** Offered an expression that the core finds where it expects a field location
       [x.f] -- the location argument of [own] or of a procedure's location parameter --
       but that is not of that form, currently a map lookup whose map operand is not of
@@ -365,7 +356,6 @@ and ext_hooks = {
       field of the location the expression denotes, and the core continues as for that
       location. [None] leaves the expression to the core. *)
   claim_location : expr -> (expr * qual_ident) option t;
-
   (** The statement-level counterpart of [claim_expr], offered an assignment whose
       right-hand side is a map lookup or update whose map operand is not of map type.
       This includes an indexed assignment [x[i] := v], which the parser turns into
@@ -386,7 +376,6 @@ and ext_hooks = {
     DisambiguationTbl.t ->
     type_check_stmt_functs ->
     (Stmt.basic_stmt_desc * DisambiguationTbl.t) t;
-
   (** The [stmt_desc]-level sibling of [type_check_basic_stmt], for [Stmt.StmtExt].
       Returns a whole [Stmt.stmt_desc] (typically another [StmtExt], left for
       [rewrite_stmt_ext] to lower once type-checking -- e.g. a purity check on the
@@ -407,7 +396,6 @@ and ext_hooks = {
     DisambiguationTbl.t ->
     type_check_stmt_functs ->
     Stmt.contract_ext t;
-
   (** Called once per module for every group of mutually-recursive callables (a
       strongly-connected component of the call graph with more than one member), given
       every member's [call_decl] -- see [ExtApi.Ext.check_contract_ext_group_compatible]
@@ -418,10 +406,8 @@ and ext_hooks = {
   rewrite_type_ext : Type.type_ext -> type_expr list -> location -> type_expr t;
   rewrite_expr_ext : Expr.expr_ext -> expr list -> Expr.expr_attr -> expr t;
   rewrite_basic_stmt_ext : Stmt.stmt_ext -> expr list -> location -> Stmt.t t;
-
   (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for [Stmt.StmtExt]. *)
   rewrite_stmt_ext : Stmt.stmt_ext -> location -> Stmt.t t;
-
   (** [caller_call_decl -> callee_call_decl -> in_same_scc -> call_args -> loc -> ...] --
       see [ExtApi.Ext.rewrite_contract_ext_call]'s doc comment for the full contract;
       [in_same_scc] says whether caller and callee lie in the same strongly-connected
@@ -430,7 +416,6 @@ and ext_hooks = {
       [lib/frontend/rewrites/rewrites.ml]. *)
   rewrite_contract_ext_call :
     Callable.call_decl -> Callable.call_decl -> bool -> expr list -> location -> Stmt.t list t;
-
   (** Called once for every [Proc]/[Lemma] callable, before any of its statements are
       visited elsewhere. Returns statements to prepend at the very top of the
       callable's body. General-purpose, not tied to [contract_ext]: any extension can
@@ -439,7 +424,6 @@ and ext_hooks = {
       does for its `decreases` measure snapshot). Default (no extension using this
       hook) is to prepend nothing. *)
   rewrite_callable_entry : Callable.call_decl -> Stmt.t list t;
-
   (** Called by [rewrite_loops] as it transfers a loop's [loop_contract_ext] entries
       onto the synthesized tail-recursive procedure's [call_decl_contract_ext]. [subst]
       is the same substitution [rewrite_loops] applies to [loop_contract] (loop-local

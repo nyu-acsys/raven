@@ -81,7 +81,7 @@ module type Ext = sig
       there anyway need not implement this.
 
       Note this is the *logical* region -- an open invariant or atomic update --
-      not the syntactic `atomic { ... }` block, which makes its own body a single
+      not the syntactic [atomic { ... }] block, which makes its own body a single
       step and is handled in the core. *)
   val stmt_ext_atomicity : Stmt.stmt_ext -> Stmt.stmt_atomicity
 

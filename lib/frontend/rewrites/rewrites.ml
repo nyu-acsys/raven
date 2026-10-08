@@ -289,7 +289,7 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
     tbl
 
 (** Rewrites loops into recursive function calls. For example, if we have the following while loop:
-  ```
+  {[
     proc p() {
       ...
       while(c)
@@ -299,10 +299,10 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
       }
       ...
     }
-  ```
+  ]}
 
   Then we rewrite it into the following, by defining a recursive function:
-  ```
+  {[
     proc p() {
       ...
       x = p_loop(x, y, z);
@@ -326,7 +326,7 @@ let rewrite_compr_modules (tbl : SymbolTbl.t) (m : Module.t) =
 
       return x2
     }
-  ```
+  ]}
 *)
 
 (** `--strict` diagnostics never fire inside the standard library (core or

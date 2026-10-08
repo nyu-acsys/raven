@@ -544,7 +544,7 @@ module Type = struct
   let is_any tp_expr = equal tp_expr any
 
   (** True iff [Bot] occurs anywhere in [tp_expr], e.g. `Set(Bot)` -- the type an
-      empty collection literal (`{||}`) is given absent any expected type to pin
+      empty collection literal ([{||}]) is given absent any expected type to pin
       down its element type. Such a type carries no real information and should
       never be treated as a successfully inferred type argument. *)
   let rec contains_bot = function
@@ -1649,7 +1649,7 @@ module Stmt = struct
     | Regular
     | Ghost  (** `{! ... !}` *)
     | Atomic
-        (** `atomic { ... }`: a *physically* atomic block, whose body counts as a
+        (** [atomic { ... }]: a *physically* atomic block, whose body counts as a
             single machine step however many statements it contains. A trusted
             claim about the target machine -- Raven has no scheduler to enforce
             it -- and what lets a body that really takes several steps discharge a
@@ -1668,7 +1668,7 @@ module Stmt = struct
     | Cond of cond_desc
     | StmtExt of stmt_ext
         (** Self-contained extension point for whole custom statement forms that need
-            nested statements of their own (e.g. `assert e with { ... }`'s proof block).
+            nested statements of their own (e.g. the proof block of [assert e with { ... }]).
             Each extension's own constructor of [stmt_ext] carries whatever payload it
             needs directly -- the same design as [contract_ext]. *)
 
@@ -1980,8 +1980,8 @@ module Stmt = struct
   let default_basic_stmt_ext_symbols : stmt_ext -> QualIdentSet.t = fun _ -> Set.empty (module QualIdent)
   let default_stmt_ext_symbols : stmt_ext -> QualIdentSet.t = fun _ -> Set.empty (module QualIdent)
 
-  (** Extends [accessed] with the set of all symbols occuring free in [s] *)
-  (** Assumes that all var_decl stmts are abstracted away during type-checking. *)
+  (** Extends [accessed] with the set of all symbols occurring free in [s]. Assumes that
+      all var_decl stmts are abstracted away during type-checking. *)
   let make_symbols ~basic_stmt_ext_symbols ~stmt_ext_symbols ?(accessed = Set.empty (module QualIdent)) (s: t) : QualIdentSet.t =
     let rec symbols (accesses: QualIdentSet.t) (s: t) =
       let scan_expr_list accesses exprs =
