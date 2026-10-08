@@ -55,6 +55,8 @@ All notable changes to this project will be documented in this file.
 
 - Definitions and lemmas that no proof obligation depends on, such as unused parts of the standard library, are no longer sent to the SMT solver. Small programs verify noticeably faster.
 
+- Proofs involving non-linear arithmetic verify faster and with less variable times.
+
 - Improved the wording and readability of the tutorial.
 
 

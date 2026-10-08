@@ -320,6 +320,10 @@ let init ?(logging = true) diagnostics timeout : smt_env =
       SetOption (":smt.mbqi", "false", None);
       SetOption (":smt.case_split", "3", None);
       SetOption (":smt.candidate_models", "true", None);
+      (* Call nlsat on the non-linear part of a query only after many final checks:
+         most proofs do not need it, and early calls make the search slower and its
+         time more variable. *)
+      SetOption (":smt.arith.nl.delay", "200", None);
       (*SetOption (":smt.macro_finder", "true", None);*)
     ]
     @ if diagnostics then [ SetOption (":smt.qi.profile", "true", None) ] else []
