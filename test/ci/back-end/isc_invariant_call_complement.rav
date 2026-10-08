@@ -1,0 +1,53 @@
+// An iterated separating conjunction over a set whose conjuncts call an invariant, for the
+// elements not in a set that a recursive lemma returns, and for those a loop has processed.
+
+module Recursive {
+  ghost field snap: Int
+
+  inv hps(hcell: Ref) {
+    true
+  }
+
+  lemma bump_all_manual(n: Int, regs: FinSet[Ref], ghost todo: FinSet[Ref]) returns (ghost todo2: FinSet[Ref])
+    requires todo subseteq regs
+    requires forall r0: Ref :: r0 in todo ==> own(r0.snap, n, 1.0) && hps(r0)
+    requires forall r0: Ref :: r0 in regs && r0 !in todo ==> own(r0.snap, n + 1, 1.0) && hps(r0)
+    ensures todo2 subseteq regs
+    ensures forall r0: Ref :: r0 in todo2 ==> own(r0.snap, n, 1.0) && hps(r0)
+    ensures forall r0: Ref :: r0 in regs && r0 !in todo2 ==> own(r0.snap, n + 1, 1.0) && hps(r0)
+    ensures todo2 == {||}
+    decreases todo
+  {
+    todo2 := todo
+    if (todo != {||}) {
+      ghost val r := choose(todo)
+      r.snap := n + 1
+      todo := todo -- {|r|}
+      todo2 := bump_all_manual(n, regs, todo)
+    }
+  }
+}
+
+module Loop {
+  ghost field snap: Int
+
+  inv hps(hcell: Ref) {
+    true
+  }
+
+  lemma bump_all_loop(n: Int, regs: FinSet[Ref])
+    requires forall r0: Ref :: r0 in regs ==> own(r0.snap, n, 1.0) && hps(r0)
+    ensures forall r0: Ref :: r0 in regs ==> own(r0.snap, n + 1, 1.0) && hps(r0)
+  {
+    ghost var todo: FinSet[Ref] := regs
+    while (todo != {||})
+      invariant todo subseteq regs
+      invariant forall r0: Ref :: r0 in todo ==> own(r0.snap, n, 1.0) && hps(r0)
+      invariant forall r0: Ref :: r0 in regs && r0 !in todo ==> own(r0.snap, n + 1, 1.0) && hps(r0)
+    {
+      ghost val r := choose(todo)
+      r.snap := n + 1
+      todo := todo -- {|r|}
+    }
+  }
+}
