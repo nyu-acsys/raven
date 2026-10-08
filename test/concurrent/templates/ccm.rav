@@ -12,10 +12,10 @@ interface CCM : Type {
     ensures valid(id)
 
   auto axiom compAssoc()
-    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
   auto axiom compCommute()
-    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+    ensures forall a:T, b:T :: {comp(a,b)} comp(a, b) == comp(b, a)
 
   auto axiom compId()
     ensures forall a:T :: {comp(a, id)} {frame(a, id)} comp(a, id) == a
