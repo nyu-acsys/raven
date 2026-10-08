@@ -234,11 +234,11 @@ and type_check_stmt_functs = {
   process_symbol : Module.symbol -> Module.symbol t;
       (** Recursively type-checks a nested statement (e.g. a proof block carried by a
           top-level [Stmt.StmtExt] node) in its own fresh scope, the same way
-          [StmtTyping.process_stmt] type-checks an ordinary callable body statement.
-          Needed because [type_check_stmt_ext] -- unlike the generic tree-walking hooks --
-          has no other way to recurse: [Stmt.stmt_ext] is an opaque, extension-owned
-          value, so only the type checker itself can drive type-checking of whatever
-          [Stmt.t] an extension embeds in it. *)
+          [StmtTyping.check] type-checks an ordinary callable body statement. Needed
+          because [type_check_stmt_ext] -- unlike the generic tree-walking hooks -- has no
+          other way to recurse: [Stmt.stmt_ext] is an opaque, extension-owned value, so
+          only the type checker itself can drive type-checking of whatever [Stmt.t] an
+          extension embeds in it. *)
   process_stmt :
     Callable.call_decl ->
     Stmt.t ->
@@ -551,11 +551,11 @@ let default_ext_hooks : ext_hooks =
 
 (* Using pointers to access certain functions from Typing in certain context while circumventing dependency cycles. *)
 
-(** This is meant to point to: Typing.process_symbol It is initialized at the end of the
+(** This is meant to point to: Typing.check_symbol It is initialized at the end of the
     [Typing] library's main module. *)
-let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref =
+let check_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref =
   ref (fun _ ->
-      Error.unsupported_error Loc.dummy "Rewriter.process_symbol_ref uninitialized")
+      Error.unsupported_error Loc.dummy "Rewriter.check_symbol_ref uninitialized")
 
 (** This is meant to point to: TypeExpr.expand_type_expr It is initialized at the end of
     the [Typing] library's main module. *)
@@ -563,20 +563,19 @@ let expand_type_expr_ref : (type_expr -> (type_expr, unit) t_ext) ref =
   ref (fun _ ->
       Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized")
 
-(** This is meant to point to: StmtTyping.process_stmt It is initialized at the end of the
+(** This is meant to point to: StmtTyping.check It is initialized at the end of the
     [Typing] library's main module. Exists so [type_check_stmt_functs] (built while
-    [StmtTyping.process_basic_stmt] -- itself not mutually recursive with
-    [StmtTyping.process_stmt] -- is still being defined) can hand an extension a way to
-    recursively type-check a nested [Stmt.t] (e.g. [AssertWithExt]'s proof block) without
-    a direct forward reference. *)
-let process_stmt_ref :
+    [StmtTyping.check_basic] -- itself not mutually recursive with [StmtTyping.check] --
+    is still being defined) can hand an extension a way to recursively type-check a nested
+    [Stmt.t] (e.g. [AssertWithExt]'s proof block) without a direct forward reference. *)
+let check_stmt_ref :
     (Callable.call_decl ->
     Stmt.t ->
     DisambiguationTbl.t ->
     (Stmt.t * DisambiguationTbl.t) t)
     ref =
   ref (fun _ _ _ ->
-      Error.internal_error Loc.dummy "Rewriter.process_stmt_ref uninitialized")
+      Error.internal_error Loc.dummy "Rewriter.check_stmt_ref uninitialized")
 
 include State
 
@@ -967,7 +966,7 @@ let introduce_symbol symbol s =
 
 (* `f` represents a typechecking function that will be used to type-check 
  * `symbol` once the state has been set in the correct scope. 
- * This function is almost always intended to be `Typing.process_symbol` function. 
+ * This function is almost always intended to be `Typing.check_symbol` function. 
  * However, this cannot be set statically since 
  * that creates a recursive dependency between `module Rewriter` and `module Typing`. *)
 let introduce_typecheck_symbols ~loc ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t)
@@ -1075,7 +1074,7 @@ let introduce_typecheck_symbol ~loc ~(f : AstDef.Module.symbol -> AstDef.Module.
 
 let introduce_typecheck_symbol' ~loc (symbol : Module.symbol) (s : 'a state) :
     'a state * qual_ident =
-  introduce_typecheck_symbol ~loc ~f:!process_symbol_ref symbol s
+  introduce_typecheck_symbol ~loc ~f:!check_symbol_ref symbol s
 
 let introduce_typecheck_symbol_at_scope' ~loc (symbol : Module.symbol)
     (scope_qi : qual_ident) (s : 'a state) : 'a state * qual_ident =
@@ -1091,7 +1090,7 @@ let introduce_typecheck_symbol_at_scope' ~loc (symbol : Module.symbol)
         (Symbol.to_name symbol));
 
   let s, _ = declare_symbol symbol s in
-  let s, symbol = !process_symbol_ref symbol s in
+  let s, symbol = !check_symbol_ref symbol s in
 
   let state_new_symbols_tree =
     NewSymbolsTree.scope_add_symbols scope_qi [ symbol ] s.state_new_symbols_tree

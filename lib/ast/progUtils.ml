@@ -190,8 +190,8 @@ let find_highest_valid_scope_type_expr loc (tp : type_expr) : qual_ident option 
 let tp_mod_ident_prefix = "TypeMod$$"
 
 (** Takes a type expression `tp` and introduces a module that implements Library.Type
-    whose rep type T is `tp`. ~f here is expected to be Typing.process_symbol, but it's
-    not hardcoded to prevent recursive dependencies *)
+    whose rep type T is `tp`. ~f here is expected to be Typing.check_symbol, but it's not
+    hardcoded to prevent recursive dependencies *)
 let intros_type_module ~(loc : location) ?scope
     ~(f : AstDef.Module.symbol -> AstDef.Module.symbol t) (tp : AstDef.type_expr) :
     qual_ident t =
@@ -1090,8 +1090,8 @@ let existing_module_for_rep_type ~(interface_qual_ident : qual_ident) ~(rep_iden
     unless the source explicitly wrote `free` on it. [NotFree] (never marked free) and
     [MachineFree] both count: the entire standard library is force-marked [MachineFree]
     wholesale so it isn't re-verified per program (see the comment on [un_free_inherited]
-    in [ModuleTyping.process_module]), which is indistinguishable, per member, from
-    genuine freeness unless [UserFree] is checked for specifically. [Lemma]-kind callables
+    in [ModuleTyping.check]), which is indistinguishable, per member, from genuine
+    freeness unless [UserFree] is checked for specifically. [Lemma]-kind callables
     (axioms) are excluded unconditionally: an interface's axioms never need to be supplied
     by an implementer, regardless of how they're marked. *)
 let non_rep_abstract_members ~(interface_qual_ident : qual_ident) ~(rep_ident : ident) :

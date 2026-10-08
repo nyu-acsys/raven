@@ -28,10 +28,10 @@ let is_type_word_sized (typ : type_expr) : bool t =
       | _ -> false)
   | _ -> Rewriter.return false
 
-let process_type_def (type_def : Module.type_def) : Module.symbol t =
+let check_type_def (type_def : Module.type_def) : Module.symbol t =
   let open Rewriter.Syntax in
   Logs.debug (fun m ->
-      m "ModuleTyping.process_type_def: Start processing type_def: %a" Ident.pr
+      m "ModuleTyping.check_type_def: Start processing type_def: %a" Ident.pr
         type_def.type_def_name);
   match type_def.type_def_expr with
   | None -> Rewriter.return Module.(TypeDef type_def)
@@ -67,7 +67,7 @@ let process_type_def (type_def : Module.type_def) : Module.symbol t =
               Rewriter.List.map variant_decl_list ~f:(fun variant_decl ->
                   let+ variant_args =
                     Rewriter.List.map variant_decl.variant_args ~f:(fun var_decl ->
-                        TypeExpr.process_var_decl var_decl)
+                        TypeExpr.check_var_decl var_decl)
                   in
                   { variant_decl with variant_args })
             in
@@ -105,7 +105,7 @@ let process_type_def (type_def : Module.type_def) : Module.symbol t =
             Type.App (Data (fully_qualified_tp_name, variant_decl_list), [], _tp_attr)
         | App (Data _, _, _tp_attr) ->
             Error.error (Type.to_loc tp_expr) "Data types don't take arguments"
-        | _ -> TypeExpr.process_type_expr tp_expr
+        | _ -> TypeExpr.check tp_expr
       in
 
       let type_def = { type_def with type_def_expr = Some tp_expr } in
@@ -113,8 +113,7 @@ let process_type_def (type_def : Module.type_def) : Module.symbol t =
 
 (* A manifest field, `field f = M.g`, takes its type from `M.g`; a ghost modifier must
    agree with it. *)
-let process_alias_field (field : Module.field_def) (target : qual_ident) : Module.symbol t
-    =
+let check_alias_field (field : Module.field_def) (target : qual_ident) : Module.symbol t =
   let open Rewriter.Syntax in
   let* target, symbol = Rewriter.resolve_and_find target in
   let* symbol = Rewriter.Symbol.reify symbol in
@@ -142,10 +141,10 @@ let process_alias_field (field : Module.field_def) (target : qual_ident) : Modul
     (Module.FieldDef
        { field with field_type = target_field.field_type; field_alias = Some target })
 
-let process_field (field : Module.field_def) : Module.symbol t =
+let check_field (field : Module.field_def) : Module.symbol t =
   let open Rewriter.Syntax in
   match field.field_alias with
-  | Some target -> process_alias_field field target
+  | Some target -> check_alias_field field target
   | None ->
       let+ tp_expr =
         match field.field_type with
@@ -156,24 +155,24 @@ let process_field (field : Module.field_def) : Module.symbol t =
             match Rewriter.Symbol.orig_symbol symbol with
             | ModDef { mod_decl = { mod_decl_is_ra = true; _ }; _ } ->
                 Rewriter.return @@ Type.App (Var fully_qualified_qual_ident, [], tp_attr)
-            | _ -> TypeExpr.process_type_expr field.field_type)
-        | _ -> TypeExpr.process_type_expr field.field_type
+            | _ -> TypeExpr.check field.field_type)
+        | _ -> TypeExpr.check field.field_type
       in
 
       let field = { field with field_type = tp_expr } in
       Module.(FieldDef field)
 
-let process_var (var : Stmt.var_def) : Module.symbol t =
+let check_var (var : Stmt.var_def) : Module.symbol t =
   let open Rewriter.Syntax in
   let _ =
     if not var.var_decl.var_const then
       Error.type_error var.var_decl.var_loc
         "Modules and interfaces cannot have var members"
   in
-  let* var_decl = TypeExpr.process_var_decl var.var_decl in
+  let* var_decl = TypeExpr.check_var_decl var.var_decl in
   let+ var_init =
     Rewriter.Option.map var.var_init ~f:(fun expr ->
-        ExprTyping.process_expr expr var_decl.var_type)
+        ExprTyping.check expr var_decl.var_type)
   in
   let var_type =
     var_init |> Option.map ~f:Expr.to_type |> Option.value ~default:var_decl.var_type
@@ -190,7 +189,7 @@ let process_var (var : Stmt.var_def) : Module.symbol t =
   in
   Module.(VarDef var)
 
-let rec process_module (m : Module.t) : Module.t t =
+let rec check (m : Module.t) : Module.t t =
   let open Rewriter.Syntax in
   let _ =
     Logs.info (fun mm -> mm !"Processing module %{Ident}" (Symbol.to_name (ModDef m)))
@@ -217,20 +216,19 @@ let rec process_module (m : Module.t) : Module.t t =
     Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl))
   in
 
-  let process_instr = function
+  let check_instr = function
     | Module.SymbolDef symbol ->
         let* symbol_def =
           match symbol with
-          | TypeDef type_def -> process_type_def type_def
-          | VarDef var_def -> process_var var_def
-          | FieldDef field_def -> process_field field_def
+          | TypeDef type_def -> check_type_def type_def
+          | VarDef var_def -> check_var var_def
+          | FieldDef field_def -> check_field field_def
           | ConstrDef _ | DestrDef _ ->
               Rewriter.return symbol
               (* These should not occur directly in a module definition *)
-          | CallDef call_def -> CallableTyping.process_callable call_def
+          | CallDef call_def -> CallableTyping.check call_def
           | ModDef mod_def ->
-              let* _ = Rewriter.enter_module mod_def
-              and* mod_def = process_module mod_def in
+              let* _ = Rewriter.enter_module mod_def and* mod_def = check mod_def in
               let+ mod_def = Rewriter.exit_module mod_def in
               Module.ModDef mod_def
           | ModInst mod_inst ->
@@ -292,7 +290,7 @@ let rec process_module (m : Module.t) : Module.t t =
                                     lift
                                       (ProgUtils.get_or_intros_rep_module
                                          ~loc:(Type.to_loc tp)
-                                         ~f:!Rewriter.process_symbol_ref ~insert_scope
+                                         ~f:!Rewriter.check_symbol_ref ~insert_scope
                                          ~reference_scope ~interface_qual_ident ~rep_ident
                                          tp)
                                   in
@@ -350,7 +348,7 @@ let rec process_module (m : Module.t) : Module.t t =
     else
       let _ =
         Logs.debug (fun mm ->
-            mm "ModuleTyping.process_module: computing mod_qual_ident: %a" QualIdent.pr
+            mm "ModuleTyping.check: computing mod_qual_ident: %a" QualIdent.pr
               (QualIdent.from_ident (Symbol.to_name (ModDef m))))
       in
 
@@ -557,8 +555,7 @@ let rec process_module (m : Module.t) : Module.t t =
       Rewriter.List.map m.mod_decl.mod_decl_returns ~f:(fun (mid, args) ->
           Logs.debug (fun mm ->
               mm
-                !"ModuleTyping.process_module: module %{Ident}: checking return type \
-                  %{QualIdent}"
+                !"ModuleTyping.check: module %{Ident}: checking return type %{QualIdent}"
                 (Symbol.to_name (ModDef m)) mid);
           let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find mid in
           (* A parameterized parent's formals are substituted by its arguments first, then
@@ -622,8 +619,7 @@ let rec process_module (m : Module.t) : Module.t t =
           let* () =
             Rewriter.Logs.debug (fun printers mm ->
                 mm
-                  !"ModuleTyping.process_module: %{Ident}: checking return type %a: \
-                    reified; \n\
+                  !"ModuleTyping.check: %{Ident}: checking return type %a: reified; \n\
                    \ qual_interface_ident: %{QualIdent} \n\
                    \ mid: %{QualIdent}"
                   (Symbol.to_name (ModDef m)) printers.pr_symbol interface_symbol
@@ -860,7 +856,7 @@ let rec process_module (m : Module.t) : Module.t t =
   in
 
   (* Check and rewrite all symbols *)
-  let* mod_def = Rewriter.List.map merged_symbols ~f:process_instr in
+  let* mod_def = Rewriter.List.map merged_symbols ~f:check_instr in
 
   (* Check symbols against what is specified in the interface *)
   let manifest_subst =
@@ -933,7 +929,7 @@ let rec process_module (m : Module.t) : Module.t t =
      atomic primitive works on a single machine word, which no declared member can
      express. The check concerns the representation, not value ranges, since Int is
      unbounded. Interfaces are exempt, as their rep type is abstract. It runs after
-     [process_instr], which brings the rep type into its final form. *)
+     [check_instr], which brings the rep type into its final form. *)
   let* () =
     let rep_def =
       match mod_decl.mod_decl_rep with

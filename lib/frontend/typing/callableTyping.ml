@@ -11,7 +11,7 @@ open ProgUtils
    instance) or one per parameter, implicit ones included, of which a trailing run may be
    `_` and is dropped. Arguments may mention only the callable's formals, except, for an
    atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
-let process_opens_clause (call_decl : Callable.call_decl) (formals : Type.var_decl list)
+let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
     (precond : Stmt.spec list) (postcond : Stmt.spec list)
     (disam_tbl : DisambiguationTbl.t) (mask : Callable.mask) : Callable.mask t =
   let open Rewriter.Syntax in
@@ -67,7 +67,7 @@ let process_opens_clause (call_decl : Callable.call_decl) (formals : Type.var_de
           (List.take inv_params (List.length prefix))
           ~f:(fun arg param ->
             let+ arg =
-              StmtTyping.disambiguate_process_expr arg
+              StmtTyping.disambiguate_and_check_expr arg
                 (Type.set_ghost true param.Type.var_type)
                 disam_tbl
             in
@@ -86,19 +86,19 @@ let process_opens_clause (call_decl : Callable.call_decl) (formals : Type.var_de
       in
       (qi, prefix))
 
-let process_callable (callable : Callable.t) : Module.symbol t =
+let check (callable : Callable.t) : Module.symbol t =
   let open Rewriter.Syntax in
   let* () =
     Rewriter.Logs.debug (fun printers m ->
-        m "CallableTyping.process_callable: Start Processing callable: %a"
-          printers.pr_callable callable)
+        m "CallableTyping.check: Start Processing callable: %a" printers.pr_callable
+          callable)
   in
   let* _ = Rewriter.enter_callable callable in
   let disam_tbl = DisambiguationTbl.push [] in
   let call_decl = Callable.to_decl callable in
-  let process_decls var_decls disam_tbl =
+  let check_decls var_decls disam_tbl =
     Rewriter.List.fold_map var_decls ~init:disam_tbl ~f:(fun disam_tbl var_decl ->
-        let+ var_decl = TypeExpr.process_var_decl var_decl in
+        let+ var_decl = TypeExpr.check_var_decl var_decl in
         let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
         (disam_tbl, var_decl'))
   in
@@ -117,13 +117,9 @@ let process_callable (callable : Callable.t) : Module.symbol t =
                  call_decl.call_decl_name (Symbol.kind symbol) field))
   in
   (* TODO: Add a check to make sure that all the implicit ghost variables are declared at the end. *)
-  let* disam_tbl, call_decl_formals =
-    process_decls call_decl.call_decl_formals disam_tbl
-  in
-  let* disam_tbl, call_decl_returns =
-    process_decls call_decl.call_decl_returns disam_tbl
-  in
-  let* disam_tbl, call_decl_locals = process_decls call_decl.call_decl_locals disam_tbl in
+  let* disam_tbl, call_decl_formals = check_decls call_decl.call_decl_formals disam_tbl in
+  let* disam_tbl, call_decl_returns = check_decls call_decl.call_decl_returns disam_tbl in
+  let* disam_tbl, call_decl_locals = check_decls call_decl.call_decl_locals disam_tbl in
 
   let* ext_hooks = Rewriter.current_ext_hooks in
 
@@ -134,11 +130,9 @@ let process_callable (callable : Callable.t) : Module.symbol t =
   let* _ = Rewriter.add_locals call_decl_locals in
 
   let* call_decl_precond =
-    Rewriter.List.map call_decl.call_decl_precond
-      ~f:(StmtTyping.process_stmt_spec disam_tbl)
+    Rewriter.List.map call_decl.call_decl_precond ~f:(StmtTyping.check_spec disam_tbl)
   and* call_decl_postcond =
-    Rewriter.List.map call_decl.call_decl_postcond
-      ~f:(StmtTyping.process_stmt_spec disam_tbl)
+    Rewriter.List.map call_decl.call_decl_postcond ~f:(StmtTyping.check_spec disam_tbl)
   in
 
   let () =
@@ -216,10 +210,10 @@ let process_callable (callable : Callable.t) : Module.symbol t =
                expand_type_expr = (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
                disambiguate_process_expr =
                  (fun e exp d ->
-                   run_typing (StmtTyping.disambiguate_process_expr e exp d));
+                   run_typing (StmtTyping.disambiguate_and_check_expr e exp d));
                type_mismatch_error;
                disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-               process_symbol = !Rewriter.process_symbol_ref;
+               process_symbol = !Rewriter.check_symbol_ref;
                process_stmt =
                  (fun _call_decl stmt _disam_tbl ->
                    Error.internal_error (Stmt.to_loc stmt)
@@ -230,8 +224,8 @@ let process_callable (callable : Callable.t) : Module.symbol t =
   let* call_decl_opens =
     Rewriter.Option.map call_decl.call_decl_opens
       ~f:
-        (process_opens_clause call_decl call_decl_formals call_decl_precond
-           call_decl_postcond disam_tbl)
+        (check_opens call_decl call_decl_formals call_decl_precond call_decl_postcond
+           disam_tbl)
   in
 
   let call_decl =
@@ -255,7 +249,7 @@ let process_callable (callable : Callable.t) : Module.symbol t =
           Rewriter.Option.map func_def.func_body ~f:(fun expr ->
               let expected_return_type = Callable.return_type call_decl in
               let* expr =
-                StmtTyping.disambiguate_process_expr expr expected_return_type disam_tbl
+                StmtTyping.disambiguate_and_check_expr expr expected_return_type disam_tbl
               in
               let () =
                 (* The body of a func defines its return value, so using the return
@@ -292,16 +286,16 @@ let process_callable (callable : Callable.t) : Module.symbol t =
         let+ proc_body =
           Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
               Logs.debug (fun m ->
-                  m "CallableTyping.process_callable: Callable: %a" Ident.pr
+                  m "CallableTyping.check: Callable: %a" Ident.pr
                     callable.call_decl.call_decl_name);
 
               Logs.debug (fun m ->
-                  m "CallableTyping.process_callable: DisamTbl: %a"
+                  m "CallableTyping.check: DisamTbl: %a"
                     (Fmt.Dump.list (Fmt.Dump.list (Fmt.Dump.pair Ident.pr Ident.pr)))
                     (List.map disam_tbl ~f:Map.to_alist));
 
               let+ stmt, _disam_tbl =
-                StmtTyping.process_stmt ~new_scope:false call_decl stmt disam_tbl
+                StmtTyping.check ~new_scope:false call_decl stmt disam_tbl
               in
               stmt)
         in

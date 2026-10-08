@@ -157,7 +157,7 @@ module AssertWithExt (Cont : Ext) = struct
            previous version of this code did) is what lets an ordinary [VarDef] like
            the ones above -- including this one -- go through the same VarDef-to-Havoc
            conversion, symbol registration, and ghost-scope propagation that
-           [Typing.process_stmt] gives any other statement; splitting the checks across
+           [StmtTyping.check] gives any other statement; splitting the checks across
            two separate calls left the synthesized `$nondet` local never actually
            registered as a symbol. *)
         let assume_spec_stmt = Stmt.mk_assume_spec ~loc spec in

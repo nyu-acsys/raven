@@ -625,7 +625,7 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       in
 
       let* _ =
-        Rewriter.introduce_typecheck_symbol ~loc:stmt.stmt_loc ~f:Typing.process_symbol
+        Rewriter.introduce_typecheck_symbol ~loc:stmt.stmt_loc ~f:Typing.check_symbol
           loop_proc_symbol
       in
 
@@ -1084,7 +1084,7 @@ let rec rewrite_add_func_contract_lemmas (sm : scc_map) (m : Module.t) :
 
       let* _ =
         Rewriter.introduce_typecheck_symbols ~loc:m.mod_decl.mod_decl_loc
-          ~f:Typing.process_symbol lemma_symbols
+          ~f:Typing.check_symbol lemma_symbols
       in
 
       Rewriter.exit_module m

@@ -82,7 +82,7 @@ module SetExt (Cont : Ext) = struct
       let* sets_qual_ident = sets_qual_ident in
       let* sets = Rewriter.find_and_reify_module sets_qual_ident in
       let+ instance =
-        ProgUtils.instantiate_type_functor ~loc ~f:!Rewriter.process_symbol_ref
+        ProgUtils.instantiate_type_functor ~loc ~f:!Rewriter.check_symbol_ref
           ~functor_qual_ident:sets_qual_ident ~functor_mod_decl:sets.mod_decl
           [ Type.set_ghost false elem ]
       in

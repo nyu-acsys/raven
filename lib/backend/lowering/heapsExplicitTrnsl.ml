@@ -614,7 +614,7 @@ let generate_inv_function ~loc (universal_quants : universal_quants) (conds : co
 
     let* _ = Rewriter.introduce_symbol inv_fn_def in
     let+ _ =
-      Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
+      Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
         inv_fn_auto_lemma_def
     in
 
@@ -717,7 +717,7 @@ let generate_skolem_function (universal_quants : universal_quants) (var_decl : v
      a separate precond/postcond pair into exactly `pre(args) ==> post(args, f(args))`. *)
   (* [mk_chained_and], not [mk_and]: this feeds into a postcondition that gets
      type-checked again below (via [generate_skolem_functions]'s call into
-     [Typing.process_symbol]), and the type-checker only accepts `&&` as binary. *)
+     [Typing.check_symbol]), and the type-checker only accepts `&&` as binary. *)
   let precond_conj = Expr.mk_chained_and preconds in
   let postconds =
     List.map postconds ~f:(fun postcond ->
@@ -800,7 +800,7 @@ let generate_skolem_functions (skolem_fns : skolem_function_def list) =
 
   let+ _ =
     Rewriter.introduce_typecheck_symbols ~loc:(List.hd_exn skolem_fns).loc
-      ~f:Typing.process_symbol symbols
+      ~f:Typing.check_symbol symbols
   in
 
   ret_exprs
@@ -1144,7 +1144,7 @@ let rewrite_add_field_utils (symbol : Module.symbol) : Module.symbol Rewriter.t 
       in
 
       let* _ =
-        Rewriter.introduce_typecheck_symbol ~loc:f.field_loc ~f:Typing.process_symbol
+        Rewriter.introduce_typecheck_symbol ~loc:f.field_loc ~f:Typing.check_symbol
           utils_module
       in
 
@@ -1277,7 +1277,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
             generate_unit_pred_ra ~loc
               (ProgUtils.pred_to_ra_mod_ident ~loc c.call_decl.call_decl_name)
           in
-          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol unit_pred_ra
+          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol unit_pred_ra
         else if
           Poly.(c.call_decl.call_decl_kind = Pred)
           && List.is_empty c.call_decl.call_decl_returns
@@ -1302,7 +1302,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
                 mod_inst_loc = loc;
               }
           in
-          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
+          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
             instantiated_pred_heap_ra
         else
           let pred_ret_type =
@@ -1313,7 +1313,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
 
           let* pred_ret_type_module =
             ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
-              ~f:Typing.process_symbol pred_ret_type
+              ~f:Typing.check_symbol pred_ret_type
           in
 
           let mod_inst_type, mod_inst_def_ra =
@@ -1341,7 +1341,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
               }
           in
 
-          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
+          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
             instantiated_pred_heap_ra
       in
       let* () =
@@ -1361,7 +1361,7 @@ let rewrite_add_pred_utils (c : Callable.t) : Callable.t Rewriter.t =
       in
 
       let* _ =
-        Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol utils_module
+        Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol utils_module
       in
 
       Rewriter.return c
@@ -1383,7 +1383,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
 
         let* proc_conrete_args_type_module =
           ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
-            ~f:Typing.process_symbol proc_concrete_args_typ
+            ~f:Typing.check_symbol proc_concrete_args_typ
         in
 
         let proc_ret_type =
@@ -1393,7 +1393,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
 
         let* proc_ret_type_module =
           ProgUtils.intros_type_module ~loc:c.call_decl.call_decl_loc
-            ~f:Typing.process_symbol proc_ret_type
+            ~f:Typing.check_symbol proc_ret_type
         in
 
         let instantiated_au_proc_heap_ra =
@@ -1416,7 +1416,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
         in
 
         let* au_proc_heap_ra =
-          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
+          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
             instantiated_au_proc_heap_ra
         in
         let* () =
@@ -1436,7 +1436,7 @@ let rewrite_add_atomics_utils (c : Callable.t) : Callable.t Rewriter.t =
         in
 
         let* _ =
-          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol utils_module
+          Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol utils_module
         in
 
         Rewriter.return c
@@ -3859,7 +3859,7 @@ module TrnslExhale = struct
                 in
 
                 let+ _ =
-                  Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.process_symbol
+                  Rewriter.introduce_typecheck_symbol ~loc ~f:Typing.check_symbol
                     skolem_placeholder_var_def
                 in
 

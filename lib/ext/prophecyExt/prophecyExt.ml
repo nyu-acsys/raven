@@ -172,7 +172,7 @@ module ProphecyExt (Cont : Ext) = struct
     let* lib_list_module =
       Rewriter.find_and_reify_module Predefs.lib_list_mod_qual_ident
     in
-    ProgUtils.instantiate_type_functor ~loc ~f:!Rewriter.process_symbol_ref
+    ProgUtils.instantiate_type_functor ~loc ~f:!Rewriter.check_symbol_ref
       ~functor_qual_ident:Predefs.lib_list_mod_qual_ident
       ~functor_mod_decl:lib_list_module.mod_decl [ elem_typ ]
 
@@ -581,7 +581,7 @@ module ProphecyExt (Cont : Ext) = struct
                     QualIdent.pr type_module_canonical_qi);
               let+ introd_type_module_qi =
                 ProgUtils.intros_type_module ~loc ~scope:proph_module_insert_scope
-                  ~f:!Rewriter.process_symbol_ref rep_typ
+                  ~f:!Rewriter.check_symbol_ref rep_typ
               in
 
               (* Take the name [intros_type_module] actually gave it, not the canonical

@@ -904,7 +904,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
         in
 
         let* tp_module =
-          ProgUtils.intros_type_module ~loc:f.field_loc ~f:Typing.process_symbol
+          ProgUtils.intros_type_module ~loc:f.field_loc ~f:Typing.check_symbol
             field_underlying_tp
         in
 
@@ -932,7 +932,7 @@ let rec rewrite_frac_field_types (symbol : Module.symbol) : Module.symbol Rewrit
 
            in *)
         let* frac_mod_name =
-          Rewriter.introduce_typecheck_symbol ~loc:f.field_loc ~f:Typing.process_symbol
+          Rewriter.introduce_typecheck_symbol ~loc:f.field_loc ~f:Typing.check_symbol
             instantiated_frac_module
         in
 
@@ -1339,7 +1339,7 @@ let rewrite_add_predicate_validity_lemmas (c : Callable.t) : Callable.t Rewriter
 
             let* _ =
               Rewriter.introduce_typecheck_symbol ~loc:c.call_decl.call_decl_loc
-                ~f:Typing.process_symbol call_def
+                ~f:Typing.check_symbol call_def
             in
 
             Rewriter.return c

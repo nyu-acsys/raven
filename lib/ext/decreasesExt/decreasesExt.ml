@@ -293,7 +293,7 @@ module DecreasesExt (Cont : Ext) = struct
         let* set_order_mod = Rewriter.find_and_reify_module lib_set_order_qual_ident in
         let+ instance_qi =
           ProgUtils.instantiate_type_functor ~loc:(Type.to_loc tp)
-            ~f:!Rewriter.process_symbol_ref ~functor_qual_ident:lib_set_order_qual_ident
+            ~f:!Rewriter.check_symbol_ref ~functor_qual_ident:lib_set_order_qual_ident
             ~functor_mod_decl:set_order_mod.mod_decl [ elem_tp ]
         in
         Some instance_qi

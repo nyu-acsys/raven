@@ -91,21 +91,21 @@ let rec disambiguate_expr (expr : expr) (disam_tbl : DisambiguationTbl.t) : expr
       Rewriter.return
         Expr.(Binder (binder, var_decl_list, trgs, disambiguated_expr, expr_attr))
 
-let disambiguate_process_expr ?(allow_proc_call = false) (expr : expr)
+let disambiguate_and_check_expr ?(allow_proc_call = false) (expr : expr)
     (expected_typ : type_expr) (disam_tbl : DisambiguationTbl.t) : expr t =
   let open Rewriter.Syntax in
   let* expr = disambiguate_expr expr disam_tbl in
   let* printers = Rewriter.current_printers in
 
-  let+ processed_expr = ExprTyping.process_expr ~allow_proc_call expr expected_typ in
+  let+ processed_expr = ExprTyping.check ~allow_proc_call expr expected_typ in
 
   Logs.debug (fun m ->
-      m "StmtTyping.disambiguate_process_expr: processed_expr = %a" printers.pr_expr
+      m "StmtTyping.disambiguate_and_check_expr: processed_expr = %a" printers.pr_expr
         processed_expr);
 
   processed_expr
 
-let disambiguate_process_field_read ref field disam_tbl =
+let disambiguate_and_check_field_read ref field disam_tbl =
   let open Rewriter.Syntax in
   let* resolved_opt = Rewriter.resolve_and_find_opt field in
   let* field, symbol =
@@ -117,7 +117,7 @@ let disambiguate_process_field_read ref field disam_tbl =
            type of `ref`. *)
         let* imported = Rewriter.find_import_target field in
         let candidate = Base.Option.value imported ~default:field in
-        let* peeked_ref = disambiguate_process_expr ref Type.any disam_tbl in
+        let* peeked_ref = disambiguate_and_check_expr ref Type.any disam_tbl in
         let* resolved_qi =
           ImplicitInstantiation.try_resolve_implicit_instantiation_destr
             ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_ref)
@@ -129,10 +129,10 @@ let disambiguate_process_field_read ref field disam_tbl =
   let* symbol = Rewriter.Symbol.reify symbol in
   match symbol with
   | FieldDef { field_type = App (Fld, [ field_type ], _); _ } ->
-      let+ ref = disambiguate_process_expr ref Type.ref disam_tbl in
+      let+ ref = disambiguate_and_check_expr ref Type.ref disam_tbl in
       (ref, field, field_type, symbol)
   | DestrDef { destr_arg; destr_return_type; _ } ->
-      let+ arg = disambiguate_process_expr ref destr_arg disam_tbl in
+      let+ arg = disambiguate_and_check_expr ref destr_arg disam_tbl in
       (arg, field, destr_return_type, symbol)
   | _ ->
       Error.type_error (QualIdent.to_loc field)
@@ -140,19 +140,19 @@ let disambiguate_process_field_read ref field disam_tbl =
            !"Expected field identifier but found %s %{QualIdent}"
            (Symbol.kind symbol) field)
 
-let process_stmt_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) : Stmt.spec t =
+let check_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) : Stmt.spec t =
   let open Rewriter.Syntax in
   let* _ = Rewriter.enter_ghost true in
-  let* spec_form = disambiguate_process_expr spec.spec_form Type.perm disam_tbl in
+  let* spec_form = disambiguate_and_check_expr spec.spec_form Type.perm disam_tbl in
   let* spec_trigs =
     Rewriter.List.map spec.spec_trigs ~f:(fun trg ->
         Rewriter.List.map trg ~f:(fun e ->
-            disambiguate_process_expr e (Type.any |> Type.set_ghost true) disam_tbl))
+            disambiguate_and_check_expr e (Type.any |> Type.set_ghost true) disam_tbl))
   in
   let+ _ = Rewriter.exit_ghost in
   { spec with spec_form; spec_trigs }
 
-let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_ident list)
+let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident list)
     (var_decls_lhs : var_decl list) qual_ident args (loc : location)
     (disam_tbl : DisambiguationTbl.t) : (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
   let open Rewriter.Syntax in
@@ -206,12 +206,12 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
             | _ -> Error.type_error loc "Could not find field location in fpu")
       in
       let* ref_expr =
-        disambiguate_process_expr ref_expr (Type.ref |> Type.set_ghost true) disam_tbl
+        disambiguate_and_check_expr ref_expr (Type.ref |> Type.set_ghost true) disam_tbl
       in
       let field_qual_ident, given_type = field in
       let+ fpu_exprs =
         Rewriter.List.map fpu_exprs ~f:(fun fpu_expr ->
-            disambiguate_process_expr fpu_expr given_type disam_tbl)
+            disambiguate_and_check_expr fpu_expr given_type disam_tbl)
       in
 
       let old_val_expr, new_val_expr =
@@ -236,16 +236,14 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
           let* proc_qual_ident = Rewriter.current_scope_id in
           let* token = Rewriter.find_and_reify_var token_qual_ident in
           let token_expr = Expr.mk_var ~typ:token.var_decl.var_type token_qual_ident in
-          let+ _ =
-            ExprTyping.process_expr token_expr (Type.atomic_token proc_qual_ident)
-          in
+          let+ _ = ExprTyping.check token_expr (Type.atomic_token proc_qual_ident) in
           (* TODO: check type Type.atomic_token *)
           (Stmt.AUAction { auaction_kind = BindAU token_qual_ident }, disam_tbl)
       | _ -> Error.type_error loc "bindAU takes no arguments"
       end
   | token :: args ->
       let* token =
-        disambiguate_process_expr token (Type.any |> Type.set_ghost true) disam_tbl
+        disambiguate_and_check_expr token (Type.any |> Type.set_ghost true) disam_tbl
       in
       let* proc_qual_ident =
         match Expr.to_type token with
@@ -304,7 +302,7 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
             in
 
             let* in_args_tuple =
-              disambiguate_process_expr in_args_tuple tuple_tp disam_tbl
+              disambiguate_and_check_expr in_args_tuple tuple_tp disam_tbl
             in
             let in_args = Expr.unfold_tuple in_args_tuple in
             Rewriter.return in_args
@@ -348,7 +346,7 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
         else
           let args = Expr.mk_tuple ~loc implicit_vars in
           let+ _ =
-            ExprTyping.process_expr args
+            ExprTyping.check args
               (Type.mk_prod loc implicit_expected_types |> Type.set_ghost true)
           in
           ( Stmt.AUAction
@@ -370,12 +368,11 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
         in
         let* () =
           Rewriter.Logs.debug (fun printers m ->
-              m "StmtTyping.process_au_action_stmt: commitAU: returns = [ %a ]"
+              m "StmtTyping.check_au_action: commitAU: returns = [ %a ]"
                 printers.pr_expr_list returns)
         in
         let+ returns =
-          ExprTyping.process_callable_returns loc ~is_ghost_scope:true ~is_call:false proc
-            returns
+          ExprTyping.check_returns loc ~is_ghost_scope:true ~is_call:false proc returns
         in
         ( Stmt.AUAction
             { auaction_kind = CommitAU { token; proc_args; proc_rets = returns } },
@@ -394,9 +391,8 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
       Error.type_error loc
         (Printf.sprintf !"%{QualIdent} expects at least one argument" qual_ident)
 
-let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
-    (stmt_loc : Loc.t) (disam_tbl : DisambiguationTbl.t) :
-    (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
+let rec check_basic call_decl (basic_stmt : Stmt.basic_stmt_desc) (stmt_loc : Loc.t)
+    (disam_tbl : DisambiguationTbl.t) : (Stmt.basic_stmt_desc * DisambiguationTbl.t) t =
   let open Rewriter.Syntax in
   let* is_ghost_scope = Rewriter.is_ghost_scope in
   let get_assign_lhs ~is_init ?(is_ghost_cmd = false) orig_qual_ident =
@@ -425,18 +421,18 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
           run_typing (get_assign_lhs ~is_init ?is_ghost_cmd qi));
       expand_type_expr = (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
       disambiguate_process_expr =
-        (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+        (fun e exp d -> run_typing (disambiguate_and_check_expr e exp d));
       type_mismatch_error;
       disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-      process_symbol = !Rewriter.process_symbol_ref;
-      process_stmt = !Rewriter.process_stmt_ref;
+      process_symbol = !Rewriter.check_symbol_ref;
+      process_stmt = !Rewriter.check_stmt_ref;
     }
   in
   (* Whether the type of [expr], an operand the core indexes, is one the core's
        lookup and update apply to. *)
   let peek_core_indexable (expr : expr) : bool t =
     let* expr =
-      disambiguate_process_expr expr (Type.any |> Type.set_ghost true) disam_tbl
+      disambiguate_and_check_expr expr (Type.any |> Type.set_ghost true) disam_tbl
     in
     let+ typ = TypeExpr.expand_type_expr (Expr.to_type expr) in
     ExprTyping.is_core_indexable typ
@@ -450,9 +446,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
     match claim with
     | None -> Rewriter.return None
     | Some ext_stmt ->
-        let+ res =
-          process_basic_stmt call_decl (BasicStmtExt ext_stmt) stmt_loc disam_tbl
-        in
+        let+ res = check_basic call_decl (BasicStmtExt ext_stmt) stmt_loc disam_tbl in
         Some res
   in
   (* Offers [basic_stmt] to the extensions if [expr], its right-hand side or
@@ -474,7 +468,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
       begin match claimed with
       | Some res -> Rewriter.return res
       | None ->
-          let* var_decl = TypeExpr.process_var_decl var_def.var_decl in
+          let* var_decl = TypeExpr.check_var_decl var_def.var_decl in
           let* curr_callable = Rewriter.current_scope_id in
           let var_ghost = var_decl.var_ghost || is_ghost_scope in
           let* var_type =
@@ -502,7 +496,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                         Base.Option.value imported ~default:field_qual_ident
                       in
                       let* peeked_expr1 =
-                        disambiguate_process_expr expr1
+                        disambiguate_and_check_expr expr1
                           (Type.any |> Type.set_ghost var_ghost)
                           disam_tbl
                       in
@@ -517,7 +511,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                 end
             | Some expr ->
                 let+ expr =
-                  disambiguate_process_expr expr
+                  disambiguate_and_check_expr expr
                     (var_decl.var_type |> Type.set_ghost var_ghost)
                     disam_tbl ~allow_proc_call:true
                 in
@@ -541,7 +535,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
           @@ (Stmt.Havoc { havoc_var = var; havoc_is_init = true }, disam_tbl')
       end
   | Spec (sk, spec) ->
-      let+ spec = process_stmt_spec disam_tbl spec in
+      let+ spec = check_spec disam_tbl spec in
       (Stmt.Spec (sk, spec), disam_tbl)
   | Assign assign_desc -> begin
       let* claimed = claim_if_not_core_indexed assign_desc.assign_rhs in
@@ -577,7 +571,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                     let* imported = Rewriter.find_import_target read_expr_qi in
                     let candidate = Base.Option.value imported ~default:read_expr_qi in
                     let* peeked_ref_expr =
-                      disambiguate_process_expr ref_expr
+                      disambiguate_and_check_expr ref_expr
                         (Type.any |> Type.set_ghost is_ghost_assign)
                         disam_tbl
                     in
@@ -591,7 +585,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               | FieldDef f ->
                   let* () =
                     Rewriter.Logs.debug (fun printers m ->
-                        m "StmtTyping.process_stmt: read_assign_rhs: %a" printers.pr_expr
+                        m "StmtTyping.check: read_assign_rhs: %a" printers.pr_expr
                           assign_desc.assign_rhs)
                   in
                   let field_qual_ident = read_expr_qi in
@@ -612,14 +606,14 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                         field_read_is_init = assign_desc.assign_is_init;
                       }
                   in
-                  process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc
+                  check_basic call_decl (Stmt.FieldRead field_read_desc) stmt_loc
                     disam_tbl
               | DestrDef destr_def ->
                   let assign_rhs =
                     Expr.mk_app ~loc:stmt_loc ~typ:destr_def.destr_return_type
                       (Expr.DataDestr read_expr_qi) [ ref_expr ]
                   in
-                  process_basic_stmt call_decl
+                  check_basic call_decl
                     (Stmt.Assign { assign_desc with assign_rhs })
                     stmt_loc disam_tbl
               | _ ->
@@ -631,12 +625,12 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               end
           (* AU action *)
           | App (Var qual_ident, args, _) when Predefs.is_qual_ident_au_cmnd qual_ident ->
-              process_au_action_stmt call_decl assign_lhs var_decls_lhs qual_ident args
-                stmt_loc disam_tbl
+              check_au_action call_decl assign_lhs var_decls_lhs qual_ident args stmt_loc
+                disam_tbl
           | _ -> (
               let* () =
                 Rewriter.Logs.debug (fun printers m ->
-                    m "StmtTyping.process_stmt: assign_desc: %a" printers.pr_stmt_basic
+                    m "StmtTyping.check: assign_desc: %a" printers.pr_stmt_basic
                       (Assign assign_desc))
               in
 
@@ -667,7 +661,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                              a constructor `nil`, is typed as an expression, against the
                              type of the left-hand side. *)
                           ImplicitInstantiation.try_resolve_implicit_instantiation
-                            ~process_expr:ExprTyping.process_expr
+                            ~check_expr:ExprTyping.check
                             ~claimed_location:ExprTyping.claimed_location ~loc:stmt_loc
                             ~qual_ident:candidate ~arg_exprs:args ~only_calls:true
                             ~expected_typ:(Type.any |> Type.set_ghost is_ghost_scope)
@@ -686,8 +680,8 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               match assign_rhs_callable_opt with
               | Some (symbol, proc_qual_ident, args) -> begin
                   Logs.debug (fun m ->
-                      m "StmtTyping.process_stmt: assign_rhs_qual_ident: %a; %b"
-                        QualIdent.pr proc_qual_ident
+                      m "StmtTyping.check: assign_rhs_qual_ident: %a; %b" QualIdent.pr
+                        proc_qual_ident
                         QualIdent.(
                           proc_qual_ident = QualIdent.from_ident Predefs.bindAU_ident));
 
@@ -700,7 +694,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                       call_is_init = assign_desc.assign_is_init;
                     }
                   in
-                  process_basic_stmt call_decl (Stmt.Call call_desc) stmt_loc disam_tbl
+                  check_basic call_decl (Stmt.Call call_desc) stmt_loc disam_tbl
                   (*(Stmt.Call call_desc, disam_tbl)*)
                 end
               | None ->
@@ -711,13 +705,13 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                     |> fun ty -> if is_ghost_assign then ty |> Type.set_ghost true else ty
                   in
                   let* assign_rhs =
-                    disambiguate_process_expr assign_desc.assign_rhs expected_type
+                    disambiguate_and_check_expr assign_desc.assign_rhs expected_type
                       disam_tbl
                   in
 
                   let* () =
                     Rewriter.Logs.debug (fun printers m ->
-                        m "StmtTyping.process_stmt: disam_assign_rhs: %a" printers.pr_expr
+                        m "StmtTyping.check: disam_assign_rhs: %a" printers.pr_expr
                           assign_rhs)
                   in
 
@@ -734,7 +728,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
             (qual_ident :: assign_lhs, var_decl :: var_decls_lhs))
       in
       let+ spec_form =
-        disambiguate_process_expr bind_desc.bind_rhs.spec_form
+        disambiguate_and_check_expr bind_desc.bind_rhs.spec_form
           (Type.any |> Type.set_ghost true)
           disam_tbl
       in
@@ -769,12 +763,12 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                fw_desc.field_write_field)
       in
       let* field_write_ref =
-        disambiguate_process_expr fw_desc.field_write_ref
+        disambiguate_and_check_expr fw_desc.field_write_ref
           (Type.ref |> Type.set_ghost is_ghost_scope)
           disam_tbl
       in
       let+ field_write_val =
-        disambiguate_process_expr fw_desc.field_write_val field_type disam_tbl
+        disambiguate_and_check_expr fw_desc.field_write_val field_type disam_tbl
       in
       (Stmt.FieldWrite { field_write_ref; field_write_field; field_write_val }, disam_tbl)
   | FieldRead fr_desc ->
@@ -783,7 +777,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
       in
       let* fr_type = TypeExpr.expand_type_expr var_decl.var_type in
       let* field_read_ref, field_read_field, field_type, symbol =
-        disambiguate_process_field_read fr_desc.field_read_ref fr_desc.field_read_field
+        disambiguate_and_check_field_read fr_desc.field_read_ref fr_desc.field_read_field
           disam_tbl
       in
       begin match symbol with
@@ -803,10 +797,10 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                 assign_is_init = fr_desc.field_read_is_init;
               }
           in
-          process_basic_stmt call_decl (Stmt.Assign assign_desc) stmt_loc disam_tbl
+          check_basic call_decl (Stmt.Assign assign_desc) stmt_loc disam_tbl
       | _ ->
           let+ _ =
-            ExprTyping.check_and_set
+            ExprTyping.set_checked_type
               (Expr.mk_var ~typ:fr_type fr_var_qual_ident)
               fr_type field_type
               (field_type |> Type.set_ghost_to fr_type)
@@ -833,8 +827,8 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
       let return_list = Expr.unfold_tuple expr in
 
       let+ return_list =
-        ExprTyping.process_callable_returns stmt_loc ~is_ghost_scope ~is_call:false
-          call_decl return_list
+        ExprTyping.check_returns stmt_loc ~is_ghost_scope ~is_call:false call_decl
+          return_list
       in
       let expr = Expr.mk_tuple ~loc:(Expr.to_loc expr) return_list in
       (Stmt.Return expr, disam_tbl)
@@ -852,9 +846,8 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
             let* imported = Rewriter.find_import_target id in
             let candidate = Base.Option.value imported ~default:id in
             ImplicitInstantiation.try_resolve_implicit_instantiation
-              ~process_expr:ExprTyping.process_expr
-              ~claimed_location:ExprTyping.claimed_location ~loc:stmt_loc
-              ~qual_ident:candidate ~arg_exprs:args ~only_calls:true
+              ~check_expr:ExprTyping.check ~claimed_location:ExprTyping.claimed_location
+              ~loc:stmt_loc ~qual_ident:candidate ~arg_exprs:args ~only_calls:true
               ~expected_typ:(Type.perm |> Type.set_ghost true)
               ())
       in
@@ -892,7 +885,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               else acc)
         in
         match ty_opt with
-        | Some ty -> TypeExpr.process_type_expr ty
+        | Some ty -> TypeExpr.check ty
         | _ ->
             Error.type_error (Ident.to_loc ident)
               (Printf.sprintf
@@ -905,7 +898,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
             disambiguate_expr expr disam_tbl)
       in
 
-      let* use_args = ExprTyping.process_callable_args stmt_loc true pred_decl use_args in
+      let* use_args = ExprTyping.check_args stmt_loc true pred_decl use_args in
 
       let+ use_witnesses_or_binds =
         Rewriter.List.map use_desc.use_witnesses_or_binds ~f:(fun (i, e) ->
@@ -913,7 +906,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
             | Fold ->
                 let* ty = find_type i in
                 let+ e =
-                  disambiguate_process_expr e (ty |> Type.set_ghost true) disam_tbl
+                  disambiguate_and_check_expr e (ty |> Type.set_ghost true) disam_tbl
                 in
                 (i, e)
             | Unfold -> (
@@ -921,7 +914,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                 | App (Var qual_ident, [], _) when QualIdent.is_local qual_ident ->
                     let* ty = find_type (QualIdent.unqualify qual_ident) in
                     let+ ie =
-                      disambiguate_process_expr
+                      disambiguate_and_check_expr
                         (Expr.mk_var
                            ~typ:(Type.mk_any (Ident.to_loc i))
                            (QualIdent.from_ident i))
@@ -944,7 +937,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
          does not show it. *)
       let is_ghost_new = var_decl.var_ghost || is_ghost_scope in
       if Type.equal var_type_expanded Type.ref then
-        let process_field_init (field_name, expr_opt) =
+        let check_field_init (field_name, expr_opt) =
           let* field_name, symbol = Rewriter.resolve_and_find field_name in
           let* () =
             match Rewriter.Symbol.orig_symbol symbol with
@@ -960,19 +953,19 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
           let* field_type = Rewriter.Symbol.reify_field_type stmt_loc symbol in
           let+ expr_opt =
             Rewriter.Option.map expr_opt ~f:(fun expr ->
-                disambiguate_process_expr expr field_type disam_tbl)
+                disambiguate_and_check_expr expr field_type disam_tbl)
           in
           (field_name, expr_opt)
         in
-        let+ new_args = Rewriter.List.map new_desc.new_args ~f:process_field_init in
+        let+ new_args = Rewriter.List.map new_desc.new_args ~f:check_field_init in
 
         let new_desc = Stmt.{ new_desc with new_lhs = new_qual_ident; new_args } in
 
         (Stmt.New new_desc, disam_tbl)
       else type_mismatch_error stmt_loc Type.ref var_decl.var_type
       (* The parser produces assignments for these, which this function turns into the
-         constructs, so they do not occur here. *)
-      (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
+         constructs. They occur here because [Typing.check_symbol] is also applied to
+         symbols built by later passes. *)
   | Call call_desc -> (
       let* call_lhs, var_decls_lhs =
         Rewriter.List.fold_right call_desc.call_lhs ~init:([], [])
@@ -992,8 +985,8 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
         Rewriter.find_and_reify_callable call_desc.call_name |+> fun c -> c.call_decl
       in
       let* call_lhs_expr =
-        ExprTyping.process_callable_returns stmt_loc ~is_ghost_scope ~is_call:true
-          call_decl call_lhs_expr
+        ExprTyping.check_returns stmt_loc ~is_ghost_scope ~is_call:true call_decl
+          call_lhs_expr
       in
       let is_ghost =
         is_ghost_scope
@@ -1009,7 +1002,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
         Expr.App
           (Var call_desc.call_name, call_desc.call_args, Expr.mk_attr stmt_loc Type.any)
         |> fun expr ->
-        disambiguate_process_expr expr
+        disambiguate_and_check_expr expr
           (Type.any |> Type.set_ghost is_ghost)
           disam_tbl ~allow_proc_call:true
       in
@@ -1026,7 +1019,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
       let open Rewriter.Syntax in
       (* Process reference expression as ghost ref *)
       let* fpu_ref =
-        disambiguate_process_expr fpu_desc.fpu_ref
+        disambiguate_and_check_expr fpu_desc.fpu_ref
           (Type.ref |> Type.set_ghost true)
           disam_tbl
       in
@@ -1057,10 +1050,10 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
       (* Process optional old value and mandatory new value at the field element type *)
       let* fpu_old_val =
         Rewriter.Option.map fpu_desc.fpu_old_val ~f:(fun e ->
-            disambiguate_process_expr e given_type disam_tbl)
+            disambiguate_and_check_expr e given_type disam_tbl)
       in
       let+ fpu_new_val =
-        disambiguate_process_expr fpu_desc.fpu_new_val given_type disam_tbl
+        disambiguate_and_check_expr fpu_desc.fpu_new_val given_type disam_tbl
       in
 
       (Stmt.Fpu { fpu_ref; fpu_field; fpu_old_val; fpu_new_val }, disam_tbl)
@@ -1070,20 +1063,20 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
         (ext_hooks.type_check_basic_stmt call_decl stmt_ext expr_list stmt_loc disam_tbl
            ext_stmt_functs)
 
-let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
-    (disam_tbl : DisambiguationTbl.t) : (Stmt.t * DisambiguationTbl.t) t =
-  let rec process_stmt ?(new_scope = true) stmt disam_tbl =
+let check ?(new_scope = true) call_decl (stmt : Stmt.t) (disam_tbl : DisambiguationTbl.t)
+    : (Stmt.t * DisambiguationTbl.t) t =
+  let rec check ?(new_scope = true) stmt disam_tbl =
     let open Rewriter.Syntax in
     let* () =
       Rewriter.Logs.debug (fun printers m ->
-          m "StmtTyping.process_stmt: %a" printers.pr_stmt stmt)
+          m "StmtTyping.check: %a" printers.pr_stmt stmt)
     in
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let+ stmt_desc, disam_tbl =
       match stmt.Stmt.stmt_desc with
       | Basic basic_stmt ->
           let+ basic_stmt, disam_tbl' =
-            process_basic_stmt call_decl basic_stmt (Stmt.to_loc stmt) disam_tbl
+            check_basic call_decl basic_stmt (Stmt.to_loc stmt) disam_tbl
           in
           (Stmt.Basic basic_stmt, disam_tbl')
       | Block block_desc ->
@@ -1095,7 +1088,7 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
           let* disam_tbl, stmt_list =
             Rewriter.List.fold_map block_desc.block_body ~init:disam_tbl
               ~f:(fun disam_tbl stmt ->
-                let+ stmt, disam_tbl = process_stmt stmt disam_tbl in
+                let+ stmt, disam_tbl = check stmt disam_tbl in
                 (disam_tbl, stmt))
           in
 
@@ -1107,7 +1100,7 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
           (Stmt.Block { block_desc with block_body = stmt_list }, disam_tbl)
       | Loop loop_desc ->
           let* loop_contract =
-            Rewriter.List.map loop_desc.loop_contract ~f:(process_stmt_spec disam_tbl)
+            Rewriter.List.map loop_desc.loop_contract ~f:(check_spec disam_tbl)
           in
 
           let* loop_contract_ext =
@@ -1124,10 +1117,10 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
                        expand_type_expr =
                          (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
                        disambiguate_process_expr =
-                         (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+                         (fun e exp d -> run_typing (disambiguate_and_check_expr e exp d));
                        type_mismatch_error;
                        disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                       process_symbol = !Rewriter.process_symbol_ref;
+                       process_symbol = !Rewriter.check_symbol_ref;
                        process_stmt =
                          (fun _call_decl stmt _disam_tbl ->
                            Error.internal_error (Stmt.to_loc stmt)
@@ -1136,19 +1129,17 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
           in
 
           let disam_tbl = DisambiguationTbl.push disam_tbl in
-          let* loop_prebody, disam_tbl = process_stmt loop_desc.loop_prebody disam_tbl in
+          let* loop_prebody, disam_tbl = check loop_desc.loop_prebody disam_tbl in
           let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
           let* loop_test =
-            disambiguate_process_expr loop_desc.loop_test
+            disambiguate_and_check_expr loop_desc.loop_test
               (Type.bool |> Type.set_ghost is_ghost_scope)
               disam_tbl
           in
 
           let disam_tbl = DisambiguationTbl.push disam_tbl in
-          let+ loop_postbody, disam_tbl =
-            process_stmt loop_desc.loop_postbody disam_tbl
-          in
+          let+ loop_postbody, disam_tbl = check loop_desc.loop_postbody disam_tbl in
           let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
           (* Actually think about what variables need to be collected in `locals`. What if same variable is declared in multiple scopes in a callable, do all of them go in the `call_decl.call_decl_locals`? TW: I would say yes, unless you already have that information in the SymbolTable and always lookup locals through that. *)
@@ -1161,18 +1152,18 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
           let* cond_test =
             Rewriter.Option.map
               ~f:(fun test ->
-                disambiguate_process_expr test
+                disambiguate_and_check_expr test
                   (Type.bool |> Type.set_ghost is_ghost_scope)
                   disam_tbl)
               cond_desc.cond_test
           in
 
           let disam_tbl = DisambiguationTbl.push disam_tbl in
-          let* cond_then, disam_tbl = process_stmt cond_desc.cond_then disam_tbl in
+          let* cond_then, disam_tbl = check cond_desc.cond_then disam_tbl in
           let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
           let disam_tbl = DisambiguationTbl.push disam_tbl in
-          let+ cond_else, disam_tbl = process_stmt cond_desc.cond_else disam_tbl in
+          let+ cond_else, disam_tbl = check cond_desc.cond_else disam_tbl in
           let disam_tbl = DisambiguationTbl.pop disam_tbl in
 
           let (cond_desc : Stmt.cond_desc) =
@@ -1192,17 +1183,16 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
                         extension");
                  expand_type_expr = (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
                  disambiguate_process_expr =
-                   (fun e exp d -> run_typing (disambiguate_process_expr e exp d));
+                   (fun e exp d -> run_typing (disambiguate_and_check_expr e exp d));
                  type_mismatch_error;
                  disam_tbl_add_var_decl = DisambiguationTbl.add_var_decl;
-                 process_symbol = !Rewriter.process_symbol_ref;
+                 process_symbol = !Rewriter.check_symbol_ref;
                  process_stmt =
-                   (fun _call_decl stmt disam_tbl ->
-                     run_typing (process_stmt stmt disam_tbl));
+                   (fun _call_decl stmt disam_tbl -> run_typing (check stmt disam_tbl));
                })
     in
 
     (Stmt.{ stmt_desc; stmt_loc = stmt.stmt_loc }, disam_tbl)
   in
 
-  process_stmt ~new_scope stmt disam_tbl
+  check ~new_scope stmt disam_tbl

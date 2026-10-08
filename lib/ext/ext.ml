@@ -96,9 +96,9 @@ type ext_tag =
     [Stmt.stmt_ext] in astDef.ml).
 
     [m] is freshly parsed, not yet type-checked, so its symbol table has none of the
-    per-callable/per-module scopes [Typing.process_module] would normally have created.
-    That rules out [Rewriter.Module.rewrite_types]/[rewrite_expressions]/[rewrite_stmts]
-    (the combinators [Rewrites.rewrites_type_ext] & co. use to reach every such leaf
+    per-callable/per-module scopes [Typing.check_module] would normally have created. That
+    rules out [Rewriter.Module.rewrite_types]/[rewrite_expressions]/[rewrite_stmts] (the
+    combinators [Rewrites.rewrites_type_ext] & co. use to reach every such leaf
     post-typecheck): their [CallDef] case calls [Rewriter.enter_callable], which does a
     [SymbolTbl.enter_exn] lookup that only a type-checked table satisfies -- on a bare
     parse it raises "Did not find subscope ... ". So this walks [Module.symbol]'s 8

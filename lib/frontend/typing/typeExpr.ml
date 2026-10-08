@@ -6,7 +6,7 @@ open Util
 open TypingMonad
 open TypingErrors
 
-let rec process_type_expr (tp_expr : type_expr) : type_expr t =
+let rec check (tp_expr : type_expr) : type_expr t =
   let open Type in
   let open Rewriter.Syntax in
   match tp_expr with
@@ -69,11 +69,11 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
             arg_mismatch_error "Module" tp_attr.type_loc (Type.Var qual_ident)
               (List.length m.mod_decl.mod_decl_formals)
           else
-            let* tp_args = Rewriter.List.map tp_args ~f:process_type_expr in
+            let* tp_args = Rewriter.List.map tp_args ~f:check in
             let* inst_qual_ident =
               lift
                 (ProgUtils.instantiate_type_functor ~loc:tp_attr.type_loc
-                   ~f:!Rewriter.process_symbol_ref
+                   ~f:!Rewriter.check_symbol_ref
                    ~functor_qual_ident:fully_qualified_qual_ident
                    ~functor_mod_decl:m.mod_decl tp_args)
             in
@@ -90,19 +90,19 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
   | App ((Fld as constr), tp_list, tp_attr) -> (
       match tp_list with
       | [ tp_arg ] ->
-          let+ tp_arg' = process_type_expr tp_arg in
+          let+ tp_arg' = check tp_arg in
           App (constr, [ tp_arg' ], tp_attr)
       | _ -> arg_mismatch_error "Constructor" (Type.to_loc tp_expr) constr 1)
   | App (Map, tp_list, tp_attr) -> (
       match tp_list with
       | [ tp1; tp2 ] ->
-          let+ tp1 = process_type_expr tp1 and+ tp2 = process_type_expr tp2 in
+          let+ tp1 = check tp1 and+ tp2 = check tp2 in
           App (Map, [ tp1; tp2 ], tp_attr)
       | _ -> arg_mismatch_error "Type" (Type.to_loc tp_expr) Map 2)
   | App ((FinSet as constr), tp_list, tp_attr) -> (
       match tp_list with
       | [ tp_arg ] ->
-          let+ tp_arg' = process_type_expr tp_arg in
+          let+ tp_arg' = check tp_arg in
           App (constr, [ tp_arg' ], tp_attr)
       | _ -> arg_mismatch_error "Type" (Type.to_loc tp_expr) FinSet 1)
   | App (Data _, _tp_list, _tp_attr) ->
@@ -110,18 +110,18 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
       Error.internal_error (Type.to_loc tp_expr)
         "Data types can only be defined as new types, not used inline"
   | App (Prod, tp_list, tp_attr) ->
-      let+ tp_list = Rewriter.List.map tp_list ~f:process_type_expr in
+      let+ tp_list = Rewriter.List.map tp_list ~f:check in
       App (Prod, tp_list, tp_attr)
   | App (AtomicToken qid, [], tp_attr) ->
       let+ qid = Rewriter.resolve qid in
       App (AtomicToken qid, [], tp_attr)
   | App (TypeExt type_ext, tp_args, tp_attr) ->
       let* ext_hooks = Rewriter.current_ext_hooks in
-      (* Extensions work in [Rewriter.t], so pass them a wrapper of [process_type_expr]
+      (* Extensions work in [Rewriter.t], so pass them a wrapper of [check]
          and lift the result. *)
       lift
         (ext_hooks.type_check_type_expr type_ext tp_args tp_attr
-           { process_type_expr = (fun tp -> run_typing (process_type_expr tp)) })
+           { process_type_expr = (fun tp -> run_typing (check tp)) })
   | App (constr, [], tp_attr) -> Rewriter.return @@ App (constr, [], tp_attr)
   | App (constr, _tp_list, _tp_attr) ->
       (* The parser should prevent this from happening. *)
@@ -174,7 +174,7 @@ and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr) 
       | Var _, _ :: _ ->
           (* `M[T1,...,Tn]` can reach here unnormalized through a self-referential lookup,
              so process it first. *)
-          let* tp_expr = process_type_expr tp_expr in
+          let* tp_expr = check tp_expr in
           expand_type_expr tp_expr
       | AtomicToken callable_qid, [] ->
           let+ callable_qid = Rewriter.resolve callable_qid in
@@ -186,8 +186,8 @@ and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr) 
           in
           Type.App (constr, expanded_tp_expr_list, tp_attr) |> Type.set_ghost_to tp_expr)
 
-let process_var_decl (var_decl : var_decl) : var_decl t =
+let check_var_decl (var_decl : var_decl) : var_decl t =
   let open Rewriter.Syntax in
-  let* var_type = process_type_expr var_decl.var_type in
+  let* var_type = check var_decl.var_type in
   let+ var_type = expand_type_expr var_type in
   { var_decl with var_type }

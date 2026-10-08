@@ -79,7 +79,7 @@ and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Modul
   match m.mod_decl.mod_decl_rep with
   | None -> Rewriter.return None
   | Some rep_ident -> (
-      let* typ = TypeExpr.process_type_expr typ in
+      let* typ = TypeExpr.check typ in
       match typ with
       | App (Var qi, [], _)
         when Ident.equal (QualIdent.unqualify qi) rep_ident
@@ -145,7 +145,7 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
   and unify_one u t1 t2 =
     (* Only [t2] is normalized: [t1] names [m]'s formals, which do not resolve outside
        [m]. *)
-    let* t2 = TypeExpr.process_type_expr t2 in
+    let* t2 = TypeExpr.check t2 in
     (* `Any`, `Num` (an operand of `+`) and `Perm` (an assertion, also met by `Bool`) say
        nothing about the formals. *)
     if
@@ -295,7 +295,7 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
             in
             let+ mod_qi =
               lift
-                (ProgUtils.get_or_intros_rep_module ~loc ~f:!Rewriter.process_symbol_ref
+                (ProgUtils.get_or_intros_rep_module ~loc ~f:!Rewriter.check_symbol_ref
                    ~insert_scope ~reference_scope ~interface_qual_ident ~rep_ident tp)
             in
             (member.mod_inst_name, mod_qi))
@@ -309,7 +309,7 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
     otherwise it succeeds or reports an error. Type-typed formals are solved by unifying
     the arguments' types with the formals' declared types, and the member's return type
     with [expected_typ]; field-typed formals by [solve_field_formals]. *)
-and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> expr t)
+and try_resolve_implicit_instantiation ~(check_expr : expr -> type_expr -> expr t)
     ~(claimed_location : expr -> expr t) ~(loc : location) ~(qual_ident : qual_ident)
     ~(arg_exprs : expr list) ?(only_calls = false) ~(expected_typ : type_expr) () :
     qual_ident option t =
@@ -349,7 +349,7 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
       | None -> Rewriter.return None
       | Some (member_formals, return_type_opt, loc_params) -> (
           (* Trailing implicit ghost formals may be omitted, as in
-             [process_callable_args]. *)
+             [ExprTyping.check_args]. *)
           let omitted_are_implicit =
             List.drop member_formals (List.length arg_exprs)
             |> List.for_all ~f:(fun var_decl -> var_decl.Type.var_implicit)
@@ -396,7 +396,7 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
             let peek_arg formal_var_decl arg_expr =
               let* arg_expr =
                 speculatively
-                  (process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ))
+                  (check_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ))
               in
               let arg_typ = Expr.to_type arg_expr in
               (* `Bot`, from a literal without expected type (e.g. `{||}`) or an
@@ -496,7 +496,7 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
                     in
                     lift
                       (ProgUtils.instantiate_type_functor ~loc
-                         ~f:!Rewriter.process_symbol_ref ~functor_qual_ident
+                         ~f:!Rewriter.check_symbol_ref ~functor_qual_ident
                          ~functor_mod_decl:m.mod_decl arg_types)
                   else
                     instantiate_mixed_functor ~loc ~functor_qual_ident
@@ -563,7 +563,7 @@ and instantiate_mixed_functor ~(loc : location) ~(functor_qual_ident : qual_iden
                        formal.mod_inst_name formal.mod_inst_type)
             in
             lift
-              (ProgUtils.get_or_intros_rep_module ~loc ~f:!Rewriter.process_symbol_ref
+              (ProgUtils.get_or_intros_rep_module ~loc ~f:!Rewriter.check_symbol_ref
                  ~insert_scope ~reference_scope ~interface_qual_ident ~rep_ident tp))
   in
   let inst_key =

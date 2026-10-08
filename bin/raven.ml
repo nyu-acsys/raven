@@ -111,7 +111,7 @@ let type_cu ~ext_hooks config tbl md =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
   let tbl = SymbolTbl.add_symbol (ModDef md) tbl in
-  let tbl, processed_md = Typing.process_module ~tbl ~ext_hooks ~cli_config md in
+  let tbl, processed_md = Typing.check_module ~tbl ~ext_hooks ~cli_config md in
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Type-checking successful.");
   (tbl, processed_md)
