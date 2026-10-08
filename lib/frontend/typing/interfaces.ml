@@ -654,7 +654,9 @@ let merge_defs ~(m : Module.t) ~(mod_qual_ident : qual_ident)
     | CallDef ({ call_decl = { call_decl_kind = Lemma; _ }; _ } as call)
       when Callable.is_abstract call && not m.mod_decl.mod_decl_is_interface ->
         let loc = m.mod_decl.mod_decl_loc in
-        (* Keep 'auto' flag for everything but RA associativity axioms *)
+        (* Keep 'auto' for everything but the associativity of an RA: a concrete RA
+           checks it, but with three variables it would cost more instantiations than
+           it saves as an auto lemma. *)
         let auto =
           call.call_decl.call_decl_is_auto
           && String.(call.call_decl.call_decl_name |> Ident.name <> "compAssoc")
