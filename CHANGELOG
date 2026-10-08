@@ -53,16 +53,8 @@ All notable changes to this project will be documented in this file.
 
 - Improved the wording and readability of the tutorial.
 
-- Error messages and documentation call the parameters of a predicate or invariant after the `;` implicit parameters, rather than output parameters.
-
 
 ### Fixed
-
-- A trigger in the contract of a `func` no longer causes a syntax error in a body that spans several lines.
-
-- A conditional expression is right-associative, so `a ? b : c ? d : e` means `a ? b : (c ? d : e)`, as in other languages, rather than `(a ? b : c) ? d : e`.
-
-- A loop nested in another loop no longer causes an internal error.
 
 - A value of an uninstantiated functor, such as `Seq.empty`, takes its instance from the expected type, as in `s == Seq.empty` or `(Seq.empty : Seq[Int])`, like a constructor such as `List.nil`.
 
@@ -70,29 +62,45 @@ All notable changes to this project will be documented in this file.
 
 - Comparing a finite set with a set by `==` type-checks with the finite set on either side, not only on the right.
 
-- A top-level declaration named like an SMT-LIB or Z3 symbol, such as a function `union`, no longer takes that symbol's place in the solver. It used to change the meaning of built-in operations such as `++`, which could make false assertions verify.
-
-- Errors about a type or field declaration point at the declaration, instead of starting at the end of the line before it.
-
-- A type alias that refers to itself, directly or through other aliases, is reported as an error instead of making the type checker loop.
-
-- Folding an invariant back with its implicit arguments left out no longer lets their values change, which could be used to prove `false`. Writing an invariant's implicit arguments at `unfold` but leaving them out at `fold`, or vice versa, no longer crashes the verifier.
-
-- The invariants a procedure needs are inferred from their explicit arguments only. Calls and `unfold`s no longer fail with `Invariant ... is not in the current mask` because a precondition writes an invariant's implicit arguments differently.
-
 - A loop may open the invariants listed in the `opens` clause of the procedure it is in.
-
-- An implicitly instantiated functor call returning `Bool` can be used as an assertion, as in `assert List.is_in(xs, 1)`, instead of failing with `Cannot unify type Bool with type Perm`.
 
 - Implicit functor instantiation infers a functor's arguments from a value of its rep type also when the rep type is defined as the type of a nested module, as in `rep type T = L.T`.
 
-- An implicitly instantiated functor call can be the first operand of an arithmetic or comparison operator, as in `List.len(xs) + 1`, instead of failing with `Cannot unify type Int with type Int or Real`.
+## [1.4.2] - 2026-10-07
+
+### Changed
+
+- Error messages and documentation call the parameters of a predicate or invariant after the `;` implicit parameters, rather than output parameters.
+
+### Fixed
 
 - Fix an unsoundness where an auto lemma could be assumed while verifying a lemma that its own proof calls, so that the two proofs justified each other.
+
+- Folding an invariant back with its implicit arguments left out no longer lets their values change, which could be used to prove `false`. Writing an invariant's implicit arguments at `unfold` but leaving them out at `fold`, or vice versa, no longer crashes the verifier.
+
+- A top-level declaration named like an SMT-LIB or Z3 symbol, such as a function `union`, no longer takes that symbol's place in the solver. It used to change the meaning of built-in operations such as `++`, which could make false assertions verify.
+
+- The invariants a procedure needs are inferred from their explicit arguments only. Calls and `unfold`s no longer fail with `Invariant ... is not in the current mask` because a precondition writes an invariant's implicit arguments differently.
 
 - The postconditions of funcs from the standard library or an included file are assumed again; they were silently dropped. Regression since 1.2.0.
 
 - A module implementing an interface reached through `include` now inherits the interface's concrete procedures and lemmas instead of treating them as abstract. Regression since 1.2.0.
+
+- An `own` of a fractional field declared in the standard library or an included file type-checks in a loop invariant; it was rejected as if the field were a native resource-algebra field.
+
+- A conditional expression is right-associative, so `a ? b : c ? d : e` means `a ? b : (c ? d : e)`, as in other languages, rather than `(a ? b : c) ? d : e`.
+
+- A loop nested in another loop no longer causes an internal error.
+
+- A type alias that refers to itself, directly or through other aliases, is reported as an error instead of making the type checker loop.
+
+- A trigger in the contract of a `func` no longer causes a syntax error in a body that spans several lines.
+
+- Errors about a type or field declaration point at the declaration, instead of starting at the end of the line before it.
+
+- An implicitly instantiated functor call returning `Bool` can be used as an assertion, as in `assert List.is_in(xs, 1)`, instead of failing with `Cannot unify type Bool with type Perm`.
+
+- An implicitly instantiated functor call can be the first operand of an arithmetic or comparison operator, as in `List.len(xs) + 1`, instead of failing with `Cannot unify type Int with type Int or Real`.
 
 ## [1.4.1] - 2026-10-01
 
