@@ -35,7 +35,8 @@ let check_symbol (symbol : Module.symbol) : Module.symbol Rewriter.t =
           let+ mod_def = Rewriter.exit_module mod_def in
           Module.ModDef mod_def
       | Module.ModInst mod_inst ->
-          (* TODO: Implement checking for mod_inst too *)
+          (* Instances come from implicit instantiation, whose functor and argument
+             modules are checked themselves. *)
           Rewriter.return symbol)
   in
 
