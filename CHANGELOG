@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- With `--lsp-annotations`, `--lsp-mode` prints an object with the errors and with annotations for an editor, such as the contracts that members inherit from interfaces. The protocol version reported by `--manifest` is now 3.
+
 - A member of a module that omits its contract, with no `requires`, `ensures` or `opens`, inherits the contract that the interface the module implements declares for it.
 
 - The postconditions of an `auto lemma` with parameters can have triggers for the parameters, written as for a quantifier, as in `ensures {f(n)} f(n) >= 0`.

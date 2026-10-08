@@ -181,6 +181,22 @@ let library_real_path (name : string) : string option =
       Hashtbl.set library_real_path_cache ~key:name ~data:result;
       result
 
+(** The content of the source [file], an embedded library source or a file on disk, if it
+    can be read. *)
+let source_content (file : string) : string option =
+  match library_source_content file with
+  | Some content -> Some content
+  | None ->
+      if Stdlib.Sys.file_exists file then Some (Stdio.In_channel.read_all file) else None
+
+(** The source text that [loc] spans, if it can be read. *)
+let source_text loc : string option =
+  Opt.bind (source_content (file_name loc)) ~f:(fun content ->
+      let pos = start_index loc and len = end_index loc - start_index loc in
+      if pos >= 0 && len >= 0 && pos + len <= String.length content then
+        Some (String.sub content ~pos ~len)
+      else None)
+
 let context loc =
   let rec in_channel_line ic (line_num : int) =
     let next_line =

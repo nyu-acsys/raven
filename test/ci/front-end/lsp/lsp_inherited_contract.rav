@@ -1,0 +1,22 @@
+// With --lsp-annotations, the contracts that members inherit from an interface, with the
+// interface's parameter names replaced by the members', and the members that a module
+// inherits without declaring them, with bodies elided.
+interface Counter {
+  rep type T
+  func value(c: T) returns (ret: Int)
+    ensures ret >= 0
+
+  auto lemma bound(c: T)
+    requires value(c) > 5
+    ensures {value(c)} value(c) > 0
+
+  lemma nonneg(c: T)
+    ensures value(c) >= 0
+  {}
+}
+
+module IntCounter : Counter {
+  rep type T = Int
+  func value(x: T) returns (n: Int) { x >= 0 ? x : 0 }
+  auto lemma bound(x: T) {}
+}

@@ -7,6 +7,7 @@ type config = {
   no_library: bool;
   typecheck_only: bool;
   lsp_mode: bool;
+  lsp_annotations: bool;
   base_dir: string;
   prog_stats: bool;
   smt_timeout: int;
@@ -426,6 +427,11 @@ let lsp_mode =
   let doc = "Format error messages for LSP integration." in
   Arg.(value & flag & info [ "lsp-mode" ] ~doc)
 
+let lsp_annotations =
+  let doc = "With --lsp-mode, print an object with the errors and with annotations for the \
+             editor, such as the contracts that members inherit from interfaces." in
+  Arg.(value & flag & info [ "lsp-annotations" ] ~doc)
+
 let base_dir =
   let doc = "Base directory for resolving include directives. Default: current working directory." in
   Arg.(value & opt string "" & info [ "base-dir"] ~doc)
@@ -482,6 +488,19 @@ let manifest_json =
 
 let greeting = "Raven version " ^ Config.version
 
+(** The output of `--lsp-mode`: the errors, or with `--lsp-annotations` an object with
+    the errors and the annotations. *)
+let print_lsp_output config errs =
+  if config.lsp_annotations then
+    Stdlib.print_endline
+      (Yojson.Safe.to_string
+         (`Assoc
+           [
+             ("errors", `List (List.map errs ~f:Error.to_lsp_json));
+             ("annotations", Annotations.all_to_json ());
+           ]))
+  else Stdlib.print_endline (Error.errors_to_lsp_string errs)
+
 let print_errors config errs =
   (* Follow a location back through the `include` directives that pulled its file in,
      to a location in the file actually being checked. *)
@@ -514,7 +533,7 @@ let print_errors config errs =
   in
   if config.lsp_mode then begin
     let errs = List.map errs ~f:anchor in
-    Stdlib.print_endline (Error.errors_to_lsp_string errs);
+    print_lsp_output config errs;
     Stdlib.exit 0
   end
   else begin
@@ -565,7 +584,7 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   in
   Option.is_some dumped || Option.is_some printed
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library print_library_source manifest =
+let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -577,6 +596,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     no_library;
     typecheck_only;
     lsp_mode;
+    lsp_annotations;
     prog_stats;
     base_dir;
     smt_timeout;
@@ -608,7 +628,11 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode base_dir 
     | Some ext -> `Explicit ext
     | None -> `Auto
   in
-  try `Ok (parse_and_check_all ~extension_mode config input_files) with
+  try
+    let result = parse_and_check_all ~extension_mode config input_files in
+    if config.lsp_mode && config.lsp_annotations then print_lsp_output config [];
+    `Ok result
+  with
   | Unix.Unix_error (err, _, prog) ->
     let msg =
       Printf.sprintf
@@ -632,6 +656,6 @@ let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
+      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

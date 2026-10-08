@@ -1,0 +1,38 @@
+// The contracts that members inherit, with the interface's parameters renamed to the
+// members': not where a bound variable has a parameter's name, renaming a bound variable
+// that a member's name would capture, and leaving a clause unchanged with a note where a
+// member's name already refers to something else.
+
+interface I {
+  rep type T
+  func f(x: Int) returns (r: Int)
+  func value(c: T) returns (ret: Int)
+
+  // bound variable named like a parameter
+  lemma bound_same(c: T, n: Int)
+    ensures forall n: Int :: {f(n)} f(n) > value(c)
+
+  // capture: the member's parameter is named like a bound variable
+  lemma capture(c: T)
+    ensures forall x: Int :: {f(x)} f(x) > value(c)
+
+  // a member's parameter named like another member used in the clause
+  lemma member_name(c: T)
+    requires value(c) > 0
+    ensures f(value(c)) > 0
+
+  // swapped names
+  lemma swap(a: Int, b: Int)
+    requires a < b
+    ensures f(a) <= f(b)
+}
+
+module M : I {
+  rep type T = Int
+  func f(x: Int) returns (r: Int) { x }
+  func value(c: T) returns (ret: Int) { c }
+  lemma bound_same(k: T, m: Int) { assume false; }
+  lemma capture(x: T) { assume false; }
+  lemma member_name(f: T) { assume false; }
+  lemma swap(b: Int, a: Int) {}
+}
