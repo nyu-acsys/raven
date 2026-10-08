@@ -1,0 +1,6 @@
+// Every trigger of a quantifier must mention each of its variables.
+func f(x: Int) returns (r: Int) { x }
+
+lemma l()
+  ensures forall x: Int, y: Int :: {f(x)} f(x) == f(x) + y - y
+{}

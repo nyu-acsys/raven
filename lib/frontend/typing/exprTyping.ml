@@ -63,6 +63,23 @@ let set_checked_type (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : ty
     type_mismatch_error_diagnosed tbl (Expr.to_loc expr) expected_typ given_typ_ub
   end
 
+(** Reports a trigger in [trgs] that does not mention one of [var_decls], which the
+    message calls [kind]s. *)
+let check_triggers_mention ~(kind : string) (var_decls : var_decl list)
+    (trgs : expr list list) : unit =
+  List.iter trgs ~f:(fun trg ->
+      let mentioned =
+        List.fold trg
+          ~init:(Set.empty (module QualIdent))
+          ~f:(fun acc e -> Expr.symbols ~acc e)
+      in
+      List.iter var_decls ~f:(fun var_decl ->
+          if not (Set.mem mentioned (QualIdent.from_ident var_decl.var_name)) then
+            Error.type_error
+              (Expr.to_loc (List.hd_exn trg))
+              (Printf.sprintf "This trigger does not mention the %s %s" kind
+                 (Ident.name var_decl.var_name))))
+
 (** Infers and checks the type of [expr] against [expected_typ]. [allow_proc_call] permits
     a call of a procedure or lemma, which may occur only as the right-hand side of an
     assignment. *)
@@ -773,7 +790,7 @@ and check_binder (binder : Expr.binder) (var_decl_list : var_decl list)
                 check expr (Type.any |> Type.set_ghost true)))
       in
 
-      (* TODO: Add additional checks for triggers *)
+      check_triggers_mention ~kind:"variable" var_decl_list trgs;
       let inner_typ = Expr.to_type inner_expr in
       let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
       set_checked_type expr Type.bool

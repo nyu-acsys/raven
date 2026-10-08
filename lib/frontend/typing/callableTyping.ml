@@ -147,16 +147,7 @@ let check (callable : Callable.t) : Module.symbol t =
             if not is_auto_lemma then
               Error.type_error loc
                 "Only the postcondition of an auto lemma can have triggers";
-            let mentioned =
-              List.fold trg
-                ~init:(Set.empty (module QualIdent))
-                ~f:(fun acc e -> Expr.symbols ~acc e)
-            in
-            List.iter call_decl_formals ~f:(fun formal ->
-                if not (Set.mem mentioned (QualIdent.from_ident formal.var_name)) then
-                  Error.type_error loc
-                    (Printf.sprintf "This trigger does not mention the parameter %s"
-                       (Ident.name formal.var_name)))))
+            ExprTyping.check_triggers_mention ~kind:"parameter" call_decl_formals [ trg ]))
   in
 
   let () =

@@ -47,6 +47,8 @@ All notable changes to this project will be documented in this file.
 
 - `auto pred` is now written `inline pred`, matching `inline func`, and `auto` applies only to lemmas and axioms. `auto` on a predicate or function is an error, and so is a recursive inline predicate, which previously stayed partly unexpanded.
 
+- Every trigger of a quantifier must mention each of its variables, as for the triggers of an `auto lemma`. A trigger that does not was ignored by the SMT solver.
+
 - A comprehension that combines sets element by element, such as `{| x: T :: x in s || x in t |}`, is passed to the SMT solver as an operation on whole sets rather than as a function with a quantified axiom.
 
 - Definitions and lemmas that no proof obligation depends on, such as unused parts of the standard library, are no longer sent to the SMT solver. Small programs verify noticeably faster.
