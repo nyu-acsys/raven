@@ -15,7 +15,9 @@ let array = [%blob "array.rav"]
 let prelude = [ "Option"; "List"; "Seq"; "Array" ]
 
 let sources =
-  [ ("lib/library/base_types.rav", base_types);
+  [
+    ("lib/library/base_types.rav", base_types);
     ("lib/library/resource_algebra.rav", resource_algebra);
     ("lib/library/atomics.rav", atomics);
-    ("lib/library/array.rav", array) ]
+    ("lib/library/array.rav", array);
+  ]

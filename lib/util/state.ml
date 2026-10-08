@@ -30,26 +30,14 @@ module Syntax = struct
 
   open Let_syntax
 
-  let ( let+ ) (m : 'c -> 'c * 'a) (f : 'a -> 'b) :
-      'c -> 'c * 'b =
-    map m ~f
-
+  let ( let+ ) (m : 'c -> 'c * 'a) (f : 'a -> 'b) : 'c -> 'c * 'b = map m ~f
   let ( and+ ) = both
-
-  let ( let* ) (m : 'c -> 'c * 'a)
-      (f : 'a -> 'c -> 'c * 'b) : 'c -> 'c * 'b =
-    bind m ~f
-
+  let ( let* ) (m : 'c -> 'c * 'a) (f : 'a -> 'c -> 'c * 'b) : 'c -> 'c * 'b = bind m ~f
   let ( and* ) = both
-
   let ( |+> ) m f = map m ~f
-
   let ( |*> ) (m : 'c -> 'c * 'a) f = bind m ~f
-
   let get_state s = (s, s)
-
   let set_state s' _ = (s', ())
-
   let map_state ~f s = (f s, ())
 end
 
@@ -68,7 +56,7 @@ module List = struct
 
   let map2_exn (xs : 'a list) (ys : 'b list) ~f s =
     match map2 xs ys ~f s with
-    | (s, Base.List.Or_unequal_lengths.Ok zs) -> (s, zs)
+    | s, Base.List.Or_unequal_lengths.Ok zs -> (s, zs)
     | _ -> failwith "State.List.map2 unequal length"
 
   let fold_right (xs : 'a list) ~(init : 'b) ~f : 'c -> 'c * 'b =
@@ -86,13 +74,12 @@ module List = struct
     (s, (acc, ys))
 
   let fold2 (xs : 'a list) (ys : 'b list) ~(init : 'acc) ~f :
-      ('c -> 'c * 'acc Base.List.Or_unequal_lengths.t) =
+      'c -> 'c * 'acc Base.List.Or_unequal_lengths.t =
    fun s ->
     match List.zip xs ys with
     | Ok xs_ys ->
         let s, res =
-          List.fold_left xs_ys ~init:(s, init) ~f:(fun (s, acc) (x, y) ->
-              f acc x y s)
+          List.fold_left xs_ys ~init:(s, init) ~f:(fun (s, acc) (x, y) -> f acc x y s)
         in
         (s, Base.List.Or_unequal_lengths.Ok res)
     | Unequal_lengths -> (s, Unequal_lengths)

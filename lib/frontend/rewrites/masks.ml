@@ -11,8 +11,8 @@ open Util
    coincide with one of [formal_idents] (a different declaration's own
    formals, always a disjoint scope), so any argument built from it always
    truncates away on its own. *)
-let truncate_to_formal_expressible (formal_idents : IdentSet.t)
-    (args : Expr.t list) : Expr.t list =
+let truncate_to_formal_expressible (formal_idents : IdentSet.t) (args : Expr.t list) :
+    Expr.t list =
   List.take_while args ~f:(fun arg ->
       Set.is_subset (Expr.local_vars arg) ~of_:formal_idents)
 
@@ -33,9 +33,7 @@ let substitute_and_truncate_mask ~(mentioned_formals : Type.var_decl list)
       List.fold2 mentioned_formals actual_args
         ~init:(Map.empty (module QualIdent))
         ~f:(fun acc formal actual ->
-          Map.set acc
-            ~key:(QualIdent.from_ident formal.var_name)
-            ~data:actual)
+          Map.set acc ~key:(QualIdent.from_ident formal.var_name) ~data:actual)
     with
     | Ok m -> m
     | Unequal_lengths -> Map.empty (module QualIdent)
@@ -63,18 +61,22 @@ let substitute_and_truncate_mask ~(mentioned_formals : Type.var_decl list)
    [Invariant] filter) as [ProgUtils.expr_preds_mentioned], just
    additionally keeping each application's kind and arguments. *)
 let rec inv_applications (expr : Expr.t) :
-    ((QualIdent.t * Callable.call_kind * Expr.t list * int) list, 'a) Rewriter.t_ext
-    =
+    ((QualIdent.t * Callable.call_kind * Expr.t list * int) list, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
   match expr with
-  | Expr.App (Expr.Var qual_ident, args, _) ->
+  | Expr.App (Expr.Var qual_ident, args, _) -> (
       let* _, (_, symbol, _) = Rewriter.resolve_and_find qual_ident in
       let* nested = Rewriter.List.map args ~f:inv_applications in
       let nested = List.concat nested in
-      (match symbol with
+      match symbol with
       | Module.CallDef
-          { call_decl = { call_decl_kind = (Pred | Invariant) as kind; call_decl_formals; _ }; _ } ->
-          Rewriter.return ((qual_ident, kind, args, List.length call_decl_formals) :: nested)
+          {
+            call_decl =
+              { call_decl_kind = (Pred | Invariant) as kind; call_decl_formals; _ };
+            _;
+          } ->
+          Rewriter.return
+            ((qual_ident, kind, args, List.length call_decl_formals) :: nested)
       | _ -> Rewriter.return nested)
   | Expr.App (_, args, _) ->
       let+ nested = Rewriter.List.map args ~f:inv_applications in
@@ -88,10 +90,9 @@ let expr_inv_applications ~explicit_only (expr : Expr.t) =
   let open Rewriter.Syntax in
   let+ apps = inv_applications expr in
   List.map apps ~f:(fun (qi, kind, args, n_explicit) ->
-      (qi, kind, (if explicit_only then List.take args n_explicit else args)))
+      (qi, kind, if explicit_only then List.take args n_explicit else args))
 
-let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ext
-    =
+let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
   let formal_idents =
     List.map c.call_decl.call_decl_formals ~f:(fun vd -> vd.var_name)
@@ -128,14 +129,14 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
   let direct_entries =
     direct_applications
     |> List.filter_map ~f:(fun (qi, kind, args, spec_atomic) ->
-           match kind with
-           | Callable.Invariant ->
-               let expressible =
-                 if spec_atomic then non_implicit_formal_idents else formal_idents
-               in
-               Some (qi, truncate_to_formal_expressible expressible args)
-           | Callable.Pred -> None
-           | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
+        match kind with
+        | Callable.Invariant ->
+            let expressible =
+              if spec_atomic then non_implicit_formal_idents else formal_idents
+            in
+            Some (qi, truncate_to_formal_expressible expressible args)
+        | Callable.Pred -> None
+        | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
   in
   (* Either kind mentioned directly in [requires] can itself be a *nested*
      invariant -- its own body may assert another invariant's (or another
@@ -202,7 +203,6 @@ let compute_proc_lemma_mask (c : Callable.t) : (Callable.mask, 'a) Rewriter.t_ex
    invariant). *)
 let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext =
   let open Rewriter.Syntax in
-
   let* new_mask =
     match c.call_decl.call_decl_kind with
     | Pred | Invariant -> (
@@ -249,11 +249,11 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
             let direct_entries =
               applications
               |> List.filter_map ~f:(fun (qi, kind, args) ->
-                     match kind with
-                     | Callable.Invariant ->
-                         Some (qi, truncate_to_formal_expressible formal_idents args)
-                     | Callable.Pred -> None
-                     | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
+                  match kind with
+                  | Callable.Invariant ->
+                      Some (qi, truncate_to_formal_expressible formal_idents args)
+                  | Callable.Pred -> None
+                  | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
             in
             let* nested_entries =
               Rewriter.List.map applications ~f:(fun (qi, _, args) ->
@@ -272,9 +272,8 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
                       } ->
                       let nested_mask = Option.value call_decl_needs_mask ~default:[] in
                       Rewriter.return
-                        (substitute_and_truncate_mask ~mentioned_formals
-                           ~actual_args:args ~caller_formal_idents:formal_idents
-                           nested_mask)
+                        (substitute_and_truncate_mask ~mentioned_formals ~actual_args:args
+                           ~caller_formal_idents:formal_idents nested_mask)
                   | _ -> Rewriter.return [])
             in
             Rewriter.return
@@ -414,19 +413,17 @@ let rewrite_grants_mask (c : Callable.t) : Callable.t Rewriter.t =
         let entries =
           List.concat ensures_applications
           |> List.filter_map ~f:(fun (qi, kind, args, spec_atomic) ->
-                 match kind with
-                 | Callable.Invariant ->
-                     let expressible =
-                       Set.union
-                         (if spec_atomic then non_implicit_formal_idents
-                          else formal_idents)
-                         return_idents
-                     in
-                     let prefix = truncate_to_formal_expressible expressible args in
-                     if List.length prefix = List.length args then Some (qi, args)
-                     else None
-                 | Callable.Pred -> None
-                 | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
+              match kind with
+              | Callable.Invariant ->
+                  let expressible =
+                    Set.union
+                      (if spec_atomic then non_implicit_formal_idents else formal_idents)
+                      return_idents
+                  in
+                  let prefix = truncate_to_formal_expressible expressible args in
+                  if List.length prefix = List.length args then Some (qi, args) else None
+              | Callable.Pred -> None
+              | Callable.Func | Callable.Proc | Callable.Lemma -> assert false)
         in
         Rewriter.return (Callable.mask_canon entries)
   in
@@ -441,51 +438,45 @@ let compute_masks (m : Module.t) : Module.t Rewriter.t =
   let* m = Rewriter.eval_with_user_state ~init:true (compute_iteration m) in
   Rewriter.Module.rewrite_callables ~f:rewrite_grants_mask m
 
-(** Checks that no module implementing an interface lets a newly-provided
-    concrete definition of one of the interface's own abstract invariants or
-    predicates depend on (i.e. include in its mask) another invariant that the
-    same interface declares. An interface's own members are checked once,
-    against the interface's abstract view; a caller reasoning about one of the
-    interface's abstract members has no way to know that a later, concrete
-    implementation made its mask grow to cover another of the interface's own
-    invariants -- so if this were allowed, the interface's own members could
-    silently stop verifying once instantiated concretely, without ever being
+(** Checks that no module implementing an interface lets a newly-provided concrete
+    definition of one of the interface's own abstract invariants or predicates depend on
+    (i.e. include in its mask) another invariant that the same interface declares. An
+    interface's own members are checked once, against the interface's abstract view; a
+    caller reasoning about one of the interface's abstract members has no way to know that
+    a later, concrete implementation made its mask grow to cover another of the
+    interface's own invariants -- so if this were allowed, the interface's own members
+    could silently stop verifying once instantiated concretely, without ever being
     re-checked.
 
     Scoped to modules declared as [module N : M { ... }] (i.e.
-    [mod_decl_returns = Some M]). Functor instantiation doesn't go through
-    this code path (see [Typing.merge_defs]) and isn't at risk the same way,
-    since it only ever substitutes formals -- it never gives a fresh body to
-    one of [M]'s own abstract members. *)
+    [mod_decl_returns = Some M]). Functor instantiation doesn't go through this code path
+    (see [Typing.merge_defs]) and isn't at risk the same way, since it only ever
+    substitutes formals -- it never gives a fresh body to one of [M]'s own abstract
+    members. *)
 
 let owned_invariant_names (iface : Module.t) : Ident.t list =
   List.filter_map iface.mod_def ~f:(function
-      | Module.SymbolDef
-          (CallDef
-            { call_decl = { call_decl_kind = Invariant; call_decl_name; _ }; _ })
-        ->
-          Some call_decl_name
-      | _ -> None)
+    | Module.SymbolDef
+        (CallDef { call_decl = { call_decl_kind = Invariant; call_decl_name; _ }; _ }) ->
+        Some call_decl_name
+    | _ -> None)
 
 let abstract_pred_or_inv_names (iface : Module.t) : Ident.t list =
   List.filter_map iface.mod_def ~f:(function
-      | Module.SymbolDef
-          (CallDef
-            ({
-               call_decl = { call_decl_kind = (Pred | Invariant); call_decl_name; _ };
-               _;
-             } as call))
-        when Callable.is_abstract call ->
-          Some call_decl_name
-      | _ -> None)
+    | Module.SymbolDef
+        (CallDef
+           ({ call_decl = { call_decl_kind = Pred | Invariant; call_decl_name; _ }; _ } as
+            call))
+      when Callable.is_abstract call ->
+        Some call_decl_name
+    | _ -> None)
 
 let find_call_by_name (mdef : Module.t) (name : Ident.t) : Callable.t option =
   List.find_map mdef.mod_def ~f:(function
-      | Module.SymbolDef
-          (CallDef ({ call_decl = { call_decl_name; _ }; _ } as call))
-        when Ident.equal call_decl_name name ->
-          Some call
-      | _ -> None)
+    | Module.SymbolDef (CallDef ({ call_decl = { call_decl_name; _ }; _ } as call))
+      when Ident.equal call_decl_name name ->
+        Some call
+    | _ -> None)
 
 let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
   let open Rewriter.Syntax in
@@ -506,9 +497,7 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
         let+ entries =
           Rewriter.List.map ifaces ~f:(fun (iface_qual_ident, iface) ->
               Rewriter.List.map (owned_invariant_names iface) ~f:(fun name ->
-                  let+ qual_ident =
-                    Rewriter.resolve (QualIdent.from_ident name)
-                  in
+                  let+ qual_ident = Rewriter.resolve (QualIdent.from_ident name) in
                   (qual_ident, iface_qual_ident)))
         in
         Map.of_alist_reduce
@@ -523,9 +512,7 @@ let check_interface_reach_back (n : Module.t) : (unit, 'a) Rewriter.t_ext =
               | None -> Rewriter.return ()
               | Some call when Callable.is_abstract call -> Rewriter.return ()
               | Some call ->
-                  let* self_qual_ident =
-                    Rewriter.resolve (QualIdent.from_ident name)
-                  in
+                  let* self_qual_ident = Rewriter.resolve (QualIdent.from_ident name) in
                   let mask_names =
                     Option.value call.call_decl.call_decl_needs_mask ~default:[]
                     |> List.map ~f:fst
@@ -567,8 +554,8 @@ let rec check_module_reach_back (m : Module.t) : (unit, 'a) Rewriter.t_ext =
   let* () = check_interface_reach_back m in
   let* () =
     Rewriter.List.iter m.mod_def ~f:(function
-        | Module.SymbolDef (ModDef mod_def) -> check_module_reach_back mod_def
-        | _ -> Rewriter.return ())
+      | Module.SymbolDef (ModDef mod_def) -> check_module_reach_back mod_def
+      | _ -> Rewriter.return ())
   in
   let+ _ = Rewriter.exit_module m in
   ()

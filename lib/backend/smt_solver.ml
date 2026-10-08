@@ -1,5 +1,6 @@
 open Base
 open Unix
+
 (*open Util__Error*)
 open Util
 open SmtLibAST
@@ -56,10 +57,8 @@ module SmtSession = struct
     {
       log_file_name;
       log_out_chan =
-        if logging then 
-          Stdio.Out_channel.create log_file_name 
-        else 
-          Util.Channel.null_channel ();
+        (if logging then Stdio.Out_channel.create log_file_name
+         else Util.Channel.null_channel ());
       assert_count = 0;
       response_count = 0;
       stack_height = 0;
@@ -79,8 +78,7 @@ module SmtSession = struct
       (try Unix.kill state.pid Sys.sigkill with Unix.Unix_error _ -> ())
         if solver.solver_state.pid <> 0 then ignore (Unix.waitpid [] state.pid))*)
     ignore
-    @@ Unix.close_process
-         (session.solver_state.in_chan, session.solver_state.out_chan)
+    @@ Unix.close_process (session.solver_state.in_chan, session.solver_state.out_chan)
 
   (* let read_from_chan session chan =
      let lexbuf = Lexing.from_channel chan in
@@ -112,9 +110,17 @@ module SmtSession = struct
         let in_chan = in_channel_of_descr in_descr in
         let result = In_channel.input_line in_chan in
         match result with
-        | None -> Error.fail ~lbl:Internal Loc.dummy "Lost communication with the Z3 process while checking this proof obligation -- Z3 may have crashed or been killed; re-run with --verbosity=debug to inspect log.smt2"
+        | None ->
+            Error.fail ~lbl:Internal Loc.dummy
+              "Lost communication with the Z3 process while checking this proof \
+               obligation -- Z3 may have crashed or been killed; re-run with \
+               --verbosity=debug to inspect log.smt2"
         | Some str -> str)
-    | None -> Error.fail ~lbl:Internal Loc.dummy "Lost communication with the Z3 process while checking this proof obligation -- Z3 may have crashed or been killed; re-run with --verbosity=debug to inspect log.smt2"
+    | None ->
+        Error.fail ~lbl:Internal Loc.dummy
+          "Lost communication with the Z3 process while checking this proof obligation \
+           -- Z3 may have crashed or been killed; re-run with --verbosity=debug to \
+           inspect log.smt2"
   (* state.response_count <- state.response_count + 1; *)
   (* if state.response_count > session.response_count
      then begin
@@ -133,7 +139,12 @@ module SmtSession = struct
     | "sat" -> true
     | "unsat" -> false
     | "unknown" -> false
-    | str -> Error.fail ~lbl:Internal Loc.dummy (Printf.sprintf "Z3 returned unexpected output while checking this proof obligation: %s (re-run with --verbosity=debug to inspect log.smt2)" str)
+    | str ->
+        Error.fail ~lbl:Internal Loc.dummy
+          (Printf.sprintf
+             "Z3 returned unexpected output while checking this proof obligation: %s \
+              (re-run with --verbosity=debug to inspect log.smt2)"
+             str)
 
   let is_unsat session =
     Int.incr num_of_sat_queries;
@@ -142,21 +153,22 @@ module SmtSession = struct
     | "unsat" -> true
     | "sat" -> false
     | "unknown" -> false
-    | str -> Error.fail ~lbl:Internal Loc.dummy (Printf.sprintf "Z3 returned unexpected output while checking this proof obligation: %s (re-run with --verbosity=debug to inspect log.smt2)" str)
+    | str ->
+        Error.fail ~lbl:Internal Loc.dummy
+          (Printf.sprintf
+             "Z3 returned unexpected output while checking this proof obligation: %s \
+              (re-run with --verbosity=debug to inspect log.smt2)"
+             str)
 
   let push session =
     write session (mk_push 1);
-    let new_session =
-      { session with stack_height = session.stack_height + 1 }
-    in
+    let new_session = { session with stack_height = session.stack_height + 1 } in
     new_session
 
   let pop session =
     if session.stack_height <= 0 then Error.internal_error Loc.dummy "pop on empty stack"
     else write session (mk_pop 1);
-    let new_session =
-      { session with stack_height = session.stack_height - 1 }
-    in
+    let new_session = { session with stack_height = session.stack_height - 1 } in
     new_session
 
   let assert_expr session expr = write session (mk_assert expr)
@@ -197,8 +209,8 @@ let write cmd : unit t =
       Util.Error.internal_error Util.Loc.dummy
         "Cannot write assert command directly; use assume_expr instead"
   | _ ->
-    let+ smt_env = get_state in
-    SmtSession.write smt_env.session cmd
+      let+ smt_env = get_state in
+      SmtSession.write smt_env.session cmd
 
 (* SmtSession.write state.smt_env.session cmd *)
 
@@ -209,13 +221,11 @@ let write_comment cmnt : unit t =
 
 let push =
   let open State.Syntax in
-  map_state ~f:(fun smt_env ->
-      { smt_env with session = SmtSession.push smt_env.session })
+  map_state ~f:(fun smt_env -> { smt_env with session = SmtSession.push smt_env.session })
 
 let pop =
   let open State.Syntax in
-  map_state ~f:(fun smt_env ->
-      { smt_env with session = SmtSession.pop smt_env.session })
+  map_state ~f:(fun smt_env -> { smt_env with session = SmtSession.pop smt_env.session })
 
 let push_path_condn (term : term) =
   let open State.Syntax in
@@ -274,14 +284,12 @@ let check_valid (expr : term) : bool t =
 
 let declare_tuple_sort (arity : int) : command =
   let tuple_sort_name =
-    QualIdent.from_ident
-      (Ident.make Util.Loc.dummy ("$tuple_" ^ Int.to_string arity) 0)
+    QualIdent.from_ident (Ident.make Util.Loc.dummy ("$tuple_" ^ Int.to_string arity) 0)
   in
 
   let params =
     Base.List.init arity ~f:(fun i ->
-        QualIdent.from_ident
-          (Ident.make Util.Loc.dummy ("X" ^ Int.to_string i) 0))
+        QualIdent.from_ident (Ident.make Util.Loc.dummy ("X" ^ Int.to_string i) 0))
   in
 
   let constr = tuple_sort_name in
@@ -313,7 +321,8 @@ let init ?(logging = true) diagnostics timeout : smt_env =
       SetOption (":smt.case_split", "3", None);
       SetOption (":smt.candidate_models", "true", None);
       (*SetOption (":smt.macro_finder", "true", None);*)
-    ] @ if diagnostics then [SetOption (":smt.qi.profile", "true", None)] else []
+    ]
+    @ if diagnostics then [ SetOption (":smt.qi.profile", "true", None) ] else []
   in
 
   let list_of_cmds =
@@ -327,10 +336,7 @@ let init ?(logging = true) diagnostics timeout : smt_env =
   in
 
   let smt_env =
-    { session;
-      path_conditions = [];
-      auto_dependencies = Dependencies.Graph.empty
-    }
+    { session; path_conditions = []; auto_dependencies = Dependencies.Graph.empty }
   in
 
   (* preamble *)
@@ -343,11 +349,11 @@ let init ?(logging = true) diagnostics timeout : smt_env =
 
   smt_env
 
-(** Tells the Z3 subprocess to exit and waits for it to do so. Callers must run this
-    on every path out of a session, including error paths: nothing currently reaps the
-    Z3 child otherwise, which on Windows can leave a lingering process holding a handle
-    into the working directory, blocking cleanup of anything using it as a cwd (e.g. a
-    dune sandbox directory). *)
+(** Tells the Z3 subprocess to exit and waits for it to do so. Callers must run this on
+    every path out of a session, including error paths: nothing currently reaps the Z3
+    child otherwise, which on Windows can leave a lingering process holding a handle into
+    the working directory, blocking cleanup of anything using it as a cwd (e.g. a dune
+    sandbox directory). *)
 let stop (smt_env : smt_env) = SmtSession.stop_solver smt_env.session
 
 (** Declares exactly the generic tuple sorts ([$tuple_n]) the program being checked

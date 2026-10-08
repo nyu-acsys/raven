@@ -3,18 +3,18 @@ open Ast
 open ExtApi
 open Util
 
-(** Operators on the sequences of the standard library's `Library.Seq`, after Viper's:
-    `s ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, and
-    `e in s` says whether `e` is an entry. The parser produces the core's set union, map
-    lookup and update, and membership for these, which the core rejects on a sequence
-    and offers to [claim_expr]. This extension claims them and type-checks them as calls
-    of `append`, `index`, `update` and `contains` of the sequence's instance of
-    `Library.Seq`, so none of its constructs remains after type checking. As a sequence
-    is a value, `s[i]` is an expression, unlike an array entry, and `s[i] := e` assigns
-    `s[i := e]` to the variable `s`. The literal `[|e1, ..., en|]` is typed as the
-    sequence built from `singleton` and `append`, and `[||]` as `empty`, of the instance
-    of the expected type, or else of the instance inferred from the entries. The slices
-    `s[..n]` and `s[n..]` are `take` and `drop`, and `s[m..n]` is `s[..n][m..]`. *)
+(** Operators on the sequences of the standard library's `Library.Seq`, after Viper's: `s
+    ++ t` appends, `s[i]` is the entry at index `i`, `s[i := e]` replaces it, and `e in s`
+    says whether `e` is an entry. The parser produces the core's set union, map lookup and
+    update, and membership for these, which the core rejects on a sequence and offers to
+    [claim_expr]. This extension claims them and type-checks them as calls of `append`,
+    `index`, `update` and `contains` of the sequence's instance of `Library.Seq`, so none
+    of its constructs remains after type checking. As a sequence is a value, `s[i]` is an
+    expression, unlike an array entry, and `s[i] := e` assigns `s[i := e]` to the variable
+    `s`. The literal `[|e1, ..., en|]` is typed as the sequence built from `singleton` and
+    `append`, and `[||]` as `empty`, of the instance of the expected type, or else of the
+    instance inferred from the entries. The slices `s[..n]` and `s[n..]` are `take` and
+    `drop`, and `s[m..n]` is `s[..n][m..]`. *)
 module SeqExt (Cont : Ext) = struct
   include Cont
 
@@ -54,7 +54,8 @@ module SeqExt (Cont : Ext) = struct
         | _ -> (
             let+ resolved = Rewriter.resolve_and_find_opt inst in
             match resolved with
-            | Some (_, symbol) when is_seq_functor (Rewriter.Symbol.orig_qid symbol) -> Some inst
+            | Some (_, symbol) when is_seq_functor (Rewriter.Symbol.orig_qid symbol) ->
+                Some inst
             | _ -> None))
     | _ -> Rewriter.return None
 
@@ -69,10 +70,12 @@ module SeqExt (Cont : Ext) = struct
     | _ -> None
 
   (* The sequence of [entries], built with the members of the module [module_qi]. *)
-  let build ~(loc : location) ~(typ : type_expr) (module_qi : qual_ident) (entries : expr list) :
-      expr =
+  let build ~(loc : location) ~(typ : type_expr) (module_qi : qual_ident)
+      (entries : expr list) : expr =
     let call name args =
-      Expr.mk_app ~loc ~typ (Var (QualIdent.append module_qi (Ident.make loc name 0))) args
+      Expr.mk_app ~loc ~typ
+        (Var (QualIdent.append module_qi (Ident.make loc name 0)))
+        args
     in
     match entries with
     | [] -> call "empty" []
@@ -108,7 +111,8 @@ module SeqExt (Cont : Ext) = struct
 
   (* Typing *)
 
-  let claim_expr (constr : Expr.constr) (expr_list : expr list) (expr_attr : Expr.expr_attr) =
+  let claim_expr (constr : Expr.constr) (expr_list : expr list)
+      (expr_attr : Expr.expr_attr) =
     let open Rewriter.Syntax in
     let is_seq e =
       let+ inst = seq_instance (Expr.to_type e) in
@@ -136,8 +140,8 @@ module SeqExt (Cont : Ext) = struct
     combine_claims expr_attr.expr_loc own (Cont.claim_expr constr expr_list expr_attr)
 
   let type_check_expr (expr_ext : Expr.expr_ext) (expr_list : expr list)
-      (expr_attr : Expr.expr_attr) (expected_typ : type_expr) (functs : type_check_expr_functs)
-      =
+      (expr_attr : Expr.expr_attr) (expected_typ : type_expr)
+      (functs : type_check_expr_functs) =
     let open Rewriter.Syntax in
     let loc = expr_attr.expr_loc in
     match expr_ext with
@@ -157,9 +161,7 @@ module SeqExt (Cont : Ext) = struct
                 (* The operands in the order of the function's parameters: the sequence
                    first. *)
                 let args =
-                  match constr with
-                  | Elem -> List.rev expr_list
-                  | _ -> expr_list
+                  match constr with Elem -> List.rev expr_list | _ -> expr_list
                 in
                 let fn = QualIdent.append inst (Ident.make loc name 0) in
                 functs.process_expr
@@ -199,7 +201,9 @@ module SeqExt (Cont : Ext) = struct
         match entries typed with
         | Some entries ->
             let typ = Expr.to_type typed in
-            functs.check_and_set (App (ExprExt SeqLit, entries, expr_attr)) typ typ expected_typ
+            functs.check_and_set
+              (App (ExprExt SeqLit, entries, expr_attr))
+              typ typ expected_typ
         | None -> Error.internal_error loc "SeqExt: unexpected form of a typed literal")
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ functs
 
@@ -213,7 +217,8 @@ module SeqExt (Cont : Ext) = struct
         let loc = expr_attr.expr_loc in
         let* inst = seq_instance expr_attr.expr_type in
         match inst with
-        | Some inst -> Rewriter.return (build ~loc ~typ:expr_attr.expr_type inst expr_list)
+        | Some inst ->
+            Rewriter.return (build ~loc ~typ:expr_attr.expr_type inst expr_list)
         | None -> Error.internal_error loc "SeqExt: a literal that is not a sequence")
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 end

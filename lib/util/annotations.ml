@@ -2,15 +2,14 @@
     checking it and printed by `--lsp-mode --lsp-annotations`. *)
 
 module Err = Error
-
 open Base
 
-(** A clause of a contract: its keyword, its text as written, and its location. *)
 type clause = { keyword : string; text : string; clause_loc : Loc.t }
+(** A clause of a contract: its keyword, its text as written, and its location. *)
 
-(** A member that a module inherits: the interface it originates from, its declaration
-    as written there, and its location. *)
 type member = { origin : string; text : string; member_loc : Loc.t }
+(** A member that a module inherits: the interface it originates from, its declaration as
+    written there, and its location. *)
 
 type t =
   | InheritedMembers of {
@@ -31,9 +30,7 @@ let recorded : t list ref = ref []
 let origins : (string, string) Hashtbl.t = Hashtbl.create (module String)
 
 let set_origin ~member origin = Hashtbl.set origins ~key:member ~data:origin
-
 let origin ~member ~default = Option.value (Hashtbl.find origins member) ~default
-
 let record (annotation : t) = recorded := annotation :: !recorded
 
 let to_json (annotation : t) : Yojson.Safe.t =

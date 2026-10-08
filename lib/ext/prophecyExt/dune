@@ -7,6 +7,4 @@
   (pps ppx_blob ppx_hash ppx_compare ppx_sexp_conv ppx_custom_printf ppx_let)))
 
 (cram
- (deps
-  %{project_root}/bin/raven.exe
-  prophecyLib.rav))
+ (deps %{project_root}/bin/raven.exe prophecyLib.rav))

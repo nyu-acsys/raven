@@ -49,14 +49,15 @@ module Make (V : Vertex) = struct
           Set.union old_dsts dsts) )
 
   let union (vs1, es1) (vs2, es2) =
-    Set.union vs1 vs2,
-    Map.merge es1 es2 ~f:(fun ~key m ->
-        Map.Merge_element.values m ~left_default:empty_vertex_set ~right_default:empty_vertex_set
-        |> (fun (e1, e2) -> Some (Set.union e1 e2)))
-  
+    ( Set.union vs1 vs2,
+      Map.merge es1 es2 ~f:(fun ~key m ->
+          Map.Merge_element.values m ~left_default:empty_vertex_set
+            ~right_default:empty_vertex_set
+          |> fun (e1, e2) -> Some (Set.union e1 e2)) )
+
   let succs (vs, es) v : VertexSet.t =
     Map.find es v |> Option.value ~default:empty_vertex_set
-  
+
   let targets (vs, es) : VertexSet.t =
     Map.fold es ~f:(fun ~key ~data -> Set.union data) ~init:empty_vertex_set
 
@@ -71,10 +72,12 @@ module Make (V : Vertex) = struct
     go roots (Set.to_list roots)
 
   let pr pr_v ppf (vs, es) =
-    let pr_es ppf (v, vs) = Stdlib.Format.fprintf ppf "%a -> %a" pr_v v (Print.pr_list_comma pr_v) (Set.elements vs) in
+    let pr_es ppf (v, vs) =
+      Stdlib.Format.fprintf ppf "%a -> %a" pr_v v (Print.pr_list_comma pr_v)
+        (Set.elements vs)
+    in
     Print.pr_list_nl pr_es ppf (Map.to_alist es)
 
-  
   let topsort ((vs, es) : t) : V.t list list =
     let index = ref 0 in
     let indexes = Hashtbl.create (module V) in
@@ -93,18 +96,12 @@ module Make (V : Vertex) = struct
             if not (Hashtbl.mem indexes v') then (
               let sccs1 = tarjan sccs v' in
               Hashtbl.set lowlinks ~key:v
-                ~data:
-                  (min
-                     (Hashtbl.find_exn lowlinks v)
-                     (Hashtbl.find_exn lowlinks v'));
+                ~data:(min (Hashtbl.find_exn lowlinks v) (Hashtbl.find_exn lowlinks v'));
               sccs1)
             else (
               if Stack.exists s ~f:(fun y -> V.(v' = y)) then
                 Hashtbl.set lowlinks ~key:v
-                  ~data:
-                    (min
-                       (Hashtbl.find_exn lowlinks v)
-                       (Hashtbl.find_exn indexes v'));
+                  ~data:(min (Hashtbl.find_exn lowlinks v) (Hashtbl.find_exn indexes v'));
               sccs))
           succs ~init:sccs
       in
@@ -118,8 +115,7 @@ module Make (V : Vertex) = struct
     in
     let sccs =
       Set.fold
-        ~f:(fun sccs v ->
-          if not (Hashtbl.mem indexes v) then tarjan sccs v else sccs)
+        ~f:(fun sccs v -> if not (Hashtbl.mem indexes v) then tarjan sccs v else sccs)
         vs ~init:[]
     in
     List.rev sccs

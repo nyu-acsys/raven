@@ -22,7 +22,6 @@ let error_kind_to_lsp_string = function
   | Verification -> "Verification"
   | RelatedLoc -> "RelatedLoc"
 
-
 let error_kind_to_string = function
   | Generic -> "Error"
   | Lexical -> "Lexical Error"
@@ -44,8 +43,7 @@ let to_string (kind, (loc : Loc.t), msg) =
   let label =
     kind |> error_kind_to_string |> fun lbl ->
     Fmt.to_to_string
-      (fun ppf lbl ->
-        Fmt.pf ppf "%a: " Fmt.(styled Logs_fmt.err_style string) lbl)
+      (fun ppf lbl -> Fmt.pf ppf "%a: " Fmt.(styled Logs_fmt.err_style string) lbl)
       lbl
   in
   if Loc.(loc = Loc.dummy) then Printf.sprintf !"%{String}%{String}" label msg
@@ -66,11 +64,13 @@ let library_lsp_fields (loc : Loc.t) =
   if not (Loc.is_library_source file) then []
   else
     ("library", `Bool true)
-    :: (match Loc.library_real_path file with
-        | Some path -> [ ("path", `String path) ]
-        | None -> [])
+    ::
+    (match Loc.library_real_path file with
+    | Some path -> [ ("path", `String path) ]
+    | None -> [])
 
-(** The fields locating [loc] in the JSON of `--lsp-mode`, without [library_lsp_fields]. *)
+(** The fields locating [loc] in the JSON of `--lsp-mode`, without [library_lsp_fields].
+*)
 let range_lsp_fields (loc : Loc.t) =
   [
     ("file", `String (Loc.file_name loc));
@@ -86,10 +86,13 @@ let loc_to_lsp_fields (loc : Loc.t) = range_lsp_fields loc @ library_lsp_fields 
 let to_lsp_json (kind, (loc : Loc.t), msg) =
   let r = Str.regexp "\n" in
   let split_msg = Str.split r msg in
-  `Assoc (range_lsp_fields loc @ [
-    ("kind", `String (error_kind_to_lsp_string kind));
-    ("message", `List (List.map split_msg ~f:(fun s -> `String s)))
-  ] @ library_lsp_fields loc)
+  `Assoc
+    (range_lsp_fields loc
+    @ [
+        ("kind", `String (error_kind_to_lsp_string kind));
+        ("message", `List (List.map split_msg ~f:(fun s -> `String s)));
+      ]
+    @ library_lsp_fields loc)
 
 let errors_to_lsp_string errs =
   let json_list = List.map ~f:to_lsp_json errs in
@@ -108,8 +111,6 @@ let syntax_error loc msg = fail loc ~lbl:Syntax msg
 
 let redeclaration_error loc name =
   error loc
-    (Printf.sprintf
-       !"Identifier %{String} has already been declared in this scope"
-       name)
+    (Printf.sprintf !"Identifier %{String} has already been declared in this scope" name)
 
 let verification_error loc msg = fail loc ~lbl:Verification msg

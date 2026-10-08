@@ -1,10 +1,13 @@
 open Ast
 open Parser
-  
+
 let keyword_table = Hashtbl.create 128
+
 let _ =
-  List.iter (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
-    ([("assert", SPEC Stmt.Assert);
+  List.iter
+    (fun (kwd, tok) -> Hashtbl.add keyword_table kwd tok)
+    [
+      ("assert", SPEC Stmt.Assert);
       ("assume", SPEC Stmt.Assume);
       ("au", AU);
       ("auCommit", AUCOMMIT);
@@ -20,13 +23,13 @@ let _ =
       ("else", ELSE);
       ("ensures", ENSURES);
       ("exhale", SPEC Stmt.Exhale);
-      ("exists", QUANT(Expr.Exists));
+      ("exists", QUANT Expr.Exists);
       ("false", CONSTVAL (Expr.Bool false));
       ("field", FIELD);
-      ("forall", QUANT(Expr.Forall));
-      ("fold", USE (Stmt.Fold));
+      ("forall", QUANT Expr.Forall);
+      ("fold", USE Stmt.Fold);
       ("free", FREE);
-      ("func", FUNC (Func));
+      ("func", FUNC Func);
       ("ghost", GHOST);
       ("havoc", HAVOC);
       ("if", IF);
@@ -34,7 +37,7 @@ let _ =
       ("include", INCLUDE);
       ("inhale", SPEC Stmt.Inhale);
       ("interface", MODULE true);
-      ("inv", FUNC (Invariant));
+      ("inv", FUNC Invariant);
       ("invariant", INVARIANT);
       ("import", IMPORT);
       ("implicit", IMPLICIT);
@@ -47,7 +50,7 @@ let _ =
       ("opens", OPENS);
       ("own", OWN);
       ("Perm", CONSTTYPE Type.Perm);
-      ("pred", FUNC (Pred));
+      ("pred", FUNC Pred);
       ("proc", PROC);
       ("Ref", CONSTTYPE Type.Ref);
       ("Real", CONSTTYPE Type.Real);
@@ -60,20 +63,17 @@ let _ =
       ("spawn", SPAWN);
       ("true", CONSTVAL (Expr.Bool true));
       ("type", TYPE);
-      ("unfold", USE (Stmt.Unfold));
+      ("unfold", USE Stmt.Unfold);
       ("val", VAR true);
       ("var", VAR false);
       ("with", WITH);
       ("while", WHILE);
-
       (* ProphecyExt *)
       ("Proph", PROPH);
       ("resolve", RESOLVE);
       ("proph", PROPHPRED);
-
       (* DecreasesExt *)
       ("decreases", DECREASES);
-
       (* ErrorCreditsExt *)
       ("EC", EC);
       ("contra", ECCONTRA);
@@ -82,52 +82,52 @@ let _ =
       ("ECList", ECLIST);
       ("ECVal", ECVAL);
       ("rand", RAND);
-
       (* SampleExt *)
       ("randEven", RANDEVEN);
-
       (* MatchExt *)
       ("is", IS);
       ("match", MATCH);
-    ])
+    ]
 
 let operator_table = Hashtbl.create 64
-let _ =
-  List.iter (fun (op, tok) -> Hashtbl.add operator_table op tok)
-    ["==>", IMPLIES;
-     "<=>", IFF;
-     "=", EQ;
-     "==", EQEQ;
-     "!=", NEQ;
-     "<=", LEQ;
-     ">=", GEQ;
-     "<", LT;
-     ">", GT;
-     "||", OR;
-     "&&", AND;
-     "in", IN;
-     "!in", NOTIN;
-     "!", NOT;
-     "++", ADDOP Expr.Union;
-     "--", ADDOP Expr.Diff;
-     "subseteq", SUBSETEQ;
-     "**", MULTOP Expr.Inter;
-     "+", ADDOP Expr.Plus;
-     "-", MINUS;
-     "/", MULTOP Expr.Div;
-     "*", MULTOP Expr.Mult;
-     "%", MULTOP Expr.Mod;
-     ":=", COLONEQ;
-     "::", COLONCOLON;
-     ":", COLON;
-     ":>", COLONGT;
-     ";", SEMICOLON;
-     ",", COMMA;
-     ".", DOT;
-     "?", QMARK;
-     ":|", COLONPIPE;
-     "=>", DARROW;
 
-     (* SeqExt *)
-     "..", DOTDOT;
-     ]
+let _ =
+  List.iter
+    (fun (op, tok) -> Hashtbl.add operator_table op tok)
+    [
+      ("==>", IMPLIES);
+      ("<=>", IFF);
+      ("=", EQ);
+      ("==", EQEQ);
+      ("!=", NEQ);
+      ("<=", LEQ);
+      (">=", GEQ);
+      ("<", LT);
+      (">", GT);
+      ("||", OR);
+      ("&&", AND);
+      ("in", IN);
+      ("!in", NOTIN);
+      ("!", NOT);
+      ("++", ADDOP Expr.Union);
+      ("--", ADDOP Expr.Diff);
+      ("subseteq", SUBSETEQ);
+      ("**", MULTOP Expr.Inter);
+      ("+", ADDOP Expr.Plus);
+      ("-", MINUS);
+      ("/", MULTOP Expr.Div);
+      ("*", MULTOP Expr.Mult);
+      ("%", MULTOP Expr.Mod);
+      (":=", COLONEQ);
+      ("::", COLONCOLON);
+      (":", COLON);
+      (":>", COLONGT);
+      (";", SEMICOLON);
+      (",", COMMA);
+      (".", DOT);
+      ("?", QMARK);
+      (":|", COLONPIPE);
+      ("=>", DARROW);
+      (* SeqExt *)
+      ("..", DOTDOT);
+    ]

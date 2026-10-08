@@ -8,14 +8,15 @@ open Util
     [claim_expr] with their operands typed, and this extension claims them on sets. It
     types them, including whether a result is a finite set (`FinSet`), and lowers them to
     calls of the functions of the instance of [Library.Sets] for the sets' element type.
-    They are lowered only after type checking, which may type them again: a call is
-    typed by its function's signature, which does not say when a result is finite. *)
+    They are lowered only after type checking, which may type them again: a call is typed
+    by its function's signature, which does not say when a result is finite. *)
 module SetExt (Cont : Ext) = struct
   include Cont
 
   let lib_source = None
 
-  type Expr.expr_ext += SetOp of Expr.constr  (** a set operator, operands as for the core's *)
+  type Expr.expr_ext +=
+    | SetOp of Expr.constr  (** a set operator, operands as for the core's *)
 
   let sets_ident = Ident.make Loc.dummy "Sets" 0
 
@@ -48,7 +49,8 @@ module SetExt (Cont : Ext) = struct
 
   (* Typing *)
 
-  let claim_expr (constr : Expr.constr) (expr_list : expr list) (expr_attr : Expr.expr_attr) =
+  let claim_expr (constr : Expr.constr) (expr_list : expr list)
+      (expr_attr : Expr.expr_attr) =
     (* A set, or an operand whose type is not known yet. *)
     let may_be_set e =
       match Expr.to_type e with
@@ -87,8 +89,8 @@ module SetExt (Cont : Ext) = struct
       Expr.mk_app ~loc ~typ (Var (QualIdent.append instance (Ident.make loc name 0))) args
 
   let type_check_expr (expr_ext : Expr.expr_ext) (expr_list : expr list)
-      (expr_attr : Expr.expr_attr) (expected_typ : type_expr) (functs : type_check_expr_functs)
-      =
+      (expr_attr : Expr.expr_attr) (expected_typ : type_expr)
+      (functs : type_check_expr_functs) =
     let open Rewriter.Syntax in
     let loc = expr_attr.expr_loc in
     let ghost ty = Type.set_ghost_to expected_typ ty in
@@ -120,12 +122,15 @@ module SetExt (Cont : Ext) = struct
           | _ -> Type.bool
         in
         let result = ghost result in
-        functs.check_and_set (App (ExprExt expr_ext, [ e1; e2 ], expr_attr)) result result
-          expected_typ
+        functs.check_and_set
+          (App (ExprExt expr_ext, [ e1; e2 ], expr_attr))
+          result result expected_typ
     | SetOp _, [ e ] ->
         let* e = settle (Type.set_elem (Expr.to_type e)) e in
         let elem = ghost (Type.set_elem (Expr.to_type e)) in
-        functs.check_and_set (App (ExprExt expr_ext, [ e ], expr_attr)) elem elem expected_typ
+        functs.check_and_set
+          (App (ExprExt expr_ext, [ e ], expr_attr))
+          elem elem expected_typ
     | SetOp _, _ -> Error.internal_error loc "SetExt: wrong number of operands"
     | _ -> Cont.type_check_expr expr_ext expr_list expr_attr expected_typ functs
 
@@ -140,10 +145,13 @@ module SetExt (Cont : Ext) = struct
         let name, args =
           match (constr, expr_list) with
           | (Union | Inter | Diff), [ e1; e2 ] when Type.is_finset expr_attr.expr_type ->
-              let args = if Type.is_finset (Expr.to_type e1) then [ e1; e2 ] else [ e2; e1 ] in
+              let args =
+                if Type.is_finset (Expr.to_type e1) then [ e1; e2 ] else [ e2; e1 ]
+              in
               ("fin_" ^ function_name constr, args)
           | _ -> (function_name constr, expr_list)
         in
-        call ~loc:expr_attr.expr_loc (element_type expr_list) name args expr_attr.expr_type
+        call ~loc:expr_attr.expr_loc (element_type expr_list) name args
+          expr_attr.expr_type
     | _ -> Cont.rewrite_expr_ext expr_ext expr_list expr_attr
 end

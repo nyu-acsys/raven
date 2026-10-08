@@ -3,22 +3,22 @@ open Ast
 open ExtApi
 open Util
 
-(** Indexing syntax for arrays, the instances of `Library.Array`. The entry at index
-    [i] of array [a] is the field `value` of the cell `loc(a, i)`, and like a field it
-    may only be read or written by a statement and named as a location in `own`:
+(** Indexing syntax for arrays, the instances of `Library.Array`. The entry at index [i]
+    of array [a] is the field `value` of the cell `loc(a, i)`, and like a field it may
+    only be read or written by a statement and named as a location in `own`:
 
     - `x := a[i]` and `var x := a[i]` read it,
     - `a[i] := v` writes it, which the parser turns into `a := a[i := v]`,
-    - `own(a[i], v)` owns it, and `faa(a[i], n)` and the other atomic operations of
-      the standard library operate on it, as on any location `x.f`.
+    - `own(a[i], v)` owns it, and `faa(a[i], n)` and the other atomic operations of the
+      standard library operate on it, as on any location `x.f`.
 
-    Any other use of `a[i]` or `a[i := v]` is an error, as expressions are pure. The
-    core type checker rejects these constructs, since `a` is not a map, and offers them
-    to [claim_expr]/[claim_basic_stmt], or to [claim_location] where it expects a field
+    Any other use of `a[i]` or `a[i := v]` is an error, as expressions are pure. The core
+    type checker rejects these constructs, since `a` is not a map, and offers them to
+    [claim_expr]/[claim_basic_stmt], or to [claim_location] where it expects a field
     location. Type-checking a claimed construct produces the corresponding field read or
-    field write of the core, and a claimed location is `loc(a, i).value`, so none of
-    this extension's constructs remains after type checking, and an array access is
-    one atomic step like any other field access. *)
+    field write of the core, and a claimed location is `loc(a, i).value`, so none of this
+    extension's constructs remains after type checking, and an array access is one atomic
+    step like any other field access. *)
 module ArrayExt (Cont : Ext) = struct
   include Cont
 
@@ -30,13 +30,14 @@ module ArrayExt (Cont : Ext) = struct
 
   type Stmt.stmt_ext +=
     | ArrayRead of { lhs : qual_ident list; is_init : bool }
-        (** `x := a[i]`, operands `a` and `i` *)
+          (** `x := a[i]`, operands `a` and `i` *)
     | ArrayWrite of { lhs : qual_ident list; is_init : bool }
-        (** `x := a[i := v]`, operands `a`, `i` and `v` *)
+          (** `x := a[i := v]`, operands `a`, `i` and `v` *)
     | ArrayVarDef of Stmt.var_def  (** `var x := a[i]` *)
 
   let library_array =
-    QualIdent.from_list [ Ident.make Loc.dummy "Library" 0; Ident.make Loc.dummy "Array" 0 ]
+    QualIdent.from_list
+      [ Ident.make Loc.dummy "Library" 0; Ident.make Loc.dummy "Array" 0 ]
 
   (* Member [name] of [inst], named at [loc] in the source. *)
   let member ~(loc : location) (inst : qual_ident) (name : string) : qual_ident =
@@ -50,8 +51,8 @@ module ArrayExt (Cont : Ext) = struct
         let inst = QualIdent.pop qi in
         let+ resolved = Rewriter.resolve_and_find_opt inst in
         match resolved with
-        | Some (_, symbol) when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) library_array
-          ->
+        | Some (_, symbol)
+          when QualIdent.equal (Rewriter.Symbol.orig_qid symbol) library_array ->
             Some inst
         | _ -> None)
     | _ -> Rewriter.return None
@@ -63,7 +64,9 @@ module ArrayExt (Cont : Ext) = struct
   let parsed_array_instance (base : expr) (disam_tbl : ProgUtils.DisambiguationTbl.t)
       (functs : type_check_stmt_functs) =
     let open Rewriter.Syntax in
-    let* base = functs.disambiguate_process_expr base (Type.any |> Type.set_ghost true) disam_tbl in
+    let* base =
+      functs.disambiguate_process_expr base (Type.any |> Type.set_ghost true) disam_tbl
+    in
     typed_array_instance base
 
   (* The cell `loc(a, i)` holding the entry at index [index] of [base]. *)
@@ -107,7 +110,8 @@ module ArrayExt (Cont : Ext) = struct
 
   (* Typing *)
 
-  let claim_expr (constr : Expr.constr) (expr_list : expr list) (expr_attr : Expr.expr_attr) =
+  let claim_expr (constr : Expr.constr) (expr_list : expr list)
+      (expr_attr : Expr.expr_attr) =
     let open Rewriter.Syntax in
     let claim_if_array base tag =
       let+ inst = typed_array_instance base in
@@ -143,9 +147,14 @@ module ArrayExt (Cont : Ext) = struct
     in
     let* own =
       match stmt with
-      | Assign { assign_lhs = lhs; assign_rhs = App (MapLookUp, [ base; index ], _); assign_is_init }
-        ->
-          claim_if_array base (ArrayRead { lhs; is_init = assign_is_init }, [ base; index ])
+      | Assign
+          {
+            assign_lhs = lhs;
+            assign_rhs = App (MapLookUp, [ base; index ], _);
+            assign_is_init;
+          } ->
+          claim_if_array base
+            (ArrayRead { lhs; is_init = assign_is_init }, [ base; index ])
       | Assign
           {
             assign_lhs = lhs;
@@ -154,7 +163,8 @@ module ArrayExt (Cont : Ext) = struct
           } ->
           claim_if_array base
             (ArrayWrite { lhs; is_init = assign_is_init }, [ base; index; value ])
-      | VarDef ({ var_init = Some (App ((MapLookUp | MapUpdate), base :: _, _)); _ } as var_def)
+      | VarDef
+          ({ var_init = Some (App ((MapLookUp | MapUpdate), base :: _, _)); _ } as var_def)
         ->
           claim_if_array base (ArrayVarDef var_def, [])
       | _ -> Rewriter.return None
@@ -171,7 +181,8 @@ module ArrayExt (Cont : Ext) = struct
       "An array is not a value. To change an entry, assign to it with `a[i] := v`"
 
   let type_check_expr (expr_ext : Expr.expr_ext) (expr_list : expr list)
-      (expr_attr : Expr.expr_attr) (expected_typ : type_expr) (functs : type_check_expr_functs) =
+      (expr_attr : Expr.expr_attr) (expected_typ : type_expr)
+      (functs : type_check_expr_functs) =
     let loc = expr_attr.expr_loc in
     match (expr_ext, expr_list) with
     | ArrayEntry, _ -> not_pure_error loc
@@ -191,7 +202,9 @@ module ArrayExt (Cont : Ext) = struct
     (* Type-checks [basic_stmt], a core statement. *)
     let process (basic_stmt : Stmt.basic_stmt_desc) =
       let+ stmt, disam_tbl =
-        functs.process_stmt call_decl { stmt_desc = Basic basic_stmt; stmt_loc = loc } disam_tbl
+        functs.process_stmt call_decl
+          { stmt_desc = Basic basic_stmt; stmt_loc = loc }
+          disam_tbl
       in
       match stmt.stmt_desc with
       | Basic basic_stmt -> (basic_stmt, disam_tbl)
@@ -206,8 +219,10 @@ module ArrayExt (Cont : Ext) = struct
               Expr.mk_app ~loc ~typ:Type.any Read
                 [ cell ~loc inst base index; value_field ~loc inst ]
             in
-            process (Assign { assign_lhs = lhs; assign_rhs = read; assign_is_init = is_init })
-        | _ -> Error.type_error loc "An array entry can only be read into a single variable")
+            process
+              (Assign { assign_lhs = lhs; assign_rhs = read; assign_is_init = is_init })
+        | _ ->
+            Error.type_error loc "An array entry can only be read into a single variable")
     | ArrayWrite { lhs; is_init }, [ base; index; value ] -> (
         match (lhs, base) with
         | [ x ], App (Var y, [], _) when QualIdent.equal x y && not is_init ->
@@ -234,7 +249,11 @@ module ArrayExt (Cont : Ext) = struct
             in
             process
               (VarDef
-                 { var_def with var_decl = { var_def.var_decl with var_type }; var_init = None })
+                 {
+                   var_def with
+                   var_decl = { var_def.var_decl with var_type };
+                   var_init = None;
+                 })
         | _ -> not_a_value_error loc)
     | (ArrayRead _ | ArrayWrite _ | ArrayVarDef _), _ ->
         Error.internal_error loc "ArrayExt: wrong number of operands"

@@ -4,20 +4,19 @@ open Ast
 open Frontend
 
 type config = {
-  no_library: bool;
-  typecheck_only: bool;
-  lsp_mode: bool;
-  lsp_annotations: bool;
-  base_dir: string;
-  prog_stats: bool;
-  smt_timeout: int;
-  smt_diagnostics: bool;
-  log_level: Logs.level option;
-  strict: bool;
+  no_library : bool;
+  typecheck_only : bool;
+  lsp_mode : bool;
+  lsp_annotations : bool;
+  base_dir : string;
+  prog_stats : bool;
+  smt_timeout : int;
+  smt_diagnostics : bool;
+  log_level : Logs.level option;
+  strict : bool;
 }
 
 let include_map = Hashtbl.create (module String)
-
 
 let stream_of_file file_name =
   let inchan = Stdio.In_channel.create file_name in
@@ -54,7 +53,8 @@ let normalizeFilename base_dir file_name =
   in
   String.concat ~sep:"/" (List.rev remaining)
 
-(** Parse a single compilation unit from file [file_name] as a module named [top_level_md_ident]. *)
+(** Parse a single compilation unit from file [file_name] as a module named
+    [top_level_md_ident]. *)
 let parse_cu file_dir top_level_md_ident lexbuf =
   let incls, md =
     try Parser.main (Lexer.make_token ()) lexbuf
@@ -67,45 +67,46 @@ let parse_cu file_dir top_level_md_ident lexbuf =
       in
       Error.syntax_error (Loc.make err_pos err_pos) msg
   in
-  let incls = List.map incls ~f:(fun (incl, loc) ->
-      let incl = normalizeFilename file_dir incl in
-      let dir = Stdlib.Filename.dirname incl in
-      Logs.info (fun m -> m "%s" incl);
-      ignore (Hashtbl.add include_map ~key:incl ~data:loc);
-      (dir, incl, true))
+  let incls =
+    List.map incls ~f:(fun (incl, loc) ->
+        let incl = normalizeFilename file_dir incl in
+        let dir = Stdlib.Filename.dirname incl in
+        Logs.info (fun m -> m "%s" incl);
+        ignore (Hashtbl.add include_map ~key:incl ~data:loc);
+        (dir, incl, true))
   in
   (incls, Ast.Module.set_name md top_level_md_ident)
 
 (** Under `--strict`, warns about every explicit `free` in [md] (recursing into nested
     modules). Must run before [Ast.Module.set_free] force-marks a whole file free (e.g.
-    for stdlib/includes below) -- once applied, that override is indistinguishable from
-    a literal `free` written by the user. *)
+    for stdlib/includes below) -- once applied, that override is indistinguishable from a
+    literal `free` written by the user. *)
 let rec warn_free_usage (md : Ast.Module.t) =
   List.iter md.mod_def ~f:(function
-    | Ast.Module.SymbolDef symbol ->
-      if Ast.Symbol.is_free symbol then
-        Logs.warn (fun m -> m "%s%s"
-          (Loc.to_string (Ast.Symbol.to_loc symbol))
-          (Printf.sprintf
-             !"%s %{Ident} is declared `free`; its contract will be assumed for verification purposes, not checked"
-             (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol)));
-      (match symbol with
-       | Ast.Module.ModDef mod_def -> warn_free_usage mod_def
-       | _ -> ())
+    | Ast.Module.SymbolDef symbol -> (
+        if Ast.Symbol.is_free symbol then
+          Logs.warn (fun m ->
+              m "%s%s"
+                (Loc.to_string (Ast.Symbol.to_loc symbol))
+                (Printf.sprintf
+                   !"%s %{Ident} is declared `free`; its contract will be assumed for \
+                     verification purposes, not checked"
+                   (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol)));
+        match symbol with Ast.Module.ModDef mod_def -> warn_free_usage mod_def | _ -> ())
     | Ast.Module.Import _ -> ())
 
 (** Type-checks a single compilation unit.
 
-    Kept separate from [rewrite_cu] so that *every* unit can be type-checked before any
-    is rewritten. Type-checking a unit against an already-rewritten one does not work in
-    general: the rewrite phase replaces a field's declared type with its resource
-    algebra and generates the artifacts that go with it, and those are not the surface
-    language. A module implementing an interface that declares a field would inherit the
-    rewritten declaration and be checked against it -- so `own(x.f, v, 1.0)` would be
-    rejected for passing a fraction for an RA-valued field, and a manifest field would be
-    compared against `Frac$f.T` rather than against the type the source wrote. Since the
-    standard library is a unit of its own, that ruled out a library interface declaring a
-    field at all. *)
+    Kept separate from [rewrite_cu] so that *every* unit can be type-checked before any is
+    rewritten. Type-checking a unit against an already-rewritten one does not work in
+    general: the rewrite phase replaces a field's declared type with its resource algebra
+    and generates the artifacts that go with it, and those are not the surface language. A
+    module implementing an interface that declares a field would inherit the rewritten
+    declaration and be checked against it -- so `own(x.f, v, 1.0)` would be rejected for
+    passing a fraction for an RA-valued field, and a manifest field would be compared
+    against `Frac$f.T` rather than against the type the source wrote. Since the standard
+    library is a unit of its own, that ruled out a library interface declaring a field at
+    all. *)
 let type_cu ~ext_hooks config tbl md =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
@@ -123,21 +124,19 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
-  if config.typecheck_only then (tbl, None) else
-
-  if config.prog_stats
-    && not String.((Ident.to_string md.mod_decl.mod_decl_name) = "Library")
-  then
+  if config.typecheck_only then (tbl, None)
+  else if
+    config.prog_stats
+    && not String.(Ident.to_string md.mod_decl.mod_decl_name = "Library")
+  then (
     let _ =
-      Logs.debug (fun m -> m "Computing stats of module: %a" Ident.pr md.mod_decl.mod_decl_name)
+      Logs.debug (fun m ->
+          m "Computing stats of module: %a" Ident.pr md.mod_decl.mod_decl_name)
     in
     let prog_stats = Rewrites.compute_stats ~ext_hooks tbl md in
 
-    Logs.app (fun m -> m
-      "\nPROGRAM STATISTICS: \n%a"
-      Rewrites.ProgStats.pr prog_stats
-    );
-    Stdlib.exit 0
+    Logs.app (fun m -> m "\nPROGRAM STATISTICS: \n%a" Rewrites.ProgStats.pr prog_stats);
+    Stdlib.exit 0)
   else
     let tbl, md = Rewrites.process_module_front ~tbl ~ext_hooks ~cli_config md in
     Stdlib.Format.fprintf
@@ -147,10 +146,10 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
 
 (** Lowers an elaborated compilation unit (see [Lowering.lower_module]), returning it
     together with its lemma call graph. This is kept separate from the actual backend/SMT
-    checking ([backend_check_cu] below) so that the full set of tuple sorts a program needs
-    (see [Backend.TupleArities]) can be computed from the fully lowered symbol table -- of
-    both the library and the main program -- before any backend checking (and hence any
-    tuple-sort declaration) begins. *)
+    checking ([backend_check_cu] below) so that the full set of tuple sorts a program
+    needs (see [Backend.TupleArities]) can be computed from the fully lowered symbol table
+    -- of both the library and the main program -- before any backend checking (and hence
+    any tuple-sort declaration) begins. *)
 let lower_cu ~ext_hooks config tbl md lowered_out_chan =
   let cli_config : Rewriter.cli_config = { cli_strict = config.strict } in
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
@@ -171,8 +170,8 @@ let lower_cu ~ext_hooks config tbl md lowered_out_chan =
 (** Runs backend/SMT checking over every already-elaborated compilation unit together (the
     library and the program being checked are siblings sharing one symbol table, not one
     nested inside the other -- see [Backend.Dependencies.analyze]'s doc comment -- so they
-    have to be checked as one combined call for [Backend.Checker.check_members]'s hierarchical
-    scoping to see both sides of that sharing). *)
+    have to be checked as one combined call for [Backend.Checker.check_members]'s
+    hierarchical scoping to see both sides of that sharing). *)
 let backend_check_cu tbl smt_env processed =
   let processed_mds, lemma_calls = List.unzip processed in
   let lemma_calls =
@@ -180,14 +179,13 @@ let backend_check_cu tbl smt_env processed =
   in
   Backend.Checker.check_module processed_mds lemma_calls tbl smt_env
 
-
 (** Parse and check all compilation units in files [file_names]. [extension_mode] picks
-    the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it
-    from the parsed program's own extension-specific syntax (see [Ext.detect_extension])
-    before the library -- whose sources the choice picks -- is parsed. That's why the
-    program is parsed here ahead of the library, the reverse of the order *type-checking*
-    needs (see [type_cu]'s doc comment): parsing has no dependency on the library's
-    symbol table, only type-checking does. *)
+    the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it from
+    the parsed program's own extension-specific syntax (see [Ext.detect_extension]) before
+    the library -- whose sources the choice picks -- is parsed. That's why the program is
+    parsed here ahead of the library, the reverse of the order *type-checking* needs (see
+    [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
+    only type-checking does. *)
 let parse_and_check_all ~extension_mode config file_names =
   (* Start backend solver session *)
 
@@ -200,15 +198,15 @@ let parse_and_check_all ~extension_mode config file_names =
    *)
   let external_logging =
     match config.log_level with
-    | Some Logs.Debug ->
-      if config.lsp_mode then false else
-        true
+    | Some Logs.Debug -> if config.lsp_mode then false else true
     | _ -> false
   in
 
-  let smt_env = Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout in
+  let smt_env =
+    Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics
+      config.smt_timeout
+  in
   Stdlib.Fun.protect ~finally:(fun () -> Backend.Smt_solver.stop smt_env) @@ fun () ->
-
   let debug_out_chan file_name =
     if external_logging then Stdio.Out_channel.create file_name
     else Util.Channel.null_channel ()
@@ -226,8 +224,12 @@ let parse_and_check_all ~extension_mode config file_names =
           let inchan, lexbuf =
             try stream_of_file file_name
             with Sys_error _ ->
-              let loc = Hashtbl.find include_map file_name |> Option.value ~default:Loc.dummy in
-              Error.error loc (Printf.sprintf "Cannot find file '%s' (referenced by an include)" file_name)
+              let loc =
+                Hashtbl.find include_map file_name |> Option.value ~default:Loc.dummy
+              in
+              Error.error loc
+                (Printf.sprintf "Cannot find file '%s' (referenced by an include)"
+                   file_name)
           in
           let includes, md = parse_cu file_dir Predefs.prog_ident lexbuf in
 
@@ -250,22 +252,23 @@ let parse_and_check_all ~extension_mode config file_names =
           let to_parse2 = to_parse1 @ includes in
           parse_prog parsed to_parse2 (merge_prog md prog))
         else (
-          Logs.debug (fun m ->
-              m "raven.parse_prog: Skipping file %s." file_name);
+          Logs.debug (fun m -> m "raven.parse_prog: Skipping file %s." file_name);
           parse_prog parsed to_parse1 prog)
   in
 
   let md =
     parse_prog
       (Set.empty (module String))
-      (List.rev_map ~f:(fun file_name ->
-             let norm_dir = normalizeFilename (Unix.getcwd ()) config.base_dir in
-             let norm_file_name = normalizeFilename norm_dir file_name in
-             let file_dir  =
-               if String.(config.base_dir <> "") then norm_dir
-               else Stdlib.Filename.dirname norm_file_name
-             in
-             (file_dir, file_name, false)) file_names)
+      (List.rev_map
+         ~f:(fun file_name ->
+           let norm_dir = normalizeFilename (Unix.getcwd ()) config.base_dir in
+           let norm_file_name = normalizeFilename norm_dir file_name in
+           let file_dir =
+             if String.(config.base_dir <> "") then norm_dir
+             else Stdlib.Filename.dirname norm_file_name
+           in
+           (file_dir, file_name, false))
+         file_names)
       empty_prog
   in
 
@@ -275,9 +278,7 @@ let parse_and_check_all ~extension_mode config file_names =
      made: it needs [md], and needs to happen before the library (whose sources the
      choice picks) is parsed below. *)
   let chosen_ext =
-    match extension_mode with
-    | `Explicit ext -> ext
-    | `Auto -> Ext.detect_extension md
+    match extension_mode with `Explicit ext -> ext | `Auto -> Ext.detect_extension md
   in
   let (module ChosenExt) = Ext.module_map chosen_ext in
   let ext_hooks = Ext.to_ext_hooks (module ChosenExt : ExtApi.Ext) in
@@ -296,14 +297,14 @@ let parse_and_check_all ~extension_mode config file_names =
     else
       let lib_prog =
         List.fold_right (Library.sources @ lib_sources) ~init:empty_prog
-        ~f:(fun (lib_file_name, lib_source) lib_prog ->
-            let lib_source_lexbuf =
-              Lexing.from_string lib_source
+          ~f:(fun (lib_file_name, lib_source) lib_prog ->
+            let lib_source_lexbuf = Lexing.from_string lib_source in
+            let _ = Lexer.set_file_name lib_source_lexbuf lib_file_name in
+            let _includes, md =
+              parse_cu
+                (Stdlib.Filename.dirname lib_file_name)
+                Predefs.lib_ident lib_source_lexbuf
             in
-            let _ =
-              Lexer.set_file_name lib_source_lexbuf lib_file_name
-            in
-            let _includes, md = parse_cu (Stdlib.Filename.dirname lib_file_name) Predefs.lib_ident lib_source_lexbuf in
             (* [set_unit_free], not [set_free]: the standard library is trusted by the
                compiler so it isn't re-verified for every program, which is exactly what
                [MachineFree] means -- as opposed to [UserFree], a `free` the user wrote.
@@ -323,7 +324,8 @@ let parse_and_check_all ~extension_mode config file_names =
       let import name =
         Ast.Module.Import
           {
-            import_name = QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy name 0 ];
+            import_name =
+              QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy name 0 ];
             import_all = false;
             import_loc = Loc.dummy;
           }
@@ -347,22 +349,20 @@ let parse_and_check_all ~extension_mode config file_names =
   in
 
   begin
-  (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
-  (match processed with
-   | [] -> (* `--typeonly`: nothing left to backend-check *) ()
-   | _ ->
-     (* Only now -- once both the library and the main program have been fully
+    (* Logs.debug (fun m -> m "Final symboltbl.tbl_symbols: %a" (Util.Print.pr_list_comma QualIdent.pr) (Map.keys tbl.tbl_symbols)); *)
+    (match processed with
+    | [] -> (* `--typeonly`: nothing left to backend-check *) ()
+    | _ ->
+        (* Only now -- once both the library and the main program have been fully
         elaborated -- do we know every tuple sort ([$tuple_n]) the program actually
         needs (see Backend.TupleArities), so this is the earliest point at which we
         can declare them. *)
-     let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
-     let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
-     let (_ : Backend.Smt_solver.smt_env) =
-       backend_check_cu tbl smt_env processed
-     in
-     ());
+        let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
+        let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
+        let (_ : Backend.Smt_solver.smt_env) = backend_check_cu tbl smt_env processed in
+        ());
 
-  Logs.app (fun m -> m "Verification successful.")
+    Logs.app (fun m -> m "Verification successful.")
   end
 
 (** Command line interface *)
@@ -380,17 +380,13 @@ let setup_config_cmd style_renderer level =
         | None -> ()
         | Some h -> Fmt.pf ppf "[%a] " Fmt.(styled Logs_fmt.app_style string) h)
     | Logs.Error ->
-        pp_h ppf Logs_fmt.err_style
-          (match h with None -> "Error" | Some h -> h)
+        pp_h ppf Logs_fmt.err_style (match h with None -> "Error" | Some h -> h)
     | Logs.Warning ->
-        pp_h ppf Logs_fmt.warn_style
-          (match h with None -> "Warning" | Some h -> h)
+        pp_h ppf Logs_fmt.warn_style (match h with None -> "Warning" | Some h -> h)
     | Logs.Info ->
-        pp_h ppf Logs_fmt.info_style
-          (match h with None -> "Info" | Some h -> h)
+        pp_h ppf Logs_fmt.info_style (match h with None -> "Info" | Some h -> h)
     | Logs.Debug ->
-        pp_h ppf Logs_fmt.debug_style
-          (match h with None -> "Debug" | Some h -> h)
+        pp_h ppf Logs_fmt.debug_style (match h with None -> "Debug" | Some h -> h)
   in
   let pp_h ppf style h = Fmt.pf ppf "[%a] " Fmt.(styled style string) h in
   Logs.set_reporter (Logs_fmt.reporter ~pp_header:(pp_header ~pp_h) ());
@@ -412,7 +408,10 @@ let no_library =
   Arg.(value & flag & info [ "nostdlib" ] ~doc)
 
 let prog_stats =
-  let doc = "Output only program stats: concrete instruction steps, ghost instruction steps, and number of specification formulae" in
+  let doc =
+    "Output only program stats: concrete instruction steps, ghost instruction steps, and \
+     number of specification formulae"
+  in
   Arg.(value & flag & info [ "stats" ] ~doc)
 
 let smt_diagnostics =
@@ -428,77 +427,92 @@ let lsp_mode =
   Arg.(value & flag & info [ "lsp-mode" ] ~doc)
 
 let lsp_annotations =
-  let doc = "With --lsp-mode, print an object with the errors and with annotations for the \
-             editor, such as the contracts that members inherit from interfaces." in
+  let doc =
+    "With --lsp-mode, print an object with the errors and with annotations for the \
+     editor, such as the contracts that members inherit from interfaces."
+  in
   Arg.(value & flag & info [ "lsp-annotations" ] ~doc)
 
 let base_dir =
-  let doc = "Base directory for resolving include directives. Default: current working directory." in
-  Arg.(value & opt string "" & info [ "base-dir"] ~doc)
+  let doc =
+    "Base directory for resolving include directives. Default: current working directory."
+  in
+  Arg.(value & opt string "" & info [ "base-dir" ] ~doc)
 
 let smt_timeout =
-  let doc = "Timeout for SMT solver in ms." in 
+  let doc = "Timeout for SMT solver in ms." in
   Arg.(value & opt int 10000 & info [ "smt-timeout" ] ~doc)
 
 let extension_mode =
-  let doc = "Extension mode: default, eris, or auto. \"auto\" detects the right one \
-             from the input program's own extension-specific syntax before the \
-             library, whose sources the choice picks, is parsed; a program using no \
-             extension-specific syntax falls back to \"default\"." in
+  let doc =
+    "Extension mode: default, eris, or auto. \"auto\" detects the right one from the \
+     input program's own extension-specific syntax before the library, whose sources the \
+     choice picks, is parsed; a program using no extension-specific syntax falls back to \
+     \"default\"."
+  in
   let supported_exts =
     ("auto", "auto") :: List.map ~f:(fun (e, _) -> (e, e)) Ext.ext_map
   in
   Arg.(value & opt (enum supported_exts) "default" & info [ "extension" ] ~doc)
 
 let strict =
-  let doc = "Warn about anything the verifier assumes rather than checks: recursive \
-             lemmas/functions and loops in lemmas missing `decreases` clauses, explicit \
-             user use of `free`, and `atomic { ... }` blocks, whose bodies are taken to \
-             be a single machine step on trust. Library sources are excluded." in
+  let doc =
+    "Warn about anything the verifier assumes rather than checks: recursive \
+     lemmas/functions and loops in lemmas missing `decreases` clauses, explicit user use \
+     of `free`, and `atomic { ... }` blocks, whose bodies are taken to be a single \
+     machine step on trust. Library sources are excluded."
+  in
   Arg.(value & flag & info [ "strict" ] ~doc)
 
 let dump_library =
-  let doc = "Write the embedded library sources (the standard library plus the active \
-             extension's) into DIR, reproducing their paths, and exit. The files are \
-             byte-identical to what this binary verifies against." in
+  let doc =
+    "Write the embedded library sources (the standard library plus the active \
+     extension's) into DIR, reproducing their paths, and exit. The files are \
+     byte-identical to what this binary verifies against."
+  in
   Arg.(value & opt (some string) None & info [ "dump-library" ] ~docv:"DIR" ~doc)
 
 let print_library_source =
-  let doc = "Write the embedded library source named PATH (as reported in diagnostics, \
-             e.g. lib/library/resource_algebra.rav) to stdout, and exit. Lets an editor \
-             display a library location that has no file on disk." in
+  let doc =
+    "Write the embedded library source named PATH (as reported in diagnostics, e.g. \
+     lib/library/resource_algebra.rav) to stdout, and exit. Lets an editor display a \
+     library location that has no file on disk."
+  in
   Arg.(value & opt (some string) None & info [ "print-library-source" ] ~docv:"PATH" ~doc)
 
 let manifest =
-  let doc = "Print, as one line of JSON, what this binary is and what a client can \
-             expect of it -- its release version, the version of the machine-readable \
-             interface driven by --lsp-mode, and the oldest Z3 it works against -- and \
-             exit. An editor integration that can fetch verifier builds it was not \
-             shipped with reads this both from a release and from a binary it already \
-             has, to decide whether it can drive it." in
+  let doc =
+    "Print, as one line of JSON, what this binary is and what a client can expect of it \
+     -- its release version, the version of the machine-readable interface driven by \
+     --lsp-mode, and the oldest Z3 it works against -- and exit. An editor integration \
+     that can fetch verifier builds it was not shipped with reads this both from a \
+     release and from a binary it already has, to decide whether it can drive it."
+  in
   Arg.(value & flag & info [ "manifest" ] ~doc)
 
 (** What [--manifest] emits. Also published as a release asset, so a client can check a
     release before spending a download on it; keep the two producing the same shape. *)
 let manifest_json =
   `Assoc
-    [ ("version", `String Config.version);
+    [
+      ("version", `String Config.version);
       ("lsp_protocol", `Int Config.lsp_protocol_version);
-      ("min_z3", `String Config.min_z3_version) ]
+      ("min_z3", `String Config.min_z3_version);
+    ]
 
 let greeting = "Raven version " ^ Config.version
 
-(** The output of `--lsp-mode`: the errors, or with `--lsp-annotations` an object with
-    the errors and the annotations. *)
+(** The output of `--lsp-mode`: the errors, or with `--lsp-annotations` an object with the
+    errors and the annotations. *)
 let print_lsp_output config errs =
   if config.lsp_annotations then
     Stdlib.print_endline
       (Yojson.Safe.to_string
          (`Assoc
-           [
-             ("errors", `List (List.map errs ~f:Error.to_lsp_json));
-             ("annotations", Annotations.all_to_json ());
-           ]))
+            [
+              ("errors", `List (List.map errs ~f:Error.to_lsp_json));
+              ("annotations", Annotations.all_to_json ());
+            ]))
   else Stdlib.print_endline (Error.errors_to_lsp_string errs)
 
 let print_errors config errs =
@@ -528,8 +542,9 @@ let print_errors config errs =
         else
           ( kind,
             loc',
-            Printf.sprintf !"%{String} (in included file %{String}, line %{Int})" msg
-              (Loc.display_file_name loc) (Loc.start_line loc) )
+            Printf.sprintf
+              !"%{String} (in included file %{String}, line %{Int})"
+              msg (Loc.display_file_name loc) (Loc.start_line loc) )
   in
   if config.lsp_mode then begin
     let errs = List.map errs ~f:anchor in
@@ -539,8 +554,7 @@ let print_errors config errs =
   else begin
     List.iter errs ~f:(fun e -> Logs.err (fun m -> m !"%{Error}" e));
     Logs.debug (fun m ->
-        m "\n---------\n%s"
-        @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
+        m "\n---------\n%s" @@ Backtrace.to_string (Backtrace.Exn.most_recent ()));
     Stdlib.exit 1 (* duplicates error output: `Error (false, "") *)
   end
 
@@ -584,7 +598,9 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   in
   Option.is_some dumped || Option.is_some printed
 
-let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library print_library_source manifest =
+let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
+    base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library
+    print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -592,18 +608,19 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
     Stdlib.exit 0
   end;
   if not no_greeting then Logs.app (fun m -> m "%s" greeting) else ();
-  let config = {
-    no_library;
-    typecheck_only;
-    lsp_mode;
-    lsp_annotations;
-    prog_stats;
-    base_dir;
-    smt_timeout;
-    smt_diagnostics;
-    log_level = Logs.level ();
-    strict;
-  }
+  let config =
+    {
+      no_library;
+      typecheck_only;
+      lsp_mode;
+      lsp_annotations;
+      prog_stats;
+      base_dir;
+      smt_timeout;
+      smt_diagnostics;
+      log_level = Logs.level ();
+      strict;
+    }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
      see [parse_and_check_all] -- since the choice also picks which extension's library
@@ -613,7 +630,7 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
      no extension-specific syntax would. *)
   let explicit_extension_mode =
     if String.(extension_mode_arg = "auto") then None
-    else Some (List.Assoc.find_exn ~equal:String.(=) Ext.ext_map extension_mode_arg)
+    else Some (List.Assoc.find_exn ~equal:String.( = ) Ext.ext_map extension_mode_arg)
   in
   let (module LibraryExt) =
     Ext.module_map (Option.value explicit_extension_mode ~default:Ext.ProphecyExt)
@@ -623,39 +640,43 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       ~print_library_source
   then `Ok ()
   else
-  let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =
-    match explicit_extension_mode with
-    | Some ext -> `Explicit ext
-    | None -> `Auto
-  in
-  try
-    let result = parse_and_check_all ~extension_mode config input_files in
-    if config.lsp_mode && config.lsp_annotations then print_lsp_output config [];
-    `Ok result
-  with
-  | Unix.Unix_error (err, _, prog) ->
-    let msg =
-      Printf.sprintf
-        "Could not start '%s' (%s). Raven requires Z3 (>= %s) to be installed and on your PATH."
-        prog (Unix.error_message err) Config.min_z3_version
+    let extension_mode : [ `Explicit of Ext.supported_extensions | `Auto ] =
+      match explicit_extension_mode with Some ext -> `Explicit ext | None -> `Auto
     in
-    print_errors config [ (Generic, Loc.dummy, msg) ]
-  | Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _ as exn ->
-    let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
-    let pos = match input_files with
-      | file :: _ ->
-        Loc.make Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
-          Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
-      | _ -> Loc.dummy
-    in
-    print_errors config [Internal, pos, msg]
-  | Error.Msg es ->
-    print_errors config es
+    try
+      let result = parse_and_check_all ~extension_mode config input_files in
+      if config.lsp_mode && config.lsp_annotations then print_lsp_output config [];
+      `Ok result
+    with
+    | Unix.Unix_error (err, _, prog) ->
+        let msg =
+          Printf.sprintf
+            "Could not start '%s' (%s). Raven requires Z3 (>= %s) to be installed and on \
+             your PATH."
+            prog (Unix.error_message err) Config.min_z3_version
+        in
+        print_errors config [ (Generic, Loc.dummy, msg) ]
+    | (Sys_error _ | Failure _ | Invalid_argument _ | Assert_failure _) as exn ->
+        let msg = String.map ~f:(function '"' -> '\'' | c -> c) (Exn.to_string exn) in
+        let pos =
+          match input_files with
+          | file :: _ ->
+              Loc.make
+                Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
+                Lexing.{ pos_fname = file; pos_bol = 0; pos_cnum = 0; pos_lnum = 1 }
+          | _ -> Loc.dummy
+        in
+        print_errors config [ (Internal, pos, msg) ]
+    | Error.Msg es -> print_errors config es
 
 let main_cmd =
   let info = Cmd.info "raven" ~version:Config.version in
   Cmd.v info
     Term.(
-      ret (const main $ setup_config $ input_file $ no_greeting $ no_library $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source $ manifest))
+      ret
+        (const main $ setup_config $ input_file $ no_greeting $ no_library
+       $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
+       $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source
+       $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

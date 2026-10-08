@@ -1,4 +1,4 @@
-(** SMT-LIBv2 abstract syntax  *)
+(** SMT-LIBv2 abstract syntax *)
 
 open Base
 open Util
@@ -10,9 +10,7 @@ type term = Ast.expr
 type sort = Ast.Type.t
 
 type smt_ident = qual_ident
-
-and adt_def =
-  smt_ident * smt_ident list * (smt_ident * (smt_ident * sort) list) list
+and adt_def = smt_ident * smt_ident list * (smt_ident * (smt_ident * sort) list) list
 (* name     optional params  (constructor, (destructor, sort) list) list *)
 
 module PreambleConsts = struct
@@ -33,10 +31,8 @@ type command =
   | DefineSort of smt_ident * smt_ident list * sort * location option
   | DeclareFun of smt_ident * sort list * sort * location option
   | DeclareConst of smt_ident * sort * location option
-  | DefineFun of
-      smt_ident * (smt_ident * sort) list * sort * term * location option
-  | DefineFunRec of
-      smt_ident * (smt_ident * sort) list * sort * term * location option
+  | DefineFun of smt_ident * (smt_ident * sort) list * sort * term * location option
+  | DefineFunRec of smt_ident * (smt_ident * sort) list * sort * term * location option
   (* | DefineFunsRec of (smt_ident * (smt_ident * sort) list * sort * term) list * location option *)
   | Assert of term * location option
   | Push of int * location option
@@ -60,10 +56,7 @@ let mk_set_info ?loc i v = SetInfo (i, v, loc)
 let mk_declare_sort ?loc id arity = DeclareSort (id, arity, loc)
 let mk_declare_datatype ?loc adt = DeclareDatatype (adt, loc)
 let mk_declare_datatypes ?loc adts = DeclareDatatypes (adts, loc)
-
-let mk_declare_fun ?loc id arg_srts res_srt =
-  DeclareFun (id, arg_srts, res_srt, loc)
-
+let mk_declare_fun ?loc id arg_srts res_srt = DeclareFun (id, arg_srts, res_srt, loc)
 let mk_declare_const ?loc id srt = DeclareConst (id, srt, loc)
 let mk_define_sort ?loc id args srt = DefineSort (id, args, srt, loc)
 let mk_define_fun ?loc id args res_srt t = DefineFun (id, args, res_srt, t, loc)
@@ -85,23 +78,22 @@ open Stdlib.Format
    alphabet -- a user-declared right-associative operator (`::`-shaped) is exactly
    what forces this. `,` (also in Raven's operator_char) is excluded too. *)
 let is_smt_simple_symbol_char = function
-  | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9'
-  | '~' | '!' | '@' | '$' | '%' | '^' | '&' | '*' | '_' | '-' | '+' | '=' | '<'
-  | '>' | '.' | '?' | '/' ->
+  | 'a' .. 'z'
+  | 'A' .. 'Z'
+  | '0' .. '9'
+  | '~' | '!' | '@' | '$' | '%' | '^' | '&' | '*' | '_' | '-' | '+' | '=' | '<' | '>'
+  | '.' | '?' | '/' ->
       true
   | _ -> false
 
 let pr_smt_ident ppf id =
-  let smt_ident_sanitize_map = (
-    function
-    | '\'' -> '_'
-    | x -> x
-  ) in
+  let smt_ident_sanitize_map = function '\'' -> '_' | x -> x in
 
   let sanitized_ident =
     if QualIdent.(id = QualIdent.from_ident (Ident.make Loc.dummy "_" 0)) then
       QualIdent.from_ident (Ident.make Loc.dummy "_0" 0)
-    else QualIdent.sanitize smt_ident_sanitize_map id in
+    else QualIdent.sanitize smt_ident_sanitize_map id
+  in
 
   (* Logs.debug (fun m -> m
     "smtLibAST.pr_smt_ident:
@@ -110,7 +102,6 @@ let pr_smt_ident ppf id =
       QualIdent.pr id
       QualIdent.pr sanitized_ident
   ); *)
-
   let printed = QualIdent.to_string sanitized_ident in
   (* A name without a module path, number, or `$` is that of a declaration at the top
      level of the program. Qualifying it with the program's root module keeps it from
@@ -123,16 +114,15 @@ let pr_smt_ident ppf id =
     then printed
     else "$Program." ^ printed
   in
-  if String.for_all printed ~f:is_smt_simple_symbol_char then
-    fprintf ppf "%s" printed
+  if String.for_all printed ~f:is_smt_simple_symbol_char then fprintf ppf "%s" printed
   else if String.exists printed ~f:(fun c -> Char.(c = '|' || c = '\\')) then
     (* SMT-LIB's quoted-symbol syntax permits any character except these two, with
        no escape mechanism for them -- an identifier containing either has no legal
        SMT-LIB representation at all, quoted or not. *)
     Error.internal_error (QualIdent.to_loc id)
       (Printf.sprintf
-         "identifier `%s` cannot be represented in SMT-LIB output: contains '|' or \
-          '\\', which SMT-LIB's quoted-symbol syntax cannot escape"
+         "identifier `%s` cannot be represented in SMT-LIB output: contains '|' or '\\', \
+          which SMT-LIB's quoted-symbol syntax cannot escape"
          printed)
   else fprintf ppf "|%s|" printed
 
@@ -148,14 +138,14 @@ let rec pr_sort ppf (sort : sort) =
   | App (Bool, [], _) -> fprintf ppf "Bool"
   | App (Ref, [], _) -> pr_smt_ident ppf PreambleConsts.loc_ident
   | App (Var qual_iden, [], _) -> pr_smt_ident ppf qual_iden
-  | App (Map, [ srt; App (Bool, _, _)], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
+  | App (Map, [ srt; App (Bool, _, _) ], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (FinSet, [ srt ], _) -> fprintf ppf "@[<2>(Set %a)@]" pr_sort srt
   | App (Map, [ srt1; srt2 ], _) ->
       fprintf ppf "@[<2>(Array %a %a)@]" pr_sort srt1 pr_sort srt2
   | App (Data (id, _), [], _) -> pr_smt_ident ppf id
   | App (Prod, srts, _) ->
       fprintf ppf "@[<2>($tuple_%i %a)@]" (List.length srts) pr_sorts srts
-  | App (AtomicToken qid, [], _) -> pr_smt_ident ppf (PreambleConsts.atomic_token_ident)
+  | App (AtomicToken qid, [], _) -> pr_smt_ident ppf PreambleConsts.atomic_token_ident
   | App (Num, _, _)
   | App (Perm, _, _)
   | App (Bot, _, _)
@@ -172,8 +162,7 @@ and pr_sorts ppf = function
   | [ srt ] -> pr_sort ppf srt
   | srt :: srts -> fprintf ppf "%a@ %a" pr_sort srt pr_sorts srts
 
-let pr_var_decl ppf (x, srt) =
-  fprintf ppf "@[<1>(%a@ %a)@]" pr_smt_ident x pr_sort srt
+let pr_var_decl ppf (x, srt) = fprintf ppf "@[<1>(%a@ %a)@]" pr_smt_ident x pr_sort srt
 
 let rec pr_var_decls ppf = function
   | [] -> ()
@@ -198,40 +187,31 @@ let term_constr_to_string loc (constr : Expr.constr) : string =
   | Ite -> "ite"
   | _ ->
       Error.internal_error loc
-        ("term_constr_to_string: unexpected constr"
-        ^ Expr.constr_to_string constr)
+        ("term_constr_to_string: unexpected constr" ^ Expr.constr_to_string constr)
 
 let rec pr_term ppf (term : term) =
   match term with
   | App (constr, expr_list, _) -> (
       match (constr, expr_list) with
-      | ( (( Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt
-           | Lt | Geq | Leq | And | Or | Plus | Minus
-           | Mult | Div | Mod | DataConstr _ | DataDestr _ | Ite | Var _ ) as
-           sym),
+      | ( (( Bool _ | Int _ | Real _ | Not | MapLookUp | MapUpdate | Eq | Gt | Lt | Geq
+           | Leq | And | Or | Plus | Minus | Mult | Div | Mod | DataConstr _ | DataDestr _
+           | Ite | Var _ ) as sym),
           ts ) -> (
           match expr_list with
-          | [] ->
-              fprintf ppf "@[%s@]"
-                (term_constr_to_string (Expr.to_loc term) sym)
+          | [] -> fprintf ppf "@[%s@]" (term_constr_to_string (Expr.to_loc term) sym)
           | _ ->
               fprintf ppf "@[<2>(%s@ %a)@]"
                 (term_constr_to_string (Expr.to_loc term) sym)
                 pr_terms ts)
       | Impl, [ t1; t2 ] ->
-          if Expr.alpha_equal t1 (Expr.mk_bool true) then
-            fprintf ppf "%a" pr_term t2
+          if Expr.alpha_equal t1 (Expr.mk_bool true) then fprintf ppf "%a" pr_term t2
           else fprintf ppf "@[<2>(=>@ %a@ %a)@]" pr_term t1 pr_term t2
-      | Elem, [ t; s ] ->
-          fprintf ppf "@[<2>(select@ %a@ %a)@]" pr_term s pr_term t
+      | Elem, [ t; s ] -> fprintf ppf "@[<2>(select@ %a@ %a)@]" pr_term s pr_term t
       | Null, [] -> fprintf ppf "null"
-      | Empty, [] ->
-          fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)
+      | Empty, [] -> fprintf ppf "((as const %a) false)" pr_sort (Expr.to_type term)
       | Uminus, [ t ] -> fprintf ppf "@[<2>(* -1 @ %a)@]" pr_term t
       | Setenum, es ->
-          let empty_set =
-            asprintf "((as const %a) false)" pr_sort (Expr.to_type term)
-          in
+          let empty_set = asprintf "((as const %a) false)" pr_sort (Expr.to_type term) in
           let str =
             List.fold es ~init:empty_set ~f:(fun acc e ->
                 asprintf "(store %s %a true)" acc pr_term e)
@@ -245,10 +225,8 @@ let rec pr_term ppf (term : term) =
                 Error.internal_error (Expr.to_loc term)
                   ("pr_term: unexpected term: " ^ Expr.to_string term)
           in
-          let index_num = Expr.to_int index 
-          in
-          fprintf ppf "@[<2>($tuple_%i_%i@ %a)@]" arity index_num pr_term
-            tuple_expr
+          let index_num = Expr.to_int index in
+          fprintf ppf "@[<2>($tuple_%i_%i@ %a)@]" arity index_num pr_term tuple_expr
       | Tuple, es -> (
           match List.length es with
           | 0 -> fprintf ppf "@[<2>$tuple_0 @]"
@@ -257,21 +235,19 @@ let rec pr_term ppf (term : term) =
                  disambiguated with an `as` qualification once the datatype has been instantiated
                  at more than one concrete sort, since the argument sorts alone are no longer
                  enough for Z3 to resolve which instantiation of the constructor is meant. *)
-              fprintf ppf "@[<2>((as $tuple_%i %a)@ %a)@]" n pr_sort
-                (Expr.to_type term) pr_terms es)
+              fprintf ppf "@[<2>((as $tuple_%i %a)@ %a)@]" n pr_sort (Expr.to_type term)
+                pr_terms es)
       | Diff, _ | Read, _ | Own, _ | _ ->
           Error.internal_error (Expr.to_loc term)
             ("pr_term: unexpected term: " ^ Expr.to_string term))
   | Binder (Compr, [ v ], _, body, _) when ProgUtils.is_pointwise_body v.var_name body ->
       pr_pointwise v.var_name (Expr.to_type term) ppf body
   | Binder (b, vs, trgs, f, _) -> (
-      let vs =
-        List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type))
-      in
+      let vs = List.map vs ~f:(fun v -> (QualIdent.from_ident v.var_name, v.var_type)) in
       match trgs with
       | [] ->
-          fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b)
-            pr_var_decls vs pr_term f
+          fprintf ppf "@[(%s @[(%a)@,%a)@]@]" (Expr.binder_to_string b) pr_var_decls vs
+            pr_term f
       | _ ->
           fprintf ppf "@[(%s @[(%a)@,(! %a %a)@])@]" (Expr.binder_to_string b)
             pr_var_decls vs pr_term f pr_trgs trgs)
@@ -290,7 +266,8 @@ and pr_pointwise (x : Ident.t) (srt : sort) ppf (body : term) =
   | App (((And | Or | Not | Impl) as constr), (_ :: _ as ts), _) when mentions_x body ->
       let op = match constr with And -> "and" | Or -> "or" | Not -> "not" | _ -> "=>" in
       fprintf ppf "@[<2>((_ map %s)@ %a)@]" op
-        (Util.Print.pr_list_sep " " (pr_pointwise x srt)) ts
+        (Util.Print.pr_list_sep " " (pr_pointwise x srt))
+        ts
   | App (MapLookUp, [ m; index ], _) when is_x index -> pr_term ppf m
   | App (Elem, [ elem; s ], _) when is_x elem -> pr_term ppf s
   | t -> pr_const ppf t
@@ -305,8 +282,7 @@ and pr_list_pair_of_terms ppf = function
   | (t1, t2) :: ts ->
       fprintf ppf "(%a@ %a) %a" pr_term t1 pr_term t2 pr_list_pair_of_terms ts
 
-and pr_let_decl ppf (id, t) =
-  fprintf ppf "@[<2>(%a@ %a)@]" pr_smt_ident id pr_term t
+and pr_let_decl ppf (id, t) = fprintf ppf "@[<2>(%a@ %a)@]" pr_smt_ident id pr_term t
 
 and pr_let_decls ppf = function
   | [] -> ()
@@ -329,8 +305,7 @@ and pr_trgs ppf = function
    | As srt ->
        fprintf ppf "@[<4>(as@ %a@ %a)@]" pr_term t pr_sort srt *)
 
-let print_term out_ch t =
-  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_term t
+let print_term out_ch t = fprintf (formatter_of_out_channel out_ch) "%a@?" pr_term t
 
 let rec pr_adt_args ppf = function
   | [] -> ()
@@ -340,8 +315,7 @@ let rec pr_adt_args ppf = function
 let rec pr_adt_constrs ppf = function
   | [] -> ()
   | (id, args) :: cnstrs ->
-      fprintf ppf "@ (%a%a)%a" pr_smt_ident id pr_adt_args args pr_adt_constrs
-        cnstrs
+      fprintf ppf "@ (%a%a)%a" pr_smt_ident id pr_adt_args args pr_adt_constrs cnstrs
 
 (* let rec pr_adts ppf = function
    | [] -> ()
@@ -358,18 +332,21 @@ let rec pr_adt ppf (id, params, constrs) =
 let rec pr_adts ppf adt_list =
   let id_list, params_list, constr_list = List.unzip3 adt_list in
 
-  let pr_sorts ppf (id, params) = fprintf ppf "(%a %i)" pr_smt_ident id (List.length params) in
-
-  let pr_constrs ppf (params, constrs) = match params with
-  | [] -> fprintf ppf "@[(%a)@]" pr_adt_constrs constrs
-  | _ ->
-      fprintf ppf "@[(par (%a) (%a))@]" pr_smt_idents params
-        pr_adt_constrs constrs
+  let pr_sorts ppf (id, params) =
+    fprintf ppf "(%a %i)" pr_smt_ident id (List.length params)
   in
 
-  fprintf ppf "(%a) (%a)" (Util.Print.pr_list_sep " " pr_sorts) (List.zip_exn id_list params_list) (Util.Print.pr_list_sep " " pr_constrs) (List.zip_exn params_list constr_list)
+  let pr_constrs ppf (params, constrs) =
+    match params with
+    | [] -> fprintf ppf "@[(%a)@]" pr_adt_constrs constrs
+    | _ -> fprintf ppf "@[(par (%a) (%a))@]" pr_smt_idents params pr_adt_constrs constrs
+  in
 
-  
+  fprintf ppf "(%a) (%a)"
+    (Util.Print.pr_list_sep " " pr_sorts)
+    (List.zip_exn id_list params_list)
+    (Util.Print.pr_list_sep " " pr_constrs)
+    (List.zip_exn params_list constr_list)
 
 let pr_command ppf = function
   | SetInfo (i, v, _) -> fprintf ppf "@[<10>(set-info@ %s@ %s)@]@," i v
@@ -385,13 +362,13 @@ let pr_command ppf = function
       fprintf ppf "@[<13>(define-sort@ %a@ (%a)@ %a)@]@," pr_smt_ident id pr_smt_idents
         svs pr_sort srt
   | DeclareFun (id, srts, srt, _) ->
-      fprintf ppf "@[<13>(declare-fun@ %a@ @,(%a)@ %a)@]@," pr_smt_ident id pr_sorts
-        srts pr_sort srt
+      fprintf ppf "@[<13>(declare-fun@ %a@ @,(%a)@ %a)@]@," pr_smt_ident id pr_sorts srts
+        pr_sort srt
   | DeclareConst (id, srt, _) ->
       fprintf ppf "@[<13>(declare-const@ %a@ %a)@]@," pr_smt_ident id pr_sort srt
   | DefineFun (id, vs, srt, t, _) ->
-      fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@," pr_smt_ident id
-        pr_var_decls vs pr_sort srt pr_term t
+      fprintf ppf "@[<12>(define-fun@ %a@ (%a)@ %a@ %a)@]@," pr_smt_ident id pr_var_decls
+        vs pr_sort srt pr_term t
   | DefineFunRec (id, vs, srt, t, _) ->
       fprintf ppf "@[<12>(define-fun-rec@ %a@ (%a)@ %a@ %a)@]@," pr_smt_ident id
         pr_var_decls vs pr_sort srt pr_term t

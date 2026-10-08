@@ -5,8 +5,7 @@ open Stdlib.Format
 let rec pr_list i pr_sep pr_x ppf = function
   | [] -> ()
   | [ x ] -> fprintf ppf "%a" (pr_x i) x
-  | x :: xs ->
-      fprintf ppf "%a%a%a" (pr_x i) x pr_sep () (pr_list (i + 1) pr_sep pr_x) xs
+  | x :: xs -> fprintf ppf "%a%a%a" (pr_x i) x pr_sep () (pr_list (i + 1) pr_sep pr_x) xs
 
 let pr_list_sep sep pr_x ppf =
   pr_list 0 (fun ppf _ -> fprintf ppf sep) (fun _ -> pr_x) ppf
@@ -24,8 +23,7 @@ let pr_map ~key ~value ppf map =
   let pr_binding ppf (k, v) = fprintf ppf "%a -> %a" key k value v in
   fprintf ppf "{ %a }" (pr_list_comma pr_binding) (Base.Map.to_alist map)
 
-let print_of_format pr x out_ch =
-  fprintf (formatter_of_out_channel out_ch) "%a@?" pr x
+let print_of_format pr x out_ch = fprintf (formatter_of_out_channel out_ch) "%a@?" pr x
 
 let string_of_format pr t =
   pr str_formatter t;

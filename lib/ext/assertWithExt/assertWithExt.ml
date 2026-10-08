@@ -11,15 +11,15 @@ open ExtApi
 
     Soundness of the "prove once, discard the proof, keep only the conclusion" pattern
     below crucially depends on `e` being *pure* (no `own`/predicate/AU content): the
-    surviving branch just `assume`s `e`, with nothing debiting whatever resource the
-    proof consumed on its own (discarded) branch. This is enforced by type-checking `e`
-    against `Type.bool` rather than the wider `Type.perm` ordinary assert/assume specs
-    accept. When `e` is headed by `forall`, the bound variables are additionally forced
-    `const` in the proof's scope, so the proof can't pin them to a specific witness and
-    then illegitimately generalize; `exists`-headed goals leave them mutable, since the
-    proof computing a concrete witness is exactly how existential introduction works
-    and needs no such restriction. This is a core Raven construct, enabled by default
-    (folded into `RavenCore` in lib/ext/ext.ml), not one more `--extension` choice. *)
+    surviving branch just `assume`s `e`, with nothing debiting whatever resource the proof
+    consumed on its own (discarded) branch. This is enforced by type-checking `e` against
+    `Type.bool` rather than the wider `Type.perm` ordinary assert/assume specs accept.
+    When `e` is headed by `forall`, the bound variables are additionally forced `const` in
+    the proof's scope, so the proof can't pin them to a specific witness and then
+    illegitimately generalize; `exists`-headed goals leave them mutable, since the proof
+    computing a concrete witness is exactly how existential introduction works and needs
+    no such restriction. This is a core Raven construct, enabled by default (folded into
+    `RavenCore` in lib/ext/ext.ml), not one more `--extension` choice. *)
 module AssertWithExt (Cont : Ext) = struct
   (* Every hook defaults to Cont's; only the ones actually overridden below need a
      definition. *)
@@ -27,8 +27,7 @@ module AssertWithExt (Cont : Ext) = struct
 
   let lib_source = None
 
-  type Stmt.stmt_ext +=
-    | AssertWith of { spec : Stmt.spec; proof : Stmt.t }
+  type Stmt.stmt_ext += AssertWith of { spec : Stmt.spec; proof : Stmt.t }
 
   (* AstDef *)
   (* type_ext_to_name/expr_ext_to_string/pr_basic_stmt_ext/contract_ext_to_string/
@@ -59,14 +58,10 @@ module AssertWithExt (Cont : Ext) = struct
     | _ -> Cont.stmt_ext_local_vars_modified stmt_ext
 
   let stmt_ext_fields_accessed stmt_ext =
-    match stmt_ext with
-    | AssertWith _ -> []
-    | _ -> Cont.stmt_ext_fields_accessed stmt_ext
+    match stmt_ext with AssertWith _ -> [] | _ -> Cont.stmt_ext_fields_accessed stmt_ext
 
   let stmt_ext_is_recognized stmt_ext =
-    match stmt_ext with
-    | AssertWith _ -> true
-    | _ -> Cont.stmt_ext_is_recognized stmt_ext
+    match stmt_ext with AssertWith _ -> true | _ -> Cont.stmt_ext_is_recognized stmt_ext
 
   (* An assertion and its proof block are ghost through and through. *)
   let stmt_ext_atomicity stmt_ext =
@@ -107,9 +102,9 @@ module AssertWithExt (Cont : Ext) = struct
            unquantified fact needs neither. *)
         let vs, var_const =
           match spec.spec_form with
-          | Expr.Binder (Expr.Forall, vs, _, _, _) -> vs, true
-          | Expr.Binder (Expr.Exists, vs, _, _, _) -> vs, false
-          | _ -> [], true
+          | Expr.Binder (Expr.Forall, vs, _, _, _) -> (vs, true)
+          | Expr.Binder (Expr.Exists, vs, _, _, _) -> (vs, false)
+          | _ -> ([], true)
         in
         let e1 =
           match spec.spec_form with
@@ -120,30 +115,40 @@ module AssertWithExt (Cont : Ext) = struct
           List.map vs ~f:(fun (decl : var_decl) ->
               let decl = { decl with Type.var_const } in
               Stmt.
-                { stmt_desc =
-                    Basic (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree });
-                  stmt_loc = decl.var_loc
+                {
+                  stmt_desc =
+                    Basic
+                      (VarDef { var_decl = decl; var_init = None; var_is_free = NotFree });
+                  stmt_loc = decl.var_loc;
                 })
         in
-        let assert_stmt = Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) ~spec_error:spec.spec_error e1 in
+        let assert_stmt =
+          Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) ~spec_error:spec.spec_error e1
+        in
         let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
         let checks_block =
-          Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost (vardefs @ [ proof; assert_stmt; assume_false ])
+          Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost
+            (vardefs @ [ proof; assert_stmt; assume_false ])
         in
         let nondet_var =
           Type.
-            { var_name = Ident.fresh loc "$nondet";
+            {
+              var_name = Ident.fresh loc "$nondet";
               var_loc = loc;
               var_type = Type.bool |> Type.set_ghost true;
               var_const = true;
               var_ghost = true;
-              var_implicit = false
+              var_implicit = false;
             }
         in
         let nondet_var_def =
           Stmt.
-            { stmt_desc = Basic (VarDef { var_decl = nondet_var; var_init = None; var_is_free = NotFree });
-              stmt_loc = loc
+            {
+              stmt_desc =
+                Basic
+                  (VarDef
+                     { var_decl = nondet_var; var_init = None; var_is_free = NotFree });
+              stmt_loc = loc;
             }
         in
         (* [spec]'s own [spec_form] is still the raw, not-yet-type-checked goal here --
@@ -158,17 +163,21 @@ module AssertWithExt (Cont : Ext) = struct
         let assume_spec_stmt = Stmt.mk_assume_spec ~loc spec in
         let cond_stmt =
           Stmt.
-            { stmt_desc =
+            {
+              stmt_desc =
                 Cond
-                  { cond_test = Some (Expr.from_var_decl nondet_var);
+                  {
+                    cond_test = Some (Expr.from_var_decl nondet_var);
                     cond_then = assume_spec_stmt;
                     cond_else = checks_block;
-                    cond_if_assumes_false = false
+                    cond_if_assumes_false = false;
                   };
-              stmt_loc = loc
+              stmt_loc = loc;
             }
         in
-        let whole_block = Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost [ nondet_var_def; cond_stmt ] in
+        let whole_block =
+          Stmt.mk_block_stmt ~loc ~kind:Stmt.Ghost [ nondet_var_def; cond_stmt ]
+        in
         (* Type-checking [assume_spec_stmt]'s [spec.spec_form] here goes through the
            ordinary [Spec (Assume, _)] path, which checks it against [Type.perm] --
            the same wide expected type ordinary `assume`/`assert` accept. That's too
@@ -178,13 +187,15 @@ module AssertWithExt (Cont : Ext) = struct
            accepted and then unsoundly `assume`d for free below. *)
         let* _ =
           type_check_stmt_functs.disambiguate_process_expr spec.spec_form
-            (Type.bool |> Type.set_ghost true) disam_tbl
+            (Type.bool |> Type.set_ghost true)
+            disam_tbl
         in
         let+ whole_block, disam_tbl =
           type_check_stmt_functs.process_stmt call_decl whole_block disam_tbl
         in
         (whole_block.stmt_desc, disam_tbl)
-    | _ -> Cont.type_check_stmt_ext call_decl stmt_ext loc disam_tbl type_check_stmt_functs
+    | _ ->
+        Cont.type_check_stmt_ext call_decl stmt_ext loc disam_tbl type_check_stmt_functs
 
   (* Rewrites *)
   (* rewrite_type_ext/rewrite_expr_ext/rewrite_basic_stmt_ext: no type_ext/expr_ext/
@@ -209,5 +220,5 @@ module AssertWithExt (Cont : Ext) = struct
 
   (* --------------------- *)
   (* --- DO NOT MODIFY --- *)
-  let lib_sources = (Option.to_list lib_source) @ Cont.lib_sources
+  let lib_sources = Option.to_list lib_source @ Cont.lib_sources
 end

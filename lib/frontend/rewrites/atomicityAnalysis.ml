@@ -49,9 +49,7 @@ let inv_to_string (inv : invs) : string =
   match inv.inv_args with
   | [] -> name
   | args ->
-      name ^ "("
-      ^ String.concat ~sep:", " (List.map args ~f:Expr.to_source_string)
-      ^ ")"
+      name ^ "(" ^ String.concat ~sep:", " (List.map args ~f:Expr.to_source_string) ^ ")"
 
 (* Something is still open at the end of a callable's body. Report it where the
    omission is actually detected -- the end of the body -- and point back at the
@@ -66,31 +64,23 @@ let unclosed_error ~(body_loc : location) (state : atomicity_check) : 'a =
   in
   let au_entry au =
     let token = Expr.to_source_string au.token in
-    ( Printf.sprintf
-        "Missing commitAU or abortAU for open atomic update %s" token,
+    ( Printf.sprintf "Missing commitAU or abortAU for open atomic update %s" token,
       au.au_loc,
       Printf.sprintf "%s was opened here" token )
   in
   let entries =
-    List.map state.invs_opened ~f:inv_entry
-    @ List.map state.au_opened ~f:au_entry
+    List.map state.invs_opened ~f:inv_entry @ List.map state.au_opened ~f:au_entry
   in
   match entries with
-  | [] ->
-      Error.internal_error body_loc
-        "unclosed_error called with nothing left open"
+  | [] -> Error.internal_error body_loc "unclosed_error called with nothing left open"
   | (msg, rel_loc, rel_msg) :: rest ->
       Error.fail_with
         ((Error.Verification, Loc.last_char body_loc, msg)
         :: (Error.RelatedLoc, rel_loc, rel_msg)
-        :: List.map rest ~f:(fun (msg, rel_loc, _) ->
-               (Error.RelatedLoc, rel_loc, msg)))
+        :: List.map rest ~f:(fun (msg, rel_loc, _) -> (Error.RelatedLoc, rel_loc, msg)))
 
 let list_remove_first (lst : 'a list) ~(f : 'a -> bool) : 'a list =
-  let rec go = function
-    | [] -> []
-    | x :: xs -> if f x then xs else x :: go xs
-  in
+  let rec go = function [] -> [] | x :: xs -> if f x then xs else x :: go xs in
   go lst
 
 let same_open_au (au1 : au_token) (au2 : au_token) : bool =
@@ -107,26 +97,22 @@ let same_open_invs (l1 : invs list) (l2 : invs list) : bool =
     List.map l ~f:(fun inv -> (inv.inv_name, inv.inv_args))
     |> List.sort ~compare:Callable.compare_mask_entry
   in
-  List.equal
-    (fun e1 e2 -> Callable.compare_mask_entry e1 e2 = 0)
-    (sorted l1) (sorted l2)
+  List.equal (fun e1 e2 -> Callable.compare_mask_entry e1 e2 = 0) (sorted l1) (sorted l2)
 
 (* At a join, [into]'s entries are carried forward, but each arm froze its own
    snapshot. Assignments, for the end of [from]'s arm, that copy [from]'s
    snapshots into [into]'s, so the kept snapshots are defined on both paths.
    Assumes [same_open_invs from into]; the reentrancy guard keeps the sort
    keys unique, so sorting pairs up matching instances. *)
-let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) :
-    Stmt.t list =
+let snapshot_sync_stmts ~loc ~(from : invs list) ~(into : invs list) : Stmt.t list =
   let sorted l =
     List.sort l ~compare:(fun i1 i2 ->
-        Callable.compare_mask_entry (i1.inv_name, i1.inv_args)
-          (i2.inv_name, i2.inv_args))
+        Callable.compare_mask_entry (i1.inv_name, i1.inv_args) (i2.inv_name, i2.inv_args))
   in
-  List.filter_map (List.zip_exn (sorted from) (sorted into))
+  List.filter_map
+    (List.zip_exn (sorted from) (sorted into))
     ~f:(fun (src, dst) ->
-      if List.is_empty dst.inv_args
-         || Expr.alpha_equal src.inv_snapshot dst.inv_snapshot
+      if List.is_empty dst.inv_args || Expr.alpha_equal src.inv_snapshot dst.inv_snapshot
       then None
       else
         Some
@@ -185,10 +171,13 @@ let membership_conditions ~loc ~(candidate : Expr.t list) ~(target : Expr.t list
    actually found for, so callers can recognize a formal that was genuinely
    never supplied (an omitted implicit) as opposed to one substituted to some
    caller expression. *)
-let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Expr.t list) =
+let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Expr.t list)
+    =
   let build assoc =
     let map =
-      List.fold assoc ~init:(Map.empty (module QualIdent)) ~f:(fun acc (formal, actual) ->
+      List.fold assoc
+        ~init:(Map.empty (module QualIdent))
+        ~f:(fun acc (formal, actual) ->
           Map.set acc ~key:(QualIdent.from_ident formal.Type.var_name) ~data:actual)
     in
     let resolved =
@@ -197,7 +186,8 @@ let call_formal_actual_alignment (formals : Type.var_decl list) (call_args : Exp
     in
     (map, resolved)
   in
-  if List.length call_args = List.length formals then build (List.zip_exn formals call_args)
+  if List.length call_args = List.length formals then
+    build (List.zip_exn formals call_args)
   else
     let non_implicit_formals =
       List.filter formals ~f:(fun vd -> not vd.Type.var_implicit)
@@ -216,8 +206,7 @@ let explicit_arity (qi : QualIdent.t) ~(default : int) : (int, 'a) Rewriter.t_ex
   let open Rewriter.Syntax in
   let+ symbol = Rewriter.find_and_reify qi in
   match symbol with
-  | CallDef { call_decl = { call_decl_formals; _ }; _ } ->
-      List.length call_decl_formals
+  | CallDef { call_decl = { call_decl_formals; _ }; _ } -> List.length call_decl_formals
   | _ -> default
 
 (* A call that omits a trailing implicit ghost formal (see
@@ -263,9 +252,7 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
           (List.take_while args ~f:(fun arg ->
                Set.is_subset (Expr.local_vars arg) ~of_:resolved))
       in
-      let substituted =
-        List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map)
-      in
+      let substituted = List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map) in
       if resolved_len = List.length args then Rewriter.return (qi, substituted)
       else
         let known_prefix = List.take substituted resolved_len in
@@ -279,7 +266,8 @@ let unify_omitted_implicit_mask ~(ambient_mask : Callable.mask)
                 && List.length cand_args = List.length args
                 &&
                 match
-                  List.for_all2 known_prefix (List.take cand_args resolved_len)
+                  List.for_all2 known_prefix
+                    (List.take cand_args resolved_len)
                     ~f:Expr.alpha_equal
                 with
                 | Ok b -> b
@@ -306,8 +294,7 @@ let disjointness_condition ~loc (args : Expr.t list) (opened : invs) :
         else
           Some
             (Expr.mk_not ~loc
-               (Expr.mk_eq ~loc a
-                  (Expr.mk_tuple_lookup ~loc opened.inv_snapshot i))))
+               (Expr.mk_eq ~loc a (Expr.mk_tuple_lookup ~loc opened.inv_snapshot i))))
   in
   match diffs with [] -> Error () | _ -> Ok (Expr.mk_or ~loc diffs)
 
@@ -317,15 +304,14 @@ let disjointness_condition ~loc (args : Expr.t list) (opened : invs) :
    declaration can be open at once -- the first candidate found, relying on
    the drift-detecting snapshot-equality assert below to reject a wrong
    guess. [None] means this is a fresh allocation, not a close. *)
-let find_matching_open_inv (atomicity_state : atomicity_check)
-    (inv_name : QualIdent.t) (use_args : Expr.t list) : invs option =
+let find_matching_open_inv (atomicity_state : atomicity_check) (inv_name : QualIdent.t)
+    (use_args : Expr.t list) : invs option =
   let candidates =
     List.filter atomicity_state.invs_opened ~f:(fun inv ->
         QualIdent.equal inv.inv_name inv_name)
   in
   match
-    List.find candidates ~f:(fun inv ->
-        List.equal Expr.alpha_equal inv.inv_args use_args)
+    List.find candidates ~f:(fun inv -> List.equal Expr.alpha_equal inv.inv_args use_args)
   with
   | Some inv -> Some inv
   | None -> List.hd candidates
@@ -338,8 +324,8 @@ let take_atomic_step ~loc (state : atomicity_check) : atomicity_check =
     | false -> { state with atomic_step_taken = true }
     | true ->
         Error.verification_error loc
-          "Attempting to take more than one atomic step with an open invariant \
-           or atomic update"
+          "Attempting to take more than one atomic step with an open invariant or atomic \
+           update"
 
 let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
   if state.in_atomic_block then state
@@ -352,8 +338,8 @@ let take_non_atomic_step ~loc (state : atomicity_check) : atomicity_check =
    lowering that would reveal what it does, since e.g. a `cas` lowers to a read
    plus a conditional write yet is a single machine instruction. So the active
    extension declares the cost; see [Stmt.stmt_atomicity]. *)
-let take_ext_step ~loc (atomicity : Stmt.stmt_atomicity) (state : atomicity_check)
-    : atomicity_check =
+let take_ext_step ~loc (atomicity : Stmt.stmt_atomicity) (state : atomicity_check) :
+    atomicity_check =
   match atomicity with
   | NoStep -> state
   | AtomicStep -> take_atomic_step ~loc state
@@ -376,7 +362,8 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
         match disjointness_condition ~loc inv_args inv with
         | Error () ->
             Error.verification_error loc
-              (Printf.sprintf !"Invariant %{Ident} is already open"
+              (Printf.sprintf
+                 !"Invariant %{Ident} is already open"
                  (inv_name |> QualIdent.unqualify))
         | Ok cond ->
             let spec_error =
@@ -384,9 +371,9 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
                 ( Error.Verification,
                   loc,
                   Printf.sprintf
-                    !"Cannot unfold %{Ident}: this instance may be the same \
-                      as one already open (arguments identifying the two \
-                      instances are not provably distinct)"
+                    !"Cannot unfold %{Ident}: this instance may be the same as one \
+                      already open (arguments identifying the two instances are not \
+                      provably distinct)"
                     (inv_name |> QualIdent.unqualify) )
               in
               [ Stmt.mk_const_spec_error error ]
@@ -399,8 +386,7 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
      take the first plausible candidate and require equality at whatever
      positions aren't already syntactically identical. *)
   let candidates =
-    List.filter atomicity_state.mask ~f:(fun (qi, _) ->
-        QualIdent.equal qi inv_name)
+    List.filter atomicity_state.mask ~f:(fun (qi, _) -> QualIdent.equal qi inv_name)
   in
   let scored =
     List.filter_map candidates ~f:(fun (qi, args) ->
@@ -427,8 +413,8 @@ let open_inv ~loc (inv_name, inv_args, inv_snapshot) atomicity_state :
             ( Error.Verification,
               loc,
               Printf.sprintf
-                !"Cannot unfold %{Ident}: the available mask entry's \
-                  arguments are not provably equal to this instance's"
+                !"Cannot unfold %{Ident}: the available mask entry's arguments are not \
+                  provably equal to this instance's"
                 (inv_name |> QualIdent.unqualify) )
           in
           [ Stmt.mk_const_spec_error error ]
@@ -483,7 +469,8 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
           match disjointness_condition ~loc args inv with
           | Error () ->
               Error.verification_error loc
-                (Printf.sprintf !"Invariant %{Ident} is already open"
+                (Printf.sprintf
+                   !"Invariant %{Ident} is already open"
                    (qi |> QualIdent.unqualify))
           | Ok cond ->
               let spec_error =
@@ -491,10 +478,9 @@ let call_reentrancy_asserts ~loc (atomicity_state : atomicity_check)
                   ( Error.Verification,
                     loc,
                     Printf.sprintf
-                      !"Cannot call this here: the invariant %{Ident} \
-                        required by the callee may be the same instance as \
-                        one already open (arguments identifying the two \
-                        instances are not provably distinct)"
+                      !"Cannot call this here: the invariant %{Ident} required by the \
+                        callee may be the same instance as one already open (arguments \
+                        identifying the two instances are not provably distinct)"
                       (qi |> QualIdent.unqualify) )
                 in
                 [ Stmt.mk_const_spec_error error ]
@@ -538,14 +524,13 @@ let close_inv ~(inv_name : QualIdent.t) ~(inv_args : Expr.t list)
         { atomicity_state with invs_opened; mask; atomic_step_taken = false }
       else { atomicity_state with invs_opened; mask }
 
-let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
-    atomicity_state : atomicity_check =
-  if
-    List.exists atomicity_state.au_opened ~f:(fun au ->
-        Expr.alpha_equal au.token token)
+let open_au ~loc (token, callable, callable_args, implicit_bound_vars) atomicity_state :
+    atomicity_check =
+  if List.exists atomicity_state.au_opened ~f:(fun au -> Expr.alpha_equal au.token token)
   then
     Error.verification_error loc
-      (Printf.sprintf !"Atomic token %{String} is already open"
+      (Printf.sprintf
+         !"Atomic token %{String} is already open"
          (Expr.to_source_string token))
   else if not (List.is_empty atomicity_state.au_opened) then
     (* At most one atomic update may be open at a time. A once-open AU's own
@@ -561,8 +546,8 @@ let open_au ~loc (token, callable, callable_args, implicit_bound_vars)
        precondition against whatever is actually held at that point. *)
     Error.verification_error loc
       (Printf.sprintf
-         !"Cannot open atomic token %{String} while another atomic update \
-           is still open; commit or abort it first"
+         !"Cannot open atomic token %{String} while another atomic update is still open; \
+           commit or abort it first"
          (Expr.to_source_string token))
   else
     {
@@ -579,7 +564,8 @@ let close_au ~loc token atomicity_state : atomicity_check =
            Expr.alpha_equal au.token token))
   then
     Error.verification_error loc
-      (Printf.sprintf !"Atomic token %{String} is not open (nothing to close)"
+      (Printf.sprintf
+         !"Atomic token %{String} is not open (nothing to close)"
          (Expr.to_source_string token))
   else
     let au_opened =
@@ -591,18 +577,15 @@ let close_au ~loc token atomicity_state : atomicity_check =
       { atomicity_state with au_opened; atomic_step_taken = false }
     else { atomicity_state with au_opened }
 
-
-let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
-    =
+let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
   let open Rewriter.Syntax in
-  let rec rewrite_au_cmnds (stmt : Stmt.t) :
-      (Stmt.t, atomicity_check) Rewriter.t_ext =
+  let rec rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext =
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let* curr_callable_name = Rewriter.current_scope_id in
 
     let callable_info call_ident =
       let+ callable = Rewriter.find_and_reify_callable call_ident in
-     
+
       let concrete_args =
         List.filter callable.call_decl.call_decl_formals ~f:(fun var_decl ->
             not var_decl.var_implicit)
@@ -611,12 +594,14 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         List.filter callable.call_decl.call_decl_formals ~f:(fun var_decl ->
             var_decl.var_implicit)
       in
-      callable, concrete_args, implicit_args
+      (callable, concrete_args, implicit_args)
     in
 
-    let* () = Rewriter.Logs.debug (fun printers m ->
-        m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a; stmt=%a" QualIdent.pr
-          curr_callable_name printers.pr_stmt stmt) in
+    let* () =
+      Rewriter.Logs.debug (fun printers m ->
+          m "Rewrites.rewrite_au_cmnds: curr_callable_name: %a; stmt=%a" QualIdent.pr
+            curr_callable_name printers.pr_stmt stmt)
+    in
 
     let loc = stmt.stmt_loc in
 
@@ -630,8 +615,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
       let assigned = Set.of_list (module Ident) idents in
       { state with mask = drop_mask_entries_mentioning assigned state.mask }
     in
-    let drop_stale ~(qis : QualIdent.t list) (state : atomicity_check) :
-        atomicity_check =
+    let drop_stale ~(qis : QualIdent.t list) (state : atomicity_check) : atomicity_check =
       drop_stale_idents ~idents:(List.map qis ~f:QualIdent.unqualify) state
     in
 
@@ -676,9 +660,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               Rewriter.return stmt
         | _ -> Error.internal_error stmt.stmt_loc "expected a var_def")
     | Basic (FieldWrite field_write_desc) -> (
-        let* symbol =
-          Rewriter.find_and_reify field_write_desc.field_write_field
-        in
+        let* symbol = Rewriter.find_and_reify field_write_desc.field_write_field in
         match symbol with
         | FieldDef fld ->
             if fld.field_is_ghost then Rewriter.return stmt
@@ -723,7 +705,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
           if not needs_substitution then Rewriter.return callee_mask
           else
             unify_omitted_implicit_mask ~ambient_mask:atomicity_state.mask
-              ~formals:call_decl.call_decl_formals ~call_args:call_desc.call_args callee_mask
+              ~formals:call_decl.call_decl_formals ~call_args:call_desc.call_args
+              callee_mask
         in
         (* A call doesn't remove anything from the mask -- it's a pure query,
            "does the caller already have room for what the callee needs" --
@@ -761,8 +744,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               in
               let candidates =
                 List.filter_map atomicity_state.mask ~f:(fun (qi', cand_args) ->
-                    if QualIdent.equal qi' qi then covering_conditions cand_args
-                    else None)
+                    if QualIdent.equal qi' qi then covering_conditions cand_args else None)
               in
               if List.exists candidates ~f:List.is_empty then None
               else
@@ -770,7 +752,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                 let cond = Expr.mk_or ~loc disjuncts in
                 let call_id = call_desc.call_name |> QualIdent.unqualify in
                 let error =
-                  ( Error.Verification, loc,
+                  ( Error.Verification,
+                    loc,
                     Printf.sprintf
                       !"Cannot call %{Ident}. The invariant %{Ident} required by \
                         %{Ident} is not available in the current mask"
@@ -822,7 +805,10 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               in
               if not needs_substitution then
                 Rewriter.return
-                  { atomicity_state with mask = Callable.mask_union atomicity_state.mask grants }
+                  {
+                    atomicity_state with
+                    mask = Callable.mask_union atomicity_state.mask grants;
+                  }
               else
                 let formal_map =
                   call_formal_actual_map call_decl.call_decl_formals call_desc.call_args
@@ -830,8 +816,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                 let renaming_map =
                   match
                     List.fold2 call_decl.call_decl_returns call_desc.call_lhs
-                      ~init:formal_map
-                      ~f:(fun acc ret lhs ->
+                      ~init:formal_map ~f:(fun acc ret lhs ->
                         Map.set acc
                           ~key:(QualIdent.from_ident ret.var_name)
                           ~data:(Expr.mk_var ~typ:ret.var_type lhs))
@@ -841,11 +826,13 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                 in
                 let credited =
                   List.map grants ~f:(fun (qi, args) ->
-                      ( qi,
-                        List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map) ))
+                      (qi, List.map args ~f:(fun e -> Expr.alpha_renaming e renaming_map)))
                 in
                 Rewriter.return
-                  { atomicity_state with mask = Callable.mask_union atomicity_state.mask credited }
+                  {
+                    atomicity_state with
+                    mask = Callable.mask_union atomicity_state.mask credited;
+                  }
         in
 
         if
@@ -854,17 +841,20 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         then
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
-            (Stmt.mk_block_stmt ~loc (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+            (Stmt.mk_block_stmt ~loc
+               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
         else if Callable.is_atomic call_decl then
           let atomicity_state = take_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
-            (Stmt.mk_block_stmt ~loc (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+            (Stmt.mk_block_stmt ~loc
+               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
         else
           let atomicity_state = take_non_atomic_step ~loc atomicity_state in
           let* _ = Rewriter.set_user_state atomicity_state in
           Rewriter.return
-            (Stmt.mk_block_stmt ~loc (availability_asserts @ reentrancy_asserts @ [ stmt ]))
+            (Stmt.mk_block_stmt ~loc
+               (availability_asserts @ reentrancy_asserts @ [ stmt ]))
     | Basic (BasicStmtExt (stmt_ext, args)) ->
         let* ext_hooks = Rewriter.current_ext_hooks in
         let atomicity_state =
@@ -873,8 +863,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             atomicity_state
         in
         let atomicity_state =
-          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext)
-            atomicity_state
+          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext) atomicity_state
         in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
@@ -896,9 +885,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                 | Unfold ->
                     (* Implicit arguments left out here are bound to fresh
                        ghost variables, so that the snapshot covers them. *)
-                    let omitted =
-                      List.drop all_params (List.length use_desc.use_args)
-                    in
+                    let omitted = List.drop all_params (List.length use_desc.use_args) in
                     let* omitted_vars =
                       Rewriter.List.map omitted ~f:(fun vd ->
                           let var_decl =
@@ -924,8 +911,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                             let error =
                               ( Error.Verification,
                                 loc,
-                                "Failed to unfold predicate. The predicate may \
-                                 not hold at this point" )
+                                "Failed to unfold predicate. The predicate may not hold \
+                                 at this point" )
                             in
                             [ Stmt.mk_const_spec_error error ]
                           in
@@ -948,15 +935,13 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                           let snap_ident =
                             Ident.fresh loc
                               ("$inv_snapshot_"
-                              ^ Ident.to_string
-                                  (QualIdent.unqualify use_desc.use_name))
+                              ^ Ident.to_string (QualIdent.unqualify use_desc.use_name))
                           in
                           let snap_type =
                             Type.mk_prod loc (List.map full_args ~f:Expr.to_type)
                           in
                           let snap_var_decl =
-                            Type.mk_var_decl ~ghost:true ~loc snap_ident
-                              snap_type
+                            Type.mk_var_decl ~ghost:true ~loc snap_ident snap_type
                           in
                           let+ () =
                             Rewriter.introduce_symbol
@@ -968,8 +953,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                                  })
                           in
                           let snap_expr =
-                            Expr.mk_var ~typ:snap_type
-                              (QualIdent.from_ident snap_ident)
+                            Expr.mk_var ~typ:snap_type (QualIdent.from_ident snap_ident)
                           in
                           let snap_assign_stmt =
                             Stmt.mk_assign ~loc ~is_init:true
@@ -993,7 +977,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                     Rewriter.return
                       (Stmt.mk_block_stmt ~loc
                          (bind_stmts @ open_asserts @ snap_stmts @ [ stmt ]))
-                | Fold ->
+                | Fold -> (
                     (* Multiple instances of the same declaration can be open
                        at once, so this needs to identify which one; see
                        [find_matching_open_inv]. Present means this fold
@@ -1004,12 +988,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                         use_desc.use_args
                     in
                     let atomicity_state =
-                      close_inv ~inv_name:use_desc.use_name
-                        ~inv_args:use_desc.use_args matching_open_inv
-                        atomicity_state
+                      close_inv ~inv_name:use_desc.use_name ~inv_args:use_desc.use_args
+                        matching_open_inv atomicity_state
                     in
                     let* _ = Rewriter.set_user_state atomicity_state in
-                    (match matching_open_inv, all_params with
+                    match (matching_open_inv, all_params) with
                     | None, _ | _, [] ->
                         (* Fresh allocation, or 0-arity (no snapshot exists). *)
                         Rewriter.return stmt
@@ -1020,27 +1003,25 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                         let full_args =
                           use_desc.use_args
                           @ List.mapi (List.drop all_params n_written) ~f:(fun i _ ->
-                                Expr.mk_tuple_lookup ~loc inv.inv_snapshot (n_written + i))
+                              Expr.mk_tuple_lookup ~loc inv.inv_snapshot (n_written + i))
                         in
                         let spec_error =
                           let inv_id = use_desc.use_name |> QualIdent.unqualify in
                           let msg =
                             if List.is_empty c.call_decl.call_decl_returns then
                               Printf.sprintf
-                                !"Cannot fold %{Ident}: its arguments no longer \
-                                  match the instance that was opened by the \
-                                  corresponding unfold (a variable used to \
-                                  identify the instance may have been \
-                                  reassigned in between)"
+                                !"Cannot fold %{Ident}: its arguments no longer match \
+                                  the instance that was opened by the corresponding \
+                                  unfold (a variable used to identify the instance may \
+                                  have been reassigned in between)"
                                 inv_id
                             else
                               Printf.sprintf
-                                !"Cannot fold %{Ident}: its arguments may \
-                                  differ from those of the instance opened by \
-                                  the corresponding unfold. Either a variable \
-                                  used as an argument was reassigned in \
-                                  between, or an implicit argument changed, \
-                                  which an invariant does not allow"
+                                !"Cannot fold %{Ident}: its arguments may differ from \
+                                  those of the instance opened by the corresponding \
+                                  unfold. Either a variable used as an argument was \
+                                  reassigned in between, or an implicit argument \
+                                  changed, which an invariant does not allow"
                                 inv_id
                           in
                           let error = (Error.Verification, loc, msg) in
@@ -1057,8 +1038,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                             stmt_desc = Basic (Use { use_desc with use_args = full_args });
                           }
                         in
-                        Rewriter.return
-                          (Stmt.mk_block_stmt ~loc [ assert_stmt; stmt ])))
+                        Rewriter.return (Stmt.mk_block_stmt ~loc [ assert_stmt; stmt ])))
             | _ -> Error.internal_error stmt.stmt_loc "expected a predicate or invariant")
         | _ -> Error.internal_error stmt.stmt_loc "expected a call_def")
     | Basic (AUAction auaction_desc) -> (
@@ -1085,51 +1065,56 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             in
 
             let assign_stmt =
-              Stmt.mk_assign ~loc [ qual_iden ]
-                (Expr.from_var_decl au_token_var.var_decl)
+              Stmt.mk_assign ~loc [ qual_iden ] (Expr.from_var_decl au_token_var.var_decl)
             in
 
             Rewriter.return assign_stmt
-        | OpenAU open_au_desc -> (
-            let* callable, concrete_args, implicit_args = callable_info open_au_desc.proc_qi in
+        | OpenAU open_au_desc ->
+            let* callable, concrete_args, implicit_args =
+              callable_info open_au_desc.proc_qi
+            in
             let exhale_stmt =
               let error =
-              ( Error.Verification,
-                loc,
-                "Atomic token resource may not be available" )
+                (Error.Verification, loc, "Atomic token resource may not be available")
               in
               Stmt.mk_exhale_expr
                 ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
-                ~spec_error:[Stmt.mk_const_spec_error error]
+                ~spec_error:[ Stmt.mk_const_spec_error error ]
                 ~loc
                 (Expr.mk_app ~loc ~typ:Type.perm (AUPred open_au_desc.proc_qi)
-                   [open_au_desc.token; (Expr.mk_tuple open_au_desc.proc_args)])
+                   [ open_au_desc.token; Expr.mk_tuple open_au_desc.proc_args ])
             in
 
-            let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; implicit_args = %a" QualIdent.pr open_au_desc.proc_qi printers.pr_expr_list open_au_desc.proc_args printers.pr_expr_list open_au_desc.lhs) in
+            let* () =
+              Rewriter.Logs.debug (fun printers m ->
+                  m
+                    "Rewrites.rewrite_au_cmnds: OpenAU: call_ident = %a; proc_args = %a; \
+                     implicit_args = %a"
+                    QualIdent.pr open_au_desc.proc_qi printers.pr_expr_list
+                    open_au_desc.proc_args printers.pr_expr_list open_au_desc.lhs)
+            in
 
             (* if *)
-
             let alpha_renaming_map =
-              List.fold2_exn (concrete_args @ implicit_args) (open_au_desc.proc_args @ open_au_desc.lhs)
+              List.fold2_exn
+                (concrete_args @ implicit_args)
+                (open_au_desc.proc_args @ open_au_desc.lhs)
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun acc_map implicit_arg bound_var ->
-                    Map.add_exn acc_map
-                      ~key:(QualIdent.from_ident implicit_arg.var_name)
-                      ~data:bound_var)
+                  Map.add_exn acc_map
+                    ~key:(QualIdent.from_ident implicit_arg.var_name)
+                    ~data:bound_var)
             in
 
             let inhale_stmts =
-              List.filter_map callable.call_decl.call_decl_precond
-                ~f:(fun spec ->
-                    if not spec.spec_atomic then None
-                    else
-                      Some
-                        (Stmt.mk_inhale_expr
-                           ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
-                           ~loc
-                           (Expr.alpha_renaming spec.spec_form
-                              alpha_renaming_map)))
+              List.filter_map callable.call_decl.call_decl_precond ~f:(fun spec ->
+                  if not spec.spec_atomic then None
+                  else
+                    Some
+                      (Stmt.mk_inhale_expr
+                         ~cmnt:("OpenAU: " ^ Stmt.to_string stmt)
+                         ~loc
+                         (Expr.alpha_renaming spec.spec_form alpha_renaming_map)))
             in
 
             let atomicity_state =
@@ -1141,18 +1126,17 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                 atomicity_state
             in
             let* _ = Rewriter.set_user_state atomicity_state in
-            
-            let new_stmt =
-              Stmt.mk_block_stmt ~loc (exhale_stmt :: inhale_stmts)
-            in
 
-            Rewriter.return new_stmt)
+            let new_stmt = Stmt.mk_block_stmt ~loc (exhale_stmt :: inhale_stmts) in
+
+            Rewriter.return new_stmt
         | AbortAU _ | CommitAU _ ->
-            let token = begin match auaction_desc.auaction_kind with
+            let token =
+              begin match auaction_desc.auaction_kind with
               | AbortAU au_desc -> au_desc.token
               | CommitAU au_desc -> au_desc.token
               | _ -> assert false
-              end 
+              end
             in
             let opened_au_token =
               List.find atomicity_state.au_opened ~f:(fun au_token ->
@@ -1177,14 +1161,18 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               | _ -> Error.internal_error stmt.stmt_loc "expected a call_def"
             in
 
-            let* () = Rewriter.Logs.debug (fun printers m -> m "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; callable_args = %a" QualIdent.pr opened_au_token.callable printers.pr_expr_list (opened_au_token.callable_args
-               @ opened_au_token.implicit_bound_vars)) in
-
+            let* () =
+              Rewriter.Logs.debug (fun printers m ->
+                  m
+                    "Rewrites.rewrite_au_cmnds: Abort/Commit AU: call_ident = %a; \
+                     callable_args = %a"
+                    QualIdent.pr opened_au_token.callable printers.pr_expr_list
+                    (opened_au_token.callable_args @ opened_au_token.implicit_bound_vars))
+            in
 
             let alpha_renaming_map =
               List.fold2_exn callable_decl.call_decl_formals
-                (opened_au_token.callable_args
-               @ opened_au_token.implicit_bound_vars)
+                (opened_au_token.callable_args @ opened_au_token.implicit_bound_vars)
                 ~init:(Map.empty (module QualIdent))
                 ~f:(fun acc_map formal_arg actual_arg ->
                   Map.add_exn acc_map
@@ -1198,35 +1186,33 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                   let loc = Stmt.to_loc stmt in
 
                   let exhale_stmts =
-                    List.filter_map callable_decl.call_decl_precond
-                      ~f:(fun spec ->
+                    List.filter_map callable_decl.call_decl_precond ~f:(fun spec ->
                         if not spec.spec_atomic then None
                         else
                           let error =
                             ( Error.Verification,
                               loc,
-                              "An atomic precondition may no longer hold when \
-                               aborting the atomic update." )
+                              "An atomic precondition may no longer hold when aborting \
+                               the atomic update." )
                           in
                           Some
                             (Stmt.mk_exhale_expr
                                ~cmnt:("AbortAU: " ^ Stmt.to_string stmt)
                                ~loc
                                ~spec_error:
-                                 (Stmt.mk_const_spec_error error
-                                 :: spec.spec_error)
-                               (Expr.alpha_renaming spec.spec_form
-                                  alpha_renaming_map)))
+                                 (Stmt.mk_const_spec_error error :: spec.spec_error)
+                               (Expr.alpha_renaming spec.spec_form alpha_renaming_map)))
                   in
 
                   let inhale_stmt =
                     Stmt.mk_inhale_expr
                       ~cmnt:("AbortAU: " ^ Stmt.to_string stmt)
                       ~loc
-                      (Expr.mk_app ~loc ~typ:Type.perm
-                         (AUPred opened_au_token.callable)
-                         [opened_au_token.token;
-                         (Expr.mk_tuple opened_au_token.callable_args)])
+                      (Expr.mk_app ~loc ~typ:Type.perm (AUPred opened_au_token.callable)
+                         [
+                           opened_au_token.token;
+                           Expr.mk_tuple opened_au_token.callable_args;
+                         ])
                   in
 
                   let atomicity_state = close_au ~loc token atomicity_state in
@@ -1236,8 +1222,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                   let loc = Stmt.to_loc stmt in
 
                   let alpha_renaming_map =
-                    List.fold2_exn callable_decl.call_decl_returns commit_au_desc.proc_rets
-                      ~init:alpha_renaming_map
+                    List.fold2_exn callable_decl.call_decl_returns
+                      commit_au_desc.proc_rets ~init:alpha_renaming_map
                       ~f:(fun acc_map formal_arg actual_arg ->
                         Map.add_exn acc_map
                           ~key:(QualIdent.from_ident formal_arg.var_name)
@@ -1245,25 +1231,22 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                   in
 
                   let exhale_stmts =
-                    List.filter_map callable_decl.call_decl_postcond
-                      ~f:(fun spec ->
+                    List.filter_map callable_decl.call_decl_postcond ~f:(fun spec ->
                         if not spec.spec_atomic then None
                         else
                           let error =
                             ( Error.Verification,
                               loc,
-                              "An atomic postcondition may not hold at this \
-                               commit point." )
+                              "An atomic postcondition may not hold at this commit point."
+                            )
                           in
                           Some
                             (Stmt.mk_exhale_expr
                                ~cmnt:("CommitAU: " ^ Stmt.to_string stmt)
                                ~loc
                                ~spec_error:
-                                 (Stmt.mk_const_spec_error error
-                                 :: spec.spec_error)
-                               (Expr.alpha_renaming spec.spec_form
-                                  alpha_renaming_map)))
+                                 (Stmt.mk_const_spec_error error :: spec.spec_error)
+                               (Expr.alpha_renaming spec.spec_form alpha_renaming_map)))
                   in
 
                   let inhale_stmt =
@@ -1272,9 +1255,11 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                       ~loc
                       (Expr.mk_app ~loc ~typ:Type.perm
                          (AUPredCommit opened_au_token.callable)
-                         ([opened_au_token.token; 
-                          (Expr.mk_tuple opened_au_token.callable_args);
-                         Expr.mk_tuple commit_au_desc.proc_rets ]))
+                         [
+                           opened_au_token.token;
+                           Expr.mk_tuple opened_au_token.callable_args;
+                           Expr.mk_tuple commit_au_desc.proc_rets;
+                         ])
                   in
 
                   let atomicity_state = close_au ~loc token atomicity_state in
@@ -1283,9 +1268,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
               | _ -> assert false
             in
 
-            let new_stmt =
-              Stmt.mk_block_stmt ~loc (exhale_stmts @ [ inhale_stmt ])
-            in
+            let new_stmt = Stmt.mk_block_stmt ~loc (exhale_stmts @ [ inhale_stmt ]) in
 
             let* _ = Rewriter.set_user_state atomicity_state in
 
@@ -1301,8 +1284,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             atomicity_state
         in
         let atomicity_state =
-          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext)
-            atomicity_state
+          take_ext_step ~loc (ext_hooks.stmt_ext_atomicity stmt_ext) atomicity_state
         in
         let* _ = Rewriter.set_user_state atomicity_state in
         Rewriter.return stmt
@@ -1325,17 +1307,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
           else begin
             Logs.warn (fun m ->
                 m "%s%s" (Loc.to_string loc)
-                  "this `atomic` block's body is assumed to be a single machine \
-                   step, not checked; Raven has no model of the target machine to \
-                   verify that against");
+                  "this `atomic` block's body is assumed to be a single machine step, \
+                   not checked; Raven has no model of the target machine to verify that \
+                   against");
             Rewriter.return ()
           end
         in
         (* One step to the enclosing context, however many statements inside. *)
         let outer = take_atomic_step ~loc atomicity_state in
-        let* _ =
-          Rewriter.set_user_state { outer with in_atomic_block = true }
-        in
+        let* _ = Rewriter.set_user_state { outer with in_atomic_block = true } in
         let* stmt = Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds in
         let* inner = Rewriter.current_user_state in
         (* Anything opened inside must be closed inside: an invariant held across
@@ -1351,8 +1331,8 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
           then Rewriter.return ()
           else
             Error.verification_error loc
-              "An invariant or atomic update opened inside an atomic block must \
-               also be closed inside it"
+              "An invariant or atomic update opened inside an atomic block must also be \
+               closed inside it"
         in
         (* A close inside the body clears the step flag, but the block's step
            still counts against whatever is open after it. *)
@@ -1367,20 +1347,15 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
         Rewriter.return stmt
     | Block block_desc -> Rewriter.Stmt.descend stmt ~f:rewrite_au_cmnds
     | Cond cond_desc ->
-        let* then_stmt =
-          Rewriter.Stmt.descend cond_desc.cond_then ~f:rewrite_au_cmnds
-        in
+        let* then_stmt = Rewriter.Stmt.descend cond_desc.cond_then ~f:rewrite_au_cmnds in
         let* then_atomicity_state = Rewriter.current_user_state in
 
         let* _ = Rewriter.set_user_state atomicity_state in
-        let* else_stmt =
-          Rewriter.Stmt.descend cond_desc.cond_else ~f:rewrite_au_cmnds
-        in
+        let* else_stmt = Rewriter.Stmt.descend cond_desc.cond_else ~f:rewrite_au_cmnds in
         let* else_atomicity_state = Rewriter.current_user_state in
 
         let if_else_atomicity_states_equal =
-          same_open_invs then_atomicity_state.invs_opened
-            else_atomicity_state.invs_opened
+          same_open_invs then_atomicity_state.invs_opened else_atomicity_state.invs_opened
           && List.equal same_open_au then_atomicity_state.au_opened
                else_atomicity_state.au_opened
         in
@@ -1398,12 +1373,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
             {
               stmt with
               stmt_desc =
-                Cond
-                  {
-                    cond_desc with
-                    cond_then = then_stmt;
-                    cond_else = else_stmt;
-                  };
+                Cond { cond_desc with cond_then = then_stmt; cond_else = else_stmt };
             }
           in
 
@@ -1418,8 +1388,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
                *every* reachable arm is safe to carry past the join -- an
                intersection, not either side alone. *)
             let joined_mask =
-              Callable.mask_inter then_atomicity_state.mask
-                else_atomicity_state.mask
+              Callable.mask_inter then_atomicity_state.mask else_atomicity_state.mask
             in
             (* The conditional itself is not a step: evaluating the test is
                thread-local (heap reads aren't permitted in a condition, so
@@ -1449,9 +1418,7 @@ let rewrite_au_cmnds (stmt : Stmt.t) : (Stmt.t, atomicity_check) Rewriter.t_ext
   let* stmt = rewrite_au_cmnds stmt in
   let* atomicity_state = Rewriter.current_user_state in
 
-  if
-    List.is_empty atomicity_state.au_opened
-    && List.is_empty atomicity_state.invs_opened
+  if List.is_empty atomicity_state.au_opened && List.is_empty atomicity_state.invs_opened
   then Rewriter.return stmt
   else unclosed_error ~body_loc:stmt.stmt_loc atomicity_state
 
@@ -1460,8 +1427,8 @@ let rewrite_atomicity_analysis (c : Callable.t) : Callable.t Rewriter.t =
   let* scope_id = Rewriter.current_scope_id in
   Logs.debug (fun m ->
       m
-        "Rewrites.rewrite_atomicity_analysis: Rewriting atomicity analysis for \
-         callable: %a"
+        "Rewrites.rewrite_atomicity_analysis: Rewriting atomicity analysis for callable: \
+         %a"
         QualIdent.pr scope_id);
   let+ c =
     Rewriter.eval_with_user_state

@@ -15,39 +15,54 @@
 (rule
  (target prophecyExt.mly)
  (deps ../ext/prophecyExt/prophecyExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (rule
  (target errorCreditsExt_parser.mly)
  (deps ../ext/errorCreditsExt/errorCreditsExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (rule
  (target sampleExt_parser.mly)
  (deps ../ext/sampleExt/sampleExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (rule
  (target decreasesExt_parser.mly)
  (deps ../ext/decreasesExt/decreasesExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (rule
  (target assertWithExt_parser.mly)
  (deps ../ext/assertWithExt/assertWithExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (rule
  (target matchExt_parser.mly)
  (deps ../ext/matchExt/matchExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (rule
  (target seqExt_parser.mly)
  (deps ../ext/seqExt/seqExt_parser.mly)
- (action (copy %{deps} %{target})))
+ (action
+  (copy %{deps} %{target})))
 
 (menhir
- (modules parser prophecyExt errorCreditsExt_parser sampleExt_parser decreasesExt_parser assertWithExt_parser matchExt_parser seqExt_parser)
+ (modules
+  parser
+  prophecyExt
+  errorCreditsExt_parser
+  sampleExt_parser
+  decreasesExt_parser
+  assertWithExt_parser
+  matchExt_parser
+  seqExt_parser)
  (merge_into parser)
  (flags --explain))

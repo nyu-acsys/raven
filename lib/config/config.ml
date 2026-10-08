@@ -3,17 +3,17 @@
 (** Version string *)
 let version = "1.4.2"
 
-(** Version of the machine-readable interface an editor integration drives raven
-    through: the JSON diagnostic schema emitted under [--lsp-mode], and the flags such
-    a client relies on. Deliberately independent of [version] -- a client that can
-    fetch and run a raven it was not shipped with needs to know whether it can still
-    understand that binary, and most releases change nothing here. Bump it only when
-    an existing client would notice the difference. 2: a client may pass
-    [--extension auto]. 3: a client may pass [--lsp-annotations]. *)
+(** Version of the machine-readable interface an editor integration drives raven through:
+    the JSON diagnostic schema emitted under [--lsp-mode], and the flags such a client
+    relies on. Deliberately independent of [version] -- a client that can fetch and run a
+    raven it was not shipped with needs to know whether it can still understand that
+    binary, and most releases change nothing here. Bump it only when an existing client
+    would notice the difference. 2: a client may pass [--extension auto]. 3: a client may
+    pass [--lsp-annotations]. *)
 let lsp_protocol_version = 3
 
-(** Oldest Z3 raven is known to work against. A client that supplies its own z3
-    alongside a raven it downloaded needs this to tell whether the pair is viable. *)
+(** Oldest Z3 raven is known to work against. A client that supplies its own z3 alongside
+    a raven it downloaded needs this to tell whether the pair is viable. *)
 let min_z3_version = "4.13.0"
 
 (** The command line options *)
