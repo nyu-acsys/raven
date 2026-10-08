@@ -109,119 +109,9 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes no arguments")
               (* Variables, fields, and call expressions *)
-              | Var qual_ident, args_list -> (
-                  let* resolved =
-                    (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
-                 its type argument(s) from the call and rewrite to the instantiation. *)
-                    ImplicitInstantiation.resolve_or_implicit_opt qual_ident
-                      ~on_miss:(fun () ->
-                        (* An unqualified name imported from an uninstantiated functor is
-                           recovered from the import first. *)
-                        let* imported = Rewriter.find_import_target qual_ident in
-                        let candidate = Base.Option.value imported ~default:qual_ident in
-                        ImplicitInstantiation.try_resolve_implicit_instantiation
-                          ~check_expr:check ~claimed_location ~loc:(Expr.to_loc expr)
-                          ~qual_ident:candidate ~arg_exprs:args_list ~expected_typ ())
-                  in
-                  match resolved with
-                  | None ->
-                      (* Unresolved. While speculating, this gives `Bot`, as an
-                         underdetermined literal does, so that the enclosing call decides;
-                         otherwise it is an unknown identifier. *)
-                      let* speculative = is_speculative in
-                      if speculative then
-                        set_checked_type expr Type.bot Type.bot expected_typ
-                      else
-                        let* _ = Rewriter.resolve_and_find qual_ident in
-                        Error.internal_error (Expr.to_loc expr)
-                          "Rewriter.resolve_and_find unexpectedly succeeded after \
-                           ImplicitInstantiation.resolve_or_implicit_opt failed"
-                  | Some (qual_ident, symbol) -> (
-                      let* symbol = Rewriter.Symbol.reify symbol in
-                      match symbol with
-                      | ConstrDef _constr ->
-                          check
-                            (App (DataConstr qual_ident, args_list, Expr.attr_of expr))
-                            expected_typ
-                      | CallDef callable ->
-                          let callable_decl = Callable.to_decl callable in
-                          let* _ =
-                            match callable_decl.call_decl_kind with
-                            | (Proc | Lemma) when not allow_proc_call ->
-                                Error.type_error (Expr.to_loc expr)
-                                  (Printf.sprintf
-                                     !"%s %{Ident} can only be called as the right-hand \
-                                       side of an assignment statement, e.g. `x := \
-                                       %{Ident}(...)`. Assign its result to a variable \
-                                       first if you need to use it in an expression"
-                                     (match callable_decl.call_decl_kind with
-                                     | Proc -> "Procedure"
-                                     | _ -> "Lemma")
-                                     callable_decl.call_decl_name
-                                     callable_decl.call_decl_name)
-                            | _ -> Rewriter.return ()
-                          in
-                          let* is_ghost_scope = Rewriter.is_ghost_scope in
-                          let is_ghost_scope =
-                            is_ghost_scope
-                            ||
-                            match callable_decl.call_decl_kind with
-                            | Lemma | Pred | Invariant -> true
-                            | Func -> expected_typ |> Type.is_ghost
-                            | _ -> false
-                          in
-                          let* args_list =
-                            check_args (Expr.to_loc expr) is_ghost_scope callable_decl
-                              args_list
-                          in
-                          let* _ =
-                            (* If this is an auto lemma, check that it is well-formed *)
-                            if
-                              callable.call_decl.call_decl_is_auto
-                              &&
-                              match callable_decl.call_decl_kind with
-                              | Lemma -> true
-                              | _ -> false
-                            then begin
-                              let+ _ =
-                                Rewriter.List.iter
-                                  (callable.call_decl.call_decl_precond
-                                 @ callable.call_decl.call_decl_postcond) ~f:(fun spec ->
-                                    let+ is_pure =
-                                      lift (ProgUtils.is_expr_pure spec.spec_form)
-                                    in
-                                    if not is_pure then
-                                      Error.type_error callable.call_decl.call_decl_loc
-                                        (Printf.sprintf
-                                           !"This specification of auto lemma %{Ident} \
-                                             is not pure"
-                                           callable.call_decl.call_decl_name))
-                              in
-                              ()
-                            end
-                            else Rewriter.return ()
-                          in
-                          let given_typ = Callable.return_type callable_decl in
-                          let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
-                          set_checked_type expr given_typ given_typ expected_typ
-                      | VarDef _ | FieldDef _ ->
-                          let given_typ =
-                            match (symbol, args_list) with
-                            | VarDef var_def, [] -> var_def.var_decl.var_type
-                            | FieldDef field_def, [] -> field_def.field_type
-                            | _ ->
-                                Error.type_error (Expr.to_loc expr)
-                                  (Printf.sprintf
-                                     !"Identifier %{QualIdent} cannot be called"
-                                     qual_ident)
-                          in
-                          let expr = Expr.App (Var qual_ident, [], expr_attr) in
-                          set_checked_type expr given_typ given_typ expected_typ
-                      | _ ->
-                          Error.type_error (Expr.to_loc expr)
-                            ("Expected a variable, field, or callable identifier, but \
-                              found "
-                            ^ QualIdent.to_string qual_ident)))
+              | Var qual_ident, args_list ->
+                  check_var qual_ident args_list expr_attr expr expected_typ
+                    ~allow_proc_call
               (* Unary expressions *)
               | (Not | Uminus), [ expr_arg ] ->
                   let given_type_ub =
@@ -249,115 +139,7 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | Gt | Lt
                   | Geq | Leq | And | Or | Impl | Elem | Eq ),
                   [ expr1; expr2 ] ) ->
-                  (* infer and propagated expected type of expr1 *)
-                  let expected_typ1 =
-                    let ty =
-                      match constr with
-                      | TupleLookUp -> Type.(any)
-                      | MapLookUp -> Type.(map bot expected_typ)
-                      | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
-                      | And | Or -> Type.perm
-                      | Impl -> Type.bool (* antecedent must be pure *)
-                      | Elem | Eq -> Type.any
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr1 = check expr1 expected_typ1 in
-                  let typ1 = Expr.to_type expr1 in
-                  (* infer and propagated expected type of expr2 *)
-                  let expected_typ2 =
-                    let ty =
-                      match constr with
-                      | TupleLookUp -> Type.int
-                      | MapLookUp -> Type.map_dom typ1
-                      | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> typ1
-                      | Eq -> (
-                          (* Widened, so that either side may be the finite set: the two sides
-                     are then typed at their join below. *)
-                          match typ1 with
-                          | App (FinSet, [ elem ], _) -> Type.set_typed elem
-                          | _ -> typ1)
-                      | And | Or | Impl -> Type.perm
-                      | Elem -> Type.(set_typed typ1)
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr2 = check expr2 expected_typ2 in
-                  let typ2 = Expr.to_type expr2 in
-
-                  (* backpropagate typ2 to expr1 if needed *)
-                  let expected_typ1 =
-                    let ty =
-                      match constr with
-                      | TupleLookUp ->
-                          let idx = Expr.to_int expr2 in
-                          begin match typ1 with
-                          | App (Prod, ts, _) when idx < List.length ts && idx >= 0 ->
-                              typ1
-                          | App (Prod, ts, _) ->
-                              Error.type_error (Expr.to_loc expr2)
-                                (Printf.sprintf
-                                   !"Tuple index %d is out of bounds; %{Type} has %d \
-                                     component(s)"
-                                   idx typ1 (List.length ts))
-                          | App _ ->
-                              Error.type_error (Expr.to_loc expr1)
-                                (Printf.sprintf
-                                   !"Expected product type, but found %{Type}"
-                                   typ1)
-                          end
-                      | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
-                      | Plus | Minus | Mult | Div | Mod | Eq | Gt | Lt | Geq | Leq ->
-                          Type.join typ1 typ2
-                      | And | Or | Impl -> Type.perm
-                      | Elem -> Type.set_elem typ2
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr1 =
-                    if Type.equal expected_typ1 typ1 then Rewriter.return expr1
-                    else check expr1 expected_typ1
-                  in
-
-                  let expected_typ =
-                    let ty =
-                      if not @@ Type.is_any expected_typ then expected_typ
-                      else
-                        match constr with
-                        | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
-                        | MapLookUp -> Type.map_codom typ1
-                        | Plus | Minus | Mult | Div | Mod -> Type.join typ1 typ2
-                        | And | Or | Impl -> expected_typ
-                        | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
-                        | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-
-                  (* recompute expr and check against its expected type *)
-                  let given_typ_lb, given_typ_ub =
-                    match constr with
-                    | TupleLookUp ->
-                        let typ = Type.tuple_lookup typ1 (Expr.to_int expr2) in
-                        (typ, typ)
-                    | MapLookUp ->
-                        let typ = expr1 |> Expr.to_type |> Type.map_codom in
-                        (typ, typ)
-                    | Plus | Minus | Mult | Div | Mod ->
-                        let typ = expr1 |> Expr.to_type in
-                        (typ, typ)
-                    | And | Or | Impl ->
-                        let typ = expr1 |> Expr.to_type in
-                        (Type.join typ typ2, Type.join typ typ2)
-                    | Elem | Eq | Gt | Lt | Geq | Leq -> (Type.bool, Type.bool)
-                    | _ -> assert false
-                  in
-                  set_checked_type
-                    (App (constr, [ expr1; expr2 ], expr_attr))
-                    given_typ_lb given_typ_ub expected_typ
+                  check_binary expr1 expr2 constr expr_attr expected_typ
               | ( ( TupleLookUp | MapLookUp | Plus | Minus | Mult | Div | Mod | And | Or
                   | Impl | Elem | Eq | Gt | Lt | Geq | Leq ),
                   _expr_list ) ->
@@ -365,229 +147,22 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                     (Expr.constr_to_string constr ^ " takes exactly two arguments")
               (* Ternary expressions *)
               | (Ite | MapUpdate), [ expr1; expr2; expr3 ] ->
-                  (* infer and propagate expected type of expr1 *)
-                  let expected_typ1 =
-                    let ty =
-                      match constr with
-                      | Ite -> Type.bool
-                      | MapUpdate -> Type.(map bot any)
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr1 = check expr1 expected_typ1 in
-                  let typ1 = Expr.to_type expr1 in
-                  (* infer and propagate expected type of expr2 *)
-                  let expected_typ2 =
-                    let ty =
-                      match constr with
-                      | Ite -> expected_typ
-                      | MapUpdate -> Type.map_dom typ1
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr2 = check expr2 expected_typ2 in
-                  let typ2 = Expr.to_type expr2 in
-                  (* infer and propagate expected type of expr3 *)
-                  let expected_typ3 =
-                    let ty =
-                      match constr with
-                      | Ite -> expected_typ
-                      | MapUpdate -> Type.map_codom typ1
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr3 = check expr3 expected_typ3 in
-                  let typ3 = Expr.to_type expr3 in
-                  (* backpropagate typ3 to expr2 if needed *)
-                  let expected_typ2 =
-                    let ty =
-                      match constr with
-                      | Ite -> Type.join typ2 typ3
-                      | MapUpdate -> typ2
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr2 =
-                    if Type.equal expected_typ2 typ2 then Rewriter.return expr2
-                    else check expr2 expected_typ2
-                  in
-                  let typ2 = Expr.to_type expr2 in
-                  (* backpropagate typ3 and typ2 to expr1 if needed *)
-                  let expected_typ1 =
-                    let ty =
-                      match constr with
-                      | Ite -> Type.bool
-                      | MapUpdate -> Type.map typ2 typ3
-                      | _ -> assert false
-                    in
-                    ty |> Type.set_ghost_to expected_typ
-                  in
-                  let* expr1 =
-                    if Type.equal expected_typ1 typ1 then Rewriter.return expr1
-                    else check expr1 expected_typ1
-                  in
-                  let typ1 = Expr.to_type expr1 in
-                  (* recompute expr and check against its expected type *)
-                  let given_typ_lb, given_typ_ub =
-                    match constr with
-                    | Ite -> (typ3, typ3)
-                    | MapUpdate -> (typ1, typ1)
-                    | _ -> assert false
-                  in
-                  let expr = Expr.App (constr, [ expr1; expr2; expr3 ], expr_attr) in
-                  set_checked_type expr given_typ_lb given_typ_ub expected_typ
+                  check_ternary expr1 expr2 expr3 constr expr_attr expr expected_typ
               | (Ite | MapUpdate), _expr_list ->
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly three arguments")
               (* Ownership predicates *)
-              | Own, arg_list ->
-                  let* arg_list =
-                    match arg_list with
-                    | location :: rest ->
-                        let+ location = claimed_location location in
-                        location :: rest
-                    | [] -> Rewriter.return []
-                  in
-                  let* expr1, expr2, expr3, expr4_opt =
-                    match arg_list with
-                    | (App
-                         ( Read,
-                           [ expr1; (App (Var qual_ident, [], expr_attr') as expr2) ],
-                           _ ) as expr12)
-                      :: expr3 :: expr4_opt -> begin
-                        let* qual_ident, symbol = Rewriter.resolve_and_find qual_ident in
-                        let+ symbol = Rewriter.Symbol.reify symbol in
-                        match symbol with
-                        | FieldDef _ -> (expr1, expr2, expr3, expr4_opt)
-                        | _ -> (
-                            match expr4_opt with
-                            | expr41 :: expr4_opt -> (expr12, expr3, expr41, expr4_opt)
-                            | _ ->
-                                Error.type_error (Expr.to_loc expr12)
-                                  "Expected field location")
-                      end
-                    | expr1
-                      :: (App (Var qual_ident, [], expr_attr') as expr2)
-                      :: expr3 :: expr4_opt ->
-                        Rewriter.return (expr1, expr2, expr3, expr4_opt)
-                    | _ ->
-                        Error.type_error (Expr.to_loc expr)
-                          (Expr.constr_to_string constr
-                         ^ " takes either three or four arguments, and second argument \
-                            is a field name")
-                  in
-                  let* expr1 = check expr1 (Type.ref |> Type.set_ghost_to expected_typ)
-                  and* expr2 = check expr2 (Type.any |> Type.set_ghost_to expected_typ) in
-
-                  let* field_type =
-                    match expr2 with
-                    | App (Var qual_ident, [], _) ->
-                        let+ field_def = Rewriter.find_and_reify_field qual_ident in
-                        field_def.field_type |> Type.field_val
-                        |> Type.set_ghost_to expected_typ
-                    | _ ->
-                        Error.type_error (Expr.to_loc expr2) "Expected field identifier"
-                  in
-                  let* is_ra_type = lift (ProgUtils.is_ra_type field_type) in
-                  let* expr3 = check expr3 field_type
-                  (* Implicitely case-split on heap RA vs. other RA *)
-                  and* expr4_opt =
-                    match expr4_opt with
-                    | [] ->
-                        if not is_ra_type then
-                          Rewriter.return [ Expr.mk_real ~loc:(Expr.to_loc expr) 1.0 ]
-                        else Rewriter.return []
-                    | [ e ] ->
-                        if is_ra_type then
-                          Error.type_error (Expr.to_loc e)
-                            "'own(...)' for a field whose value is a resource algebra \
-                             (RA) element does not take an extra fraction argument"
-                        else
-                          let+ e =
-                            check e (Type.real |> Type.set_ghost_to expected_typ)
-                          in
-                          [ e ]
-                    | _ ->
-                        Error.type_error (Expr.to_loc expr)
-                          "Too many arguments supplied to predicate 'own'"
-                  in
-                  (* Reconstruct and check expr *)
-                  let expr =
-                    Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr)
-                  in
-                  set_checked_type expr Type.perm Type.perm expected_typ
+              | Own, arg_list -> check_own arg_list constr expr_attr expr expected_typ
               | AUPred call_name, [ token; args_tuple ] ->
-                  let loc = Expr.to_loc expr in
-                  let* call_name, symbol = Rewriter.resolve_and_find call_name in
-
-                  let args_list = Expr.unfold_tuple args_tuple in
-
-                  let* callable_decl =
-                    let+ symbol = Rewriter.Symbol.reify symbol in
-                    match symbol with
-                    | CallDef callable
-                      when Poly.(callable.call_decl.call_decl_kind = Proc) ->
-                        callable.call_decl
-                    | _ -> Error.type_error loc "Expected callable identifier"
-                  in
-
-                  if not (Callable.is_atomic callable_decl) then
-                    Error.type_error loc "Expected procedure with atomic specification"
-                  else
-                    let* token = check token (Type.atomic_token call_name) in
-                    let* args_list =
-                      check_args ~is_called:false loc true callable_decl args_list
-                    in
-                    let expr =
-                      Expr.App
-                        (AUPred call_name, [ token; Expr.mk_tuple args_list ], expr_attr)
-                    in
-                    set_checked_type expr Type.perm Type.perm expected_typ
+                  check_au_pred call_name token args_tuple expr_attr expr expected_typ
               | AUPred _, _ ->
                   Error.type_error (Expr.to_loc expr)
                     "au<proc>() called with incorrect number of arguments. Expected: \
                      first argument: AtomicToken<proc>; second argument: tuple of proc \
                      args (or unit)"
               | AUPredCommit call_name, [ token; args_tuple; rets_tuple ] ->
-                  let loc = Expr.to_loc expr in
-                  let* call_name, symbol = Rewriter.resolve_and_find call_name in
-
-                  let args_list = Expr.unfold_tuple args_tuple in
-
-                  let* callable_decl =
-                    let+ symbol = Rewriter.Symbol.reify symbol in
-                    match symbol with
-                    | CallDef callable
-                      when Poly.(callable.call_decl.call_decl_kind = Proc) ->
-                        callable.call_decl
-                    | _ -> Error.type_error loc "Expected procedure identifier"
-                  in
-
-                  if not (Callable.is_atomic callable_decl) then
-                    Error.type_error loc "Expected procedure with atomic specification"
-                  else
-                    let* token = check token (Type.atomic_token call_name) in
-                    let* args_list =
-                      check_args ~is_called:false loc true callable_decl args_list
-                    in
-                    let* rets_tuple =
-                      check rets_tuple
-                        (Type.mk_prod loc
-                           (List.map callable_decl.call_decl_returns ~f:(fun v ->
-                                v.var_type))
-                        |> Type.set_ghost true)
-                    in
-                    let expr =
-                      Expr.App
-                        ( AUPredCommit call_name,
-                          [ token; Expr.mk_tuple args_list; rets_tuple ],
-                          expr_attr )
-                    in
-                    set_checked_type expr Type.perm Type.perm expected_typ
+                  check_au_pred_commit call_name token args_tuple rets_tuple expr_attr
+                    expr expected_typ
               | AUPredCommit _, _ ->
                   Error.type_error (Expr.to_loc expr)
                     "auCommit<proc>() called with incorrect number of arguments. \
@@ -596,34 +171,8 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                      unit)"
               (* Data constructor expressions *)
               | DataConstr constr_ident, args_list ->
-                  let loc = QualIdent.to_loc constr_ident in
-                  let* constr_decl =
-                    let* symbol = Rewriter.find constr_ident in
-                    let+ symbol = Rewriter.Symbol.reify symbol in
-                    match symbol with
-                    | ConstrDef constr -> constr
-                    | _ -> Error.type_error loc "Expected data constructor"
-                  in
-                  let constr_arg_types_list =
-                    List.map constr_decl.constr_args ~f:(fun var_decl ->
-                        var_decl.var_type |> Type.set_ghost_to expected_typ)
-                  in
-                  let* maybe_args_list =
-                    Rewriter.List.map2 args_list constr_arg_types_list
-                      ~f:(fun expr tp_expr -> check expr tp_expr)
-                  in
-                  let args_list =
-                    match maybe_args_list with
-                    | Ok list -> list
-                    | Unequal_lengths ->
-                        Error.type_error (Expr.to_loc expr)
-                          ("data constructor "
-                          ^ QualIdent.to_string constr_ident
-                          ^ " called with incorrect number of arguments")
-                  in
-                  let given_typ = constr_decl.constr_return_type in
-                  let expr = Expr.App (constr, args_list, expr_attr) in
-                  set_checked_type expr given_typ given_typ expected_typ
+                  check_data_constr constr_ident args_list constr expr_attr expr
+                    expected_typ
               (* Data destructor expressions *)
               | DataDestr destr_qual_ident, [ expr1 ] ->
                   let loc = QualIdent.to_loc destr_qual_ident in
@@ -648,39 +197,8 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly one argument")
               (* Read expressions *)
-              | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
-                  let* qual_ident, symbol =
-                    (* `e.M.value` for an uninstantiated functor `M`: inferred from the
-                       type of `e` (see
-                       [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]).
-                       An unqualified destructor imported from one is recovered from the
-                       import first, as in the [Var] case. *)
-                    ImplicitInstantiation.resolve_or_implicit field_ident
-                      ~on_miss:(fun () ->
-                        let* imported = Rewriter.find_import_target field_ident in
-                        let candidate = Base.Option.value imported ~default:field_ident in
-                        let* peeked_expr1 =
-                          check expr1 (Type.any |> Type.set_ghost_to expected_typ)
-                        in
-                        ImplicitInstantiation.try_resolve_implicit_instantiation_destr
-                          ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
-                  in
-                  let* symbol = Rewriter.Symbol.reify symbol in
-                  match symbol with
-                  | DestrDef _ ->
-                      check
-                        (App (DataDestr qual_ident, [ expr1 ], expr_attr))
-                        expected_typ
-                  | FieldDef _ ->
-                      Error.type_error (Expr.to_loc expr)
-                        (Printf.sprintf
-                           !"Cannot read field %{QualIdent} in this context"
-                           field_ident)
-                  | _ ->
-                      Error.type_error (Expr.to_loc expr)
-                        (Printf.sprintf
-                           !"Expected destructor identifier, but found %s %{QualIdent}"
-                           (Symbol.kind symbol) qual_ident))
+              | Read, [ expr1; App (Var field_ident, [], expr_attr') ] ->
+                  check_read expr1 field_ident expr_attr expr expected_typ
               | Read, _expr_list ->
                   Error.type_error (Expr.to_loc expr)
                     (Expr.constr_to_string constr ^ " takes exactly two arguments")
@@ -739,61 +257,543 @@ let rec check ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr
                          expand_type_expr =
                            (fun tp -> run_typing (TypeExpr.expand_type_expr tp));
                        })))
-      | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) -> (
-          let* var_decl_list =
-            Rewriter.List.map var_decl_list ~f:(fun var_decl ->
-                TypeExpr.check_var_decl var_decl)
+      | Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) ->
+          check_binder binder var_decl_list trgs inner_expr expr_attr expr expected_typ)
+
+(** A variable, field, or a call of the callable [qual_ident] with [args_list]. *)
+and check_var (qual_ident : qual_ident) (args_list : expr list)
+    (expr_attr : Expr.expr_attr) (expr : expr) (expected_typ : type_expr)
+    ~(allow_proc_call : bool) : expr t =
+  let open Rewriter.Syntax in
+  let* resolved =
+    (* `M.foo` where `M` is an uninstantiated generic functor: try to solve
+                 its type argument(s) from the call and rewrite to the instantiation. *)
+    ImplicitInstantiation.resolve_or_implicit_opt qual_ident ~on_miss:(fun () ->
+        (* An unqualified name imported from an uninstantiated functor is
+                           recovered from the import first. *)
+        let* imported = Rewriter.find_import_target qual_ident in
+        let candidate = Base.Option.value imported ~default:qual_ident in
+        ImplicitInstantiation.try_resolve_implicit_instantiation ~check_expr:check
+          ~claimed_location ~loc:(Expr.to_loc expr) ~qual_ident:candidate
+          ~arg_exprs:args_list ~expected_typ ())
+  in
+  match resolved with
+  | None ->
+      (* Unresolved. While speculating, this gives `Bot`, as an
+                         underdetermined literal does, so that the enclosing call decides;
+                         otherwise it is an unknown identifier. *)
+      let* speculative = is_speculative in
+      if speculative then set_checked_type expr Type.bot Type.bot expected_typ
+      else
+        let* _ = Rewriter.resolve_and_find qual_ident in
+        Error.internal_error (Expr.to_loc expr)
+          "Rewriter.resolve_and_find unexpectedly succeeded after \
+           ImplicitInstantiation.resolve_or_implicit_opt failed"
+  | Some (qual_ident, symbol) -> (
+      let* symbol = Rewriter.Symbol.reify symbol in
+      match symbol with
+      | ConstrDef _constr ->
+          check (App (DataConstr qual_ident, args_list, Expr.attr_of expr)) expected_typ
+      | CallDef callable ->
+          let callable_decl = Callable.to_decl callable in
+          let* _ =
+            match callable_decl.call_decl_kind with
+            | (Proc | Lemma) when not allow_proc_call ->
+                Error.type_error (Expr.to_loc expr)
+                  (Printf.sprintf
+                     !"%s %{Ident} can only be called as the right-hand side of an \
+                       assignment statement, e.g. `x := %{Ident}(...)`. Assign its \
+                       result to a variable first if you need to use it in an expression"
+                     (match callable_decl.call_decl_kind with
+                     | Proc -> "Procedure"
+                     | _ -> "Lemma")
+                     callable_decl.call_decl_name callable_decl.call_decl_name)
+            | _ -> Rewriter.return ()
           in
-          let* _ = Rewriter.add_locals var_decl_list in
-
-          match binder with
-          | Forall | Exists ->
-              let* inner_expr = check inner_expr expected_typ in
-              let* trgs =
-                Rewriter.List.map trgs ~f:(fun trg ->
-                    Rewriter.List.map trg ~f:(fun expr ->
-                        check expr (Type.any |> Type.set_ghost true)))
+          let* is_ghost_scope = Rewriter.is_ghost_scope in
+          let is_ghost_scope =
+            is_ghost_scope
+            ||
+            match callable_decl.call_decl_kind with
+            | Lemma | Pred | Invariant -> true
+            | Func -> expected_typ |> Type.is_ghost
+            | _ -> false
+          in
+          let* args_list =
+            check_args (Expr.to_loc expr) is_ghost_scope callable_decl args_list
+          in
+          let* _ =
+            (* If this is an auto lemma, check that it is well-formed *)
+            if
+              callable.call_decl.call_decl_is_auto
+              && match callable_decl.call_decl_kind with Lemma -> true | _ -> false
+            then begin
+              let+ _ =
+                Rewriter.List.iter
+                  (callable.call_decl.call_decl_precond
+                 @ callable.call_decl.call_decl_postcond) ~f:(fun spec ->
+                    let+ is_pure = lift (ProgUtils.is_expr_pure spec.spec_form) in
+                    if not is_pure then
+                      Error.type_error callable.call_decl.call_decl_loc
+                        (Printf.sprintf
+                           !"This specification of auto lemma %{Ident} is not pure"
+                           callable.call_decl.call_decl_name))
               in
+              ()
+            end
+            else Rewriter.return ()
+          in
+          let given_typ = Callable.return_type callable_decl in
+          let expr = Expr.App (Var qual_ident, args_list, expr_attr) in
+          set_checked_type expr given_typ given_typ expected_typ
+      | VarDef _ | FieldDef _ ->
+          let given_typ =
+            match (symbol, args_list) with
+            | VarDef var_def, [] -> var_def.var_decl.var_type
+            | FieldDef field_def, [] -> field_def.field_type
+            | _ ->
+                Error.type_error (Expr.to_loc expr)
+                  (Printf.sprintf !"Identifier %{QualIdent} cannot be called" qual_ident)
+          in
+          let expr = Expr.App (Var qual_ident, [], expr_attr) in
+          set_checked_type expr given_typ given_typ expected_typ
+      | _ ->
+          Error.type_error (Expr.to_loc expr)
+            ("Expected a variable, field, or callable identifier, but found "
+            ^ QualIdent.to_string qual_ident))
 
-              (* TODO: Add additional checks for triggers *)
-              let inner_typ = Expr.to_type inner_expr in
-              let expr =
-                Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr)
-              in
-              set_checked_type expr Type.bool
-                (Type.perm |> Type.set_ghost_to expected_typ)
-                inner_typ
-          | Compr ->
-              let var_decl =
-                match var_decl_list with
-                | [ v ] -> v
-                | _ ->
-                    Error.type_error (Expr.to_loc expr)
-                      "Map/set comprehensions can only quantify over one variable"
-              in
+(** A binary operation. *)
+and check_binary (expr1 : expr) (expr2 : expr) (constr : Expr.constr)
+    (expr_attr : Expr.expr_attr) (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  (* infer and propagated expected type of expr1 *)
+  let expected_typ1 =
+    let ty =
+      match constr with
+      | TupleLookUp -> Type.(any)
+      | MapLookUp -> Type.(map bot expected_typ)
+      | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> Type.num
+      | And | Or -> Type.perm
+      | Impl -> Type.bool (* antecedent must be pure *)
+      | Elem | Eq -> Type.any
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr1 = check expr1 expected_typ1 in
+  let typ1 = Expr.to_type expr1 in
+  (* infer and propagated expected type of expr2 *)
+  let expected_typ2 =
+    let ty =
+      match constr with
+      | TupleLookUp -> Type.int
+      | MapLookUp -> Type.map_dom typ1
+      | Plus | Minus | Mult | Div | Mod | Gt | Lt | Geq | Leq -> typ1
+      | Eq -> (
+          (* Widened, so that either side may be the finite set: the two sides
+                     are then typed at their join below. *)
+          match typ1 with
+          | App (FinSet, [ elem ], _) -> Type.set_typed elem
+          | _ -> typ1)
+      | And | Or | Impl -> Type.perm
+      | Elem -> Type.(set_typed typ1)
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr2 = check expr2 expected_typ2 in
+  let typ2 = Expr.to_type expr2 in
 
-              let inner_expr_expected_typ =
-                let ty =
-                  match expected_typ with App (Map, [ _; tp ], _) -> tp | _ -> Type.any
-                in
-                ty |> Type.set_ghost_to expected_typ
-              in
+  (* backpropagate typ2 to expr1 if needed *)
+  let expected_typ1 =
+    let ty =
+      match constr with
+      | TupleLookUp ->
+          let idx = Expr.to_int expr2 in
+          begin match typ1 with
+          | App (Prod, ts, _) when idx < List.length ts && idx >= 0 -> typ1
+          | App (Prod, ts, _) ->
+              Error.type_error (Expr.to_loc expr2)
+                (Printf.sprintf
+                   !"Tuple index %d is out of bounds; %{Type} has %d component(s)"
+                   idx typ1 (List.length ts))
+          | App _ ->
+              Error.type_error (Expr.to_loc expr1)
+                (Printf.sprintf !"Expected product type, but found %{Type}" typ1)
+          end
+      | MapLookUp -> Type.(map typ2 (Type.map_codom typ1))
+      | Plus | Minus | Mult | Div | Mod | Eq | Gt | Lt | Geq | Leq -> Type.join typ1 typ2
+      | And | Or | Impl -> Type.perm
+      | Elem -> Type.set_elem typ2
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr1 =
+    if Type.equal expected_typ1 typ1 then Rewriter.return expr1
+    else check expr1 expected_typ1
+  in
 
-              let* inner_expr = check inner_expr inner_expr_expected_typ in
-              let inner_expr_type = Expr.to_type inner_expr in
+  let expected_typ =
+    let ty =
+      if not @@ Type.is_any expected_typ then expected_typ
+      else
+        match constr with
+        | TupleLookUp -> Type.tuple_lookup typ1 (Expr.to_int expr2)
+        | MapLookUp -> Type.map_codom typ1
+        | Plus | Minus | Mult | Div | Mod -> Type.join typ1 typ2
+        | And | Or | Impl -> expected_typ
+        | Eq | Gt | Lt | Geq | Leq | Elem -> Type.bool
+        | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
 
-              let expr_typ =
-                if Type.equal inner_expr_type Type.bool then
-                  Type.mk_set var_decl.var_loc var_decl.var_type
-                else Type.mk_map var_decl.var_loc var_decl.var_type inner_expr_type
-              in
+  (* recompute expr and check against its expected type *)
+  let given_typ_lb, given_typ_ub =
+    match constr with
+    | TupleLookUp ->
+        let typ = Type.tuple_lookup typ1 (Expr.to_int expr2) in
+        (typ, typ)
+    | MapLookUp ->
+        let typ = expr1 |> Expr.to_type |> Type.map_codom in
+        (typ, typ)
+    | Plus | Minus | Mult | Div | Mod ->
+        let typ = expr1 |> Expr.to_type in
+        (typ, typ)
+    | And | Or | Impl ->
+        let typ = expr1 |> Expr.to_type in
+        (Type.join typ typ2, Type.join typ typ2)
+    | Elem | Eq | Gt | Lt | Geq | Leq -> (Type.bool, Type.bool)
+    | _ -> assert false
+  in
+  set_checked_type
+    (App (constr, [ expr1; expr2 ], expr_attr))
+    given_typ_lb given_typ_ub expected_typ
 
-              let expr =
-                Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr)
-              in
-              set_checked_type expr expr_typ expr_typ expected_typ))
+(** A conditional or a map update. *)
+and check_ternary (expr1 : expr) (expr2 : expr) (expr3 : expr) (constr : Expr.constr)
+    (expr_attr : Expr.expr_attr) (expr : expr) (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  (* infer and propagate expected type of expr1 *)
+  let expected_typ1 =
+    let ty =
+      match constr with
+      | Ite -> Type.bool
+      | MapUpdate -> Type.(map bot any)
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr1 = check expr1 expected_typ1 in
+  let typ1 = Expr.to_type expr1 in
+  (* infer and propagate expected type of expr2 *)
+  let expected_typ2 =
+    let ty =
+      match constr with
+      | Ite -> expected_typ
+      | MapUpdate -> Type.map_dom typ1
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr2 = check expr2 expected_typ2 in
+  let typ2 = Expr.to_type expr2 in
+  (* infer and propagate expected type of expr3 *)
+  let expected_typ3 =
+    let ty =
+      match constr with
+      | Ite -> expected_typ
+      | MapUpdate -> Type.map_codom typ1
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr3 = check expr3 expected_typ3 in
+  let typ3 = Expr.to_type expr3 in
+  (* backpropagate typ3 to expr2 if needed *)
+  let expected_typ2 =
+    let ty =
+      match constr with
+      | Ite -> Type.join typ2 typ3
+      | MapUpdate -> typ2
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr2 =
+    if Type.equal expected_typ2 typ2 then Rewriter.return expr2
+    else check expr2 expected_typ2
+  in
+  let typ2 = Expr.to_type expr2 in
+  (* backpropagate typ3 and typ2 to expr1 if needed *)
+  let expected_typ1 =
+    let ty =
+      match constr with
+      | Ite -> Type.bool
+      | MapUpdate -> Type.map typ2 typ3
+      | _ -> assert false
+    in
+    ty |> Type.set_ghost_to expected_typ
+  in
+  let* expr1 =
+    if Type.equal expected_typ1 typ1 then Rewriter.return expr1
+    else check expr1 expected_typ1
+  in
+  let typ1 = Expr.to_type expr1 in
+  (* recompute expr and check against its expected type *)
+  let given_typ_lb, given_typ_ub =
+    match constr with
+    | Ite -> (typ3, typ3)
+    | MapUpdate -> (typ1, typ1)
+    | _ -> assert false
+  in
+  let expr = Expr.App (constr, [ expr1; expr2; expr3 ], expr_attr) in
+  set_checked_type expr given_typ_lb given_typ_ub expected_typ
 
-(* end of check *)
+(** An ownership predicate. *)
+and check_own (arg_list : expr list) (constr : Expr.constr) (expr_attr : Expr.expr_attr)
+    (expr : expr) (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let* arg_list =
+    match arg_list with
+    | location :: rest ->
+        let+ location = claimed_location location in
+        location :: rest
+    | [] -> Rewriter.return []
+  in
+  let* expr1, expr2, expr3, expr4_opt =
+    match arg_list with
+    | (App (Read, [ expr1; (App (Var qual_ident, [], expr_attr') as expr2) ], _) as expr12)
+      :: expr3 :: expr4_opt -> begin
+        let* qual_ident, symbol = Rewriter.resolve_and_find qual_ident in
+        let+ symbol = Rewriter.Symbol.reify symbol in
+        match symbol with
+        | FieldDef _ -> (expr1, expr2, expr3, expr4_opt)
+        | _ -> (
+            match expr4_opt with
+            | expr41 :: expr4_opt -> (expr12, expr3, expr41, expr4_opt)
+            | _ -> Error.type_error (Expr.to_loc expr12) "Expected field location")
+      end
+    | expr1 :: (App (Var qual_ident, [], expr_attr') as expr2) :: expr3 :: expr4_opt ->
+        Rewriter.return (expr1, expr2, expr3, expr4_opt)
+    | _ ->
+        Error.type_error (Expr.to_loc expr)
+          (Expr.constr_to_string constr
+         ^ " takes either three or four arguments, and second argument is a field name")
+  in
+  let* expr1 = check expr1 (Type.ref |> Type.set_ghost_to expected_typ)
+  and* expr2 = check expr2 (Type.any |> Type.set_ghost_to expected_typ) in
+
+  let* field_type =
+    match expr2 with
+    | App (Var qual_ident, [], _) ->
+        let+ field_def = Rewriter.find_and_reify_field qual_ident in
+        field_def.field_type |> Type.field_val |> Type.set_ghost_to expected_typ
+    | _ -> Error.type_error (Expr.to_loc expr2) "Expected field identifier"
+  in
+  let* is_ra_type = lift (ProgUtils.is_ra_type field_type) in
+  let* expr3 = check expr3 field_type
+  (* Implicitely case-split on heap RA vs. other RA *)
+  and* expr4_opt =
+    match expr4_opt with
+    | [] ->
+        if not is_ra_type then
+          Rewriter.return [ Expr.mk_real ~loc:(Expr.to_loc expr) 1.0 ]
+        else Rewriter.return []
+    | [ e ] ->
+        if is_ra_type then
+          Error.type_error (Expr.to_loc e)
+            "'own(...)' for a field whose value is a resource algebra (RA) element does \
+             not take an extra fraction argument"
+        else
+          let+ e = check e (Type.real |> Type.set_ghost_to expected_typ) in
+          [ e ]
+    | _ ->
+        Error.type_error (Expr.to_loc expr)
+          "Too many arguments supplied to predicate 'own'"
+  in
+  (* Reconstruct and check expr *)
+  let expr = Expr.App (Own, expr1 :: expr2 :: expr3 :: expr4_opt, expr_attr) in
+  set_checked_type expr Type.perm Type.perm expected_typ
+
+(** An atomic-update predicate of [call_name]. *)
+and check_au_pred (call_name : qual_ident) (token : expr) (args_tuple : expr)
+    (expr_attr : Expr.expr_attr) (expr : expr) (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let loc = Expr.to_loc expr in
+  let* call_name, symbol = Rewriter.resolve_and_find call_name in
+
+  let args_list = Expr.unfold_tuple args_tuple in
+
+  let* callable_decl =
+    let+ symbol = Rewriter.Symbol.reify symbol in
+    match symbol with
+    | CallDef callable when Poly.(callable.call_decl.call_decl_kind = Proc) ->
+        callable.call_decl
+    | _ -> Error.type_error loc "Expected callable identifier"
+  in
+
+  if not (Callable.is_atomic callable_decl) then
+    Error.type_error loc "Expected procedure with atomic specification"
+  else
+    let* token = check token (Type.atomic_token call_name) in
+    let* args_list = check_args ~is_called:false loc true callable_decl args_list in
+    let expr =
+      Expr.App (AUPred call_name, [ token; Expr.mk_tuple args_list ], expr_attr)
+    in
+    set_checked_type expr Type.perm Type.perm expected_typ
+
+(** An atomic-update commit predicate of [call_name]. *)
+and check_au_pred_commit (call_name : qual_ident) (token : expr) (args_tuple : expr)
+    (rets_tuple : expr) (expr_attr : Expr.expr_attr) (expr : expr)
+    (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let loc = Expr.to_loc expr in
+  let* call_name, symbol = Rewriter.resolve_and_find call_name in
+
+  let args_list = Expr.unfold_tuple args_tuple in
+
+  let* callable_decl =
+    let+ symbol = Rewriter.Symbol.reify symbol in
+    match symbol with
+    | CallDef callable when Poly.(callable.call_decl.call_decl_kind = Proc) ->
+        callable.call_decl
+    | _ -> Error.type_error loc "Expected procedure identifier"
+  in
+
+  if not (Callable.is_atomic callable_decl) then
+    Error.type_error loc "Expected procedure with atomic specification"
+  else
+    let* token = check token (Type.atomic_token call_name) in
+    let* args_list = check_args ~is_called:false loc true callable_decl args_list in
+    let* rets_tuple =
+      check rets_tuple
+        (Type.mk_prod loc
+           (List.map callable_decl.call_decl_returns ~f:(fun v -> v.var_type))
+        |> Type.set_ghost true)
+    in
+    let expr =
+      Expr.App
+        (AUPredCommit call_name, [ token; Expr.mk_tuple args_list; rets_tuple ], expr_attr)
+    in
+    set_checked_type expr Type.perm Type.perm expected_typ
+
+(** An application of the data constructor [constr_ident]. *)
+and check_data_constr (constr_ident : qual_ident) (args_list : expr list)
+    (constr : Expr.constr) (expr_attr : Expr.expr_attr) (expr : expr)
+    (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let loc = QualIdent.to_loc constr_ident in
+  let* constr_decl =
+    let* symbol = Rewriter.find constr_ident in
+    let+ symbol = Rewriter.Symbol.reify symbol in
+    match symbol with
+    | ConstrDef constr -> constr
+    | _ -> Error.type_error loc "Expected data constructor"
+  in
+  let constr_arg_types_list =
+    List.map constr_decl.constr_args ~f:(fun var_decl ->
+        var_decl.var_type |> Type.set_ghost_to expected_typ)
+  in
+  let* maybe_args_list =
+    Rewriter.List.map2 args_list constr_arg_types_list ~f:(fun expr tp_expr ->
+        check expr tp_expr)
+  in
+  let args_list =
+    match maybe_args_list with
+    | Ok list -> list
+    | Unequal_lengths ->
+        Error.type_error (Expr.to_loc expr)
+          ("data constructor "
+          ^ QualIdent.to_string constr_ident
+          ^ " called with incorrect number of arguments")
+  in
+  let given_typ = constr_decl.constr_return_type in
+  let expr = Expr.App (constr, args_list, expr_attr) in
+  set_checked_type expr given_typ given_typ expected_typ
+
+(** A read [expr1.field_ident] of a field or destructor. *)
+and check_read (expr1 : expr) (field_ident : qual_ident) (expr_attr : Expr.expr_attr)
+    (expr : expr) (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let* qual_ident, symbol =
+    (* `e.M.value` for an uninstantiated functor `M`: inferred from the
+                       type of `e` (see
+                       [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]).
+                       An unqualified destructor imported from one is recovered from the
+                       import first, as in the [Var] case. *)
+    ImplicitInstantiation.resolve_or_implicit field_ident ~on_miss:(fun () ->
+        let* imported = Rewriter.find_import_target field_ident in
+        let candidate = Base.Option.value imported ~default:field_ident in
+        let* peeked_expr1 = check expr1 (Type.any |> Type.set_ghost_to expected_typ) in
+        ImplicitInstantiation.try_resolve_implicit_instantiation_destr
+          ~field_ident:candidate ~arg_typ:(Expr.to_type peeked_expr1))
+  in
+  let* symbol = Rewriter.Symbol.reify symbol in
+  match symbol with
+  | DestrDef _ -> check (App (DataDestr qual_ident, [ expr1 ], expr_attr)) expected_typ
+  | FieldDef _ ->
+      Error.type_error (Expr.to_loc expr)
+        (Printf.sprintf !"Cannot read field %{QualIdent} in this context" field_ident)
+  | _ ->
+      Error.type_error (Expr.to_loc expr)
+        (Printf.sprintf
+           !"Expected destructor identifier, but found %s %{QualIdent}"
+           (Symbol.kind symbol) qual_ident)
+
+(** A quantifier or a comprehension. *)
+and check_binder (binder : Expr.binder) (var_decl_list : var_decl list)
+    (trgs : expr list list) (inner_expr : expr) (expr_attr : Expr.expr_attr) (expr : expr)
+    (expected_typ : type_expr) : expr t =
+  let open Rewriter.Syntax in
+  let* var_decl_list =
+    Rewriter.List.map var_decl_list ~f:(fun var_decl -> TypeExpr.check_var_decl var_decl)
+  in
+  let* _ = Rewriter.add_locals var_decl_list in
+
+  match binder with
+  | Forall | Exists ->
+      let* inner_expr = check inner_expr expected_typ in
+      let* trgs =
+        Rewriter.List.map trgs ~f:(fun trg ->
+            Rewriter.List.map trg ~f:(fun expr ->
+                check expr (Type.any |> Type.set_ghost true)))
+      in
+
+      (* TODO: Add additional checks for triggers *)
+      let inner_typ = Expr.to_type inner_expr in
+      let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
+      set_checked_type expr Type.bool
+        (Type.perm |> Type.set_ghost_to expected_typ)
+        inner_typ
+  | Compr ->
+      let var_decl =
+        match var_decl_list with
+        | [ v ] -> v
+        | _ ->
+            Error.type_error (Expr.to_loc expr)
+              "Map/set comprehensions can only quantify over one variable"
+      in
+
+      let inner_expr_expected_typ =
+        let ty =
+          match expected_typ with App (Map, [ _; tp ], _) -> tp | _ -> Type.any
+        in
+        ty |> Type.set_ghost_to expected_typ
+      in
+
+      let* inner_expr = check inner_expr inner_expr_expected_typ in
+      let inner_expr_type = Expr.to_type inner_expr in
+
+      let expr_typ =
+        if Type.equal inner_expr_type Type.bool then
+          Type.mk_set var_decl.var_loc var_decl.var_type
+        else Type.mk_map var_decl.var_loc var_decl.var_type inner_expr_type
+      in
+
+      let expr = Expr.Binder (binder, var_decl_list, trgs, inner_expr, expr_attr) in
+      set_checked_type expr expr_typ expr_typ expected_typ
 
 (* [expr1], an operand the core indexes, typed against [expected_typ] if its type is
      one the core's lookup and update do not apply to. *)
