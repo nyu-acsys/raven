@@ -20,7 +20,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
     0 <= r.len
     && (forall x: Int :: {r.par[x]} 0 <= x < r.len ==> 0 <= r.par[x] < r.len)
     && (forall x: Int :: {r.rnk[x]} 0 <= x < r.len ==> 0 <= r.rnk[x])
-    && (forall x: Int :: {r.rnk[r.par[x]]} {r.rnk[x]} 0 <= x < r.len && r.par[x] != x ==> r.rnk[x] < r.rnk[r.par[x]])
+    && (forall x: Int :: {r.rnk[r.par[x]]} 0 <= x < r.len && r.par[x] != x ==> r.rnk[x] < r.rnk[r.par[x]])
   }
 
   pred valid(u: T; r: R) {
@@ -88,12 +88,6 @@ module UnionFind[PA: IntPArray] : Library.Type {
         repr_compr_ind(r, x, y);
     }
   }
-
-  // Pointing x directly at its root preserves validity.
-  lemma compress_valid(r: R, x: Int)
-    requires valid_rep(r) && 0 <= x < r.len
-    ensures valid_rep(uf_rep(r.par[x := repr(r, x)], r.rnk, r.len))
-  {}
 
   // Linking the root x1 below the root x2, which then gets rank rnk, preserves validity.
   lemma union_valid(r: R, x1: Int, x2: Int, rnk: Int)
@@ -186,7 +180,6 @@ module UnionFind[PA: IntPArray] : Library.Type {
       u1, rep_x := find(u, rep_x);
       ghost var r0: R;
       r0 :| valid(u1, r0);
-      assert rep_x == repr(r0, x);
       unfold valid(u1);
       val pa := PA.set(u1.parent, x, rep_x);
       u1 := uf(pa, u1.rank);
@@ -196,10 +189,6 @@ module UnionFind[PA: IntPArray] : Library.Type {
       mr :| PA.parr(u1.rank, r.len, mr);
       ghost val r1 := uf_rep(mp, mr, r.len);
       repr_compr(r0, x);
-      compress_valid(r0, x);
-      assert r1 == uf_rep(r0.par[x := repr(r0, x)], r0.rnk, r0.len);
-      assert repr(r0, x) == repr(r1, x);
-      assert forall y: Int :: {repr(r1, y)} 0 <= y < r.len ==> repr(r1, y) == repr(r, y);
       fold valid(u1, r1);
     }
   }
@@ -238,10 +227,6 @@ module UnionFind[PA: IntPArray] : Library.Type {
       repr_union(r0, rep_x1, rep_x2, rnk_x2);
       union_valid(r0, rep_x1, rep_x2, rnk_x2);
       assert r1 == uf_rep(r0.par[rep_x1 := repr(r0, rep_x2)], r0.rnk[repr(r0, rep_x2) := rnk_x2], r0.len);
-      assert forall x: Int :: {repr(r1, x)}
-        0 <= x < r1.len && (repr(r, x) == repr(r, x1) || repr(r, x) == repr(r, x2)) ==> repr(r1, x) == repr(r1, x1);
-      assert forall x: Int :: {repr(r1, x)}
-        0 <= x < r1.len && repr(r, x) != repr(r, x1) && repr(r, x) != repr(r, x2) ==> repr(r1, x) == repr(r, x);
       fold valid(u1, r1);
       return u1;
     } else {      
@@ -255,11 +240,6 @@ module UnionFind[PA: IntPArray] : Library.Type {
       u1 := uf(ap, ar);
       repr_union(r0, rep_x2, rep_x1, rnk_x1 + 1);
       union_valid(r0, rep_x2, rep_x1, rnk_x1 + 1);
-      assert r1 == uf_rep(r0.par[rep_x2 := repr(r0, rep_x1)], r0.rnk[repr(r0, rep_x1) := rnk_x1 + 1], r0.len);
-      assert forall x: Int :: {repr(r1, x)}
-        0 <= x < r1.len && (repr(r, x) == repr(r, x1) || repr(r, x) == repr(r, x2)) ==> repr(r1, x) == repr(r1, x1);
-      assert forall x: Int :: {repr(r1, x)}
-        0 <= x < r1.len && repr(r, x) != repr(r, x1) && repr(r, x) != repr(r, x2) ==> repr(r1, x) == repr(r, x);
       fold valid(u1, r1);
       return u1;
     }
