@@ -1,0 +1,87 @@
+// Members merged from an interface come after the members they depend on,
+// whatever the order of the module's own members (issue #33).
+
+interface I1 {
+  type K
+}
+
+interface I2 {
+  module M1 : I1
+
+  module K_Type : Library.Type {
+    rep type T = M1.K
+  }
+}
+
+// A member before the definition of M1 that K_Type depends on.
+interface I3 : I2 {
+  module M : Library.Type
+
+  module M1 : I1 {
+    type K = Int
+  }
+}
+
+// The same, with the unrelated member after it.
+interface I4 : I2 {
+  module M1 : I1 {
+    type K = Int
+  }
+
+  module M : Library.Type
+}
+
+interface J {
+  type A
+  type B = A
+}
+
+// The inherited B depends on A, which depends on C, a member only N has.
+module N : J {
+  type C = Int
+  type A = C
+}
+
+// The same, with the definition of A before C.
+module N2 : J {
+  type A = C
+  type C = Int
+}
+
+// A concrete module with an unrelated member before M1.
+module P : I2 {
+  module M : Library.Type {
+    rep type T = Int
+  }
+
+  module M1 : I1 {
+    type K = Int
+  }
+}
+
+// Chains through several inherited modules.
+interface I5 {
+  module M2 : I1
+  module M3 : I1 {
+    type K = M2.K
+  }
+  module K_Type : Library.Type {
+    rep type T = M3.K
+  }
+}
+
+module P3 : I5 {
+  module X : Library.Type {
+    rep type T = Bool
+  }
+  module M2 : I1 {
+    type K = X.T
+  }
+}
+
+interface I6 : I5 {
+  module Y : Library.Type
+  module M2 : I1 {
+    type K = Int
+  }
+}
