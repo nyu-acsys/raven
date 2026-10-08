@@ -201,8 +201,8 @@ and ('a, 'b) t_ext = 'b state -> 'b state * 'a
 and 'a t = ('a, unit) t_ext
 
 and type_check_type_expr_functs = { process_type_expr : type_expr -> type_expr t }
-(** Callback bundle Typing.ml hands to [ext_hooks.type_check_type_expr] so an extension
-    can recursively process sub-type-expressions using the core type-checker. *)
+(** Callback bundle the type checker hands to [ext_hooks.type_check_type_expr] so an
+    extension can recursively process sub-type-expressions using the core type-checker. *)
 
 and type_check_expr_functs = {
   check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr t;
@@ -210,14 +210,14 @@ and type_check_expr_functs = {
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   expand_type_expr : type_expr -> (type_expr, unit) t_ext;
 }
-(** Callback bundle Typing.ml hands to [ext_hooks.type_check_expr]. *)
+(** Callback bundle the type checker hands to [ext_hooks.type_check_expr]. *)
 
 and disambiguate_expr_functs = {
   disambiguate_expr : expr -> DisambiguationTbl.t -> expr t;
 }
-(** Callback bundle Typing.ml hands to [ext_hooks.disambiguate_expr_ext], so an extension
-    can recurse into its own sub-expressions -- under whichever [DisambiguationTbl.t] it
-    chooses, which is the whole point of the hook. *)
+(** Callback bundle the type checker hands to [ext_hooks.disambiguate_expr_ext], so an
+    extension can recurse into its own sub-expressions -- under whichever
+    [DisambiguationTbl.t] it chooses, which is the whole point of the hook. *)
 
 and type_check_stmt_functs = {
   get_assign_lhs :
@@ -234,18 +234,18 @@ and type_check_stmt_functs = {
   process_symbol : Module.symbol -> Module.symbol t;
       (** Recursively type-checks a nested statement (e.g. a proof block carried by a
           top-level [Stmt.StmtExt] node) in its own fresh scope, the same way
-          [Typing.ml]'s [process_stmt] type-checks an ordinary callable body statement.
+          [StmtTyping.process_stmt] type-checks an ordinary callable body statement.
           Needed because [type_check_stmt_ext] -- unlike the generic tree-walking hooks --
           has no other way to recurse: [Stmt.stmt_ext] is an opaque, extension-owned
-          value, so only Typing.ml itself can drive type-checking of whatever [Stmt.t] an
-          extension embeds in it. *)
+          value, so only the type checker itself can drive type-checking of whatever
+          [Stmt.t] an extension embeds in it. *)
   process_stmt :
     Callable.call_decl ->
     Stmt.t ->
     DisambiguationTbl.t ->
     (Stmt.t * DisambiguationTbl.t) t;
 }
-(** Callback bundle Typing.ml hands to
+(** Callback bundle the type checker hands to
     [ext_hooks.type_check_basic_stmt]/[type_check_stmt_ext]. *)
 
 and ext_hooks = {
@@ -302,19 +302,19 @@ and ext_hooks = {
       *)
   contract_ext_rewrite_exprs :
     f:(expr -> expr t) -> Stmt.contract_ext -> Stmt.contract_ext t;
-      (** Called for every [Expr.ExprExt] node met by [Typing.ProcessCallable]'s
-          disambiguation pass, which alpha-renames a callable body's local variables to
-          fresh names and rejects unbound ones -- and which runs *before* any
-          type-checking, so [type_check_expr] is far too late to influence it. An
-          extension construct that binds variables of its own (e.g. a `match` arm's
-          pattern variables) must implement this to push a [DisambiguationTbl] scope and
-          recurse into the sub-expressions those variables scope over; returning the
-          renamed binders in its own tag, so the names it later sees in [type_check_expr]
-          are the same ones the body now refers to. The overwhelmingly common case is an
-          extension construct that binds nothing, for which [DefaultExt]'s structural
-          default -- recurse into every sub-expression under the unchanged table -- is
-          already right; unlike the other [DefaultExt] cases, that default is a real
-          implementation, not an "unrecognized construct" error. *)
+      (** Called for every [Expr.ExprExt] node met by [StmtTyping]'s disambiguation pass,
+          which alpha-renames a callable body's local variables to fresh names and rejects
+          unbound ones -- and which runs *before* any type-checking, so [type_check_expr]
+          is far too late to influence it. An extension construct that binds variables of
+          its own (e.g. a `match` arm's pattern variables) must implement this to push a
+          [DisambiguationTbl] scope and recurse into the sub-expressions those variables
+          scope over; returning the renamed binders in its own tag, so the names it later
+          sees in [type_check_expr] are the same ones the body now refers to. The
+          overwhelmingly common case is an extension construct that binds nothing, for
+          which [DefaultExt]'s structural default -- recurse into every sub-expression
+          under the unchanged table -- is already right; unlike the other [DefaultExt]
+          cases, that default is a real implementation, not an "unrecognized construct"
+          error. *)
   disambiguate_expr_ext :
     Expr.expr_ext ->
     expr list ->
@@ -551,23 +551,24 @@ let default_ext_hooks : ext_hooks =
 
 (* Using pointers to access certain functions from Typing in certain context while circumventing dependency cycles. *)
 
-(** This is meant to point to: Typing.process_symbol It is initialized at the end of
-    Typing.ml. *)
+(** This is meant to point to: Typing.process_symbol It is initialized at the end of the
+    [Typing] library's main module. *)
 let process_symbol_ref : 'a. (Module.symbol -> Module.symbol t) ref =
   ref (fun _ ->
       Error.unsupported_error Loc.dummy "Rewriter.process_symbol_ref uninitialized")
 
-(** This is meant to point to: Typing.expand_type_expr It is initialized at the end of
-    Typing.ml. *)
+(** This is meant to point to: TypeExpr.expand_type_expr It is initialized at the end of
+    the [Typing] library's main module. *)
 let expand_type_expr_ref : (type_expr -> (type_expr, unit) t_ext) ref =
   ref (fun _ ->
       Error.internal_error Loc.dummy "Rewriter.expand_type_expr_ref uninitialized")
 
-(** This is meant to point to: Typing.process_stmt It is initialized at the end of
-    Typing.ml. Exists so [type_check_stmt_functs] (built while [Typing.process_basic_stmt]
-    -- itself not mutually recursive with [Typing.process_stmt] -- is still being defined)
-    can hand an extension a way to recursively type-check a nested [Stmt.t] (e.g.
-    [AssertWithExt]'s proof block) without a direct forward reference. *)
+(** This is meant to point to: StmtTyping.process_stmt It is initialized at the end of the
+    [Typing] library's main module. Exists so [type_check_stmt_functs] (built while
+    [StmtTyping.process_basic_stmt] -- itself not mutually recursive with
+    [StmtTyping.process_stmt] -- is still being defined) can hand an extension a way to
+    recursively type-check a nested [Stmt.t] (e.g. [AssertWithExt]'s proof block) without
+    a direct forward reference. *)
 let process_stmt_ref :
     (Callable.call_decl ->
     Stmt.t ->

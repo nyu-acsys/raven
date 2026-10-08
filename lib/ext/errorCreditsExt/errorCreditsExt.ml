@@ -199,7 +199,7 @@ module ErrorCreditsExt (Cont : Ext) = struct
     This function returns a `Stmt.basic_stmt_desc`. This is an object like:
       (BasicStmtExt (stmt_ext, expr_list))
     In addition, a `disam_tbl` must be returned.
-    `type_check_stmt_functs` is a set of functions from `typing.ml` that are useful for type-checking statements.
+    `type_check_stmt_functs` is a set of functions of the type checker that are useful for type-checking statements.
   *)
   (* type_check_contract_ext/check_contract_ext_group_compatible/
      contract_ext_to_string: no contract_ext constructors here, so Cont's default is

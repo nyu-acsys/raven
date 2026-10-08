@@ -444,7 +444,7 @@ For `type_check_type_expr`:
 
 - The `type_attr`, defined in [astDef.ml](../../lib/ast/astDef.ml) refers to _type attribute_, which contains a _location_ as well as ghost status. This location is tied to input location which is used to show to the user the relevant pieces of code for a given error. 
 
-- The next argument is of type `type_check_type_expr_functs`, which is a record object storing a set of functions that are useful during type-checking `type_expr`s. At present, this only contains the `process_type_expr` function which is originally defined in [typing.ml](../../lib/frontend/typing.ml). This function is used to process any sub-expressions during the processing of the current type_expr. This type (along with `type_check_expr_functs` and `type_check_stmt_functs` below) is actually defined in [rewriter.ml](../../lib/ast/rewriter.ml), not `extApi.ml` -- it has to live there so that `Ast.Rewriter.ext_hooks` can mention it without `lib/ast` depending on `lib/ext`. [extApi.ml](../../lib/ext/api/extApi.ml) re-exports it under the same name via `type type_check_type_expr_functs = Rewriter.type_check_type_expr_functs = { ... }`, so this distinction shouldn't matter in practice; you can keep referring to it by its `ExtApi`-qualified name.
+- The next argument is of type `type_check_type_expr_functs`, which is a record object storing a set of functions that are useful during type-checking `type_expr`s. At present, this only contains the `process_type_expr` function which is originally defined in [typeExpr.ml](../../lib/frontend/typing/typeExpr.ml). This function is used to process any sub-expressions during the processing of the current type_expr. This type (along with `type_check_expr_functs` and `type_check_stmt_functs` below) is actually defined in [rewriter.ml](../../lib/ast/rewriter.ml), not `extApi.ml` -- it has to live there so that `Ast.Rewriter.ext_hooks` can mention it without `lib/ast` depending on `lib/ext`. [extApi.ml](../../lib/ext/api/extApi.ml) re-exports it under the same name via `type type_check_type_expr_functs = Rewriter.type_check_type_expr_functs = { ... }`, so this distinction shouldn't matter in practice; you can keep referring to it by its `ExtApi`-qualified name.
 
 - Finally, it has a return type of `type_expr Rewriter.t`. `Rewriter.t`, defined in [rewriter.ml](../../lib/ast/rewriter.ml), is a monad that carries Raven's symbol table state throughout the program, letting us do things like seamlessly look up symbol definitions from the program. We use the `let*` and `let+` bindings from `Rewriter.Syntax` in order to interact with this monad. We also use the `Rewriter.return` to wrap a normal value into the monad. In general, keeping the monad in mind is very useful, specially with higher-order functions. The Rewriter module contains its own implementations for commonly used functions such as `List.map`, and `List.fold_right`, implemented in [state.ml](../../lib/util/state.ml).
 
@@ -457,7 +457,7 @@ Similarly, for `type_check_expr`:
 
 - The next argument of type `type_expr` is the _expected type_ of the expression being type-checked. This is often `Type.Any`, but can include typing hints from the environment.
 
-- The next argument, of type `type_check_expr_functs`. This is the set of functions from [typing.ml](../../lib/frontend/typing.ml) that are useful while type-checking expressions. Please refer to [Useful Functions](#useful-functions) to identify how to use each of these functions.
+- The next argument, of type `type_check_expr_functs`. This is the set of functions of the type checker ([lib/frontend/typing/](../../lib/frontend/typing/)) that are useful while type-checking expressions. Please refer to [Useful Functions](#useful-functions) to identify how to use each of these functions.
 
 As for `type_check_basic_stmt`, the goal of this function is to make sure the statement is well-formed with well-typed arguments. It has a considerably more complex type signature. In particular, it has a `call_decl` that contains information about the parent callable of this `stmt_ext`. It also contains a `ProgUtils.DisambiguationTbl.t`, which is a local, per-callable data-structure used to disambiguate local variables, for instance using the same variable in multiple different scopes. This procedure also returns a _disambiguation table_ which contains any updates made during type-checking the present statement. As usual, `type_check_stmt_functs` contains a list of useful functions. Notably, `disambiguate_process_expr` and `disam_tbl_add_var_decl` makes use of, and updates the disambiguation table respectively.
 
@@ -490,7 +490,7 @@ It's called once per entry of a `call_decl_contract_ext`/`loop_contract_ext` lis
 
 #### Constructs that bind variables (`disambiguate_expr_ext`)
 
-Everything above runs during type-checking. But a callable's body goes through one pass *before* any of it: `Typing.ProcessCallable`'s disambiguation pass, which alpha-renames every local variable to a fresh name (so that same-named variables in different scopes stay distinct) and rejects any identifier that isn't bound at that point. That pass walks the AST generically, which is fine for an extension construct whose sub-expressions are just ordinary expressions -- but *not* if your construct binds variables of its own that its sub-expressions refer to. Those references have no binder as far as the generic walk is concerned, so the body is rejected as unbound long before `type_check_expr` gets a chance to introduce them.
+Everything above runs during type-checking. But a callable's body goes through one pass *before* any of it: `StmtTyping`'s disambiguation pass, which alpha-renames every local variable to a fresh name (so that same-named variables in different scopes stay distinct) and rejects any identifier that isn't bound at that point. That pass walks the AST generically, which is fine for an extension construct whose sub-expressions are just ordinary expressions -- but *not* if your construct binds variables of its own that its sub-expressions refer to. Those references have no binder as far as the generic walk is concerned, so the body is rejected as unbound long before `type_check_expr` gets a chance to introduce them.
 
 `disambiguate_expr_ext` is the hook for that case:
 
@@ -652,13 +652,17 @@ This sums up the API itself. In the next section we will discuss many commonly u
 In order to correctly implement the right type-checking and rewrite strategies, certain Raven functionality is invaluable. In order to orient a new programmer with the different functionalities, where they are located, and best practices when creating an extension, we provide an overview of certain commonly-used functions and how the rest of the code is organized. Here is a list of notable functions from different sections:
 
 
-### [Typing](../../lib/frontend/typing.ml)
+### [Typing](../../lib/frontend/typing/)
 
-This file contains the code for type-checking Raven AST. It is broadly divided into 4 sections:
-- ProcessTypeExpr
-- ProcessExpr
-- ProcessCallable
-- ProcessModule
+This library contains the code for type-checking Raven AST. Its main module, `Typing`, holds the entry points; the rest is divided into modules by construct:
+- TypeExpr: type expressions
+- ExprTyping: expressions
+- ImplicitInstantiation: implicit instantiation of functors
+- StmtTyping: disambiguation of identifiers, and statements
+- CallableTyping: callables, their contracts and opens clauses
+- ModuleTyping: modules and their members
+- Interfaces: conformance of modules with their interfaces
+- EditorAnnotations: annotations for editors
 
 Each of these contain functions for type-checking the corresponding constructs. Following is the list of functions that we pass explicitly to type-checking functions in extensions. We briefly describe what they do as well as their signatures.
 
@@ -678,9 +682,9 @@ Each of these contain functions for type-checking the corresponding constructs. 
 
 - disam_tbl_add_var_decl: This function handles a new variable declaration and updates the `disam_tbl` appropriately. It takes a `var_decl` and a `disam_tbl`, and returns an update `var_decl` and `disam_tbl`.
 
-- process_symbol: `type_check_stmt_functs`'s copy of `Typing.process_symbol`, the function that type-checks a whole `Module.symbol` (used e.g. by `Rewriter.introduce_typecheck_symbol` and `ProgUtils.intros_type_module`, both of which take it as an argument for the same reason described below). It's handed to you as a plain function, already resolved -- you don't need to know that `Typing` itself can only make it available to code outside `typing.ml` via `Rewriter.process_symbol_ref`, a reference set exactly once, at the end of `typing.ml`, to work around the fact that `Rewriter` (in `lib/ast`) can't statically depend on `Typing` (in `lib/frontend`), and that `Typing.process_symbol` itself is defined later in the same file than some of the code that needs it. That reference isn't part of the extension API and isn't something you should need to touch.
+- process_symbol: `type_check_stmt_functs`'s copy of `Typing.process_symbol`, the function that type-checks a whole `Module.symbol` (used e.g. by `Rewriter.introduce_typecheck_symbol` and `ProgUtils.intros_type_module`, both of which take it as an argument for the same reason described below). It's handed to you as a plain function, already resolved -- you don't need to know that `Typing` itself can only make it available to code outside the type checker via `Rewriter.process_symbol_ref`, a reference set exactly once, at the end of the `Typing` module, to work around the fact that `Rewriter` (in `lib/ast`) can't statically depend on `Typing` (in `lib/frontend`), and that `Typing.process_symbol` itself is defined after the modules containing some of the code that needs it. That reference isn't part of the extension API and isn't something you should need to touch.
 
-- process_stmt: `type_check_stmt_functs`'s copy of (the relevant part of) `Typing.ProcessCallable.process_stmt`, the function that type-checks one statement of an ordinary callable body, recursing into `Block`/`Loop`/`Cond` and managing their scopes along the way. Only relevant to `type_check_stmt_ext` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level)) -- `type_check_basic_stmt` never needs it, since a `basic_stmt_desc` can't embed a nested `Stmt.t` in the first place. Wired the same way `process_symbol` is, via a `Rewriter.process_stmt_ref` set once at the end of `typing.ml`, for the same dependency-direction reason; again, not something you touch directly.
+- process_stmt: `type_check_stmt_functs`'s copy of (the relevant part of) `StmtTyping.process_stmt`, the function that type-checks one statement of an ordinary callable body, recursing into `Block`/`Loop`/`Cond` and managing their scopes along the way. Only relevant to `type_check_stmt_ext` (see [Statement-bodied extensions](#statement-bodied-extensions-stmtext-at-the-stmt_desc-level)) -- `type_check_basic_stmt` never needs it, since a `basic_stmt_desc` can't embed a nested `Stmt.t` in the first place. Wired the same way `process_symbol` is, via a `Rewriter.process_stmt_ref` set once at the end of the `Typing` module, for the same dependency-direction reason; again, not something you touch directly.
 
 ### [AstDef](../../lib/ast/astDef.ml)
 
@@ -754,7 +758,7 @@ One notion is that of "reified" declarations. In order to handle higher order mo
 
 - `Rewriter.introduce_symbol`: Insert a new symbol (variables, callables, types, modules, etc) into the current symbol table. This inserts the symbol in the "current" location in the symbol table.
 
-- `Rewriter.introduce_typecheck_symbol`: This is similar to `Rewriter.introduce_symbol` but also performs type-checking on the defined symbol. It is almost always better to use this since it ensures type-safety of the newly introduced, and makes certain transformations like type-inference and type propagation. This function requires a `process_symbol`-shaped function as an argument -- pass the `process_symbol` field from `type_check_stmt_functs` if you have one in scope, or `!Rewriter.process_symbol_ref` (the reference `Typing.process_symbol` is installed into, once, at the end of `typing.ml`) otherwise.
+- `Rewriter.introduce_typecheck_symbol`: This is similar to `Rewriter.introduce_symbol` but also performs type-checking on the defined symbol. It is almost always better to use this since it ensures type-safety of the newly introduced, and makes certain transformations like type-inference and type propagation. This function requires a `process_symbol`-shaped function as an argument -- pass the `process_symbol` field from `type_check_stmt_functs` if you have one in scope, or `!Rewriter.process_symbol_ref` (the reference `Typing.process_symbol` is installed into, once, at the end of the `Typing` module) otherwise.
 
 - `Rewriter.current_ext_hooks`: Returns the full `ext_hooks` record installed for the active extension (see [Wiring](#wiring-how-ext_hooks-reaches-your-code)). You'll rarely need this directly -- Raven already applies the relevant `ext_hooks` field for you before calling into `type_check_*`/`rewrite_*_ext` -- but it's there if you need to delegate to another extension's hook explicitly.
 

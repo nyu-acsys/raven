@@ -54,12 +54,12 @@ module DecreasesExt (Cont : Ext) = struct
       fields used by core's own interface-conformance checking (not RA-specific), and
       [Rewriter.find]/[resolve_and_find] are already reachable via [Ast]'s wholesale
       re-export, so no ExtApi or core changes are needed -- only a private walk mirroring
-      [ProgUtils.is_ra_type]/[does_ident_implement_ra] and [typing.ml]'s [mod_decl_is_ra]
-      computation (used here only as a design template, not shared code). Not cached:
-      every [WellFoundedOrder] instance shipped in the standard library implements it
-      directly (interface depth 1), so a fresh walk per query is cheap enough that a
-      shared cache isn't worth the trouble of threading through disjoint [ExtApi] hook
-      invocations. *)
+      [ProgUtils.is_ra_type]/[does_ident_implement_ra] and [ModuleTyping]'s
+      [mod_decl_is_ra] computation (used here only as a design template, not shared code).
+      Not cached: every [WellFoundedOrder] instance shipped in the standard library
+      implements it directly (interface depth 1), so a fresh walk per query is cheap
+      enough that a shared cache isn't worth the trouble of threading through disjoint
+      [ExtApi] hook invocations. *)
   let lib_wf_order_qual_ident =
     QualIdent.from_list [ Predefs.lib_ident; Ident.make Loc.dummy "WellFoundedOrder" 0 ]
 
@@ -443,7 +443,7 @@ module DecreasesExt (Cont : Ext) = struct
            referencing a value that's only meaningful there (e.g. a lemma-local
            variable) needs the same ghost expectation, or [disambiguate_process_expr]
            rejects it as "reads ghost state" -- mirroring how ordinary expression
-           processing derives its own expected ghost-ness (see [Typing.ml]'s repeated
+           processing derives its own expected ghost-ness (see [ExprTyping]'s repeated
            [Type.set_ghost var_ghost]/[Type.set_ghost is_ghost_scope] pattern). *)
           let expected_typ =
             Type.any |> Type.set_ghost (Callable.is_ghost_kind call_decl.call_decl_kind)

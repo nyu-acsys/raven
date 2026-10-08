@@ -2356,7 +2356,7 @@ module Callable = struct
   (** Whether a callable of this kind is, by itself, a ghost scope -- i.e. every local
       variable declared in its body is ghost regardless of an explicit `ghost` keyword
       (see [Rewriter.enter]'s [is_ghost_scope], the sole place this rule was previously
-      duplicated inline, matching the pre-existing call-site rule in [Typing.ml]'s
+      duplicated inline, matching the pre-existing call-site rule in [ExprTyping]'s
       [process_expr]). [Func]/[Pred]/[Invariant] have no [Stmt.t] body at all ([call_def]
       is [FuncDef], not [ProcDef]), so this only has observable effect for [Proc]/[Lemma].
   *)
@@ -3187,7 +3187,7 @@ module Predefs = struct
 
   (* [Library.WordSized] declares nothing but a representation type; what makes it mean
      anything is a structural check the front end runs on whatever type an
-     implementation supplies. See [Typing.ProcessModule.check_word_sized]. *)
+     implementation supplies. See [ModuleTyping.is_type_word_sized]. *)
   let lib_word_sized_mod_qual_ident =
     QualIdent.from_list [ lib_ident; Ident.make Loc.dummy "WordSized" 0 ]
 

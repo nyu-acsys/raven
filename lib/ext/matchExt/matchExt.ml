@@ -15,7 +15,7 @@ open Util
     constructor. Deliberately unqualified -- no `IntList.cons`/`MyType.cons` prefix -- for
     the same reason plain field access (`xs.hd`) never needs one either: the constructor
     name is resolved against `xs`'s own (already known) type, exactly like `DataDestr`
-    field resolution already works (see `typing.ml`'s `App (Read,
+    field resolution already works (see `ExprTyping`'s `App (Read,
     [expr1; Var field_ident])` case). This also sidesteps a genuine grammar constraint: a
     symbolic constructor like `Library.List`'s `::` is not reachable through the generic
     `qual_ident` grammar at all -- its `mod_ident DOT IDENT` alternative only ever accepts
@@ -248,7 +248,7 @@ module MatchExt (Cont : Ext) = struct
          [match_arm]) -- and keeps this hook idempotent, which is the property that
          actually matters here. *)
         let ctor_ident = QualIdent.unqualify ctor_ident_as_qi in
-        (* [set_ghost_to expected_typ] on the scrutinee, as every core case in typing.ml
+        (* [set_ghost_to expected_typ] on the scrutinee, as every core case in ExprTyping
          does: testing the constructor of a ghost value is itself ghost, and is fine
          wherever a ghost value already is (a ghost block, a spec). Passing a bare
          [Type.any] would instead reject every ghost scrutinee outright. *)
@@ -284,7 +284,7 @@ module MatchExt (Cont : Ext) = struct
         | Some (data_qi, variant_decls) ->
             let* () = check_arms_exhaustive expr_attr.expr_loc variant_decls arms in
             (* Every arm's body is checked against the same [expected_typ], exactly like
-            a quantifier's inner expression ([typing.ml]'s [Binder] case) -- match is
+            a quantifier's inner expression ([ExprTyping]'s [Binder] case) -- match is
             an ordinary expression whose result type is dictated by its surrounding
             context, not something this extension needs its own join/meet logic for. *)
             let* checked_bodies =

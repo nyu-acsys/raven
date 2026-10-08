@@ -7,7 +7,7 @@ open Util
 module Stdlib_logs = Logs
 open Rewriter
 
-(* DisambiguationTbl is used in disambiguating local idents in Typing.ProcessCallable.
+(* DisambiguationTbl is used in disambiguating local idents in StmtTyping.
    Its definition lives in disambiguationTbl.ml, below Rewriter -- see the comment
    there for why. This re-export keeps ProgUtils.DisambiguationTbl working as before. *)
 module DisambiguationTbl = DisambiguationTbl
@@ -1090,10 +1090,10 @@ let existing_module_for_rep_type ~(interface_qual_ident : qual_ident) ~(rep_iden
     unless the source explicitly wrote `free` on it. [NotFree] (never marked free) and
     [MachineFree] both count: the entire standard library is force-marked [MachineFree]
     wholesale so it isn't re-verified per program (see the comment on [un_free_inherited]
-    in [Typing.ProcessModule.process_module]), which is indistinguishable, per member,
-    from genuine freeness unless [UserFree] is checked for specifically. [Lemma]-kind
-    callables (axioms) are excluded unconditionally: an interface's axioms never need to
-    be supplied by an implementer, regardless of how they're marked. *)
+    in [ModuleTyping.process_module]), which is indistinguishable, per member, from
+    genuine freeness unless [UserFree] is checked for specifically. [Lemma]-kind callables
+    (axioms) are excluded unconditionally: an interface's axioms never need to be supplied
+    by an implementer, regardless of how they're marked. *)
 let non_rep_abstract_members ~(interface_qual_ident : qual_ident) ~(rep_ident : ident) :
     (string * ident) list t =
   let open Rewriter.Syntax in

@@ -3,7 +3,6 @@ open Ast
 open Ast.Stmt
 open Ast.Expr
 open Util
-open Frontend
 
 (** The following grammar of assertion expressions is supported:
 
@@ -801,7 +800,7 @@ let generate_skolem_functions (skolem_fns : skolem_function_def list) =
 
   let+ _ =
     Rewriter.introduce_typecheck_symbols ~loc:(List.hd_exn skolem_fns).loc
-      ~f:Frontend.Typing.process_symbol symbols
+      ~f:Typing.process_symbol symbols
   in
 
   ret_exprs

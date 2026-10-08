@@ -1,7 +1,6 @@
 open Base
 open Ast
 open Util
-open Frontend
 
 let rec rewrite_stmt_error_msg call_id (stmt : Stmt.t) : Stmt.t Rewriter.t =
   match stmt.stmt_desc with

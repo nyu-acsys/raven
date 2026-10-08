@@ -1,4 +1,4 @@
-(** Used in disambiguating local idents in Typing.ProcessCallable.
+(** Used in disambiguating local idents in StmtTyping.
 
     This lives below [Rewriter] (rather than inside [ProgUtils], which depends on
     [Rewriter]) so that [Rewriter]'s [ext_hooks] can mention [DisambiguationTbl.t] in the

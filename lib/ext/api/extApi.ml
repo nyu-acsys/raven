@@ -8,7 +8,7 @@ open Ast
 type type_check_type_expr_functs = Rewriter.type_check_type_expr_functs = {
   process_type_expr : type_expr -> type_expr Rewriter.t;
 }
-(** Set of functions from Typing.ml available for type checking `Type.type_ext` *)
+(** Set of functions of the type checker available for type checking `Type.type_ext` *)
 
 type type_check_expr_functs = Rewriter.type_check_expr_functs = {
   check_and_set : expr -> type_expr -> type_expr -> type_expr -> expr Rewriter.t;
@@ -16,12 +16,12 @@ type type_check_expr_functs = Rewriter.type_check_expr_functs = {
   type_mismatch_error : 'a. location -> type_expr -> type_expr -> 'a;
   expand_type_expr : type_expr -> (type_expr, unit) Ast__Rewriter.t_ext;
 }
-(** Set of functions from Typing.ml available for type checking `Expr.expr_ext` *)
+(** Set of functions of the type checker available for type checking `Expr.expr_ext` *)
 
 type disambiguate_expr_functs = Rewriter.disambiguate_expr_functs = {
   disambiguate_expr : expr -> ProgUtils.DisambiguationTbl.t -> expr Rewriter.t;
 }
-(** Set of functions from Typing.ml available for disambiguating `Expr.expr_ext` *)
+(** Set of functions of the type checker available for disambiguating `Expr.expr_ext` *)
 
 type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
   get_assign_lhs :
@@ -43,7 +43,7 @@ type type_check_stmt_functs = Rewriter.type_check_stmt_functs = {
     ProgUtils.DisambiguationTbl.t ->
     (Stmt.t * ProgUtils.DisambiguationTbl.t) Rewriter.t;
 }
-(** Set of functions from Typing.ml available for type checking `Stmt.stmt_ext` *)
+(** Set of functions of the type checker available for type checking `Stmt.stmt_ext` *)
 
 (* Main Extension API *)
 module type Ext = sig
@@ -130,12 +130,12 @@ module type Ext = sig
     ProgUtils.DisambiguationTbl.t ->
     disambiguate_expr_functs ->
     (Expr.expr_ext * expr list) Rewriter.t
-  (** Called for every [Expr.ExprExt] node met by [Typing.ProcessCallable]'s
-      disambiguation pass, which alpha-renames a callable body's local variables to fresh
-      names and rejects unbound ones. That pass runs *before* any type-checking, so an
-      extension construct that binds variables of its own cannot make them visible from
-      [type_check_expr] -- by then the pass has already rejected the body's references to
-      them as unbound. Implement this to push a [DisambiguationTbl] scope (via
+  (** Called for every [Expr.ExprExt] node met by [StmtTyping]'s disambiguation pass,
+      which alpha-renames a callable body's local variables to fresh names and rejects
+      unbound ones. That pass runs *before* any type-checking, so an extension construct
+      that binds variables of its own cannot make them visible from [type_check_expr] --
+      by then the pass has already rejected the body's references to them as unbound.
+      Implement this to push a [DisambiguationTbl] scope (via
       [ProgUtils.DisambiguationTbl.push]/[add]), recurse into the sub-expressions those
       binders scope over using [functs.disambiguate_expr], and return the freshly-renamed
       binders in your own tag -- so the names reaching [type_check_expr] are the ones the

@@ -4,7 +4,6 @@
 open Base
 open Ast
 open Util
-open Frontend
 
 let rec rewrite_expand_types (tp_expr : type_expr) : type_expr Rewriter.t =
   !Rewriter.expand_type_expr_ref tp_expr
