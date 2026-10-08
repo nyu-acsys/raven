@@ -156,17 +156,19 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
                %{QualIdent}. Repeat its contract exactly, or omit it to inherit it"
              (Symbol.kind symbol) ident ident interface_ident)
     in
-    match (call_def.call_def, orig_call_def.call_def) with
-    | ProcDef { proc_body = Some _; _ }, ProcDef { proc_body = Some _; _ }
-    | FuncDef { func_body = Some _; _ }, FuncDef { func_body = Some _; _ } ->
+    (* A sealed callable, whose body freeing dropped, counts as defined. *)
+    let is_defined (c : Callable.t) =
+      (not (Callable.is_abstract c)) || c.call_decl.call_decl_is_sealed
+    in
+    match (is_defined call_def, is_defined orig_call_def) with
+    | true, true ->
         Error.type_error loc
           (Printf.sprintf
              !"%s %{Ident} was already defined in interface %{QualIdent}. It cannot be \
                redefined"
              (Symbol.kind symbol |> String.capitalize)
              ident interface_ident)
-    | ProcDef { proc_body = None; _ }, ProcDef { proc_body = Some _; _ }
-    | FuncDef { func_body = None; _ }, FuncDef { func_body = Some _; _ } ->
+    | false, true ->
         Error.type_error loc
           (Printf.sprintf
              !"%s %{Ident} cannot be redeclared as abstract. It was already defined in \

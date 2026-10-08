@@ -82,11 +82,6 @@ module FlowsRA[M: CCM] : CancellativeResourceAlgebra {
     // contextualExt(i1, i2)
   }
 
-  lemma frameReflexive()
-  {
-    M.frameInv()
-  }
-
   // Folds definition of interface composition, avoiding M.frame
   lemma compFold(i1: T, i2: T, i: T)
     requires i != top

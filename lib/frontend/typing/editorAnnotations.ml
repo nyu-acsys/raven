@@ -107,12 +107,11 @@ let renamed_clause_text ~(content : string) ~(span_start : int) ~(span_end : int
                Ident.name o.var_name ^ " is " ^ Ident.name v.var_name))
 
 (** The declaration of [symbol] as written in its source: from the beginning of the line
-    of its name to the end of its header, with [{ … }] in place of a body. Whether there
-    is a body is read off the source, as the standard library's are dropped. *)
+    of its name to the end of its header, with [{ … }] in place of a body. *)
 let declaration_text (symbol : Module.symbol) : string option =
   let name_loc, end_locs, has_body =
     match symbol with
-    | CallDef { call_decl = d; _ } ->
+    | CallDef ({ call_decl = d; _ } as c) ->
         let var_locs vs = List.map vs ~f:(fun (v : var_decl) -> v.var_loc) in
         let spec_locs specs =
           List.map specs ~f:(fun (s : Stmt.spec) -> Expr.to_loc s.spec_form)
@@ -123,7 +122,7 @@ let declaration_text (symbol : Module.symbol) : string option =
           var_locs d.call_decl_formals @ var_locs d.call_decl_returns
           @ spec_locs d.call_decl_precond
           @ spec_locs d.call_decl_postcond,
-          true )
+          (not (Callable.is_abstract c)) || d.call_decl_is_sealed )
     | TypeDef td -> (td.type_def_loc, [], false)
     | VarDef vd ->
         ( vd.var_decl.var_loc,
@@ -140,20 +139,6 @@ let declaration_text (symbol : Module.symbol) : string option =
   in
   let line_start =
     { name_loc.Loc.loc_start with pos_cnum = name_loc.Loc.loc_start.pos_bol }
-  in
-  (* A callable has a body if a `{` follows its header in the source. *)
-  let has_body =
-    has_body
-    && Option.value ~default:false
-         (Option.map
-            (Loc.source_content (Loc.file_name name_loc))
-            ~f:(fun content ->
-              let rec next i =
-                if i >= String.length content then false
-                else if Char.is_whitespace content.[i] then next (i + 1)
-                else Char.equal content.[i] '{'
-              in
-              next last_end.pos_cnum))
   in
   Option.map
     (Loc.source_text (Loc.make line_start last_end))

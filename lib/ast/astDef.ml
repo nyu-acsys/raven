@@ -2463,6 +2463,10 @@ module Callable = struct
         (** Whether this function or predicate is declared [inline]: a function's
             definition is a macro for the SMT solver, unless it is recursive; a predicate
             is replaced by its body wherever it is used *)
+    call_decl_is_sealed : bool;
+        (** Whether this procedure or lemma has a body that is not available here: freeing
+            it (see [Callable.set_status]) dropped the body, which is not checked again.
+        *)
     call_decl_needs_mask : mask option;
         (** Invariant mask required from this callable's caller -- computed purely from
             [call_decl_precond] (see [masks.ml]); also the starting mask for checking this
@@ -2657,6 +2661,7 @@ module Callable = struct
       call_decl_status = status;
       call_decl_is_auto = is_auto;
       call_decl_is_inline = is_inline;
+      call_decl_is_sealed = false;
       call_decl_needs_mask = needs_mask;
       call_decl_grants_mask = grants_mask;
       call_decl_opens = opens;
@@ -2719,14 +2724,23 @@ module Callable = struct
   (** Change the given symbol to one whose correctness is assumed, with the given
       [free_status] *)
   let set_status status callable =
-    let call_def =
-      if is_abstract callable then callable.call_def
+    let call_def, sealed =
+      if is_abstract callable then (callable.call_def, false)
       else
         match callable.call_def with
-        | ProcDef proc_def -> ProcDef { proc_body = None }
-        | call_def -> call_def
+        | ProcDef _ -> (ProcDef { proc_body = None }, true)
+        | call_def -> (call_def, false)
     in
-    { call_def; call_decl = { (to_decl callable) with call_decl_status = status } }
+    let call_decl = to_decl callable in
+    {
+      call_def;
+      call_decl =
+        {
+          call_decl with
+          call_decl_status = status;
+          call_decl_is_sealed = call_decl.call_decl_is_sealed || sealed;
+        };
+    }
 
   let set_free callable = set_status UserFree callable
   let set_machine_free callable = set_status MachineFree callable

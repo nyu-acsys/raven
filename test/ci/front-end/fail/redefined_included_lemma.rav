@@ -1,0 +1,8 @@
+// A lemma that an interface defines cannot be redefined, also when the interface comes
+// from an included file, whose bodies are dropped as it is not verified again.
+include "redefined_included_lemma_iface.rav"
+
+module M : I {
+  lemma l()
+  {}
+}
