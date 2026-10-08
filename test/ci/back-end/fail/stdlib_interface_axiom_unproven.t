@@ -7,8 +7,8 @@
   7 | module Fst : Library.ResourceAlgebra {
                 ^
   Verification Error: A postcondition may not hold at this return point.
-  [Error] File "lib/library/resource_algebra.rav", line 17, columns 55-79:
-  17 |     ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
-                                                              ^^^^^^^^^^^^^^^^^^^^^^^^
+  [Error] File "lib/library/resource_algebra.rav", line 17, columns 43-67:
+  17 |     ensures forall a:T, b:T :: {comp(a,b)} comp(a, b) == comp(b, a)
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^
   Related Location: This assertion may not hold.
   [1]

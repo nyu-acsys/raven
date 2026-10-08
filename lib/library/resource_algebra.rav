@@ -14,10 +14,10 @@ interface ResourceAlgebra : Type {
     ensures valid(id)
 
   auto axiom compCommute()
-    ensures forall a:T, b:T :: {comp(a,b)} {comp(b,a)} comp(a, b) == comp(b, a)
+    ensures forall a:T, b:T :: {comp(a,b)} comp(a, b) == comp(b, a)
 
   auto axiom compAssoc()
-    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} {comp(a, comp(b, c))} (comp(comp(a, b), c) == comp(a, comp(b, c)))
+    ensures forall a:T, b:T, c:T :: {comp(comp(a, b), c)} (comp(comp(a, b), c) == comp(a, comp(b, c)))
 
   auto axiom compId()
     ensures forall a:T :: {comp(a, id)} {comp(id, a)} comp(a, id) == a
@@ -691,9 +691,9 @@ module AtomicTokenRA[InArg: Type, RetArg: Type] : ResourceAlgebra {
 
     auto lemma compCommute()
     {
-        assert forall a:T, b:T :: {comp(a, b)} {comp(b, a)} a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
+        assert forall a:T, b:T :: {comp(a, b)} a == au_null || b == au_null ==> comp(a, b) == comp(b, a);
 
-        assert forall a:T, b:T :: {comp(a, b)} {comp(b, a)} a != au_null ==> b != au_null ==> comp(a, b) == comp(b, a) with {
+        assert forall a:T, b:T :: {comp(a, b)} a != au_null ==> b != au_null ==> comp(a, b) == comp(b, a) with {
             if (a is au_committed) {
                 assert comp(a,b) == comp(b,a);
             }

@@ -10,7 +10,7 @@ absolute path, so it depends on where the tree happens to live. See lsp_library_
   $ dune exec -- raven --lsp-mode -q ./lsp_library_loc.rav | sed 's|,"path":"[^"]*"||g; s|},{|}\n{|g'
   [{"file":"lib/library/resource_algebra.rav","start_line":16,"start_col":13,"end_line":16,"end_col":24,"kind":"RelatedLoc","message":["Lemma compCommute inherited from axiom Library.ResourceAlgebra.compCommute"],"library":true}
   {"file":"./lsp_library_loc.rav","start_line":4,"start_col":10,"end_line":4,"end_col":10,"kind":"Verification","message":["A postcondition may not hold at this return point"]}
-  {"file":"lib/library/resource_algebra.rav","start_line":17,"start_col":55,"end_line":17,"end_col":79,"kind":"RelatedLoc","message":["This assertion may not hold"],"library":true}]
+  {"file":"lib/library/resource_algebra.rav","start_line":17,"start_col":43,"end_line":17,"end_col":67,"kind":"RelatedLoc","message":["This assertion may not hold"],"library":true}]
 
 Locations in the file being checked are not flagged, so a client never mistakes an
 ordinary path for a library one.
