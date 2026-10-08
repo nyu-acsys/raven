@@ -13,12 +13,8 @@ let type_mismatch_error loc exp_ty fnd_ty =
         \  %{Type}"
        exp_ty fnd_ty)
 
-(** Best-effort diagnostic for the common case behind a confusing "expected X but found Y"
-    where X and Y turn out to be two different names for the same underlying module: their
-    canonical declaration site ([SymbolTbl.resolve_and_find]'s first, alias-independent
-    component) and instantiation-argument substitution agree, even though the identifiers
-    used to reach them differ. Purely read-only -- never changes what type-checks, only
-    what the error, if any, explains. *)
+(** Explains a mismatch between two types that are different names for the same module, if
+    they are. It changes only the error message. *)
 let explain_module_identity_mismatch (tbl : SymbolTbl.t) (exp_ty : type_expr)
     (fnd_ty : type_expr) : string option =
   match (exp_ty, fnd_ty) with
@@ -30,14 +26,10 @@ let explain_module_identity_mismatch (tbl : SymbolTbl.t) (exp_ty : type_expr)
       | ( Some (exp_alias, _, _, (_, _, exp_subst)),
           Some (fnd_alias, _, _, (_, _, fnd_subst)) )
         when QualIdent.(exp_alias = fnd_alias) -> (
-          (* [exp_alias]/[fnd_alias] name the physical declaration site both types
-             trace back to (e.g. a rep type's own qualified name). Its owning
-             module tells us whether any *real* type arguments could be
-             involved: if it has no formals, every difference between
-             [exp_subst] and [fnd_subst] is a structural rename picked up while
-             chasing through aliases, not a semantic one, and the two types are
-             genuinely the same. If it does have formals, we only know that for
-             sure when both sides bind every formal to the same argument. *)
+          (* Both types trace back to the declaration [exp_alias]. If its module has no
+             formals, the substitutions differ only by renamings along aliases;
+             otherwise, the types are the same only if both bind every formal to the
+             same argument. *)
           let owning_module = QualIdent.pop exp_alias in
           match Map.find tbl.tbl_symbols owning_module with
           | Some (Module.ModDef { mod_decl = { mod_decl_formals = []; _ }; _ }) ->

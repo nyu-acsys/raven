@@ -34,21 +34,14 @@ let disambiguate_ident (qual_ident : qual_ident) (disam_tbl : DisambiguationTbl.
 let rec disambiguate_expr (expr : expr) (disam_tbl : DisambiguationTbl.t) : expr t =
   let open Rewriter.Syntax in
   match expr with
-  (* `e.f`'s second operand is a field/destructor *name*, not a variable reference:
-       [ExprTyping]'s own [Read] case resolves it against the symbol table (and, for
-       `e.M.value`, against `e`'s type) rather than through the local scope. Left to the
-       generic [App] case below it would be disambiguated as if it were a variable, so a
-       local sharing the field's name would capture it -- `var elem: Int := 5;` would
-       rewrite the `elem` in a later `xs.elem` to that local's renamed ident, and the
-       read would fail to resolve. Only the receiver is disambiguated. *)
+  (* In `e.f`, `f` names a field or destructor, which [ExprTyping]'s [Read] case resolves,
+     so only the receiver is disambiguated; otherwise a local named like the field would
+     capture it. *)
   | App (Read, [ ref_expr; (App (Var _, [], _) as field_expr) ], expr_attr) ->
       let+ ref_expr = disambiguate_expr ref_expr disam_tbl in
       Expr.App (Read, [ ref_expr; field_expr ], expr_attr)
-  (* Extension constructs are handled by the active extension rather than by the
-       generic [App] case below, because -- unlike every core [App] -- an extension
-       construct may bind variables of its own that its sub-expressions refer to (a
-       `match` arm's pattern variables, say), which needs a pushed scope here. The
-       common non-binding case still gets the same structural walk, via DefaultExt. *)
+  (* The extension handles its constructs, as they may bind variables of their own (e.g. a
+     `match` arm's pattern variables). *)
   | App (ExprExt expr_ext, expr_list, expr_attr) ->
       let* ext_hooks = Rewriter.current_ext_hooks in
       let+ expr_ext, expr_list =
@@ -87,7 +80,7 @@ let rec disambiguate_expr (expr : expr) (disam_tbl : DisambiguationTbl.t) : expr
       in
       let* () =
         Rewriter.Logs.debug (fun printers m ->
-            m "typing.StmtTyping.disambiguate_expr: expr = %a" printers.pr_expr expr)
+            m "StmtTyping.disambiguate_expr: expr = %a" printers.pr_expr expr)
       in
       let* disambiguated_expr = disambiguate_expr expr disam_tbl in
       let* trgs =
@@ -107,8 +100,8 @@ let disambiguate_process_expr ?(allow_proc_call = false) (expr : expr)
   let+ processed_expr = ExprTyping.process_expr ~allow_proc_call expr expected_typ in
 
   Logs.debug (fun m ->
-      m "Typing.StmtTyping.disambiguate_process_expr: processed_expr = %a"
-        printers.pr_expr processed_expr);
+      m "StmtTyping.disambiguate_process_expr: processed_expr = %a" printers.pr_expr
+        processed_expr);
 
   processed_expr
 
@@ -119,13 +112,9 @@ let disambiguate_process_field_read ref field disam_tbl =
     match resolved_opt with
     | Some resolved -> Rewriter.return resolved
     | None -> (
-        (* `lhs := ref.field` is a dedicated statement (a heap read, not a pure
-             expression), resolved here rather than through ExprTyping's own
-             `Read` case -- but an unqualified destructor/field name imported from
-             an uninstantiated generic functor needs exactly the same recovery
-             that case does: no functor path of its own to resolve by, so recover
-             the deferred-import candidate first, then peek `ref`'s type to solve
-             the functor's parameters against it. *)
+        (* An unqualified field or destructor imported from an uninstantiated functor is
+           recovered as in [ExprTyping]'s [Read] case: the deferred import first, then the
+           type of `ref`. *)
         let* imported = Rewriter.find_import_target field in
         let candidate = Base.Option.value imported ~default:field in
         let* peeked_ref = disambiguate_process_expr ref Type.any disam_tbl in
@@ -162,10 +151,6 @@ let process_stmt_spec (disam_tbl : DisambiguationTbl.t) (spec : Stmt.spec) : Stm
   in
   let+ _ = Rewriter.exit_ghost in
   { spec with spec_form; spec_trigs }
-
-(* let rec purify_expr (expr: expr) (tbl: SymbolTbl.t) : Stmt.var_def list * expr =
-     (* Takes an expr, and returns a pure expression along with a set of temp variables that need to be defined  *)
-     () *)
 
 let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_ident list)
     (var_decls_lhs : var_decl list) qual_ident args (loc : location)
@@ -229,8 +214,6 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
             disambiguate_process_expr fpu_expr given_type disam_tbl)
       in
 
-      (* let* old_val_expr = disambiguate_process_expr old_val_expr given_type disam_tbl in
-                             let+ new_val_expr = disambiguate_process_expr new_val_expr given_type disam_tbl in *)
       let old_val_expr, new_val_expr =
         match fpu_exprs with
         | [ old_val_expr; new_val_expr ] -> (Some old_val_expr, new_val_expr)
@@ -387,7 +370,7 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
         in
         let* () =
           Rewriter.Logs.debug (fun printers m ->
-              m "Typing.process_au_action_stmt: commitAU: returns = [ %a ]"
+              m "StmtTyping.process_au_action_stmt: commitAU: returns = [ %a ]"
                 printers.pr_expr_list returns)
         in
         let+ returns =
@@ -399,10 +382,6 @@ let process_au_action_stmt (call_decl : Callable.call_decl) (assign_lhs : qual_i
           disam_tbl )
       else if QualIdent.(qual_ident = QualIdent.from_ident Predefs.abortAU_ident) then
         (* abortAU *)
-        (* match args with
-        | _ :: _ ->
-          Error.type_error loc (Printf.sprintf !"%{QualIdent} expects exactly one argument" qual_ident)
-        | [] ->  *)
         Rewriter.return
           (Stmt.AUAction { auaction_kind = AbortAU { token; proc_args } }, disam_tbl)
       else
@@ -511,12 +490,11 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
             | Some (App (Read, [ expr1; field_expr ], _)) ->
                 let field_qual_ident = Expr.to_qual_ident field_expr in
                 let* _, symbol =
-                  (* `expr1.M.value` where `M` is an uninstantiated functor, see
-               ImplicitInstantiation.try_resolve_implicit_instantiation_destr. An unqualified
-               destructor/field name imported from an uninstantiated generic functor
-               carries no functor path of its own either -- same recovery as
-               ExprTyping's own `Read` case: try the deferred-import candidate
-               first, then fall back to resolving against expr1's own (peeked) type. *)
+                  (* `e.M.value` for an uninstantiated functor `M` (see
+                     [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]). An
+                     unqualified field or destructor imported from one is recovered as in
+                     [ExprTyping]'s [Read] case: the deferred import first, then the type
+                     of `e`. *)
                   ImplicitInstantiation.resolve_or_implicit field_qual_ident
                     ~on_miss:(fun () ->
                       let* imported = Rewriter.find_import_target field_qual_ident in
@@ -579,15 +557,9 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                 (qual_ident :: assign_lhs, var_decl :: var_decls_lhs))
           in
 
-          (* The assignment is ghost if all lhs targets are ghost-typed, the same
-           way a ghost-typed local already forces its own initializer to be
-           ghost. An ambient ghost scope still forces it too, e.g. for a plain,
-           non-ghost lhs written inside a `{! ... !}` block. A mix of ghost and
-           non-ghost lhs targets is left non-ghost here, so the non-ghost
-           target(s) still get checked against a non-ghost expected type.
-           Used both to peek the rhs's ref-expr type below (for resolving a
-           field/destructor name against an uninstantiated generic import) and
-           as the expected type for the generic rhs case further down. *)
+          (* The assignment is ghost if all targets are ghost or the scope is ghost. With
+             both ghost and non-ghost targets, it is not, so that the non-ghost ones are
+             checked against a non-ghost type. *)
           let is_ghost_assign =
             is_ghost_scope || List.for_all var_decls_lhs ~f:(fun var -> var.var_ghost)
           in
@@ -598,13 +570,9 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               let read_expr_qi = Expr.to_qual_ident read_expr in
 
               let* read_expr_qi, read_symbol =
-                (* `ref_expr.M.value` where `M` is an uninstantiated functor, see
-               ImplicitInstantiation.try_resolve_implicit_instantiation_destr. An unqualified
-               destructor/field name imported from an uninstantiated generic functor
-               (`import Library.List._` then `xs.hd`) carries no functor path of its
-               own either -- same recovery as ExprTyping's own `Read` case: try the
-               deferred-import candidate first, then fall back to resolving against
-               ref_expr's own (peeked) type. *)
+                (* `ref_expr.M.value` for an uninstantiated functor `M`, or an unqualified
+                   field or destructor imported from one: recovered as in [ExprTyping]'s
+                   [Read] case. *)
                 ImplicitInstantiation.resolve_or_implicit read_expr_qi ~on_miss:(fun () ->
                     let* imported = Rewriter.find_import_target read_expr_qi in
                     let candidate = Base.Option.value imported ~default:read_expr_qi in
@@ -623,7 +591,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               | FieldDef f ->
                   let* () =
                     Rewriter.Logs.debug (fun printers m ->
-                        m "process_stmt: read_assign_rhs: %a" printers.pr_expr
+                        m "StmtTyping.process_stmt: read_assign_rhs: %a" printers.pr_expr
                           assign_desc.assign_rhs)
                   in
                   let field_qual_ident = read_expr_qi in
@@ -644,7 +612,6 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                         field_read_is_init = assign_desc.assign_is_init;
                       }
                   in
-                  Logs.debug (fun m -> m "process_stmt: starting a fieldRead processing");
                   process_basic_stmt call_decl (Stmt.FieldRead field_read_desc) stmt_loc
                     disam_tbl
               | DestrDef destr_def ->
@@ -669,7 +636,7 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
           | _ -> (
               let* () =
                 Rewriter.Logs.debug (fun printers m ->
-                    m "process_stmt: assign_desc: %a" printers.pr_stmt_basic
+                    m "StmtTyping.process_stmt: assign_desc: %a" printers.pr_stmt_basic
                       (Assign assign_desc))
               in
 
@@ -677,10 +644,10 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                 match assign_desc.assign_rhs with
                 | App (Var qual_ident, args, _) -> (
                     let* qual_ident = disambiguate_ident qual_ident disam_tbl in
-                    (* Peek at whether the RHS is a procedure/lemma call, without raising if
-                 it doesn't resolve as-is -- `M.foo` may still resolve via implicit
-                 functor instantiation. Falls through to the ordinary expression path
-                 (and its error) otherwise. *)
+                    (* Whether the right-hand side is a call of a procedure or lemma,
+                       without an error if it does not resolve: `M.foo` may resolve
+                       through implicit instantiation. Otherwise, it is typed as an
+                       expression. *)
                     let* resolved =
                       ImplicitInstantiation.resolve_or_implicit_opt qual_ident
                         ~on_miss:(fun () ->
@@ -696,12 +663,9 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
                           let candidate =
                             Base.Option.value imported ~default:qual_ident
                           in
-                          (* Only a callable can become a `Stmt.Call` below; excluding
-                       constructors here also means a zero-arg one (`nil`) can't be
-                       hard-erred on for failing to infer its type argument from this
-                       peek's necessarily-blind `Any` expected type -- it instead
-                       falls through cleanly to ordinary expression processing, where
-                       the real expected type (from the lhs) is available. *)
+                          (* Only a callable becomes a [Stmt.Call]; anything else, such as
+                             a constructor `nil`, is typed as an expression, against the
+                             type of the left-hand side. *)
                           ImplicitInstantiation.try_resolve_implicit_instantiation
                             ~process_expr:ExprTyping.process_expr
                             ~claimed_location:ExprTyping.claimed_location ~loc:stmt_loc
@@ -722,15 +686,14 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
               match assign_rhs_callable_opt with
               | Some (symbol, proc_qual_ident, args) -> begin
                   Logs.debug (fun m ->
-                      m "process_stmt: assign_rhs_qual_ident: %a; %b" QualIdent.pr
-                        proc_qual_ident
+                      m "StmtTyping.process_stmt: assign_rhs_qual_ident: %a; %b"
+                        QualIdent.pr proc_qual_ident
                         QualIdent.(
                           proc_qual_ident = QualIdent.from_ident Predefs.bindAU_ident));
 
                   let (call_desc : Stmt.call_desc) =
                     {
                       call_lhs = assign_desc.assign_lhs;
-                      (*List.map var_decls_lhs ~f:(fun var -> var.var_name |> QualIdent.from_ident);*)
                       call_name = proc_qual_ident;
                       call_args = args;
                       call_is_spawn = false;
@@ -754,7 +717,8 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
 
                   let* () =
                     Rewriter.Logs.debug (fun printers m ->
-                        m "process_stmt: disam_assign_rhs: %a" printers.pr_expr assign_rhs)
+                        m "StmtTyping.process_stmt: disam_assign_rhs: %a" printers.pr_expr
+                          assign_rhs)
                   in
 
                   let assign_desc = Stmt.{ assign_desc with assign_lhs; assign_rhs } in
@@ -877,9 +841,9 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
   | Use use_desc ->
       let* use_name, symbol =
         let* id = disambiguate_ident use_desc.use_name disam_tbl in
-        (* `fold M.p(x)` where `M` is an uninstantiated functor, or `fold p(x)` with `p`
-           imported from one: the instance is inferred from the arguments, as for an
-           application of `M.p`. *)
+        (* `fold M.p(x)` for an uninstantiated functor `M`, or `fold p(x)` with `p`
+           imported from one: the instance is inferred from the arguments, as for
+           `M.p`. *)
         ImplicitInstantiation.resolve_or_implicit id ~on_miss:(fun () ->
             let* args =
               Rewriter.List.map use_desc.use_args ~f:(fun e ->
@@ -975,13 +939,9 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
       in
       let* var_type_expanded = TypeExpr.expand_type_expr var_decl.var_type in
 
-      (* A ghost `new` -- the LHS var is ghost, or we're already in a ghost scope -- may only
-         initialize ghost fields: with a non-ghost field in the mix, the allocation writes real
-         heap state that a ghost statement's erasure would silently drop. This is the same
-         restriction FieldWrite enforces on `is_ghost_scope`, generalized to also cover a `New`
-         whose ghost-ness comes from its own (locally ghost-declared) LHS var rather than an
-         enclosing ghost scope -- `local_var_def`'s desugaring emits `new`'s VarDef and the New
-         statement itself as two separate statements, so is_ghost_scope alone won't see it. *)
+      (* A ghost `new`, of a ghost variable or in a ghost scope, may initialize only ghost
+         fields. A declaration with `new` becomes two statements, so the ghost scope alone
+         does not show it. *)
       let is_ghost_new = var_decl.var_ghost || is_ghost_scope in
       if Type.equal var_type_expanded Type.ref then
         let process_field_init (field_name, expr_opt) =
@@ -1010,12 +970,8 @@ let rec process_basic_stmt call_decl (basic_stmt : Stmt.basic_stmt_desc)
 
         (Stmt.New new_desc, disam_tbl)
       else type_mismatch_error stmt_loc Type.ref var_decl.var_type
-      (* The following constructs are not expected here because the parser stores these commands as Assign stmts.
-         The job of this function is to intercept the Assign stmts with the specific expressions on the RHS, and then transform
-         them to the appropriate construct, ie Call, New, BindAU, OpenAU, AbortAU, CommitAU etc.
-
-         This function is not expected to go over these parts of the AST again. If the following constructs are
-         discovered by this function, then something unexpected has happened. *)
+      (* The parser produces assignments for these, which this function turns into the
+         constructs, so they do not occur here. *)
       (* Now that we call process_symbol on arbitrarily AST elements, we need to deal with these constructs too *)
   | Call call_desc -> (
       let* call_lhs, var_decls_lhs =
@@ -1119,7 +1075,8 @@ let process_stmt ?(new_scope = true) call_decl (stmt : Stmt.t)
   let rec process_stmt ?(new_scope = true) stmt disam_tbl =
     let open Rewriter.Syntax in
     let* () =
-      Rewriter.Logs.debug (fun printers m -> m "process_stmt: %a" printers.pr_stmt stmt)
+      Rewriter.Logs.debug (fun printers m ->
+          m "StmtTyping.process_stmt: %a" printers.pr_stmt stmt)
     in
     let* is_ghost_scope = Rewriter.is_ghost_scope in
     let+ stmt_desc, disam_tbl =

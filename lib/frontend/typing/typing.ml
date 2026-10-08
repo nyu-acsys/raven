@@ -6,7 +6,6 @@ open TypingMonad
 
 let process_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?cli_config (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
-  (* assert Ident.(m.mod_decl.mod_decl_name = QualIdent.to_ident (SymbolTbl.root_ident tbl)); *)
   let tbl, m =
     Rewriter.eval ?ext_hooks ?cli_config
       (fun st ->

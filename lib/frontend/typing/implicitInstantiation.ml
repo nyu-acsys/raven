@@ -7,10 +7,8 @@ open Util
 open TypingMonad
 open TypingErrors
 
-(** Try plain resolution of [qual_ident]; on failure, invoke [on_miss] (one of
-    [try_resolve_implicit_instantiation] / [try_resolve_implicit_instantiation_destr])
-    and, if it rewrites to a new qual_ident, resolve that instead. [None] if neither
-    applies. *)
+(** Resolves [qual_ident], or else the name [on_miss] rewrites it to; [None] if neither
+    resolves. *)
 let rec resolve_or_implicit_opt (qual_ident : qual_ident)
     ~(on_miss : unit -> qual_ident option t) : (qual_ident * Rewriter.Symbol.t) option t =
   let open Rewriter.Syntax in
@@ -33,11 +31,8 @@ and resolve_or_implicit (qual_ident : qual_ident) ~(on_miss : unit -> qual_ident
   | Some resolved -> Rewriter.return resolved
   | None -> Rewriter.resolve_and_find qual_ident
 
-(** Resolve [qi] as `<functor>.<member>`: split off the prefix, resolve it, and check it
-    names a functor eligible for implicit instantiation (see
-    [ProgUtils.is_generic_functor]). [None] if [qi] is unqualified, its prefix doesn't
-    resolve, or isn't such a functor. Shared by [try_resolve_implicit_instantiation] and
-    [try_resolve_implicit_instantiation_destr]. *)
+(** Resolves [qi] as `<functor>.<member>`, for a functor eligible for implicit
+    instantiation (see [ProgUtils.is_generic_functor]); [None] otherwise. *)
 and resolve_generic_functor_prefix (qi : qual_ident) :
     (qual_ident * Module.t * ident) option t =
   let open Rewriter.Syntax in
@@ -49,19 +44,17 @@ and resolve_generic_functor_prefix (qi : qual_ident) :
     Option.map functor_resolved ~f:(fun (functor_qual_ident, m) ->
         (functor_qual_ident, m, member_ident))
 
-(** Check whether [qi] is (an alias for) an instantiation of the functor resolved as
-    [functor_qual_ident]: an instantiation's alias resolves back to [functor_qual_ident]
-    itself, via [Rewriter.Symbol.orig_qid]. *)
+(** Whether [qi] is an instance of the functor [functor_qual_ident], or an alias of one.
+*)
 and resolves_to_instantiation_of ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
     bool t =
   let open Rewriter.Syntax in
   let+ formal_module = instantiation_formal_module ~functor_qual_ident qi in
   Option.is_some formal_module
 
-(** If [qi] is an instantiation of the functor [functor_qual_ident], the module each of
-    the functor's formals is instantiated with. A sealed instance resolves to the
-    functor's interface rather than the functor, so its arguments are read off the symbol
-    table's record of it. *)
+(** The modules that instantiate the formals of [functor_qual_ident] in [qi], if [qi] is
+    an instance of it. A sealed instance resolves to the interface, so its arguments come
+    from the symbol table. *)
 and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_ident) :
     (ident -> qual_ident) option t =
   let open Rewriter.Syntax in
@@ -79,9 +72,7 @@ and instantiation_formal_module ~(functor_qual_ident : qual_ident) (qi : qual_id
           Some (QualIdent.append qi)
       | _ -> None)
 
-(** Check whether [typ] (normalized via [TypeExpr.process_type_expr], in case it's a raw,
-    self-referentially-read-back type) names an existing instantiation of functor [m];
-    return that instantiation's qualified name on success. *)
+(** The existing instance of the functor [m] that [typ] names, if any. *)
 and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Module.t)
     (typ : type_expr) : qual_ident option t =
   let open Rewriter.Syntax in
@@ -98,10 +89,9 @@ and resolve_existing_instantiation ~(functor_qual_ident : qual_ident) (m : Modul
           Rewriter.return (if is_inst then Some inst_qi else None)
       | _ -> Rewriter.return None)
 
-(** The unification variables contributed by [insts] -- abstract module members declared
-    inside [scope_qi], each constrained by a rep-typed interface. Each entry is (the
-    member's rep qualident within [scope_qi], the member's name, its rep ident). Used both
-    for a functor's formals and for a field interface's own module members. *)
+(** The unification variables of [insts]: the abstract module members declared in
+    [scope_qi] with a rep-typed interface, each as its rep within [scope_qi], its name and
+    its rep ident. *)
 and rep_vars_of_insts ~(scope_qi : qual_ident) (insts : Module.module_inst list) :
     (qual_ident * ident * ident) list t =
   let open Rewriter.Syntax in
@@ -115,22 +105,16 @@ and rep_vars_of_insts ~(scope_qi : qual_ident) (insts : Module.module_inst list)
   in
   List.filter_opt vars
 
-(** Unify [pairs] against each other, threading (and extending) the partial solution [u]
-    from the unification variables [formal_reps] to the concrete types they've been solved
-    to so far. Each pair `(t1, t2)` is `t1`, a type written inside [m]'s own
-    un-instantiated body (e.g. a parameter's declared type), against `t2`, the
-    corresponding concrete type from the call site (e.g. an argument's inferred type).
-    Deliberately a structural approximation, not a full algorithm (no union-find, no
-    occurs check) -- see [unify_one] below for the three cases it distinguishes. *)
+(** Unifies each pair of a type written in [m]'s body and the corresponding type at the
+    call site, extending the solution [u] for the variables [formal_reps]. A structural
+    approximation, without union-find or occurs check. *)
 and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
     ~(formal_reps : (qual_ident * ident * ident) list) ~(m_rep_suffixes : ident list list)
     (u : (ident * type_expr) list) (pairs : (type_expr * type_expr) list) :
     (ident * type_expr) list t =
   let open Rewriter.Syntax in
-  (* Canonicalize via [expand_type_expr] before storing/comparing: two bindings for
-       the same formal can be the same type reached through different alias chains
-       (e.g. `Int` vs. `GenInst$$M$$Int.T.T`), which would otherwise look like a
-       conflict. *)
+  (* Expanded, as the same type can be reached through different aliases (e.g. `Int` and
+     `GenInst$$M$$Int.T.T`). *)
   let combine u formal_ident t2 =
     let* t2 = TypeExpr.expand_type_expr (t2 |> Type.set_ghost false) in
     match List.Assoc.find u formal_ident ~equal:Ident.equal with
@@ -159,13 +143,11 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
         let* u = unify_one u t1 t2 in
         go u pairs
   and unify_one u t1 t2 =
-    (* Normalize only [t2]: [t1] names [m]'s own formals/rep, which are by design
-         unreachable via ordinary resolution from outside [m] -- it's only ever
-         pattern-matched against [formal_reps]/[m_rep_suffixes] below, never resolved. *)
+    (* Only [t2] is normalized: [t1] names [m]'s formals, which do not resolve outside
+       [m]. *)
     let* t2 = TypeExpr.process_type_expr t2 in
-    (* `Any`, the numeric placeholder `Num` (e.g. the expected type of an operand of
-         `+`), and `Perm` (the expected type of an assertion, which a `Bool` also
-         satisfies) say nothing about the formals. *)
+    (* `Any`, `Num` (an operand of `+`) and `Perm` (an assertion, also met by `Bool`) say
+       nothing about the formals. *)
     if
       Type.is_any (t1 |> Type.set_ghost false)
       || Type.is_any (t2 |> Type.set_ghost false)
@@ -173,9 +155,8 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
       || Type.equal (t2 |> Type.set_ghost false) Type.perm
     then Rewriter.return u
     else
-      (* Three cases: `t1` is a formal's rep (bind/check it against `t2`); `t1` is
-           [m]'s own rep and `t2` is an existing instantiation (read off all formals at
-           once); or both sides recurse structurally on matching head/arity. *)
+      (* [t1] is a formal's rep, or [m]'s own rep against an existing instance, or both
+         sides recurse on matching heads. *)
       match
         List.find formal_reps ~f:(fun (rep_qi, _, _) ->
             match t1 with App (Var qi, [], _) -> QualIdent.equal rep_qi qi | _ -> false)
@@ -212,12 +193,8 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
                                (QualIdent.append (formal_module formal_ident) rep_ident)))
                   )
               | _ -> Rewriter.return u)
-          (* A formal declared `Set[_]` is satisfiable by a `FinSet[_]`-typed argument
-               (FinSet[T] <: Set[T]) -- unify just the element position, same as the
-               `Map`/`Map` structural case below would for matching heads. Not
-               bidirectional: the reverse (formal `FinSet[_]`, argument `Set[_]`) is
-               correctly rejected by the fallback below, since a plain Set can't satisfy
-               a FinSet-typed formal (no downcast). *)
+          (* A formal of type `Set[_]` accepts an argument of type `FinSet[_]`, but not
+             the reverse. *)
           | App (Map, [ t1_elem; App (Bool, _, _) ], _) -> (
               match t2 with
               | App (FinSet, [ t2_elem ], _) -> go u [ (t1_elem, t2_elem) ]
@@ -238,11 +215,10 @@ and unify_type_list ~(loc : location) ~(functor_qual_ident : qual_ident)
   in
   go u pairs
 
-(** Solve the field-typed formals of [functor_qual_ident] from the member's location
-    arguments. A location formal's declared field is `<functor>.<A>.<f>`, so its path
-    names the formal it belongs to; the corresponding argument, written `x.g` at the call
-    site, supplies `g`. Returns the solved formals paired with the fields they stand for,
-    and the indices of the arguments consumed. *)
+(** Solves the field-typed formals of [functor_qual_ident] from the member's location
+    arguments: a location formal's field `<functor>.<A>.<f>` names its formal `A`, and the
+    argument `x.g` supplies `g`. Returns the solved formals with their fields, and the
+    indices of the consumed arguments. *)
 and solve_field_formals ~(claimed_location : expr -> expr t) ~(loc : location)
     ~(functor_qual_ident : qual_ident) ~(loc_params : qual_ident list)
     ~(arg_exprs : expr list) : ((ident * qual_ident) list * int list) t =
@@ -278,11 +254,10 @@ and solve_field_formals ~(claimed_location : expr -> expr t) ~(loc : location)
   ( List.map solved ~f:(fun (formal_ident, field, _) -> (formal_ident, field)),
     List.map solved ~f:(fun (_, _, i) -> i) )
 
-(** Build the module standing for [field_qi] as an implementation of [interface_qi]: solve
-    the interface's abstract module members by unifying its field's declared type against
-    [field_qi]'s actual type, then wrap each solution as a rep module. This is what makes
-    a field a functor argument -- the adapter's field is manifest, so it denotes the
-    client's field rather than declaring one of its own. *)
+(** The module for [field_qi] as an implementation of [interface_qi]: solves the
+    interface's abstract members by unifying its field's type with [field_qi]'s, and wraps
+    each solution as a rep module. Its field is manifest, so it denotes the client's
+    field. *)
 and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
     ~(reference_scope : qual_ident) ~(interface_qi : qual_ident)
     ~(field : Module.field_def) ~(mod_members : Module.module_inst list)
@@ -290,9 +265,8 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
   let open Rewriter.Syntax in
   let* formal_reps = rep_vars_of_insts ~scope_qi:interface_qi mod_members in
   let* bindings =
-    (* Nothing to solve when the interface fixes its field's type outright (e.g. an
-         `AtomicField` refined to `Int`); the field's own type is then checked when the
-         adapter is verified against the interface. *)
+    (* Nothing to solve if the interface fixes its field's type; the adapter is then
+       checked against the interface. *)
     if List.is_empty mod_members then Rewriter.return []
     else
       unify_type_list ~loc ~functor_qual_ident:interface_qi ~formal_reps
@@ -330,17 +304,11 @@ and field_arg_module ~(loc : location) ~(insert_scope : qual_ident)
     (ProgUtils.get_or_intros_field_module ~loc ~insert_scope ~reference_scope
        ~interface_qual_ident:interface_qi ~field ~field_qi ~field_type mod_bindings)
 
-(** Try to resolve [qual_ident] (e.g. `M.foo`, already failed plain resolution) as a call
-    into a member of an uninstantiated generic functor, implicitly instantiating it.
-    [None] if [qual_ident] isn't `<functor>.<member>`-shaped, or the functor/member
-    doesn't exist; once both exist, either succeeds or raises (the real problem is
-    inference, not a typo).
-
-    Type-typed formals are solved via [unify_type_list], unifying each argument's peeked
-    type against its formal's declared type, plus the member's own return type against
-    [expected_typ]. Field-typed formals are solved instead from the member's location
-    arguments (see [solve_field_formals]): `l.bit` and `l.other` have the same type, so
-    the variable ranges over symbol identity rather than over types. *)
+(** Resolves [qual_ident], a `<functor>.<member>` that failed plain resolution, by
+    instantiating the functor implicitly. [None] if the functor or member does not exist;
+    otherwise it succeeds or reports an error. Type-typed formals are solved by unifying
+    the arguments' types with the formals' declared types, and the member's return type
+    with [expected_typ]; field-typed formals by [solve_field_formals]. *)
 and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> expr t)
     ~(claimed_location : expr -> expr t) ~(loc : location) ~(qual_ident : qual_ident)
     ~(arg_exprs : expr list) ?(only_calls = false) ~(expected_typ : type_expr) () :
@@ -350,14 +318,9 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
   match prefix with
   | None -> Rewriter.return None
   | Some (functor_qual_ident, m, member_ident) -> (
-      (* The member can be an ordinary callable, a data constructor, or a value -- all
-           are addressable as `<module>.<member>(...)` and solved identically below, unless
-           [only_calls] restricts this to callables: a speculative "is this a call?"
-           peek (see the `Assign` statement's own peek in `process_basic_stmt`) must
-           not also attempt -- and, on failure, hard-error on -- a constructor that
-           was never going to become a `Stmt.Call` anyway; it should cleanly report
-           "no match" instead and let the caller fall through to ordinary expression
-           processing, where a correct [expected_typ] will actually be available. *)
+      (* The member may be a callable, a constructor or a value. With [only_calls], used
+         when an assignment speculatively checks for a call, anything else gives [None],
+         so that the caller falls back to typing an expression. *)
       let member_info =
         List.find_map m.mod_def ~f:(function
           | SymbolDef (CallDef call_def)
@@ -385,9 +348,8 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
       match member_info with
       | None -> Rewriter.return None
       | Some (member_formals, return_type_opt, loc_params) -> (
-          (* Trailing implicit ghost formals may be omitted at the call site, exactly
-               as in [process_callable_args]; the arguments given line up with the
-               leading formals and are all we can infer from. *)
+          (* Trailing implicit ghost formals may be omitted, as in
+             [process_callable_args]. *)
           let omitted_are_implicit =
             List.drop member_formals (List.length arg_exprs)
             |> List.for_all ~f:(fun var_decl -> var_decl.Type.var_implicit)
@@ -417,10 +379,8 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
                 solve_field_formals ~claimed_location ~loc ~functor_qual_ident ~loc_params
                   ~arg_exprs
             in
-            (* A type written in terms of a field-solved formal (e.g. `A.E`) carries no
-                 information the field hasn't already given, and peeking it would only
-                 produce a spurious unification failure. The real check happens when the
-                 call is reprocessed against the resolved instantiation. *)
+            (* A type in terms of a field-solved formal (e.g. `A.E`) adds nothing; it is
+               checked when the call is processed against the instance. *)
             let field_formal_paths =
               List.map field_formals ~f:(fun (formal_ident, _) ->
                   QualIdent.to_list (QualIdent.append functor_qual_ident formal_ident))
@@ -439,19 +399,10 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
                   (process_expr arg_expr (Type.any |> Type.set_ghost_to expected_typ))
               in
               let arg_typ = Expr.to_type arg_expr in
-              (* An underdetermined literal (e.g. `{||}`) peeked with no expected type,
-                   or an argument that is itself an unresolved implicit instantiation of
-                   some (possibly different) generic functor (e.g. `nil`, see
-                   [speculatively] above), gives `Bot` for its missing type information --
-                   that's not a real type argument to solve this instantiation with, but
-                   it isn't necessarily fatal either: treat it as uninformative and move
-                   on, the same way a [mentions_field_formal] argument already is below.
-                   Other pairs -- a sibling argument, the return type against
-                   [expected_typ] -- may still pin every formal; if they don't, the final
-                   check once all pairs are gathered is what reports the error (correctly
-                   deferred to speculative sub-attempts too, see
-                   [try_resolve_implicit_instantiation]'s own "some formal unresolved"
-                   check). *)
+              (* `Bot`, from a literal without expected type (e.g. `{||}`) or an
+                 unresolved implicit instantiation (e.g. `nil`), says nothing about the
+                 formals. If the other pairs do not determine them, the check after
+                 unification reports it. *)
               if Type.contains_bot arg_typ then Rewriter.return None
               else Rewriter.return (Some (formal_var_decl.Type.var_type, arg_typ))
             in
@@ -475,9 +426,8 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
             let* formal_reps =
               rep_vars_of_insts ~scope_qi:functor_qual_ident m.mod_decl.mod_decl_formals
             in
-            (* [m]'s rep, relative to [m], and the type of a nested module it
-                 aliases, if any (e.g. `rep type T = L.T`): member signatures may
-                 already refer to the latter. *)
+            (* [m]'s rep, relative to [m], and the type of a nested module it aliases
+               (e.g. `rep type T = L.T`), which member signatures may refer to. *)
             let m_rep_suffixes =
               match m.mod_decl.mod_decl_rep with
               | None -> []
@@ -515,15 +465,8 @@ and try_resolve_implicit_instantiation ~(process_expr : expr -> type_expr -> exp
             with
             | Some formal
               when List.Assoc.mem field_formals formal.mod_inst_name ~equal:Ident.equal ->
-                (* [formal] just isn't determined yet -- not a mistake at this call
-                     site. If this whole resolution attempt is itself happening
-                     speculatively (i.e. this call is being peeked as an argument of
-                     some enclosing, still-uninstantiated functor call, see
-                     [peek_arg]), defer to whatever information the enclosing call
-                     can supply instead of hard-erring here; the enclosing call
-                     reprocesses this expression from source once it resolves, giving
-                     this attempt a second, better-informed try. Only report the
-                     error once nothing else is going to help. *)
+                (* While speculating, an undetermined formal is not an error: the
+                   enclosing call processes this expression again once it is resolved. *)
                 let* speculative = is_speculative in
                 if speculative then Rewriter.return None
                 else
@@ -638,11 +581,9 @@ and instantiate_mixed_functor ~(loc : location) ~(functor_qual_ident : qual_iden
     (ProgUtils.instantiate_functor_at_modules ~loc ~functor_qual_ident ~functor_mod_decl
        ~insert_scope ~reference_scope ~inst_key arg_module_qis)
 
-(** The `Read`-expression (`expr1.M.value`) counterpart of
-    [try_resolve_implicit_instantiation]. A destructor has no arguments to infer a type
-    from, only [arg_typ] ([expr1]'s peeked type) -- so this only succeeds when [arg_typ]
-    already names an existing instantiation of `M`, rewriting to that instantiation's
-    destructor. *)
+(** [try_resolve_implicit_instantiation] for a destructor read `e.M.value`: without
+    arguments, it succeeds only if [arg_typ], the type of `e`, names an existing instance
+    of `M`. *)
 and try_resolve_implicit_instantiation_destr ~(field_ident : qual_ident)
     ~(arg_typ : type_expr) : qual_ident option t =
   let open Rewriter.Syntax in

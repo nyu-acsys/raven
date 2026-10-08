@@ -7,12 +7,10 @@ open TypingMonad
 open TypingErrors
 open ProgUtils
 
-(* Checks an `opens` clause. Each entry names an invariant, with either no
-     arguments (any instance) or one per parameter of the invariant, implicit
-     ones included, of which a trailing run may be `_`; the `_`s are dropped,
-     leaving the prefix a mask entry records. Arguments may only mention the callable's formals --
-     except, for an atomic callable, its implicit ones, which [openAU] gives a
-     fresh value (see [Masks.compute_proc_lemma_mask]). *)
+(* Checks an `opens` clause. Each entry names an invariant, with no arguments (any
+   instance) or one per parameter, implicit ones included, of which a trailing run may be
+   `_` and is dropped. Arguments may mention only the callable's formals, except, for an
+   atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
 let process_opens_clause (call_decl : Callable.call_decl) (formals : Type.var_decl list)
     (precond : Stmt.spec list) (postcond : Stmt.spec list)
     (disam_tbl : DisambiguationTbl.t) (mask : Callable.mask) : Callable.mask t =
@@ -92,8 +90,8 @@ let process_callable (callable : Callable.t) : Module.symbol t =
   let open Rewriter.Syntax in
   let* () =
     Rewriter.Logs.debug (fun printers m ->
-        m "Typing.process_callable: Start Processing callable: %a" printers.pr_callable
-          callable)
+        m "CallableTyping.process_callable: Start Processing callable: %a"
+          printers.pr_callable callable)
   in
   let* _ = Rewriter.enter_callable callable in
   let disam_tbl = DisambiguationTbl.push [] in
@@ -104,9 +102,7 @@ let process_callable (callable : Callable.t) : Module.symbol t =
         let var_decl', disam_tbl = DisambiguationTbl.add_var_decl var_decl disam_tbl in
         (disam_tbl, var_decl'))
   in
-  (* A location parameter's field must name a field. It is otherwise
-       presentational -- the parameter itself is an ordinary Ref -- so this is
-       the only thing to check about it. *)
+  (* A location parameter's field must name a field; the parameter itself is a [Ref]. *)
   let* call_decl_loc_params =
     Rewriter.List.map call_decl.call_decl_loc_params ~f:(fun field ->
         let* field, symbol = Rewriter.resolve_and_find field in
@@ -131,16 +127,11 @@ let process_callable (callable : Callable.t) : Module.symbol t =
 
   let* ext_hooks = Rewriter.current_ext_hooks in
 
-  Logs.debug (fun m -> m "adding formals");
   let* _ = Rewriter.add_locals call_decl_formals in
 
-  Logs.debug (fun m -> m "adding returns");
   let* _ = Rewriter.add_locals call_decl_returns in
 
-  Logs.debug (fun m -> m "adding locals");
   let* _ = Rewriter.add_locals call_decl_locals in
-
-  Logs.debug (fun m -> m "done adding locals");
 
   let* call_decl_precond =
     Rewriter.List.map call_decl.call_decl_precond
@@ -185,9 +176,8 @@ let process_callable (callable : Callable.t) : Module.symbol t =
     List.iter call_decl_precond ~f:(fun spec ->
         match Set.choose (Set.inter (Expr.symbols spec.spec_form) return_qual_idents) with
         | Some qual_ident ->
-            (* Post-disambiguation, so print the plain source name rather than
-                 [QualIdent.pr]/[Ident.pr]'s disambiguated `name^N` form -- same as the
-                 sibling check on the callable's body below. *)
+            (* Prints the source name, without disambiguation, like the check on the body
+               below. *)
             Error.type_error (QualIdent.to_loc qual_ident)
               (Printf.sprintf
                  !"Return variable %{String} cannot be used in a requires clause; it is \
@@ -197,10 +187,9 @@ let process_callable (callable : Callable.t) : Module.symbol t =
   in
 
   let () =
-    (* Func/pred/invariant contracts are meant to be total -- the verifier never
-         checks expressions for well-definedness, so a `requires` clause on one of
-         these would be silently unenforced at any call site nested inside another
-         expression. A domain restriction belongs in a guarded `ensures` instead. *)
+    (* Contracts of funcs, preds and invariants must be total: a [requires] would go
+       unchecked at a call inside an expression. A domain restriction belongs in a guarded
+       [ensures]. *)
     match (call_decl.call_decl_kind, call_decl_precond) with
     | (Func | Pred | Invariant), _ :: _ ->
         Error.type_error call_decl.call_decl_loc
@@ -245,7 +234,6 @@ let process_callable (callable : Callable.t) : Module.symbol t =
            call_decl_postcond disam_tbl)
   in
 
-  Logs.debug (fun m -> m "done processing pre/post cond");
   let call_decl =
     {
       call_decl with
@@ -270,18 +258,9 @@ let process_callable (callable : Callable.t) : Module.symbol t =
                 StmtTyping.disambiguate_process_expr expr expected_return_type disam_tbl
               in
               let () =
-                (* A func's body is the single expression that defines its return
-                     value, so referencing the return variable inside it is circular
-                     (and, since nothing detects it as a recursive call, an
-                     undetected non-terminating definition) -- unlike `ensures`,
-                     where the return variable denotes the already-computed result.
-                     Pred/Invariant don't have this problem: the parameters after
-                     `;` in their signature aren't a computed return value at all,
-                     just ordinary parameters that are meant to be used in the body
-                     (e.g. `pred counter(x: Ref; v: Int) { own(x, v) }`) -- see the
-                     `Pred | Invariant -> ...` case in [Checker.check_callable],
-                     which never builds a defining axiom for them in the first
-                     place. *)
+                (* The body of a func defines its return value, so using the return
+                   variable in it is circular, unlike in [ensures]. The parameters after
+                   `;` of a pred or invariant are ordinary parameters. *)
                 match call_decl.call_decl_kind with
                 | Pred | Invariant | Proc | Lemma -> ()
                 | Func -> (
@@ -294,9 +273,7 @@ let process_callable (callable : Callable.t) : Module.symbol t =
                       Set.choose (Set.inter (Expr.symbols expr) return_qual_idents)
                     with
                     | Some qual_ident ->
-                        (* Post-disambiguation, so print the plain source name
-                           rather than [QualIdent.pr]/[Ident.pr]'s disambiguated
-                           `name^N` form. *)
+                        (* Prints the source name, without disambiguation. *)
                         Error.type_error (QualIdent.to_loc qual_ident)
                           (Printf.sprintf
                              !"Return variable %{String} cannot be used in the body of \
@@ -314,13 +291,12 @@ let process_callable (callable : Callable.t) : Module.symbol t =
     | ProcDef proc_def ->
         let+ proc_body =
           Rewriter.Option.map proc_def.proc_body ~f:(fun stmt ->
-              (* Logs.debug (fun m -> m "Typing.process_callable: Processing stmt: %a" Stmt.pr stmt); *)
               Logs.debug (fun m ->
-                  m "Typing.process_callable: Callable: %a" Ident.pr
+                  m "CallableTyping.process_callable: Callable: %a" Ident.pr
                     callable.call_decl.call_decl_name);
 
               Logs.debug (fun m ->
-                  m "Typing.process_callable: DisamTbl: %a"
+                  m "CallableTyping.process_callable: DisamTbl: %a"
                     (Fmt.Dump.list (Fmt.Dump.list (Fmt.Dump.pair Ident.pr Ident.pr)))
                     (List.map disam_tbl ~f:Map.to_alist));
 

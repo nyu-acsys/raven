@@ -5,23 +5,16 @@ open Ast
 open Util
 open TypingMonad
 
-(* [manifest_subst] maps a manifest field's name, as the interface's own
-     specs spell it after the merge substitution (`Impl.f`), to the field it
-     stands for (`g`). Without it an interface that declares both a field and
-     operations over it cannot be implemented with a manifest field: the two
-     specs are the same assertion but name the field differently, and the
-     exact-match check below compares them syntactically. *)
+(* [manifest_subst] maps a manifest field's name in the interface's specs (`Impl.f`) to
+   the field it stands for (`g`), so that specs naming either compare equal. *)
 let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
     interface_ident (symbol : Symbol.t) (orig_symbol : Symbol.t) : unit t =
   let open Rewriter.Syntax in
   let loc = Symbol.to_loc symbol in
   let ident = Symbol.to_name symbol in
   match (symbol, orig_symbol) with
-  (* An inherited field may be redeclared only as a manifest field, naming an
-       existing field to stand for it -- the field counterpart of implementing an
-       abstract `rep type T` with `rep type T = Int`. A plain redeclaration would
-       instead introduce a second field with its own heap, which is what the
-       fall-through below rejects. *)
+  (* An inherited field may be redeclared only as a manifest field naming an existing
+     field; a plain redeclaration would add a second field, which is rejected below. *)
   | FieldDef ({ field_alias = Some target; _ } as field_def), FieldDef orig_field_def ->
       let* target_type = TypeExpr.expand_type_expr field_def.field_type
       and* orig_type = TypeExpr.expand_type_expr orig_field_def.field_type in
@@ -56,10 +49,6 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
                    defined in interface %{QualIdent}"
                  ident interface_ident)
         | Some _tp, Some _orig_tp ->
-            let* () =
-              Rewriter.Logs.debug (fun printers m ->
-                  m "orig: %a" printers.pr_type _orig_tp)
-            in
             Error.type_error loc
               (Printf.sprintf
                  !"Type %{Ident} was already defined in interface %{QualIdent}"
@@ -227,8 +216,6 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
                  (Symbol.kind symbol |> String.capitalize)
                  ident interface_ident)
         | _ -> Rewriter.return ())
-  (*| ModDef mod_def, ModInst { mod_inst_def = Some (mod_inst_def_id, []); _ } ->
-      let *)
   | ModDef mod_def, ModInst orig_mod_inst -> (
       if mod_def.mod_decl.mod_decl_is_interface && not orig_mod_inst.mod_inst_is_interface
       then
@@ -246,9 +233,8 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
              ident interface_ident)
       else
         let _ =
-          (* The redeclaring module may list several parents; it satisfies the
-               interface's expectation if any one of them is the required
-               interface. *)
+          (* The module meets the interface's requirement if any of its parents is the
+             required interface. *)
           let orig_mod_typ = orig_mod_inst.mod_inst_type in
           let implements_required =
             List.exists mod_def.mod_decl.mod_decl_returns ~f:(fun (mod_typ, _) ->
@@ -296,11 +282,6 @@ let check_implements_symbol ?(manifest_subst = Map.empty (module QualIdent))
           not
           @@ Set.mem mod_inst_def.mod_decl.mod_decl_interfaces orig_mod_inst.mod_inst_type
         then
-          let _ =
-            Logs.debug (fun m ->
-                m !"%{QualIdent} %{QualIdent}" mod_inst.mod_inst_type
-                  orig_mod_inst.mod_inst_type)
-          in
           Error.type_error loc
             (Printf.sprintf
                !"%s %{Ident} must implement interface %{QualIdent} according to \
@@ -383,12 +364,9 @@ let check_module_type mod_ident int_ident =
          (Symbol.kind (Rewriter.Symbol.orig_symbol mod_symbol) |> String.capitalize)
          mod_ident int_ident)
 
-(** A module may implement several interfaces only when those interfaces share no
-    ancestor. Raven identifies module types by path, not by identity, so two routes to the
-    same declaration yield types it will not unify (see
-    [test/ci/front-end/fail/diamond_modules.rav]); merging both would also deliver two
-    copies of the shared ancestor's members. Rejecting the overlap keeps the error at the
-    declaration rather than at a confusing use site. *)
+(** A module may implement several interfaces only if they share no ancestor: Raven
+    identifies module types by path, so two routes to the same declaration give types that
+    do not unify (see test/ci/front-end/fail/diamond_modules.rav). *)
 let check_parents_disjoint ~loc parent_ancestors =
   let rec go = function
     | [] | [ _ ] -> ()

@@ -18,7 +18,6 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
       | ModDef m -> (
           match m.mod_decl.mod_decl_rep with
           | None ->
-              Logs.debug (fun mm -> mm "%a" Ident.pr m.mod_decl.mod_decl_name);
               Error.type_error tp_attr.type_loc
                 ("Module "
                 ^ QualIdent.to_string qual_ident
@@ -28,17 +27,9 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
               let rep_fully_qualified_qual_ident =
                 QualIdent.append fully_qualified_qual_ident rep_ident
               in
-              (* `M` used bare, with no `[...]` at all, where `M` is really a
-                   functor: the rep type's own definition is only reachable
-                   from inside `M` (or one of its instances), so resolving it
-                   from here fails. Left as-is, that failure surfaces as
-                   "Unknown identifier M.T" pointed at T's declaration inside
-                   M's body -- confusing, and for a library functor, pointed
-                   into a file the user never opened. Diagnose it here
-                   instead, at the actual use site, when that's indeed what's
-                   going on (this can't fire for a legitimate self-reference
-                   from inside M's own body, since the rep type resolves fine
-                   from there). *)
+              (* A functor `M` used bare as a type: its rep type resolves only inside
+                 `M`, so report the misuse here rather than an unknown `M.T` inside
+                 `M`'s body. *)
               let* rep_resolves =
                 Rewriter.resolve_and_find_opt rep_fully_qualified_qual_ident
               in
@@ -59,17 +50,15 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
       | ModInst _ -> unexpected_functor_error tp_attr.type_loc
       | _ -> Error.type_error tp_attr.type_loc "Expected type identifier")
   | App (Var qual_ident, (_ :: _ as tp_args), tp_attr) -> (
-      (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, implicitly
-           instantiate it (see `ProgUtils.instantiate_type_functor`) and resolve to the
-           instantiation's rep type. Anything else is still rejected, as before. *)
+      (* `M[T1,...,Tn]`: if `M` is a functor with rep-typed formals, instantiate it
+         implicitly (see [ProgUtils.instantiate_type_functor]) and resolve to the
+         instance's rep type. *)
       let* generic_functor = lift (ProgUtils.resolve_generic_functor qual_ident) in
       match generic_functor with
       | None ->
-          (* `resolve_generic_functor` also returns `None` when `qual_ident` fails to
-               resolve at all, which is a different problem from "resolves, but isn't
-               eligible for `M[T1,...,Tn]` sugar" -- surface that as the usual unknown-
-               identifier error instead of the functor-usage restriction below, which
-               would otherwise misleadingly suggest `qual_ident` is a functor. *)
+          (* [resolve_generic_functor] also returns [None] if [qual_ident] does not
+             resolve; report that as an unknown identifier rather than as a misuse of a
+             functor. *)
           let* _ = Rewriter.resolve_and_find qual_ident in
           unexpected_functor_error tp_attr.type_loc
       | Some (fully_qualified_qual_ident, m) -> (
@@ -128,10 +117,8 @@ let rec process_type_expr (tp_expr : type_expr) : type_expr t =
       App (AtomicToken qid, [], tp_attr)
   | App (TypeExt type_ext, tp_args, tp_attr) ->
       let* ext_hooks = Rewriter.current_ext_hooks in
-      (* ext_hooks is a fixed, unit-state interface extensions are written against --
-         see [Typing.t]'s doc comment -- so bridge both directions here: hand it a
-         unit-state wrapper of our own (recursive) [process_type_expr], and [lift] its
-         unit-state result back into [t]. *)
+      (* Extensions work in [Rewriter.t], so pass them a wrapper of [process_type_expr]
+         and lift the result. *)
       lift
         (ext_hooks.type_check_type_expr type_ext tp_args tp_attr
            { process_type_expr = (fun tp -> run_typing (process_type_expr tp)) })
@@ -185,9 +172,8 @@ and expand_type_expr_visiting (visiting : QualIdentSet.t) (tp_expr : type_expr) 
                 in
                 exp_typ |> Type.set_ghost_to tp_expr)
       | Var _, _ :: _ ->
-          (* `M[T1,...,Tn]` can reach here un-normalized via a self-referential
-               lookup (e.g. a recursive call reading back its own declared type).
-               Route through process_type_expr first, then keep expanding. *)
+          (* `M[T1,...,Tn]` can reach here unnormalized through a self-referential lookup,
+             so process it first. *)
           let* tp_expr = process_type_expr tp_expr in
           expand_type_expr tp_expr
       | AtomicToken callable_qid, [] ->

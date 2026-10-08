@@ -11,10 +11,8 @@ open TypingErrors
 let is_core_indexable (typ : type_expr) : bool =
   match typ with Type.App ((Map | FinSet | Bot | Any), _, _) -> true | _ -> false
 
-(** Whether the form of [expr], an operand the core indexes, admits a type other than a
-    map. Only such operands are typed to decide whether to offer a construct to the
-    extensions. An update has the type of the operand it updates, see
-    [ExprTyping.non_core_indexable]. *)
+(** Whether [expr], an operand the core indexes, may have a type other than a map; only
+    such operands are typed before a construct is offered to the extensions. *)
 let may_have_non_map_type (expr : expr) : bool =
   match expr with
   | App
@@ -47,7 +45,6 @@ let check_and_set (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : type_
     if
       (not @@ expected_ghost) && (Type.is_ghost given_typ_ub || Type.is_ghost given_typ_lb)
     then
-      let _ = Logs.debug (fun m -> m "Failed with %a" printers.pr_expr expr) in
       Error.type_error (Expr.to_loc expr)
         "This expression reads ghost state, so it can only be used inside a ghost block, \
          spec, or ghost-typed field"
@@ -57,7 +54,7 @@ let check_and_set (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : type_
   else begin
     Logs.debug (fun m ->
         m
-          "Frontend.typing.check_and_set: expr: %a;\n\
+          "ExprTyping.check_and_set: expr: %a;\n\
           \    given_typ_lb: %a\n\
           \    given_typ_ub: %a\n\
           \    expected_typ: %a"
@@ -66,27 +63,21 @@ let check_and_set (expr : expr) (given_typ_lb : type_expr) (given_typ_ub : type_
     type_mismatch_error_diagnosed tbl (Expr.to_loc expr) expected_typ given_typ_ub
   end
 
-(** Infer and check type of [expr] subject to typing environment [tbl] and expected type
-    [expected_typ]. [allow_proc_call] permits [expr] itself to be a call to a procedure or
-    lemma (as opposed to a function/predicate/invariant). This is only ever true for the
-    top-level right-hand side of an assignment statement of the form
-    [x1, ..., xn := p(e1, ..., em)] -- procedure/lemma calls are statements, not pure
-    expressions, and cannot be embedded anywhere else (e.g. as an argument to another
-    call, inside a return statement, or combined with other operators). *)
+(** Infers and checks the type of [expr] against [expected_typ]. [allow_proc_call] permits
+    a call of a procedure or lemma, which may occur only as the right-hand side of an
+    assignment. *)
 let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : type_expr) :
     expr t =
   let open Rewriter.Syntax in
   let* () =
     Rewriter.Logs.debug (fun printers m ->
-        m "process_expr: %a; expected: %a is ghost: %b" printers.pr_expr expr
+        m "ExprTyping.process_expr: %a; expected: %a is ghost: %b" printers.pr_expr expr
           printers.pr_type expected_typ (Type.is_ghost expected_typ))
   in
   match Expr.to_type_annot expr with
   | Some annot_typ ->
-      (* `(e: T)`: check `e` against the user's annotation `T` (which disambiguates
-           an otherwise-underdetermined `e`, e.g. `({||}: Set[Int])`), then check that
-           the resulting type is still consistent with the surrounding context
-           [expected_typ] -- the annotation is never taken for granted. *)
+      (* `(e: T)`: checks `e` against the annotation `T`, then the result against
+         [expected_typ]. *)
       let* annot_typ = TypeExpr.process_type_expr annot_typ in
       let annot_typ = annot_typ |> Type.set_ghost_to expected_typ in
       let* e = process_expr ~allow_proc_call (Expr.set_type_annot expr None) annot_typ in
@@ -124,9 +115,8 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                  its type argument(s) from the call and rewrite to the instantiation. *)
                     ImplicitInstantiation.resolve_or_implicit_opt qual_ident
                       ~on_miss:(fun () ->
-                        (* An unqualified name imported from an uninstantiated functor
-                     carries no functor path of its own, so recover the candidate
-                     from the import before trying to solve the parameters. *)
+                        (* An unqualified name imported from an uninstantiated functor is
+                           recovered from the import first. *)
                         let* imported = Rewriter.find_import_target qual_ident in
                         let candidate = Base.Option.value imported ~default:qual_ident in
                         ImplicitInstantiation.try_resolve_implicit_instantiation
@@ -135,16 +125,9 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                   in
                   match resolved with
                   | None ->
-                      (* Neither plain resolution nor implicit instantiation could pin this
-                   down. If this whole attempt is itself speculative -- [qual_ident] is
-                   being peeked as an argument of some enclosing, still-uninstantiated
-                   functor call (see [ImplicitInstantiation.peek_arg]) -- defer instead of erring: report this
-                   sub-expression as uninformative (the same `Bot` signal an
-                   underdetermined literal like `{||}` already produces) and let the
-                   enclosing call's other information, or its reprocess of this very
-                   expression once resolved, supply the answer instead. Otherwise this
-                   is the final word, so fall through to the ordinary unknown-identifier
-                   error. *)
+                      (* Unresolved. While speculating, this gives `Bot`, as an
+                         underdetermined literal does, so that the enclosing call decides;
+                         otherwise it is an unknown identifier. *)
                       let* speculative = is_speculative in
                       if speculative then
                         check_and_set expr Type.bot Type.bot expected_typ
@@ -154,7 +137,6 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                           "Rewriter.resolve_and_find unexpectedly succeeded after \
                            ImplicitInstantiation.resolve_or_implicit_opt failed"
                   | Some (qual_ident, symbol) -> (
-                      (*let _ = Logs.debug (fun m -> m !"process_expr: ident: %{QualIdent}" qual_ident) in*)
                       let* symbol = Rewriter.Symbol.reify symbol in
                       match symbol with
                       | ConstrDef _constr ->
@@ -186,7 +168,6 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                             match callable_decl.call_decl_kind with
                             | Lemma | Pred | Invariant -> true
                             | Func -> expected_typ |> Type.is_ghost
-                            (*List.for_all () ~f:(fun e -> e |> Expr.to_type |> Type.is_ghost)*)
                             | _ -> false
                           in
                           let* args_list =
@@ -543,7 +524,6 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                   in
                   check_and_set expr Type.perm Type.perm expected_typ
               | AUPred call_name, [ token; args_tuple ] ->
-                  (* Logs.debug (fun m -> m "Typing.ExprTyping.process_expr: AUPred: args_list=%a" (Util.Print.pr_list_comma Expr.pr) args_list); *)
                   let loc = Expr.to_loc expr in
                   let* call_name, symbol = Rewriter.resolve_and_find call_name in
 
@@ -603,9 +583,6 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                       process_expr rets_tuple
                         (Type.mk_prod loc
                            (List.map callable_decl.call_decl_returns ~f:(fun v ->
-                                Logs.debug (fun m ->
-                                    m !"ret_arg: %{Ident} %b" v.var_name
-                                      (v.var_type |> Type.is_ghost));
                                 v.var_type))
                         |> Type.set_ghost true)
                     in
@@ -678,13 +655,11 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
               (* Read expressions *)
               | Read, [ expr1; App (Var field_ident, [], expr_attr') ] -> (
                   let* qual_ident, symbol =
-                    (* `expr1.M.value` where `M` is an uninstantiated functor: infer from
-                 `expr1`'s peeked type, see ImplicitInstantiation.try_resolve_implicit_instantiation_destr.
-                 An unqualified destructor name imported from an uninstantiated
-                 generic functor (`import Library.List._` then `xs.hd`) carries no
-                 functor path of its own either, exactly like the `Var` case above --
-                 so recover the candidate from the import first, the same way, before
-                 falling back to resolving against expr1's own (peeked) type. *)
+                    (* `e.M.value` for an uninstantiated functor `M`: inferred from the
+                       type of `e` (see
+                       [ImplicitInstantiation.try_resolve_implicit_instantiation_destr]).
+                       An unqualified destructor imported from one is recovered from the
+                       import first, as in the [Var] case. *)
                     ImplicitInstantiation.resolve_or_implicit field_ident
                       ~on_miss:(fun () ->
                         let* imported = Rewriter.find_import_target field_ident in
@@ -754,7 +729,6 @@ let rec process_expr ?(allow_proc_call = false) (expr : expr) (expected_typ : ty
                   let given_typ = Type.mk_prod (Expr.to_loc expr) elem_types in
                   let expr = Expr.App (Tuple, elem_expr_list, expr_attr) in
                   check_and_set expr given_typ given_typ expected_typ
-              (* | _a, exprs -> ProcessExprExt.type_check_expr _a exprs expr_attr *)
               | ExprExt expr_ext, expr_list ->
                   let* ext_hooks = Rewriter.current_ext_hooks in
                   (* The extension's own operands are typed as speculatively as the construct. *)
@@ -941,7 +915,7 @@ and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl a
 
   let* () =
     Rewriter.Logs.debug (fun printers m ->
-        m "Typing.process_callable_args: args_list=%a"
+        m "ExprTyping.process_callable_args: args_list=%a"
           (Util.Print.pr_list_comma printers.pr_expr)
           args_list)
   in
@@ -958,9 +932,8 @@ and process_callable_args ?(is_called = true) loc is_ghost_scope callable_decl a
              callable_decl.call_decl_name)
   in
 
-  (* A location parameter may be given as `x.f` at the call site, matching how
-       it is declared. The field must be the one the callee declares; what is
-       passed on is the Ref. Writing the bare Ref stays legal. *)
+  (* A location parameter may be given as `x.f`, with the field the callee declares; `x`
+     is passed. *)
   let* args_list =
     let locs = callable_decl.call_decl_loc_params in
     if List.is_empty locs then Rewriter.return args_list
@@ -1016,7 +989,7 @@ and process_callable_returns loc ~is_ghost_scope ~is_call callable_decl returns_
 
   let* () =
     Rewriter.Logs.debug (fun printers m ->
-        m "Typing.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr
+        m "ExprTyping.process_callable_returns: callable=%a; returns_list=[%a]" Ident.pr
           callable_decl.call_decl_name printers.pr_expr_list returns_list)
   in
 
@@ -1041,10 +1014,6 @@ and process_callable_returns loc ~is_ghost_scope ~is_call callable_decl returns_
           || is_ghost_call || is_ghost_scope
         in
         let tp_expr = var_decl.Type.var_type |> Type.set_ghost is_ghost in
-        let* () =
-          Rewriter.Logs.debug (fun printers m ->
-              m "%a %a %b" Ident.pr var_decl.var_name printers.pr_type tp_expr is_ghost)
-        in
         let+ expr = process_expr expr tp_expr in
         expr)
   with

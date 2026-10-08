@@ -6,14 +6,9 @@ open Util
 open TypingMonad
 open TypingErrors
 
-(** Whether [typ] compiles to a single machine word: a base type (Int, Bool, Ref), or a
-    data type small enough to carry a tag alongside one -- at most four constructors, each
-    taking at most one base-type argument. Two bits for the tag and the remaining
-    sixty-two for the value.
-
-    Kept as a front-end check rather than a declared interface member because there is
-    nothing an interface could declare that would say it. See its one caller, the
-    [Library.WordSized] check in [process_module]. *)
+(** Whether [typ] is word-sized: a base type (Int, Bool, Ref), or a data type with at most
+    four constructors, each with at most one base-type argument, which leaves two bits for
+    the tag. *)
 let is_type_word_sized (typ : type_expr) : bool t =
   let open Rewriter.Syntax in
   let* typ = TypeExpr.expand_type_expr typ in
@@ -36,7 +31,7 @@ let is_type_word_sized (typ : type_expr) : bool t =
 let process_type_def (type_def : Module.type_def) : Module.symbol t =
   let open Rewriter.Syntax in
   Logs.debug (fun m ->
-      m "Typing.process_type_def: Start processing type_def: %a" Ident.pr
+      m "ModuleTyping.process_type_def: Start processing type_def: %a" Ident.pr
         type_def.type_def_name);
   match type_def.type_def_expr with
   | None -> Rewriter.return Module.(TypeDef type_def)
@@ -116,9 +111,8 @@ let process_type_def (type_def : Module.type_def) : Module.symbol t =
       let type_def = { type_def with type_def_expr = Some tp_expr } in
       Module.TypeDef type_def
 
-(* A manifest field, `field f = M.g`, takes its type from the target rather
-     than declaring one of its own; the ghost modifier, if written, must agree
-     with the target's. *)
+(* A manifest field, `field f = M.g`, takes its type from `M.g`; a ghost modifier must
+   agree with it. *)
 let process_alias_field (field : Module.field_def) (target : qual_ident) : Module.symbol t
     =
   let open Rewriter.Syntax in
@@ -243,14 +237,10 @@ let rec process_module (m : Module.t) : Module.t t =
               (* A functor application `module M : I = F[args]` *)
               (* Get symbol of I *)
               let* mod_inst_type = Rewriter.resolve mod_inst.mod_inst_type in
-              (* Resolve the functor `F` and pair up its formals with `args`,
-                   wrapping any bare-type argument (e.g. `M[Int]`) into a
-                   synthesized module implementing the formal's rep-typed
-                   interface (see `ProgUtils.intros_rep_module`). This must
-                   happen *before* `declare_symbol` below, since
-                   `SymbolTbl.add_symbol` resolves every argument to an
-                   already-existing module to build the instance's
-                   substitution. *)
+              (* Resolves the functor `F` and pairs its formals with `args`, wrapping a
+                 bare type argument (e.g. `M[Int]`) into a rep module (see
+                 [ProgUtils.intros_rep_module]). This precedes [declare_symbol], as
+                 [SymbolTbl.add_symbol] needs the argument modules. *)
               let* mod_inst_def, to_check =
                 match mod_inst.mod_inst_def with
                 | None -> Rewriter.return (None, [])
@@ -314,9 +304,8 @@ let rec process_module (m : Module.t) : Module.t t =
                       (qual_functor_ident, mod_inst.mod_inst_type) :: resolved_args )
               in
               let symbol = Module.ModInst { mod_inst with mod_inst_type; mod_inst_def } in
-              (* Only instantiations (`mod_inst_def = Some _`) are declared here;
-                   abstract module parameters (`mod_inst_def = None`) are already
-                   declared by the pre-declare pass above. *)
+              (* Only instances are declared here; abstract module parameters are declared
+                 by the pass above. *)
               let* _ =
                 match mod_inst.mod_inst_def with
                 | None -> Rewriter.return ()
@@ -361,7 +350,7 @@ let rec process_module (m : Module.t) : Module.t t =
     else
       let _ =
         Logs.debug (fun mm ->
-            mm "Typing.process_module: computing mod_qual_ident: %a" QualIdent.pr
+            mm "ModuleTyping.process_module: computing mod_qual_ident: %a" QualIdent.pr
               (QualIdent.from_ident (Symbol.to_name (ModDef m))))
       in
 
@@ -373,10 +362,9 @@ let rec process_module (m : Module.t) : Module.t t =
   let inherited_members = ref [] in
 
   let merge_defs ~parent_status ~parent_is_interface parent_ident parent_mod_def mod_def =
-    (* A non-callable member with no definition of its own. Mirrors the cases the
-         abstract-member check below rejects in a non-interface module. Callables are
-         left out: [Module.set_unit_free] never frees an abstract one, so a free
-         callable without a body is one whose body freeing dropped. *)
+    (* A non-callable member without a definition, like those the check below rejects in a
+       non-interface module. Callables are left out: a free callable without a body had
+       its body dropped when it was freed. *)
     let symbol_is_abstract = function
       | Module.TypeDef { type_def_expr = None; _ }
       | ModInst { mod_inst_def = None; _ }
@@ -384,23 +372,12 @@ let rec process_module (m : Module.t) : Module.t t =
           true
       | _ -> false
     in
-    (* The standard library, and every included file, is force-marked [MachineFree] so
-         it isn't re-verified for each program. That status describes the file, not the
-         modules that implement its interfaces: an abstract member inherited from one
-         into a concrete module must not arrive already free, or the module would owe
-         neither a definition for it nor (for an inherited axiom) a proof of it against
-         its own definitions -- which is how a module could claim to implement
-         `ResourceAlgebra` while defining almost none of it.
-
-         A `free` the user actually wrote stays [UserFree] and is left alone, so an
-         interface may still declare a deliberately uninterpreted member that
-         implementors inherit without defining (`free func`, `free val`, `free auto
-         axiom`).
-
-         Abstract callables never arrive free in the first place ([Module.set_unit_free]
-         leaves them [NotFree]), so this only concerns types, values and module
-         instances. Restricted to an *interface* parent, since a concrete module has no
-         abstract members. *)
+    (* Included files, the standard library among them, are marked [MachineFree] so that
+       they are not verified again. An abstract member that a concrete module inherits
+       from one of their interfaces must not arrive free, or the module would owe neither
+       its definition nor, for an axiom, its proof. A [free] written by the user stays
+       [UserFree]. Abstract callables are never freed, so this concerns types, values and
+       module instances. *)
     let un_free_inherited symbol =
       match (parent_status, Symbol.free_status symbol) with
       | MachineFree, (NotFree | MachineFree)
@@ -417,7 +394,6 @@ let rec process_module (m : Module.t) : Module.t t =
           | SymbolDef (ModInst mod_inst) -> Set.add acc mod_inst.mod_inst_name | _ -> acc)
         mod_def_formals
     in
-    (*let _parent_defined_symbols = get_defined_symbols parent_mod_def in*)
     let rec merge_defs (merged, to_check, seen) = function
       | [], mod_def -> (List.rev_append merged mod_def, to_check)
       | Module.Import _ :: parent_mod_def, mod_def ->
@@ -560,10 +536,8 @@ let rec process_module (m : Module.t) : Module.t t =
          interface_ident,
          interface_formals,
          (merged_symbols, symbols_to_check) ) =
-    (* Disjointness is decided on the parents as declared, *before* the
-         self-renaming substitution below rewrites each parent's own name to this
-         module -- after it, every parent appears to share this module as an
-         ancestor. *)
+    (* Disjointness is checked on the parents as declared, before the substitution below
+       renames each parent to this module. *)
     let* () =
       match m.mod_decl.mod_decl_returns with
       | [] | [ _ ] -> Rewriter.return ()
@@ -583,14 +557,13 @@ let rec process_module (m : Module.t) : Module.t t =
       Rewriter.List.map m.mod_decl.mod_decl_returns ~f:(fun (mid, args) ->
           Logs.debug (fun mm ->
               mm
-                !"Typing.process_module: module %{Ident}: checking return type \
+                !"ModuleTyping.process_module: module %{Ident}: checking return type \
                   %{QualIdent}"
                 (Symbol.to_name (ModDef m)) mid);
           let* qual_interface_ident, interface_symbol = Rewriter.resolve_and_find mid in
-          (* Formals of a parameterised parent are substituted by its
-               arguments; then the parent's own name is rewritten to this
-               module. Order matters: once `Base` has been rewritten to `M`, a
-               later `Base.A -> Arg` mapping would no longer match. *)
+          (* A parameterized parent's formals are substituted by its arguments first, then
+             its name by this module's; in the other order, a mapping for `Base.A` would
+             no longer match. *)
           let* arg_subst =
             Rewriter.List.map args ~f:(function
               | Module.ModArg qi ->
@@ -600,10 +573,8 @@ let rec process_module (m : Module.t) : Module.t t =
                     && List.exists m.mod_decl.mod_decl_formals ~f:(fun formal ->
                         Ident.equal formal.mod_inst_name base)
                   then
-                    (* Argument naming one of this module's own formals, the
-                         usual case. Formals are not in the symbol table yet
-                         here, and the merged members end up in this module's
-                         scope, so point at the formal directly. *)
+                    (* An argument naming one of this module's formals: these are not in
+                       the symbol table yet, so point at the formal directly. *)
                     Rewriter.return (QualIdent.append mod_qual_ident base)
                   else
                     let+ qi = Rewriter.resolve qi in
@@ -640,10 +611,8 @@ let rec process_module (m : Module.t) : Module.t t =
               interface_symbol
           in
 
-          (* Whether the parent is an interface has to be read here, off the
-               symbol as resolved: reifying it below rebuilds the declaration and
-               does not carry the flag through, so the reified copy reports false
-               for every parent alike. *)
+          (* Read off the symbol as resolved: the reified declaration below does not carry
+             the flag. *)
           let parent_is_interface =
             Rewriter.Symbol.extract interface_symbol ~f:(fun _ _ -> function
               | Ast.Module.ModDef md -> md.mod_decl.mod_decl_is_interface
@@ -653,7 +622,8 @@ let rec process_module (m : Module.t) : Module.t t =
           let* () =
             Rewriter.Logs.debug (fun printers mm ->
                 mm
-                  !"Typing.process_module: %{Ident}: checking return type %a: reified; \n\
+                  !"ModuleTyping.process_module: %{Ident}: checking return type %a: \
+                    reified; \n\
                    \ qual_interface_ident: %{QualIdent} \n\
                    \ mid: %{QualIdent}"
                   (Symbol.to_name (ModDef m)) printers.pr_symbol interface_symbol
@@ -823,10 +793,6 @@ let rec process_module (m : Module.t) : Module.t t =
   in
 
   (* Determine whether this module is an RA *)
-  let _ =
-    Set.iter mod_decl_interfaces ~f:(fun qid ->
-        Logs.debug (fun m -> m !"%{QualIdent}" qid))
-  in
   let* mod_decl_is_ra =
     Rewriter.List.exists (Set.to_list mod_decl_interfaces) ~f:(fun interface_ident ->
         let+ _qual_interface_ident, interface_symbol =
@@ -839,8 +805,6 @@ let rec process_module (m : Module.t) : Module.t t =
   let mod_decl_is_ra =
     mod_decl_is_ra || QualIdent.(mod_qual_ident = Ast.Predefs.lib_ra_mod_qual_ident)
   in
-
-  (* Logs.debug (fun mm -> mm !"Typing.process_module: module %{Ident}: mod_decl_is_ra: %{Bool}" (Symbol.to_name (ModDef m)) mod_decl_is_ra); *)
 
   (* Add return type to module declaration *)
   let* mod_decl_formals =
@@ -965,23 +929,11 @@ let rec process_module (m : Module.t) : Module.t t =
         | _ -> Rewriter.return ())
     else Rewriter.return ()
   in
-  (* [Library.WordSized] declares nothing but a representation type, so on its own it
-       would constrain nothing; what it means is checked here, structurally, on whatever
-       type an implementation supplies. This is the one interface the front end knows by
-       name, and it is deliberate: an atomic primitive compiles to a single instruction
-       over a single machine word, which is a claim about the representation that no
-       amount of declared members could express.
-
-       "Word-sized" is Int, Bool or Ref, or a sum of those small enough to carry a tag:
-       at most four constructors, each taking at most one base-type argument. It says
-       nothing about value ranges -- Raven's Int is the mathematical integers, so a bound
-       like `0 <= x < 2^62` would be unsatisfiable and would make the interface
-       unimplementable. Interfaces are exempt: their rep type is abstract, and it is the
-       implementation that has to answer for it.
-
-       Runs here, over the processed members, rather than beside the other declaration
-       checks above: the rep type is read off its own definition, which is only in its
-       final form once [process_instr] has been over it. *)
+  (* What [Library.WordSized] means is checked here, on the implementation's rep type: an
+     atomic primitive works on a single machine word, which no declared member can
+     express. The check concerns the representation, not value ranges, since Int is
+     unbounded. Interfaces are exempt, as their rep type is abstract. It runs after
+     [process_instr], which brings the rep type into its final form. *)
   let* () =
     let rep_def =
       match mod_decl.mod_decl_rep with
