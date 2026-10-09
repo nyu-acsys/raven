@@ -10,6 +10,7 @@ front_end_processed_output.log
 lowered_output.log
 benchmarks.csv
 CLAUDE.md
+AGENTS.md
 local/
 /*.tar
 /raven-docker-*.tar.gz
