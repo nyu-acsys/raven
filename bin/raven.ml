@@ -14,7 +14,6 @@ type config = {
   smt_diagnostics : bool;
   log_level : Logs.level option;
   strict : bool;
-  heap_fusion : bool;
 }
 
 let include_map = Hashtbl.create (module String)
@@ -151,12 +150,10 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
     needs (see [Backend.TupleArities]) can be computed from the fully lowered symbol table
     -- of both the library and the main program -- before any backend checking (and hence
     any tuple-sort declaration) begins. *)
-let lower_cu ~ext_hooks config tbl md lowered_out_chan =
+let lower_cu ~ext_hooks tbl md lowered_out_chan =
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
-  let tbl, processed_md, lemma_calls =
-    Lowering.lower_module ~tbl ~ext_hooks ~heap_fusion:config.heap_fusion md
-  in
+  let tbl, processed_md, lemma_calls = Lowering.lower_module ~tbl ~ext_hooks md in
 
   Logs.debug (fun m -> m "%a" printers.pr_module processed_md);
   Logs.info (fun m -> m "Front-end processing successful.");
@@ -345,7 +342,7 @@ let parse_and_check_all ~extension_mode config file_names =
   in
   let tbl, processed =
     List.fold_map (List.filter_opt elaborated) ~init:tbl ~f:(fun tbl md ->
-        lower_cu ~ext_hooks config tbl md lowered_out_chan)
+        lower_cu ~ext_hooks tbl md lowered_out_chan)
   in
 
   begin
@@ -598,17 +595,9 @@ let serve_library_sources ~lib_sources ~dump_library ~print_library_source =
   in
   Option.is_some dumped || Option.is_some printed
 
-let no_heap_fusion =
-  Arg.(
-    value & flag
-    & info [ "no-heap-fusion" ]
-        ~doc:
-          "Disable adjacent exhale/inhale fusion and direct heap updates (for \
-           differential testing).")
-
 let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annotations
     base_dir prog_stats smt_timeout smt_diagnostics extension_mode_arg strict dump_library
-    print_library_source manifest no_heap_fusion =
+    print_library_source manifest =
   if manifest then begin
     (* Payload rather than logging, so it survives -q and needs no --shh: whoever asks
        is a program parsing this one line. *)
@@ -628,7 +617,6 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       smt_diagnostics;
       log_level = Logs.level ();
       strict;
-      heap_fusion = not no_heap_fusion;
     }
   in
   (* [EXT] "auto" is resolved from the input program's own syntax once it's parsed --
@@ -686,6 +674,6 @@ let main_cmd =
         (const main $ setup_config $ input_file $ no_greeting $ no_library
        $ typecheck_only $ lsp_mode $ lsp_annotations $ base_dir $ prog_stats $ smt_timeout
        $ smt_diagnostics $ extension_mode $ strict $ dump_library $ print_library_source
-       $ manifest $ no_heap_fusion))
+       $ manifest))
 
 let () = Stdlib.exit (Cmd.eval main_cmd)

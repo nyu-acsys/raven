@@ -1,0 +1,7 @@
+field f: Int
+proc consumed(x: Ref)
+{
+  inhale own(x.f, 7, 0.5);
+  exhale own(x.f, 7, 0.5);
+  exhale own(x.f, 7, 0.5);
+}

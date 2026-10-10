@@ -1986,6 +1986,7 @@ module ScalarResource = struct
 
   type t = {
     encoding : encoding;
+    cancellative : bool;
     heap : expr;
     scratch : expr;
     key : expr;
@@ -2001,8 +2002,8 @@ module ScalarResource = struct
   let decode (expr : expr) : t option Rewriter.t =
     let open Rewriter.Syntax in
     let loc = Expr.to_loc expr in
-    let make encoding heap_name scratch_name key chunk comp frame compare valid
-        valid_inhale error =
+    let make ?(cancellative = false) encoding heap_name scratch_name key chunk comp frame
+        compare valid valid_inhale error =
       let heap_expr name =
         let* symbol = Rewriter.find_and_reify (QualIdent.from_ident name) in
         match symbol with
@@ -2014,6 +2015,7 @@ module ScalarResource = struct
       Some
         {
           encoding;
+          cancellative;
           heap;
           scratch;
           key;
@@ -2038,14 +2040,15 @@ module ScalarResource = struct
         let ra = ProgUtils.field_get_ra_qual_iden field in
         let* symbol = Rewriter.find ra in
         let origin, _, _ = symbol in
-        let lattice =
+        let implements interface =
           Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
             | ModDef m ->
-                Set.mem m.mod_decl.mod_decl_interfaces
-                  Predefs.lib_lattice_ra_mod_qual_ident
-                || QualIdent.(origin = Predefs.lib_lattice_ra_mod_qual_ident)
+                Set.mem m.mod_decl.mod_decl_interfaces interface
+                || QualIdent.(origin = interface)
             | _ -> false)
         in
+        let lattice = implements Predefs.lib_lattice_ra_mod_qual_ident in
+        let cancellative = implements Predefs.lib_cancellative_ra_mod_qual_ident in
         let encoding =
           match chunk with
           | App (DataConstr constructor, [ value; amount ], _)
@@ -2072,8 +2075,8 @@ module ScalarResource = struct
                 }
           | _ -> if lattice then Lattice else Generic
         in
-        make encoding (field_heap_name name) (field_heap_name2 name) key chunk comp frame
-          compare valid valid_inhale "This own predicate may not hold"
+        make ~cancellative encoding (field_heap_name name) (field_heap_name2 name) key
+          chunk comp frame compare valid valid_inhale "This own predicate may not hold"
     | App (((AUPred name | AUPredCommit name) as constr), key :: args, _) ->
         let* name = Rewriter.resolve name in
         let* rep = ProgUtils.get_au_utils_rep_type name in
@@ -2346,7 +2349,36 @@ module ScalarResource = struct
         guarded (Expr.mk_not guard :: conds) body
     | expr -> (Expr.mk_and (List.rev conds), expr)
 
-  let fuse exhale inhale pre post =
+  let fuse_inhale_exhale inhale spec guard r =
+    let loc = inhale.stmt_loc in
+    let lookup = Expr.mk_maplookup ~loc r.heap r.key in
+    let condition, composed = composition ~loc r lookup in
+    let intermediate =
+      match r.encoding with
+      | Unit -> r.heap
+      | _ -> Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key composed) r.heap
+    in
+    let assumptions =
+      [
+        Stmt.mk_assume_expr ~loc ?spec_source:spec.spec_source
+          ~cmnt:"Fused inhale/exhale: composition check"
+          (Expr.mk_impl ~loc guard condition);
+        Stmt.mk_assume_expr ~loc ?spec_source:spec.spec_source
+          ~cmnt:"Fused inhale/exhale: inhale validity"
+          (apply ~loc r.valid_inhale [ intermediate ]);
+      ]
+    in
+    (* weak_frameCompInv discharges consumption after a valid composition. *)
+    let updates =
+      match r.encoding with
+      | Counted _ | Counter | Unit -> []
+      | Generic when r.cancellative -> []
+      | Generic | Lattice | Persistent _ ->
+          [ assign_entry ~loc r guard (remainder ~loc r composed) ]
+    in
+    Stmt.mk_block_stmt ~loc (assumptions @ updates)
+
+  let fuse ~reverse first second pre post =
     let open Rewriter.Syntax in
     let guard_out, atom_out = guarded [] pre.spec_form in
     let guard_in, atom_in = guarded [] post.spec_form in
@@ -2360,63 +2392,70 @@ module ScalarResource = struct
            && List.for_all
                 [ guard_out; guard_in; r.key; s.key; r.chunk; s.chunk ]
                 ~f:stable ->
-        let loc = exhale.stmt_loc in
-        let lookup = Expr.mk_maplookup ~loc r.heap r.key in
-        let check = Expr.mk_impl ~loc guard_out (consumption ~loc r lookup) in
-        let check_stmt =
-          Stmt.mk_assert_expr ~loc
-            ~spec_error:(errors r atom_out pre.spec_error)
-            ?spec_source:pre.spec_source ~cmnt:"Fused exhale/inhale: consumption check"
-            check
-        in
-        let update_stmts =
-          if Expr.alpha_equal r.chunk s.chunk then []
-          else
-            let loc = inhale.stmt_loc in
-            let rest = remainder ~loc r lookup in
-            let condition, chunk =
+        if reverse then
+          if Expr.alpha_equal r.chunk s.chunk then
+            Rewriter.return (Some (fuse_inhale_exhale first pre guard_out r))
+          else Rewriter.return None
+        else
+          let exhale, inhale = (first, second) in
+          let loc = exhale.stmt_loc in
+          let lookup = Expr.mk_maplookup ~loc r.heap r.key in
+          let check = Expr.mk_impl ~loc guard_out (consumption ~loc r lookup) in
+          let check_stmt =
+            Stmt.mk_assert_expr ~loc
+              ~spec_error:(errors r atom_out pre.spec_error)
+              ?spec_source:pre.spec_source ~cmnt:"Fused exhale/inhale: consumption check"
+              check
+          in
+          let update_stmts =
+            if Expr.alpha_equal r.chunk s.chunk then []
+            else
+              let loc = inhale.stmt_loc in
+              let rest = remainder ~loc r lookup in
+              let condition, chunk =
+                match (r.encoding, s.encoding) with
+                | Counted old, Counted incoming ->
+                    (* A changed value must agree with any unconsumed chunk. *)
+                    let value, amount = projections ~loc old lookup in
+                    let total =
+                      if Expr.alpha_equal old.amount incoming.amount then amount
+                      else
+                        arithmetic ~loc Plus
+                          (arithmetic ~loc Minus amount old.amount)
+                          incoming.amount
+                    in
+                    ( Expr.mk_and ~loc
+                        [
+                          amount_valid ~loc incoming incoming.amount;
+                          amount_valid ~loc incoming total;
+                          Expr.mk_or ~loc
+                            [
+                              Expr.mk_eq ~loc amount old.amount;
+                              Expr.mk_eq ~loc value incoming.value;
+                            ];
+                        ],
+                      construct ~loc incoming incoming.value total )
+                | Persistent _, Persistent _ -> (Expr.mk_eq ~loc r.chunk s.chunk, lookup)
+                | _ -> composition ~loc s rest
+              in
+              let assumptions =
+                [
+                  Stmt.mk_assume_expr ~loc ?spec_source:post.spec_source
+                    (Expr.mk_impl ~loc guard_in condition);
+                ]
+              in
               match (r.encoding, s.encoding) with
-              | Counted old, Counted incoming ->
-                  (* A changed value must agree with any unconsumed chunk. *)
-                  let value, amount = projections ~loc old lookup in
-                  let total =
-                    if Expr.alpha_equal old.amount incoming.amount then amount
-                    else
-                      arithmetic ~loc Plus
-                        (arithmetic ~loc Minus amount old.amount)
-                        incoming.amount
-                  in
-                  ( Expr.mk_and ~loc
-                      [
-                        amount_valid ~loc incoming incoming.amount;
-                        amount_valid ~loc incoming total;
-                        Expr.mk_or ~loc
-                          [
-                            Expr.mk_eq ~loc amount old.amount;
-                            Expr.mk_eq ~loc value incoming.value;
-                          ];
-                      ],
-                    construct ~loc incoming incoming.value total )
-              | Persistent _, Persistent _ -> (Expr.mk_eq ~loc r.chunk s.chunk, lookup)
-              | _ -> composition ~loc s rest
-            in
-            let assumptions =
-              [
-                Stmt.mk_assume_expr ~loc ?spec_source:post.spec_source
-                  (Expr.mk_impl ~loc guard_in condition);
-              ]
-            in
-            match (r.encoding, s.encoding) with
-            | Persistent _, Persistent _ | Unit, Unit -> assumptions
-            | _ -> assumptions @ [ assign_entry ~loc r guard_in chunk ]
-        in
-        let assume_stmt =
-          Stmt.mk_assume_expr ~loc:inhale.stmt_loc ?spec_source:post.spec_source
-            ~cmnt:"Fused exhale/inhale: inhale validity"
-            (apply ~loc:inhale.stmt_loc s.valid_inhale [ s.heap ])
-        in
-        Rewriter.return
-          (Some (Stmt.mk_block_stmt ~loc ((check_stmt :: update_stmts) @ [ assume_stmt ])))
+              | Persistent _, Persistent _ | Unit, Unit -> assumptions
+              | _ -> assumptions @ [ assign_entry ~loc r guard_in chunk ]
+          in
+          let assume_stmt =
+            Stmt.mk_assume_expr ~loc:inhale.stmt_loc ?spec_source:post.spec_source
+              ~cmnt:"Fused exhale/inhale: inhale validity"
+              (apply ~loc:inhale.stmt_loc s.valid_inhale [ s.heap ])
+          in
+          Rewriter.return
+            (Some
+               (Stmt.mk_block_stmt ~loc ((check_stmt :: update_stmts) @ [ assume_stmt ])))
     | _ -> Rewriter.return None
 end
 
@@ -2648,19 +2687,18 @@ module TrnslInhale = struct
         let* () = Rewriter.set_user_state None in
         Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_binds_for_inhale
 
-  let rec trnsl_inhale_expr ~heap_fusion ?cmnt ?spec_error ?spec_source ~loc (expr : expr)
-      : Stmt.t Rewriter.t =
+  let rec trnsl_inhale_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
+      Stmt.t Rewriter.t =
     conjunct_counter := 0;
     ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
-      ~parse_a0:(trnsl_inhale_a0 ~heap_fusion)
+      ~parse_a0:trnsl_inhale_a0
 
-  and trnsl_inhale_a0 ~heap_fusion ?cmnt ?spec_error ?spec_source ~loc
+  and trnsl_inhale_a0 ?cmnt ?spec_error ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     let* resource =
-      if heap_fusion && List.is_empty universal_quants.univ_vars then
-        ScalarResource.decode expr
+      if List.is_empty universal_quants.univ_vars then ScalarResource.decode expr
       else Rewriter.return None
     in
     match resource with
@@ -4760,19 +4798,18 @@ module TrnslExhale = struct
         Rewriter.return (Stmt.mk_block_stmt ~loc (wtns_specs_stmts @ [ assert_stmt ]))
     | _ -> Rewriter.Stmt.descend stmt ~f:rewriter_find_witness_elim_exists_from_exhale
 
-  let rec trnsl_exhale_expr ~heap_fusion ?cmnt ?spec_error ?spec_source ~loc (expr : expr)
-      : Stmt.t Rewriter.t =
+  let rec trnsl_exhale_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
+      Stmt.t Rewriter.t =
     conjunct_counter := 0;
     ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
-      ~parse_a0:(trnsl_exhale_a0 ~heap_fusion)
+      ~parse_a0:trnsl_exhale_a0
 
-  and trnsl_exhale_a0 ~heap_fusion ?cmnt ?(spec_error = []) ?spec_source ~loc
+  and trnsl_exhale_a0 ?cmnt ?(spec_error = []) ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
     let* resource =
-      if heap_fusion && List.is_empty universal_quants.univ_vars then
-        ScalarResource.decode expr
+      if List.is_empty universal_quants.univ_vars then ScalarResource.decode expr
       else Rewriter.return None
     in
     match resource with
@@ -5598,19 +5635,16 @@ let flatten_resource_blocks stmts =
   in
   flatten [ stmts ] []
 
-let rec rewrite_make_heaps_explicit ~heap_fusion (s : Stmt.t) : Stmt.t Rewriter.t =
+let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match s.stmt_desc with
   | Stmt.Block block ->
-      if heap_fusion then
-        let* _ = Rewriter.enter_block block in
-        let* block_body =
-          translate_resource_sequence ~heap_fusion []
-            (flatten_resource_blocks block.block_body)
-        in
-        let+ () = Rewriter.exit_block in
-        { s with stmt_desc = Block { block with block_body } }
-      else Rewriter.Stmt.descend s ~f:(rewrite_make_heaps_explicit ~heap_fusion)
+      let* _ = Rewriter.enter_block block in
+      let* block_body =
+        translate_resource_sequence [] (flatten_resource_blocks block.block_body)
+      in
+      let+ () = Rewriter.exit_block in
+      { s with stmt_desc = Block { block with block_body } }
   | Stmt.Basic basic_stmt ->
       begin match basic_stmt with
       | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _
@@ -5622,7 +5656,7 @@ let rec rewrite_make_heaps_explicit ~heap_fusion (s : Stmt.t) : Stmt.t Rewriter.
               let expr = spec.spec_form in
 
               let* stmt =
-                TrnslInhale.trnsl_inhale_expr ~heap_fusion ?cmnt:spec.spec_comment
+                TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment
                   ~spec_error:spec.spec_error ?spec_source:spec.spec_source
                   ~loc:s.stmt_loc expr
               in
@@ -5631,7 +5665,7 @@ let rec rewrite_make_heaps_explicit ~heap_fusion (s : Stmt.t) : Stmt.t Rewriter.
               let expr = spec.spec_form in
 
               let* stmt =
-                TrnslExhale.trnsl_exhale_expr ~heap_fusion ?cmnt:spec.spec_comment
+                TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment
                   ~spec_error:spec.spec_error ?spec_source:spec.spec_source
                   ~loc:s.stmt_loc expr
               in
@@ -5672,7 +5706,7 @@ let rec rewrite_make_heaps_explicit ~heap_fusion (s : Stmt.t) : Stmt.t Rewriter.
                 let* _ = Rewriter.introduce_symbol nondet_var_def in
 
                 let* exhale_stmt =
-                  TrnslExhale.trnsl_exhale_expr ~heap_fusion
+                  TrnslExhale.trnsl_exhale_expr
                     ?cmnt:
                       (Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment))
                     ~spec_error:spec.spec_error ~loc spec.spec_form
@@ -5853,26 +5887,48 @@ let rec rewrite_make_heaps_explicit ~heap_fusion (s : Stmt.t) : Stmt.t Rewriter.
           else Error.type_error s.stmt_loc "Expected a FracRA type."
       end
   | _ ->
-      let* s = Rewriter.Stmt.descend s ~f:(rewrite_make_heaps_explicit ~heap_fusion) in
+      let* s = Rewriter.Stmt.descend s ~f:rewrite_make_heaps_explicit in
 
       Rewriter.return s
 
-and translate_resource_sequence ~heap_fusion acc = function
-  | ({ stmt_desc = Basic (Spec (Exhale, pre)); _ } as exhale)
-    :: ({ stmt_desc = Basic (Spec (Inhale, post)); _ } as inhale)
+and translate_resource_sequence acc = function
+  | ({ stmt_desc = Basic (Spec ((Exhale as kind), pre)); _ } as first)
+    :: ({ stmt_desc = Basic (Spec (Inhale, post)); _ } as second)
+    :: rest
+  | ({ stmt_desc = Basic (Spec ((Inhale as kind), pre)); _ } as first)
+    :: ({ stmt_desc = Basic (Spec (Exhale, post)); _ } as second)
     :: rest ->
       let open Rewriter.Syntax in
-      let* fused = ScalarResource.fuse exhale inhale pre post in
-      begin match fused with
-      | Some stmt ->
-          let* stmt = rewrite_make_heaps_explicit ~heap_fusion stmt in
-          translate_resource_sequence ~heap_fusion (stmt :: acc) rest
+      (* Prefer an existing forward fusion when the pairs overlap. *)
+      let* forward =
+        match (kind, rest) with
+        | Inhale, ({ stmt_desc = Basic (Spec (Inhale, third)); _ } as next) :: tail ->
+            let+ fused = ScalarResource.fuse ~reverse:false second next post third in
+            Option.map fused ~f:(fun stmt -> (stmt, tail))
+        | _ -> Rewriter.return None
+      in
+      begin match forward with
+      | Some (stmt, tail) ->
+          let* first = rewrite_make_heaps_explicit first in
+          let* stmt = rewrite_make_heaps_explicit stmt in
+          translate_resource_sequence (stmt :: first :: acc) tail
       | None ->
-          let* exhale = rewrite_make_heaps_explicit ~heap_fusion exhale in
-          translate_resource_sequence ~heap_fusion (exhale :: acc) (inhale :: rest)
+          let* fused =
+            ScalarResource.fuse
+              ~reverse:(match kind with Inhale -> true | _ -> false)
+              first second pre post
+          in
+          begin match fused with
+          | Some stmt ->
+              let* stmt = rewrite_make_heaps_explicit stmt in
+              translate_resource_sequence (stmt :: acc) rest
+          | None ->
+              let* first = rewrite_make_heaps_explicit first in
+              translate_resource_sequence (first :: acc) (second :: rest)
+          end
       end
   | stmt :: rest ->
       let open Rewriter.Syntax in
-      let* stmt = rewrite_make_heaps_explicit ~heap_fusion stmt in
-      translate_resource_sequence ~heap_fusion (stmt :: acc) rest
+      let* stmt = rewrite_make_heaps_explicit stmt in
+      translate_resource_sequence (stmt :: acc) rest
   | [] -> Rewriter.return (List.rev acc)

@@ -37,6 +37,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Optimize heap lowering with fusion of adjacent exhale/inhale and inhale/exhale pairs and direct updates for scalar resources, improving verification performance.
+
 - Raven no longer passes facts to the SMT solver that are trivially true, such as a quantified implication whose conclusion is `true`.
 
 - Raven gives triggers to two kinds of quantified facts it generates: that the locations of an iterated separating conjunction are distinct, and the postcondition of a `func`, which applications of the function trigger. Distinctness that holds trivially is no longer checked or assumed.

@@ -1677,7 +1677,7 @@ let rec rewrite_assign_stmts (s : Stmt.t) : Stmt.t Rewriter.t =
 
          Rewriter.return s
 
-let lower ~heap_fusion (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
+let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   let open Rewriter.Syntax in
   Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewrite_fold_unfold_stmts on module %a" Ident.pr
@@ -1825,9 +1825,7 @@ let lower ~heap_fusion (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.
       m1 "Lowering.lower: Starting rewrite_make_heaps_explicit on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
   let* m =
-    Rewriter.Module.rewrite_stmts
-      ~f:(HeapsExplicitTrnsl.rewrite_make_heaps_explicit ~heap_fusion)
-      m
+    Rewriter.Module.rewrite_stmts ~f:HeapsExplicitTrnsl.rewrite_make_heaps_explicit m
   in
 
   Logs.debug (fun m1 ->
@@ -1861,8 +1859,7 @@ let lower ~heap_fusion (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.
     explicit, and assignments SSA. Returns the module together with its lemma call graph
     (see [CallGraph.lemma_calls]). Every compilation unit goes through the front end
     before any is lowered (see [Rewrites.process_module_front]). *)
-let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks ?(heap_fusion = true)
-    (m : Module.t) =
+let lower_module ?(tbl = SymbolTbl.create ()) ?ext_hooks (m : Module.t) =
   assert (SymbolTbl.curr_is_root tbl);
-  let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks (lower ~heap_fusion m) tbl in
+  let tbl, (m, lemma_calls) = Rewriter.eval ?ext_hooks (lower m) tbl in
   (tbl, m, lemma_calls)

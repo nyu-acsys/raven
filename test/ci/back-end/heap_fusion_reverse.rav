@@ -1,0 +1,139 @@
+field f: Int
+module Alias { field f = f }
+pred counted(x: Ref) { true }
+pred valued(x: Ref; v: Int) { own(x.f, v, 1.0) }
+inv persistent(x: Ref; v: Int) { own(x.f, v, 1.0) }
+inv unit_inv(x: Ref) { true }
+
+proc fractional(x: Ref, b: Bool)
+  requires own(x.f, 7, 0.5)
+  ensures own(x.f, 7, 0.5)
+{
+  inhale b ==> own(x.f, 7, 0.25);
+  exhale b ==> own(x.Alias.f, 7, 0.25);
+}
+
+proc predicate_chunks(x: Ref)
+  requires counted(x)
+  requires valued(x, 7)
+  ensures counted(x)
+  ensures valued(x, 7)
+{
+  inhale counted(x);
+  exhale counted(x);
+  inhale valued(x, 7);
+  exhale valued(x, 7);
+}
+
+proc invariant_chunks(x: Ref)
+  ensures persistent(x, 7)
+  ensures unit_inv(x)
+{
+  inhale persistent(x, 7);
+  exhale persistent(x, 7);
+  inhale unit_inv(x);
+  exhale unit_inv(x);
+}
+
+module AbstractCancel[M: Library.CancellativeResourceAlgebra] {
+  ghost field g: M
+  proc reverse(x: Ref, a: M.T, b: M.T)
+    requires own(x.g, a)
+    ensures own(x.g, a)
+  {
+    inhale own(x.g, b);
+    exhale own(x.g, b);
+  }
+}
+
+module IntType: Library.Type { rep type T = Int }
+module Agree = Library.Agree[IntType]
+ghost field lattice: Agree
+proc lattice_chunks(x: Ref)
+  requires own(x.lattice, Agree.id)
+  ensures own(x.lattice, Agree.agree(7))
+{
+  inhale own(x.lattice, Agree.agree(7));
+  exhale own(x.lattice, Agree.agree(7));
+}
+
+// A public chunk persists when consumed; this RA is not cancellative.
+module PrivatePublic: Library.ResourceAlgebra {
+  rep type T = data { case identity; case private; case public; case invalid }
+  val id: T = identity
+  func valid(a: T) returns (ret: Bool) { a != invalid }
+  func comp(a: T, b: T) returns (ret: T) {
+    a == id ? b : (b == id ? a : (a == public && b == public ? public : invalid))
+  }
+  func frame(a: T, b: T) returns (ret: T) {
+    b == id ? a : (a == public && b == public ? public :
+      (a == private && b == private ? id : invalid))
+  }
+  func fpuAllowed(a: T, b: T) returns (ret: Bool) { a == private && b == public }
+}
+ghost field generic: PrivatePublic
+proc generic_chunks(x: Ref)
+  requires own(x.generic, PrivatePublic.id)
+  ensures own(x.generic, PrivatePublic.public)
+{
+  inhale own(x.generic, PrivatePublic.public);
+  exhale own(x.generic, PrivatePublic.public);
+}
+
+proc inconsistent_inhale(x: Ref)
+  requires own(x.f, 7, 1.0)
+{
+  inhale own(x.f, 8, 0.5);
+  exhale own(x.f, 8, 0.5);
+  assert false;
+}
+
+proc negative_inhale(x: Ref)
+  requires own(x.f, 7, 0.5)
+{
+  inhale own(x.f, 7, -0.25);
+  exhale own(x.f, 7, -0.25);
+  assert false;
+}
+
+proc excessive_inhale(x: Ref)
+  requires own(x.f, 7, 1.0)
+{
+  inhale own(x.f, 7, 0.5);
+  exhale own(x.f, 7, 0.5);
+  assert false;
+}
+
+proc generic_private_chunks(x: Ref)
+  requires own(x.generic, PrivatePublic.id)
+  ensures own(x.generic, PrivatePublic.id)
+{
+  inhale own(x.generic, PrivatePublic.private);
+  exhale own(x.generic, PrivatePublic.private);
+}
+
+module AbstractGeneric[M: Library.ResourceAlgebra] {
+  ghost field g: M
+  proc reverse(x: Ref, a: M.T, b: M.T)
+    requires own(x.g, a)
+    ensures true
+  {
+    inhale own(x.g, b);
+    exhale own(x.g, b);
+  }
+}
+
+proc null_inhale() {
+  inhale own(null.f, 7, 0.5);
+  exhale own(null.f, 7, 0.5);
+  assert false;
+}
+
+proc guarded_generic_chunks(x: Ref, b: Bool)
+  requires own(x.generic, PrivatePublic.id)
+  ensures b ==> own(x.generic, PrivatePublic.public)
+  ensures !b ==> own(x.generic, PrivatePublic.id)
+{
+  inhale b ==> own(x.generic, PrivatePublic.public);
+  exhale b ==> own(x.generic, PrivatePublic.public);
+}
