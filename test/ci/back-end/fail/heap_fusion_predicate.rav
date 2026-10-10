@@ -1,0 +1,6 @@
+pred token(x: Ref) { true }
+
+proc insufficient_predicate(x: Ref) {
+  exhale token(x);
+  inhale token(x);
+}

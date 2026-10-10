@@ -1,0 +1,8 @@
+ghost field f: Int
+
+proc duplicate_consumption(x: Ref, y: Ref) {
+  inhale own(x.f, 1, 1.0);
+  assume x == y;
+  exhale own(x.f, 1, 0.75) && own(y.f, 1, 0.75);
+  inhale own(x.f, 1, 0.75) && own(y.f, 1, 0.75);
+}

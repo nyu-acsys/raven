@@ -1,0 +1,5 @@
+field f: Int
+proc reachable(x: Ref) {
+  inhale false ==> own(x.f, 7, 0.0);
+  assert false;
+}

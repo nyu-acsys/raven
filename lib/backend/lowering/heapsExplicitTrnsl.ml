@@ -1963,6 +1963,463 @@ module ParseAssertionLang = struct
     | _ -> parse_a0 ?cmnt ?spec_error ?spec_source ~loc universal_quants conds expr
 end
 
+module ScalarResource = struct
+  type counted = {
+    constructor : qual_ident;
+    value_projection : qual_ident;
+    amount_projection : qual_ident;
+    value : expr;
+    amount : expr;
+    empty : expr;
+    zero : expr;
+    limit : expr option;
+    amount_first : bool;
+  }
+
+  type encoding =
+    | Generic
+    | Lattice
+    | Counted of counted
+    | Counter
+    | Persistent of expr
+    | Unit
+
+  type t = {
+    encoding : encoding;
+    heap : expr;
+    scratch : expr;
+    key : expr;
+    chunk : expr;
+    comp : qual_ident;
+    frame : qual_ident;
+    compare : qual_ident;
+    valid : qual_ident;
+    valid_inhale : qual_ident;
+    error : string;
+  }
+
+  let decode (expr : expr) : t option Rewriter.t =
+    let open Rewriter.Syntax in
+    let loc = Expr.to_loc expr in
+    let make encoding heap_name scratch_name key chunk comp frame compare valid
+        valid_inhale error =
+      let heap_expr name =
+        let* symbol = Rewriter.find_and_reify (QualIdent.from_ident name) in
+        match symbol with
+        | VarDef v -> Rewriter.return (Expr.from_var_decl v.var_decl)
+        | _ -> Error.internal_error loc "Expected a resource heap variable"
+      in
+      let* heap = heap_expr heap_name in
+      let+ scratch = heap_expr scratch_name in
+      Some
+        {
+          encoding;
+          heap;
+          scratch;
+          key;
+          chunk;
+          comp;
+          frame;
+          compare;
+          valid;
+          valid_inhale;
+          error;
+        }
+    in
+    match expr with
+    | App (Own, [ key; field; chunk ], _) ->
+        let* name = Rewriter.resolve (Expr.to_qual_ident field) in
+        let* comp = ProgUtils.get_field_utils_comp name in
+        let* frame = ProgUtils.get_field_utils_frame name in
+        let* compare = ProgUtils.get_field_utils_heapchunk_compare name in
+        let* valid = ProgUtils.get_field_utils_valid name in
+        let* valid_inhale = ProgUtils.get_field_utils_valid_inhale name in
+        let* field = Rewriter.find_and_reify_field name in
+        let ra = ProgUtils.field_get_ra_qual_iden field in
+        let* symbol = Rewriter.find ra in
+        let origin, _, _ = symbol in
+        let lattice =
+          Rewriter.Symbol.extract symbol ~f:(fun _ _ -> function
+            | ModDef m ->
+                Set.mem m.mod_decl.mod_decl_interfaces
+                  Predefs.lib_lattice_ra_mod_qual_ident
+                || QualIdent.(origin = Predefs.lib_lattice_ra_mod_qual_ident)
+            | _ -> false)
+        in
+        let encoding =
+          match chunk with
+          | App (DataConstr constructor, [ value; amount ], _)
+            when QualIdent.(origin = Predefs.lib_frac_mod_qual_ident)
+                 && Ident.(
+                      QualIdent.unqualify constructor
+                      = Predefs.lib_frac_chunk_constr_ident) ->
+              Counted
+                {
+                  constructor;
+                  value_projection =
+                    QualIdent.append ra Predefs.lib_frac_chunk_destr1_ident;
+                  amount_projection =
+                    QualIdent.append ra Predefs.lib_frac_chunk_destr2_ident;
+                  value;
+                  amount;
+                  empty =
+                    Expr.mk_app ~loc ~typ:(Expr.to_type chunk)
+                      (Var (ProgUtils.get_ra_id ra))
+                      [];
+                  zero = Expr.mk_real ~loc 0.;
+                  limit = Some (Expr.mk_real ~loc 1.);
+                  amount_first = false;
+                }
+          | _ -> if lattice then Lattice else Generic
+        in
+        make encoding (field_heap_name name) (field_heap_name2 name) key chunk comp frame
+          compare valid valid_inhale "This own predicate may not hold"
+    | App (((AUPred name | AUPredCommit name) as constr), key :: args, _) ->
+        let* name = Rewriter.resolve name in
+        let* rep = ProgUtils.get_au_utils_rep_type name in
+        let typ = Type.mk_var rep in
+        let* chunk =
+          match (constr, args) with
+          | AUPred _, [ args ] ->
+              let+ constr = ProgUtils.au_ra_uncommitted_constr_qual_ident loc name in
+              Expr.mk_app ~loc ~typ (DataConstr constr) [ args ]
+          | AUPredCommit _, [ args; ret ] ->
+              let+ constr = ProgUtils.au_ra_committed_constr_qual_ident loc name in
+              Expr.mk_app ~loc ~typ (DataConstr constr) [ args; ret ]
+          | _ -> unsupported_expr_error expr
+        in
+        let* comp = ProgUtils.get_au_utils_comp loc name in
+        let* frame = ProgUtils.get_au_utils_frame name in
+        let* compare = ProgUtils.get_au_utils_heapchunk_compare name in
+        let* valid = ProgUtils.get_au_utils_valid name in
+        let* valid_inhale = ProgUtils.get_au_utils_valid_inhale name in
+        make Generic (au_heap_name name) (au_heap_name2 name) key chunk comp frame compare
+          valid valid_inhale "This atomic update predicate may not hold"
+    | App (Var name, args, _) ->
+        let* symbol = Rewriter.find_and_reify name in
+        begin match symbol with
+        | CallDef c
+          when Poly.(
+                 c.call_decl.call_decl_kind = Pred
+                 || c.call_decl.call_decl_kind = Invariant) ->
+            let* name = Rewriter.resolve name in
+            let* rep = ProgUtils.get_pred_utils_rep_type name in
+            let* in_types = ProgUtils.pred_in_types name in
+            let* constr = ProgUtils.pred_ra_constr_qual_ident loc name in
+            let ins, outs = List.split_n args (List.length in_types) in
+            let key = Expr.mk_tuple ~loc ins in
+            let chunk =
+              mk_pred_new_chunk ~loc c.call_decl.call_decl_kind (Type.mk_var rep) constr
+                outs
+            in
+            let* comp = ProgUtils.get_pred_utils_comp name in
+            let* frame = ProgUtils.get_pred_utils_frame name in
+            let* compare = ProgUtils.get_pred_utils_heapchunk_compare name in
+            let* valid = ProgUtils.get_pred_utils_valid name in
+            let* valid_inhale = ProgUtils.get_pred_utils_valid_inhale loc name in
+            let* ra = ProgUtils.pred_get_ra_qual_iden name in
+            let* encoding =
+              match (c.call_decl.call_decl_kind, outs) with
+              | Invariant, [] -> Rewriter.return Unit
+              | Invariant, _ ->
+                  Rewriter.return
+                    (Persistent
+                       (Expr.mk_app ~loc ~typ:(Expr.to_type chunk)
+                          (Var (ProgUtils.get_ra_id ra))
+                          []))
+              | Pred, [] -> Rewriter.return Counter
+              | Pred, _ ->
+                  let* amount_projection =
+                    ProgUtils.pred_ra_count_destr_qual_ident loc name
+                  in
+                  let+ value_projection =
+                    ProgUtils.pred_ra_val_destr_qual_ident loc name
+                  in
+                  Counted
+                    {
+                      constructor = constr;
+                      value_projection;
+                      amount_projection;
+                      value = Expr.mk_tuple ~loc outs;
+                      amount = Expr.mk_int ~loc 1;
+                      empty =
+                        Expr.mk_app ~loc ~typ:(Expr.to_type chunk)
+                          (Var (ProgUtils.get_ra_id ra))
+                          [];
+                      zero = Expr.mk_int ~loc 0;
+                      limit = None;
+                      amount_first = true;
+                    }
+              | _ -> Rewriter.return Generic
+            in
+            make encoding (pred_heap_name name) (pred_heap_name2 name) key chunk comp
+              frame compare valid valid_inhale "This predicate may not hold"
+        | _ -> Rewriter.return None
+        end
+    | _ -> Rewriter.return None
+
+  let apply ~loc fn args = Expr.mk_app ~loc ~typ:Type.bool (Var fn) args
+  let arithmetic ~loc op a b = Expr.mk_app ~loc ~typ:(Expr.to_type a) op [ a; b ]
+  let relation ~loc op a b = Expr.mk_app ~loc ~typ:Type.bool op [ a; b ]
+
+  let construct ~loc c value amount =
+    Expr.mk_app ~loc ~typ:(Expr.to_type c.empty) (DataConstr c.constructor)
+      (if c.amount_first then [ amount; value ] else [ value; amount ])
+
+  let projections ~loc c entry =
+    ( Expr.mk_app ~loc ~typ:(Expr.to_type c.value) (DataDestr c.value_projection) [ entry ],
+      Expr.mk_app ~loc ~typ:(Expr.to_type c.amount) (DataDestr c.amount_projection)
+        [ entry ] )
+
+  let amount_valid ~loc c amount =
+    Expr.mk_and ~loc
+      (relation ~loc Gt amount c.zero
+      :: Option.to_list
+           (Option.map c.limit ~f:(fun limit -> relation ~loc Leq amount limit)))
+
+  let consumption ~loc r entry =
+    match r.encoding with
+    | Generic | Lattice ->
+        (* Abstract lattice proofs need the frameCompInv trigger. *)
+        apply ~loc r.compare [ entry; r.chunk ]
+    | Unit -> Expr.mk_bool ~loc true
+    | Persistent _ -> Expr.mk_eq ~loc entry r.chunk
+    | Counter ->
+        Expr.mk_and ~loc
+          [
+            relation ~loc Geq entry r.chunk;
+            relation ~loc Geq r.chunk (Expr.mk_int ~loc 0);
+          ]
+    | Counted c ->
+        let value, amount = projections ~loc c entry in
+        Expr.mk_and ~loc
+          [
+            Expr.mk_eq ~loc entry (construct ~loc c value amount);
+            amount_valid ~loc c amount;
+            amount_valid ~loc c c.amount;
+            Expr.mk_eq ~loc value c.value;
+            relation ~loc Geq amount c.amount;
+          ]
+
+  let remainder ~loc r entry =
+    match r.encoding with
+    | Generic ->
+        Expr.mk_app ~loc ~typ:(Expr.to_type entry) (Var r.frame) [ entry; r.chunk ]
+    | Lattice | Persistent _ | Unit -> entry
+    | Counter -> arithmetic ~loc Minus entry r.chunk
+    | Counted c ->
+        let value, amount = projections ~loc c entry in
+        Expr.mk_ite ~loc
+          (Expr.mk_eq ~loc amount c.amount)
+          c.empty
+          (construct ~loc c value (arithmetic ~loc Minus amount c.amount))
+
+  let composition ~loc r entry =
+    match r.encoding with
+    | Generic | Lattice ->
+        ( Expr.mk_bool ~loc true,
+          Expr.mk_app ~loc ~typ:(Expr.to_type entry) (Var r.comp) [ entry; r.chunk ] )
+    | Unit -> (Expr.mk_bool ~loc true, entry)
+    | Persistent empty ->
+        ( Expr.mk_or ~loc [ Expr.mk_eq ~loc entry empty; Expr.mk_eq ~loc entry r.chunk ],
+          r.chunk )
+    | Counter ->
+        ( Expr.mk_and ~loc
+            [
+              relation ~loc Geq entry (Expr.mk_int ~loc 0);
+              relation ~loc Geq r.chunk (Expr.mk_int ~loc 0);
+            ],
+          arithmetic ~loc Plus entry r.chunk )
+    | Counted c ->
+        let value, amount = projections ~loc c entry in
+        let empty = Expr.mk_eq ~loc entry c.empty in
+        let total =
+          arithmetic ~loc Plus (Expr.mk_ite ~loc empty c.zero amount) c.amount
+        in
+        ( Expr.mk_and ~loc
+            [
+              amount_valid ~loc c c.amount;
+              amount_valid ~loc c total;
+              Expr.mk_or ~loc
+                [
+                  empty;
+                  Expr.mk_and ~loc
+                    [
+                      Expr.mk_eq ~loc entry (construct ~loc c value amount);
+                      amount_valid ~loc c amount;
+                      Expr.mk_eq ~loc value c.value;
+                    ];
+                ];
+            ],
+          construct ~loc c c.value total )
+
+  let assign_entry ~loc r guard chunk =
+    Stmt.mk_assign ~loc
+      [ Expr.to_qual_ident r.heap ]
+      (Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key chunk) r.heap)
+
+  let update ~loc r guard op =
+    let chunk =
+      Expr.mk_app ~loc
+        ~typ:(Type.map_codom (Expr.to_type r.heap))
+        (Var op)
+        [ Expr.mk_maplookup ~loc r.heap r.key; r.chunk ]
+    in
+    Expr.mk_ite ~loc guard (Expr.mk_mapupdate ~loc r.heap r.key chunk) r.heap
+
+  let errors r expr spec_error =
+    spec_error
+    @ [ Stmt.mk_const_spec_error (Error.RelatedLoc, Expr.to_loc expr, r.error) ]
+
+  let translate_generic ?cmnt ?(spec_error = []) ?spec_source ~loc kind conds expr r =
+    let guard = Expr.mk_and ~loc conds in
+    let op, validity =
+      match kind with Inhale -> (r.comp, r.valid_inhale) | Exhale -> (r.frame, r.valid)
+    in
+    let comment =
+      Option.value cmnt ~default:"" ^ "\n"
+      ^ (match kind with Inhale -> "inhale: " | Exhale -> "exhale: ")
+      ^ Expr.to_string expr
+    in
+    let check = apply ~loc validity [ r.heap ] in
+    let check_stmt =
+      match kind with
+      | Inhale -> Stmt.mk_assume_expr ~loc ?spec_source check
+      | Exhale ->
+          Stmt.mk_assert_expr ~loc ?spec_source ~spec_error:(errors r expr spec_error)
+            check
+    in
+    Stmt.mk_block_stmt ~loc
+      [
+        Stmt.mk_havoc ~loc (Expr.to_qual_ident r.scratch);
+        Stmt.mk_assume_expr ~loc ~cmnt:comment
+          (Expr.mk_eq ~loc r.scratch (update ~loc r guard op));
+        Stmt.mk_assign ~loc [ Expr.to_qual_ident r.heap ] r.scratch;
+        check_stmt;
+      ]
+
+  let translate ?cmnt ?(spec_error = []) ?spec_source ~loc kind conds expr r =
+    match r.encoding with
+    | Generic -> translate_generic ?cmnt ~spec_error ?spec_source ~loc kind conds expr r
+    | Lattice | Counted _ | Counter | Persistent _ | Unit ->
+        let guard = Expr.mk_and ~loc conds in
+        let entry = Expr.mk_maplookup ~loc r.heap r.key in
+        let updates chunk =
+          match (r.encoding, kind) with
+          | Unit, _ | (Lattice | Persistent _), Exhale -> []
+          | _ -> [ assign_entry ~loc r guard chunk ]
+        in
+        let statements =
+          match kind with
+          | Exhale ->
+              let check = Expr.mk_impl ~loc guard (consumption ~loc r entry) in
+              Stmt.mk_assert_expr ~loc ?cmnt ?spec_source
+                ~spec_error:(errors r expr spec_error) check
+              :: updates (remainder ~loc r entry)
+          | Inhale ->
+              let check, chunk = composition ~loc r entry in
+              Stmt.mk_assume_expr ~loc ?cmnt ?spec_source (Expr.mk_impl ~loc guard check)
+              :: updates chunk
+              @ [
+                  Stmt.mk_assume_expr ~loc ?spec_source
+                    (apply ~loc r.valid_inhale [ r.heap ]);
+                ]
+        in
+        Stmt.mk_block_stmt ~loc statements
+
+  let rec stable = function
+    | App ((Read | Own | AUPred _ | AUPredCommit _ | ExprExt _), _, _) | Binder _ -> false
+    | App (Var name, args, _) ->
+        let ident = QualIdent.unqualify name in
+        (* FPU lowering can expose a heap lookup directly in a chunk. *)
+        (not
+           (String.is_suffix ident.ident_name ~suffix:"$Heap"
+           || String.is_suffix ident.ident_name ~suffix:"$Heap2"))
+        && List.for_all args ~f:stable
+    | App (_, args, _) -> List.for_all args ~f:stable
+
+  let rec guarded conds = function
+    | App (Impl, [ guard; body ], _) -> guarded (guard :: conds) body
+    | App (Ite, [ guard; body; App (Bool true, [], _) ], _) ->
+        guarded (guard :: conds) body
+    | App (Ite, [ guard; App (Bool true, [], _); body ], _) ->
+        guarded (Expr.mk_not guard :: conds) body
+    | expr -> (Expr.mk_and (List.rev conds), expr)
+
+  let fuse exhale inhale pre post =
+    let open Rewriter.Syntax in
+    let guard_out, atom_out = guarded [] pre.spec_form in
+    let guard_in, atom_in = guarded [] post.spec_form in
+    let* out_resource = decode atom_out in
+    let* in_resource = decode atom_in in
+    match (out_resource, in_resource) with
+    | Some r, Some s
+      when Expr.alpha_equal r.heap s.heap
+           && Expr.alpha_equal r.key s.key
+           && Expr.alpha_equal guard_out guard_in
+           && List.for_all
+                [ guard_out; guard_in; r.key; s.key; r.chunk; s.chunk ]
+                ~f:stable ->
+        let loc = exhale.stmt_loc in
+        let lookup = Expr.mk_maplookup ~loc r.heap r.key in
+        let check = Expr.mk_impl ~loc guard_out (consumption ~loc r lookup) in
+        let check_stmt =
+          Stmt.mk_assert_expr ~loc
+            ~spec_error:(errors r atom_out pre.spec_error)
+            ?spec_source:pre.spec_source ~cmnt:"Fused exhale/inhale: consumption check"
+            check
+        in
+        let update_stmts =
+          if Expr.alpha_equal r.chunk s.chunk then []
+          else
+            let loc = inhale.stmt_loc in
+            let rest = remainder ~loc r lookup in
+            let condition, chunk =
+              match (r.encoding, s.encoding) with
+              | Counted old, Counted incoming ->
+                  (* A changed value must agree with any unconsumed chunk. *)
+                  let value, amount = projections ~loc old lookup in
+                  let total =
+                    if Expr.alpha_equal old.amount incoming.amount then amount
+                    else
+                      arithmetic ~loc Plus
+                        (arithmetic ~loc Minus amount old.amount)
+                        incoming.amount
+                  in
+                  ( Expr.mk_and ~loc
+                      [
+                        amount_valid ~loc incoming incoming.amount;
+                        amount_valid ~loc incoming total;
+                        Expr.mk_or ~loc
+                          [
+                            Expr.mk_eq ~loc amount old.amount;
+                            Expr.mk_eq ~loc value incoming.value;
+                          ];
+                      ],
+                    construct ~loc incoming incoming.value total )
+              | Persistent _, Persistent _ -> (Expr.mk_eq ~loc r.chunk s.chunk, lookup)
+              | _ -> composition ~loc s rest
+            in
+            let assumptions =
+              [
+                Stmt.mk_assume_expr ~loc ?spec_source:post.spec_source
+                  (Expr.mk_impl ~loc guard_in condition);
+              ]
+            in
+            match (r.encoding, s.encoding) with
+            | Persistent _, Persistent _ | Unit, Unit -> assumptions
+            | _ -> assumptions @ [ assign_entry ~loc r guard_in chunk ]
+        in
+        let assume_stmt =
+          Stmt.mk_assume_expr ~loc:inhale.stmt_loc ?spec_source:post.spec_source
+            ~cmnt:"Fused exhale/inhale: inhale validity"
+            (apply ~loc:inhale.stmt_loc s.valid_inhale [ s.heap ])
+        in
+        Rewriter.return
+          (Some (Stmt.mk_block_stmt ~loc ((check_stmt :: update_stmts) @ [ assume_stmt ])))
+    | _ -> Rewriter.return None
+end
+
 module TrnslInhale = struct
   (* Counts ISC (own/AU-token/predicate-application) occurrences seen so far while
      translating the *current* top-level spec, left-to-right -- reset by
@@ -2191,13 +2648,32 @@ module TrnslInhale = struct
         let* () = Rewriter.set_user_state None in
         Rewriter.Stmt.descend stmt ~f:rewriter_eliminate_binds_for_inhale
 
-  let rec trnsl_inhale_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
-      Stmt.t Rewriter.t =
+  let rec trnsl_inhale_expr ~heap_fusion ?cmnt ?spec_error ?spec_source ~loc (expr : expr)
+      : Stmt.t Rewriter.t =
     conjunct_counter := 0;
     ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
-      ~parse_a0:trnsl_inhale_a0
+      ~parse_a0:(trnsl_inhale_a0 ~heap_fusion)
 
-  and trnsl_inhale_a0 ?cmnt ?spec_error ?spec_source ~loc
+  and trnsl_inhale_a0 ~heap_fusion ?cmnt ?spec_error ?spec_source ~loc
+      (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
+      Stmt.t Rewriter.t =
+    let open Rewriter.Syntax in
+    let* resource =
+      if heap_fusion && List.is_empty universal_quants.univ_vars then
+        ScalarResource.decode expr
+      else Rewriter.return None
+    in
+    match resource with
+    | Some resource ->
+        ignore (next_conjunct_idx ());
+        Rewriter.return
+          (ScalarResource.translate ?cmnt ?spec_error ?spec_source ~loc Inhale conds expr
+             resource)
+    | None ->
+        trnsl_inhale_a0_general ?cmnt ?spec_error ?spec_source ~loc universal_quants conds
+          expr
+
+  and trnsl_inhale_a0_general ?cmnt ?spec_error ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -4284,13 +4760,32 @@ module TrnslExhale = struct
         Rewriter.return (Stmt.mk_block_stmt ~loc (wtns_specs_stmts @ [ assert_stmt ]))
     | _ -> Rewriter.Stmt.descend stmt ~f:rewriter_find_witness_elim_exists_from_exhale
 
-  let rec trnsl_exhale_expr ?cmnt ?spec_error ?spec_source ~loc (expr : expr) :
-      Stmt.t Rewriter.t =
+  let rec trnsl_exhale_expr ~heap_fusion ?cmnt ?spec_error ?spec_source ~loc (expr : expr)
+      : Stmt.t Rewriter.t =
     conjunct_counter := 0;
     ParseAssertionLang.parse_a ?cmnt ?spec_error ?spec_source ~loc [] expr
-      ~parse_a0:trnsl_exhale_a0
+      ~parse_a0:(trnsl_exhale_a0 ~heap_fusion)
 
-  and trnsl_exhale_a0 ?cmnt ?(spec_error = []) ?spec_source ~loc
+  and trnsl_exhale_a0 ~heap_fusion ?cmnt ?(spec_error = []) ?spec_source ~loc
+      (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
+      Stmt.t Rewriter.t =
+    let open Rewriter.Syntax in
+    let* resource =
+      if heap_fusion && List.is_empty universal_quants.univ_vars then
+        ScalarResource.decode expr
+      else Rewriter.return None
+    in
+    match resource with
+    | Some resource ->
+        ignore (next_conjunct_idx ());
+        Rewriter.return
+          (ScalarResource.translate ?cmnt ~spec_error ?spec_source ~loc Exhale conds expr
+             resource)
+    | None ->
+        trnsl_exhale_a0_general ?cmnt ~spec_error ?spec_source ~loc universal_quants conds
+          expr
+
+  and trnsl_exhale_a0_general ?cmnt ?(spec_error = []) ?spec_source ~loc
       (universal_quants : universal_quants) (conds : conditions) (expr : expr) :
       Stmt.t Rewriter.t =
     let open Rewriter.Syntax in
@@ -5082,9 +5577,40 @@ module TrnslExhale = struct
               unsupported_expr_error expr)
 end
 
-let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
+let flatten_resource_blocks stmts =
+  let rec transparent stmt =
+    match stmt.stmt_desc with
+    | Basic (VarDef _) -> false
+    | Block { block_kind = Regular; block_body } -> List.for_all block_body ~f:transparent
+    | Block _ -> false
+    | _ -> true
+  in
+  let rec flatten pending acc =
+    match pending with
+    | [] -> List.rev acc
+    | [] :: rest -> flatten rest acc
+    | (stmt :: rest) :: remaining ->
+        begin match stmt.stmt_desc with
+        | Block { block_kind = Regular; block_body } when transparent stmt ->
+            flatten (block_body :: rest :: remaining) acc
+        | _ -> flatten (rest :: remaining) (stmt :: acc)
+        end
+  in
+  flatten [ stmts ] []
+
+let rec rewrite_make_heaps_explicit ~heap_fusion (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match s.stmt_desc with
+  | Stmt.Block block ->
+      if heap_fusion then
+        let* _ = Rewriter.enter_block block in
+        let* block_body =
+          translate_resource_sequence ~heap_fusion []
+            (flatten_resource_blocks block.block_body)
+        in
+        let+ () = Rewriter.exit_block in
+        { s with stmt_desc = Block { block with block_body } }
+      else Rewriter.Stmt.descend s ~f:(rewrite_make_heaps_explicit ~heap_fusion)
   | Stmt.Basic basic_stmt ->
       begin match basic_stmt with
       | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _
@@ -5096,7 +5622,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
               let expr = spec.spec_form in
 
               let* stmt =
-                TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment
+                TrnslInhale.trnsl_inhale_expr ~heap_fusion ?cmnt:spec.spec_comment
                   ~spec_error:spec.spec_error ?spec_source:spec.spec_source
                   ~loc:s.stmt_loc expr
               in
@@ -5105,7 +5631,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
               let expr = spec.spec_form in
 
               let* stmt =
-                TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment
+                TrnslExhale.trnsl_exhale_expr ~heap_fusion ?cmnt:spec.spec_comment
                   ~spec_error:spec.spec_error ?spec_source:spec.spec_source
                   ~loc:s.stmt_loc expr
               in
@@ -5146,7 +5672,7 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
                 let* _ = Rewriter.introduce_symbol nondet_var_def in
 
                 let* exhale_stmt =
-                  TrnslExhale.trnsl_exhale_expr
+                  TrnslExhale.trnsl_exhale_expr ~heap_fusion
                     ?cmnt:
                       (Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment))
                     ~spec_error:spec.spec_error ~loc spec.spec_form
@@ -5327,6 +5853,26 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
           else Error.type_error s.stmt_loc "Expected a FracRA type."
       end
   | _ ->
-      let* s = Rewriter.Stmt.descend s ~f:rewrite_make_heaps_explicit in
+      let* s = Rewriter.Stmt.descend s ~f:(rewrite_make_heaps_explicit ~heap_fusion) in
 
       Rewriter.return s
+
+and translate_resource_sequence ~heap_fusion acc = function
+  | ({ stmt_desc = Basic (Spec (Exhale, pre)); _ } as exhale)
+    :: ({ stmt_desc = Basic (Spec (Inhale, post)); _ } as inhale)
+    :: rest ->
+      let open Rewriter.Syntax in
+      let* fused = ScalarResource.fuse exhale inhale pre post in
+      begin match fused with
+      | Some stmt ->
+          let* stmt = rewrite_make_heaps_explicit ~heap_fusion stmt in
+          translate_resource_sequence ~heap_fusion (stmt :: acc) rest
+      | None ->
+          let* exhale = rewrite_make_heaps_explicit ~heap_fusion exhale in
+          translate_resource_sequence ~heap_fusion (exhale :: acc) (inhale :: rest)
+      end
+  | stmt :: rest ->
+      let open Rewriter.Syntax in
+      let* stmt = rewrite_make_heaps_explicit ~heap_fusion stmt in
+      translate_resource_sequence ~heap_fusion (stmt :: acc) rest
+  | [] -> Rewriter.return (List.rev acc)

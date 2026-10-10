@@ -1,0 +1,6 @@
+ghost field maximum: Library.MaxNat
+proc insufficient(x: Ref)
+  requires own(x.maximum, 3)
+{
+  exhale own(x.maximum, 4);
+}

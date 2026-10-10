@@ -1,0 +1,7 @@
+ghost field f: Int
+
+proc insufficient_changed_chunk(x: Ref) {
+  inhale own(x.f, 1, 0.5);
+  exhale own(x.f, 1, 0.75);
+  inhale own(x.f, 2, 0.75);
+}

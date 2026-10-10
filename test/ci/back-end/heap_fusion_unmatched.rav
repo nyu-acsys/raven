@@ -1,0 +1,48 @@
+field f: Int
+ghost field n: Library.Nat
+
+proc separated(x: Ref)
+  requires own(x.f, 7, 1.0)
+  ensures own(x.f, 7, 1.0)
+{
+  exhale own(x.f, 7, 1.0);
+  assert true;
+  inhale own(x.f, 7, 1.0);
+}
+
+proc different_keys(x: Ref, y: Ref)
+  requires own(x.f, 7, 1.0)
+  ensures own(y.f, 7, 1.0)
+{
+  exhale own(x.f, 7, 1.0);
+  inhale own(y.f, 7, 1.0);
+}
+
+proc different_guards(x: Ref, b: Bool, c: Bool)
+  requires b ==> own(x.f, 7, 1.0)
+  ensures c ==> own(x.f, 7, 1.0)
+{
+  exhale b ==> own(x.f, 7, 1.0);
+  inhale c ==> own(x.f, 7, 1.0);
+}
+
+proc compound(x: Ref)
+  requires own(x.f, 7, 1.0)
+  ensures own(x.f, 7, 1.0)
+{
+  exhale own(x.f, 7, 0.5) && own(x.f, 7, 0.5);
+  inhale own(x.f, 7, 0.5) && own(x.f, 7, 0.5);
+}
+
+proc quantified()
+  requires forall x: Ref :: own(x.n, 3)
+  ensures forall x: Ref :: own(x.n, 3)
+{
+  exhale forall x: Ref :: own(x.n, 3);
+  inhale forall x: Ref :: own(x.n, 3);
+}
+
+proc heap_dependent(x: Ref)
+  requires own(x.n, 3)
+  ensures own(x.n, 4)
+{ fpu(x, n, 4); }

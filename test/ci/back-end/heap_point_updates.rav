@@ -1,0 +1,137 @@
+field f: Int
+pred token(x: Ref) { true }
+pred valued(x: Ref; v: Int) { own(x.f, v, 1.0) }
+inv persistent(x: Ref; v: Int) { own(x.f, v, 1.0) }
+inv unit_inv(x: Ref) { true }
+
+proc fractions(x: Ref, q: Real)
+  requires 0.0 < q && q < 1.0
+  requires own(x.f, 7, 1.0)
+  ensures own(x.f, 7, 1.0)
+{
+  exhale own(x.f, 7, q);
+  inhale own(x.f, 7, q);
+  exhale own(x.f, 7, q);
+  assert true;
+  inhale own(x.f, 7, q);
+}
+
+proc changed_amount(x: Ref)
+  requires own(x.f, 7, 0.75)
+  ensures own(x.f, 7, 1.0)
+{
+  exhale own(x.f, 7, 0.25);
+  inhale own(x.f, 7, 0.5);
+}
+
+proc counted(x: Ref)
+  requires token(x) && token(x)
+  ensures token(x) && token(x)
+{
+  exhale token(x);
+  assert true;
+  inhale token(x);
+}
+
+proc counted_values(x: Ref)
+  requires valued(x, 7) && valued(x, 7)
+  ensures valued(x, 7) && valued(x, 7)
+{
+  exhale valued(x, 7);
+  inhale valued(x, 7);
+  exhale valued(x, 7);
+  assert true;
+  inhale valued(x, 7);
+}
+
+proc incompatible_counted(x: Ref)
+  requires valued(x, 7) && valued(x, 7)
+{
+  exhale valued(x, 7);
+  inhale valued(x, 8);
+  assert false;
+}
+
+proc persistent_exhales(x: Ref)
+  requires persistent(x, 7) && unit_inv(x)
+  ensures persistent(x, 7) && unit_inv(x)
+{
+  exhale persistent(x, 7);
+  assert true;
+  exhale persistent(x, 7);
+  exhale unit_inv(x);
+  assert true;
+  exhale unit_inv(x);
+}
+
+proc incompatible_persistent(x: Ref)
+  requires persistent(x, 7)
+{
+  exhale persistent(x, 7);
+  inhale persistent(x, 8);
+  assert false;
+}
+
+proc overfull_inhale(x: Ref)
+  requires own(x.f, 7, 0.75)
+{
+  inhale own(x.f, 7, 0.5);
+  assert false;
+}
+
+proc zero_inhale(x: Ref) {
+  inhale own(x.f, 7, 0.0);
+  assert false;
+}
+
+proc null_inhale() {
+  inhale own(null.f, 7, 1.0);
+  assert false;
+}
+
+proc guarded_inhale(x: Ref) {
+  inhale false ==> own(x.f, 7, 0.0);
+  inhale false ==> persistent(x, 7);
+  assert true;
+}
+
+// Imported aliases and functor parameters retain lattice membership.
+module MaxAlias = Library.MaxNat
+ghost field maximum: MaxAlias
+module IntType : Library.Type { rep type T = Int }
+module Sets = Library.SetRA[IntType]
+ghost field members: Sets
+
+proc lattice_exhales(x: Ref)
+  requires own(x.maximum, 5)
+  requires own(x.members, Sets.set({|1, 2|}))
+  ensures own(x.maximum, 5)
+  ensures own(x.members, Sets.set({|1, 2|}))
+{
+  exhale own(x.maximum, 3);
+  assert true;
+  exhale own(x.maximum, 5);
+  exhale own(x.members, Sets.set({|1|}));
+  assert true;
+  exhale own(x.members, Sets.set({|2|}));
+}
+
+proc lattice_pair(x: Ref)
+  requires own(x.maximum, 5)
+  ensures own(x.maximum, 7)
+{
+  exhale own(x.maximum, 3);
+  inhale own(x.maximum, 7);
+}
+
+module AbstractLattice[M: Library.LatticeResourceAlgebra] {
+  ghost field resource: M
+  proc repeated(x: Ref, chunk: M)
+    requires own(x.resource, chunk)
+    ensures own(x.resource, chunk)
+  {
+    exhale own(x.resource, chunk);
+    assert true;
+    exhale own(x.resource, chunk);
+  }
+}

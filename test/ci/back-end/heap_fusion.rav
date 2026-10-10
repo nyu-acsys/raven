@@ -1,0 +1,140 @@
+field f: Int
+module Alias { field f = f }
+ghost field n: Library.Nat
+module IntType : Library.Type { rep type T = Int }
+module Agree = Library.Agree[IntType]
+ghost field a: Agree
+
+pred counted(x: Ref) { true }
+pred valued(x: Ref; v: Int) { own(x.f, v, 1.0) }
+inv persistent(x: Ref; v: Int) { own(x.f, v, 1.0) }
+inv unit_inv(x: Ref) { true }
+
+proc identical(x: Ref)
+  requires own(x.f, 1, 0.5)
+  ensures own(x.f, 1, 0.5)
+{
+  exhale own(x.f, 1, 0.5);
+  inhale own(x.f, 1, 0.5);
+}
+
+proc changed(x: Ref)
+  requires own(x.f, 1, 1.0)
+  ensures own(x.f, 2, 1.0)
+{
+  exhale own(x.f, 1, 1.0);
+  inhale own(x.f, 2, 1.0);
+}
+
+proc guarded(x: Ref, b: Bool)
+  requires b ==> own(x.f, 1, 1.0)
+  ensures b ==> own(x.f, 2, 1.0)
+{
+  exhale b ==> own(x.f, 1, 1.0);
+  inhale b ==> own(x.f, 2, 1.0);
+}
+
+proc conditional(x: Ref, b: Bool)
+  requires own(x.f, 1, 1.0)
+  ensures own(x.f, b ? 2 : 1, 1.0)
+{
+  exhale own(x.f, 1, 1.0);
+  inhale own(x.f, b ? 2 : 1, 1.0);
+}
+
+proc alias(x: Ref)
+  requires own(x.f, 1, 1.0)
+  ensures own(x.f, 1, 1.0)
+{
+  exhale own(x.f, 1, 1.0);
+  inhale own(x.Alias.f, 1, 1.0);
+}
+
+proc guarded_ite(x: Ref, b: Bool)
+  requires b ? own(x.f, 1, 1.0) : true
+  ensures b ? own(x.f, 1, 1.0) : true
+{
+  exhale b ? own(x.f, 1, 1.0) : true;
+  inhale b ? own(x.f, 1, 1.0) : true;
+}
+
+proc guarded_else(x: Ref, b: Bool)
+  requires b ? true : own(x.f, 1, 1.0)
+  ensures b ? true : own(x.f, 1, 1.0)
+{
+  exhale b ? true : own(x.f, 1, 1.0);
+  inhale b ? true : own(x.f, 1, 1.0);
+}
+
+proc incompatible_inhale(x: Ref)
+  requires own(x.f, 1, 1.0)
+{
+  exhale own(x.f, 1, 0.5);
+  inhale own(x.f, 2, 0.5);
+  assert false;
+}
+
+proc ghost_resources(x: Ref)
+  requires own(x.n, 3)
+  requires own(x.a, Agree.agree(7))
+  ensures own(x.n, 4)
+  ensures own(x.a, Agree.agree(7))
+{
+  exhale own(x.n, 3);
+  inhale own(x.n, 4);
+  exhale own(x.a, Agree.agree(7));
+  inhale own(x.a, Agree.agree(7));
+}
+
+proc predicates(x: Ref)
+  requires counted(x)
+  requires valued(x, 1)
+  requires persistent(x, 1)
+  requires unit_inv(x)
+  ensures counted(x)
+  ensures valued(x, 2)
+  ensures persistent(x, 1)
+  ensures unit_inv(x)
+{
+  exhale counted(x);
+  inhale counted(x);
+  exhale valued(x, 1);
+  inhale valued(x, 2);
+  exhale persistent(x, 1);
+  inhale persistent(x, 1);
+  exhale unit_inv(x);
+  inhale unit_inv(x);
+}
+
+proc atomic_proc() atomic requires true atomic ensures true {
+  ghost var phi := bindAU();
+  openAU(phi);
+  commitAU(phi, ());
+}
+
+proc tokens(t: AtomicToken<atomic_proc>)
+  requires au<atomic_proc>(t, ())
+  ensures auCommit<atomic_proc>(t, (), ())
+{
+  exhale au<atomic_proc>(t, ());
+  inhale au<atomic_proc>(t, ());
+  exhale au<atomic_proc>(t, ());
+  inhale auCommit<atomic_proc>(t, (), ());
+  exhale auCommit<atomic_proc>(t, (), ());
+  inhale auCommit<atomic_proc>(t, (), ());
+}
+
+proc fpu_pair(x: Ref)
+  requires own(x.n, 3)
+  ensures own(x.n, 4)
+{ fpu(x, n, 3, 4); }
+
+proc call_pair(x: Ref)
+  requires own(x.f, 1, 0.5)
+  ensures own(x.f, 1, 0.5)
+{ identical(x); }
+
+proc fold_pair(x: Ref)
+  requires valued(x, 1)
+  ensures valued(x, 1)
+{ unfold valued(x, 1); fold valued(x, 1); }
