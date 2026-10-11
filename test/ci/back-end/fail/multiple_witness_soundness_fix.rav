@@ -8,7 +8,7 @@ field lock: Ref
 ghost field agr: Agree
 
 pred is_list(n: Ref) {
-    exists l: Ref :: 
+    exists l: Ref ::
         (f1(l) ==> own(n.lock, l, 0.5)) && 
         (f2(l) ==> own(n.lock, l, 0.5)) && 
         (f2(l) ==> own(n.agr, Agree.agree(l)))

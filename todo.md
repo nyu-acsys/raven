@@ -20,8 +20,7 @@
 - [x] introduce fold existential witness notation
 
 - [x] move injectivity check outside.
-- reorder rewrite passes to do inj checks for preds before rewriting fold/unfold
-    + maybe by adding new lemmas
+- [x] Share ISC inverse functions and injectivity lemmas across predicate fold/unfold expansions via the source-level ISC cache
 - [x] sweep to add default triggers for every Quant
     + [x] fix missing triggers in all `Expr.mk_binder` calls
 
@@ -38,7 +37,7 @@ Type-checking:
   - [x] Forbid implicit predicate input parameters; implicit parameters must follow `;`
   - [x] Check that `bindAU` assigns to exactly one ghost token of the enclosing procedure's token type
 
-- Implement mask computation to check interface <-> module compatibility
+- [x] Implement mask computation to check interface <-> module compatibility
 - Revamp witness computation code
 
 - [x] Fix `return proc()` stmts

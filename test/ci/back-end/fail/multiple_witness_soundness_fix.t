@@ -1,4 +1,8 @@
   $ dune exec -- raven --shh multiple_witness_soundness_fix.rav
+  [Warning] File "multiple_witness_soundness_fix.rav", line 11, columns 11-17:
+  11 |     exists l: Ref ::
+                  ^^^^^^
+  No witness could be computed for l -- it will be treated as an arbitrary unconstrained value, which may cause later assertions about it to fail.
   [Error] File "multiple_witness_soundness_fix.rav", line 27, columns 4-20:
   27 |     fold is_list(r);
            ^^^^^^^^^^^^^^^^

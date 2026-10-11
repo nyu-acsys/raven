@@ -1,0 +1,7 @@
+free pred edge(i: Int; j: Int)
+
+proc test() {
+  inhale forall i: Int :: edge(i, i + 1);
+  exhale exists i: Int :: edge(i, i);
+  assert false;
+}

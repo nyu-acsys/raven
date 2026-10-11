@@ -3806,6 +3806,53 @@ module TrnslExhale = struct
         Rewriter.Stmt.descend stmt ~f:rewriter_user_annot_elim_exists_from_exhales
 
   module WitnessComputation = struct
+    let resolve_dependencies (vars : var_decl list) (outer_conds : conditions)
+        (candidates : (conditions * expr) list ident_map) =
+      let existential_vars =
+        Set.of_list (module Ident) (List.map vars ~f:(fun v -> v.Type.var_name))
+      in
+      let dependencies (conds, witness) =
+        List.fold (outer_conds @ conds) ~init:(Expr.local_vars witness)
+          ~f:(fun vars cond -> Set.union vars (Expr.local_vars cond))
+        |> Set.inter existential_vars
+      in
+      let initially_resolved =
+        Set.filter existential_vars ~f:(fun var -> not (Map.mem candidates var))
+      in
+      let rec resolve resolved pending witnesses =
+        let ready =
+          Map.filter_map pending ~f:(fun choices ->
+              let choices =
+                List.filter choices ~f:(fun choice ->
+                    Set.is_subset (dependencies choice) ~of_:resolved)
+              in
+              let unconditional =
+                List.filter choices ~f:(fun (conds, _) -> List.is_empty conds)
+              in
+              let choices =
+                if List.is_empty unconditional then choices else unconditional
+              in
+              if List.is_empty choices then None else Some choices)
+        in
+        let unconditional =
+          Map.filter ready ~f:(List.exists ~f:(fun (conds, _) -> List.is_empty conds))
+        in
+        let ready = if Map.is_empty unconditional then ready else unconditional in
+        if Map.is_empty ready then witnesses
+        else
+          let resolved, pending, witnesses =
+            Map.fold ready ~init:(resolved, pending, witnesses)
+              ~f:(fun ~key ~data (resolved, pending, witnesses) ->
+                ( Set.add resolved key,
+                  Map.remove pending key,
+                  Map.set witnesses ~key ~data ))
+          in
+          resolve resolved pending witnesses
+      in
+      (* Binding assumptions must have a solution; values and guards cannot depend
+         cyclically on the existentials they determine. *)
+      resolve initially_resolved candidates (Map.empty (module Ident))
+
     let rec find_witnesses_elim_exists (expr : expr) : (expr * expr list) Rewriter.t =
       elim_a { univ_vars = []; triggers = [] } [] expr
 
@@ -3964,6 +4011,8 @@ module TrnslExhale = struct
                      only ever adds. *)
                   Map.set acc ~key ~data)
           in
+
+          let witnesses = resolve_dependencies var_decls univ_conds witnesses in
 
           let witnesses_local_vars_ident_set =
             let (witnesses_local_vars_ident_set : IdentSet.t) =
@@ -4137,16 +4186,6 @@ module TrnslExhale = struct
 
                       Rewriter.return ([], [], [])
                   | Some witness_arg_exprs ->
-                      let witness_arg_exprs =
-                        let universal_wtns =
-                          List.filter witness_arg_exprs ~f:(fun (vd, conds, expr) ->
-                              List.is_empty conds)
-                        in
-
-                        if List.is_empty universal_wtns then witness_arg_exprs
-                        else universal_wtns
-                      in
-
                       let postconds =
                         List.map witness_arg_exprs ~f:(fun (optn_arg, conds, e) ->
                             Expr.mk_impl

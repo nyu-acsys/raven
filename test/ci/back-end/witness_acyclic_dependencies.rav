@@ -1,0 +1,27 @@
+field f: Int
+field next: Ref
+free pred edge(i: Int; j: Int)
+
+lemma independent_alternative(x: Ref)
+  requires own(x.f, 0) && edge(0, 0)
+  ensures exists n: Int :: own(x.f, n) && edge(n, n)
+{}
+
+lemma guard_dependency(x: Ref, y: Ref, z: Ref)
+  requires own(x.f, 1) && own(y.f, 2) && own(z.f, 3)
+  ensures exists a: Int, b: Int ::
+    own(x.f, b) &&
+    (b == 1 ? own(y.f, a) && own(z.f, 3) : own(y.f, 2) && own(z.f, a))
+{}
+
+lemma dependent_heap_chain(p: Ref, q: Ref, r: Ref, s: Ref)
+  requires own(p.next, q) && own(q.next, r) && own(r.next, s)
+  ensures exists a: Ref, b: Ref, c: Ref ::
+    own(p.next, a) && own(a.next, b) && own(b.next, c)
+{}
+
+lemma prefer_unconditional(root: Ref, p: Ref, other: Ref, c: Bool)
+  requires own(root.next, p) && own(p.f, 2) && own(other.f, 3) && !c
+  ensures exists q: Ref, n: Int ::
+    own(root.next, q) && own(q.f, n) && own(other.f, 3) && (c ==> own(other.f, n))
+{}

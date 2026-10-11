@@ -1,0 +1,7 @@
+free pred edge(i: Int; j: Int)
+
+proc test() {
+  inhale edge(0, 1) && edge(1, 0);
+  exhale exists n: Int :: n == 0 ? edge(0, n) : edge(1, n);
+  assert false;
+}
