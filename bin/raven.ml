@@ -167,12 +167,12 @@ let lower_cu ~ext_hooks tbl md lowered_out_chan =
     nested inside the other -- see [Backend.Dependencies.analyze]'s doc comment -- so they
     have to be checked as one combined call for [Backend.Checker.check_members]'s
     hierarchical scoping to see both sides of that sharing). *)
-let backend_check_cu tbl smt_env processed =
+let backend_check_cu tbl context processed =
   let processed_mds, lemma_calls = List.unzip processed in
   let lemma_calls =
     List.fold lemma_calls ~init:Ast.CallGraph.Graph.empty ~f:Ast.CallGraph.Graph.union
   in
-  Backend.Checker.check_module processed_mds lemma_calls tbl smt_env
+  Backend.Checker.check_module processed_mds lemma_calls tbl context
 
 (** Parse and check all compilation units in files [file_names]. [extension_mode] picks
     the `--extension` chain: [`Explicit ext] uses [ext] outright; [`Auto] detects it from
@@ -197,10 +197,10 @@ let parse_and_check_all ~extension_mode config file_names =
     | _ -> false
   in
 
-  let smt_env =
+  let solver_session =
     Smt.SmtSolver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout
   in
-  Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop smt_env) @@ fun () ->
+  Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop solver_session) @@ fun () ->
   let debug_out_chan file_name =
     if external_logging then Stdio.Out_channel.create file_name
     else Util.Channel.null_channel ()
@@ -354,8 +354,11 @@ let parse_and_check_all ~extension_mode config file_names =
         needs (see Smt.TupleArities), so this is the earliest point at which we
         can declare them. *)
         let arities = Smt.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
-        let smt_env = Smt.SmtSolver.declare_tuple_sorts smt_env arities in
-        let (_ : Smt.SmtSolver.smt_env) = backend_check_cu tbl smt_env processed in
+        Smt.SmtSolver.declare_tuple_sorts solver_session arities;
+        let context = Backend.CheckerContext.create solver_session in
+        let (_ : Backend.CheckerContext.context) =
+          backend_check_cu tbl context processed
+        in
         ());
 
     Logs.app (fun m -> m "Verification successful.")

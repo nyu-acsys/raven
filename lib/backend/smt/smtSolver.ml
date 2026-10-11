@@ -245,96 +245,7 @@ module SmtSession = struct
     (result, session)
 end
 
-type smt_env = {
-  session : SmtSession.session;
-  path_conditions : term list;
-  auto_dependencies : Ast.CallGraph.Graph.t;
-}
-
-type 'a t = smt_env -> smt_env * 'a
-
-(* let smt_env_to_string (smt_env: smt_env) : string =
-     Printf.sprintf "path_conditions: %a"
-       (* (QualIdentMap.iter (fun key value -> Printf.sprintf "%d --> %d\n" key value) smt_env.smtTbl) *)
-       (Util.Print.pr_list_comma Expr.pr) smt_env.path_conditions
-
-   let to_string (state: state) : string =
-     smt_env_to_string state.smt_env *)
-
-let write cmd : unit t =
-  let open State.Syntax in
-  match cmd with
-  | Assert _ ->
-      Util.Error.internal_error Util.Loc.dummy
-        "Cannot write assert command directly; use assume_expr instead"
-  | _ ->
-      let+ smt_env = get_state in
-      SmtSession.write smt_env.session cmd
-
-(* SmtSession.write state.smt_env.session cmd *)
-
-let write_comment cmnt : unit t =
-  let open State.Syntax in
-  let+ smt_env = get_state in
-  SmtSession.write_comment smt_env.session cmnt
-
-let push =
-  let open State.Syntax in
-  map_state ~f:(fun smt_env -> { smt_env with session = SmtSession.push smt_env.session })
-
-let pop =
-  let open State.Syntax in
-  map_state ~f:(fun smt_env -> { smt_env with session = SmtSession.pop smt_env.session })
-
-let push_path_condn (term : term) =
-  let open State.Syntax in
-  map_state ~f:(fun smt_env ->
-      let path_conditions = term :: smt_env.path_conditions in
-      { smt_env with path_conditions })
-
-let pop_path_condn =
-  let open State.Syntax in
-  map_state ~f:(fun smt_env ->
-      let path_conditions = Base.List.tl_exn smt_env.path_conditions in
-      { smt_env with path_conditions })
-
-let check_sat : sat_result t =
-  let open State.Syntax in
-  let+ smt_env = get_state in
-  SmtSession.check_sat smt_env.session
-
-let assume_expr ?name (expr : term) : unit t =
-  (* Externally facing command to assume expressions. Takes path_condns into account *)
-  let open State.Syntax in
-  let+ smt_env = get_state in
-
-  let expr =
-    match smt_env.path_conditions with
-    | [] -> expr
-    | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
-  in
-
-  let cmd = mk_assert ?name (Ast.Expr.drop_trivially_true expr) in
-  SmtSession.write smt_env.session cmd
-
-let check_valid ?name (expr : term) : validity_result t =
-  let open State.Syntax in
-  let* smt_env = get_state in
-  Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);
-
-  let expr =
-    match smt_env.path_conditions with
-    | [] -> expr
-    | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
-  in
-
-  let res, session = SmtSession.check_valid ?name smt_env.session expr in
-
-  let+ _ = set_state { smt_env with session } in
-
-  res
-
-(* --- *)
+type session = SmtSession.session
 
 let declare_tuple_sort (arity : int) : command =
   let tuple_sort_name =
@@ -362,7 +273,7 @@ let declare_tuple_sort (arity : int) : command =
 
   mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
 
-let init ?(logging = true) diagnostics timeout : smt_env =
+let init ?(logging = true) diagnostics timeout : session =
   let open SmtSession in
   let response_timeout =
     if timeout > 0 then Some (Float.of_int timeout /. 1000.) else None
@@ -399,10 +310,6 @@ let init ?(logging = true) diagnostics timeout : smt_env =
     ]
   in
 
-  let smt_env =
-    { session; path_conditions = []; auto_dependencies = Ast.CallGraph.Graph.empty }
-  in
-
   (* preamble *)
   Base.List.iter options_list ~f:(write session);
   Base.List.iter list_of_cmds ~f:(write session);
@@ -412,56 +319,21 @@ let init ?(logging = true) diagnostics timeout : smt_env =
   write_comment session "";
 
   initialized := true;
-  smt_env
+  session
 
 (** Closes and reaps the session without replacing an error from verification. *)
-let stop (smt_env : smt_env) = SmtSession.stop_solver smt_env.session
+let stop (session : session) = SmtSession.stop_solver session
 
 (** Declares exactly the generic tuple sorts ([$tuple_n]) the program being checked
     actually needs, rather than an arbitrary fixed range. [arities] is computed from the
     fully elaborated program (see [TupleArities]) once parsing and front-end processing
     have completed, which is why this is a separate step from [init]: at the point [init]
     runs (before any parsing), the input isn't known yet. *)
-let declare_tuple_sorts (smt_env : smt_env) (arities : int list) : smt_env =
+let declare_tuple_sorts (session : session) (arities : int list) : unit =
   let open SmtSession in
-  (match arities with
+  match arities with
   | [] -> ()
   | _ ->
-      write_comment smt_env.session "Tuple sorts used by this program";
-      Base.List.iter arities ~f:(fun arity ->
-          write smt_env.session (declare_tuple_sort arity));
-      write_comment smt_env.session "");
-
-  smt_env
-
-(* --- *)
-
-(* module Syntax = struct
-     let return a = fun s -> (s, a)
-
-     module Let_syntax = struct
-       let bind m ~f = fun sin ->
-         let sout, res = m sin in
-         f res sout
-
-       let return = return
-
-       let map m ~f = fun sin ->
-         let sout, res = m sin in
-         (sout, f res)
-
-       let both m1 m2 = fun sin ->
-         let s1, res1 = m1 sin in
-         let s2, res2 = m2 s1 in
-         (s2, (res1, res2))
-     end
-
-     open Let_syntax
-
-     let (let+) (m: state -> state * 'a) (f: 'a -> 'b) : (state -> state * 'b) = map m ~f
-     let (and+) = both
-     let (let* ) (m: state -> state * 'a) (f: 'a -> state -> state * 'b) : (state -> state * 'b) = bind m ~f
-     let (and* ) = both
-   end
-
-   let lft_smtEnv (f: smt_env -> smt_env) : state -> state = fun s -> { s with smt_env = f s.smt_env } *)
+      write_comment session "Tuple sorts used by this program";
+      Base.List.iter arities ~f:(fun arity -> write session (declare_tuple_sort arity));
+      write_comment session ""

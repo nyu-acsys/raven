@@ -7,6 +7,7 @@ open Base
 (* open Frontend *)
 open SmtLibAst
 open Util
+open CheckerContext
 
 let define_type (fully_qual_name : qual_ident) (typ : Ast.Module.type_def) : unit t =
   let open State.Syntax in
@@ -587,9 +588,9 @@ let check_members (placed : (Ident.t list * QualIdent.t list) list)
   walk (PathTree.of_placed placed)
 
 let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.Graph.t)
-    (tbl : SymbolTbl.t) (smt_env : smt_env) : smt_env =
+    (tbl : SymbolTbl.t) (context : context) : context =
   let dependencies, deps_graph, auto_dependencies =
-    Dependencies.analyze tbl module_defs lemma_calls smt_env.auto_dependencies
+    Dependencies.analyze tbl module_defs lemma_calls context.auto_dependencies
   in
 
   Logs.debug (fun m ->
@@ -602,7 +603,7 @@ let check_module (module_defs : Ast.Module.t list) (lemma_calls : Dependencies.G
                dep))
         dependencies);
 
-  let smt_env = { smt_env with auto_dependencies } in
+  let context = { context with auto_dependencies } in
 
-  let smt_env, _ = State.eval (check_members dependencies deps_graph tbl) smt_env in
-  smt_env
+  let context, () = State.eval (check_members dependencies deps_graph tbl) context in
+  context
