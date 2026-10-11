@@ -87,22 +87,7 @@ let is_smt_simple_symbol_char = function
   | _ -> false
 
 let pr_smt_ident ppf id =
-  let smt_ident_sanitize_map = function '\'' -> '_' | x -> x in
-
-  let sanitized_ident =
-    if QualIdent.(id = QualIdent.from_ident (Ident.make Loc.dummy "_" 0)) then
-      QualIdent.from_ident (Ident.make Loc.dummy "_0" 0)
-    else QualIdent.sanitize smt_ident_sanitize_map id
-  in
-
-  (* Logs.debug (fun m -> m
-    "smtLibAST.pr_smt_ident:
-      Original Ident: %a
-      Sanitized ident: %a"
-      QualIdent.pr id
-      QualIdent.pr sanitized_ident
-  ); *)
-  let printed = QualIdent.to_string sanitized_ident in
+  let printed = QualIdent.to_string id in
   (* A name without a module path, number, or `$` is that of a declaration at the top
      level of the program. Qualifying it with the program's root module keeps it from
      coinciding with an SMT-LIB or Z3 symbol such as `union` or `select`, which would

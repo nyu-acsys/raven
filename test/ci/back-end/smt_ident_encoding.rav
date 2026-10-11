@@ -1,0 +1,19 @@
+// Apostrophes and underscores distinguish declarations and bound variables.
+func value'(x: Int) returns (r: Int) { x + 1 }
+func value_(x: Int) returns (r: Int) { x + 2 }
+func difference(x': Int, x_: Int) returns (r: Int) { x' - x_ }
+
+module Store' {
+  func value() returns (r: Int) { 3 }
+}
+module Store_ {
+  func value() returns (r: Int) { 4 }
+}
+
+lemma names() {
+  assert value'(0) == 1;
+  assert value_(0) == 2;
+  assert Store'.value() == 3;
+  assert Store_.value() == 4;
+  assert difference(4, 1) == 3;
+}

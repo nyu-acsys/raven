@@ -42,6 +42,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Prevent SMT identifier collisions between apostrophes and underscores.
 - Infer instances of generic-functor values such as `Seq.empty` from the expected type.
 - Accept explicitly supplied implicit arguments in generic predicates and instantiate at `fold`/`unfold`.
 - Fix equality between finite and general sets with either operand order.

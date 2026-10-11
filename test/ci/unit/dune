@@ -7,3 +7,8 @@
  (name overload_resolution)
  (modules overload_resolution)
  (libraries typing ast base util))
+
+(test
+ (name smt_ident_encoding)
+ (modules smt_ident_encoding)
+ (libraries smt ast base util))

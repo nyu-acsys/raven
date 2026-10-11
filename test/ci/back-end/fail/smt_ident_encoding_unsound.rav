@@ -1,0 +1,4 @@
+// Distinct bound variables must not become the same SMT symbol.
+lemma wrong() {
+  assert forall value': Int :: forall value_: Int :: value' == value_;
+}
