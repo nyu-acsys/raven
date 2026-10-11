@@ -189,7 +189,7 @@ end
 type smt_env = {
   session : SmtSession.session;
   path_conditions : term list;
-  auto_dependencies : Dependencies.Graph.t;
+  auto_dependencies : Ast.CallGraph.Graph.t;
 }
 
 type 'a t = smt_env -> smt_env * 'a
@@ -340,7 +340,7 @@ let init ?(logging = true) diagnostics timeout : smt_env =
   in
 
   let smt_env =
-    { session; path_conditions = []; auto_dependencies = Dependencies.Graph.empty }
+    { session; path_conditions = []; auto_dependencies = Ast.CallGraph.Graph.empty }
   in
 
   (* preamble *)
@@ -362,9 +362,9 @@ let stop (smt_env : smt_env) = SmtSession.stop_solver smt_env.session
 
 (** Declares exactly the generic tuple sorts ([$tuple_n]) the program being checked
     actually needs, rather than an arbitrary fixed range. [arities] is computed from the
-    fully elaborated program (see [Backend.TupleArities]) once parsing and front-end
-    processing have completed, which is why this is a separate step from [init]: at the
-    point [init] runs (before any parsing), the input isn't known yet. *)
+    fully elaborated program (see [TupleArities]) once parsing and front-end processing
+    have completed, which is why this is a separate step from [init]: at the point [init]
+    runs (before any parsing), the input isn't known yet. *)
 let declare_tuple_sorts (smt_env : smt_env) (arities : int list) : smt_env =
   let open SmtSession in
   (match arities with

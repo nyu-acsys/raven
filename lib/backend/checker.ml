@@ -1,3 +1,4 @@
+open Smt
 open SmtSolver
 open Ast
 open Base

@@ -145,9 +145,9 @@ let elaborate_cu ~ext_hooks config tbl (md : Ast.Module.t) front_end_out_chan =
 (** Lowers an elaborated compilation unit (see [Lowering.lower_module]), returning it
     together with its lemma call graph. This is kept separate from the actual backend/SMT
     checking ([backend_check_cu] below) so that the full set of tuple sorts a program
-    needs (see [Backend.TupleArities]) can be computed from the fully lowered symbol table
-    -- of both the library and the main program -- before any backend checking (and hence
-    any tuple-sort declaration) begins. *)
+    needs (see [Smt.TupleArities]) can be computed from the fully lowered symbol table --
+    of both the library and the main program -- before any backend checking (and hence any
+    tuple-sort declaration) begins. *)
 let lower_cu ~ext_hooks tbl md lowered_out_chan =
   let printers = Rewriter.printers_of_ext_hooks ext_hooks in
 
@@ -198,10 +198,9 @@ let parse_and_check_all ~extension_mode config file_names =
   in
 
   let smt_env =
-    Backend.SmtSolver.init ~logging:external_logging config.smt_diagnostics
-      config.smt_timeout
+    Smt.SmtSolver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout
   in
-  Stdlib.Fun.protect ~finally:(fun () -> Backend.SmtSolver.stop smt_env) @@ fun () ->
+  Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop smt_env) @@ fun () ->
   let debug_out_chan file_name =
     if external_logging then Stdio.Out_channel.create file_name
     else Util.Channel.null_channel ()
@@ -352,11 +351,11 @@ let parse_and_check_all ~extension_mode config file_names =
     | _ ->
         (* Only now -- once both the library and the main program have been fully
         elaborated -- do we know every tuple sort ([$tuple_n]) the program actually
-        needs (see Backend.TupleArities), so this is the earliest point at which we
+        needs (see Smt.TupleArities), so this is the earliest point at which we
         can declare them. *)
-        let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
-        let smt_env = Backend.SmtSolver.declare_tuple_sorts smt_env arities in
-        let (_ : Backend.SmtSolver.smt_env) = backend_check_cu tbl smt_env processed in
+        let arities = Smt.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
+        let smt_env = Smt.SmtSolver.declare_tuple_sorts smt_env arities in
+        let (_ : Smt.SmtSolver.smt_env) = backend_check_cu tbl smt_env processed in
         ());
 
     Logs.app (fun m -> m "Verification successful.")

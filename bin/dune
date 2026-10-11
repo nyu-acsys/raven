@@ -18,6 +18,7 @@
   elaboration
   lowering
   backend
+  smt
   library)
  (preprocess
   (pps ppx_custom_printf))
