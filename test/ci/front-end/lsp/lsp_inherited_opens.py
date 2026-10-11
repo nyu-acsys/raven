@@ -6,7 +6,7 @@ source = Path('lsp_inherited_opens.rav')
 result = subprocess.run(
     ['dune', 'exec', '--', 'raven', '--shh', '-q', '--lsp-mode',
      '--lsp-annotations', '--typeonly', str(source)],
-    text=True, capture_output=True, check=True,
+    text=True, encoding='utf-8', capture_output=True, check=True,
 )
 assert not result.stderr, result.stderr
 output = json.loads(result.stdout)
@@ -27,7 +27,7 @@ assert {
 } == expected, contracts
 print('Inherited opens clauses preserve empty masks, wildcards and parameter renaming.')
 
-lines = source.read_text().splitlines()
+lines = source.read_text(encoding='utf-8').splitlines()
 for clauses in contracts.values():
     for clause in clauses:
         if clause['keyword'] != 'opens':

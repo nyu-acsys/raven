@@ -92,6 +92,7 @@ let test_forced_stop_and_reap () =
       assert (
         match Result.try_with (fun () -> Unix.waitpid [ Unix.WNOHANG ] pid) with
         | Error (Unix.Unix_error (Unix.ECHILD, _, _)) -> true
+        | Error (Unix.Unix_error (Unix.EBADF, _, _)) when Stdlib.Sys.win32 -> true
         | _ -> false))
 
 let test_original_error_survives_broken_pipe () =

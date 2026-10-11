@@ -1,16 +1,9 @@
 Only an unsatisfiable negated assertion proves the original assertion.
 
   $ mkdir solver
-  $ cat > solver/z3 <<'SCRIPT'
-  > #!/bin/sh
-  > while IFS= read -r line; do
-  >   case "$line" in
-  >     '(check-sat)') printf '%s\n' "$RAVEN_TEST_RESPONSE" ;;
-  >     '(exit)') exit 0 ;;
-  >   esac
-  > done
-  > SCRIPT
-  $ chmod +x solver/z3
+  $ cp ../../unit/smt_stub.exe solver/z3
+  $ cp ../../unit/smt_stub.exe solver/z3.exe
+  $ chmod +x solver/z3 solver/z3.exe
   $ PATH="$PWD/solver:$PATH" RAVEN_TEST_RESPONSE=unsat dune exec -- raven --shh --nostdlib ./smt_unknown.rav
   Verification successful.
   $ PATH="$PWD/solver:$PATH" RAVEN_TEST_RESPONSE=unknown dune exec -- raven --shh --nostdlib ./smt_unknown.rav

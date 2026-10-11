@@ -1,17 +1,11 @@
 Front-end runs do not launch Z3 or create its debug log.
 
   $ mkdir solver
-  $ cat > solver/z3 <<'SCRIPT'
-  > #!/bin/sh
-  > touch solver-started
-  > while IFS= read -r line; do
-  >   case "$line" in
-  >     '(check-sat)') printf '%s\n' unsat ;;
-  >   esac
-  > done
-  > SCRIPT
-  $ chmod +x solver/z3
+  $ cp ../unit/smt_stub.exe solver/z3
+  $ cp ../unit/smt_stub.exe solver/z3.exe
+  $ chmod +x solver/z3 solver/z3.exe
   $ export PATH="$PWD/solver:$PATH"
+  $ export RAVEN_TEST_STARTED=solver-started
   $ dune exec -- raven --shh --typeonly --verbosity=debug ./lazy_solver_startup.rav > /dev/null 2>&1
   $ test ! -e solver-started && test ! -e log.smt2
   $ dune exec -- raven --shh --stats --verbosity=debug ./lazy_solver_startup.rav > /dev/null 2>&1

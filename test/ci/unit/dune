@@ -27,3 +27,8 @@
  (name smt_lifecycle)
  (modules smt_lifecycle)
  (libraries smt base unix))
+
+(executable
+ (name smt_stub)
+ (modules smt_stub)
+ (libraries base stdio logs logs.fmt fmt))
