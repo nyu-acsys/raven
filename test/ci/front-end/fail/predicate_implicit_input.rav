@@ -1,0 +1,1 @@
+pred p(x: Ref, implicit ghost n: Int) { true }

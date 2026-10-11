@@ -1,13 +1,9 @@
 30 jul, 2026:
-- [ ] `import M.x` can be silently shadowed by a pre-existing (or even a
-    later) local declaration of the same name in the importing module, with
-    no warning or error -- e.g. `import M.x` plus `val x: Int = 1` anywhere
-    else in the same module just makes the import a no-op for `x`, regardless
-    of which comes first textually. Consider (a) a warning on this kind of
-    shadowing, or (b) restricting `import` to only occur at the top level of
-    a module, before any other declarations, to make the ordering
-    unambiguous. Repro in local/test.rav. Found while writing the tutorial's
-    module-system chapter.
+- [ ] Consider warning when an explicitly named import (`import M.x`) is
+    hidden by a declaration of `x` in the importing module. Local declarations
+    intentionally take precedence regardless of declaration order, hiding the
+    entire imported overload group. Keep this behavior; exclude wildcard
+    imports from the warning, since their shadowing is common and intentional.
 
 16 nov, 2024:
 - [x] fix ident sanitization bug identified by Lucas.
@@ -26,8 +22,8 @@
 - [x] move injectivity check outside.
 - reorder rewrite passes to do inj checks for preds before rewriting fold/unfold
     + maybe by adding new lemmas
-- sweep to add default triggers for every Quant
-    + fix missing triggers in all `Expr.mk_binder` calls
+- [x] sweep to add default triggers for every Quant
+    + [x] fix missing triggers in all `Expr.mk_binder` calls
 
 - [x] add forks
 - [x] toy around with preds as macros
@@ -36,11 +32,11 @@
 
 Type-checking:
   - [x] Ensure that return variables are not allowed in pre-conditions
-  - Check that openAU, commitAU having right number of arguments
-  - Check that assertion expressions having the right format -- conditionals in ternary expr being pure, etc
+  - [x] Check argument counts and types for `openAU` and `commitAU`
+  - [x] Check that assertions have type `Perm` (including `Bool`) and ternary conditions have type `Bool`
   - [x] Ensure that return variables of functions are not used in the function body
-  - Ensure that predicates don't have implicit ghost args
-  - Ensure that left-hand side of bindAU is well-typed (number of vars matches number of implicit args; types match, etc.) 
+  - [x] Forbid implicit predicate input parameters; implicit parameters must follow `;`
+  - [x] Check that `bindAU` assigns to exactly one ghost token of the enclosing procedure's token type
 
 - Implement mask computation to check interface <-> module compatibility
 - Revamp witness computation code

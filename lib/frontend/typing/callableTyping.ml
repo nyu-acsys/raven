@@ -126,6 +126,13 @@ let check (callable : Callable.t) : Module.symbol t =
   let* _ = Rewriter.enter_callable callable in
   let disam_tbl = DisambiguationTbl.push [] in
   let call_decl = Callable.to_decl callable in
+  let () =
+    if Poly.(call_decl.call_decl_kind = Pred) then
+      List.iter call_decl.call_decl_formals ~f:(fun param ->
+          if param.Type.var_implicit then
+            Error.type_error param.var_loc
+              "Implicit predicate parameters must follow the ';' delimiter")
+  in
   let check_decls var_decls disam_tbl =
     Rewriter.List.fold_map var_decls ~init:disam_tbl ~f:(fun disam_tbl var_decl ->
         let+ var_decl = TypeExpr.check_var_decl var_decl in
