@@ -526,14 +526,11 @@ module DecreasesExt (Cont : Ext) = struct
         List.iter without_measure ~f:(fun call_decl ->
             match call_decl.Callable.call_decl_kind with
             | Lemma | Func ->
-                Logs.warn (fun m ->
-                    m "%s%s"
-                      (Loc.to_string call_decl.call_decl_loc)
-                      (Printf.sprintf
-                         "%s is recursive but declares no `decreases` clause; its \
-                          termination will be assumed for verification purposes, not \
-                          checked"
-                         (Ident.to_string call_decl.call_decl_name)))
+                Error.warning call_decl.call_decl_loc
+                  (Printf.sprintf
+                     "%s is recursive but declares no `decreases` clause; its \
+                      termination will be assumed for verification purposes, not checked"
+                     (Ident.to_string call_decl.call_decl_name))
             | Proc | Pred | Invariant -> ());
         Rewriter.return ()
       end

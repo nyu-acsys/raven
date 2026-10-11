@@ -302,20 +302,9 @@ is. Every extra statement inside is extra trust, and the block does not care whe
 inside is plausibly one instruction. Second, be wary of loops or recursion inside a block, where
 "a single machine step" is least credible. Raven permits them without complaint.
 
-Because these are assumptions rather than results, `--strict` reports them:
-
-```
-$ raven --strict my_program.rav
-[Warning] File "my_program.rav", line 33, column 2 to line 36, column 3:
-33 |   atomic {
-       ^^^^^^^^
-this `atomic` block's body is assumed to be a single machine step, not checked;
-Raven has no model of the target machine to verify that against
-```
-
-That is the same flag that reports an explicit `free` and a missing `decreases`, and for the
-same reason: it enumerates everything a proof rests on that the proof did not establish. One
-warning per block, wherever it appears.
+{{ref sec:strict-mode}} explains how to review assumptions in VS Code. In strict mode, each
+`atomic { ... }` block you write produces a warning that its body is assumed to be a single
+machine step. The warning makes the claim visible; it does not check it against your platform.
 
 A program that merely calls `cas` is not warned about a block it did not write, but not because
 of anything specific to `atomic { }`. The standard library is loaded once per run, with every

@@ -236,7 +236,8 @@ proc bumpTwice(c: Ref)
 **Termination still has to be justified.** Raven assumes termination of a recursive `func` or
 `lemma` unless you supply a `decreases` clause; the ghost-state checks do not establish it.
 Give ghost recursion a checked termination measure. {{ref sec:ghost-termination}} shows why
-this matters and what happens when the assumption is unfounded.
+this matters and what happens when the assumption is unfounded. Use {{ref sec:strict-mode}} to
+locate unchecked recursive functions and lemmas.
 
 ## Why this matters going forward
 

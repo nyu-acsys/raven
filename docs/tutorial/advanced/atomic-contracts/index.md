@@ -220,7 +220,8 @@ here: code that really does take several steps, which you want *treated* as one.
 By definition, Raven's semantics executes the block as a single step, and whether the target
 machine actually does so is up to you. It is how a hand-written atomic primitive discharges
 a contract like the one above, and more generally how any procedure stands in for something the
-target machine does indivisibly. {{ref sec:atomic-block-standalone}} covers it.
+target machine does indivisibly. {{ref sec:atomic-block-standalone}} covers it. Strict mode
+flags this assumption; see {{ref sec:strict-mode}} for how to enable it in VS Code.
 
 ## Debugging Corner
 

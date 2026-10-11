@@ -183,14 +183,14 @@ heap read. The difference is more than documentation, because Raven checks it: r
 later needs to change the binding. It signals to both the reader and the tool that this value is
 fixed for the rest of its scope.
 
-`afterHits` proves the same fact as `bumpN`, recursively. The clause `decreases n` is what lets
-Raven accept the recursion as terminating. Without a `decreases` clause, Raven doesn't refuse to
-verify the function. It just silently *assumes* termination rather than checking it. (There's a
-stricter mode that checks this instead of assuming it, but as of this writing it's a
-command-line-only flag that isn't exposed in the VS Code extension. It's worth knowing the
-assumption is there, even though you can't change it from the editor today.) `bumpN` proves the
-same fact iteratively, and this is the one place in this file where the proof burden is on you
-rather than on Raven's automation. A `while` loop needs an explicit `invariant`: a fact that's
+`afterHits` proves the same fact as `bumpN`, recursively. The clause `decreases n` asks Raven
+to check that the recursive calls terminate. Without it, Raven still verifies the function but
+assumes termination rather than checking it. {{ref sec:strict-mode}} explains how to make this
+assumption visible as a warning in VS Code.
+
+`bumpN` proves the same fact iteratively, and this is the one place in this file where the
+proof burden is on you rather than on Raven's automation. A `while` loop needs an explicit
+`invariant`: a fact that's
 true before the loop and after every iteration, and that is strong enough to imply the
 postcondition when combined with the loop's exit condition. Try deleting `invariant r == c + i`
 and re-verifying. You'll get "This loop invariant may not be maintained," because `0 <= i <= n`

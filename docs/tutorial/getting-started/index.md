@@ -85,6 +85,38 @@ was proved or disproved. A `Verification Error` means Raven understood the progr
 failed to *prove* it correct. If you learn to tell these apart at a glance by the bracketed
 prefix, you won't waste time hunting for a logic bug in code that just has a typo.
 
+## Strict mode: reviewing assumptions {#sec:strict-mode}
+
+Some verification results depend on assumptions that Raven does not check. **Strict mode**
+reports three kinds, introduced in later chapters:
+
+- Explicit `free` declarations, whose contracts are taken as given.
+- Termination of recursive functions and lemmas without a `decreases` clause.
+- Physical atomicity of `atomic { ... }` blocks, whose bodies are assumed to execute as a
+  single machine step.
+
+Run **Raven: Verify File in Strict Mode** from the Command Palette to review these assumptions
+in the active file. This performs one strict check without changing your settings. To enable
+strict mode for automatic checks and **Raven: Verify File**, set the workspace or folder setting:
+
+```json
+{
+  "ravenServer.strict": true
+}
+```
+
+The setting defaults to `false`. Warnings appear in the editor and Problems panel. Verification
+can still succeed: **"Verification Successful"** turns yellow when strict warnings are present,
+with a tooltip explaining why. Verification errors still show a red failure indicator.
+
+Strict mode warns about assumptions; it does not establish them. A `decreases` clause asks Raven
+to check termination. A physical atomicity assumption needs justification against the target
+machine.
+
+This feature requires a recent extension and a Raven verifier supporting LSP protocol 3 or
+later. If the extension reports that strict diagnostics are unavailable, use **Raven: Update
+Verifier** to check for a compatible update. From the command line, use `raven --strict file.rav`.
+
 ## Debugging Corner: reading what the editor tells you
 
 There are two habits worth building now, because every later part's "Debugging Corner" relies

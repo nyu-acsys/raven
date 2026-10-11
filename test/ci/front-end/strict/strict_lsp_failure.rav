@@ -1,0 +1,6 @@
+free proc trusted()
+
+proc fails()
+{
+  assert false;
+}

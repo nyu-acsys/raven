@@ -20,6 +20,7 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:first-rav-file': "Your first .rav file",
   'sec:breaking-it-on-purpose': 'Breaking it on purpose',
   'sec:two-kinds-of-red': 'Two kinds of red',
+  'sec:strict-mode': 'Strict mode: reviewing assumptions',
 
   'sec:values-and-types': 'Values and types',
   'sec:func-vs-proc': 'func vs. proc',

@@ -147,3 +147,6 @@ Adding `decreases n` makes Raven check that justification. It rejects the recurs
 `This decreases clause's termination measure may not decrease on this recursive call`, because
 `n` is unchanged. Give every recursive `func` or `lemma` a checked measure, including those
 used only in ghost code.
+
+To locate unchecked recursive functions and lemmas, use {{ref sec:strict-mode}}. It warns about
+missing termination measures; supplying a `decreases` clause requests the actual check.

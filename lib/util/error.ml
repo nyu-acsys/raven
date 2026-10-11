@@ -11,6 +11,7 @@ type error_kind =
   | Unsupported
   | Verification
   | RelatedLoc
+  | Warning
 
 let error_kind_to_lsp_string = function
   | Generic -> "Generic"
@@ -21,6 +22,7 @@ let error_kind_to_lsp_string = function
   | Unsupported -> "Unsupported"
   | Verification -> "Verification"
   | RelatedLoc -> "RelatedLoc"
+  | Warning -> "Warning"
 
 let error_kind_to_string = function
   | Generic -> "Error"
@@ -31,8 +33,22 @@ let error_kind_to_string = function
   | Unsupported -> "Unsupported Error"
   | Verification -> "Verification Error"
   | RelatedLoc -> "Related Location"
+  | Warning -> "Warning"
 
 type t = error_kind * Loc.t * String.t
+
+let recorded_warnings : t list ref = ref []
+let collect_warnings = ref false
+
+let configure_warnings ~collect =
+  recorded_warnings := [];
+  collect_warnings := collect
+
+let warnings () = List.rev !recorded_warnings
+
+let warning loc msg =
+  if !collect_warnings then recorded_warnings := (Warning, loc, msg) :: !recorded_warnings
+  else Logs.warn (fun m -> m "%s%s" (Loc.to_string loc) msg)
 
 exception Msg of t list
 

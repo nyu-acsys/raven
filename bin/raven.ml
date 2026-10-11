@@ -85,13 +85,11 @@ let rec warn_free_usage (md : Ast.Module.t) =
   List.iter md.mod_def ~f:(function
     | Ast.Module.SymbolDef symbol -> (
         if Ast.Symbol.is_free symbol then
-          Logs.warn (fun m ->
-              m "%s%s"
-                (Loc.to_string (Ast.Symbol.to_loc symbol))
-                (Printf.sprintf
-                   !"%s %{Ident} is declared `free`; its contract will be assumed for \
-                     verification purposes, not checked"
-                   (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol)));
+          Error.warning (Ast.Symbol.to_loc symbol)
+            (Printf.sprintf
+               !"%s %{Ident} is declared `free`; its contract will be assumed for \
+                 verification purposes, not checked"
+               (Ast.Symbol.kind symbol) (Ast.Symbol.to_name symbol));
         match symbol with Ast.Module.ModDef mod_def -> warn_free_usage mod_def | _ -> ())
     | Ast.Module.Import _ -> ())
 
@@ -501,20 +499,7 @@ let manifest_json =
 
 let greeting = "Raven version " ^ Config.version
 
-(** The output of `--lsp-mode`: the errors, or with `--lsp-annotations` an object with the
-    errors and the annotations. *)
-let print_lsp_output config errs =
-  if config.lsp_annotations then
-    Stdlib.print_endline
-      (Yojson.Safe.to_string
-         (`Assoc
-            [
-              ("errors", `List (List.map errs ~f:Error.to_lsp_json));
-              ("annotations", Annotations.all_to_json ());
-            ]))
-  else Stdlib.print_endline (Error.errors_to_lsp_string errs)
-
-let print_errors config errs =
+let anchor_lsp_diagnostic err =
   (* Follow a location back through the `include` directives that pulled its file in,
      to a location in the file actually being checked. *)
   let rec anchor_loc loc =
@@ -545,8 +530,24 @@ let print_errors config errs =
               !"%{String} (in included file %{String}, line %{Int})"
               msg (Loc.display_file_name loc) (Loc.start_line loc) )
   in
+  anchor err
+
+(** The output of `--lsp-mode`: the errors, or with `--lsp-annotations` an object with the
+    errors and the annotations. *)
+let print_lsp_output config errs =
+  let errs = List.map (Error.warnings () @ errs) ~f:anchor_lsp_diagnostic in
+  if config.lsp_annotations then
+    Stdlib.print_endline
+      (Yojson.Safe.to_string
+         (`Assoc
+            [
+              ("errors", `List (List.map errs ~f:Error.to_lsp_json));
+              ("annotations", Annotations.all_to_json ());
+            ]))
+  else Stdlib.print_endline (Error.errors_to_lsp_string errs)
+
+let print_errors config errs =
   if config.lsp_mode then begin
-    let errs = List.map errs ~f:anchor in
     print_lsp_output config errs;
     Stdlib.exit 0
   end
@@ -643,8 +644,12 @@ let main () input_files no_greeting no_library typecheck_only lsp_mode lsp_annot
       match explicit_extension_mode with Some ext -> `Explicit ext | None -> `Auto
     in
     try
+      Error.configure_warnings ~collect:config.lsp_mode;
       let result = parse_and_check_all ~extension_mode config input_files in
-      if config.lsp_mode && config.lsp_annotations then print_lsp_output config [];
+      if
+        config.lsp_mode
+        && (config.lsp_annotations || not (List.is_empty (Error.warnings ())))
+      then print_lsp_output config [];
       `Ok result
     with
     | Unix.Unix_error (err, _, prog) ->
