@@ -627,6 +627,7 @@ contract:
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
+           spec_name = None;
            spec_error = [];
            spec_source = None; spec_trigs = [];
          }
@@ -638,6 +639,7 @@ contract:
     Stmt.{ spec_form = e;
            spec_atomic = m;
            spec_comment = None;
+           spec_name = None;
            spec_error = [];
            spec_source = None;
            spec_trigs = trigs;
@@ -765,17 +767,10 @@ stmt_wo_trailing_substmt:
 }
 
 (* assume / assert / inhale / exhale *)
-| sk = SPEC; e = expr; mk_spec_stmt = with_clause {
-  mk_spec_stmt sk e
+| goal = spec_goal; SEMICOLON {
+  let sk, spec = goal in
+  [Stmt.Basic (Stmt.Spec (sk, spec))]
 }
-(*| contract_mods ASSERT expr with_clause {
-  $4 (fst $1) $3 (mk_position (if $1 <> (false, false) then 1 else 2) 4) None
-}
-| contract_mods ASSERT STRINGVAL expr with_clause {
-  $5 (fst $1) $4 (mk_position (if $1 <> (false, false) then 1 else 2) 5) (Some $3)
-  (*Assert ($3, fst $1, mk_position (if $1 <> (false, false) then 1 else 2) 4)*)
-}
-*)
 (* return *)
 | RETURN; es = separated_list(COMMA, expr); SEMICOLON {
   let e = match es with
@@ -811,19 +806,15 @@ existential_witness_or_bind:
   (x, e)
 }
 
-with_clause:
-| SEMICOLON {
-  fun sk e ->
-    let open Stmt in
-    let spec = { spec_form = e;
-                 spec_atomic = false;
-                 spec_comment = None;
-                 spec_error = [];
-                 spec_source = None; spec_trigs = []; }
-    in
-    [Basic (Spec (sk, spec))]
+%public spec_goal:
+| sk = SPEC; e = expr { (sk, Stmt.mk_spec e) }
+| sk = SPEC; name = plain_ident; COLON; e = expr {
+  if sk <> Stmt.Assert then
+    Error.syntax_error (Loc.make $startpos(name) $endpos(name))
+      "A name is only allowed in assert statements";
+  (sk, Stmt.mk_spec ~name:name.Ident.ident_name e)
 }
-  
+
 %public assign_rhs:
 | NEW LPAREN fes = separated_list(COMMA, pair(qual_ident, option(preceded(COLON, expr)))) RPAREN {
   function
@@ -1040,6 +1031,7 @@ loop_contract:
     Stmt.{ spec_form = e;
            spec_atomic = false;
            spec_comment = None;
+           spec_name = None;
            spec_error = [];
            spec_source = None; spec_trigs = [];
          }

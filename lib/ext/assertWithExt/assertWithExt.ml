@@ -123,7 +123,8 @@ module AssertWithExt (Cont : Ext) = struct
                 })
         in
         let assert_stmt =
-          Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) ~spec_error:spec.spec_error e1
+          Stmt.mk_assert_expr ~loc:(Expr.to_loc e1) ?name:spec.spec_name
+            ~spec_error:spec.spec_error e1
         in
         let assume_false = Stmt.mk_assume_expr ~loc (Expr.mk_bool ~loc false) in
         let checks_block =

@@ -34,7 +34,7 @@ type command =
   | DefineFun of smt_ident * (smt_ident * sort) list * sort * term * location option
   | DefineFunRec of smt_ident * (smt_ident * sort) list * sort * term * location option
   (* | DefineFunsRec of (smt_ident * (smt_ident * sort) list * sort * term) list * location option *)
-  | Assert of term * location option
+  | Assert of term * smt_ident * location option
   | Push of int * location option
   | Pop of int * location option
   | CheckSat of location option
@@ -60,7 +60,12 @@ let mk_declare_fun ?loc id arg_srts res_srt = DeclareFun (id, arg_srts, res_srt,
 let mk_declare_const ?loc id srt = DeclareConst (id, srt, loc)
 let mk_define_sort ?loc id args srt = DefineSort (id, args, srt, loc)
 let mk_define_fun ?loc id args res_srt t = DefineFun (id, args, res_srt, t, loc)
-let mk_assert ?loc t = Assert (t, loc)
+
+let mk_assert ?loc ?name t =
+  let prefix = "$hyp$" ^ Option.value ~default:"" name in
+  let id = Ident.fresh (Option.value ~default:Loc.dummy loc) prefix in
+  Assert (t, QualIdent.from_ident id, loc)
+
 let mk_push ?loc n = Push (n, loc)
 let mk_pop ?loc n = Pop (n, loc)
 let mk_check_sat ?loc () = CheckSat loc
@@ -353,9 +358,8 @@ let pr_command ppf = function
         pr_var_decls vs pr_sort srt pr_term t
   (* | DefineFunsRec (defs, _) ->
       fprintf ppf "@[<12>(define-funs-rec@ @[<2>(%a)@])@]@," pr_list_pair_of_terms defs *)
-  | Assert (t, _) ->
-      fprintf ppf "@[<4>(assert@ (! %a :named %a))@]@," pr_term t Ident.pr
-        (Ident.fresh Loc.dummy "$hyp$")
+  | Assert (t, name, _) ->
+      fprintf ppf "@[<4>(assert@ (! %a :named %a))@]@," pr_term t pr_smt_ident name
   | Push (n, _) -> fprintf ppf "@[<6>(push@ %d)@]@," n
   | Pop (n, _) -> fprintf ppf "@[<5>(pop@ %d)@]@," n
   | CheckSat _ -> fprintf ppf "@[(check-sat)@]@."
@@ -363,18 +367,22 @@ let pr_command ppf = function
   | GetUnsatCore _ -> fprintf ppf "(get-unsat-core)@,"
   | Exit _ -> fprintf ppf "(exit)@,"
 
-let print_comment out_ch cmnt =
-  fprintf
-    (formatter_of_out_channel out_ch)
-    "@[<v>; %s @,@]@?"
+let pr_comment ppf cmnt =
+  fprintf ppf "@[<v>; %s @,@]"
     (String.substr_replace_all cmnt ~pattern:"\n" ~with_:"\n; ")
 
 let rec pr_commands ppf = function
   | [] -> ()
   | cmd :: cmds -> fprintf ppf "%a%a" pr_command cmd pr_commands cmds
 
-let print_command out_ch cmds =
-  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_command cmds
+let print_comment out_ch cmnt =
+  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_comment cmnt
+
+let print_command out_ch cmd =
+  fprintf (formatter_of_out_channel out_ch) "%a@?" pr_command cmd
 
 let print_commands out_ch cmds =
   fprintf (formatter_of_out_channel out_ch) "%a@?" pr_commands cmds
+
+let command_to_string cmd = asprintf "%a" pr_command cmd
+let comment_to_string cmnt = asprintf "%a" pr_comment cmnt

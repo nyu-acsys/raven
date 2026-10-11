@@ -1409,6 +1409,7 @@ module Stmt = struct
     spec_form : expr;
     spec_atomic : bool;
     spec_comment : string option;
+    spec_name : string option;
     spec_error : (qual_ident -> Loc.t -> Error.t) list;
     (* Set when this spec's [spec_form] is a formal->actual substitution instance of a
        known callable's declared clause -- i.e. a fold/unfold of a predicate body, or a
@@ -1426,7 +1427,15 @@ module Stmt = struct
   let mk_const_spec_error error = fun _ _ -> error
 
   let spec_error_msg spec call_id loc =
-    List.map ~f:(fun msg -> msg call_id loc) spec.spec_error
+    List.map spec.spec_error ~f:(fun error ->
+        let kind, loc, message = error call_id loc in
+        let message =
+          match spec.spec_name with
+          | Some name when Poly.(kind = Error.Verification) ->
+              "Assertion '" ^ name ^ "': " ^ message
+          | _ -> message
+        in
+        (kind, loc, message))
 
   (* [var_is_free] carries the full [free_status] rather than a bool because the two
      kinds of free must stay distinguishable here: `free val default: E` written by a
@@ -1669,6 +1678,9 @@ module Stmt = struct
         Ident.pr vdef.var_decl.var_name Type.pr vdef.var_decl.var_type
         (fun ppf -> function Some e -> fprintf ppf "@ =@ %a" Expr.pr e | None -> ())
         vdef.var_init
+    and pr_spec_name ppf = function
+      | Some name -> Stdlib.Format.fprintf ppf "%s: " name
+      | None -> ()
     and pr_spec_list stype ppf =
       let open Stdlib.Format in
       let pr_trgs ppf trgs =
@@ -1678,18 +1690,19 @@ module Stmt = struct
       function
       | [] -> ()
       | [ sf ] ->
-          fprintf ppf "%a%s%s %a%a"
+          fprintf ppf "%a%s%s %a%a%a"
             (fun ppf cmnt ->
               match sf.spec_comment with
               | Some c -> fprintf ppf "@\n /* %s */ @\n" c
               | None -> ())
             sf.spec_comment
             (if sf.spec_atomic then "atomic " else "")
-            stype pr_trgs sf.spec_trigs Expr.pr sf.spec_form
+            stype pr_spec_name sf.spec_name pr_trgs sf.spec_trigs Expr.pr sf.spec_form
       | sf :: sfs ->
-          fprintf ppf "@<0>%s%s %a%a@\n%a"
+          fprintf ppf "@<0>%s%s %a%a%a@\n%a"
             (if sf.spec_atomic then "atomic " else "")
-            stype pr_trgs sf.spec_trigs Expr.pr sf.spec_form (pr_spec_list stype) sfs
+            stype pr_spec_name sf.spec_name pr_trgs sf.spec_trigs Expr.pr sf.spec_form
+            (pr_spec_list stype) sfs
     and pr_basic_stmt ppf =
       let open Stdlib.Format in
       function
@@ -1842,12 +1855,13 @@ module Stmt = struct
   let mk_block_stmt ~loc ?(kind = Regular) stmts =
     { stmt_desc = mk_block ~kind stmts; stmt_loc = loc }
 
-  let mk_assume_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+  let mk_assume_expr ~loc ?name ?cmnt ?(spec_error = []) ?spec_source expr : t =
     let spec =
       {
         spec_form = expr;
         spec_atomic = false;
         spec_comment = cmnt;
+        spec_name = name;
         spec_error;
         spec_source;
         spec_trigs = [];
@@ -1865,12 +1879,13 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Assume, spec)); stmt_loc = loc }
 
-  let mk_inhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+  let mk_inhale_expr ~loc ?name ?cmnt ?(spec_error = []) ?spec_source expr : t =
     let spec =
       {
         spec_form = expr;
         spec_atomic = false;
         spec_comment = cmnt;
+        spec_name = name;
         spec_error;
         spec_source;
         spec_trigs = [];
@@ -1888,12 +1903,13 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Inhale, spec)); stmt_loc = loc }
 
-  let mk_exhale_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+  let mk_exhale_expr ~loc ?name ?cmnt ?(spec_error = []) ?spec_source expr : t =
     let spec =
       {
         spec_form = expr;
         spec_atomic = false;
         spec_comment = cmnt;
+        spec_name = name;
         spec_error;
         spec_source;
         spec_trigs = [];
@@ -1911,12 +1927,13 @@ module Stmt = struct
     let spec = { spec with spec_comment = cmnt } in
     { stmt_desc = Basic (Spec (Exhale, spec)); stmt_loc = loc }
 
-  let mk_assert_expr ~loc ?cmnt ?(spec_error = []) ?spec_source expr : t =
+  let mk_assert_expr ~loc ?name ?cmnt ?(spec_error = []) ?spec_source expr : t =
     let spec =
       {
         spec_form = expr;
         spec_atomic = false;
         spec_comment = cmnt;
+        spec_name = name;
         spec_error;
         spec_source;
         spec_trigs = [];
@@ -2002,11 +2019,12 @@ module Stmt = struct
 
   (** Auxiliary functions *)
 
-  let mk_spec ?(atomic = false) ?cmnt ?(spec_error = []) ?spec_source e =
+  let mk_spec ?(atomic = false) ?name ?cmnt ?(spec_error = []) ?spec_source e =
     {
       spec_form = e;
       spec_atomic = atomic;
       spec_comment = cmnt;
+      spec_name = name;
       spec_error;
       spec_source;
       spec_trigs = [];

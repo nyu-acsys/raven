@@ -1,0 +1,4 @@
+proc fail()
+{
+  assert bounds: false;
+}

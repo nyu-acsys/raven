@@ -99,11 +99,15 @@ let rec check_stmt curr_callable (stmt : Stmt.t) : unit t =
           in
 
           match spec_kind with
-          | Assume -> assume_expr spec.spec_form
+          | Assume -> assume_expr ?name:spec.spec_name spec.spec_form
           | Assert -> (
-              let* b = check_valid spec.spec_form in
+              let* b =
+                check_valid
+                  ?name:(Option.map spec.spec_name ~f:(fun name -> name ^ "$goal"))
+                  spec.spec_form
+              in
               match b with
-              | true -> assume_expr spec.spec_form
+              | true -> assume_expr ?name:spec.spec_name spec.spec_form
               (* Rewriter.return () *)
               | false ->
                   Error.fail_with

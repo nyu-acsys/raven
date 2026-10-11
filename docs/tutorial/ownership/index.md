@@ -112,6 +112,20 @@ that plain Hoare logic struggles with. Without a *resource-aware* connective, yo
 manually restate, for every call, everything the callee didn't change. Separating conjunction
 gives you this for free.
 
+When an assertion fails, an optional label can identify its purpose in the error:
+
+```raven
+assert bounds: before >= 0;
+assert unchanged: before == after with {
+  // Proof steps for the assertion go here.
+}
+assert owns_cell: own(c2.count, v2);
+```
+
+The label is just diagnostic context; it does not declare a variable or affect verification.
+Labels are allowed on ordinary assertions, assertions with a proof block, and resource
+assertions.
+
 ## Fractional permissions {#sec:fractional-permissions}
 
 ```raven

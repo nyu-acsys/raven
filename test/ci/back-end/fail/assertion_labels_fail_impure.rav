@@ -1,0 +1,6 @@
+field f: Int
+
+proc fail(c: Ref)
+{
+  assert owns_cell: own(c.f, 0);
+}

@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Optional assertion labels, e.g. `assert bounds: i < n`, in diagnostics and SMT logs.
 - Structured strict-mode warnings in `--lsp-mode`.
 - Function and operator overloading by argument type, including infix, indexing, slicing and update notation.
 - User-defined enumeration literals with empty/singleton constructors and right-associated `++`. Library literals for sequences `[|...|]`, lists `<|...|>` and finite sets `{|...|}`, with contextual typing for nested empty literals.
@@ -42,6 +43,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Keep SMT assertion names identical in solver input and logs; make command printing side-effect free.
 - Prevent SMT identifier collisions between apostrophes and underscores.
 - Infer instances of generic-functor values such as `Seq.empty` from the expected type.
 - Accept explicitly supplied implicit arguments in generic predicates and instantiate at `fold`/`unfold`.

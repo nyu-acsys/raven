@@ -19,7 +19,7 @@ module SmtSession = struct
 
   type session = {
     log_file_name : string;
-    log_out_chan : Stdio.Out_channel.t;
+    log_out_chan : Stdio.Out_channel.t option;
     mutable assert_count : int;
     mutable response_count : int;
     (* mutable sat_checked: (solver_state option * response) option; *)
@@ -57,17 +57,22 @@ module SmtSession = struct
     {
       log_file_name;
       log_out_chan =
-        (if logging then Stdio.Out_channel.create log_file_name
-         else Util.Channel.null_channel ());
+        (if logging then Some (Stdio.Out_channel.create log_file_name) else None);
       assert_count = 0;
       response_count = 0;
       stack_height = 0;
       solver_state;
     }
 
-  let write session cmd =
-    SmtLibAST.print_command session.log_out_chan cmd;
-    SmtLibAST.print_command session.solver_state.out_chan cmd
+  let write_text session text =
+    let output out_chan =
+      Stdio.Out_channel.output_string out_chan text;
+      Stdio.Out_channel.flush out_chan
+    in
+    Option.iter session.log_out_chan ~f:output;
+    output session.solver_state.out_chan
+
+  let write session cmd = write_text session (SmtLibAST.command_to_string cmd)
 
   let stop_solver session =
     write session @@ mk_exit ();
@@ -78,7 +83,8 @@ module SmtSession = struct
       (try Unix.kill state.pid Sys.sigkill with Unix.Unix_error _ -> ())
         if solver.solver_state.pid <> 0 then ignore (Unix.waitpid [] state.pid))*)
     ignore
-    @@ Unix.close_process (session.solver_state.in_chan, session.solver_state.out_chan)
+    @@ Unix.close_process (session.solver_state.in_chan, session.solver_state.out_chan);
+    Option.iter session.log_out_chan ~f:Stdio.Out_channel.close
 
   (* let read_from_chan session chan =
      let lexbuf = Lexing.from_channel chan in
@@ -93,9 +99,7 @@ module SmtSession = struct
        in
        ProgError.syntax_error pos (Some msg) *)
 
-  let write_comment session cmnt =
-    SmtLibAST.print_comment session.log_out_chan cmnt;
-    SmtLibAST.print_comment session.solver_state.out_chan cmnt
+  let write_comment session cmnt = write_text session (SmtLibAST.comment_to_string cmnt)
 
   let read session =
     let in_descr = descr_of_in_channel session.solver_state.in_chan in
@@ -171,11 +175,11 @@ module SmtSession = struct
     let new_session = { session with stack_height = session.stack_height - 1 } in
     new_session
 
-  let assert_expr session expr = write session (mk_assert expr)
+  let assert_expr ?name session expr = write session (mk_assert ?name expr)
 
-  let check_valid session expr =
+  let check_valid ?name session expr =
     let session = push session in
-    assert_expr session (Ast.Expr.mk_not expr);
+    assert_expr ?name session (Ast.Expr.mk_not expr);
 
     let res = is_unsat session in
     let session = pop session in
@@ -249,7 +253,7 @@ let is_unsat : bool t =
   let+ smt_env = get_state in
   SmtSession.is_unsat smt_env.session
 
-let assume_expr (expr : term) : unit t =
+let assume_expr ?name (expr : term) : unit t =
   (* Externally facing command to assume expressions. Takes path_condns into account *)
   let open State.Syntax in
   let+ smt_env = get_state in
@@ -260,10 +264,10 @@ let assume_expr (expr : term) : unit t =
     | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
   in
 
-  let cmd = mk_assert (Ast.Expr.drop_trivially_true expr) in
+  let cmd = mk_assert ?name (Ast.Expr.drop_trivially_true expr) in
   SmtSession.write smt_env.session cmd
 
-let check_valid (expr : term) : bool t =
+let check_valid ?name (expr : term) : bool t =
   let open State.Syntax in
   let* smt_env = get_state in
   Logs.debug (fun m -> m "Checking validity of %a" Ast.Expr.pr_verbose expr);
@@ -274,7 +278,7 @@ let check_valid (expr : term) : bool t =
     | _ -> Ast.Expr.mk_impl (Ast.Expr.mk_and smt_env.path_conditions) expr
   in
 
-  let res, session = SmtSession.check_valid smt_env.session expr in
+  let res, session = SmtSession.check_valid ?name smt_env.session expr in
 
   let+ _ = set_state { smt_env with session } in
 

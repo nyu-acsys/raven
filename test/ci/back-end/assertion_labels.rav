@@ -1,0 +1,14 @@
+field f: Int
+
+proc labeled_assertions(c: Ref, d: Ref, implicit ghost v: Int, implicit ghost w: Int)
+  requires own(c.f, v) && own(d.f, w)
+{
+  var bounds := 1;
+  assert bounds: bounds >= 0;
+  assert bounds: bounds == 1;
+  assert bounds': bounds == 1;
+  assert sorted: bounds <= 1 with {
+  }
+  assert owns_cell: own(c.f, v);
+  assert owns_cell: own(c.f, v) && own(d.f, w);
+}

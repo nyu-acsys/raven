@@ -5629,6 +5629,14 @@ let flatten_resource_blocks stmts =
   in
   flatten [ stmts ] []
 
+let rec inherit_spec_name name stmt =
+  let open Rewriter.Syntax in
+  let+ stmt = Rewriter.Stmt.descend stmt ~f:(inherit_spec_name name) in
+  match stmt.stmt_desc with
+  | Basic (Spec (kind, spec)) when Option.is_none spec.spec_name ->
+      { stmt with stmt_desc = Basic (Spec (kind, { spec with spec_name = Some name })) }
+  | _ -> stmt
+
 let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
   let open Rewriter.Syntax in
   match s.stmt_desc with
@@ -5644,99 +5652,106 @@ let rec rewrite_make_heaps_explicit (s : Stmt.t) : Stmt.t Rewriter.t =
       | VarDef _ | Use _ | New _ | Assign _ | Bind _ | Havoc _ | Return _ | AUAction _
       | Fpu _ | Call _ | BasicStmtExt _ ->
           Rewriter.return s
-      | Spec (spec_kind, spec) -> (
-          match spec_kind with
-          | Inhale ->
-              let expr = spec.spec_form in
+      | Spec (spec_kind, spec) ->
+          let* translated =
+            match spec_kind with
+            | Inhale ->
+                let expr = spec.spec_form in
 
-              let* stmt =
-                TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment
-                  ~spec_error:spec.spec_error ?spec_source:spec.spec_source
-                  ~loc:s.stmt_loc expr
-              in
-              Rewriter.return stmt
-          | Exhale ->
-              let expr = spec.spec_form in
-
-              let* stmt =
-                TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment
-                  ~spec_error:spec.spec_error ?spec_source:spec.spec_source
-                  ~loc:s.stmt_loc expr
-              in
-              Rewriter.return stmt
-          | Assume ->
-              let expr = spec.spec_form in
-
-              let* stmt =
-                TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment
-                  ~spec_error:spec.spec_error ~loc:s.stmt_loc expr
-              in
-              Rewriter.return stmt
-          | Assert ->
-              let* is_e_pure = ProgUtils.is_expr_pure spec.spec_form in
-              if is_e_pure then
-                (* let assume_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc spec.spec_form in *)
-                (* Rewriter.return (Stmt.mk_block_stmt ~loc:s.stmt_loc [s; assume_stmt]) *)
-                (* The corresponding assume stmt is being added in backend/checker.ml *)
-                Rewriter.return s
-              else
-                let loc = Stmt.to_loc s in
-                let nondet_var =
-                  Type.
-                    {
-                      var_name = Ident.fresh loc "$nondet";
-                      var_loc = loc;
-                      var_type = Type.bool;
-                      var_const = true;
-                      var_ghost = false;
-                      var_implicit = false;
-                    }
+                let* stmt =
+                  TrnslInhale.trnsl_inhale_expr ?cmnt:spec.spec_comment
+                    ~spec_error:spec.spec_error ?spec_source:spec.spec_source
+                    ~loc:s.stmt_loc expr
                 in
+                Rewriter.return stmt
+            | Exhale ->
+                let expr = spec.spec_form in
 
-                let (nondet_var_def : Module.symbol) =
-                  VarDef { var_decl = nondet_var; var_init = None; var_is_free = NotFree }
+                let* stmt =
+                  TrnslExhale.trnsl_exhale_expr ?cmnt:spec.spec_comment
+                    ~spec_error:spec.spec_error ?spec_source:spec.spec_source
+                    ~loc:s.stmt_loc expr
                 in
+                Rewriter.return stmt
+            | Assume ->
+                let expr = spec.spec_form in
 
-                let* _ = Rewriter.introduce_symbol nondet_var_def in
-
-                let* exhale_stmt =
-                  TrnslExhale.trnsl_exhale_expr
-                    ?cmnt:
-                      (Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment))
-                    ~spec_error:spec.spec_error ~loc spec.spec_form
-                in
-                let assume_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_bool false) in
-
-                let cond_stmt =
-                  Stmt.Cond
-                    {
-                      cond_test = Some (Expr.from_var_decl nondet_var);
-                      cond_then =
-                        Stmt.mk_block_stmt ~loc [ exhale_stmt; assume_false_stmt ];
-                      cond_else = Stmt.mk_block_stmt ~loc [];
-                      cond_if_assumes_false = true;
-                    }
-                in
-
-                let nondet_false_stmt =
-                  Stmt.mk_assume_expr ~loc (Expr.mk_not (Expr.from_var_decl nondet_var))
-                in
-
-                let* assume_stmt =
+                let* stmt =
                   TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment
-                    ~spec_error:spec.spec_error ~loc:s.stmt_loc spec.spec_form
+                    ~spec_error:spec.spec_error ~loc:s.stmt_loc expr
                 in
+                Rewriter.return stmt
+            | Assert ->
+                let* is_e_pure = ProgUtils.is_expr_pure spec.spec_form in
+                if is_e_pure then
+                  (* let assume_stmt = Stmt.mk_assume_expr ~loc:s.stmt_loc spec.spec_form in *)
+                  (* Rewriter.return (Stmt.mk_block_stmt ~loc:s.stmt_loc [s; assume_stmt]) *)
+                  (* The corresponding assume stmt is being added in backend/checker.ml *)
+                  Rewriter.return s
+                else
+                  let loc = Stmt.to_loc s in
+                  let nondet_var =
+                    Type.
+                      {
+                        var_name = Ident.fresh loc "$nondet";
+                        var_loc = loc;
+                        var_type = Type.bool;
+                        var_const = true;
+                        var_ghost = false;
+                        var_implicit = false;
+                      }
+                  in
 
-                let new_stmt =
-                  Stmt.mk_block_stmt ~loc
-                    [
-                      Stmt.{ stmt_desc = cond_stmt; stmt_loc = loc };
-                      nondet_false_stmt;
-                      assume_stmt;
-                    ]
-                in
+                  let (nondet_var_def : Module.symbol) =
+                    VarDef
+                      { var_decl = nondet_var; var_init = None; var_is_free = NotFree }
+                  in
 
-                Rewriter.return new_stmt)
+                  let* _ = Rewriter.introduce_symbol nondet_var_def in
+
+                  let* exhale_stmt =
+                    TrnslExhale.trnsl_exhale_expr
+                      ?cmnt:
+                        (Some (Option.value ~default:(Stmt.to_string s) spec.spec_comment))
+                      ~spec_error:spec.spec_error ~loc spec.spec_form
+                  in
+                  let assume_false_stmt = Stmt.mk_assume_expr ~loc (Expr.mk_bool false) in
+
+                  let cond_stmt =
+                    Stmt.Cond
+                      {
+                        cond_test = Some (Expr.from_var_decl nondet_var);
+                        cond_then =
+                          Stmt.mk_block_stmt ~loc [ exhale_stmt; assume_false_stmt ];
+                        cond_else = Stmt.mk_block_stmt ~loc [];
+                        cond_if_assumes_false = true;
+                      }
+                  in
+
+                  let nondet_false_stmt =
+                    Stmt.mk_assume_expr ~loc (Expr.mk_not (Expr.from_var_decl nondet_var))
+                  in
+
+                  let* assume_stmt =
+                    TrnslInhale.trnsl_assume_expr ?cmnt:spec.spec_comment
+                      ~spec_error:spec.spec_error ~loc:s.stmt_loc spec.spec_form
+                  in
+
+                  let new_stmt =
+                    Stmt.mk_block_stmt ~loc
+                      [
+                        Stmt.{ stmt_desc = cond_stmt; stmt_loc = loc };
+                        nondet_false_stmt;
+                        assume_stmt;
+                      ]
+                  in
+
+                  Rewriter.return new_stmt
+          in
+          begin match spec.spec_name with
+          | Some name -> inherit_spec_name name translated
+          | None -> Rewriter.return translated
+          end
       | FieldRead fr_desc ->
           let* lhs_var = Rewriter.find_and_reify fr_desc.field_read_lhs in
           let lhs_var =

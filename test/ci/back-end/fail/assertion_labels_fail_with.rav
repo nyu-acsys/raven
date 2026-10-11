@@ -1,0 +1,5 @@
+proc fail()
+{
+  assert sorted: false with {
+  }
+}
