@@ -1,2 +1,2 @@
-  $ dune exec -- raven --shh ./union-find.rav
+  $ dune exec -- raven --shh --strict ./union-find.rav
   Verification successful.

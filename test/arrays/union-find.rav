@@ -16,6 +16,36 @@ module UnionFind[PA: IntPArray] : Library.Type {
     case uf_rep(par: Map[Int, Int], rnk: Map[Int, Int], len: Int)
   }
 
+  func indices(n: Int) returns (res: FinSet[Int])
+    decreases n
+  {
+    n <= 0 ? {||} : indices(n - 1) ++ {|n - 1|}
+  }
+
+  lemma indices_bounds(n: Int)
+    ensures indices(n) == {| i: Int :: 0 <= i < n |}
+    decreases n
+  {
+    if (n > 0) { indices_bounds(n - 1); }
+  }
+
+  // Following a higher-ranked parent removes at least the current index.
+  func remaining(r: R, x: Int) returns (res: FinSet[Int]) {
+    0 <= x < r.len ?
+      indices(r.len) ** {| i: Int :: r.rnk[x] <= r.rnk[i] |} : {||}
+  }
+
+  auto lemma remaining_decreases(r: R, x: Int, y: Int)
+    requires 0 <= x < r.len && r.rnk[x] < r.rnk[y]
+    ensures {remaining(r, x), remaining(r, y)}
+      remaining(r, y) subseteq remaining(r, x) && remaining(r, y) != remaining(r, x)
+  {
+    indices_bounds(r.len);
+    assert forall i: Int :: {i in remaining(r, y)}
+      i in remaining(r, y) ==> i in remaining(r, x);
+    assert x in remaining(r, x) && !(x in remaining(r, y));
+  }
+
   func valid_rep(r: R) returns (res: Bool) {
     0 <= r.len
     && (forall x: Int :: {r.par[x]} 0 <= x < r.len ==> 0 <= r.par[x] < r.len)
@@ -31,6 +61,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
   }
 
   func repr(r: R, x: Int) returns (res: Int) 
+    decreases remaining(r, x)
   {
     0 <= x < r.len ?
       (r.par[x] == x ? x : (r.rnk[x] < r.rnk[r.par[x]] ? repr(r, r.par[x]) : -1)) : -1
@@ -39,6 +70,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
   lemma repr_contr_ind(r: R, x: Int)
     requires valid_rep(r)
     ensures 0 <= x < r.len ==> 0 <= repr(r, x) < r.len && (x == repr(r, x) || r.rnk[x] < r.rnk[repr(r, x)]) 
+    decreases remaining(r, x)
   {
     if (0 <= x < r.len && r.par[x] != x) {
       repr_contr_ind(r, r.par[x]);
@@ -55,8 +87,9 @@ module UnionFind[PA: IntPArray] : Library.Type {
 
   lemma repr_idemp_ind(r: R, x: Int)
     ensures repr(r, repr(r, x)) == repr(r, x)
+    decreases remaining(r, x)
   {
-    if (0 <= x < r.len) {
+    if (0 <= x < r.len && r.par[x] != x && r.rnk[x] < r.rnk[r.par[x]]) {
       repr_idemp_ind(r, r.par[x]);
     }
   }
@@ -72,6 +105,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
   lemma repr_compr_ind(r: R, x: Int, y: Int)
     requires valid_rep(r) && 0 <= x < r.len 
     ensures 0 <= y < r.len  ==> repr(r, y) == repr(uf_rep(r.par[x := repr(r, x)], r.rnk, r.len), y)
+    decreases remaining(r, y)
   {
     if (0 <= y < r.len && r.par[y] != y) {
       repr_compr_ind(r, x, r.par[y]);
@@ -106,6 +140,7 @@ module UnionFind[PA: IntPArray] : Library.Type {
       repr(r, y) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)
     ensures 0 <= y < r.len && repr(r, y) == repr(r, x1) ==>
       repr(r, x2) == repr(uf_rep(r.par[x1 := repr(r, x2)], r.rnk[repr(r, x2) := rnk], r.len), y)
+    decreases remaining(r, y)
   {
     if (0 <= y < r.len && r.par[y] != y) {
       repr_union_ind(r, x1, x2, rnk, r.par[y]);
