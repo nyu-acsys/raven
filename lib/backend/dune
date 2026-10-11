@@ -1,3 +1,5 @@
+(include_subdirs unqualified)
+
 (library
  (name backend)
  (libraries base ast frontend util unix str)

@@ -1,4 +1,4 @@
-open Smt_solver
+open SmtSolver
 open Ast
 open Base
 

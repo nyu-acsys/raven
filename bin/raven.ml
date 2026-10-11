@@ -198,10 +198,10 @@ let parse_and_check_all ~extension_mode config file_names =
   in
 
   let smt_env =
-    Backend.Smt_solver.init ~logging:external_logging config.smt_diagnostics
+    Backend.SmtSolver.init ~logging:external_logging config.smt_diagnostics
       config.smt_timeout
   in
-  Stdlib.Fun.protect ~finally:(fun () -> Backend.Smt_solver.stop smt_env) @@ fun () ->
+  Stdlib.Fun.protect ~finally:(fun () -> Backend.SmtSolver.stop smt_env) @@ fun () ->
   let debug_out_chan file_name =
     if external_logging then Stdio.Out_channel.create file_name
     else Util.Channel.null_channel ()
@@ -355,8 +355,8 @@ let parse_and_check_all ~extension_mode config file_names =
         needs (see Backend.TupleArities), so this is the earliest point at which we
         can declare them. *)
         let arities = Backend.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
-        let smt_env = Backend.Smt_solver.declare_tuple_sorts smt_env arities in
-        let (_ : Backend.Smt_solver.smt_env) = backend_check_cu tbl smt_env processed in
+        let smt_env = Backend.SmtSolver.declare_tuple_sorts smt_env arities in
+        let (_ : Backend.SmtSolver.smt_env) = backend_check_cu tbl smt_env processed in
         ());
 
     Logs.app (fun m -> m "Verification successful.")
