@@ -426,8 +426,18 @@ let rewrite_body ~same_scc ~measure_of call_decl spec body =
                 end
         in
         Rewriter.return (Stmt.mk_block_stmt ~loc (checks @ [ stmt ]), [])
-    | Basic (Use _ | Spec ((Inhale | Exhale), _) | AUAction _ | BasicStmtExt _)
-    | StmtExt _ | Loop _ ->
+    | StmtExt tag ->
+        let* ext_hooks = Rewriter.current_ext_hooks in
+        let+ tag =
+          ext_hooks.stmt_ext_rewrite ~f:Rewriter.return
+            ~c:(fun nested ->
+              let+ nested, _ = rewrite occurrences nested in
+              nested)
+            tag
+        in
+        ({ stmt with stmt_desc = StmtExt tag }, [])
+    | Basic (Use _ | Spec ((Inhale | Exhale), _) | AUAction _ | BasicStmtExt _) | Loop _
+      ->
         Rewriter.return (stmt, [])
     | Basic _ -> Rewriter.return (stmt, occurrences)
   in

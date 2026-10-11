@@ -680,8 +680,8 @@ type scc_map = {
     merge it with anything else, so this subsumes Phase 1's plain self-recursion check as
     the size-1 case, with no special-casing needed. *)
 
-let build_scc_map (tbl : SymbolTbl.t) (m : Module.t) : scc_map =
-  let g = CallGraph.build tbl m in
+let build_scc_map ~ext_hooks (tbl : SymbolTbl.t) (m : Module.t) : scc_map =
+  let g = CallGraph.termination_calls ~ext_hooks tbl m in
   let sccs = CallGraph.Graph.topsort g in
   let scc_id_of =
     List.concat_mapi sccs ~f:(fun i members -> List.map members ~f:(fun v -> (v, i)))
@@ -710,18 +710,16 @@ let same_scc (sm : scc_map) (a : QualIdent.t) (b : QualIdent.t) : bool =
     handle) and, under `--strict`, for its missing-`decreases` diagnostic (self- or
     mutually-recursive alike -- see [rewrite_loops], which gives a loop's synthesized
     tail-recursive callable the same kind as whatever callable the loop came from, so a
-    loop is just another self-recursive vertex here, no separate handling needed). A
-    component can contain non-callable vertices too (e.g. two mutually-recursive `data`
-    type definitions -- [CallGraph.build] graphs every top-level symbol, not just
-    callables), and members rooted in the standard library (core or extension-supplied)
-    are dropped before resolution -- diagnosing library internals isn't this hook's job,
-    and library declarations don't have a real path on disk for [Loc.context] to print an
-    excerpt from. Each lookup uses [SymbolTbl.goto] against the plain (non-monadic) [tbl]
-    snapshot the SCC map was built from, then a throwaway, non-state-updating
-    [Rewriter.eval] -- exactly how [Dependencies.analyze]'s [inst_dependencies]
-    (lib/backend/dependencies.ml) already resolves arbitrary graph-vertex idents found
-    outside the scope that's "current" in the ambient traversal, since [Rewriter.find]
-    resolves names relative to whatever scope is current, not as absolute paths. *)
+    loop is just another self-recursive vertex here, no separate handling needed). Members
+    rooted in the standard library (core or extension-supplied) are dropped before
+    resolution -- diagnosing library internals isn't this hook's job, and library
+    declarations don't have a real path on disk for [Loc.context] to print an excerpt
+    from. Each lookup uses [SymbolTbl.goto] against the plain (non-monadic) [tbl] snapshot
+    the SCC map was built from, then a throwaway, non-state-updating [Rewriter.eval] --
+    exactly how [Dependencies.analyze]'s [inst_dependencies] (lib/backend/dependencies.ml)
+    already resolves arbitrary graph-vertex idents found outside the scope that's
+    "current" in the ambient traversal, since [Rewriter.find] resolves names relative to
+    whatever scope is current, not as absolute paths. *)
 let check_contract_ext_group_compatibility (tbl : SymbolTbl.t) (sm : scc_map) :
     unit Rewriter.t =
   let open Rewriter.Syntax in
@@ -820,7 +818,10 @@ let rec rewrite_contract_ext_call_args (sm : scc_map) (stmt : Stmt.t) : Stmt.t R
                    stmt_desc = Basic (Call { call_desc with call_args = args });
                  };
                ])
-  | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_contract_ext_call_args sm)
+  | _ ->
+      Rewriter.Stmt.rewrite_expressions_top ~f:Rewriter.return
+        ~c:(rewrite_contract_ext_call_args sm)
+        stmt
 
 (** For every call in a [Proc]/[Lemma] body whose *callee* has a non-empty
     [call_decl_contract_ext], delegates to [ext_hooks.rewrite_contract_ext_call] to
@@ -866,7 +867,10 @@ let rec rewrite_contract_ext_calls (sm : scc_map) (stmt : Stmt.t) : Stmt.t Rewri
         match extra_stmts with
         | [] -> stmt
         | _ -> Stmt.mk_block_stmt ~loc (extra_stmts @ [ stmt ]))
-  | _ -> Rewriter.Stmt.descend stmt ~f:(rewrite_contract_ext_calls sm)
+  | _ ->
+      Rewriter.Stmt.rewrite_expressions_top ~f:Rewriter.return
+        ~c:(rewrite_contract_ext_calls sm)
+        stmt
 
 let rewrite_atomic_callable_token (c : Callable.t) : Callable.t Rewriter.t =
   let open Rewriter.Syntax in
@@ -1139,16 +1143,26 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   let* m = Rewriter.Module.rewrite_stmts ~f:rewrite_loops m in
 
   Logs.debug (fun m1 ->
+      m1 "Elaboration.elaborate_phase_1: Starting rewrite_inline_preds_expr on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m =
+    Rewriter.Module.rewrite_expressions
+      ~f:(rewrite_inline_preds_expr (Set.empty (module QualIdent)))
+      m
+  in
+
+  Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Computing call-graph SCCs on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
-  (* Computed after loop rewrites, so synthesized tail-recursive
-     loop-procs are already graph vertices; threaded explicitly (not via
+  (* Computed after loop rewrites and inline-predicate expansion, so loop
+     recursion and calls through predicate macros are visible; threaded explicitly (not via
      [Rewriter]'s monadic state) all the way to [rewrite_add_func_contract_lemmas], since
      that runs as a separate [Rewriter.eval] call in [elaborate_module] and monadic
      state does not survive across those. *)
-  let* tbl_after_loops = Rewriter.get_table in
-  let scc_map = build_scc_map tbl_after_loops m in
-  let* () = check_contract_ext_group_compatibility tbl_after_loops scc_map in
+  let* tbl_for_calls = Rewriter.get_table in
+  let* ext_hooks = Rewriter.current_ext_hooks in
+  let scc_map = build_scc_map ~ext_hooks tbl_for_calls m in
+  let* () = check_contract_ext_group_compatibility tbl_for_calls scc_map in
 
   let* m = Rewriter.Module.rewrite_stmts ~f:(rewrite_contract_ext_call_args scc_map) m in
   let* ext_hooks = Rewriter.current_ext_hooks in
@@ -1163,15 +1177,6 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_contract_ext_calls on module %a"
         Ident.pr m.mod_decl.mod_decl_name);
   let* m = Rewriter.Module.rewrite_stmts ~f:(rewrite_contract_ext_calls scc_map) m in
-
-  Logs.debug (fun m1 ->
-      m1 "Elaboration.elaborate_phase_1: Starting rewrite_inline_preds_expr on module %a"
-        Ident.pr m.mod_decl.mod_decl_name);
-  let* m =
-    Rewriter.Module.rewrite_expressions
-      ~f:(rewrite_inline_preds_expr (Set.empty (module QualIdent)))
-      m
-  in
 
   Rewriter.return (m, scc_map)
 

@@ -1,0 +1,8 @@
+lemma unchanged(n: Int)
+  requires n >= 0
+  decreases n
+{
+  assert true with {
+    unchanged(n);
+  }
+}

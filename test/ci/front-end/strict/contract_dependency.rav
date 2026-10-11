@@ -1,0 +1,10 @@
+func zero() returns (res: Int)
+  ensures res == wrapper()
+{
+  0
+}
+
+func wrapper() returns (res: Int)
+{
+  zero()
+}

@@ -1,0 +1,9 @@
+lemma recurse(n: Int)
+  requires n >= 0
+{
+  assert true with {
+    if (n > 0) {
+      recurse(n - 1);
+    }
+  }
+}

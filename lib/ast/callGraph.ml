@@ -1,9 +1,4 @@
-(** Builds a dependency/call graph over a module's top-level symbols. Shared,
-    backend-agnostic core of what [Dependencies.root_dependencies] (lib/backend/) does,
-    minus that module's own auto-lemma-edge bookkeeping (a module-instantiation/backend
-    concern) -- lifted here so front-end rewrite passes (e.g. the `decreases` extension's
-    strongly-connected-component analysis) can reuse it without depending on lib/backend.
-*)
+(** Symbol dependencies for backend ordering and body calls for termination analysis. *)
 
 open Base
 open AstDef
@@ -52,6 +47,104 @@ let build (tbl : SymbolTbl.t) (mdef : Module.t) : Graph.t =
   in
   let _, g = Rewriter.eval ~update:false (analyze_module Graph.empty mdef) tbl in
   g
+
+(** Calls made by callable bodies, excluding references in types and contracts and
+    atomic-update predicate names. Used for termination analysis. *)
+let termination_calls ~ext_hooks (tbl : SymbolTbl.t) (mdef : Module.t) : Graph.t =
+  let open Rewriter.Syntax in
+  let rec expr_calls bound calls = function
+    | Expr.App (constr, args, _) ->
+        let calls =
+          match constr with
+          | Var name when not (Set.mem bound name) -> Set.add calls name
+          | _ -> calls
+        in
+        List.fold args ~init:calls ~f:(expr_calls bound)
+    | Expr.Binder (_, vars, _, body, _) ->
+        let bound =
+          List.fold vars ~init:bound ~f:(fun bound var ->
+              Set.add bound (QualIdent.from_ident var.Type.var_name))
+        in
+        expr_calls bound calls body
+  in
+  let analyze_callable callable =
+    let decl = callable.Callable.call_decl in
+    let bound =
+      decl.call_decl_formals @ decl.call_decl_returns @ decl.call_decl_locals
+      |> List.map ~f:(fun var -> QualIdent.from_ident var.Type.var_name)
+      |> Set.of_list (module QualIdent)
+    in
+    let calls = ref (Set.empty (module QualIdent)) in
+    let scan_expr expr =
+      calls := expr_calls bound !calls expr;
+      Rewriter.return expr
+    in
+    let rec scan_stmt stmt =
+      let* () =
+        match stmt.Stmt.stmt_desc with
+        | Basic (Call call) ->
+            calls := Set.add !calls call.call_name;
+            Rewriter.return ()
+        | Basic (Fpu fpu) ->
+            let+ _ = scan_expr fpu.fpu_ref in
+            ()
+        | Basic (AUAction action) ->
+            let args =
+              match action.auaction_kind with
+              | BindAU _ -> []
+              | OpenAU action -> action.token :: action.proc_args
+              | AbortAU action -> action.token :: action.proc_args
+              | CommitAU action -> (action.token :: action.proc_args) @ action.proc_rets
+            in
+            Rewriter.List.iter args ~f:(fun expr ->
+                let+ _ = scan_expr expr in
+                ())
+        | _ -> Rewriter.return ()
+      in
+      Rewriter.Stmt.rewrite_expressions_top ~f:scan_expr ~c:scan_stmt stmt
+    in
+    let* () =
+      match (decl.call_decl_kind, callable.call_def) with
+      | Func, FuncDef { func_body = Some body } ->
+          let+ _ = scan_expr body in
+          ()
+      | (Proc | Lemma), ProcDef { proc_body = Some body } ->
+          let+ _ = scan_stmt body in
+          ()
+      | _ -> Rewriter.return ()
+    in
+    let+ callees =
+      Rewriter.List.map (Set.to_list !calls) ~f:(fun name ->
+          let* name, symbol = Rewriter.resolve_and_find name in
+          let+ symbol = Rewriter.Symbol.reify symbol in
+          match symbol with
+          | Module.CallDef { call_decl = { call_decl_kind = Func | Proc | Lemma; _ }; _ }
+            ->
+              Some name
+          | _ -> None)
+    in
+    List.filter_opt callees |> Set.of_list (module QualIdent)
+  in
+  let rec analyze_module graph mdef =
+    let* _ = Rewriter.enter_module mdef in
+    let* graph =
+      Rewriter.List.fold_left mdef.Module.mod_def ~init:graph ~f:(fun graph -> function
+        | Module.SymbolDef (ModDef nested) -> analyze_module graph nested
+        | Module.SymbolDef (CallDef callable) ->
+            let* _ = Rewriter.enter_callable callable in
+            let* name = Rewriter.current_scope_id in
+            let* callees = analyze_callable callable in
+            let+ _ = Rewriter.exit_callable callable in
+            Graph.add_edges graph name callees
+        | _ -> Rewriter.return graph)
+    in
+    let+ _ = Rewriter.exit_module mdef in
+    graph
+  in
+  let _, graph =
+    Rewriter.eval ~ext_hooks ~update:false (analyze_module Graph.empty mdef) tbl
+  in
+  graph
 
 (** Edges from each lemma in [mdef] to the callables its body calls. Must run before calls
     are elaborated into their callees' contracts, which erases these edges from the AST

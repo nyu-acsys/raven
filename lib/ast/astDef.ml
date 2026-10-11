@@ -2088,8 +2088,8 @@ module Stmt = struct
               (* The callee itself is a symbol this statement depends on -- without this,
              a Proc/Lemma's call graph edges (unlike a Func's, captured via ordinary
              expression application in Expr.symbols) would be entirely invisible to
-             anything walking Callable.symbols, e.g. CallGraph.build's
-             strongly-connected-component analysis (see lib/ast/callGraph.ml). *)
+             anything walking Callable.symbols, e.g. backend dependency ordering
+             (see lib/ast/callGraph.ml). *)
               let accesses = Set.add accesses call_desc.call_name in
               let accesses = scan_expr_list accesses call_desc.call_args in
               let accesses =

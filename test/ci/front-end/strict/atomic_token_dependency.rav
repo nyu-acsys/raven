@@ -1,0 +1,14 @@
+proc op()
+  atomic requires true
+  atomic ensures true
+{
+  ghost var token := bindAU();
+  openAU(token);
+  commitAU(token, ());
+  done(token);
+}
+
+lemma done(token: AtomicToken<op>)
+  requires auCommit<op>(token, (), ())
+  ensures auCommit<op>(token, (), ())
+{}
