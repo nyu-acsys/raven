@@ -1,10 +1,6 @@
 open Base
-
-(*open Util__Error*)
 open Util
 open SmtLibAst
-open Ast
-(* open Rewriter *)
 
 type validity_result = Valid | Invalid | Inconclusive
 
@@ -247,93 +243,11 @@ end
 
 type session = SmtSession.session
 
-let declare_tuple_sort (arity : int) : command =
-  let tuple_sort_name =
-    QualIdent.from_ident (Ident.make Util.Loc.dummy ("$tuple_" ^ Int.to_string arity) 0)
-  in
-
-  let params =
-    Base.List.init arity ~f:(fun i ->
-        QualIdent.from_ident (Ident.make Util.Loc.dummy ("X" ^ Int.to_string i) 0))
-  in
-
-  let constr = tuple_sort_name in
-  let destrs =
-    Base.List.init arity ~f:(fun i ->
-        QualIdent.from_ident
-          (Ident.make Util.Loc.dummy
-             ("$tuple_" ^ Int.to_string arity ^ "_" ^ Int.to_string i)
-             0))
-  in
-
-  let destrs_sorts =
-    Base.List.map2_exn destrs params ~f:(fun destr param ->
-        (destr, Ast.Type.mk_var param))
-  in
-
-  mk_declare_datatype (tuple_sort_name, params, [ (constr, destrs_sorts) ])
-
-let init ?(logging = true) diagnostics timeout : session =
-  let open SmtSession in
+let init ?(logging = true) timeout : session =
   let response_timeout =
     if timeout > 0 then Some (Float.of_int timeout /. 1000.) else None
   in
-  let session = start_solver ~logging ~response_timeout () in
-  let initialized = ref false in
-  Stdlib.Fun.protect ~finally:(fun () -> if not !initialized then stop_solver session)
-  @@ fun () ->
-  let open PreambleConsts in
-  let options_list =
-    [
-      SetOption (":timeout", Int.to_string timeout, None);
-      (*SetOption (":produce-unsat-cores", "true", None);*)
-      SetOption (":auto-config", "false", None);
-      SetOption (":smt.mbqi", "false", None);
-      SetOption (":smt.case_split", "3", None);
-      SetOption (":smt.candidate_models", "true", None);
-      (* Call nlsat on the non-linear part of a query only after many final checks:
-         most proofs do not need it, and early calls make the search slower and its
-         time more variable. *)
-      SetOption (":smt.arith.nl.delay", "200", None);
-      (*SetOption (":smt.macro_finder", "true", None);*)
-    ]
-    @ if diagnostics then [ SetOption (":smt.qi.profile", "true", None) ] else []
-  in
-
-  let list_of_cmds =
-    [
-      mk_declare_sort loc_ident 0;
-      mk_declare_const
-        (QualIdent.from_ident (Ident.make Util.Loc.dummy "null" 0))
-        Type.ref;
-      mk_declare_sort atomic_token_ident 0;
-    ]
-  in
-
-  (* preamble *)
-  Base.List.iter options_list ~f:(write session);
-  Base.List.iter list_of_cmds ~f:(write session);
-
-  write_comment session "End of Preamble";
-  write_comment session "";
-  write_comment session "";
-
-  initialized := true;
-  session
+  SmtSession.start_solver ~logging ~response_timeout ()
 
 (** Closes and reaps the session without replacing an error from verification. *)
 let stop (session : session) = SmtSession.stop_solver session
-
-(** Declares exactly the generic tuple sorts ([$tuple_n]) the program being checked
-    actually needs, rather than an arbitrary fixed range. [arities] is computed from the
-    fully elaborated program (see [TupleArities]) once parsing and front-end processing
-    have completed, which is why this is a separate step from [init]: at the point [init]
-    runs (before any parsing), the input isn't known yet. *)
-let declare_tuple_sorts (session : session) (arities : int list) : unit =
-  let open SmtSession in
-  match arities with
-  | [] -> ()
-  | _ ->
-      write_comment session "Tuple sorts used by this program";
-      Base.List.iter arities ~f:(fun arity -> write session (declare_tuple_sort arity));
-      write_comment session ""

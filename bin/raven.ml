@@ -182,8 +182,6 @@ let backend_check_cu tbl context processed =
     [type_cu]'s doc comment): parsing has no dependency on the library's symbol table,
     only type-checking does. *)
 let parse_and_check_all ~extension_mode config file_names =
-  (* Start backend solver session *)
-
   (* Variable which controls whether the
     - `front_end_output.log` (the elaborated program)
     - `lowered_output.log` (the lowered program)
@@ -197,10 +195,6 @@ let parse_and_check_all ~extension_mode config file_names =
     | _ -> false
   in
 
-  let solver_session =
-    Smt.SmtSolver.init ~logging:external_logging config.smt_diagnostics config.smt_timeout
-  in
-  Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop solver_session) @@ fun () ->
   let debug_out_chan file_name =
     if external_logging then Stdio.Out_channel.create file_name
     else Util.Channel.null_channel ()
@@ -354,7 +348,14 @@ let parse_and_check_all ~extension_mode config file_names =
         needs (see Smt.TupleArities), so this is the earliest point at which we
         can declare them. *)
         let arities = Smt.TupleArities.of_symbols (Map.data tbl.tbl_symbols) in
-        Smt.SmtSolver.declare_tuple_sorts solver_session arities;
+        let solver_session =
+          Smt.SmtSolver.init ~logging:external_logging config.smt_timeout
+        in
+        Stdlib.Fun.protect ~finally:(fun () -> Smt.SmtSolver.stop solver_session)
+        @@ fun () ->
+        Backend.SmtPreamble.initialize solver_session ~diagnostics:config.smt_diagnostics
+          ~timeout:config.smt_timeout;
+        Backend.SmtPreamble.declare_tuple_sorts solver_session arities;
         let context = Backend.CheckerContext.create solver_session in
         let (_ : Backend.CheckerContext.context) =
           backend_check_cu tbl context processed
