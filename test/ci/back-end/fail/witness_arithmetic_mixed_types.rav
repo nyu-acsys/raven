@@ -1,0 +1,6 @@
+field f: Real
+
+proc test(x: Ref) {
+  inhale own(x.f, 1.5);
+  exhale exists n: Int :: own(x.f, 1.0 + n);
+}

@@ -1,0 +1,66 @@
+field f: Int
+field r: Real
+field p: (Int, Int)
+
+type Box = data { case box(value: Int) }
+field b: Box
+
+lemma add_right(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: own(x.f, n + 1)
+{}
+
+lemma add_left(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: own(x.f, 1 + n)
+{}
+
+lemma subtract_right(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: own(x.f, n - 1)
+{}
+
+lemma subtract_left(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: own(x.f, 10 - n)
+{}
+
+lemma negate(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: own(x.f, -n)
+{}
+
+lemma nested(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: own(x.f, -(n + 1))
+{}
+
+lemma dependent(x: Ref, y: Ref)
+  requires own(x.f, 7) && own(y.f, 2)
+  ensures exists n: Int, m: Int :: own(x.f, n + m) && own(y.f, m)
+{}
+
+lemma equality(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: n + 1 == 7 && own(x.f, 7)
+{}
+
+lemma real_value(x: Ref)
+  requires own(x.r, 1.5)
+  ensures exists n: Real :: own(x.r, n + 0.5)
+{}
+
+lemma fractional_permission(x: Ref)
+  requires own(x.f, 7, 0.5)
+  ensures exists q: Real :: own(x.f, 7, q + 0.25)
+{}
+
+lemma tuple_value(x: Ref)
+  requires own(x.p, (7, 2))
+  ensures exists n: Int, m: Int :: own(x.p, (n + 1, 10 - m))
+{}
+
+lemma constructor_value(x: Ref)
+  requires own(x.b, box(7))
+  ensures exists n: Int :: own(x.b, box(-(n + 1)))
+{}

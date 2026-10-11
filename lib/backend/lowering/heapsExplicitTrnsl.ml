@@ -4724,6 +4724,47 @@ module TrnslExhale = struct
           else Rewriter.return (Map.empty (module Ident))
       | true -> (
           match given_expr with
+          | App (((Plus | Minus) as operator), [ left; right ], attr)
+            when Type.is_num (Expr.to_type concrete_expr) && Type.is_num attr.expr_type ->
+              let invert target other operator first second =
+                let target_vars = Expr.local_vars target in
+                let other_vars = Expr.local_vars other in
+                (* Invert only targets that occur on one side of this operation. *)
+                let vars =
+                  List.filter exists ~f:(fun var ->
+                      Set.mem target_vars var.var_name
+                      && not (Set.mem other_vars var.var_name))
+                in
+                let typ = Type.join (Expr.to_type first) (Expr.to_type second) in
+                if List.is_empty vars || not (Type.subtype_of typ (Expr.to_type target))
+                then Rewriter.return (Map.empty (module Ident))
+                else
+                  let inverse =
+                    Expr.mk_app ~loc:attr.expr_loc ~typ operator [ first; second ]
+                  in
+                  core_witness_comp vars inverse target true
+              in
+              let* left_witnesses =
+                match operator with
+                | Plus -> invert left right Minus concrete_expr right
+                | _ -> invert left right Plus concrete_expr right
+              in
+              let* right_witnesses =
+                match operator with
+                | Plus -> invert right left Minus concrete_expr left
+                | _ -> invert right left Minus left concrete_expr
+              in
+              Rewriter.return
+                (Map.merge left_witnesses right_witnesses ~f:(fun ~key:_ -> function
+                  | `Both (left, _) | `Left left -> Some left
+                  | `Right right -> Some right))
+          | App (Uminus, [ operand ], attr)
+            when Type.is_num (Expr.to_type concrete_expr)
+                 && Type.subtype_of (Expr.to_type concrete_expr) (Expr.to_type operand) ->
+              core_witness_comp exists
+                (Expr.mk_app ~loc:attr.expr_loc ~typ:(Expr.to_type concrete_expr) Uminus
+                   [ concrete_expr ])
+                operand true
           | App (Var ident, [], _) ->
               if
                 List.exists exists ~f:(fun var_decl ->

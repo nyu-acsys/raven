@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Infer resource witnesses through addition, subtraction and negation.
 - Simplify constructor guards and inactive branches before heap translation.
 - Infer existential resource witnesses from pure equalities.
 - Fuse adjacent exhale/inhale and inhale/exhale pairs and update scalar heaps directly to improve verification performance.

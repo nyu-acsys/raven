@@ -1,0 +1,7 @@
+field f: Int
+
+proc test(x: Ref) {
+  inhale own(x.f, 7);
+  exhale exists n: Int :: n + 1 == n && own(x.f, 7);
+  assert false;
+}
