@@ -31,7 +31,7 @@ proc double(x: Int) returns (r: Int)
 
 As soon as you save (or after you stop typing for a moment), the extension runs Raven on the
 file in the background. Look at the bottom-left status bar: you should see a spinner
-labeled "Raven: Verifying" briefly, then a green checkmark, **"Verification Successful."**
+labeled "Raven: Verifying" briefly, then a green checkmark, **"Raven: Verified."**
 The checkmark means that Raven proved, for *every* possible value of `x`, that `double` returns
 `2 * x`. This is a proof covering all inputs, not a test on a few sample values.
 
@@ -39,6 +39,12 @@ You can also trigger a check manually at any time with the command **"Raven: Ver
 (`Shift+Alt+R` on Windows/Linux, `Shift+Cmd+R` on Mac, or via the Command Palette). Use this
 whenever you want to be sure you're looking at a fresh result rather than a stale one from
 before your last edit.
+
+The status belongs to the active file and its current version. Before its first check it
+reads **"Raven: Not checked"** in grey. Editing a checked file changes it to **"Raven: Result
+outdated"** in grey until verification starts again; results from older versions cannot replace
+the current state. If Raven cannot run, the status is orange **"Raven: Verification
+unavailable"**, with the reason in its tooltip.
 
 ## Breaking it on purpose {#sec:breaking-it-on-purpose}
 
@@ -52,7 +58,7 @@ proc double(x: Int) returns (r: Int)
 }
 ```
 
-Save. The status bar flips to a red **"Verification Failed."**, and a red squiggly underline
+Save. The status bar flips to a red **"Raven: Verification failed."**, and a red squiggly underline
 appears under `r == 3 * x`. Hover over it (or open the Problems panel,
 `Ctrl+Shift+M` / `Cmd+Shift+M`) to read the message:
 
@@ -106,7 +112,7 @@ strict mode for automatic checks and **Raven: Verify File**, set the workspace o
 ```
 
 The setting defaults to `false`. Warnings appear in the editor and Problems panel. Verification
-can still succeed: **"Verification Successful"** turns yellow when strict warnings are present,
+can still succeed: **"Raven: Verified with warnings"** appears in yellow when strict warnings are present,
 with a tooltip explaining why. Verification errors still show a red failure indicator.
 
 Strict mode warns about assumptions; it does not establish them. A `decreases` clause asks Raven
