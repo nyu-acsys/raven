@@ -121,7 +121,8 @@ let declaration_text (symbol : Module.symbol) : string option =
         ( Ident.to_loc d.call_decl_name,
           var_locs d.call_decl_formals @ var_locs d.call_decl_returns
           @ spec_locs d.call_decl_precond
-          @ spec_locs d.call_decl_postcond,
+          @ spec_locs d.call_decl_postcond
+          @ Option.to_list d.call_decl_opens_loc,
           (not (Callable.is_abstract c)) || d.call_decl_is_sealed )
     | TypeDef td -> (td.type_def_loc, [], false)
     | VarDef vd ->
@@ -208,9 +209,26 @@ let record_inherited_contract ~(member : ident) ~(source : qual_ident) ~source_l
               in
               Some { Annotations.keyword; text; clause_loc = form_loc }))
   in
+  let opens_clause =
+    Option.bind orig_decl.call_decl_opens_loc ~f:(fun clause_loc ->
+        Option.map
+          (Loc.source_content (Loc.file_name clause_loc))
+          ~f:(fun content ->
+            let exprs =
+              Option.value orig_decl.call_decl_opens ~default:[] |> List.concat_map ~f:snd
+            in
+            let text =
+              renamed_clause_text ~content
+                ~span_start:(Loc.start_index clause_loc + String.length "opens")
+                ~span_end:(Loc.end_index clause_loc) ~renaming exprs
+              |> String.strip
+            in
+            { Annotations.keyword = "opens"; text; clause_loc }))
+  in
   let clauses =
     List.filter_map orig_decl.call_decl_precond ~f:(clause "requires")
     @ List.filter_map orig_decl.call_decl_postcond ~f:(clause "ensures")
+    @ Option.to_list opens_clause
   in
   if not (List.is_empty clauses) then
     Annotations.record

@@ -1,0 +1,28 @@
+field f: Int
+inv cell(x: Ref) { own(x.f, 0, 1.0) }
+inv pair(x: Ref, y: Ref) { own(x.f, 0, 1.0) }
+
+interface I {
+  lemma empty()
+    opens {}
+  lemma touch(x: Ref)
+    requires cell(x)
+    ensures cell(x)
+    opens cell(x)
+  lemma wildcards(x: Ref)
+    opens pair(_, _), cell(x)
+  lemma swapped(x: Ref, y: Ref)
+    opens pair(x, y)
+  lemma retained()
+    opens {}
+  {}
+}
+
+interface J : I {}
+
+module M : J {
+  lemma empty() {}
+  lemma touch(r: Ref) { assume false; }
+  lemma wildcards(r: Ref) {}
+  lemma swapped(y: Ref, x: Ref) {}
+}

@@ -2475,6 +2475,8 @@ module Callable = struct
     call_decl_opens : mask option;
         (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask]
             otherwise inferred from [call_decl_precond]. *)
+    call_decl_opens_loc : location option;
+        (** Source span of the explicit opens clause. *)
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
         (** Fields of the formals written as *locations*, `x.A.f`, in order. Those formals
@@ -2649,7 +2651,7 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false) ?needs_mask ?grants_mask
-      ?opens ?(loc_params = []) () : call_decl =
+      ?opens ?opens_loc ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_name = name;
@@ -2667,6 +2669,7 @@ module Callable = struct
       call_decl_needs_mask = needs_mask;
       call_decl_grants_mask = grants_mask;
       call_decl_opens = opens;
+      call_decl_opens_loc = opens_loc;
       call_decl_loc = loc;
       call_decl_loc_params = loc_params;
     }

@@ -1253,6 +1253,7 @@ let inherit_contract (symbols_to_check : (qual_ident * Module.symbol) Map.M(Iden
                   call_decl_precond = List.map orig_decl.call_decl_precond ~f:inherit_spec;
                   call_decl_postcond =
                     List.map orig_decl.call_decl_postcond ~f:inherit_spec;
+                  call_decl_opens_loc = orig_decl.call_decl_opens_loc;
                   call_decl_opens =
                     Option.map orig_decl.call_decl_opens
                       ~f:(List.map ~f:(fun (qi, args) -> (qi, List.map args ~f:rename)));
