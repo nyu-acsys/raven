@@ -1,0 +1,56 @@
+field f: Int
+
+type Pair = data { case pair(first: Int, second: Int) }
+
+lemma constant(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: n == 7 && own(x.f, 7)
+{}
+
+lemma reversed_constant(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int :: 7 == n && own(x.f, 7)
+{}
+
+lemma heap_dependency(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int, m: Int :: n == m + 1 && own(x.f, m)
+{}
+
+lemma exact_fraction(x: Ref)
+  requires own(x.f, 8)
+  ensures exists q: Real :: q == 0.5 && own(x.f, 8, q)
+{}
+
+lemma fraction_dependency(x: Ref)
+  requires own(x.f, 8, 0.5)
+  ensures exists q: Real, r: Real :: q == r && own(x.f, 8, q)
+{}
+
+lemma guarded_fraction(x: Ref, condition: Bool)
+  requires own(x.f, 8)
+  ensures exists q: Real ::
+    (condition ? q == 0.5 : q > 0.0) && own(x.f, 8, q)
+{}
+
+lemma guarded_constant(x: Ref, condition: Bool)
+  requires own(x.f, 7)
+  ensures exists n: Int ::
+    (condition ? n == 1 : n == 2) && own(x.f, 7)
+{}
+
+lemma nested_guarded_fraction(x: Ref, a: Bool, b: Bool, c: Bool)
+  requires own(x.f, 8)
+  ensures exists q: Real ::
+    (a ==> (b ==> (c ==> q == 0.5))) && q > 0.0 && own(x.f, 8, q)
+{}
+
+lemma tuple_equality(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int, m: Int :: (n, m) == (1, 2) && own(x.f, 7)
+{}
+
+lemma constructor_equality(x: Ref)
+  requires own(x.f, 7)
+  ensures exists n: Int, m: Int :: pair(n, m) == pair(1, 2) && own(x.f, 7)
+{}

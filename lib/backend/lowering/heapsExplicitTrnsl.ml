@@ -3989,27 +3989,37 @@ module TrnslExhale = struct
             compute_raw var_decls
           in
 
-          let witnesses : (conditions * expr) list ident_map = sanitize raw_witnesses in
+          let witnesses =
+            resolve_dependencies var_decls univ_conds (sanitize raw_witnesses)
+          in
 
-          (* Second pass, for existentials the first left unsolved. An existential in
-             the *fraction* position of an `own` is not determined by what the heap
-             holds -- the assertion asks for at most that much -- so the first pass
-             deliberately leaves it alone rather than guess. Once nothing else has
-             determined it, though, guessing is strictly better than the alternative
-             (an unconstrained value, which fails), and the total available fraction is
-             the guess to make: see [core_witness_comp]'s `Frac` case. *)
+          (* An `own` fraction need not equal the available permission. Use that
+             permission as a fallback where primary candidates leave it undetermined;
+             see [core_witness_comp]'s `Frac` case. *)
           let* witnesses =
             let unsolved =
               List.filter var_decls ~f:(fun var_decl ->
-                  not (Map.mem witnesses var_decl.var_name))
+                  match Map.find witnesses var_decl.var_name with
+                  | None -> true
+                  | Some choices ->
+                      List.for_all choices ~f:(fun (conds, _) ->
+                          not (List.is_empty conds)))
             in
             if List.is_empty unsolved then Rewriter.return witnesses
             else
               let+ raw_fallback = compute_raw ~fraction_fallback:true unsolved in
               Map.fold (sanitize raw_fallback) ~init:witnesses ~f:(fun ~key ~data acc ->
-                  (* [unsolved] is exactly the keys missing from [witnesses], so this
-                     only ever adds. *)
-                  Map.set acc ~key ~data)
+                  Map.update acc key ~f:(function
+                    | None -> data
+                    | Some choices ->
+                        (* Keep the fallback only where no primary witness applies. *)
+                        let uncovered =
+                          List.map choices ~f:(fun (conds, _) ->
+                              Expr.mk_not ~loc (Expr.mk_chained_and ~loc conds))
+                        in
+                        choices
+                        @ List.map data ~f:(fun (conds, witness) ->
+                            (uncovered @ conds, witness))))
           in
 
           let witnesses = resolve_dependencies var_decls univ_conds witnesses in
@@ -4403,6 +4413,15 @@ module TrnslExhale = struct
           in
 
           Rewriter.return witness_map
+      | App (Eq, [ left; right ], _) ->
+          let add_candidates pattern value witness_map =
+            let+ candidates = core_witness_comp exist_vars value pattern true in
+            Map.fold candidates ~init:witness_map ~f:(fun ~key ~data witnesses ->
+                Map.update witnesses key ~f:(fun existing ->
+                    (exist_conds, Some data) :: Option.value existing ~default:[]))
+          in
+          let* witness_map = add_candidates left right witness_map in
+          add_candidates right left witness_map
       | App (Own, [ loc_expr; field_expr; val_expr ], _) ->
           let field_name =
             try Expr.to_qual_ident field_expr

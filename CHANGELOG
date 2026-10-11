@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Infer existential resource witnesses from pure equalities.
 - Fuse adjacent exhale/inhale and inhale/exhale pairs and update scalar heaps directly to improve verification performance.
 - Omit trivially true facts from SMT queries.
 - Generate triggers for ISC location distinctness and function postconditions (on function applications). Omit trivial distinctness checks and assumptions.
