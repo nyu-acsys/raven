@@ -1,0 +1,9 @@
+field f: Int
+
+type State = data { case idle(value: Int); case busy(code: Int) }
+
+lemma wrong_constructor_selector(x: Ref)
+  requires own(x.f, 7)
+{
+  exhale own(x.f, busy(7).value);
+}

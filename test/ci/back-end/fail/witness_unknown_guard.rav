@@ -1,0 +1,9 @@
+field f: Int
+
+free pred ticket(token: Int)
+
+lemma unknown_guard(x: Ref, condition: Bool)
+  requires own(x.f, 7)
+{
+  exhale condition ? (exists token: Int :: ticket(token)) : own(x.f, 7);
+}

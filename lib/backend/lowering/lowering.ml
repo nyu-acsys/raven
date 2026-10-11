@@ -1761,6 +1761,13 @@ let lower (m : Module.t) : (Module.t * CallGraph.Graph.t) Rewriter.t =
   in
 
   Logs.debug (fun m1 ->
+      m1 "Lowering.lower: Starting structural expression simplification on module %a"
+        Ident.pr m.mod_decl.mod_decl_name);
+  let* m =
+    Rewriter.Module.rewrite_callables ~f:ExpressionSimplification.rewrite_callable m
+  in
+
+  Logs.debug (fun m1 ->
       m1 "Lowering.lower: Starting rewriter_skolemize_inhale_stmts on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
   let* m =

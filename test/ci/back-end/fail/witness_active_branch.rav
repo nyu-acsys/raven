@@ -1,0 +1,9 @@
+field f: Int
+
+type State = data { case idle(value: Int); case busy(code: Int) }
+
+lemma active_branch(x: Ref)
+  requires own(x.f, 7)
+{
+  exhale idle(7) is idle ? own(x.f, 8) : own(x.f, 7);
+}

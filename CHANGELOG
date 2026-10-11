@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Simplify constructor guards and inactive branches before heap translation.
 - Infer existential resource witnesses from pure equalities.
 - Fuse adjacent exhale/inhale and inhale/exhale pairs and update scalar heaps directly to improve verification performance.
 - Omit trivially true facts from SMT queries.
