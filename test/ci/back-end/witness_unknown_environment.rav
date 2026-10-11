@@ -1,0 +1,7 @@
+field f: Int
+
+lemma unknown_guard_dependency(x: Ref, a: Int, b: Int)
+  requires own(x.f, 7)
+  ensures exists unknown: Int, n: Int ::
+    (unknown > 0 ? n == a : n == b) && own(x.f, 7)
+{}

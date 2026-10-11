@@ -4024,79 +4024,63 @@ module TrnslExhale = struct
 
           let witnesses = resolve_dependencies var_decls univ_conds witnesses in
 
-          let witnesses_local_vars_ident_set =
-            let (witnesses_local_vars_ident_set : IdentSet.t) =
-              (* Folds over all existentials *)
-              Map.fold witnesses
-                ~init:(Set.empty (module Ident))
-                ~f:(fun ~key:_ ~data:cnd_expr_list accum_local_vars_set ->
-                  (* Folds over all different witnesses computed for each existential *)
-                  List.fold cnd_expr_list ~init:accum_local_vars_set
-                    ~f:(fun acc (cnds, e) ->
-                      (* Folds over all path conditions for every witness *)
-                      let path_conds_vars =
-                        List.fold cnds ~init:(Expr.local_vars e) ~f:(fun accum cnd ->
-                            Set.union accum (Expr.local_vars cnd))
-                      in
-                      Set.union acc path_conds_vars))
-            in
-
-            witnesses_local_vars_ident_set
+          let existential_vars =
+            Set.of_list (module Ident) (List.map var_decls ~f:(fun vd -> vd.var_name))
           in
-
-          Logs.debug (fun m ->
-              let witnesses_local_vars_idents =
-                Set.to_list witnesses_local_vars_ident_set
-              in
-              m "TrnslExhale.WitnessComputation.elim_a1: witnesses_local_vars_ident: %a"
-                Ident.pr_list witnesses_local_vars_idents);
-
-          let env_local_vars_ident =
-            let univ_cond_locals_ident_set =
-              List.fold
-                ~init:(Set.empty (module Ident))
-                univ_conds
-                ~f:(fun accum expr -> Set.union accum (Expr.local_vars expr))
-            in
-
-            let env_local_vars_ident_set =
-              Set.union univ_cond_locals_ident_set witnesses_local_vars_ident_set
-            in
-
-            let env_local_vars_ident = Set.to_list env_local_vars_ident_set in
-
-            let env_local_non_skolems_vars_ident =
-              List.filter env_local_vars_ident ~f:(fun s ->
-                  List.for_all var_decls ~f:(fun vd -> not @@ Ident.(vd.var_name = s))
-                  && List.for_all univ_vars.univ_vars ~f:(fun (iden, _) ->
-                      not @@ Ident.(iden = s)))
-            in
-
-            env_local_non_skolems_vars_ident
+          let bound_vars =
+            Set.union existential_vars
+              (Set.of_list (module Ident) (List.map univ_vars.univ_vars ~f:fst))
           in
-
-          Logs.debug (fun m ->
-              m "TrnslExhale.WitnessComputation.elim_a1: env_local_vars_ident: %a"
-                Ident.pr_list env_local_vars_ident);
-
-          let* env_local_var_decls =
-            Rewriter.List.map env_local_vars_ident ~f:(fun iden ->
-                let+ symbol = Rewriter.find_and_reify (QualIdent.from_ident iden) in
+          let outer_locals =
+            List.fold univ_conds
+              ~init:(Set.empty (module Ident))
+              ~f:(fun vars cond -> Set.union vars (Expr.local_vars cond))
+          in
+          let witness_locals =
+            Map.map witnesses ~f:(fun choices ->
+                List.fold choices ~init:outer_locals ~f:(fun vars (conds, witness) ->
+                    List.fold (witness :: conds) ~init:vars ~f:(fun vars expr ->
+                        Set.union vars (Expr.local_vars expr))))
+          in
+          (* A substituted witness brings its arguments into another witness's guard. *)
+          let rec close_environments environments =
+            let expanded =
+              Map.map environments ~f:(fun vars ->
+                  Set.fold vars ~init:vars ~f:(fun vars ident ->
+                      match Map.find environments ident with
+                      | None -> vars
+                      | Some dependencies -> Set.union vars dependencies))
+            in
+            if Map.equal Set.equal environments expanded then environments
+            else close_environments expanded
+          in
+          let environments =
+            Map.map (close_environments witness_locals) ~f:(fun vars ->
+                Set.diff vars bound_vars)
+          in
+          let all_env_vars =
+            Map.fold environments
+              ~init:(Set.empty (module Ident))
+              ~f:(fun ~key:_ ~data vars -> Set.union vars data)
+          in
+          let* env_decls =
+            Rewriter.List.map (Set.to_list all_env_vars) ~f:(fun ident ->
+                let+ symbol = Rewriter.find_and_reify (QualIdent.from_ident ident) in
                 match symbol with
-                | VarDef v -> v.var_decl
+                | VarDef v -> (ident, v.var_decl)
                 | _ ->
-                    Error.internal_error (Ident.to_loc iden)
+                    Error.internal_error (Ident.to_loc ident)
                       "expected a variable declaration")
           in
-
-          let* () =
-            Rewriter.Logs.debug (fun printers m ->
-                m "TrnslExhale.WitnessComputation.elim_a1: env_local_var_decls: %a"
-                  printers.pr_type_var_decl_list env_local_var_decls)
+          let env_decls = Map.of_alist_exn (module Ident) env_decls in
+          let witness_environments =
+            Map.map environments ~f:(fun vars ->
+                List.map (Set.to_list vars) ~f:(fun ident ->
+                    let vd = Map.find_exn env_decls ident in
+                    (vd, Expr.from_var_decl vd)))
           in
-
-          let env_local_var_decls_exprs =
-            List.map env_local_var_decls ~f:(fun vd -> (vd, Expr.from_var_decl vd))
+          let environment ident =
+            Map.find witness_environments ident |> Option.value ~default:[]
           in
 
           let witness_args_conds_exprs_map =
@@ -4134,7 +4118,7 @@ module TrnslExhale = struct
                     | None -> []
                     | Some arg_conds_expr_list ->
                         List.map arg_conds_expr_list ~f:(fun (arg, cond, expr) -> expr)
-                        @ List.map env_local_var_decls_exprs ~f:(fun (_vd, expr) -> expr)
+                        @ List.map (environment vd.var_name) ~f:snd
                     end
                   in
                   Expr.mk_app ~loc ~typ:vd.var_type
@@ -4150,6 +4134,16 @@ module TrnslExhale = struct
                 | `Ok map -> map
                 | `Duplicate ->
                     Error.internal_error loc "Duplicate existentially quantified var")
+          in
+
+          let skolem_vars_alpha_renaming_map =
+            (* Selected candidates are acyclic; expand their arguments before insertion. *)
+            let rec expand expr =
+              if Set.is_empty (Set.inter existential_vars (Expr.local_vars expr)) then
+                expr
+              else expand (Expr.alpha_renaming expr skolem_vars_alpha_renaming_map)
+            in
+            Map.map skolem_vars_alpha_renaming_map ~f:expand
           in
 
           let* () =
@@ -4226,7 +4220,7 @@ module TrnslExhale = struct
                         List.map witness_arg_exprs ~f:(fun (vd, _, e) -> (vd, e))
                       in
 
-                      let optn_args = witness_optn_args @ env_local_var_decls_exprs in
+                      let optn_args = witness_optn_args @ environment var_decl.var_name in
 
                       Rewriter.return (preconds, postconds, optn_args)
                 in

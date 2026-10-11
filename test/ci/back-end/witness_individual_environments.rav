@@ -1,0 +1,33 @@
+field f: Int
+
+lemma disjoint_guards(x: Ref, c: Bool, d: Bool, a: Int, b: Int, p: Int, q: Int)
+  requires own(x.f, 7)
+  ensures exists n: Int, m: Int ::
+    (c ? n == a : n == b) && (d ? m == p : m == q) && own(x.f, 7)
+{}
+
+lemma transitive_guards(x: Ref, c: Bool, a: Int, b: Int, p: Int, q: Int)
+  requires own(x.f, 7)
+  ensures exists n: Int, m: Int ::
+    (c ? m == a : m == b) && (m == a ? n == p : n == q) && own(x.f, 7)
+{}
+
+lemma transitive_heaps(x: Ref, y: Ref, c: Bool, a: Int, b: Int)
+  requires own(x.f, 1) && own(y.f, 2)
+  ensures exists n: Int, m: Int ::
+    (c ? own(x.f, m) && own(y.f, 2) : own(x.f, 1) && own(y.f, m)) &&
+    (m == 1 ? n == a : n == b)
+{}
+
+lemma three_level_guard(x: Ref, p: Int, q: Int)
+  requires own(x.f, 1)
+  ensures exists first: Int, second: Int, third: Int ::
+    own(x.f, third) && second == third + 1 &&
+    (second == 2 ? first == p : first == q)
+{}
+
+lemma quantified_guards(keys: Set[Ref], c: Bool, d: Bool, a: Int, b: Int, p: Int, q: Int)
+  requires forall x: Ref :: x in keys ==> own(x.f, 7)
+  ensures forall x: Ref :: x in keys ==> (exists n: Int, m: Int ::
+    (c ? n == a : n == b) && (d ? m == p : m == q) && own(x.f, 7))
+{}
