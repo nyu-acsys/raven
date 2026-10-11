@@ -18,12 +18,17 @@ let with_response response f =
     (fun () ->
       let session : SmtSession.session =
         {
-          log_file_name = "";
-          log_out_chan = None;
-          assert_count = 0;
-          response_count = 0;
           stack_height = 2;
-          solver_state = { in_chan; out_chan; response_count = 0 };
+          solver_state =
+            {
+              out_descr = Unix.descr_of_out_channel out_chan;
+              in_descr = Unix.descr_of_in_channel in_chan;
+              pid = None;
+              log_out_chan = None;
+              response_timeout = Some 1.;
+              pending_input = "";
+              closed = false;
+            };
         }
       in
       f session)

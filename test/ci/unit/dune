@@ -22,3 +22,8 @@
  (name smt_results)
  (modules smt_results)
  (libraries smt ast base util))
+
+(test
+ (name smt_lifecycle)
+ (modules smt_lifecycle)
+ (libraries smt base unix))

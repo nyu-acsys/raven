@@ -35,13 +35,17 @@ let () =
     (fun () ->
       let session =
         {
-          log_file_name = log_file;
-          log_out_chan = Some log_out;
-          assert_count = 0;
-          response_count = 0;
           stack_height = 0;
           solver_state =
-            { out_chan = solver_out; in_chan = solver_in; response_count = 0 };
+            {
+              out_descr = Unix.descr_of_out_channel solver_out;
+              in_descr = Unix.descr_of_in_channel solver_in;
+              pid = None;
+              log_out_chan = Some log_out;
+              response_timeout = Some 1.;
+              pending_input = "";
+              closed = false;
+            };
         }
       in
       let command = Smt.SmtLibAst.mk_assert ~name:"bounds'" (Expr.mk_bool true) in
@@ -50,7 +54,9 @@ let () =
       let logged = Stdio.In_channel.read_all log_file in
       let sent = Stdio.In_channel.read_all solver_file in
       assert (String.equal logged sent);
-      let session = { session with log_out_chan = None } in
+      let session =
+        { session with solver_state = { session.solver_state with log_out_chan = None } }
+      in
       write_comment session "first line\nsecond line";
       write session command;
       assert (String.equal (Stdio.In_channel.read_all log_file) logged);
