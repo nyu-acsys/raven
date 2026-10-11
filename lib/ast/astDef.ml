@@ -1476,20 +1476,6 @@ module Stmt = struct
   }
 
   type havoc_desc = { havoc_var : qual_ident; havoc_is_init : bool }
-  type cas_desc = { cas_old_val : expr; cas_new_val : expr }
-  type faa_desc = { faa_val : expr }
-  type xchg_desc = { xchg_new_val : expr }
-  type atomic_inbuilt_kind = Cas of cas_desc | Faa of faa_desc | Xchg of xchg_desc
-
-  let atomic_inbuilt_args = function
-    | Cas cs -> [ cs.cas_old_val; cs.cas_new_val ]
-    | Faa fs -> [ fs.faa_val ]
-    | Xchg xs -> [ xs.xchg_new_val ]
-
-  let atomic_inbuilt_string = function
-    | Cas _ -> "cas"
-    | Faa _ -> "faa"
-    | Xchg _ -> "xchg"
 
   type call_desc = {
     call_lhs : qual_ident list;

@@ -45,7 +45,8 @@ Type-checking:
 - [x] Allow parsing of `map[m1][m2]` expressions
     (Thomas did implement a fix for this, but needs review)
 
-- Parse field reads/writes/cas/fpu separately
+- [x] Remove obsolete built-in CAS/FAA/XCHG AST definitions and the commented CAS grammar
+- [x] Correct the FPU arity diagnostic to describe both location and reference/field forms
 - [x] Allow types to be used as modules implementing Library.Type
 
 

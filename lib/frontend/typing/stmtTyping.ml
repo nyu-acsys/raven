@@ -218,7 +218,10 @@ let check_au_action (call_decl : Callable.call_decl) (assign_lhs : qual_ident li
         match fpu_exprs with
         | [ old_val_expr; new_val_expr ] -> (Some old_val_expr, new_val_expr)
         | [ new_val_expr ] -> (None, new_val_expr)
-        | _ -> Error.type_error loc "fpu takes exactly three or four arguments"
+        | _ ->
+            Error.type_error loc
+              "fpu expects a field location followed by one or two values, or a \
+               reference and field followed by one or two values"
       in
 
       ( Stmt.Fpu

@@ -1,0 +1,5 @@
+ghost field f: Int
+
+lemma update(x: Ref) {
+  fpu(x, f, 1, 2, 3);
+}

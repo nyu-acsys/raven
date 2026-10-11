@@ -1100,11 +1100,6 @@ own_expr:
   Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Own es)
 }
 
-(*cas_expr:
-| CAS; LPAREN; es = expr_list; RPAREN {
-  Expr.(mk_app ~typ:Type.any ~loc:(Loc.make $symbolstartpos $endpos) Cas es)
-}*)
-
 au_expr:
 | AU; LT; qid = qual_ident; GT; LPAREN; es = expr_list; RPAREN {
   Expr.(mk_app ~typ:Type.perm ~loc:(Loc.make $symbolstartpos $endpos) (AUPred (Expr.to_qual_ident qid)) es)
