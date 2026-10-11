@@ -18,7 +18,7 @@ contracts = {
 expected = {
     'J.empty': [('opens', '{}')],
     'J.touch': [('requires', 'cell(r)'), ('ensures', 'cell(r)'), ('opens', 'cell(r)')],
-    'J.wildcards': [('opens', 'pair(_, _), cell(r)')],
+    'J.wildcards': [('opens', 'pair(r, _), cell(r)')],
     'J.swapped': [('opens', 'pair(y, x)')],
 }
 assert {

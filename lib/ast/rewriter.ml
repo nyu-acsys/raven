@@ -1720,12 +1720,13 @@ module Callable = struct
        entries could collapse into the same one, which would otherwise
        persist as an un-deduped duplicate (see [Callable.mask_canon]); both
        [call_decl_needs_mask] and [call_decl_grants_mask] need the same rewrite. *)
+    let rewrite_mask_entries entries =
+      List.map entries ~f:(fun (qi, args) ->
+          let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
+          (f qi, args))
+    in
     let rewrite_mask mask =
-      let+ mask =
-        List.map mask ~f:(fun (qi, args) ->
-            let+ args = List.map args ~f:(Expr.rewrite_qual_idents ~f) in
-            (f qi, args))
-      in
+      let+ mask = rewrite_mask_entries mask in
       Callable.mask_canon mask
     in
     let* call_decl_needs_mask =
@@ -1745,9 +1746,9 @@ module Callable = struct
     let* call_decl_opens =
       match callable.call_decl.call_decl_opens with
       | None -> return None
-      | Some mask ->
-          let+ mask = rewrite_mask mask in
-          Some mask
+      | Some clause ->
+          let+ opens_entries = rewrite_mask_entries clause.opens_entries in
+          Some { clause with opens_entries }
     in
     (* Location parameters name a field of the callable's own module, so a
        substitution has to reach them too -- otherwise a call through an instance

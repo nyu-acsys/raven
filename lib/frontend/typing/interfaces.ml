@@ -167,7 +167,8 @@ let check_implements_callable (call_def : Callable.t) (orig_call_def : Callable.
       | None, None -> true
       | Some mask, Some orig_mask -> (
           match
-            List.for_all2 mask orig_mask ~f:(fun entry orig_entry ->
+            List.for_all2 (Callable.opens_mask mask) (Callable.opens_mask orig_mask)
+              ~f:(fun entry orig_entry ->
                 Expr.alpha_equal ~sm (entry_expr entry) (entry_expr orig_entry))
           with
           | Ok res -> res
@@ -1253,10 +1254,14 @@ let inherit_contract (symbols_to_check : (qual_ident * Module.symbol) Map.M(Iden
                   call_decl_precond = List.map orig_decl.call_decl_precond ~f:inherit_spec;
                   call_decl_postcond =
                     List.map orig_decl.call_decl_postcond ~f:inherit_spec;
-                  call_decl_opens_loc = orig_decl.call_decl_opens_loc;
                   call_decl_opens =
-                    Option.map orig_decl.call_decl_opens
-                      ~f:(List.map ~f:(fun (qi, args) -> (qi, List.map args ~f:rename)));
+                    Option.map orig_decl.call_decl_opens ~f:(fun clause ->
+                        {
+                          clause with
+                          opens_entries =
+                            List.map clause.opens_entries ~f:(fun (qi, args) ->
+                                (qi, List.map args ~f:rename));
+                        });
                 }
               in
               let () =

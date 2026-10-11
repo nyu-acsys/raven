@@ -10,7 +10,7 @@ interface I {
     ensures cell(x)
     opens cell(x)
   lemma wildcards(x: Ref)
-    opens pair(_, _), cell(x)
+    opens pair(x, _), cell(x)
   lemma swapped(x: Ref, y: Ref)
     opens pair(x, y)
   lemma retained()

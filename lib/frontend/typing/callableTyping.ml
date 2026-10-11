@@ -9,11 +9,12 @@ open ProgUtils
 
 (* Checks an `opens` clause. Each entry names an invariant, with no arguments (any
    instance) or one per parameter, implicit ones included, of which a trailing run may be
-   `_` and is dropped. Arguments may mention only the callable's formals, except, for an
+   `_` and is preserved. Arguments may mention only the callable's formals, except, for an
    atomic callable, its implicit ones (see [Masks.compute_proc_lemma_mask]). *)
 let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
     (precond : Stmt.spec list) (postcond : Stmt.spec list)
-    (disam_tbl : DisambiguationTbl.t) (mask : Callable.mask) : Callable.mask t =
+    (disam_tbl : DisambiguationTbl.t) (entries : (qual_ident * expr list) list) :
+    (qual_ident * expr list) list t =
   let open Rewriter.Syntax in
   let () =
     match call_decl.call_decl_kind with
@@ -32,10 +33,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
         if is_atomic && vd.Type.var_implicit then None else Some vd.var_name)
     |> Set.of_list (module Ident)
   in
-  let is_wildcard e =
-    Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
-  in
-  Rewriter.List.map mask ~f:(fun (qi, args) ->
+  Rewriter.List.map entries ~f:(fun (qi, args) ->
       let loc = QualIdent.to_loc qi in
       let* qi, symbol =
         let* id = StmtTyping.disambiguate_ident qi disam_tbl in
@@ -61,7 +59,9 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
                  `_` for an argument left unspecified"
                inv_decl.call_decl_name (List.length inv_params) (List.length args))
       in
-      let prefix = List.take_while args ~f:(fun e -> not (is_wildcard e)) in
+      let prefix =
+        List.take_while args ~f:(fun e -> not (Callable.is_opens_wildcard e))
+      in
       let+ prefix =
         Rewriter.List.map2_exn prefix
           (List.take inv_params (List.length prefix))
@@ -84,7 +84,7 @@ let check_opens (call_decl : Callable.call_decl) (formals : Type.var_decl list)
             in
             arg)
       in
-      (qi, prefix))
+      (qi, prefix @ List.drop args (List.length prefix)))
 
 let check (callable : Callable.t) : Module.symbol t =
   let open Rewriter.Syntax in
@@ -255,10 +255,12 @@ let check (callable : Callable.t) : Module.symbol t =
   in
 
   let* call_decl_opens =
-    Rewriter.Option.map call_decl.call_decl_opens
-      ~f:
-        (check_opens call_decl call_decl_formals call_decl_precond call_decl_postcond
-           disam_tbl)
+    Rewriter.Option.map call_decl.call_decl_opens ~f:(fun clause ->
+        let+ opens_entries =
+          check_opens call_decl call_decl_formals call_decl_precond call_decl_postcond
+            disam_tbl clause.Callable.opens_entries
+        in
+        { clause with opens_entries })
   in
 
   let call_decl =

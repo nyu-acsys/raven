@@ -41,8 +41,8 @@ let check_set_comprehension loc opener closer =
 
 (* A callable has at most one `opens` clause. *)
 let single_opens_clause = function
-  | [] -> (None, None)
-  | [ (loc, mask) ] -> (Some mask, Some loc)
+  | [] -> None
+  | [ (loc, entries) ] -> Some Callable.{ opens_entries = entries; opens_loc = loc }
   | _ :: (loc, _) :: _ ->
       Error.syntax_error loc "A callable may have at most one opens clause"
 
@@ -516,19 +516,19 @@ func_decl:
 callable_decl:
   id = callable_name; LPAREN; formals = formals_with_loc; RPAREN; returns = return_params; cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
-  let opens, opens_loc = single_opens_clause opens in
+  let opens = single_opens_clause opens in
   let loc_params, formals = formals in
   Callable.mk_call_decl ~kind:Func ~name:id ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ?opens_loc ~loc_params ()
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params ()
 }
 
 callable_decl_out_vars:
   id = callable_name; LPAREN; formals = formals_with_loc; SEMICOLON; returns = var_decls_with_modifiers; RPAREN; cs = contracts {
   let precond, postcond, contract_ext, opens = cs in
-  let opens, opens_loc = single_opens_clause opens in
+  let opens = single_opens_clause opens in
   let loc_params, formals = formals in
   Callable.mk_call_decl ~kind:Func ~name:id ~loc:(Loc.make $startpos(id) $endpos(id))
-    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ?opens_loc ~loc_params ()
+    ~formals ~returns ~precond ~postcond ~contract_ext ?opens ~loc_params ()
 }
 
 

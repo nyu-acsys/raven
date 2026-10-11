@@ -1,0 +1,69 @@
+// Normalized partial masks remain valid through interface and contract inheritance.
+field f: Int
+inv pair(x: Ref, y: Ref) { own(y.f, 0, 1.0) }
+
+interface I {
+  lemma touch(x: Ref, y: Ref)
+    requires pair(x, y)
+    ensures pair(x, y)
+    opens pair(x, _)
+}
+
+interface J : I {}
+
+module Renamed : J {
+  lemma touch(r: Ref, s: Ref) {
+    unfold pair(r, s);
+    fold pair(r, s);
+  }
+}
+
+module Inherited : J {}
+
+module Repeated : I {
+  lemma touch(r: Ref, s: Ref)
+    requires pair(r, s)
+    ensures pair(r, s)
+    opens pair(r, _)
+  {
+    unfold pair(r, s);
+    fold pair(r, s);
+  }
+}
+
+module Wrapper[P: I] : I {
+  lemma touch(r: Ref, s: Ref) {
+    P.touch(r, s);
+  }
+}
+
+module Wrapped = Wrapper[Renamed]
+
+proc client(x: Ref, y: Ref)
+  requires pair(x, y)
+  ensures pair(x, y)
+  opens pair(x, _)
+{
+  Renamed.touch(x, y);
+  Inherited.touch(x, y);
+  Repeated.touch(x, y);
+  Wrapped.touch(x, y);
+}
+
+// Synthesized loop procedures also retain the enclosing clause's wildcards.
+proc loop_client(x: Ref, y: Ref)
+  requires pair(x, y)
+  ensures pair(x, y)
+  opens pair(x, _)
+{
+  var n: Int := 1;
+  while (n > 0)
+    invariant pair(x, y)
+    invariant n >= 0
+    decreases n
+  {
+    unfold pair(x, y);
+    fold pair(x, y);
+    n := n - 1;
+  }
+}

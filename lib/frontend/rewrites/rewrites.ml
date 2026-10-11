@@ -467,12 +467,15 @@ let rec rewrite_loops (stmt : Stmt.t) : Stmt.t Rewriter.t =
       let* loop_opens =
         let* enclosing_qi = Rewriter.current_scope_id in
         let+ enclosing = Rewriter.find_and_reify_callable enclosing_qi in
-        Option.map enclosing.call_decl.call_decl_opens ~f:(fun mask ->
-            Callable.mask_canon
-              (List.map mask ~f:(fun (qi, args) ->
-                   ( qi,
-                     List.map args ~f:(fun arg ->
-                         Expr.alpha_renaming arg loop_arg_renaming_map) ))))
+        Option.map enclosing.call_decl.call_decl_opens ~f:(fun clause ->
+            {
+              clause with
+              opens_entries =
+                List.map clause.opens_entries ~f:(fun (qi, args) ->
+                    ( qi,
+                      List.map args ~f:(fun arg ->
+                          Expr.alpha_renaming arg loop_arg_renaming_map) ));
+            })
       in
 
       let new_proc_decl =

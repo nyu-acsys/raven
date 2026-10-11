@@ -122,7 +122,8 @@ let declaration_text (symbol : Module.symbol) : string option =
           var_locs d.call_decl_formals @ var_locs d.call_decl_returns
           @ spec_locs d.call_decl_precond
           @ spec_locs d.call_decl_postcond
-          @ Option.to_list d.call_decl_opens_loc,
+          @ Option.to_list
+              (Option.map d.call_decl_opens ~f:(fun clause -> clause.opens_loc)),
           (not (Callable.is_abstract c)) || d.call_decl_is_sealed )
     | TypeDef td -> (td.type_def_loc, [], false)
     | VarDef vd ->
@@ -210,13 +211,12 @@ let record_inherited_contract ~(member : ident) ~(source : qual_ident) ~source_l
               Some { Annotations.keyword; text; clause_loc = form_loc }))
   in
   let opens_clause =
-    Option.bind orig_decl.call_decl_opens_loc ~f:(fun clause_loc ->
+    Option.bind orig_decl.call_decl_opens ~f:(fun clause ->
+        let clause_loc = clause.opens_loc in
         Option.map
           (Loc.source_content (Loc.file_name clause_loc))
           ~f:(fun content ->
-            let exprs =
-              Option.value orig_decl.call_decl_opens ~default:[] |> List.concat_map ~f:snd
-            in
+            let exprs = List.concat_map clause.opens_entries ~f:snd in
             let text =
               renamed_clause_text ~content
                 ~span_start:(Loc.start_index clause_loc + String.length "opens")

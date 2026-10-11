@@ -282,7 +282,7 @@ let fixpoint_compute_masks (c : Callable.t) : (Callable.t, bool) Rewriter.t_ext 
         | ProcDef _ -> assert false)
     | Lemma | Proc -> (
         match c.call_decl.call_decl_opens with
-        | Some opens -> Rewriter.return (Callable.mask_canon opens)
+        | Some opens -> Rewriter.return (Callable.mask_canon (Callable.opens_mask opens))
         | None -> compute_proc_lemma_mask c)
     | Func -> Rewriter.return []
   in
@@ -374,7 +374,8 @@ let restrict_grants_to_opens (c : Callable.t) (grants : Callable.mask) :
   let open Rewriter.Syntax in
   match c.call_decl.call_decl_opens with
   | None -> Rewriter.return grants
-  | Some opens ->
+  | Some clause ->
+      let opens = Callable.opens_mask clause in
       let covers entry grant =
         match Callable.mask_entry_meet entry grant with
         | Some meet -> Callable.compare_mask_entry meet grant = 0

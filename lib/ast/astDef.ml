@@ -2437,6 +2437,19 @@ module Callable = struct
   let mask_union_list = MaskSet.union_list
   let mask_inter = MaskSet.inter
 
+  type opens_clause = {
+    opens_entries : (qual_ident * expr list) list;
+    opens_loc : location;
+  }
+  (** An explicit opens clause, retaining trailing wildcards and its source span. *)
+
+  let is_opens_wildcard e =
+    Expr.is_ident e && String.equal (Ident.name (Expr.to_ident e)) "_"
+
+  let opens_mask clause : mask =
+    List.map clause.opens_entries ~f:(fun (qi, args) ->
+        (qi, List.take_while args ~f:(fun e -> not (is_opens_wildcard e))))
+
   type call_decl = {
     call_decl_kind : call_kind;  (** kind of declaration *)
     call_decl_name : ident;  (** internal declaration identity *)
@@ -2472,11 +2485,9 @@ module Callable = struct
             callable, regardless of what it supplies -- computed purely from
             [call_decl_postcond]. Used only by other callables' checking passes at their
             own call sites into this one. *)
-    call_decl_opens : mask option;
+    call_decl_opens : opens_clause option;
         (** The user's [opens] clause, if any: replaces the [call_decl_needs_mask]
             otherwise inferred from [call_decl_precond]. *)
-    call_decl_opens_loc : location option;
-        (** Source span of the explicit opens clause. *)
     call_decl_loc : location;  (** source location of declaration *)
     call_decl_loc_params : QualIdent.t list;
         (** Fields of the formals written as *locations*, `x.A.f`, in order. Those formals
@@ -2584,8 +2595,8 @@ module Callable = struct
       in
       let pr_call_opens ppf = function
         | None -> ()
-        | Some [] -> fprintf ppf "@\nopens {}"
-        | Some mask ->
+        | Some { opens_entries = []; _ } -> fprintf ppf "@\nopens {}"
+        | Some { opens_entries = mask; _ } ->
             let pr_entry ppf (qi, args) =
               match args with
               | [] -> QualIdent.pr ppf qi
@@ -2651,7 +2662,7 @@ module Callable = struct
   let mk_call_decl ~(kind : call_kind) ~(name : ident) ~(loc : location) ?(formals = [])
       ?(returns = []) ?(locals = []) ?(precond = []) ?(postcond = []) ?(contract_ext = [])
       ?(status = NotFree) ?(is_auto = false) ?(is_inline = false) ?needs_mask ?grants_mask
-      ?opens ?opens_loc ?(loc_params = []) () : call_decl =
+      ?opens ?(loc_params = []) () : call_decl =
     {
       call_decl_kind = kind;
       call_decl_name = name;
@@ -2669,7 +2680,6 @@ module Callable = struct
       call_decl_needs_mask = needs_mask;
       call_decl_grants_mask = grants_mask;
       call_decl_opens = opens;
-      call_decl_opens_loc = opens_loc;
       call_decl_loc = loc;
       call_decl_loc_params = loc_params;
     }

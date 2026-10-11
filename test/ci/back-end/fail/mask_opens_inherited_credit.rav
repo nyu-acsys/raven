@@ -1,0 +1,23 @@
+// One instance does not supply credit for an inherited partial mask's whole family.
+field f: Int
+inv pair(x: Ref, y: Ref) { own(y.f, 0, 1.0) }
+
+interface I {
+  lemma touch(x: Ref, y: Ref)
+    requires pair(x, y)
+    ensures pair(x, y)
+    opens pair(x, _)
+}
+
+module Renamed : I {
+  lemma touch(r: Ref, s: Ref) {
+    unfold pair(r, s);
+    fold pair(r, s);
+  }
+}
+
+proc client_one_instance(x: Ref, y: Ref)
+  requires pair(x, y)
+{
+  Renamed.touch(x, y);
+}
