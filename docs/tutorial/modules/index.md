@@ -166,11 +166,10 @@ proof already covers any `Counter`, and `PlainCounter` already comes with a proo
 
 Every functor use so far has needed an explicit instantiation, such as `module UsePlain =
 UseCounter[PlainCounter]`, before anything could be called through it. Raven can skip that step
-and infer the instantiation for you at the call site, provided that *every* formal of the
-functor is constrained by an interface that itself declares a `rep type`. `Counter` has this
-shape, as will any interface built the way {{ref sec:interfaces-and-modules}} describes. The
-following code is [`implicit_instantiation.rav`](./implicit_instantiation.rav), a self-contained
-example:
+and infer the instantiation from the types at the call site. For this type-based inference,
+each functor parameter must be constrained by an interface declaring a `rep type`, as
+`Library.Type` and `Counter` are. The following code is
+[`implicit_instantiation.rav`](./implicit_instantiation.rav), a self-contained example:
 
 ```raven
 module Box[T: Library.Type] {
@@ -202,76 +201,13 @@ against a plain argument, Raven reads the type argument directly off `b`'s infer
 same mechanism covers destructor syntax too. `b.Box.unwrap` resolves identically, without you
 ever having written down which instantiation of `Box` `b` belongs to.
 
-`Library.Type`, the standard library's interface for "any type", declares one more member
-besides `rep type T`: a value `default: T`. It gives generic code some value of `T` to fall back
-on, for instance as the result of a `func` on inputs where there is nothing meaningful to
-return. The value is deliberately unspecified. You can't prove anything about it beyond its
-type, so even `assert Library.IntType.default == 0` fails. `default` is declared `free`, which
-means an implementation of `Library.Type` doesn't have to define it and simply inherits it. A
-module that wants a specific value can still define `val default: T = ...` itself. Leaving it
-undefined is sound because every Raven type is backed by a non-empty SMT sort, so some value of
-`T` always exists.
+Repeated calls with the same inferred type arguments reuse one implicit instance. A separately
+declared instance can have a distinct type, even with identical arguments. Use calls through
+one instance consistently, or provide argument or result types that identify the instance you
+want. When Raven cannot infer a parameter, write an explicit instantiation.
 
-Calling `Box.mk(3)` a second time resolves to the *same* implicit instantiation as the first.
-Raven deduplicates by the inferred type argument, so the results of both calls share one type and
-can be compared with `==`. A call with a different inferred argument, like `Box.mk(true)`, gets
-its own separate instantiation, coexisting with `Box[Int]` in the same proc.
-
-Eligibility is checked structurally, not by name. A functor qualifies if "every formal's
-constraining interface has a `rep type`," which is why `Library.Type` (`Box`'s constraint on
-`T`) and `Counter` both work, since both declare one. `UseCounter` itself, from
-{{ref sec:functors}}, technically qualifies in the same way, since `Counter` has a `rep type`.
-However, `demo` takes no arguments at all, so a call to `UseCounter.demo()` gives Raven nothing to
-infer `C` from, and you're back to writing `UseCounter[PlainCounter]` explicitly. If a formal's
-constraining interface has no `rep type` in the first place, the functor doesn't qualify at all.
-A bare `F.member` then fails with the ordinary "unknown identifier" error, exactly as if `F` were
-never declared to have a member `member`, because without an instantiation it doesn't have one.
-
-Inference can fail even for an eligible functor when nothing about a call pins down a formal.
-[`broken/box_underdetermined.rav`](./broken/box_underdetermined.rav) adds a second case to
-`Box`'s data type and a constructor for it that takes no `T`-typed argument at all:
-
-```raven
-rep type S = data {
-  case box(unwrap: T)
-  case tag(flag: Bool)
-}
-
-func mkTag() returns (res: S) {
-  tag(true)
-}
-```
-
-`Box.mkTag()` fails, as intended: `[Type Error] Cannot infer a type argument for parameter T of
-Box; write an explicit instantiation, e.g. module M_X = Box[...]`. The payload of `tag(true)` is
-a hardcoded `Bool`, and nothing in the call mentions `T` at all, so there's nothing to unify it
-against. Adding a type annotation doesn't fix this either. Neither
-`(Box.mkTag() : Box[Int])` nor `var n : Box[Int] := Box.mkTag()` helps, and both fail with the
-same error. An inline instantiation like `Box[Int]`, written directly in a type position,
-doesn't count as an existing instantiation of `Box` that inference could read a type argument
-from, because it isn't a call whose arguments this mechanism examines. The message states the
-only fix that works: fall back to an explicit instantiation, `module BoxTag =
-Box[Library.IntType]`, and call `BoxTag.mkTag()` instead.
-
-There's a pitfall to be aware of with this fallback. An explicit instantiation and an implicit
-one are *not* interchangeable, even for the same type argument. This means that an annotation
-naming an *existing, already-declared* instantiation doesn't fully fix `Box.mkTag()` either. Try
-`var n : BoxTag.S := Box.mkTag()`. This time inference *does* solve `T := Int` (unlike `Box[Int]`
-above, `BoxTag.S` already names a real instantiation). However, the call still produces its own
-fresh, separate implicit instantiation of `Box[Int]` to compute its result, and that fresh
-instantiation is a different type from `BoxTag.S`. So the assignment fails, now with `Expected an
-expression of type BoxTag.S but found an expression of type GenInst$$Box$$Int.S` instead. The
-name `GenInst$$Box$$Int` is the internal instantiation that, as mentioned earlier in this
-section, you normally never have to spell out yourself, until a type error like this one shows
-it to you. It's also exactly what `Box.mk(3)` infers on its own. Mixing a `BoxTag.S` value with
-one produced by `Box.mk(...)` causes the same mismatch, for the same reason. Both are separately
-declared instantiations of one functor with identical arguments, and instantiation is generative
-by design. No annotation makes two different instantiations into one.
-Choose one mechanism per type argument you care about and stick to it. In practice, this usually
-means preferring implicit instantiation until inference can't determine a type argument from a
-call's own arguments. Only then should you introduce one explicit, named instantiation, and from
-that point on call through *that* instantiation consistently rather than mixing it with implicit
-calls.
+{{ref app:advanced-modules}} covers inference from expected result types, unresolved parameters,
+instance identity, and the generic `default` value.
 
 ## Sealing modules {#sec:sealing}
 
@@ -325,7 +261,7 @@ module Client {
 ```
 
 Raven checks `ListStack` against `Stack` once, for every `E`, exactly as for `:`. Here, it proves
-both auto lemmas from the definitions on its own. To `Client`, however, `S.T` is an abstract type,
+both auto lemmas from the definitions on its own (see {{ref sec:auto-lemmas}}). To `Client`, however, `S.T` is an abstract type,
 and `push` and `size` have no bodies. `two_pushes` verifies using `size_empty` and `size_push`
 alone. The constructors are out of reach: writing `S.nil` fails with `nil is not accessible here:
 S is an instance of the sealed module ListStack, which exposes only the members of interface
@@ -342,13 +278,7 @@ inferred from a call ({{ref sec:implicit-functor-instantiation}}), or written as
 `ListStack[Int]`. Only the functor's own body sees through the seal. A sealed module names
 exactly one interface.
 
-A module without parameters can be sealed the same way. Outside its own body, `module M :> I {
-... }` shows only the members of `I`, and its abstract types are distinct from every other type.
-You can also seal a single instance of a module that implements an interface: `module V :> I = N`
-makes `V` a view of `N` through `I`, and `module V :> Stack = F[Library.IntType]` does the same
-for an instance of a functor `F`. `N` or `F` has to declare that it implements the interface, and Raven
-takes the interface's arguments from that declaration. Code that names `N` directly still sees
-its definitions, but to clients of `V`, `V.T` is an abstract type, distinct from `N.T`.
+Single-instance sealing and other forms are described in {{ref sec:module-sealed-views}}.
 
 The standard library's sequences, `Library.Seq`, are a sealed functor as well. {{ref app:stdlib-types}}
 describes them, along with the library's other data types.
@@ -366,90 +296,6 @@ doesn't matter which one appears first in the text. `import M.x` followed (or ev
 elsewhere by your own `val x: Int = 1` just makes the import a no-op for `x`, and nothing tells
 you that this happened. It doesn't come up in this chapter's examples, but it's good to be aware
 of it before it costs you an afternoon.
-
-## Rolling your own well-founded order {#sec:well-founded-order}
-
-{{ref sec:termination-measure}} used a lexicographic `decreases m, n`, built from `Int`'s
-built-in order. Behind the scenes, every `decreases` clause is resolved the same way, by the
-*type* of the expression you give it. That type needs an instance of
-`Library.WellFoundedOrder`, an ordinary interface from the standard library:
-
-```raven
-interface WellFoundedOrder : Type {
-  func lt(x: T, y: T) returns (res: Bool)
-  func embed(x: T) returns (res: OrdinalBase.T)
-
-  axiom lt_embed_mono()
-    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> OrdinalBase.lt(embed(x), embed(y))
-}
-```
-
-This is the `axiom` pattern from {{ref sec:lemmas-and-axioms}} once again. Implementing
-`WellFoundedOrder` means supplying `lt`, and then either discharging `lt_embed_mono` yourself
-with a real `lemma` body, or letting Raven attempt it automatically (which fails if the fact
-doesn't hold). The function `embed` is what makes well-foundedness checkable rather than merely
-assumed. Every instance has to map its own `T` into `Library.OrdinalBase.T`, the ordinals in
-Cantor normal form. This is the one well-founded structure that the whole mechanism ultimately
-trusts. You then need to prove that `embed` is a homomorphism for `lt` with the ordinal order. A
-pullback of a well-founded relation is always well-founded, so this reduces the
-well-foundedness of *every* instance to a single trusted fact. You don't have to prove the
-non-existence of an infinite descending chain directly each time, which, for most interesting
-orders, is much harder to show from scratch.
-
-Raven ships five instances of `WellFoundedOrder`:
-
-- `Library.IntOrder`, which is what every plain-`Int` `decreases` clause you've written so far
-  resolves to.
-- `Library.LexOrder[A, B]`, the lexicographic combinator from {{ref sec:termination-measure}},
-  generic over any two well-founded orders `A` and `B`.
-- `Library.Ordinal`, the raw ordinals themselves.
-- `Library.MultisetOrder`, for a termination argument of the form "some multiset only ever
-  shrinks," which no fixed-arity lexicographic tuple can express.
-- `Library.SetOrder[E]`, strict subset inclusion on `FinSet[E]` (see
-  {{ref sec:values-and-types}}). It is resolved automatically in the same way, so `decreases s`
-  just works for any `FinSet`-typed `s` without naming an instance explicitly.
-
-See `lib/ext/decreasesExt/well_founded_order.rav` if you want the details on any of these.
-There's also a sixth built-in option that you may already have used without noticing. If you
-write `decreases` on a value of a self-recursive `data` type (a `List[E]`'s tail, a tree's
-child), Raven automatically generates a structural "subterm" order: `x` counts as smaller
-than `y` exactly when `x` is one of the pieces `y` was built from. This is what makes
-straightforward structural recursion over your own recursive algebraic data types work without
-any of the machinery in this section. If your own measure doesn't fit any of these, you implement
-`WellFoundedOrder` yourself, just like any other interface.
-[`well_founded_order.rav`](./well_founded_order.rav) is a minimal complete example: a two-state
-"not done yet"/"done" order, collapsing towards `true`:
-
-```raven
-module BoolOrder : Library.WellFoundedOrder {
-  rep type T = data {
-    case wrap(unwrap: Bool)
-  }
-
-  func lt(x: T, y: T) returns (res: Bool) {
-    x.unwrap && !y.unwrap
-  }
-
-  func embed(x: T) returns (res: Library.OrdinalBase.T) {
-    x.unwrap ?
-      Library.OrdinalBase.zero :
-      Library.OrdinalBase.cons(Library.OrdinalBase.zero, 1, Library.OrdinalBase.zero)
-  }
-
-  lemma lt_embed_mono()
-    ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> Library.OrdinalBase.lt(embed(x), embed(y))
-  {
-  }
-}
-```
-
-One detail is easy to miss and can cost real debugging time. `rep type T` is defined as a
-one-case wrapper around `Bool`, not as `rep type T = Bool` directly. A `rep type` alias to a type
-from *outside* the module resolves transparently to that other type's own identity once
-elaborated. So a bare alias here would make a `decreases` clause of this type quietly resolve to
-plain `Bool` (which has no `WellFoundedOrder` instance at all) rather than to `BoolOrder`.
-`Library.Ordinal`, in the standard library itself, wraps `Library.OrdinalBase.T` for the same
-reason.
 
 ## Why this matters for concurrency
 

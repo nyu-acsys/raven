@@ -1,4 +1,4 @@
-# 5.2. Atomic Contracts (Capstone: The Ticket Lock)
+# 5.2. Atomic Contracts
 
 *Assumes: Part 3's interface/functor pattern (`LockResource`, a module parameterizing over an
 abstract protected resource) and Part 4's invariant fold/unfold discipline, ghost fields, and
@@ -237,6 +237,6 @@ learn here, just new statements to which the same one-step discipline applies.
 
 [5.3](../iterated-star/) is the next capstone: an array of independently-lockable counters,
 which needs a way to own an entire *family* of resources (one per array slot) at once, rather
-than one at a time. [5.5](../automation/) then collects the smaller automation features
+than one at a time. {{ref app:automation}} collects the smaller automation features
 (implicit parameters, witness computation, `auto` lemmas, triggers) that all four capstones
 rely on without discussing them explicitly.

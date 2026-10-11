@@ -45,7 +45,6 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:implicit-functor-instantiation': 'Implicit functor instantiation',
   'sec:sealing': 'Sealing modules',
   'sec:import': 'import',
-  'sec:well-founded-order': 'Rolling your own well-founded order',
 
   'sec:threads-and-atomics': 'Threads and atomic primitives',
   'sec:shared-invariants-problem': 'The problem shared invariants solve',
@@ -102,12 +101,19 @@ const SIDEBAR_LABELS: Record<string, string> = {
   'sec:stdlib-list': 'Lists',
   'sec:stdlib-seq': 'Sequences',
   'sec:stdlib-array': 'Arrays',
+  'sec:module-inference-details': 'Eligibility and inference',
+  'sec:module-instance-identity': 'Instance identity',
+  'sec:module-default-values': 'Generic default values',
+  'sec:module-sealed-views': 'Sealing modules and individual instances',
   'sec:overload-resolution': 'Choosing a definition',
   'sec:overload-imports': 'Imports and shadowing',
   'sec:overload-symbols': 'Symbolic infix functions',
   'sec:overload-operators': 'Fixed operator notation',
   'sec:overload-patterns': 'Index, range, and update patterns',
   'sec:overload-literals': 'Enumeration literals',
+  'sec:ackermann-termination': "Ackermann's lexicographic measure",
+  'sec:well-founded-order': 'Defining a custom order',
+  'sec:ghost-termination': 'Termination of ghost code',
   'sec:trust-boundary': 'Where the trust boundary is',
   'sec:when-extension-api': 'When you need the Extension API',
 
@@ -123,7 +129,10 @@ const APPENDIX_LABELS: Record<string, string> = {
   'app:from-other-tools': 'Coming From Viper, Dafny, or Iris',
   'app:extension-api': 'The Extension API',
   'app:stdlib-types': 'Standard Library Data Types',
+  'app:advanced-modules': 'Advanced Module Features',
+  'app:automation': 'Automation Features',
   'app:overloading': 'Function and Operator Overloading',
+  'app:well-founded-orders': 'Well-Founded Orders',
   'app:where-next': 'Where to Go Next'
 }
 
@@ -145,6 +154,9 @@ function appendixItems() {
       if (!label) throw new Error(`No APPENDIX_LABELS entry for ${id} -- add one in config.mts`)
       const item = { text: `${page.label}. ${label}`, link: page.path.replace(/\.html$/, '') }
       const items = numberedItems(page.path)
+      if (id === 'app:automation') {
+        items.push({ text: 'Debugging Corner', link: `${page.path}#debugging-corner-my-proof-just-hangs` })
+      }
       return items.length > 0 ? { ...item, collapsed: true, items } : item
     })
 }
@@ -319,7 +331,7 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/tutorial/advanced/' },
           {
-            text: '5.1. Capstone: Fork/Join',
+            text: '5.1. Resource Algebras in Practice',
             link: '/tutorial/advanced/fork-join/',
             collapsed: true,
             items: [
@@ -350,7 +362,7 @@ export default defineConfig({
             ]
           },
           {
-            text: '5.4. Capstone: Prophecies',
+            text: '5.4. Prophecies',
             link: '/tutorial/advanced/prophecies/',
             collapsed: true,
             items: [
@@ -358,16 +370,6 @@ export default defineConfig({
               { text: 'Beyond counters: the same protocol elsewhere', link: '/tutorial/advanced/prophecies/#beyond-counters-the-same-protocol-elsewhere' },
               { text: 'Debugging Corner', link: '/tutorial/advanced/prophecies/#debugging-corner' },
               { text: "What's next", link: '/tutorial/advanced/prophecies/#what-s-next' }
-            ]
-          },
-          {
-            text: '5.5. Automation Features',
-            link: '/tutorial/advanced/automation/',
-            collapsed: true,
-            items: [
-              ...numberedItems('/tutorial/advanced/automation/'),
-              { text: 'Debugging Corner', link: '/tutorial/advanced/automation/#debugging-corner-my-proof-just-hangs' },
-              { text: "What's next", link: '/tutorial/advanced/automation/#what-s-next' }
             ]
           }
         ]

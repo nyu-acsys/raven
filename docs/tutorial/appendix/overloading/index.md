@@ -30,9 +30,10 @@ cannot be distinguished only by their return types.
 
 An ambiguous call is an error. Qualify the function name to choose a module, or annotate an
 argument to make its type explicit. Empty collections often need this extra context; write
-`([||] : Seq[Int])`, for example, when the surrounding call does not determine the sequence's
+`( [||] : Seq[Int])`, for example, when the surrounding call does not determine the sequence's
 element type. Generic library functions use the same resolution and infer their module
-instances as described in {{ref sec:implicit-functor-instantiation}}.
+instances as described in {{ref sec:implicit-functor-instantiation}}. For detailed inference
+rules and instance identity, see {{ref app:advanced-modules}}.
 
 ## Imports and shadowing {#sec:overload-imports}
 

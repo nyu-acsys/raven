@@ -1,11 +1,12 @@
-# 5.5. Automation Features
+# Automation Features
 
-All four capstones you just finished relied on a handful of smaller features that make Raven's
-automation more usable in practice. None of them introduce new *reasoning*. Everything here is
-still the ownership, invariants, and resource algebras from Parts 2–4. These features just make
-them more convenient to use. Code for the first and last sections is in
-[`automation.rav`](./automation.rav). The middle ones are already demonstrated in 5.1–5.4, and
-are cited rather than duplicated.
+*Assumes: Parts 2–4's ownership, lemmas, and shared invariants. Individual sections link to
+worked examples in the capstones.*
+
+This appendix explains implicit parameters, witness computation, triggers, and other features
+that help automate proofs. Consult the relevant section when a feature appears in an example.
+[`automation.rav`](./automation.rav) contains self-contained demonstrations; other sections
+refer to the capstones' existing examples.
 
 ## Implicit parameters {#sec:implicit-parameters}
 
@@ -214,7 +215,7 @@ for `token_unique` and an explicit call to it inside `join`. Declaring `token` `
 remove the explicit call entirely, since `token(p) && token(p)` now expands to the same
 contradiction on its own, without being asked. If {{ref sec:inline-predicates}} wasn't entirely
 clear, it's worth a second look now with this framing in mind. `locked` in
-[`ticket_lock_atomic.rav`](../atomic-contracts/ticket_lock_atomic.rav) uses exactly the same
+[`ticket_lock_atomic.rav`](../../advanced/atomic-contracts/ticket_lock_atomic.rav) uses exactly the same
 trick, for the same reason, with a different `Excl`-like algebra.
 
 There is a trade-off. An `inline pred` saves you the fold/unfold bookkeeping for something
@@ -324,21 +325,7 @@ You won't always find out *why* something was slow, and that's fine. The goal is
 tends to make Raven's automation struggle so that you can avoid it, not to diagnose every
 slowdown in detail after the fact.
 
-## What's next
+## Further reading
 
-You've now seen everything this tutorial set out to cover. The appendices provide additional
-material:
-
-- {{ref app:resource-algebras}} works through the formal definition of resource algebras,
-  for readers who want the Part 4 constructions justified rather than just motivated.
-- {{ref app:hardware-primitives}} shows how to add an atomic hardware primitive that the
-  standard library doesn't provide, without touching the verifier.
-- {{ref app:stdlib-types}} describes the data types of the standard library that the main
-  tutorial doesn't use: options, lists, sequences, and arrays.
-- {{ref app:overloading}} explains how ordinary functions and operators share name
-  lookup and selection, including range and update patterns.
-- {{ref app:from-other-tools}} is a quick dictionary for readers coming from Viper, Dafny, or
-  Iris.
-- {{ref app:extension-api}} points to the Extension API, for readers who want to add new
-  front-end syntax rather than just write proofs.
-- {{ref app:where-next}} has pointers to more worked examples than this tutorial covers.
+The [tutorial's appendix list](../../#appendices) links to the other reference topics.
+{{ref app:where-next}} points to additional worked examples.

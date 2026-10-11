@@ -1,4 +1,6 @@
-# 5. Scaling Up: Advanced Features and Capstones
+# 5. Scaling Up
+
+This chapter brings the preceding ideas together in four capstones.
 
 The guiding idea of this chapter is that the toolkit doesn't change, only how convenient it is to
 use. This is also the one part of the tutorial that is designed so you can start reading here
@@ -9,9 +11,13 @@ across the whole tutorial. We resolve it by referring back to *specific* earlier
 rather than re-teaching them. Each section opens with a one-line "Assumes" pointer naming exactly
 what's carried over from earlier parts.
 
-- **[5.1. Capstone: Fork/Join](./fork-join/)**: no new mechanism, just the whole toolkit from
-  Parts 1–4, applied once from start to finish, including a first attempt that doesn't work.
-- **[5.2. Atomic Contracts (Capstone: The Ticket Lock)](./atomic-contracts/)**
-- **[5.3. Iterated Separating Conjunctions (Capstone: A Shelf of Counters)](./iterated-star/)**
-- **[5.4. Prophecies (Capstone: A Distributed Counter)](./prophecies/)**
-- **[5.5. Automation Features](./automation/)**
+- **[5.1. Resource Algebras in Practice](./fork-join/)**: a fork/join handle that transfers
+  a task's result and its owned resource between threads, built from the toolkit in Parts 1–4.
+- **[5.2. Atomic Contracts](./atomic-contracts/)**: a ticket lock, verified first with a
+  shared invariant and then with atomic contracts for its acquisition loop.
+- **[5.3. Iterated Separating Conjunctions](./iterated-star/)**: a shelf of counters protected
+  by a shared invariant owning an indexed family of cells.
+- **[5.4. Prophecies](./prophecies/)**: a distributed counter whose `get` uses prophecy
+  variables and a helping protocol to establish its linearization point.
+
+{{ref app:automation}} collects the automation features used throughout these capstones.

@@ -1,0 +1,24 @@
+module Box[T: Library.Type] {
+  rep type S = data {
+    case box(unwrap: T)
+    case tag(flag: Bool)
+  }
+
+  func mkTag() returns (res: S) { tag(true) }
+  func getTag(b: S) returns (res: Bool) { b.flag }
+}
+
+module BoxTag = Box[Library.IntType]
+
+lemma expected_instances() {
+  val inferred: Box[Int] := Box.mkTag();
+  assert Box.getTag(inferred);
+  val annotated := (Box.mkTag() : Box[Int]);
+  assert inferred == annotated;
+
+  val named: BoxTag.S := Box.mkTag();
+  assert BoxTag.getTag(named);
+  assert Box.getTag(named);
+  val explicit := BoxTag.mkTag();
+  assert named == explicit;
+}

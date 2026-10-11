@@ -6,11 +6,11 @@
 //   [Error] Type Error: Cannot infer a type argument for parameter T of Box;
 //   write an explicit instantiation, e.g. `module M_X = Box[...]`
 //
-// Implicit instantiation (§6) only works when the call's own arguments (or,
-// for `get`-style destructors, the receiver's already-inferred type) supply
-// enough information to solve every formal. When they don't, the fix is
-// exactly what the error suggests: instantiate `Box` explicitly, once, under
-// a name, and call through that instead.
+// The call below has neither argument types nor an expected result type
+// from which to infer `T`. An annotation such as `Box[Int]` supplies that
+// missing context. Alternatively, follow the diagnostic: instantiate
+// `Box` explicitly under a name and call its member through that module.
+// The appendix's `inference.rav` checks the successful annotated forms.
 module Box[T: Library.Type] {
   rep type S = data {
     case box(unwrap: T)

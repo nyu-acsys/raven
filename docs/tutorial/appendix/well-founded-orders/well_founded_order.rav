@@ -1,8 +1,5 @@
-// Rolling your own termination order: `Library.WellFoundedOrder` (used by
-// every `decreases` clause since Part 1 §5) is itself just an `interface`,
-// implemented by a `module`, exactly like `Counter` earlier in this file --
-// the same pattern, applied to the standard library instead of to your own
-// code.
+// Every `decreases` clause uses a `Library.WellFoundedOrder` instance,
+// defined by implementing an interface with a module.
 //
 // A well-founded order for a two-state "not done yet" / "done" flag,
 // collapsing towards `true`. Wrapped in a single-constructor `data` type
@@ -35,8 +32,7 @@ module BoolOrder : Library.WellFoundedOrder {
   // The one proof obligation implementing this interface actually asks
   // for: that `lt` agrees with the ordinal order after `embed`. Here it's
   // immediate from both functions' definitions -- Raven's automation
-  // handles it with an empty body, the same way Part 3 §4's `nonNegative`
-  // needed nothing but an `unfold`/`fold` once the right fact was exposed.
+  // handles it with an empty body.
   lemma lt_embed_mono()
     ensures forall x: T, y: T :: {lt(x, y)} lt(x, y) ==> Library.OrdinalBase.lt(embed(x), embed(y))
   {

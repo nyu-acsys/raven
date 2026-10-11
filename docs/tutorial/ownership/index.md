@@ -56,7 +56,8 @@ proc increment(c: Ref, implicit ghost v: Int)
 The formal parameter `v` is declared as `implicit ghost`. Here `ghost` means that the parameter
 exists purely to state the contract and has no run-time effect. The modifier `implicit` means
 that the caller does not need to supply an actual argument for `v` explicitly. Raven infers it
-from whatever `own(c.count, ...)` fact is already in scope at the call site. The important idea
+from whatever `own(c.count, ...)` fact is already in scope at the call site
+({{ref sec:implicit-ghost-parameters}} explains the inference). The important idea
 here is that `own(c.count, v)` is not merely the claim "`c.count` currently equals `v`" (that
 would just be a fact, freely duplicable, like `2 + 2 == 4`). It expresses *ownership* of that
 fact, which you can spend, and which you no longer have once it's spent. Try this in a scratch

@@ -52,7 +52,7 @@
 		"modifiers": {
 			"patterns": [{
 				"name": "storage.modifier.raven",
-				"match": "\\b(auto|ghost|implicit|rep)\\b"
+				"match": "\\b(auto|ghost|implicit|inline|rep)\\b"
 			},
 		  {
 				"name": "invalid.illegal",
@@ -62,7 +62,7 @@
 		"specs": {
 			"patterns": [{
 				"name": "keyword.other.raven",
-				"match": "\\b(requires|ensures|returns|atomic|invariant|decreases)\\b"
+				"match": "\\b(requires|ensures|returns|atomic|invariant|decreases|opens)\\b"
 			}]
 		},
 		"constants": {
@@ -79,7 +79,7 @@
 		},
 		"operators": {
 			"patterns": [{
-				"match": "!=|%|&|\\*|\\-\\-|\\-|\\+\\+|\\+|==|:=|<=|>=|=>|==>|<|>|!|&&|\\|\\||::|:\\|",
+				"match": "!=|%|&|\\*|\\-\\-|\\-|\\+\\+|\\+|==|:=|:>|<=|>=|=>|==>|<|>|!|&&|\\|\\||::|:\\|",
 				"name": "keyword.operator.raven"
 			}]
 		},

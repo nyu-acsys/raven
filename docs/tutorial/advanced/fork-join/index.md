@@ -1,4 +1,4 @@
-# 5.1. Capstone: Fork/Join
+# 5.1. Resource Algebras in Practice
 
 *Assumes: Parts 1–4, in full. Unlike 5.2/5.3, this capstone doesn't rely on any single new
 mechanism. It applies the toolkit from Parts 1–4 (ownership, shared invariants, ghost fields and
@@ -193,7 +193,8 @@ ordinary `if` in a `proc` can't branch on ghost state. You'll see the same `{! !
 in {{ref app:resource-algebras}} if you go looking for more resource-algebra examples. Every one of these steps is
 mechanical. They are driven entirely by `Excl`'s composition rule and never require any
 case-by-case reasoning on your part. This is exactly the kind of bookkeeping that inline
-predicates are designed to eliminate. Declare `token` `inline`:
+predicates are designed to eliminate (see {{ref sec:inline}} for the reference).
+Declare `token` `inline`:
 
 ```raven
 inline pred token(p: Ref) {

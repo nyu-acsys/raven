@@ -1,0 +1,15 @@
+// Without `decreases`, termination of a recursive lemma is assumed.
+// Add `decreases n` to reject this unchanged recursive measure.
+lemma loopForever(n: Int)
+  ensures false
+{
+  loopForever(n)
+}
+
+proc demo()
+{
+  {!
+    loopForever(0)
+  !}
+  assert false
+}

@@ -53,7 +53,6 @@ const PART_LABELS = {
   'tutorial/advanced/atomic-contracts/': '5.2',
   'tutorial/advanced/iterated-star/': '5.3',
   'tutorial/advanced/prophecies/': '5.4',
-  'tutorial/advanced/automation/': '5.5',
 }
 
 // The appendices, in order. Each one's letter is its position in this list:
@@ -65,7 +64,10 @@ const APPENDICES = [
   'tutorial/appendix/resource-algebras',
   'tutorial/appendix/hardware-primitives/',
   'tutorial/appendix/stdlib-types/',
+  'tutorial/appendix/advanced-modules/',
+  'tutorial/appendix/automation/',
   'tutorial/appendix/overloading/',
+  'tutorial/appendix/well-founded-orders/',
   'tutorial/appendix/from-other-tools',
   'tutorial/appendix/extension-api',
   'tutorial/appendix/where-next',

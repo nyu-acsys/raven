@@ -1,4 +1,4 @@
-# 5.3. Iterated Separating Conjunctions (Capstone: A Shelf of Counters)
+# 5.3. Iterated Separating Conjunctions
 
 *Assumes: Part 2's separating conjunction and frame rule ({{ref sec:separating-conjunction}},
 {{ref sec:proc-contracts-revisited}}), and Part 4's shared invariants ({{ref sec:shared-invariants}}).
@@ -124,7 +124,7 @@ reaching a specific cell costs an unfold/fold for each link along the way.
 operation doesn't always know its own linearization point without help from a concurrent `incr`.
 The solution combines prophecy variables with a "helping protocol" built from everything up to
 this point: one-shot handoffs from 5.1, atomic contracts from 5.2, and, in the counter's own
-invariant, an ISC over a *set* rather than an index range. [5.5](../automation/) then collects
+invariant, an ISC over a *set* rather than an index range. {{ref app:automation}} collects
 the smaller automation features (implicit parameters, witness computation, `auto` lemmas,
 triggers, `assert ... with`) that all four capstones have been relying on without discussing them
 explicitly, such as the `{loc(s, i)}` triggers above.

@@ -1,4 +1,4 @@
-# 5.4. Prophecies (Capstone: A Distributed Counter)
+# 5.4. Prophecies
 
 *Assumes: Part 4's shared invariants ({{ref sec:shared-invariants}}), ghost fields and resource
 algebras ({{ref sec:ghost-fields-resource-algebras}}), and frame-preserving updates
@@ -14,7 +14,7 @@ about the future instead. Specifically, it lets the proof reason about the outco
 nondeterministic choice (which thread's `incr` runs next, what a scheduler decides) that hasn't
 happened yet, but that the proof needs to name and reason about *before* it happens. This section
 builds up to that idea with a small warm-up ([`lazy_coin.rav`](./lazy_coin.rav)), then spends
-most of its time on the capstone itself: a counter whose `get` operation doesn't always know its
+most of its time on the capstone itself: a distributed counter whose `get` operation doesn't always know its
 own linearization point without help from a concurrent `incr`
 ([`dist_counter.rav`](./dist_counter.rav)).
 
@@ -470,7 +470,7 @@ or otherwise.
 
 ## What's next
 
-[5.5](../automation/) collects the smaller automation features (implicit parameters, witness
+{{ref app:automation}} collects the smaller automation features (implicit parameters, witness
 computation, `auto` lemmas, triggers, `assert ... with`) that all four capstones have been relying
 on without discussing them explicitly. This one is no exception, with `get`'s
 `implicit ghost n: Int`, `is_counter`/`counter_state` as `inline pred`s, and the guarded

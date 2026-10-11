@@ -183,19 +183,10 @@ doesn't need to be verified separately.
 
 ## Ghost blocks and the erasure guarantee {#sec:ghost-blocks-erasure}
 
-Every `ghost` you've written since Part 2 (`implicit ghost v: Int`, `ghost field seen:
-AuthMaxNat`, `ghost var v2: Int` in {{ref sec:ghost-fields-resource-algebras}} above) exists
-purely to help the proof. None of it is compiled. A real build of a Raven program erases every
-ghost declaration, every ghost-only statement, and every `fold`/`unfold`/`fpu`, and the result
-runs identically. This is a precise guarantee rather than a vague statement of intent, and there
-is a type-checking discipline specifically to enforce it: **erasing ghost code can never change
-what the non-ghost program actually does**. That includes its non-ghost state, which branches it
-takes, and whether or when it calls another procedure.
-
-A **ghost block**, written `{! ... !}`, is the last piece of ghost syntax this tutorial
-introduces. It wraps a whole sequence of statements and marks all of them as ghost at once, the
-same way `ghost var`/`ghost field` mark one declaration at a time. This is
-[`ghost_scope.rav`](./ghost_scope.rav):
+Ghost code exists to support the proof. **Erasing it must preserve the program's non-ghost
+state and control flow.** Raven's type checker enforces this boundary for `ghost` declarations,
+proof statements, and **ghost blocks**, written `{! ... !}`. A ghost block marks its entire
+statement sequence as ghost, as in [`ghost_scope.rav`](./ghost_scope.rav):
 
 ```raven
 proc demo(c: Ref, implicit ghost v: Int)
@@ -213,39 +204,20 @@ proc demo(c: Ref, implicit ghost v: Int)
 }
 ```
 
-`ghost var predictedNext` is an ordinary local, declared exactly like `var`, that Raven erases
-along with everything computed from it. The `if` right after it has to sit inside `{! ... !}`
-because its condition, `predictedNext > 0`, reads ghost state. An *ordinary* (non-ghost) `if`
-can't branch on that, because the real program's control flow would then depend on a fact that
-only the proof can see. [`broken/ghost_leak.rav`](./broken/ghost_leak.rav) is exactly this `if`
-with the `{! ... !}` deleted, and it fails immediately with `[Type Error] This expression reads
-ghost state, so it can only be used inside a ghost block, spec, or ghost-typed field`. Wrapping
-the whole statement in a ghost block is what makes the condition legal. Inside `{! ... !}`,
-everything, including the branch and the `assert`, is ghost too, so there's nothing left for the
-erasure guarantee to protect.
+The `if` reads ghost state, so it must itself be ghost. Removing the block, as in
+[`broken/ghost_leak.rav`](./broken/ghost_leak.rav), gives `This expression reads ghost state,
+so it can only be used inside a ghost block, spec, or ghost-typed field`.
 
-The rule applies just as strictly in the other direction. A ghost block can read and manipulate
-ghost state freely, but it still can't modify anything real.
-[`broken/ghost_write.rav`](./broken/ghost_write.rav) tries `c.count := 5` (an ordinary,
-non-ghost field) from inside a `{! ... !}` block, and gets `[Type Error] Cannot assign to
-non-ghost field count in ghost context`. The same check guards non-ghost local variables, with
-the message `Cannot assign to non-ghost var x in ghost context`. Just like a `lemma` (see
-{{ref sec:lemmas-and-axioms}}), which can never call an ordinary `proc` (`[Type Error] Cannot
-call procedure in ghost context`), a ghost block may not contain any `proc` call or `spawn`.
-Nothing ghost is ever allowed to trigger a real side effect, including starting a new thread.
-Together, these checks rule out every way in which erasing ghost code could change real behavior:
-no reading ghost data in non-ghost expressions or control flow, no writing non-ghost state from
-ghost code, and no calling non-ghost callables from ghost code.
+Ghost code can read and update ghost state, but it cannot assign to non-ghost variables or
+fields. [`broken/ghost_write.rav`](./broken/ghost_write.rav) tries `c.count := 5` inside a ghost
+block and gets `Cannot assign to non-ghost field count in ghost context`. It also cannot call
+an ordinary `proc` or `spawn` a thread, just as a `lemma` cannot
+({{ref sec:lemmas-and-axioms}}).
 
-The one-atomic-step rule from {{ref sec:shared-invariants}} relies on this same distinction, and
-it's worth stating explicitly: **ghost statements never count as one of the atomic steps that
-rule restricts.** A shared invariant instance may be open for at most one atomic step, but that
-step has to be a *real*, non-ghost one. Any number of ghost statements (a `ghost var`
-assignment, an `assert`, an `fpu`, a `lemma` call, an entire `{! ... !}` block) can appear
-before it, after it, or both, without triggering `Attempting to take more than one atomic step
-with an open invariant or atomic update`. [`ghost_steps.rav`](./ghost_steps.rav) is the
-`bumpTwice` from {{ref sec:shared-invariants}}, with some ghost bookkeeping added on both sides
-of its one real `faa`:
+**Ghost statements do not count as atomic steps.** While a shared invariant is open, the
+one-atomic-step rule from {{ref sec:shared-invariants}} counts only non-ghost steps. Ghost
+assignments, assertions, `fpu`s, and lemma calls can surround that step. In
+[`ghost_steps.rav`](./ghost_steps.rav), there is still only one real atomic operation:
 
 ```raven
 proc bumpTwice(c: Ref)
@@ -261,56 +233,10 @@ proc bumpTwice(c: Ref)
 }
 ```
 
-This isn't a special case added to the atomicity analysis. It's the erasure guarantee from
-earlier in this section, seen from the concurrency side. A real execution of the compiled program
-only takes the one non-ghost step. Every ghost statement around it is gone once ghost code is
-erased, so no additional real time passes, and there's no additional real step for another
-thread to interleave with. Restricting an open invariant to at most one *non-ghost* step captures
-precisely what another thread could actually observe. Counting ghost bookkeeping that no other
-thread can ever see would mean counting something that, from any other thread's point of view,
-never happened.
-
-This is also the deeper reason why Raven makes the ghost/non-ghost distinction static and
-type-checked, rather than a documentation convention. The atomicity analysis is all about
-counting real steps, and it can only do that if it can tell, syntactically and without a single
-solver call, which statements are real and which are proof bookkeeping that vanishes before
-compilation. All the checks described earlier in this section serve this purpose. Once the type
-checker has drawn the ghost/non-ghost line, the one-atomic-step rule for `unfold`/`fold` (and
-everything Part 5 builds on top of it) can rely on that line completely rather than re-deriving
-it.
-
-There is one exception to all of this: **termination**.
-[`ghost_termination_gap.rav`](./ghost_termination_gap.rav) verifies, and that is deliberate
-rather than a bug in the example:
-
-```raven
-lemma loopForever(n: Int)
-  ensures false
-{
-  loopForever(n)
-}
-
-proc demo()
-{
-  {!
-    loopForever(0)
-  !}
-  assert false
-}
-```
-
-`loopForever` calls itself unconditionally, with no `decreases` clause. This is the situation
-that {{ref sec:control-flow}} and {{ref sec:lemmas-and-axioms}} already pointed out for
-`func`/`lemma`: without a `decreases` clause, Raven doesn't check termination but silently
-*assumes* it. Nothing here fails any of the checks from earlier in this section, since the call
-sits inside a `{! ... !}` block and nothing non-ghost is touched. So the proof goes all the way
-through to `assert false` succeeding, purely from an unfounded assumption about ghost recursion.
-If you add `decreases n` to `loopForever`, Raven immediately rejects it instead with
-`[Verification Error] This decreases clause's termination measure may not decrease on this
-recursive call`, because `n` never gets smaller across the call. This is the one place where
-"erasure changes nothing" is a discipline you have to uphold yourself rather than something the
-type checker enforces for you. Give any ghost recursion you write a real `decreases` clause, just
-as you would for ordinary code.
+**Termination still has to be justified.** Raven assumes termination of a recursive `func` or
+`lemma` unless you supply a `decreases` clause; the ghost-state checks do not establish it.
+Give ghost recursion a checked termination measure. {{ref sec:ghost-termination}} shows why
+this matters and what happens when the assumption is unfounded.
 
 ## Why this matters going forward
 

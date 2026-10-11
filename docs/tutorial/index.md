@@ -50,21 +50,18 @@ checked answers.
 - **[4. Ghost Code and Basic Concurrency](./ghost-and-concurrency/)**: threads, atomic
   primitives, shared invariants, ghost fields, resource algebras, frame-preserving updates. This
   is where Raven stops resembling a purely sequential program verifier.
-- **[5. Scaling Up](./advanced/)**: four capstones and a reference chapter.
-  - **[5.1. Capstone: Fork/Join](./advanced/fork-join/)**: a hand-rolled resource algebra and
+- **[5. Scaling Up](./advanced/)**: four capstones.
+  - **[5.1. Resource Algebras in Practice](./advanced/fork-join/)**: a hand-rolled resource algebra and
     the module system from Part 3, put to work on a one-shot ownership handoff between two
     threads. The proof is built up starting from a first attempt that doesn't work.
   - **[5.2. Atomic Contracts](./advanced/atomic-contracts/)**: a ticket lock, proved twice,
     once with a plain invariant and once with an atomic contract.
   - **[5.3. Iterated Separating Conjunctions](./advanced/iterated-star/)**: a shelf of
     independently-lockable counters, owned via one invariant regardless of the shelf's size.
-  - **[5.4. Capstone: Prophecies](./advanced/prophecies/)**: a distributed counter whose `get`
+  - **[5.4. Prophecies](./advanced/prophecies/)**: a distributed counter whose `get`
     doesn't always know its own linearization point without help from a concurrent `incr`. The
     solution uses prophecy variables and a "helping protocol" that combines one-shot handoffs,
     atomic contracts, and an ISC over a set.
-  - **[5.5. Automation Features](./advanced/automation/)**: implicit parameters, witness
-    computation, `auto` lemmas, triggers, inline predicates and functions, `assert ... with`, and
-    a checklist for "my proof just hangs."
 
 ## Appendices
 
@@ -73,8 +70,14 @@ checked answers.
   operation the standard library doesn't provide, in ordinary Raven.
 - **{{ref app:stdlib-types}}: Standard Library Data Types**: options, lists, sequences,
   and arrays.
+- **{{ref app:advanced-modules}}: Advanced Module Features**: inference rules, instance
+  identity, and sealing forms.
+- **{{ref app:automation}}: Automation Features**: implicit parameters, witness computation,
+  triggers, inline predicates and functions, and troubleshooting slow proofs.
 - **{{ref app:overloading}}: Function and Operator Overloading**: shared names, imports,
   and operator notation for library functions.
+- **{{ref app:well-founded-orders}}: Well-Founded Orders**: termination measures and
+  defining a custom order.
 - **{{ref app:from-other-tools}}: Coming From Viper, Dafny, or Iris**
 - **{{ref app:extension-api}}: Beyond This Tutorial: the Extension API**
 - **{{ref app:where-next}}: Where to Go Next**

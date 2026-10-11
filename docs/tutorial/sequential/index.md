@@ -198,38 +198,32 @@ alone says nothing about what `r` actually is.
 
 ## A more interesting termination measure {#sec:termination-measure}
 
-The termination measure `n` in the clause `decreases n` above is a single `Int` counting down
-to 0. This is a common case, but not the only shape a termination argument can
-take. [`termination.rav`](./termination.rav) has Ackermann's function, the textbook example
-illustrating why:
+A measure can have several components. [`lexicographic.rav`](./lexicographic.rav) counts
+steps in a two-level countdown:
 
 ```raven
-func ackermann(m: Int, n: Int) returns (r: Int)
+func steps(m: Int, n: Int) returns (r: Int)
   decreases m, n
 {
-  m <= 0 ?
-    n + 1 :
-    (n <= 0 ? ackermann(m - 1, 1) : ackermann(m - 1, ackermann(m, n - 1)))
+  m <= 0 ? 0 :
+    (n <= 0 ? 1 + steps(m - 1, 3) : 1 + steps(m, n - 1))
 }
 ```
 
-`decreases m, n` is a **lexicographic** measure. Raven orders the pair the way a dictionary
-orders words. A recursive call is fine if `m` strictly decreases (whatever happens to `n`), or
-if `m` stays exactly the same and `n` strictly decreases. No *single* `Int` can play this role
-here. The innermost call, `ackermann(m, n - 1)`, leaves `m` untouched and only decreases `n`. It's
-the call *around* it, `ackermann(m - 1, ...)`, that brings `m` down, regardless of what
-`ackermann(m, n - 1)` returns. Try
-[`broken/ackermann_single_measure.rav`](./broken/ackermann_single_measure.rav), which is the same
-function with just `decreases m`. It fails exactly on that inner call, with `This
-decreases clause's termination measure may not decrease on this recursive call`. Indeed, `m`
-doesn't decrease there, only `n` does, and a single-`Int` measure has no way to express "or the
-other component decreased instead."
+`decreases m, n` compares the pair **lexicographically**, like words in a dictionary.
+`steps(m, n - 1)` keeps `m` unchanged and decreases `n`. When the inner counter reaches 0,
+`steps(m - 1, 3)` decreases `m` and resets `n` to 3. The second component may grow because
+the first component has decreased. Neither `decreases m` nor `decreases n` alone would
+justify both calls.
 
 A comma-separated `decreases` clause works for any number of components, compared
-lexicographically from left to right. Each component's type just needs *some* well-founded order
-that Raven knows about. This can be a built-in one like that of `Int` (bounded below by 0, which
-is what `decreases n` relies on), or one you define yourself. Part 3 comes back to that second
-option, once the necessary module system features have been introduced.
+lexicographically from left to right. Each component is compared using a **well-founded order**:
+one with no infinite descending chain. Raven provides orders for integers bounded below by
+0 and for finite sets ordered by strict subset inclusion. For example, `decreases n` counts
+down a nonnegative integer, while `decreases s` can remove elements from a `FinSet`.
+The appendix's {{ref sec:ackermann-termination}} gives a more demanding example.
+For custom orders, see {{ref sec:well-founded-order}} after learning the module system in
+Part 3.
 
 ## Algebraic data types {#sec:algebraic-data-types}
 
@@ -311,7 +305,7 @@ nearby, so it never collides with a variable of the same name.
 ## Quantifiers, briefly {#sec:quantifiers}
 
 The function `recordVisitor` above already used a `forall` quantifier. There are two things
-worth knowing now. Part 5 revisits both in more depth in the resource-owning setting.
+worth knowing now. {{ref app:automation}} revisits both in more depth.
 
 - **The direction in which you use a quantifier matters.** *Proving* a `forall` (e.g. in an
   `ensures` clause) is generally robust, while *assuming* one (e.g. in a `requires` clause) is
@@ -321,7 +315,7 @@ worth knowing now. Part 5 revisits both in more depth in the resource-owning set
   it can be phrased as an upper/lower bound (a `forall`) instead. [Exercise 3](#exercises) below
   is built around exactly this choice. None of this is a hard rule, just a good default to try
   first. Used carelessly, quantifiers of either kind can degrade verifier performance or cause
-  outright timeouts, a topic Part 5 comes back to.
+  outright timeouts; {{ref app:automation}} includes troubleshooting advice.
 - **Triggers.** The curly braces in a quantifier, right after the bound variables, are a hint
   telling the underlying SMT solver *which* terms should cause it to instantiate the
   quantifier (a technique called E-matching). Here is the full syntax, taken from
@@ -337,6 +331,7 @@ worth knowing now. Part 5 revisits both in more depth in the resource-owning set
   proof. You'll see triggers wherever a `forall` ranges over something indexed, like a
   `Map`. You don't need to fully understand triggers yet. Just recognize the curly-brace syntax
   and know that it's there to help the SMT solver, not to change what the formula means.
+  See {{ref sec:triggers-revisited}} for the detailed rules.
 
 ## Why this matters for concurrency
 
