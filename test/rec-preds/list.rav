@@ -10,6 +10,7 @@ module ListM {
   lemma append_tail(x: Ref, y: Ref, z: Ref)
     requires lseg(x, y) && own(y.next, z, 1.0)
     ensures lseg(x, z)
+    decreases lseg(x, y)
   {
     unfold lseg(x, y);
     if (x == y) {

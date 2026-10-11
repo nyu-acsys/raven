@@ -429,6 +429,9 @@ and ext_hooks = {
           does for its `decreases` measure snapshot). Default (no extension using this
           hook) is to prepend nothing. *)
   rewrite_callable_entry : Callable.call_decl -> Stmt.t list t;
+      (** Rewrites the typed module after loops and SCC checks, before call
+          instrumentation. *)
+  rewrite_module : same_scc:(qual_ident -> qual_ident -> bool) -> Module.t -> Module.t t;
       (** Called by [rewrite_loops] as it transfers a loop's [loop_contract_ext] entries
           onto the synthesized tail-recursive procedure's [call_decl_contract_ext].
           [subst] is the same substitution [rewrite_loops] applies to [loop_contract]
@@ -549,6 +552,7 @@ let default_ext_hooks : ext_hooks =
       (fun _ ->
         Error.internal_error Loc.dummy
           "Rewriter.default_ext_hooks.rewrite_callable_entry: no extension configured");
+    rewrite_module = (fun ~same_scc:_ m -> State.return m);
     rewrite_contract_ext_loop_transfer = (fun ~subst:_ tag -> tag);
   }
 

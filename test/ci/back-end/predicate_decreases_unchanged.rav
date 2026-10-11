@@ -1,0 +1,7 @@
+pred down(n: Int) { n == 0 ? true : n > 0 && down(n - 1) }
+lemma unchanged(n: Int)
+  requires down(n)
+  decreases down(n)
+{
+  unchanged(n);
+}

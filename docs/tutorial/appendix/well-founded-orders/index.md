@@ -32,7 +32,7 @@ accounts for both kinds of descent.
 ## Defining a custom order {#sec:well-founded-order}
 
 {{ref sec:termination-measure}} used a lexicographic `decreases m, n`, built from `Int`'s
-built-in order. Behind the scenes, every `decreases` clause is resolved the same way, by the
+built-in order. Behind the scenes, value measures are resolved by the
 *type* of the expression you give it. That type needs an instance of
 `Library.WellFoundedOrder`, an ordinary interface from the standard library:
 
@@ -150,3 +150,34 @@ used only in ghost code.
 
 To locate unchecked recursive functions and lemmas, use {{ref sec:strict-mode}}. It warns about
 missing termination measures; supplying a `decreases` clause requests the actual check.
+
+## Structural predicate measures {#sec:predicate-termination-measure}
+
+A procedure or lemma can also use a predicate chunk from its precondition as its measure:
+
+```raven
+field next: Ref
+
+pred lseg(x: Ref, y: Ref) {
+  x == y ? true :
+  (exists xnext: Ref :: own(x.next, xnext, 1.0) && lseg(xnext, y))
+}
+
+lemma append_tail(x: Ref, y: Ref, z: Ref)
+  requires lseg(x, y) && own(y.next, z, 1.0)
+  ensures lseg(x, z)
+  decreases lseg(x, y)
+```
+
+When `x != y`, unfolding `lseg(x, y)` exposes the recursive chunk `lseg(xnext, y)`.
+Full ownership of `x.next` determines `xnext`. A recursive call
+using that child follows the predicate's inductive structure. Raven tracks descendants
+through several unfolds and captures their arguments before subsequent assignments.
+This uses least-fixpoint induction; it does not define an order on arbitrary `Perm` values.
+
+The current support requires one concrete, non-inline predicate measure without output
+parameters, appearing once as a top-level precondition chunk. Recursive arguments and
+branch guards must be determined by parameters, equalities, or full field ownership.
+Unrestricted existential choices and universally quantified resource chunks are not
+supported. Raven conservatively discards descent information across calls, folds, inhales,
+and exhales; at branch joins it retains only information available on both paths.

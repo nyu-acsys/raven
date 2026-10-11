@@ -1,0 +1,5 @@
+pred p(n: Int) { n == 0 ? true : n > 0 && p(n - 1) }
+lemma missing(n: Int)
+  decreases p(n)
+{
+}

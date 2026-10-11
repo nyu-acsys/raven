@@ -1,0 +1,7 @@
+pred p(x: Int) { forall y: Int :: p(y) }
+lemma quantified(x: Int)
+  requires p(x)
+  decreases p(x)
+{
+  unfold p(x);
+}

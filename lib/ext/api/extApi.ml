@@ -261,6 +261,12 @@ module type Ext = sig
   (** The [stmt_desc]-level sibling of [rewrite_basic_stmt_ext], for the self-contained
       [Stmt.StmtExt] extension point. *)
 
+  val rewrite_module :
+    same_scc:(qual_ident -> qual_ident -> bool) -> Module.t -> Module.t Rewriter.t
+  (** Rewrites a typed module after loop desugaring and call-graph SCC checks, before
+      recursive-call instrumentation. Must preserve the call graph and recursive groups.
+      The default is the identity. *)
+
   val rewrite_contract_ext_call :
     Callable.call_decl ->
     Callable.call_decl ->

@@ -16,6 +16,10 @@ open Util
     `Ordinal`, `LexOrder`, `MultisetOrder`) and why fixed-arity lexicographic tuples of
     `Int` alone aren't enough to express e.g. a multiset-based termination argument.
 
+    A single predicate application can instead designate a precondition chunk for
+    structural induction. [PredicateMeasures] captures descendants exposed by unfolding
+    predicates with determined recursive arguments and guards, before heap lowering.
+
     The clause's payload is a [Stmt.spec list], one [spec] per lexicographic component,
     reusing [spec]'s existing [spec_form]/[spec_error] machinery -- this is what lets a
     loop-transferred `decreases` clause report "this loop may not terminate" at the
@@ -39,6 +43,10 @@ open Util
     [WellFoundedOrder] instance at each position, checked by the same hook. *)
 
 module DecreasesExt (Cont : Ext) = struct
+  (* Structural predicate measures rely on least-fixpoint induction, justified by the
+     current assertion fragment's syntactic enforcement of predicate monotonicity.
+     Revisit this justification if the supported fragment admits negative occurrences. *)
+
   (* Every hook defaults to Cont's; only the ones actually overridden below need a
      definition. *)
   include Cont
@@ -348,6 +356,8 @@ module DecreasesExt (Cont : Ext) = struct
       [rewrite_contract_ext_loop_transfer]) its own error message for free. *)
   type Stmt.contract_ext += Decreases of Stmt.spec list
 
+  type Stmt.contract_ext += PredicateDecreases of Stmt.spec
+
   let default_measure_error (spec_form : expr) : qual_ident -> location -> Error.t =
     Stmt.mk_const_spec_error
       ( Error.Verification,
@@ -360,6 +370,7 @@ module DecreasesExt (Cont : Ext) = struct
   let find_decreases_measure (call_decl : Callable.call_decl) : Stmt.spec list option =
     List.find_map call_decl.call_decl_contract_ext ~f:(function
       | Decreases specs -> Some specs
+      | PredicateDecreases spec -> Some [ spec ]
       | _ -> None)
 
   (** AstDef *)
@@ -374,11 +385,12 @@ module DecreasesExt (Cont : Ext) = struct
         "decreases "
         ^ String.concat ~sep:", "
             (List.map specs ~f:(fun s -> Expr.to_string s.Stmt.spec_form))
+    | PredicateDecreases spec -> "decreases " ^ Expr.to_string spec.Stmt.spec_form
     | _ -> Cont.contract_ext_to_string contract_ext
 
   let contract_ext_is_recognized contract_ext =
     match contract_ext with
-    | Decreases _ -> true
+    | Decreases _ | PredicateDecreases _ -> true
     | _ -> Cont.contract_ext_is_recognized contract_ext
 
   (* Rewriter *)
@@ -396,6 +408,9 @@ module DecreasesExt (Cont : Ext) = struct
               { spec with Stmt.spec_form })
         in
         Decreases specs
+    | PredicateDecreases spec ->
+        let+ spec_form = f spec.Stmt.spec_form in
+        PredicateDecreases { spec with spec_form }
     | _ -> Cont.contract_ext_rewrite_exprs ~f contract_ext
 
   (* Typing *)
@@ -436,9 +451,29 @@ module DecreasesExt (Cont : Ext) = struct
             Rewriter.List.map specs ~f:(fun spec ->
                 let* spec_form =
                   type_check_stmt_functs.disambiguate_and_check_expr spec.Stmt.spec_form
-                    expected_typ disam_tbl
+                    (Type.set_ghost true expected_typ)
+                    disam_tbl
                 in
-                let* wf_order = is_wf_order_type (Expr.to_type spec_form) in
+                let* predicate = PredicateMeasures.application spec_form in
+                let* spec_form =
+                  if Option.is_none predicate && not (Type.is_ghost expected_typ) then
+                    type_check_stmt_functs.disambiguate_and_check_expr spec.Stmt.spec_form
+                      expected_typ disam_tbl
+                  else Rewriter.return spec_form
+                in
+                let* wf_order =
+                  if Option.is_some predicate then begin
+                    if List.length specs <> 1 then
+                      Error.type_error loc
+                        "a predicate decreases measure must be the only measure component";
+                    let+ () =
+                      PredicateMeasures.check_measure call_decl
+                        { spec with Stmt.spec_form }
+                    in
+                    Some (fst (Option.value_exn predicate))
+                  end
+                  else is_wf_order_type (Expr.to_type spec_form)
+                in
                 match wf_order with
                 | None ->
                     Error.type_error (Expr.to_loc spec_form)
@@ -556,16 +591,22 @@ module DecreasesExt (Cont : Ext) = struct
                 else Rewriter.return ())
           in
           let spec_instance (s : Stmt.spec) =
-            wf_order_instance_of
-              ~loc:(Expr.to_loc s.Stmt.spec_form)
-              (Expr.to_type s.Stmt.spec_form)
+            let* predicate = PredicateMeasures.application s.Stmt.spec_form in
+            if Option.is_some predicate then Rewriter.return None
+            else
+              let+ instance =
+                wf_order_instance_of
+                  ~loc:(Expr.to_loc s.Stmt.spec_form)
+                  (Expr.to_type s.Stmt.spec_form)
+              in
+              Some instance
           in
           let* first_instances = Rewriter.List.map first_specs ~f:spec_instance in
           Rewriter.List.iter rest ~f:(fun (call_decl, specs) ->
               let* instances = Rewriter.List.map specs ~f:spec_instance in
               match
                 List.find (List.zip_exn first_instances instances) ~f:(fun (a, b) ->
-                    not (QualIdent.equal a b))
+                    not (Option.equal QualIdent.equal a b))
               with
               | None -> Rewriter.return ()
               | Some _ ->
@@ -582,6 +623,49 @@ module DecreasesExt (Cont : Ext) = struct
   (* Rewrites *)
   (* rewrite_type_ext/rewrite_expr_ext/rewrite_basic_stmt_ext/rewrite_stmt_ext: no
      type_ext/expr_ext/stmt_ext constructors here, so Cont's default is used. *)
+
+  let rewrite_module ~same_scc m =
+    let open Rewriter.Syntax in
+    let* m = Cont.rewrite_module ~same_scc m in
+    let measure_of decl =
+      match find_decreases_measure decl with Some [ spec ] -> Some spec | _ -> None
+    in
+    let rec needed m =
+      List.exists m.Module.mod_def ~f:(function
+        | Module.SymbolDef (CallDef callable) ->
+            begin match measure_of callable.Callable.call_decl with
+            | Some spec -> (
+                match Expr.to_type spec.Stmt.spec_form with
+                | Type.App (Perm, _, _) -> true
+                | _ -> false)
+            | None -> false
+            end
+        | Module.SymbolDef (ModDef m) -> needed m
+        | _ -> false)
+    in
+    if not (needed m) then Rewriter.return m
+    else
+      Rewriter.Module.rewrite_callables m ~f:(fun callable ->
+          match (measure_of callable.Callable.call_decl, callable.call_def) with
+          | Some spec, ProcDef { proc_body = Some body } ->
+              let* predicate = PredicateMeasures.application spec.Stmt.spec_form in
+              if Option.is_none predicate then Rewriter.return callable
+              else
+                let+ body =
+                  PredicateMeasures.rewrite_body ~same_scc ~measure_of callable.call_decl
+                    spec body
+                in
+                let contract_ext =
+                  List.map callable.call_decl.call_decl_contract_ext ~f:(function
+                    | Decreases _ -> PredicateDecreases spec
+                    | tag -> tag)
+                in
+                {
+                  Callable.call_decl =
+                    { callable.call_decl with call_decl_contract_ext = contract_ext };
+                  call_def = ProcDef { proc_body = Some body };
+                }
+          | _ -> Rewriter.return callable)
 
   let rewrite_contract_ext_loop_transfer ~(subst : expr -> expr)
       (contract_ext : Stmt.contract_ext) : Stmt.contract_ext =
@@ -665,6 +749,11 @@ module DecreasesExt (Cont : Ext) = struct
     let* own_stmts =
       match call_decl.call_decl_kind with
       | Func | Pred | Invariant -> Rewriter.return []
+      | (Proc | Lemma)
+        when List.exists call_decl.call_decl_contract_ext ~f:(function
+               | PredicateDecreases _ -> true
+               | _ -> false) ->
+          Rewriter.return []
       | Proc | Lemma -> (
           match find_decreases_measure call_decl with
           | None -> Rewriter.return []
@@ -705,6 +794,11 @@ module DecreasesExt (Cont : Ext) = struct
            a no-op here -- nothing to check unless caller and callee are (mutually or
            self-) recursive with each other. *)
         Rewriter.return []
+      else if
+        List.exists caller_call_decl.call_decl_contract_ext ~f:(function
+          | PredicateDecreases _ -> true
+          | _ -> false)
+      then Rewriter.return []
       else
         match
           ( find_decreases_measure caller_call_decl,

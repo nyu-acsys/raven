@@ -1,0 +1,11 @@
+pred down(n: Int) { n == 0 ? true : n > 0 && down(n - 1) }
+lemma acquire(n: Int)
+  requires down(n)
+  decreases down(n)
+{
+  unfold down(n);
+  if (n != 0) {
+    inhale down(n - 1);
+    acquire(n - 1);
+  }
+}

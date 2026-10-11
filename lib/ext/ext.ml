@@ -343,6 +343,7 @@ let to_ext_hooks (ext : (module ExtApi.Ext)) : Ast.Rewriter.ext_hooks =
     rewrite_expr_ext = Ext.rewrite_expr_ext;
     rewrite_basic_stmt_ext = Ext.rewrite_basic_stmt_ext;
     rewrite_stmt_ext = Ext.rewrite_stmt_ext;
+    rewrite_module = Ext.rewrite_module;
     rewrite_contract_ext_call = Ext.rewrite_contract_ext_call;
     rewrite_callable_entry = Ext.rewrite_callable_entry;
     rewrite_contract_ext_loop_transfer = Ext.rewrite_contract_ext_loop_transfer;

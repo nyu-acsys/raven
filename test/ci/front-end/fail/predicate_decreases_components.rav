@@ -1,0 +1,6 @@
+pred p(n: Int) { n == 0 ? true : n > 0 && p(n - 1) }
+lemma multiple(n: Int)
+  requires p(n)
+  decreases p(n), n
+{
+}

@@ -1,0 +1,63 @@
+module M {
+  pred down(n: Int) { n == 0 ? true : n > 0 && down(n - 1) }
+
+  lemma descend(n: Int)
+    requires down(n)
+    ensures down(n)
+    decreases down(n)
+  {
+    unfold down(n);
+    if (n != 0) { descend(n - 1); }
+    fold down(n);
+  }
+
+  proc twice(n: Int)
+    requires down(n)
+    ensures down(n)
+    decreases down(n)
+  {
+    unfold down(n);
+    if (n != 0) {
+      unfold down(n - 1);
+      if (n != 1) { twice(n - 2); }
+      fold down(n - 1);
+    }
+    fold down(n);
+  }
+
+  pred even(n: Int) { n == 0 ? true : n > 0 && odd(n - 1) }
+  pred odd(n: Int) { n == 0 ? true : n > 0 && even(n - 1) }
+  lemma a(n: Int)
+    requires even(n)
+    ensures even(n)
+    decreases even(n)
+  {
+    unfold even(n);
+    if (n != 0) { b(n - 1); }
+    fold even(n);
+  }
+  lemma b(n: Int)
+    requires odd(n)
+    ensures odd(n)
+    decreases odd(n)
+  {
+    unfold odd(n);
+    if (n != 0) { a(n - 1); }
+    fold odd(n);
+  }
+
+  field next: Ref
+  pred list(x: Ref) {
+    x == null ? true : (exists z: Ref :: own(x.next, z, 1.0) && list(z))
+  }
+  lemma walk(x: Ref)
+    requires list(x)
+    ensures list(x)
+    decreases list(x)
+  {
+    ghost var zvar: Ref;
+    unfold list(x)[zvar := z];
+    if (x != null) { walk(zvar); }
+    fold list(x);
+  }
+}

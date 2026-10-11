@@ -1,0 +1,7 @@
+pred p(x: Int) { exists b: Bool :: b ? true : p(x) }
+lemma arbitrary(x: Int)
+  requires p(x)
+  decreases p(x)
+{
+  unfold p(x);
+}

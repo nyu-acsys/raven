@@ -161,6 +161,8 @@ module DefaultExt = struct
           "unhandled contract extension reached type-checking (no active extension \
            recognizes this contract clause)"
 
+  let rewrite_module ~same_scc:_ (m : Module.t) : Module.t Rewriter.t = Rewriter.return m
+
   (* Base of the chain: no more extensions to check group compatibility for. *)
   let check_contract_ext_group_compatible (_call_decls : Callable.call_decl list) :
       unit Rewriter.t =

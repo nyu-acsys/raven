@@ -1071,7 +1071,7 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Computing call-graph SCCs on module %a" Ident.pr
         m.mod_decl.mod_decl_name);
-  (* Computed here, right after [rewrite_loops], so synthesized tail-recursive
+  (* Computed after loop rewrites, so synthesized tail-recursive
      loop-procs are already graph vertices; threaded explicitly (not via
      [Rewriter]'s monadic state) all the way to [rewrite_add_func_contract_lemmas], since
      that runs as a separate [Rewriter.eval] call in [elaborate_module] and monadic
@@ -1079,6 +1079,9 @@ let rec elaborate_phase_1 (m : Module.t) : (Module.t * scc_map) Rewriter.t =
   let* tbl_after_loops = Rewriter.get_table in
   let scc_map = build_scc_map tbl_after_loops m in
   let* () = check_contract_ext_group_compatibility tbl_after_loops scc_map in
+
+  let* ext_hooks = Rewriter.current_ext_hooks in
+  let* m = ext_hooks.rewrite_module ~same_scc:(same_scc scc_map) m in
 
   Logs.debug (fun m1 ->
       m1 "Elaboration.elaborate_phase_1: Starting rewrite_callable_entries on module %a"

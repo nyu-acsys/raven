@@ -1,0 +1,12 @@
+pred down(n: Int) { n == 0 ? true : n > 0 && down(n - 1) }
+lemma mutate(n: Int)
+  requires down(n) && down(n - 1)
+  decreases down(n)
+{
+  ghost var k: Int := n;
+  unfold down(k);
+  if (n != 0) {
+    k := k + 1;
+    mutate(k - 1);
+  }
+}
